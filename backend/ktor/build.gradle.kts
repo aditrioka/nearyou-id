@@ -14,6 +14,9 @@ application {
 
 dependencies {
     implementation(projects.shared.tmp)
+    implementation(projects.core.domain)
+    implementation(projects.core.data)
+    implementation(projects.infra.supabase)
 
     implementation(libs.logback)
     implementation(libs.ktor.serverCore)
@@ -21,7 +24,12 @@ dependencies {
     implementation(libs.ktor.serverContentNegotiation)
     implementation(libs.ktor.serverStatusPages)
     implementation(libs.ktor.serverCallLogging)
+    implementation(libs.ktor.serverAuth)
+    implementation(libs.ktor.serverAuthJwt)
     implementation(libs.ktor.serializationKotlinxJson)
+    implementation(libs.ktor.clientCore)
+    implementation(libs.ktor.clientCio)
+    implementation(libs.ktor.clientContentNegotiation)
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
