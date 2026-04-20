@@ -12,7 +12,7 @@ Two tokens, two purposes, one primary key pair:
 
 **1. Ktor REST JWT**: **RS256 asymmetric**, short-lived (15 minutes), refresh token 30 days.
 - Backend signs with a private key in GCP Secret Manager
-- Exposes public key via `https://api.nearyouid.com/.well-known/jwks.json` with `kid` header
+- Exposes public key via `https://api.nearyou.id/.well-known/jwks.json` with `kid` header
 - Supports scheduled rotation via multiple kids in JWKS (new kid rolling deploy, old kid retained during TTL overlap, no user re-auth)
 - **Claims**: `sub` (user_id), `exp`, `iat`, `token_version` (integer, compared against `users.token_version` on every request for instant revocation), `kid` (header)
 
@@ -25,7 +25,7 @@ Two tokens, two purposes, one primary key pair:
 - REST future-proof: RS256 with proper JWKS + kid rotation
 - WSS compatible: HS256 with Supabase-managed secret
 
-**Migration path to Third-Party Auth (trivial, ~2-3 days of work)**: when MAU >10k and Third-Party Auth becomes affordable, enable it in the Supabase Dashboard, point it at the existing `https://api.nearyouid.com/.well-known/jwks.json`, swap WSS token generation from HS256 to RS256 (using the same key pair already used for REST). Zero REST refactor.
+**Migration path to Third-Party Auth (trivial, ~2-3 days of work)**: when MAU >10k and Third-Party Auth becomes affordable, enable it in the Supabase Dashboard, point it at the existing `https://api.nearyou.id/.well-known/jwks.json`, swap WSS token generation from HS256 to RS256 (using the same key pair already used for REST). Zero REST refactor.
 
 **Secret storage** (all in GCP Secret Manager):
 - `ktor-rsa-private-key` (single slot, kid rotation via versions)
@@ -978,7 +978,7 @@ CREATE INDEX admin_webauthn_challenges_cleanup_idx ON admin_webauthn_challenges(
 The Admin Panel uses classic server-side sessions (not JWT) because it is a stateful Ktor + HTMX app, not an SPA. Cookie mechanics:
 
 - **Cookie name**: `__Host-admin_session`
-- **Attributes**: `Secure; HttpOnly; SameSite=Strict; Path=/; Domain=admin.nearyouid.com`
+- **Attributes**: `Secure; HttpOnly; SameSite=Strict; Path=/; Domain=admin.nearyou.id`
 - **Value**: opaque 256-bit random token, base64url encoded (never a user-readable format)
 - **Server storage**: SHA256 of the cookie value is stored in `admin_sessions.session_token_hash` (lookup by hash, plain value never persisted)
 - **CSRF token**: a second 256-bit random token is issued per session, returned in the login response body, and stored in `admin_sessions.csrf_token_hash` (also SHA256 at rest)
@@ -1834,7 +1834,7 @@ WHERE u.deleted_at IS NULL
 
 ## Cloudflare-Fronted IP Extraction
 
-All inbound HTTPS traffic to `api.nearyouid.com` and `admin.nearyouid.com` transits Cloudflare. Cloud Run sees the Cloudflare edge IP in `X-Forwarded-For`, NOT the real client IP. The real client IP is carried in the `CF-Connecting-IP` header.
+All inbound HTTPS traffic to `api.nearyou.id` and `admin.nearyou.id` transits Cloudflare. Cloud Run sees the Cloudflare edge IP in `X-Forwarded-For`, NOT the real client IP. The real client IP is carried in the `CF-Connecting-IP` header.
 
 ### Middleware
 
@@ -1855,7 +1855,7 @@ Cloudflare sets `CF-Connecting-IP` only on traffic that actually flows through i
 
 ### Staging Note
 
-`api-staging.nearyouid.com` also sits behind Cloudflare. Same extraction logic applies. Local dev (`localhost`) has no Cloudflare and falls through to the remoteHost fallback.
+`api-staging.nearyou.id` also sits behind Cloudflare. Same extraction logic applies. Local dev (`localhost`) has no Cloudflare and falls through to the remoteHost fallback.
 
 ---
 

@@ -354,7 +354,7 @@ Built during Phase 4 (Weeks 14-16), released to users in Month 6. Gated via:
 
 **Cloudflare Images**. Auto-generates variants, format negotiation (WebP/AVIF), and global CDN built-in. R2 is retained for non-image files (future video/audio post-MVP).
 
-**Delivery via custom subdomain**: `https://img.nearyouid.com/...`. The subdomain sits in the `nearyouid.com` zone which already has the CSAM Tool enabled, so the delivery path is cached by CF and auto-scanned.
+**Delivery via custom subdomain**: `https://img.nearyou.id/...`. The subdomain sits in the `nearyou.id` zone which already has the CSAM Tool enabled, so the delivery path is cached by CF and auto-scanned.
 
 **Pre-Phase 1 verification**: confirm the exact CF Images URL structure when using a custom subdomain (default is `/cdn-cgi/imagedelivery/<account_hash>/<image_id>/<variant>`; CF Images also offers "Custom Image URLs" for a cleaner path). Document the final format in the Version Pinning Decisions Log.
 
@@ -365,14 +365,14 @@ Built during Phase 4 (Weeks 14-16), released to users in Month 6. Gated via:
 **Important: the CF CSAM Scanning Tool does NOT emit webhooks.** The downstream `/internal/csam-webhook` handler must be invoked by one of the supported paths (see `04-Architecture.md` for full detail):
 
 - **Primary (MVP)**: admin reviews the CF email notification in the Admin Panel and triggers the handler manually by pasting the matched URL / image_id.
-- **Automated Phase 2+**: a Cloudflare Worker attached to the `img.nearyouid.com` route watches for `451 Unavailable For Legal Reasons` responses and POSTs to `/internal/csam-webhook`.
+- **Automated Phase 2+**: a Cloudflare Worker attached to the `img.nearyou.id` route watches for `451 Unavailable For Legal Reasons` responses and POSTs to `/internal/csam-webhook`.
 - **Alternative (deferred)**: a daily Cloud Run Job that parses the inbound email via IMAP or the email provider API.
 
 **Pre-launch verification in Pre-Phase 1**:
-1. Set up `img.nearyouid.com` as a CNAME to the Cloudflare edge
-2. Enable the CSAM Scanning Tool on the `nearyouid.com` zone via Dashboard > Caching > Configuration
+1. Set up `img.nearyou.id` as a CNAME to the Cloudflare edge
+2. Enable the CSAM Scanning Tool on the `nearyou.id` zone via Dashboard > Caching > Configuration
 3. Verify email for match notifications
-4. Upload sample legal test content via Cloudflare Images, request via `img.nearyouid.com/...`, verify it appears in the CF Images dashboard and scan log
+4. Upload sample legal test content via Cloudflare Images, request via `img.nearyou.id/...`, verify it appears in the CF Images dashboard and scan log
 5. Document the SOP (including the admin-triggered handler invocation flow)
 
 ### Explicit Content Upfront
@@ -393,10 +393,10 @@ Ktor: upload to Cloudflare Images API
   ↓
 Ktor: INSERT INTO posts + images relation, status 'published'
   ↓
-Return 201 to client with https://img.nearyouid.com/... URL
+Return 201 to client with https://img.nearyou.id/... URL
   ↓
 (async, separate path)
-Client views image then the request hits CF edge at img.nearyouid.com
+Client views image then the request hits CF edge at img.nearyou.id
   ↓
 CF cache + CF CSAM Scanning Tool fuzzy hash match against NCMEC
   ↓ (on match)

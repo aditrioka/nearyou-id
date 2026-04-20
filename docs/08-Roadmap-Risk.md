@@ -8,8 +8,8 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
 
 ### Pre-Phase 1 (Week 1) - Blocking Clock Items
 
-1. **Enable Cloudflare CSAM Scanning Tool** on zone `nearyouid.com` + verify email (30 minutes after domain setup + CF zone active)
-2. **Verify CF Images delivery scope**: test upload via `img.nearyouid.com/cdn-cgi/imagedelivery/...`, verify CSAM scan log, confirm the custom subdomain delivery URL pattern works (fallback: standard `imagedelivery.net` hostname)
+1. **Enable Cloudflare CSAM Scanning Tool** on zone `nearyou.id` + verify email (30 minutes after domain setup + CF zone active)
+2. **Verify CF Images delivery scope**: test upload via `img.nearyou.id/cdn-cgi/imagedelivery/...`, verify CSAM scan log, confirm the custom subdomain delivery URL pattern works (fallback: standard `imagedelivery.net` hostname)
 3. Verify pricing tiers in Google Play Console + App Store Connect (Rp9,900 / Rp29,000 / Rp249,000). Document final values in the Version Pinning Decisions Log (internal artifact).
 4. **Verify Supabase disk size pricing** (separate from compute add-on, document actual rate per GB)
 5. **Verify Supabase Realtime pricing** current rate per concurrent + per message
@@ -24,7 +24,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
 14. **Generate JITTER_SECRET** (256-bit random) for coordinate fuzzing, store in GCP Secret Manager
 15. **Generate backup `age` keypair** for `pg_dump` stream encryption (public key baked into backup image, private key in GCP Secret Manager `backup-age-private-key`)
 16. **Generate `csam-archive-aes-key`** (AES-256) for encrypting `csam_detection_archive.encrypted_metadata`, store in GCP Secret Manager
-17. **Set up Resend account** + verify sending domain `nearyouid.com` + store API key in GCP Secret Manager
+17. **Set up Resend account** + verify sending domain `nearyou.id` + store API key in GCP Secret Manager
 18. **Set up Firebase Remote Config** + draft initial flags (`image_upload_enabled=false`, `attestation_mode=enforce`, `search_enabled=true`, `perspective_api_enabled=true`)
 19. Repo setup + CI/CD skeleton (GitHub Actions) + Sentry dSYM/ProGuard upload steps drafted
 20. Indonesian word-pair dataset: 600 adjectives × 600 nouns + 100 modifiers (AI-assisted + filter + manual scan, budget 3-4 days)
@@ -47,7 +47,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
     - Separate Cloudflare R2 bucket `nearyou-staging`
     - Separate Firebase project `nearyou-staging` (FCM + Remote Config)
     - Separate RevenueCat sandbox environment
-    - Subdomain DNS: `api-staging.nearyouid.com`, `admin-staging.nearyouid.com`, `img-staging.nearyouid.com`
+    - Subdomain DNS: `api-staging.nearyou.id`, `admin-staging.nearyou.id`, `img-staging.nearyou.id`
     - GCP Secret Manager namespace migration: existing production secrets renamed to reflect implicit `prod-*` prefix going forward (or documented convention); new `staging-*` secret slots created for each category (`staging-ktor-rsa-private-key`, `staging-supabase-jwt-secret`, `staging-revenuecat-webhook-secret`, `staging-jitter-secret`, `staging-age-private-key`, `staging-csam-archive-aes-key`, `staging-admin-app-db-connection-string`, `staging-firebase-admin-sa`, `staging-apns-key-p8`, `staging-resend-api-key`)
     - CI/CD branching rule: `main` branch auto-deploys staging; git tag `v*` deploys prod (manual approval gate)
     - Mobile build flavors wired: Android `staging` vs `production`, iOS `Staging` vs `Production` xcconfig schemes
@@ -229,7 +229,7 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 ### Phase 3.5: Admin Panel + UU PDP Compliance (Weeks 11-13)
 
 1. Ktor + HTMX admin panel (uses `admin-app-db-connection-string` from GCP Secret Manager, scoped role)
-2. Admin panel deployment: IAP primary OR Cloud Armor + VPN fallback (per Pre-Phase 1 decision), subdomain `admin.nearyouid.com`
+2. Admin panel deployment: IAP primary OR Cloud Armor + VPN fallback (per Pre-Phase 1 decision), subdomain `admin.nearyou.id`
 3. Admin login via `admin_users` + Argon2id password + TOTP mandatory (solo admin period)
 4. WebAuthn infrastructure (~5 days of work: backend 1.5d + frontend 1d + enrollment UI 0.5d + recovery path 1d + cross-browser testing 1d). Ready for the second admin hire; TOTP enforced during the solo admin period.
 5. Admin session management via `admin_sessions` with 30-minute idle timeout
@@ -291,7 +291,7 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 16. **Image upload infrastructure BUILT but gated by `image_upload_enabled=FALSE` flag (launch in Month 6)**:
     - **Cloudflare CSAM Tool verification** + webhook handler at `/internal/csam-webhook`
     - **Google Cloud Vision Safe Search upload pre-check** (block adult/violent upfront)
-    - Cloudflare Images integration via **img.nearyouid.com subdomain** + hard limit policy + single variant delivery + stricter lazy-load
+    - Cloudflare Images integration via **img.nearyou.id subdomain** + hard limit policy + single variant delivery + stricter lazy-load
     - **CSAM webhook auto-action**: delete post, ban user, cascade, **archive metadata 90 days in `csam_detection_archive` with AES-256-GCM encryption** (dedup via UNIQUE on `image_hash` + partial UNIQUE on `cf_match_id`; ON CONFLICT DO UPDATE enriches without resetting), audit log
     - **CSAM admin review queue + Kominfo report workflow**
 17. Anomaly detection (rolling 30-day baseline per user)
@@ -345,14 +345,14 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
    - **Username history release hold test**: Alice changes `oldname` → `newname`; Bob's attempt to claim `oldname` during the 30-day window is rejected; after 30 days elapses, `oldname` becomes claimable
    - **Reserved usernames editor test**: admin can add/remove `admin_added` rows, cannot remove `seed_system` rows (UI blocked + DB trigger rejects as second line of defense), CSV bulk add skips duplicates with a report
    - **Environment separation tests**: staging Supabase project cannot be reached with production Ktor credentials (connection string mismatch); production Cloud Run service cannot hit staging Supabase (secret namespace mismatch); Flyway migration runs against staging first, prod only after success
-   - **Mobile build flavor test**: Android `staging` flavor connects to `api-staging.nearyouid.com`, `production` flavor connects to `api.nearyouid.com`; iOS schemes verified equivalently
+   - **Mobile build flavor test**: Android `staging` flavor connects to `api-staging.nearyou.id`, `production` flavor connects to `api.nearyou.id`; iOS schemes verified equivalently
    - **Partial-index rejection test**: attempting to create a partial index with `WHERE released_at > NOW()` or `WHERE expires_at > NOW()` fails at `CREATE INDEX` time (documents the reason CI lint rule exists); verified fixed schemas apply cleanly
    - **post_replies auto-hide trigger test**: 3 unique reporters on a reply → `post_replies.is_auto_hidden = TRUE` + `moderation_queue` row inserted with `target_type = 'reply'`
    - **chat_messages empty-message CHECK test**: `INSERT` with both `content` and `embedded_post_id` NULL fails at the DB; `INSERT` with only `embedded_post_snapshot` populated (embed post hard-deleted scenario) succeeds
    - **embedded_post_edit cascade test**: hard-delete a post → `post_edits` rows cascade-deleted → `chat_messages.embedded_post_edit_id` set NULL → chat render falls back to snapshot-only
    - **Privacy flip 72h test**: Premium user with private profile → RevenueCat `EXPIRATION` webhook → `privacy_flip_scheduled_at` set to NOW() + 72h + warning notification fired; re-subscribe within window → column cleared; timer elapses without re-subscribe → hourly worker flips `private_profile_opt_in = FALSE` + busts Redis cache; Free user without private profile → no flip scheduled; permanent cancellation mid-window → behavior documented (worker still flips unless re-subscribed).
    - **Apple S2S immediate delete test**: simulated `account-delete` notification → `deletion_requests` row with `source = 'apple_s2s_account_delete'` + `scheduled_hard_delete_at = NOW()`; synchronous tombstone+cascade job runs before response; daily backstop worker picks up the row if the sync path fails. Separately: `consent-revoked` → `source = 'apple_s2s_consent_revoked'` + 30-day grace (user-cancellable).
-   - **Admin session cookie test**: login sets `__Host-admin_session` with correct attributes (Secure, HttpOnly, SameSite=Strict, Path=/, Domain=admin.nearyouid.com); state-changing request without `X-CSRF-Token` returns 403; request with mismatched token returns 403 + audit log `admin_csrf_violation`; session cookie rotates on role escalation.
+   - **Admin session cookie test**: login sets `__Host-admin_session` with correct attributes (Secure, HttpOnly, SameSite=Strict, Path=/, Domain=admin.nearyou.id); state-changing request without `X-CSRF-Token` returns 403; request with mismatched token returns 403 + audit log `admin_csrf_violation`; session cookie rotates on role escalation.
    - **Admin CSAM handler authorization test**: read-only admin cannot invoke `/internal/csam-webhook` via Admin Panel (role check rejects); `admin` role succeeds with valid CSRF token; replay of the same CSRF token in a different session rejected.
    - **WebAuthn challenge replay test**: challenge marked `consumed_at = NOW()` on successful ceremony; second attempt with the same challenge rejected; expired challenge (>5 min) rejected.
    - **Chat message redaction test**: admin redacts a message → `redacted_at` + `redacted_by` both set (atomicity CHECK enforces); client renders "Pesan ini telah dihapus oleh moderator."; recipient receives `chat_message_redacted` notification; audit log entry `admin_chat_redaction`.
@@ -426,7 +426,7 @@ Go live on App Store + Play Store. Monitor density metrics before expanding to a
 | iOS FCM silent push unreliable | Missed chat notifications | Alert push + NSE for iOS, data-only for Android only |
 | Supabase Realtime JWT rotation | Auth bypass or downtime | HS256 companion incident-only rotation, RS256 REST separate, migration to Third-Party Auth for scheduled rotation |
 | 1:1 conversation slot race | >2 participants | Partial unique index + advisory lock serialize |
-| CSAM scope miss (only CF CDN, not Images) | Legal + reputation | Serve via `img.nearyouid.com` subdomain under CSAM-enabled zone; verify in Pre-Phase 1 |
+| CSAM scope miss (only CF CDN, not Images) | Legal + reputation | Serve via `img.nearyou.id` subdomain under CSAM-enabled zone; verify in Pre-Phase 1 |
 | Under-18 user signs up without gate | UU PDP + platform policy violation | Mandatory DOB input at signup + 18+ age gate + DB CHECK constraint + `rejected_identifiers` anti-bypass |
 | DOB-shop bypass (under-18 user retries with different DOB) | Under-18 user slips through | `rejected_identifiers` blocklist check pre-insert; only identifier hash stored, no DOB |
 | Backup restore re-introduces deleted PII | UU PDP breach | Append-only deletion log R2 + post-restore reconciliation mandatory |
@@ -482,7 +482,7 @@ Go live on App Store + Play Store. Monitor density metrics before expanding to a
 | Staging secrets leak into production deployment | Cross-environment contamination, test data in prod | CI lint rule requiring `secretKey(env, name)` helper; Cloud Run service binds explicit `KTOR_ENV` env var; separate Cloud Run services; separate GCP Secret Manager `staging-*` vs prod namespace; separate Supabase projects |
 | Staging Supabase Free auto-pause interrupts an active QA session | QA session interrupted mid-test | CI smoke ping on active sprint days to keep project warm; explicit wake-up command documented in staging runbook; accept occasional cold-start on quiet weekends as non-blocking |
 | Admin panel reserved_usernames deletion wipes a critical system entry | Username squatting of `admin`, `support`, etc. | `source = 'seed_system'` rows blocked at the Admin UI AND at a DB trigger (belt-and-suspenders); removal audit-logged |
-| Mobile build flavor misconfiguration ships staging API URL to production listing | Production users hit QA backend | xcconfig/flavor verified in Pre-Launch checklist; release build smoke test checks resolved `API_BASE_URL` = `api.nearyouid.com` |
+| Mobile build flavor misconfiguration ships staging API URL to production listing | Production users hit QA backend | xcconfig/flavor verified in Pre-Launch checklist; release build smoke test checks resolved `API_BASE_URL` = `api.nearyou.id` |
 | Partial index predicate with `NOW()` fails at `CREATE INDEX` | Flyway migration blocked + deploy halted | CI lint rule detects partial-index `NOW()`; `username_history_released_idx` and `csam_archive_expires_idx` use plain B-tree + runtime filter |
 | CSAM trigger assumed as CF webhook but CF Tool emits no webhooks | CSAM events go unprocessed; legal + reputational risk | Documented admin-triggered handler (MVP) + CF Worker auto-forward (Phase 2+) + optional email-polling job; SOP in Admin Panel CSAM viewer |
 | Chat message inserted with NULL content AND NULL embed | Empty conversation bubbles | `CHECK (content OR embedded_post_id OR embedded_post_snapshot IS NOT NULL)` at schema + application-layer guard |

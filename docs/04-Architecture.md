@@ -19,7 +19,7 @@ System architecture, tech stack, module structure, deployment strategy, observab
 | Message Bus (post-swap) | Upstash Redis Streams (persistent, consumer groups, XAUTOCLAIM) |
 | Search | PostgreSQL `tsvector` + `pg_trgm` (GIN index) |
 | Media Storage (non-image) | Cloudflare R2 (zero egress fee) |
-| Image Processing & Delivery | Cloudflare Images served via custom subdomain `img.nearyouid.com` under the zone |
+| Image Processing & Delivery | Cloudflare Images served via custom subdomain `img.nearyou.id` under the zone |
 | CSAM Detection | Cloudflare CSAM Scanning Tool (free, enabled at zone level, covers Images delivery) |
 | Explicit Content Upfront | Google Cloud Vision Safe Search (blocks adult/violent at upload) |
 | Push Notif | Firebase Cloud Messaging (platform-specific: Android data-only, iOS alert+NSE) |
@@ -29,7 +29,7 @@ System architecture, tech stack, module structure, deployment strategy, observab
 | Migration | Flyway (runs as Cloud Run Jobs `nearyou-migrate` pre-deploy, using a dedicated DDL-scoped role `flyway_migrator` distinct from `admin_app` and the main API role) |
 | Subscription | RevenueCat SDK |
 | Deployment | Google Cloud Run (backend) + Cloud Run Jobs (backup + workers + migrations) |
-| SSL/TLS | Cloudflare managed SSL for nearyouid.com + subdomains (api, img, admin) |
+| SSL/TLS | Cloudflare managed SSL for nearyou.id + subdomains (api, img, admin) |
 | Observability Traces | OpenTelemetry SDK + Grafana Cloud |
 | Observability Metrics | GCP Cloud Monitoring |
 | Mobile + Backend Errors | Sentry KMP SDK (unified Android + iOS + backend). dSYM (iOS) + ProGuard mappings (Android) uploaded via CI step. |
@@ -54,7 +54,7 @@ Mobile App (KMP)
     │                        │
     │                        ├──▶ Upstash Redis (rate limit, cache)
     │                        ├──▶ Cloudflare R2 (non-image media + backups + deletion log)
-    │                        ├──▶ Cloudflare Images via img.nearyouid.com ──▶ CSAM Tool auto-scan at zone
+    │                        ├──▶ Cloudflare Images via img.nearyou.id ──▶ CSAM Tool auto-scan at zone
     │                        ├──▶ RevenueCat (subscription)
     │                        ├──▶ Resend API (transactional email)
     │                        ├──▶ Firebase Remote Config (feature flags)
@@ -75,7 +75,7 @@ Chat flow: Ktor as authoritative publisher. Client writes via REST, Ktor persist
 **CSAM detection trigger path**: the Cloudflare CSAM Scanning Tool does NOT emit webhooks. It blocks matched URLs (HTTP 451) and sends a daily email notification to a configured address. The `/internal/csam-webhook` handler in Ktor is NOT triggered by Cloudflare directly; it is invoked by one of the following supported paths:
 
 - **Primary (MVP)**: an admin-triggered action in the Admin Panel after reviewing the CF email notification. The admin pastes the matched URL / image_id, the handler executes the downstream actions (hard-delete post, ban user, cascade, archive metadata, Kominfo queue).
-- **Automated Phase 2+**: a Cloudflare Worker attached to the `img.nearyouid.com` route that watches for `451 Unavailable For Legal Reasons` responses and POSTs to `/internal/csam-webhook` with the same payload shape. This tightens the time-to-action but is optional for MVP.
+- **Automated Phase 2+**: a Cloudflare Worker attached to the `img.nearyou.id` route that watches for `451 Unavailable For Legal Reasons` responses and POSTs to `/internal/csam-webhook` with the same payload shape. This tightens the time-to-action but is optional for MVP.
 - **Alternative polling**: a daily Cloud Run Job that parses the Resend-received email inbox (via IMAP or the email provider's API). Deferred as it adds moving parts.
 
 Full CSAM detection flow, archive schema, and Kominfo SOP: see `06-Security-Privacy.md`.
@@ -237,7 +237,7 @@ Parity ~90% with prod. Main gap: cross-region latency not replicable, covered in
 - **Database**: separate Supabase project on **Free tier** (500MB cap, 7-day idle auto-pause accepted). CI smoke ping on active sprint days keeps it warm; quiet weekends let it pause.
 - **Cache**: separate Upstash Redis **Free tier** database
 - **Object storage**: separate Cloudflare R2 bucket `nearyou-staging` on the 10GB Free tier
-- **Images**: separate Cloudflare Images account usage tracked on the same zone, served via `img-staging.nearyouid.com` with CSAM Tool enabled zone-wide
+- **Images**: separate Cloudflare Images account usage tracked on the same zone, served via `img-staging.nearyou.id` with CSAM Tool enabled zone-wide
 - **Subscription**: RevenueCat **sandbox mode** (free, fully isolated from production)
 - **Email**: Resend sandbox sender (shared account, tagged `environment=staging`, low volume negligible)
 - **Push**: separate Firebase project (free) + separate FCM credentials + separate APNs `.p8` key (sandbox APNs endpoint `api.sandbox.push.apple.com`)
@@ -246,9 +246,9 @@ Parity ~90% with prod. Main gap: cross-region latency not replicable, covered in
 - **Attestation**: Play Integrity + App Attest in staging use the `attestation_bypass_google_ids_sha256` Remote Config whitelist by default (QA accounts bypass enforcement)
 
 **Subdomain map**:
-- `api-staging.nearyouid.com` (Ktor API)
-- `admin-staging.nearyouid.com` (Admin Panel)
-- `img-staging.nearyouid.com` (Cloudflare Images delivery)
+- `api-staging.nearyou.id` (Ktor API)
+- `admin-staging.nearyou.id` (Admin Panel)
+- `img-staging.nearyou.id` (Cloudflare Images delivery)
 
 **Secret Manager namespace**:
 - All staging secrets prefixed `staging-*` in GCP Secret Manager (e.g. `staging-ktor-rsa-private-key`, `staging-supabase-jwt-secret`, `staging-revenuecat-webhook-secret`, `staging-jitter-secret`, `staging-age-private-key`, `staging-csam-archive-aes-key`, `staging-admin-app-db-connection-string`, `staging-firebase-admin-sa`, `staging-apns-key-p8`, `staging-resend-api-key`)
@@ -267,9 +267,9 @@ Parity ~90% with prod. Main gap: cross-region latency not replicable, covered in
 Current Launch Phase stack. All production secrets, domains, and service instances are those without the `staging-` prefix or without the `-staging` subdomain suffix.
 
 **Subdomain map**:
-- `api.nearyouid.com`
-- `admin.nearyouid.com`
-- `img.nearyouid.com`
+- `api.nearyou.id`
+- `admin.nearyou.id`
+- `img.nearyou.id`
 
 ### Config Separation Pattern
 
@@ -294,7 +294,7 @@ val connectionString = secretManager.access("${secretPrefix}admin-app-db-connect
 - Rollback: both environments support Cloud Run revision rollback via previous revision tag; Flyway rollback is manual (no auto-downgrade in production, DBA-level responsibility)
 
 **Mobile client config**:
-- Android build flavors: `staging` (points at `api-staging.nearyouid.com`, attestation bypass), `production` (points at `api.nearyouid.com`, attestation enforce)
+- Android build flavors: `staging` (points at `api-staging.nearyou.id`, attestation bypass), `production` (points at `api.nearyou.id`, attestation enforce)
 - iOS xcconfig schemes: `Staging`, `Production` with `API_BASE_URL` and Firebase `GoogleService-Info.plist` swapped via build settings
 - QA testers get the staging flavor via Firebase App Distribution / TestFlight internal
 - Public App Store + Play Store listings ship the production flavor only
@@ -534,16 +534,16 @@ Client must re-register when:
 
 ### iOS NSE Implementation
 
-- NSE reads preference from App Group shared UserDefaults (suite `group.id.nearyouid.shared`)
+- NSE reads preference from App Group shared UserDefaults (suite `group.id.nearyou.shared`)
 - Rewrites body if preference is ON: takes `body_full` from the data payload, truncates to 100 chars
 - Backend sends full content in the `body_full` data field (NSE-only access, not in the default alert body)
 
 ### iOS NSE setup checklist (mandatory in iOS Phase 3)
 
 - Xcode: App Group capability enabled in both the app target and the NSE target
-- Developer Console: App Group ID registered (`group.id.nearyouid.shared`)
+- Developer Console: App Group ID registered (`group.id.nearyou.shared`)
 - Provisioning profiles updated for both targets
-- NSE code: `UserDefaults(suiteName: "group.id.nearyouid.shared")`
+- NSE code: `UserDefaults(suiteName: "group.id.nearyou.shared")`
 - Main app: writes preference to the same suite
 - Entitlements file: `com.apple.security.application-groups` array
 - Test: push to a physical device, toggle preference, verify body rewrite
@@ -585,7 +585,7 @@ The admin panel Ktor service connects to Supabase Postgres via a dedicated servi
 
 The Admin Panel is a stateful Ktor + HTMX application, not an SPA. Sessions use classic server-side cookies:
 
-- Cookie name `__Host-admin_session`, attributes `Secure; HttpOnly; SameSite=Strict; Path=/; Domain=admin.nearyouid.com`
+- Cookie name `__Host-admin_session`, attributes `Secure; HttpOnly; SameSite=Strict; Path=/; Domain=admin.nearyou.id`
 - Opaque 256-bit random token (base64url); SHA256 at rest in `admin_sessions.session_token_hash`
 - Separate CSRF token issued per session (SHA256 at rest in `admin_sessions.csrf_token_hash`), verified via `X-CSRF-Token` header on every state-changing request
 - Session timeout: 30 min idle via `last_active_at`; cookie rotates on role escalation

@@ -207,7 +207,7 @@ Admin can explicitly allow a borderline candidate via an override action if cont
 **Important: Cloudflare CSAM Scanning Tool does NOT emit webhooks to custom endpoints.** The downstream `/internal/csam-webhook` handler must be invoked by one of the supported paths:
 
 - **Primary (MVP)**: admin reviews the CF email notification and triggers the handler manually via the Admin Panel. The admin pastes the matched URL / image_id from the email; the handler executes the auto-action (hard-delete post, permanent ban + token_version bump, cascade other posts of the user, archive metadata with AES-256-GCM, queue Kominfo report).
-- **Automated Phase 2+**: a Cloudflare Worker attached to the `img.nearyouid.com` route watches for `451` responses and POSTs to `/internal/csam-webhook` with a signed payload. The signature is verified with a dedicated CF-Worker-secret; see the Internal Endpoint Security section.
+- **Automated Phase 2+**: a Cloudflare Worker attached to the `img.nearyou.id` route watches for `451` responses and POSTs to `/internal/csam-webhook` with a signed payload. The signature is verified with a dedicated CF-Worker-secret; see the Internal Endpoint Security section.
 - **Alternative (deferred)**: daily Cloud Run Job that parses the inbound email via IMAP or the email provider API.
 
 **Google Cloud Vision Safe Search** (explicit content upfront):

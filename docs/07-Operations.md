@@ -10,7 +10,7 @@ Internal operational tooling for NearYouID. Covers admin panel stack, feature su
 
 - Ktor server-side + Pebble/Freemarker + HTMX
 - Module `admin-panel` with routes `/admin/*`
-- Host: **separate subdomain** (`admin.nearyouid.com`), NOT a path on the main service. Reduces attack surface discovery.
+- Host: **separate subdomain** (`admin.nearyou.id`), NOT a path on the main service. Reduces attack surface discovery.
 - SSL/TLS via Cloudflare managed (zone-wide)
 - Build time estimate: 2-3 weeks for MVP
 
