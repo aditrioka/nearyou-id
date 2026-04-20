@@ -43,11 +43,11 @@ A placeholder shared module SHALL exist at `:shared:tmp` (directory `shared/tmp/
 
 ### Requirement: Core domain module
 
-A pure-Kotlin module SHALL exist at `:core:domain` (directory `core/domain/`) containing zero vendor dependencies. It MUST apply only `kotlin("jvm")` and depend on no other project module.
+A pure-Kotlin module SHALL exist at `:core:domain` (directory `core/domain/`) containing zero vendor dependencies. It MUST apply the `nearyou.kotlin.jvm` convention plugin (which provides Kotlin/JVM setup + ktlint) and depend on no other project module.
 
 #### Scenario: Plugin set
 - **WHEN** inspecting `core/domain/build.gradle.kts`
-- **THEN** the only applied plugin is `kotlin("jvm")` and the `dependencies { }` block contains no `implementation`/`api` entries other than the Kotlin standard library
+- **THEN** the only applied plugin is `id("nearyou.kotlin.jvm")` and the `dependencies { }` block contains no `implementation`/`api` entries other than the Kotlin standard library
 
 #### Scenario: Build succeeds
 - **WHEN** running `./gradlew :core:domain:build`
@@ -55,11 +55,11 @@ A pure-Kotlin module SHALL exist at `:core:domain` (directory `core/domain/`) co
 
 ### Requirement: Core data module
 
-A pure-Kotlin module SHALL exist at `:core:data` (directory `core/data/`) containing only interfaces and DTOs. It MUST apply only `kotlin("jvm")` and depend on no module other than `:core:domain`.
+A pure-Kotlin module SHALL exist at `:core:data` (directory `core/data/`) containing only interfaces and DTOs. It MUST apply the `nearyou.kotlin.jvm` convention plugin and depend on no module other than `:core:domain`.
 
 #### Scenario: Plugin set
 - **WHEN** inspecting `core/data/build.gradle.kts`
-- **THEN** the only applied plugin is `kotlin("jvm")`
+- **THEN** the only applied plugin is `id("nearyou.kotlin.jvm")`
 
 #### Scenario: Allowed dependencies
 - **WHEN** inspecting `core/data/build.gradle.kts`
