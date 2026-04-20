@@ -8,5 +8,6 @@ dependencies {
     implementation(libs.gradlePlugin.ktor)
     implementation(libs.gradlePlugin.ktlint)
     implementation(libs.gradlePlugin.flyway)
+    implementation(libs.flyway.databasePostgresql)
     implementation(libs.gradlePlugin.kotlinSerialization)
 }

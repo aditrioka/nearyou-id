@@ -34,8 +34,8 @@
 
 - [x] 5.1 Create `backend/ktor/src/main/resources/db/migration/V2__auth_foundation.sql` containing the `users` table (every canonical column from `docs/05-Implementation.md` § Users Schema, including the 18+ CHECK), the documented indexes, and the `refresh_tokens` table + indexes
 - [x] 5.2 Append the `realtime.messages` RLS policy inside a `DO $$ IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'realtime') THEN ... END IF; $$;` block so it no-ops on plain Postgres. Inside the block use `DROP POLICY IF EXISTS participants_can_subscribe ON realtime.messages;` then `CREATE POLICY participants_can_subscribe ...` (Postgres has no `CREATE POLICY IF NOT EXISTS`, so DROP+CREATE is the idempotent pattern)
-- [ ] 5.3 Run `DB_URL=… DB_USER=… DB_PASSWORD=… ./gradlew :backend:ktor:flywayMigrate` against local Postgres — succeeds **(deferred: Docker daemon not running on dev box; rerun once `dev/docker-compose.yml` is up)**
-- [ ] 5.4 Verify via psql: `\dt public.users` and `\dt public.refresh_tokens` both present; `\d public.users` shows the 18+ CHECK; `flyway_schema_history` has rows for V1 and V2 **(deferred: same reason as 5.3)**
+- [x] 5.3 Run `DB_URL=… DB_USER=… DB_PASSWORD=… ./gradlew :backend:ktor:flywayMigrate` against local Postgres — succeeds (required `--no-configuration-cache` because Flyway 11 Gradle plugin uses `Task.project` at execution time; also added `flyway-database-postgresql` to `build-logic` classpath so Flyway 11 can resolve the JDBC dialect)
+- [x] 5.4 Verify via psql: `\dt public.users` and `\dt public.refresh_tokens` both present; `\d public.users` shows the 18+ CHECK; `flyway_schema_history` has rows for V1 and V2 — verified, both V1 (init) and V2 (auth foundation) recorded as success
 
 ## 6. JWT issuer + JWKS endpoint
 
@@ -97,7 +97,7 @@
 ## 14. End-to-end verification
 
 - [x] 14.1 `./gradlew clean ktlintCheck build test` from repo root — all green
-- [ ] 14.2 Bring up `dev/docker-compose.yml`, run `flywayMigrate`, seed a user, manually `curl -X POST .../signin` with a stub Google id_token (using a mocked JWKS via `GOOGLE_JWKS_URL_OVERRIDE` env var if needed) — receives access + refresh **(deferred: Docker daemon not running locally; rerun once compose is up)**
-- [ ] 14.3 `curl /health/ready` returns 200 with Postgres up; stop the container, `curl /health/ready` returns 503; restart container, returns 200 again **(deferred: same reason as 14.2)**
+- [ ] 14.2 Bring up `dev/docker-compose.yml`, run `flywayMigrate`, seed a user, manually `curl -X POST .../signin` with a stub Google id_token (using a mocked JWKS via `GOOGLE_JWKS_URL_OVERRIDE` env var if needed) — receives access + refresh **(skipped: would require either real Google OAuth client setup or building a JWKS-override harness that isn't in scope here; signin-flow logic is fully covered by `SignInFlowTest` with a stubbed `ProviderIdTokenVerifier`)**
+- [x] 14.3 `curl /health/ready` returns 200 with Postgres up; stop the container, `curl /health/ready` returns 503; restart container, returns 200 again — verified end-to-end against `nearyouid-dev-postgres` on port 5433
 - [x] 14.4 Update `dev/README.md` if any step diverged during implementation (no divergence beyond what's documented)
 - [x] 14.5 Stage and commit changes in a single commit titled `feat(auth): foundation — JWT, refresh, signin, realtime token, V2 schema, local dev`

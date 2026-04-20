@@ -3,13 +3,13 @@ name: nearyou-dev
 services:
   postgres:
     image: postgis/postgis:16-3.4
-    container_name: nearyou-postgres
+    container_name: nearyouid-dev-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: nearyou-redis
+    container_name: nearyouid-dev-redis
     ports:
       - "6379:6379"
     healthcheck:
