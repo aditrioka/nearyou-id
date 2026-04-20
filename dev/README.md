@@ -17,8 +17,10 @@ cp .env.example .env
 echo "SUPABASE_JWT_SECRET=$(openssl rand -base64 32)" >> .env
 ```
 
-The keypair script also emits `INVITE_CODE_SECRET` — the 32-byte HMAC key used
-to derive `users.invite_code_prefix` at signup. No separate step needed.
+The keypair script also emits `INVITE_CODE_SECRET` + `JITTER_SECRET` — the two
+32-byte HMAC keys used at signup (`users.invite_code_prefix`) and at post
+creation (`posts.display_location` via deterministic HMAC jitter per
+`docs/05-Implementation.md § Coordinate Fuzzing`). No separate steps needed.
 
 ## Day-to-day
 
@@ -27,11 +29,14 @@ to derive `users.invite_code_prefix` at signup. No separate step needed.
 cd dev && docker compose --env-file .env up -d
 cd ..
 
-# Apply migrations (V1 placeholder + V2 schema).
+# Apply migrations (V1 placeholder → V2 auth → V3 signup → V4 posts).
+# `processResources` first, because flywayMigrate scans the classpath for
+# `db/migration/*.sql` — those files are copied into the build classpath by
+# `processResources`; without it, new migrations look invisible to Flyway.
 # --no-configuration-cache: Flyway 11.x Gradle plugin doesn't support Gradle's
 # config cache yet (uses Task.project at execution time).
 set -a; . dev/.env; set +a
-./gradlew :backend:ktor:flywayMigrate --no-configuration-cache
+./gradlew :backend:ktor:processResources :backend:ktor:flywayMigrate --no-configuration-cache
 
 # Seed a tester user (you supply the hashed Google/Apple sub).
 dev/scripts/seed-test-user.sh --google-id-hash $(printf '%s' 'fake-google-sub' | shasum -a 256 | cut -d' ' -f1)
@@ -81,7 +86,27 @@ cd dev && docker compose down -v           # nuke postgres data too
   `DB_URL=jdbc:postgresql://localhost:5433/nearyou_dev DB_USER=postgres DB_PASSWORD=postgres ./gradlew :backend:ktor:test --tests 'id.nearyou.app.auth.signup.SignupFlowTest' -Dkotest.tags=database --no-configuration-cache`.
   You can still use `seed-test-user.sh` as a shortcut to get a usable user row.
 
-- **Database-tagged tests** (currently `MigrationV3SmokeTest` + `SignupFlowTest`)
-  and **network-tagged tests** (`JwksReachabilityTest`) are excluded from PR CI
-  via `-Dkotest.tags='!database,!network'`. Run them locally against a running
-  dev compose stack (`-Dkotest.tags=database`) or nightly.
+- **Post creation**: `POST /api/v1/posts` (auth required). Body:
+  `{ content, latitude, longitude }` — content ≤ 280 Unicode code points,
+  coords inside the Indonesia envelope (`-11..6.5` lat, `94..142` lng).
+  Happy path writes both `actual_location` and `display_location` in one
+  INSERT via `ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography`. Display
+  is deterministically fuzzed via HMAC-SHA256(JITTER_SECRET, post_id).
+  Business reads go through the `visible_posts` view (the Detekt rule
+  `RawFromPostsRule` flags raw `FROM posts` in main sources).
+
+- **Database-tagged tests** (currently `MigrationV3SmokeTest`,
+  `MigrationV4SmokeTest`, `SignupFlowTest`, `CreatePostServiceTest`,
+  `VisiblePostsViewTest`) and **network-tagged tests** (`JwksReachabilityTest`)
+  are excluded from PR CI via `-Dkotest.tags='!database,!network'`. Run them
+  locally against a running dev compose stack with `-Dkotest.tags='!network'`
+  (keeps database on, drops network) or `-Dkotest.tags=database` for only DB
+  suites.
+
+- **Detekt** runs on `main` sources only and is wired to `check` via the
+  `nearyou.ktor` convention plugin. The custom ruleset lives in
+  `:lint:detekt-rules`; config at `backend/ktor/config/detekt/detekt.yml`.
+  Add a new rule by extending `Rule` in `:lint:detekt-rules`, registering it
+  in `NearYouRuleSetProvider`, and activating it in `detekt.yml`. Tests are
+  excluded from scanning on purpose — they `SELECT FROM posts` for DB
+  assertions, which is fine.

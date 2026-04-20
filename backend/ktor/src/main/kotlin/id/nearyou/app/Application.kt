@@ -24,17 +24,26 @@ import id.nearyou.app.auth.signup.WordPairResource
 import id.nearyou.app.auth.signup.signupRoutes
 import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.SecretResolver
+import id.nearyou.app.guard.ContentEmptyException
+import id.nearyou.app.guard.ContentLengthGuard
+import id.nearyou.app.guard.ContentTooLongException
+import id.nearyou.app.guard.installContentLengthGuard
 import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
+import id.nearyou.app.infra.repo.JdbcPostRepository
 import id.nearyou.app.infra.repo.JdbcRefreshTokenRepository
 import id.nearyou.app.infra.repo.JdbcRejectedIdentifierRepository
 import id.nearyou.app.infra.repo.JdbcReservedUsernameRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.infra.repo.PostRepository
 import id.nearyou.app.infra.repo.RefreshTokenRepository
 import id.nearyou.app.infra.repo.RejectedIdentifierRepository
 import id.nearyou.app.infra.repo.ReservedUsernameRepository
 import id.nearyou.app.infra.repo.UserRepository
+import id.nearyou.app.post.CreatePostService
+import id.nearyou.app.post.LocationOutOfBoundsException
+import id.nearyou.app.post.postRoutes
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.http.HttpStatusCode
@@ -70,6 +79,42 @@ fun Application.module() {
     install(CallLogging)
 
     install(StatusPages) {
+        exception<ContentEmptyException> { call, _ ->
+            call.respond(
+                HttpStatusCode.BadRequest,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "content_empty",
+                            "message" to "Content is required.",
+                        ),
+                ),
+            )
+        }
+        exception<ContentTooLongException> { call, cause ->
+            call.respond(
+                HttpStatusCode.BadRequest,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "content_too_long",
+                            "message" to "Content exceeds the maximum of ${cause.limit} characters.",
+                        ),
+                ),
+            )
+        }
+        exception<LocationOutOfBoundsException> { call, _ ->
+            call.respond(
+                HttpStatusCode.BadRequest,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "location_out_of_bounds",
+                            "message" to "Coordinate is outside the supported region.",
+                        ),
+                ),
+            )
+        }
         exception<Throwable> { call, cause ->
             call.respond(
                 HttpStatusCode.InternalServerError,
@@ -139,6 +184,25 @@ fun Application.module() {
         secrets.resolve("invite-code-secret")
             ?: error("Missing required secret 'invite-code-secret' (set INVITE_CODE_SECRET)")
     val inviteDeriver = InviteCodePrefixDeriver(Base64.getDecoder().decode(inviteSecretBase64))
+
+    val jitterSecretBase64 =
+        secrets.resolve("jitter-secret")
+            ?: error("Missing required secret 'jitter-secret' (set JITTER_SECRET)")
+    val jitterSecret = Base64.getDecoder().decode(jitterSecretBase64)
+    require(jitterSecret.size == 32) {
+        "jitter-secret must decode to 32 bytes, got ${jitterSecret.size}"
+    }
+
+    val contentLengthGuard: ContentLengthGuard = installContentLengthGuard()
+
+    val postRepository: PostRepository = JdbcPostRepository()
+    val createPostService =
+        CreatePostService(
+            dataSource = dataSource,
+            posts = postRepository,
+            contentGuard = contentLengthGuard,
+            jitterSecret = jitterSecret,
+        )
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -168,6 +232,9 @@ fun Application.module() {
                 single { inviteDeriver }
                 single { refreshTokenService }
                 single { signupService }
+                single { contentLengthGuard }
+                single<PostRepository> { postRepository }
+                single { createPostService }
             },
         )
     }
@@ -180,6 +247,7 @@ fun Application.module() {
     signupRoutes(signupService)
     realtimeRoutes(realtimeIssuer)
     appleS2SRoutes(appleS2SJwks, appleAudiences, userRepository, InMemoryDedup())
+    postRoutes(createPostService)
 }
 
 private fun Application.csvAudiences(key: String): Set<String> =

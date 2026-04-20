@@ -16,3 +16,7 @@ echo "KTOR_RSA_PRIVATE_KEY=$encoded"
 # Invite-code HMAC secret (32 random bytes, base64-encoded).
 invite_secret=$(openssl rand -base64 32 | tr -d '\n')
 echo "INVITE_CODE_SECRET=$invite_secret"
+
+# Coordinate-jitter HMAC secret (32 random bytes, base64-encoded).
+jitter_secret=$(openssl rand -base64 32 | tr -d '\n')
+echo "JITTER_SECRET=$jitter_secret"

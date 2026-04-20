@@ -3,7 +3,25 @@ plugins {
     id("io.ktor.plugin")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("org.flywaydb.flyway")
+    id("io.gitlab.arturbosch.detekt")
     application
+}
+
+detekt {
+    // Our rules are contributed via the RuleSetProvider shipped by :lint:detekt-rules.
+    // We disable default rule sets because this change only introduces a single custom
+    // rule; tuning the full Detekt baseline is a separate cleanup.
+    buildUponDefaultConfig = false
+    allRules = false
+    disableDefaultRuleSets = true
+    config.setFrom(files("config/detekt/detekt.yml"))
+    // Tests are validation scaffolding — they SELECT from the raw `posts` table on purpose.
+    // The rule protects business code; test sources are excluded.
+    source.setFrom(files("src/main/kotlin"))
+}
+
+tasks.named("check") {
+    dependsOn("detekt")
 }
 
 // TODO(flyway-config-cache): Flyway 11.x Gradle plugin uses Task.project at execution

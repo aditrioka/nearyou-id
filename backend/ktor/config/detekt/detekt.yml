@@ -1,0 +1,8 @@
+# Minimal detekt config — enables only the nearyou-custom ruleset. All the builtin
+# Detekt rulesets are disabled (see `disableDefaultRuleSets` in the convention plugin).
+# Add rules here as the project grows.
+
+nearyou:
+  active: true
+  RawFromPostsRule:
+    active: true

@@ -32,6 +32,8 @@ dependencyResolutionManagement {
 include(":mobile:app")
 include(":backend:ktor")
 include(":shared:tmp")
+include(":shared:distance")
 include(":core:domain")
 include(":core:data")
 include(":infra:supabase")
+include(":lint:detekt-rules")

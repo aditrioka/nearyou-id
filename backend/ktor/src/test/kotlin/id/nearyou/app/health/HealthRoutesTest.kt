@@ -11,12 +11,17 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
 
-// EnvVarSecretResolver falls back to System.getProperty; stash a 32-byte base64
-// blob here so module() can boot without INVITE_CODE_SECRET in the OS env.
+// EnvVarSecretResolver falls back to System.getProperty; stash 32-byte base64
+// blobs here so module() can boot without INVITE_CODE_SECRET / JITTER_SECRET in the OS env.
 private val seedInviteSecret: Unit =
     run {
         if (System.getenv("INVITE_CODE_SECRET").isNullOrBlank()) {
             System.setProperty("INVITE_CODE_SECRET", "dGVzdC1pbnZpdGUtY29kZS1zZWNyZXQtMzJieXRlcw==")
+        }
+        if (System.getenv("JITTER_SECRET").isNullOrBlank()) {
+            // 32 random bytes, base64-encoded. Content is arbitrary for test purposes.
+            // 32 bytes of ASCII, base64-encoded. Arbitrary content; only the length is enforced.
+            System.setProperty("JITTER_SECRET", "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MCE=")
         }
     }
 

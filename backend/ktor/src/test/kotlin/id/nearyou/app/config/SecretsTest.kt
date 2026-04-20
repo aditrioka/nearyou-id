@@ -58,4 +58,18 @@ class SecretsTest : StringSpec({
         resolver.resolve("invite-code-secret") shouldBe "GxT3lL5vR2=="
         seen shouldBe "INVITE_CODE_SECRET"
     }
+
+    "jitter-secret resolves via JITTER_SECRET env var and decodes to 32 bytes" {
+        var seen: String? = null
+        val thirtyTwoByteBase64 = java.util.Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
+        val resolver =
+            EnvVarSecretResolver { name ->
+                seen = name
+                thirtyTwoByteBase64
+            }
+        val value = resolver.resolve("jitter-secret")
+        seen shouldBe "JITTER_SECRET"
+        value shouldBe thirtyTwoByteBase64
+        java.util.Base64.getDecoder().decode(value!!).size shouldBe 32
+    }
 })

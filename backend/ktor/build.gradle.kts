@@ -14,6 +14,7 @@ application {
 
 dependencies {
     implementation(projects.shared.tmp)
+    implementation(projects.shared.distance)
     implementation(projects.core.domain)
     implementation(projects.core.data)
     implementation(projects.infra.supabase)
@@ -47,6 +48,8 @@ dependencies {
     testImplementation(libs.ktor.serverTestHost)
     testImplementation(libs.kotest.runnerJunit5)
     testImplementation(libs.kotest.assertionsCore)
+
+    detektPlugins(projects.lint.detektRules)
 }
 
 tasks.withType<Test>().configureEach {

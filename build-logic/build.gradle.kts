@@ -10,4 +10,5 @@ dependencies {
     implementation(libs.gradlePlugin.flyway)
     implementation(libs.flyway.databasePostgresql)
     implementation(libs.gradlePlugin.kotlinSerialization)
+    implementation(libs.gradlePlugin.detekt)
 }
