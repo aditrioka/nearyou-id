@@ -48,4 +48,4 @@
 
 - [x] 8.1 Delete any stale `.idea/runConfigurations/*.xml` files that reference `:composeApp` or `:server` (none present)
 - [x] 8.2 Update `README.md` if it lists module paths (skip if not present)
-- [ ] 8.3 Stage and commit all changes in a single commit titled `chore: scaffold minimal module structure`
+- [x] 8.3 Stage and commit all changes in a single commit titled `chore: scaffold minimal module structure`
