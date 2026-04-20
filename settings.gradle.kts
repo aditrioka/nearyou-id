@@ -28,6 +28,8 @@ dependencyResolutionManagement {
     }
 }
 
-include(":composeApp")
-include(":server")
-include(":shared")
+include(":mobile:app")
+include(":backend:ktor")
+include(":shared:tmp")
+include(":core:domain")
+include(":core:data")
