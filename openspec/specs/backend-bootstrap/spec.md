@@ -26,13 +26,17 @@ The `StatusPages` plugin SHALL convert any uncaught exception into an HTTP 500 w
 - **WHEN** a route throws an exception not handled by per-route logic and a request hits it
 - **THEN** the response is HTTP 500 with body `{ "error": { "code": "...", "message": "..." } }` (`code` non-empty, `message` non-empty)
 
-### Requirement: Koin module installed (empty)
+### Requirement: Koin module installed
 
-A Koin module SHALL be installed at startup. It MAY be empty in this change; subsequent feature changes register their bindings into it.
+A Koin module SHALL be installed at startup. Subsequent feature changes register their bindings into it. As of the auth-foundation change the module MUST register at least a `javax.sql.DataSource` (HikariCP) singleton configured from environment variables `DB_URL` / `DB_USER` / `DB_PASSWORD` (max pool size 20).
 
 #### Scenario: Koin available for injection
 - **WHEN** the application has started and `application.koin` is referenced
 - **THEN** a non-null `Koin` instance is returned
+
+#### Scenario: DataSource resolvable
+- **WHEN** the application has started and `org.koin.ktor.ext.inject<DataSource>()` is called
+- **THEN** a non-null `HikariDataSource` is returned
 
 ### Requirement: Liveness endpoint
 
@@ -46,13 +50,17 @@ A Koin module SHALL be installed at startup. It MAY be empty in this change; sub
 - **WHEN** all configured downstream dependencies (Postgres, Redis, etc.) are unreachable
 - **THEN** `/health/live` still returns HTTP 200
 
-### Requirement: Readiness endpoint stub
+### Requirement: Readiness endpoint
 
-`GET /health/ready` SHALL exist and return HTTP 200 in this change (real dependency probes are added when each dependency is wired). The endpoint MUST be public (no auth) and MUST be subject to the same 60 req/min/IP rate limit target as documented in `docs/04-Architecture.md § Health Check Endpoints` (rate limiter installation may be deferred to a later change but the endpoint is documented as rate-limited).
+`GET /health/ready` SHALL run a real Postgres probe: `SELECT 1` via the application's HikariCP pool with a 500 ms timeout. On success it returns HTTP 200 with `{ "status": "ok" }`. On timeout or query failure it returns HTTP 503 with `{ "status": "degraded" }`. The endpoint MUST remain public (no auth) and is documented as subject to a 60 req/min/IP rate limit (rate-limiter installation deferred). Future deps (Redis, Supabase Realtime HTTP probe) are added by their respective changes via parallel `async { ... }` checks per `docs/04-Architecture.md § Health Check Endpoints`.
 
-#### Scenario: Stub returns 200
-- **WHEN** any client sends `GET /health/ready`
-- **THEN** the response is HTTP 200 with a JSON body containing a `status` field
+#### Scenario: Postgres reachable
+- **WHEN** the local Postgres pool returns within 500 ms
+- **THEN** the response is HTTP 200 with body `{ "status": "ok" }`
+
+#### Scenario: Postgres unreachable
+- **WHEN** the Postgres pool query exceeds 500 ms or raises an exception
+- **THEN** the response is HTTP 503 with body `{ "status": "degraded" }`
 
 #### Scenario: No auth required
 - **WHEN** the request carries no Authorization header
@@ -65,3 +73,15 @@ A Koin module SHALL be installed at startup. It MAY be empty in this change; sub
 #### Scenario: Module function defined
 - **WHEN** searching `backend/ktor/src/main/kotlin/` for `fun Application.module(`
 - **THEN** at least one definition is found
+
+### Requirement: Auth plugin installed
+
+`Application.module()` SHALL install Ktor's `Authentication` plugin and register at least one JWT verifier configured for RS256 against the public key matching the configured `kid`. Routes that require auth MUST be wrapped in `authenticate { ... }` and MUST set a `UserPrincipal(userId, tokenVersion)` on the call when verification + token-version check succeed.
+
+#### Scenario: Plugin installed
+- **WHEN** the server starts
+- **THEN** the startup log shows installation of `Authentication` (or equivalent log line) without exception
+
+#### Scenario: Authenticated route gets principal
+- **WHEN** a request with a valid access token reaches a route inside `authenticate { ... }`
+- **THEN** `call.principal<UserPrincipal>()` returns a non-null principal whose `userId` matches the token's `sub`
