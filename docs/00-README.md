@@ -28,6 +28,7 @@ This master plan consists of the following domain-focused files:
 | 06 | **06-Security-Privacy.md** | Device attestation, anti-spam, content moderation, CSAM handling, shadow ban, privacy compliance (UU PDP), age gate (18+ only), under-18 signup blocklist, internal endpoint security, analytics consent, account recovery/deletion |
 | 07 | **07-Operations.md** | Admin panel stack, admin user schema, core features, security (IAP/Cloud Armor/WebAuthn), DB access pattern |
 | 08 | **08-Roadmap-Risk.md** | Development phases (Pre-Phase 1 through Public Launch), development tools & CI lint rules, risk register, open decisions |
+| 09 | **09-Versions.md** | Version Pinning Decisions Log: pin policy, update cadence, rationale per non-default library version |
 
 ## Reading Order Suggestions
 
