@@ -61,4 +61,4 @@
 - [x] 9.1 Run `./gradlew clean ktlintCheck build test` from repo root — all green (also added `.editorconfig` to allow `@Composable` PascalCase + suppressed ktlint on `MainViewController`; replaced `import androidx.compose.runtime.*` with explicit imports)
 - [x] 9.2 Confirm `./gradlew :backend:ktor:run` boots, `/health/live` returns 200, `/health/ready` returns 200 with JSON body
 - [x] 9.3 Optional: spin up local Postgres (`docker run -d --rm -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16`), run `DB_URL=jdbc:postgresql://localhost:5432/postgres DB_USER=postgres DB_PASSWORD=postgres ./gradlew :backend:ktor:flywayMigrate` — confirms `flyway_schema_history` table is created and `V1__init.sql` is recorded as version 1 (skipped: Docker daemon not running locally; tasks confirmed discoverable via `flyway` group)
-- [ ] 9.4 Stage and commit changes in a single commit titled `chore: build infrastructure (catalog, conventions, flyway, ktor skeleton, ci)`
+- [x] 9.4 Stage and commit changes in a single commit titled `chore: build infrastructure (catalog, conventions, flyway, ktor skeleton, ci)` (commit `bf09f43`)
