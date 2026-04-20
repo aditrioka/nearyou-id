@@ -37,4 +37,6 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew test
+      # Exclude network-tagged tests on PRs to avoid flakes from upstream JWKS hiccups.
+      # Run tagged tests nightly / pre-deploy with `./gradlew test -Dkotest.tags=network`.
+      - run: ./gradlew test -Dkotest.tags='!network'

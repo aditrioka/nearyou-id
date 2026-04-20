@@ -61,6 +61,8 @@ open class JwksCache(
         return entry.keys[kid] ?: refresh().keys[kid]
     }
 
+    open suspend fun availableKids(): Set<String> = (current() ?: refresh()).keys.keys
+
     private fun current(): JwksCacheEntry? {
         val entry = cached.get() ?: return null
         return if (entry.expiresAt.isAfter(clock.instant())) entry else null

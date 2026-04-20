@@ -51,4 +51,8 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    // Forward Kotest system properties (e.g. -Dkotest.tags=!network) to the test JVM.
+    listOf("kotest.tags", "kotest.filter.tests", "kotest.filter.specs").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
 }

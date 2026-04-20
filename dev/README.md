@@ -47,13 +47,30 @@ cd dev && docker compose down -v           # nuke postgres data too
 ## Notes
 
 - `dev/.env` is gitignored; never commit secrets.
-- Postgres binds host port **5433** (not the default 5432) to avoid colliding
-  with a native Postgres install. `DB_URL` in `.env.example` matches.
-- Container names are `nearyouid-dev-postgres` / `nearyouid-dev-redis` to
-  avoid colliding with any pre-existing `nearyou-postgres` from earlier
-  prototypes.
+
+- **Postgres binds host port 5433**, not the default 5432, to avoid colliding
+  with any native Postgres install on the host. `DB_URL` in `.env.example`
+  matches. If your machine has nothing else on 5432 you can change both back.
+
+- **Container names are `nearyouid-dev-postgres` / `nearyouid-dev-redis`** —
+  namespaced to avoid colliding with stale `nearyou-postgres` containers from
+  earlier prototypes. If `docker ps -a` shows old containers blocking creation,
+  remove them with `docker rm <name>` (volumes are preserved separately).
+
+- **`flywayMigrate` requires `--no-configuration-cache`.** The Flyway 11.x
+  Gradle plugin uses `Task.project` at execution time, which Gradle's
+  configuration cache rejects. Tracked as a TODO in
+  `build-logic/src/main/kotlin/nearyou.ktor.gradle.kts`; revisit when the
+  Flyway plugin fixes the issue or migrate to invoking the Flyway Java API
+  via a custom task.
+
 - Plain Postgres has no `realtime` schema — the V2 migration's RLS policy
   block is a no-op locally. The policy applies when V2 runs against a
   Supabase instance.
+
 - Signup is not implemented in this change. Use `seed-test-user.sh` to
   create users until the age-gate change lands.
+
+- **Network-tagged tests** (currently `JwksReachabilityTest` against
+  Google/Apple JWKS) are excluded from PR CI via `-Dkotest.tags='!network'`.
+  Run them locally or in a nightly job with `./gradlew test -Dkotest.tags=network`.
