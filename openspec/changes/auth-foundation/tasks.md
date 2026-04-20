@@ -100,4 +100,4 @@
 - [ ] 14.2 Bring up `dev/docker-compose.yml`, run `flywayMigrate`, seed a user, manually `curl -X POST .../signin` with a stub Google id_token (using a mocked JWKS via `GOOGLE_JWKS_URL_OVERRIDE` env var if needed) — receives access + refresh **(deferred: Docker daemon not running locally; rerun once compose is up)**
 - [ ] 14.3 `curl /health/ready` returns 200 with Postgres up; stop the container, `curl /health/ready` returns 503; restart container, returns 200 again **(deferred: same reason as 14.2)**
 - [x] 14.4 Update `dev/README.md` if any step diverged during implementation (no divergence beyond what's documented)
-- [ ] 14.5 Stage and commit changes in a single commit titled `feat(auth): foundation — JWT, refresh, signin, realtime token, V2 schema, local dev`
+- [x] 14.5 Stage and commit changes in a single commit titled `feat(auth): foundation — JWT, refresh, signin, realtime token, V2 schema, local dev`
