@@ -16,14 +16,24 @@ import id.nearyou.app.auth.routes.appleS2SRoutes
 import id.nearyou.app.auth.routes.authRoutes
 import id.nearyou.app.auth.routes.realtimeRoutes
 import id.nearyou.app.auth.session.RefreshTokenService
+import id.nearyou.app.auth.signup.InviteCodePrefixDeriver
+import id.nearyou.app.auth.signup.NoopUsernameHistoryRepository
+import id.nearyou.app.auth.signup.SignupService
+import id.nearyou.app.auth.signup.UsernameGenerator
+import id.nearyou.app.auth.signup.WordPairResource
+import id.nearyou.app.auth.signup.signupRoutes
 import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
 import id.nearyou.app.infra.repo.JdbcRefreshTokenRepository
+import id.nearyou.app.infra.repo.JdbcRejectedIdentifierRepository
+import id.nearyou.app.infra.repo.JdbcReservedUsernameRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.infra.repo.RefreshTokenRepository
+import id.nearyou.app.infra.repo.RejectedIdentifierRepository
+import id.nearyou.app.infra.repo.ReservedUsernameRepository
 import id.nearyou.app.infra.repo.UserRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -40,6 +50,7 @@ import kotlinx.serialization.json.Json
 import org.koin.dsl.module
 import org.koin.ktor.plugin.Koin
 import org.koin.logger.slf4jLogger
+import java.util.Base64
 import javax.sql.DataSource
 
 fun main(args: Array<String>) {
@@ -114,6 +125,32 @@ fun Application.module() {
             ?: error("Missing required config auth.supabaseJwtSecret (set SUPABASE_JWT_SECRET)")
     val realtimeIssuer = RealtimeTokenIssuer(supabaseSecret)
 
+    val reservedUsernames: ReservedUsernameRepository = JdbcReservedUsernameRepository(dataSource)
+    val rejectedIdentifiers: RejectedIdentifierRepository = JdbcRejectedIdentifierRepository(dataSource)
+    val wordPairs = WordPairResource.loadFromClasspath()
+    val usernameGenerator =
+        UsernameGenerator(
+            words = wordPairs,
+            reserved = reservedUsernames,
+            history = NoopUsernameHistoryRepository(),
+            users = userRepository,
+        )
+    val inviteSecretBase64 =
+        secrets.resolve("invite-code-secret")
+            ?: error("Missing required secret 'invite-code-secret' (set INVITE_CODE_SECRET)")
+    val inviteDeriver = InviteCodePrefixDeriver(Base64.getDecoder().decode(inviteSecretBase64))
+    val signupService =
+        SignupService(
+            dataSource = dataSource,
+            providers = SignupService.SignupProviders(google = googleVerifier, apple = appleVerifier),
+            users = userRepository,
+            rejected = rejectedIdentifiers,
+            usernameGenerator = usernameGenerator,
+            inviteDeriver = inviteDeriver,
+            refreshTokens = refreshTokenService,
+            jwtIssuer = jwtIssuer,
+        )
+
     install(Koin) {
         slf4jLogger()
         modules(
@@ -124,7 +161,13 @@ fun Application.module() {
                 single { jwtIssuer }
                 single<UserRepository> { userRepository }
                 single<RefreshTokenRepository> { refreshTokenRepository }
+                single<ReservedUsernameRepository> { reservedUsernames }
+                single<RejectedIdentifierRepository> { rejectedIdentifiers }
+                single { wordPairs }
+                single { usernameGenerator }
+                single { inviteDeriver }
                 single { refreshTokenService }
+                single { signupService }
             },
         )
     }
@@ -134,6 +177,7 @@ fun Application.module() {
     jwksRoutes()
     healthRoutes()
     authRoutes(Providers(googleVerifier, appleVerifier), userRepository, refreshTokenService, jwtIssuer)
+    signupRoutes(signupService)
     realtimeRoutes(realtimeIssuer)
     appleS2SRoutes(appleS2SJwks, appleAudiences, userRepository, InMemoryDedup())
 }

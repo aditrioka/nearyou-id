@@ -37,6 +37,7 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
-      # Exclude network-tagged tests on PRs to avoid flakes from upstream JWKS hiccups.
-      # Run tagged tests nightly / pre-deploy with `./gradlew test -Dkotest.tags=network`.
-      - run: ./gradlew test -Dkotest.tags='!network'
+      # Exclude network-tagged tests (upstream JWKS flakes) and database-tagged tests
+      # (require a running Postgres; CI has no compose stack). Run nightly / pre-deploy
+      # with `./gradlew test -Dkotest.tags=network` or `-Dkotest.tags=database`.
+      - run: ./gradlew test -Dkotest.tags='!network,!database'

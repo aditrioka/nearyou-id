@@ -17,6 +17,9 @@ cp .env.example .env
 echo "SUPABASE_JWT_SECRET=$(openssl rand -base64 32)" >> .env
 ```
 
+The keypair script also emits `INVITE_CODE_SECRET` — the 32-byte HMAC key used
+to derive `users.invite_code_prefix` at signup. No separate step needed.
+
 ## Day-to-day
 
 ```sh
@@ -68,9 +71,17 @@ cd dev && docker compose down -v           # nuke postgres data too
   block is a no-op locally. The policy applies when V2 runs against a
   Supabase instance.
 
-- Signup is not implemented in this change. Use `seed-test-user.sh` to
-  create users until the age-gate change lands.
+- **Signup flow**: `POST /api/v1/auth/signup` lands in the signup-flow change.
+  Body: `{ provider, id_token, date_of_birth, device_fingerprint_hash? }`.
+  Dev verification against a running Ktor instance requires a Google/Apple
+  OAuth client that can issue real ID tokens (see proposal task 14.2 for
+  why a live curl with a hand-rolled id_token isn't feasible without a mock
+  JWKS). The integration tests in `SignupFlowTest` cover every scenario
+  end-to-end against this same dev Postgres — run them with
+  `DB_URL=jdbc:postgresql://localhost:5433/nearyou_dev DB_USER=postgres DB_PASSWORD=postgres ./gradlew :backend:ktor:test --tests 'id.nearyou.app.auth.signup.SignupFlowTest' -Dkotest.tags=database --no-configuration-cache`.
+  You can still use `seed-test-user.sh` as a shortcut to get a usable user row.
 
-- **Network-tagged tests** (currently `JwksReachabilityTest` against
-  Google/Apple JWKS) are excluded from PR CI via `-Dkotest.tags='!network'`.
-  Run them locally or in a nightly job with `./gradlew test -Dkotest.tags=network`.
+- **Database-tagged tests** (currently `MigrationV3SmokeTest` + `SignupFlowTest`)
+  and **network-tagged tests** (`JwksReachabilityTest`) are excluded from PR CI
+  via `-Dkotest.tags='!database,!network'`. Run them locally against a running
+  dev compose stack (`-Dkotest.tags=database`) or nightly.

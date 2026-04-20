@@ -1,5 +1,7 @@
 package id.nearyou.app.infra.repo
 
+import java.sql.Connection
+import java.sql.Date
 import java.sql.ResultSet
 import java.util.UUID
 import javax.sql.DataSource
@@ -49,6 +51,61 @@ class JdbcUserRepository(
                 return ps.executeUpdate()
             }
         }
+    }
+
+    override fun existsByInviteCodePrefix(prefix: String): Boolean {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("SELECT 1 FROM users WHERE invite_code_prefix = ? LIMIT 1").use { ps ->
+                ps.setString(1, prefix)
+                ps.executeQuery().use { rs -> return rs.next() }
+            }
+        }
+    }
+
+    override fun existsByProviderHash(
+        conn: Connection,
+        hash: String,
+        type: IdentifierType,
+    ): Boolean {
+        val column =
+            when (type) {
+                IdentifierType.GOOGLE -> "google_id_hash"
+                IdentifierType.APPLE -> "apple_id_hash"
+            }
+        conn.prepareStatement("SELECT 1 FROM users WHERE $column = ? LIMIT 1").use { ps ->
+            ps.setString(1, hash)
+            ps.executeQuery().use { rs -> return rs.next() }
+        }
+    }
+
+    override fun create(
+        conn: Connection,
+        row: NewUserRow,
+    ): UUID {
+        conn.prepareStatement(
+            """
+            INSERT INTO users (
+                id, username, display_name, date_of_birth,
+                google_id_hash, apple_id_hash,
+                invite_code_prefix, device_fingerprint_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setObject(1, row.id)
+            ps.setString(2, row.username)
+            ps.setString(3, row.displayName)
+            ps.setDate(4, Date.valueOf(row.dateOfBirth))
+            if (row.googleIdHash != null) ps.setString(5, row.googleIdHash) else ps.setNull(5, java.sql.Types.VARCHAR)
+            if (row.appleIdHash != null) ps.setString(6, row.appleIdHash) else ps.setNull(6, java.sql.Types.VARCHAR)
+            ps.setString(7, row.inviteCodePrefix)
+            if (row.deviceFingerprintHash != null) {
+                ps.setString(8, row.deviceFingerprintHash)
+            } else {
+                ps.setNull(8, java.sql.Types.VARCHAR)
+            }
+            ps.executeUpdate()
+        }
+        return row.id
     }
 
     private fun single(

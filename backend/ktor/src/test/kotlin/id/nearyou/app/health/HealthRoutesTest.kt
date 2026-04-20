@@ -11,7 +11,18 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
 
+// EnvVarSecretResolver falls back to System.getProperty; stash a 32-byte base64
+// blob here so module() can boot without INVITE_CODE_SECRET in the OS env.
+private val seedInviteSecret: Unit =
+    run {
+        if (System.getenv("INVITE_CODE_SECRET").isNullOrBlank()) {
+            System.setProperty("INVITE_CODE_SECRET", "dGVzdC1pbnZpdGUtY29kZS1zZWNyZXQtMzJieXRlcw==")
+        }
+    }
+
 class HealthRoutesTest : StringSpec({
+    seedInviteSecret
+
     fun config(dbUrl: String) =
         MapApplicationConfig(
             "ktor.environment" to "test",

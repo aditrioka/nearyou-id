@@ -1,0 +1,24 @@
+{
+  "adjectives": [
+    "ramah", "gesit", "tenang", "ceria", "rajin", "hangat", "cerdas", "gembira",
+    "santun", "lincah", "sabar", "jujur", "tangguh", "berani", "pintar", "lembut",
+    "bijak", "ramping", "kukuh", "sigap", "teliti", "ulung", "arif", "manis",
+    "sopan", "mandiri", "tekun", "perkasa", "unggul", "mulia", "halus", "jaya",
+    "kalem", "nyaman", "segar", "bersih", "hening", "indah", "cemerlang", "tenang",
+    "damai", "lincah", "kreatif", "setia", "riang", "teduh", "hemat", "tabah",
+    "luwes", "peka"
+  ],
+  "nouns": [
+    "harimau", "rinjani", "garuda", "merak", "elang", "merapi", "semeru", "bromo",
+    "kelapa", "cendana", "melati", "anggrek", "cempaka", "rusa", "kakatua", "orangutan",
+    "komodo", "panda", "laskar", "rajawali", "singa", "nelayan", "pelaut", "petani",
+    "pendekar", "kancil", "ombak", "fajar", "senja", "pelangi", "bintang", "bulan",
+    "matahari", "awan", "hujan", "embun", "badai", "angin", "samudra", "sungai",
+    "gunung", "lembah", "hutan", "padang", "kebun", "taman", "danau", "pantai",
+    "terumbu", "laut"
+  ],
+  "modifiers": [
+    "asli", "jaya", "sakti", "gagah", "perwira", "sejati", "prima", "agung",
+    "mulia", "cemerlang"
+  ]
+}

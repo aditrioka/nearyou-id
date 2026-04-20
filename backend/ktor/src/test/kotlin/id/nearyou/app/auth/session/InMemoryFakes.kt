@@ -1,9 +1,12 @@
 package id.nearyou.app.auth.session
 
+import id.nearyou.app.infra.repo.IdentifierType
+import id.nearyou.app.infra.repo.NewUserRow
 import id.nearyou.app.infra.repo.RefreshTokenRepository
 import id.nearyou.app.infra.repo.RefreshTokenRow
 import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.infra.repo.UserRow
+import java.sql.Connection
 import java.time.Instant
 import java.util.UUID
 
@@ -71,6 +74,46 @@ class InMemoryUsers(initial: List<UserRow> = emptyList()) : UserRepository {
         val row = rows.values.firstOrNull { it.appleIdHash == appleIdHash } ?: return 0
         rows[row.id] = row.copy(appleRelayEmail = enabled)
         return 1
+    }
+
+    override fun existsByProviderHash(
+        conn: Connection,
+        hash: String,
+        type: IdentifierType,
+    ): Boolean =
+        when (type) {
+            IdentifierType.GOOGLE -> rows.values.any { it.googleIdHash == hash }
+            IdentifierType.APPLE -> rows.values.any { it.appleIdHash == hash }
+        }
+
+    val inviteCodePrefixes = mutableSetOf<String>()
+
+    override fun existsByInviteCodePrefix(prefix: String): Boolean = prefix in inviteCodePrefixes
+
+    override fun create(
+        conn: Connection,
+        row: NewUserRow,
+    ): UUID {
+        if (rows.values.any { it.username == row.username }) {
+            val ex = java.sql.SQLException("duplicate username", "23505")
+            throw ex
+        }
+        rows[row.id] =
+            UserRow(
+                id = row.id,
+                username = row.username,
+                displayName = row.displayName,
+                email = null,
+                googleIdHash = row.googleIdHash,
+                appleIdHash = row.appleIdHash,
+                appleRelayEmail = false,
+                isShadowBanned = false,
+                isBanned = false,
+                suspendedUntil = null,
+                tokenVersion = 0,
+                deletedAt = null,
+            )
+        return row.id
     }
 }
 

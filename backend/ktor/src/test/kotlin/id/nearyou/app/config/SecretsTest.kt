@@ -47,4 +47,15 @@ class SecretsTest : StringSpec({
         val resolver = EnvVarSecretResolver { "   " }
         resolver.resolve("anything").shouldBeNull()
     }
+
+    "invite-code-secret resolves via INVITE_CODE_SECRET env var" {
+        var seen: String? = null
+        val resolver =
+            EnvVarSecretResolver { name ->
+                seen = name
+                "GxT3lL5vR2=="
+            }
+        resolver.resolve("invite-code-secret") shouldBe "GxT3lL5vR2=="
+        seen shouldBe "INVITE_CODE_SECRET"
+    }
 })
