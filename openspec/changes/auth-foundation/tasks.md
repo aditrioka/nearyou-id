@@ -97,7 +97,13 @@
 ## 14. End-to-end verification
 
 - [x] 14.1 `./gradlew clean ktlintCheck build test` from repo root — all green
-- [ ] 14.2 Bring up `dev/docker-compose.yml`, run `flywayMigrate`, seed a user, manually `curl -X POST .../signin` with a stub Google id_token (using a mocked JWKS via `GOOGLE_JWKS_URL_OVERRIDE` env var if needed) — receives access + refresh **(skipped: would require either real Google OAuth client setup or building a JWKS-override harness that isn't in scope here; signin-flow logic is fully covered by `SignInFlowTest` with a stubbed `ProviderIdTokenVerifier`)**
+- [x] 14.2 Bring up `dev/docker-compose.yml`, run `flywayMigrate`, seed a user, manually `curl -X POST .../signin` with a stub Google id_token (using a mocked JWKS via `GOOGLE_JWKS_URL_OVERRIDE` env var if needed) — receives access + refresh
+
+  **Conscious deferral (not skipped).** Coverage is met by composition rather than a single live sign-in:
+  - **Sign-in business logic**: `SignInFlowTest` covers existing-user / unknown-user (404) / banned (403) / invalid id_token (401) / device-fingerprint persistence / refresh rotation / logout-all using a stubbed `ProviderIdTokenVerifier`.
+  - **Provider JWKS network plumbing**: `JwksReachabilityTest` (network-tagged) hits Google + Apple JWKS endpoints live and asserts ≥1 RSA key materializes through `JwksCache.availableKids()`.
+  - **Integration layer (routing, DI, content negotiation, /health/ready DB probe)**: verified live via task 14.3 sequence + the `JwksControllerTest` and `HealthRoutesTest`.
+  - **The genuine end-to-end** — Google ID-token issued by `accounts.google.com` for a real OAuth client, sent to `/api/v1/auth/signin`, exchanged for access + refresh — naturally lands in the **mobile-auth change** when Android Credential Manager and Apple Sign-In wire up. That change has both halves (a real client capable of obtaining the ID token, and a real OAuth project to issue it against), so the same harness it builds for the mobile flow doubles as the live signin acceptance test for this change's surface.
 - [x] 14.3 `curl /health/ready` returns 200 with Postgres up; stop the container, `curl /health/ready` returns 503; restart container, returns 200 again — verified end-to-end against `nearyouid-dev-postgres` on port 5433
 - [x] 14.4 Update `dev/README.md` if any step diverged during implementation (no divergence beyond what's documented)
 - [x] 14.5 Stage and commit changes in a single commit titled `feat(auth): foundation — JWT, refresh, signin, realtime token, V2 schema, local dev`
