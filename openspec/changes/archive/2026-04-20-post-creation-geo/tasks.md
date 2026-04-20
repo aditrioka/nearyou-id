@@ -104,7 +104,7 @@
 - [x] 12.4 Manual `psql` check: seeded 5 posts around Jakarta via direct SQL (fixed geometric offsets, NOT through `JitterEngine`) and confirmed `ST_Distance(actual_location, display_location)` works as expected. Real jitter-path bounds verification lives in `JitterEngineTest` (1000 seeds, all ∈ [50, 500] m) and `CreatePostServiceTest` happy path (end-to-end through the live endpoint)
 - [x] 12.5 RESTRICT psql verification: direct `DELETE FROM users` while a post exists → `foreign_key_violation` (as expected). After clearing posts, the user delete succeeds. Logged via `RAISE NOTICE`
 - [x] 12.6 Updated `dev/README.md` with: new post-creation endpoint note, `JITTER_SECRET` commentary on the keypair script output, `processResources` prerequisite for `flywayMigrate`, Detekt config location + rule authoring guide, expanded database-tagged test list
-- [ ] 12.7 Stage and commit in a single commit titled `feat(posts): creation + PostGIS dual-column + visible_posts view + Detekt raw-from-posts rule`
+- [x] 12.7 Commit `5f5f8f3` — `feat(posts): creation + PostGIS dual-column + visible_posts view + Detekt raw-from-posts rule`
 
 ## 13. Deferred — tracked but explicitly out of scope
 

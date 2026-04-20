@@ -1,11 +1,11 @@
 # Backend Bootstrap
 
-This spec defines the Ktor application skeleton on `:backend:ktor` — which plugins must be installed at startup, the StatusPages 5xx envelope contract, the Koin DI mounting point, and the health-check endpoints. Feature work plugs into the module function defined here.
+## Purpose
+
+Defines the Ktor application skeleton on `:backend:ktor` — which plugins must be installed at startup, the StatusPages 5xx envelope contract, the Koin DI mounting point, the content-length guard registry, and the health-check endpoints. Feature work plugs into the module function defined here.
 
 See `docs/04-Architecture.md § Health Check Endpoints` for the ultimate `/health/ready` design (real dependency probes are added when each dependency is wired).
-
 ## Requirements
-
 ### Requirement: Application entry point with mandatory plugins
 
 The Ktor `Application` module in `:backend:ktor` SHALL install the following plugins at startup: `ContentNegotiation` (with kotlinx.serialization JSON), `StatusPages`, `CallLogging`, and Koin DI.
@@ -85,3 +85,34 @@ A Koin module SHALL be installed at startup. Subsequent feature changes register
 #### Scenario: Authenticated route gets principal
 - **WHEN** a request with a valid access token reaches a route inside `authenticate { ... }`
 - **THEN** `call.principal<UserPrincipal>()` returns a non-null principal whose `userId` matches the token's `sub`
+
+### Requirement: ContentLengthGuard middleware with per-route limits registry
+
+`Application.module()` SHALL install a `ContentLengthGuard` Ktor plugin that consults a registry mapping a route key (e.g., `"post.content"`) to a maximum code-point length. This change MUST register exactly one entry — `"post.content" → 280` — and wire the guard to the `POST /api/v1/posts` route. Future content-bearing endpoints register their own entries without modifying the plugin.
+
+The guard MUST:
+1. NFKC-normalize the incoming string.
+2. Trim leading/trailing whitespace.
+3. Reject empty (post-trim) with HTTP 400 code `content_empty`.
+4. Reject code-point length > the registered limit with HTTP 400 code `content_too_long`.
+
+#### Scenario: Plugin installed at startup
+- **WHEN** the server starts
+- **THEN** the startup log shows installation of `ContentLengthGuard` (or equivalent log line) without exception
+
+#### Scenario: post.content limit registered
+- **WHEN** inspecting the registry after startup
+- **THEN** the registry contains an entry `("post.content", 280)`
+
+#### Scenario: Registry-driven enforcement on post creation
+- **WHEN** a `POST /api/v1/posts` request carries a 281-code-point `content`
+- **THEN** the guard rejects with HTTP 400 `content_too_long` before the route handler runs
+
+### Requirement: Post creation route wired in Application.module()
+
+`Application.module()` SHALL register the `POST /api/v1/posts` route inside `authenticate { ... }` so the Ktor `Authentication` plugin runs before the route handler.
+
+#### Scenario: Route is authenticated
+- **WHEN** `POST /api/v1/posts` is hit without an `Authorization` header
+- **THEN** the response is HTTP 401 (from the `Authentication` plugin, not the route handler)
+

@@ -1,11 +1,11 @@
 # Migration Pipeline
 
-This spec defines the Flyway migration scaffold on `:backend:ktor`, the file-naming convention for migrations, and the env-namespaced secret-resolution helper used to derive DB connection secret keys.
+## Purpose
+
+Defines the Flyway migration scaffold on `:backend:ktor`, the file-naming convention for migrations, the env-namespaced secret-resolution helper used to derive DB connection secret keys, and the smoke-test harness pattern for migrations.
 
 See `docs/04-Architecture.md § Flyway Migration Deployment` for the production deployment design (Cloud Run Jobs `nearyou-migrate-*`, deferred to a future change).
-
 ## Requirements
-
 ### Requirement: Flyway plugin wired to backend module
 
 The Flyway Gradle plugin SHALL be applied to `:backend:ktor` so that `./gradlew :backend:ktor:flywayMigrate` is a valid task. The plugin's `url`/`user`/`password` config MUST be sourced from environment variables (`DB_URL`, `DB_USER`, `DB_PASSWORD`) — no hardcoded credentials.
@@ -65,3 +65,24 @@ The Flyway migration pipeline SHALL exercise an actual schema migration named `V
 #### Scenario: V2 idempotent on second run
 - **WHEN** `flywayMigrate` is run a second time against the same database
 - **THEN** the run is a no-op (no new history rows; no errors)
+
+### Requirement: V4 migration lands
+
+The Flyway migration pipeline SHALL now carry an actual migration `V4__post_creation.sql`. Running `flywayMigrate` against a database at V3 MUST advance it to V4 and record a successful row in `flyway_schema_history`.
+
+#### Scenario: V4 records on migrate
+- **WHEN** running `flywayMigrate` against a database at V3
+- **THEN** `flyway_schema_history` contains a row with `version = '4'` and `success = TRUE`
+
+#### Scenario: V4 idempotent on second run
+- **WHEN** `flywayMigrate` is run a second time against a database already at V4
+- **THEN** the run is a no-op (no new history rows; no errors)
+
+### Requirement: Migration smoke test asserts GIST indexes
+
+The migration smoke-test harness SHALL include an assertion pattern for GIST indexes that future PostGIS-dependent migrations can reuse. Specifically `MigrationV4SmokeTest` MUST verify that `posts_display_location_idx` and `posts_actual_location_idx` use the `gist` access method (via `pg_indexes` or `pg_index` join on `pg_am`).
+
+#### Scenario: Index access method is gist
+- **WHEN** `MigrationV4SmokeTest` asserts on `posts_display_location_idx`
+- **THEN** the assertion reads the access method for that index and verifies it equals `gist`
+
