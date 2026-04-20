@@ -1,9 +1,9 @@
 # Auth — Sign-in
 
+## Purpose
+
 Defines the Google / Apple ID-token verification flow on `POST /api/v1/auth/signin`, the user-lookup behavior (existing-only until the age-gate change adds signup), the provider-subject hashing rule, and the device-fingerprint persistence.
-
 ## Requirements
-
 ### Requirement: Sign-in endpoint contract
 
 `POST /api/v1/auth/signin` SHALL accept a JSON body `{ "provider": "google" | "apple", "id_token": string, "device_fingerprint_hash": string? }`. On success it SHALL return `{ "access_token": string, "refresh_token": string, "expires_in": 900 }` with HTTP 200.
@@ -38,7 +38,7 @@ The provider's `sub` claim SHALL be SHA-256-hashed before use; lookup queries `W
 
 ### Requirement: Existing-user sign-in only (signup deferred)
 
-This capability SHALL NOT create users. If the lookup returns no row, the endpoint MUST respond HTTP 404 with code `user_not_found`. Signup creation lands with the age-gate change.
+`POST /api/v1/auth/signin` SHALL NOT create users. If the provider-subject lookup returns no row, the endpoint MUST respond HTTP 404 with code `user_not_found`. User creation is the responsibility of the distinct `POST /api/v1/auth/signup` endpoint defined in the `auth-signup` capability. Callers that receive `user_not_found` from `/signin` SHOULD retry through `/signup` after collecting the `date_of_birth` required for account creation.
 
 #### Scenario: Unknown provider id
 - **WHEN** verification succeeds but no `users` row matches the hashed provider id
@@ -47,6 +47,10 @@ This capability SHALL NOT create users. If the lookup returns no row, the endpoi
 #### Scenario: Existing user signs in
 - **WHEN** verification succeeds and a `users` row matches, with `is_banned = FALSE` and `suspended_until` null/past
 - **THEN** the response is HTTP 200 with new `access_token` and `refresh_token` and `expires_in == 900`
+
+#### Scenario: Signup path is distinct
+- **WHEN** a client attempts to create a new user by calling `/signin` with an unknown provider subject
+- **THEN** the response is HTTP 404 `user_not_found` (not 201, not auto-creation); the correct path is `POST /api/v1/auth/signup`
 
 ### Requirement: Banned user blocked at sign-in
 
@@ -67,3 +71,4 @@ The optional `device_fingerprint_hash` field on the request body SHALL be persis
 #### Scenario: Fingerprint absent
 - **WHEN** the request body omits `device_fingerprint_hash`
 - **THEN** sign-in still succeeds and the row's `device_fingerprint_hash` is NULL
+

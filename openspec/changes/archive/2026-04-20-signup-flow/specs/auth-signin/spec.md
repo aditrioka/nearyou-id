@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Existing-user sign-in only (signup lives at /signup)
+### Requirement: Existing-user sign-in only (signup deferred)
 
 `POST /api/v1/auth/signin` SHALL NOT create users. If the provider-subject lookup returns no row, the endpoint MUST respond HTTP 404 with code `user_not_found`. User creation is the responsibility of the distinct `POST /api/v1/auth/signup` endpoint defined in the `auth-signup` capability. Callers that receive `user_not_found` from `/signin` SHOULD retry through `/signup` after collecting the `date_of_birth` required for account creation.
 
