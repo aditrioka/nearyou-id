@@ -39,6 +39,12 @@ apple_sql=$(  [ -n "$apple_hash"  ] && echo "'$apple_hash'"  || echo "NULL" )
 # Strip jdbc: prefix for psql connection string.
 psql_url="${DB_URL#jdbc:}"
 
+# Inject DB_USER into the URL so psql doesn't silently fall back to the OS
+# `$USER` (which fails auth on machines where the login user != postgres).
+# Form: postgresql://user@host:port/db
+db_user="${DB_USER:-postgres}"
+psql_url=$(printf '%s' "$psql_url" | sed "s|postgresql://|postgresql://${db_user}@|")
+
 PGPASSWORD="${DB_PASSWORD:-postgres}" psql "$psql_url" -v ON_ERROR_STOP=1 <<SQL
 INSERT INTO users (
     username, display_name, date_of_birth,
