@@ -6,3 +6,5 @@ nearyou:
   active: true
   RawFromPostsRule:
     active: true
+  BlockExclusionJoinRule:
+    active: true

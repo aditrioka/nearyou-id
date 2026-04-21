@@ -59,3 +59,15 @@ tasks.withType<Test>().configureEach {
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
 }
+
+// Dev-only: mint an access JWT for an existing users.id, for manual curl smoke tests.
+// Wrapped by `dev/scripts/mint-dev-jwt.sh`. Reads KTOR_RSA_PRIVATE_KEY from the env.
+tasks.register<JavaExec>("mintDevJwt") {
+    group = "application"
+    description = "Mint a dev access JWT for the given user UUID."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("id.nearyou.app.dev.MintDevJwtKt")
+    standardInput = System.`in`
+    // Quiet down Gradle's own output so the captured stdout is just the token.
+    logging.captureStandardOutput(LogLevel.QUIET)
+}

@@ -84,8 +84,8 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
 12. Token version revocation (Redis cache + invalidation hooks + DB fallback)
 13. Post creation + PostGIS storage (dual column: `actual_location` NOT NULL + `display_location` NOT NULL with **HMAC-SHA256(JITTER_SECRET, post_id) jitter**)
 14. `renderDistance` implementation with fuzz-first / floor 5km / round-to-1km ordering in `:shared:distance`
-15. Nearby + Following + Global timeline spatial queries (using `display_location`)
-16. **Block user feature**: schema + endpoints + cascade follow removal + CI lint
+15. Nearby + Following + Global timeline spatial queries (using `display_location`) — **Nearby shipped** in `nearby-timeline-with-blocks` change (V5 + `GET /api/v1/timeline/nearby`); Following needs the `follows` schema; Global needs `admin_regions` polygon reverse-geocoding
+16. **Block user feature**: schema + endpoints + cascade follow removal + CI lint — **schema + endpoints + lint shipped** in `nearby-timeline-with-blocks` change (V5 `user_blocks` + `POST/DELETE/GET /api/v1/blocks` + Detekt `BlockExclusionJoinRule`); follow-cascade waits on follow system
 17. **Analytics consent schema** (`users.analytics_consent JSONB`) + consent-aware Amplitude wrapper (suppress if off)
 18. **FCM token registration endpoint** (`POST /api/v1/user/fcm-token`)
 19. **Health check endpoints** (`/health/live`, `/health/ready`) + Cloud Run probe config
@@ -112,7 +112,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
     - `referral_tickets` (with `expires_at DEFAULT NOW() + INTERVAL '14 days'`) + `granted_entitlements` with UNIQUE `(referral_ticket_id, user_id)` + partial unique index enforcing one `grant_role = 'inviter'` row per user for the lifetime cap + `users.inviter_reward_claimed_at` sentinel column
     - `admin_regions` schema (province, kabupaten_kota, maritime buffered)
     - `admin_users` + `admin_webauthn_credentials` + **`admin_webauthn_challenges`** (5-min TTL ceremony state with consumed-guard) + `admin_sessions` with **`csrf_token_hash`** column
-    - `user_blocks` schema
+    - `user_blocks` schema — **shipped** as V5 in `nearby-timeline-with-blocks`
     - `user_fcm_tokens` schema with `last_seen_at` freshness column
     - `csam_detection_archive` (90-day preservation, AES-256-GCM metadata; plain B-tree `expires_at` index, NOT partial; **UNIQUE on `image_hash` and partial UNIQUE on `cf_match_id`** for deduplication across trigger paths; **`source` column** distinguishing `admin_manual` vs `cf_worker` vs `email_poll`)
     - `admin_actions_log` immutable audit table (UPDATE/DELETE revoked at `admin_app` role)
@@ -173,7 +173,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
     - FTS search query isolated <150ms
     - Load test 100 concurrent
     - Re-benchmark Broadcast mode cost per message at realistic scale
-15. Coordinate fuzzing path audit (all spatial queries use `display_location` except reverse geocoding + admin)
+15. Coordinate fuzzing path audit (all spatial queries use `display_location` except reverse geocoding + admin) — **first audit target is `nearby-timeline`** (the read path shipped in change `nearby-timeline-with-blocks`); verify response JSON never exposes `actual_location` or its derived lat/lng
 16. Perspective API integration (stopgap text moderation, 500ms timeout fail-open, kill switch flag, writes to `moderation_queue` on high score)
 
 ### Phase 3: Mobile App Android + iOS (Weeks 7-10)

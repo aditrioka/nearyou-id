@@ -16,6 +16,7 @@ class NearYouRuleSetProvider : RuleSetProvider {
             ruleSetId,
             listOf(
                 RawFromPostsRule(config),
+                BlockExclusionJoinRule(config),
             ),
         )
 

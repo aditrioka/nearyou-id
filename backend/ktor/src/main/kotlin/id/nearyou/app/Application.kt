@@ -22,6 +22,8 @@ import id.nearyou.app.auth.signup.SignupService
 import id.nearyou.app.auth.signup.UsernameGenerator
 import id.nearyou.app.auth.signup.WordPairResource
 import id.nearyou.app.auth.signup.signupRoutes
+import id.nearyou.app.block.BlockService
+import id.nearyou.app.block.blockRoutes
 import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.guard.ContentEmptyException
@@ -32,18 +34,24 @@ import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
 import id.nearyou.app.infra.repo.JdbcPostRepository
+import id.nearyou.app.infra.repo.JdbcPostsTimelineRepository
 import id.nearyou.app.infra.repo.JdbcRefreshTokenRepository
 import id.nearyou.app.infra.repo.JdbcRejectedIdentifierRepository
 import id.nearyou.app.infra.repo.JdbcReservedUsernameRepository
+import id.nearyou.app.infra.repo.JdbcUserBlockRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.infra.repo.PostRepository
+import id.nearyou.app.infra.repo.PostsTimelineRepository
 import id.nearyou.app.infra.repo.RefreshTokenRepository
 import id.nearyou.app.infra.repo.RejectedIdentifierRepository
 import id.nearyou.app.infra.repo.ReservedUsernameRepository
+import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.LocationOutOfBoundsException
 import id.nearyou.app.post.postRoutes
+import id.nearyou.app.timeline.NearbyTimelineService
+import id.nearyou.app.timeline.timelineRoutes
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.http.HttpStatusCode
@@ -203,6 +211,10 @@ fun Application.module() {
             contentGuard = contentLengthGuard,
             jitterSecret = jitterSecret,
         )
+    val userBlockRepository: UserBlockRepository = JdbcUserBlockRepository(dataSource)
+    val blockService = BlockService(userBlockRepository)
+    val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
+    val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -235,6 +247,10 @@ fun Application.module() {
                 single { contentLengthGuard }
                 single<PostRepository> { postRepository }
                 single { createPostService }
+                single<UserBlockRepository> { userBlockRepository }
+                single { blockService }
+                single<PostsTimelineRepository> { postsTimelineRepository }
+                single { nearbyTimelineService }
             },
         )
     }
@@ -248,6 +264,8 @@ fun Application.module() {
     realtimeRoutes(realtimeIssuer)
     appleS2SRoutes(appleS2SJwks, appleAudiences, userRepository, InMemoryDedup())
     postRoutes(createPostService)
+    blockRoutes(blockService)
+    timelineRoutes(nearbyTimelineService)
 }
 
 private fun Application.csvAudiences(key: String): Set<String> =
