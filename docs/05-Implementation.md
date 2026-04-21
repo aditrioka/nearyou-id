@@ -712,6 +712,8 @@ Rate limit: Free 10/day + 500/hour burst, Premium unlimited + 500/hour burst (se
 
 ## Post Replies Schema
 
+> V8 shipped in change `post-replies-v8` — schema + POST/GET/DELETE endpoints + `reply_count` on both timelines. The auto-hide trigger (via `reports.target_type = 'reply'`) and rate limiting remain deferred.
+
 ```sql
 CREATE TABLE post_replies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

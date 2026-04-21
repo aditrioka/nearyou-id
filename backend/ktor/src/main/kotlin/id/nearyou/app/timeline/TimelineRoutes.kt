@@ -25,6 +25,7 @@ data class NearbyPostDto(
     val distanceM: Double,
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
+    @SerialName("reply_count") val replyCount: Int,
 )
 
 @Serializable
@@ -39,6 +40,7 @@ data class FollowingPostDto(
     val longitude: Double,
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
+    @SerialName("reply_count") val replyCount: Int,
 )
 
 @Serializable
@@ -73,6 +75,7 @@ fun Application.followingTimelineRoutes(service: FollowingTimelineService) {
                                     longitude = it.longitude,
                                     createdAt = it.createdAt.toString(),
                                     likedByViewer = it.likedByViewer,
+                                    replyCount = it.replyCount,
                                 )
                             },
                         nextCursor = page.nextCursor?.let(::encodeCursor),
@@ -141,6 +144,7 @@ fun Application.timelineRoutes(service: NearbyTimelineService) {
                                     distanceM = it.distanceMeters,
                                     createdAt = it.createdAt.toString(),
                                     likedByViewer = it.likedByViewer,
+                                    replyCount = it.replyCount,
                                 )
                             },
                         nextCursor = page.nextCursor?.let(::encodeCursor),

@@ -61,7 +61,9 @@ fun Application.installContentLengthGuard(): ContentLengthGuard {
                 mapOf(
                     // docs/05-Implementation.md: post content 280 code points.
                     "post.content" to 280,
-                    // Reply / chat / bio / display_name / username register in later changes.
+                    // Reply content: 280 code points (matches post length — docs/05-Implementation.md §733).
+                    "reply.content" to 280,
+                    // Chat / bio / display_name / username register in later changes.
                 ),
         )
     log.info("ContentLengthGuard installed with {} registered keys", guard.limitFor("post.content"))

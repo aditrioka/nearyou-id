@@ -12,6 +12,7 @@ data class TimelineRow(
     val distanceMeters: Double,
     val createdAt: Instant,
     val likedByViewer: Boolean,
+    val replyCount: Int,
 )
 
 interface PostsTimelineRepository {

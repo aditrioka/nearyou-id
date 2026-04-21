@@ -25,7 +25,9 @@ import id.nearyou.app.auth.signup.signupRoutes
 import id.nearyou.app.block.BlockService
 import id.nearyou.app.block.blockRoutes
 import id.nearyou.app.engagement.LikeService
+import id.nearyou.app.engagement.ReplyService
 import id.nearyou.app.engagement.likeRoutes
+import id.nearyou.app.engagement.replyRoutes
 import id.nearyou.app.follow.FollowService
 import id.nearyou.app.follow.followRoutes
 import id.nearyou.app.follow.userSocialRoutes
@@ -39,6 +41,7 @@ import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
 import id.nearyou.app.infra.repo.JdbcPostLikeRepository
+import id.nearyou.app.infra.repo.JdbcPostReplyRepository
 import id.nearyou.app.infra.repo.JdbcPostRepository
 import id.nearyou.app.infra.repo.JdbcPostsFollowingRepository
 import id.nearyou.app.infra.repo.JdbcPostsTimelineRepository
@@ -57,6 +60,7 @@ import id.nearyou.app.infra.repo.ReservedUsernameRepository
 import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.data.repository.PostLikeRepository
+import id.nearyou.data.repository.PostReplyRepository
 import id.nearyou.data.repository.UserFollowsRepository
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.LocationOutOfBoundsException
@@ -230,6 +234,8 @@ fun Application.module() {
     val followService = FollowService(userFollowsRepository)
     val postLikeRepository: PostLikeRepository = JdbcPostLikeRepository(dataSource)
     val likeService = LikeService(postLikeRepository)
+    val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
+    val replyService = ReplyService(postReplyRepository)
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
     val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
@@ -272,6 +278,8 @@ fun Application.module() {
                 single { followService }
                 single<PostLikeRepository> { postLikeRepository }
                 single { likeService }
+                single<PostReplyRepository> { postReplyRepository }
+                single { replyService }
                 single<PostsTimelineRepository> { postsTimelineRepository }
                 single { nearbyTimelineService }
                 single<PostsFollowingRepository> { postsFollowingRepository }
@@ -293,6 +301,7 @@ fun Application.module() {
     followRoutes(followService)
     userSocialRoutes(followService)
     likeRoutes(likeService)
+    replyRoutes(replyService, contentLengthGuard)
     timelineRoutes(nearbyTimelineService)
     followingTimelineRoutes(followingTimelineService)
 }

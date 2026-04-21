@@ -84,6 +84,23 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  * relationship with the post author. The `post_likes_is_deliberately_not_protected_table`
  * test fixture encodes this decision in code as a guardrail against future contributors
  * adding `post_likes` out of misplaced completeness.
+ *
+ * ### `post_replies` — protected table, active as of V8
+ *
+ * `post_replies` has been in the protected-table regex since this rule was first written
+ * (docs/05-Implementation.md §1833), but had no production Kotlin reader until V8. With
+ * V8 (`post-replies-v8`), `JdbcPostReplyRepository.listByPost` is the first live reader —
+ * a `FROM post_replies JOIN visible_users` literal that carries both `blocker_id =` and
+ * `blocked_id =` fragments. From V8 forward the rule actively gates `post_replies` reads
+ * in production. The positive-pass fixture `reply_list_query_with_bidirectional_block_exclusion`
+ * and positive-fail fixture `reply_list_query_missing_blocked_id_fails` lock the canonical
+ * literal shape — a future refactor that drops one of the NOT-IN subqueries trips the fail
+ * fixture.
+ *
+ * `DELETE FROM post_replies` is NEVER produced by repository code (post-replies-v8 design
+ * Decision 2 — soft-delete only, via UPDATE). The single legitimate hard-delete site is
+ * the future tombstone/cascade worker, which lives in the admin module and is exempt via
+ * the admin-path allowlist.
  */
 class BlockExclusionJoinRule(config: Config = Config.empty) : Rule(config) {
     override val issue: Issue =

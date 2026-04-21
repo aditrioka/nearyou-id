@@ -39,6 +39,9 @@ class JdbcPostsFollowingRepository(
         //  - lat/lng still come from display_location (jitter invariant preserved).
         //  - LEFT JOIN post_likes for `liked_by_viewer`, PK-scoped to viewer so the
         //    JOIN adds at most one row per page row (keyset / ORDER BY / LIMIT intact).
+        //  - LEFT JOIN LATERAL for `reply_count` — same sub-scalar shape as Nearby.
+        //    Shadow-ban exclusion applied; viewer-block exclusion deliberately NOT
+        //    applied (privacy tradeoff; post-replies-v8 design Decision 5).
         //
         // Both user_blocks NOT-IN subqueries are required for BlockExclusionJoinRule.
         val sql =
@@ -51,9 +54,17 @@ class JdbcPostsFollowingRepository(
                            ST_Y(p.display_location::geometry) AS lat,
                            ST_X(p.display_location::geometry) AS lng,
                            p.created_at,
-                           (pl.user_id IS NOT NULL) AS liked_by_viewer
+                           (pl.user_id IS NOT NULL) AS liked_by_viewer,
+                           c.n AS reply_count
                       FROM visible_posts p
                       LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = ?
+                      LEFT JOIN LATERAL (
+                          SELECT COUNT(*) AS n
+                            FROM post_replies pr
+                            JOIN visible_users vu ON vu.id = pr.author_id
+                           WHERE pr.post_id = p.id
+                             AND pr.deleted_at IS NULL
+                      ) c ON TRUE
                      WHERE p.author_id IN (SELECT followee_id FROM follows WHERE follower_id = ?)
                        AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?)
                        AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?)
@@ -90,6 +101,7 @@ class JdbcPostsFollowingRepository(
                                 distanceMeters = 0.0,
                                 createdAt = rs.getTimestamp("created_at").toInstant(),
                                 likedByViewer = rs.getBoolean("liked_by_viewer"),
+                                replyCount = rs.getInt("reply_count"),
                             )
                     }
                     return out

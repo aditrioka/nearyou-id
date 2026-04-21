@@ -308,6 +308,62 @@ class BlockExclusionJoinLintTest : StringSpec({
         rule.lint(code).shouldBeEmpty()
     }
 
+    // ---- V8: reply-list reader fixtures (post-replies-v8 spec ADDED requirements) ----
+
+    "reply_list_query_with_bidirectional_block_exclusion — passes" {
+        // Canonical V8 reply-list literal from JdbcPostReplyRepository. Carries all four
+        // lint tokens — `post_replies`, `user_blocks`, `blocker_id =`, `blocked_id =` —
+        // AND joins `visible_users` for shadow-ban exclusion. Must NOT trip the rule.
+        val code =
+            """
+            package id.nearyou.app.infra.repo
+
+            class T {
+                fun q(): String =
+                    "SELECT pr.id, pr.post_id, pr.author_id, pr.content, pr.is_auto_hidden, pr.created_at, pr.updated_at " +
+                        "FROM post_replies pr " +
+                        "JOIN visible_users vu ON vu.id = pr.author_id " +
+                        "WHERE pr.post_id = ? AND pr.deleted_at IS NULL " +
+                        "AND (pr.is_auto_hidden = FALSE OR pr.author_id = ?) " +
+                        "AND pr.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?) " +
+                        "AND pr.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?) " +
+                        "ORDER BY pr.created_at DESC, pr.id DESC LIMIT 31"
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
+    "reply_list_query_missing_blocked_id_fails — rule fires" {
+        // Same canonical literal with the second NOT-IN subquery removed (`blocker_id =`
+        // present, `blocked_id =` absent). Must trip BlockExclusionJoinRule.
+        val code =
+            """
+            package id.nearyou.app.infra.repo
+
+            class T {
+                fun q(): String =
+                    "SELECT pr.id FROM post_replies pr " +
+                        "JOIN visible_users vu ON vu.id = pr.author_id " +
+                        "WHERE pr.post_id = ? AND pr.deleted_at IS NULL " +
+                        "AND pr.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?) " +
+                        "ORDER BY pr.created_at DESC LIMIT 31"
+            }
+            """.trimIndent()
+        rule.lint(code) shouldHaveSize 1
+    }
+
+    "ReplyOwnContent file name pattern exempts the file (own-content bypass)" {
+        val code =
+            """
+            package id.nearyou.app.engagement.repository
+
+            class ReplyOwnContentRepository {
+                fun q(): String = "SELECT id FROM post_replies WHERE author_id = ?"
+            }
+            """.trimIndent()
+        rule.lint(writeKtFile("ReplyOwnContentRepository.kt", code)).shouldBeEmpty()
+    }
+
     "FROM postscategory does not match (word boundary)" {
         val code =
             """

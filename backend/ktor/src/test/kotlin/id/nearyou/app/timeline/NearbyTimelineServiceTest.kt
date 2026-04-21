@@ -122,10 +122,64 @@ class NearbyTimelineServiceTest : StringSpec({
     fun cleanup(vararg userIds: UUID) {
         dataSource.connection.use { conn ->
             conn.createStatement().use { st ->
+                // V8 post_replies.author_id uses ON DELETE RESTRICT, so we must
+                // hard-delete any reply rows these users authored BEFORE the user
+                // rows can be removed. Deleting their posts first cascades replies
+                // ON THEIR posts, but not replies they authored elsewhere.
                 userIds.forEach {
+                    st.executeUpdate("DELETE FROM post_replies WHERE author_id = '$it'")
                     st.executeUpdate("DELETE FROM posts WHERE author_id = '$it'")
                     st.executeUpdate("DELETE FROM users WHERE id = '$it'")
                 }
+            }
+        }
+    }
+
+    fun seedReply(postId: UUID, authorId: UUID, deletedAt: java.time.Instant? = null) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "INSERT INTO post_replies (post_id, author_id, content, deleted_at) VALUES (?, ?, ?, ?)",
+            ).use { ps ->
+                ps.setObject(1, postId)
+                ps.setObject(2, authorId)
+                ps.setString(3, "r-${UUID.randomUUID().toString().take(6)}")
+                if (deletedAt != null) ps.setTimestamp(4, java.sql.Timestamp.from(deletedAt))
+                else ps.setNull(4, java.sql.Types.TIMESTAMP_WITH_TIMEZONE)
+                ps.executeUpdate()
+            }
+        }
+    }
+
+    fun seedShadowBannedUser(): UUID {
+        val id = UUID.randomUUID()
+        val short = id.toString().replace("-", "").take(8)
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO users (
+                    id, username, display_name, date_of_birth, invite_code_prefix, is_shadow_banned
+                ) VALUES (?, ?, ?, ?, ?, TRUE)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setString(2, "sb_$short")
+                ps.setString(3, "Shadow Banned")
+                ps.setDate(4, Date.valueOf(LocalDate.of(1990, 1, 1)))
+                ps.setString(5, "s${short.take(7)}")
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
+    fun insertBlock(blocker: UUID, blocked: UUID) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            ).use { ps ->
+                ps.setObject(1, blocker)
+                ps.setObject(2, blocked)
+                ps.executeUpdate()
             }
         }
     }
@@ -178,7 +232,7 @@ class NearbyTimelineServiceTest : StringSpec({
                 val body = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
                 val ids = body["posts"]!!.jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids shouldBe listOf(p3.toString(), p2.toString(), p1.toString())
-                // Each post item carries the documented keys (V7 adds liked_by_viewer).
+                // Each post item carries the documented keys (V7 adds liked_by_viewer; V8 adds reply_count).
                 val first = body["posts"]!!.jsonArray.first().jsonObject
                 first.keys shouldBe setOf(
                     "id",
@@ -189,6 +243,7 @@ class NearbyTimelineServiceTest : StringSpec({
                     "distanceM",
                     "createdAt",
                     "liked_by_viewer",
+                    "reply_count",
                 )
             }
         } finally {
@@ -526,6 +581,179 @@ class NearbyTimelineServiceTest : StringSpec({
             }
         } finally {
             cleanup(viewer)
+        }
+    }
+
+    // ---- V8: reply_count tests ----
+
+    "reply_count — 0 for post with no replies" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val p = seedPost(author, -6.200, 106.800)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                val post = arr.first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                (post as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "0"
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "reply_count — exact count when multiple visible replies exist" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        val (replier, _) = seedUser()
+        try {
+            val p = seedPost(author, -6.200, 106.800)
+            seedReply(p, replier)
+            seedReply(p, replier)
+            seedReply(p, replier)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                val post = arr.first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                (post as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "3"
+            }
+        } finally {
+            cleanup(viewer, author, replier)
+        }
+    }
+
+    "reply_count — excludes shadow-banned repliers via visible_users JOIN" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        val (replierVisible, _) = seedUser()
+        val replierBanned = seedShadowBannedUser()
+        try {
+            val p = seedPost(author, -6.200, 106.800)
+            // 3 replies: 2 visible + 1 shadow-banned → reply_count = 2.
+            seedReply(p, replierVisible)
+            seedReply(p, replierVisible)
+            seedReply(p, replierBanned)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                val post = arr.first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                (post as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "2"
+            }
+        } finally {
+            cleanup(viewer, author, replierVisible, replierBanned)
+        }
+    }
+
+    "reply_count — excludes soft-deleted replies" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        val (replier, _) = seedUser()
+        try {
+            val p = seedPost(author, -6.200, 106.800)
+            seedReply(p, replier)
+            seedReply(p, replier)
+            seedReply(p, replier)
+            seedReply(p, replier, deletedAt = java.time.Instant.now())
+            seedReply(p, replier, deletedAt = java.time.Instant.now())
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                val post = arr.first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                (post as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "3"
+            }
+        } finally {
+            cleanup(viewer, author, replier)
+        }
+    }
+
+    "reply_count — does NOT apply viewer-block exclusion (privacy tradeoff)" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        val (replierOk1, _) = seedUser()
+        val (replierOk2, _) = seedUser()
+        val (replierBlocked, _) = seedUser()
+        try {
+            val p = seedPost(author, -6.200, 106.800)
+            // Viewer blocks replierBlocked — their reply is still counted.
+            insertBlock(viewer, replierBlocked)
+            seedReply(p, replierOk1)
+            seedReply(p, replierOk2)
+            seedReply(p, replierBlocked)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                val post = arr.first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                (post as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "3"
+            }
+        } finally {
+            cleanup(viewer, author, replierOk1, replierOk2, replierBlocked)
+        }
+    }
+
+    "reply_count — key present on every post" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            repeat(3) {
+                seedPost(author, -6.200 + it * 0.0001, 106.800)
+                Thread.sleep(2)
+            }
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                arr.forEach { (it as JsonObject).containsKey("reply_count") shouldBe true }
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "reply_count — LATERAL cardinality invariant: 5 posts with 20 total replies → 5 rows, not 25" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        val (replier, _) = seedUser()
+        try {
+            val posts = (0 until 5).map {
+                seedPost(author, -6.200 + it * 0.0001, 106.800).also { Thread.sleep(2) }
+            }
+            // Spread 20 replies across the 5 posts (4 each).
+            posts.forEach { pid -> repeat(4) { seedReply(pid, replier) } }
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                arr shouldHaveSize 5
+                arr.forEach { (it as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "4" }
+            }
+        } finally {
+            cleanup(viewer, author, replier)
         }
     }
 })

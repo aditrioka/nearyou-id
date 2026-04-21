@@ -27,6 +27,11 @@ class JdbcPostsTimelineRepository(
         // - LEFT JOIN post_likes on (post_id, :viewer) projects `liked_by_viewer`. PK
         //   on post_likes keeps at most one row per page row, so cardinality is unchanged
         //   and the keyset predicate / ORDER BY / LIMIT are untouched.
+        // - LEFT JOIN LATERAL reply-counter projects `reply_count`. Sub-scalar is one
+        //   row per outer row (COUNT always produces one tuple) — cardinality unchanged.
+        //   JOIN visible_users for shadow-ban exclusion on the reply author. Viewer-
+        //   block exclusion DELIBERATELY NOT applied (per-viewer count would leak block
+        //   state; post-replies-v8 design Decision 5 + spec privacy tradeoff).
         val sql =
             buildString {
                 append(
@@ -38,9 +43,17 @@ class JdbcPostsTimelineRepository(
                            ST_X(p.display_location::geometry) AS lng,
                            ST_Distance(p.display_location, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) AS distance_m,
                            p.created_at,
-                           (pl.user_id IS NOT NULL) AS liked_by_viewer
+                           (pl.user_id IS NOT NULL) AS liked_by_viewer,
+                           c.n AS reply_count
                       FROM visible_posts p
                       LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = ?
+                      LEFT JOIN LATERAL (
+                          SELECT COUNT(*) AS n
+                            FROM post_replies pr
+                            JOIN visible_users vu ON vu.id = pr.author_id
+                           WHERE pr.post_id = p.id
+                             AND pr.deleted_at IS NULL
+                      ) c ON TRUE
                      WHERE ST_DWithin(p.display_location, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)
                        AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?)
                        AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?)
@@ -82,6 +95,7 @@ class JdbcPostsTimelineRepository(
                                 distanceMeters = rs.getDouble("distance_m"),
                                 createdAt = rs.getTimestamp("created_at").toInstant(),
                                 likedByViewer = rs.getBoolean("liked_by_viewer"),
+                                replyCount = rs.getInt("reply_count"),
                             )
                     }
                     return out
