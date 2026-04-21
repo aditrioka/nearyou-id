@@ -1,31 +1,4 @@
-# following-timeline Specification
-
-## Purpose
-TBD - created by archiving change following-timeline-with-follow-cascade. Update Purpose after archive.
-## Requirements
-### Requirement: GET /api/v1/timeline/following endpoint exists
-
-A Ktor route SHALL be registered at `GET /api/v1/timeline/following`. The route MUST require Bearer JWT authentication via the existing `auth-jwt` plugin; an unauthenticated request MUST receive HTTP 401 with error code `unauthenticated`. The route handler MUST live under `backend/ktor/src/main/kotlin/id/nearyou/app/timeline/` alongside `NearbyTimelineService`.
-
-#### Scenario: Unauthenticated rejected
-- **WHEN** `GET /api/v1/timeline/following` is called with no `Authorization` header
-- **THEN** the response is HTTP 401 with `error.code = "unauthenticated"`
-
-#### Scenario: Authenticated routed to handler
-- **WHEN** the same request is made with a valid Bearer JWT
-- **THEN** the request reaches the handler (HTTP status is not 401)
-
-### Requirement: Query parameters
-
-The endpoint SHALL accept only `cursor` as an optional query parameter. No `lat`/`lng`/`radius_m` parameters are accepted; the endpoint is purely chronological-over-follows. Unknown query parameters MUST be ignored (not rejected).
-
-#### Scenario: No geo params required
-- **WHEN** the request supplies no query params
-- **THEN** the response is HTTP 200 with the first page of the caller's Following timeline
-
-#### Scenario: Malformed cursor rejected
-- **WHEN** `cursor=not-a-base64-json`
-- **THEN** the response is HTTP 400 with `error.code = "invalid_cursor"`
+## MODIFIED Requirements
 
 ### Requirement: Canonical query joins visible_posts, follows, and excludes blocks bidirectionally
 
@@ -76,38 +49,6 @@ Both `user_blocks` NOT-IN subqueries (on the primary `FROM visible_posts` clause
 #### Scenario: Reply counter does NOT apply viewer-block exclusion
 - **WHEN** post P has 3 visible replies, 1 of which is by a user X blocked by the viewer (via `user_blocks`)
 - **THEN** the response item for P has `reply_count = 3` (the blocked replier's row IS counted)
-
-### Requirement: Keyset pagination on (created_at DESC, id DESC)
-
-The endpoint SHALL paginate via keyset on `(created_at DESC, id DESC)` using the `posts_timeline_cursor_idx` index from `post-creation`. The cursor parameter is the SAME base64url-encoded JSON `{"c":"<created_at ISO-8601>","i":"<post UUID>"}` used by `nearby-timeline`. The endpoint MUST NOT use SQL `OFFSET`.
-
-#### Scenario: First page no cursor
-- **WHEN** the request has no `cursor`
-- **THEN** the SQL query has no `(created_at, id) <` clause AND returns the most recent followed-author posts
-
-#### Scenario: Subsequent page with cursor
-- **WHEN** the response on page 1 contains `next_cursor = "<token>"` AND the next request supplies `cursor=<token>`
-- **THEN** the SQL query includes `(created_at, id) < (cursor.c, cursor.i)` AND no row from page 1 appears in page 2
-
-### Requirement: Per-page cap of 30
-
-The endpoint SHALL `LIMIT` the SQL query to `31` (page-size 30 plus one probe row to detect a next page). The response `posts` array MUST contain at most 30 elements. The probe row, if present, MUST NOT appear in the response and MUST seed `next_cursor`.
-
-#### Scenario: At most 30 posts in response
-- **WHEN** the caller follows authors who have produced 100 eligible posts
-- **THEN** `response.posts.length <= 30`
-
-#### Scenario: next_cursor present when more exist
-- **WHEN** there are >30 eligible posts AND the response contains 30 posts
-- **THEN** `response.next_cursor` is a non-null base64url string
-
-#### Scenario: next_cursor null on last page
-- **WHEN** the response contains <30 posts (or exactly 30 with no further matches)
-- **THEN** `response.next_cursor` is `null`
-
-#### Scenario: Empty set when caller follows nobody
-- **WHEN** the caller has zero `follows` rows AND calls the endpoint
-- **THEN** the response is HTTP 200 with `posts = []` AND `next_cursor = null`
 
 ### Requirement: Response shape (posts minus distance)
 
@@ -202,4 +143,3 @@ The `reply_count` field (added in V8) MUST be a JSON integer ≥ 0 and MUST be p
 #### Scenario: Test class exists
 - **WHEN** running `./gradlew :backend:ktor:test --tests '*FollowingTimelineServiceTest*'`
 - **THEN** the class is discovered AND every numbered scenario above corresponds to at least one `@Test` method
-

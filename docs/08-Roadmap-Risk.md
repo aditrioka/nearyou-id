@@ -147,7 +147,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
 
 1. Follow/unfollow system (using `follows` schema)
 2. Following + Global timeline with polygon reverse geocoding (using `actual_location`)
-3. Like + reply (20/day Free limit, 280 chars max, flat structure, block-aware) — **Likes shipped in V7 (`post-likes-v7`); reply deferred to V8**
+3. Like + reply (20/day Free limit, 280 chars max, flat structure, block-aware) — **Likes shipped in V7 (`post-likes-v7`); reply shipped in V8 (`post-replies-v8`)** — rate limit + auto-hide trigger remain (deferred to rate-limit change + `reports` change)
 4. **Report feature**: `reports` insert endpoint, reason picker, auto-hide trigger at 3 unique reporters (accounts >7 days), `moderation_queue` row insert
 5. **In-app notifications API**: list endpoint, mark-read endpoint, unread count, FCM parallel dispatch, `notifications` table write-path
 6. **Search feature (Premium, PostgreSQL FTS + pg_trgm)**: endpoint + query pattern + GIN index verification + rate limit 60/hour

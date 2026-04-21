@@ -1,58 +1,4 @@
-# nearby-timeline Specification
-
-## Purpose
-
-Defines the HTTP contract for `GET /api/v1/timeline/nearby` — the first read endpoint that surfaces visible, geographically-relevant posts to authenticated viewers. Specifies authentication, required query parameters, coordinate envelope and radius validation, the canonical SQL query (joining `visible_posts` with bidirectional `user_blocks` exclusion), keyset cursor format, server-side distance computation, per-page cap, response shape, and integration test coverage.
-
-See `docs/05-Implementation.md § Timeline Implementation` for the canonical Nearby query and `docs/08-Roadmap-Risk.md` Phase 1 item 30 for cap rationale.
-## Requirements
-### Requirement: GET /api/v1/timeline/nearby endpoint exists
-
-A Ktor route SHALL be registered at `GET /api/v1/timeline/nearby`. The route MUST require Bearer JWT authentication via the existing `auth-jwt` plugin; an unauthenticated request MUST receive HTTP 401 with error code `unauthenticated`. The route handler MUST live under `backend/ktor/src/main/kotlin/id/nearyou/app/timeline/`.
-
-#### Scenario: Unauthenticated rejected
-- **WHEN** `GET /api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=1000` is called with no `Authorization` header
-- **THEN** the response is HTTP 401 with `error.code = "unauthenticated"`
-
-#### Scenario: Authenticated routed to handler
-- **WHEN** the same request is made with a valid Bearer JWT
-- **THEN** the request reaches the handler (HTTP status is not 401)
-
-### Requirement: Required query parameters
-
-The endpoint SHALL require `lat`, `lng`, and `radius_m` as query parameters. Missing or non-numeric values MUST yield HTTP 400 with error code `invalid_request`. The `cursor` parameter is optional; if absent, the endpoint returns the first page.
-
-#### Scenario: Missing lat rejected
-- **WHEN** the request omits `lat`
-- **THEN** the response is HTTP 400 with `error.code = "invalid_request"`
-
-#### Scenario: Non-numeric radius rejected
-- **WHEN** `radius_m=abc`
-- **THEN** the response is HTTP 400 with `error.code = "invalid_request"`
-
-### Requirement: Coordinate envelope check (reuses post-creation guard)
-
-The endpoint SHALL reject requests where `lat` is outside `[-11.0, 6.5]` or `lng` is outside `[94.0, 142.0]` with HTTP 400 code `location_out_of_bounds`. This MUST use the same envelope and error code as `post-creation`'s envelope check.
-
-#### Scenario: Out-of-envelope rejected
-- **WHEN** the request has `lat=10.0, lng=120.0`
-- **THEN** the response is HTTP 400 with `error.code = "location_out_of_bounds"` AND no DB query executes
-
-### Requirement: Radius bounds
-
-`radius_m` SHALL be validated to the inclusive integer range `[100, 50000]`. Out-of-range values MUST yield HTTP 400 with error code `radius_out_of_bounds`.
-
-#### Scenario: Radius too small
-- **WHEN** `radius_m=50`
-- **THEN** the response is HTTP 400 with `error.code = "radius_out_of_bounds"`
-
-#### Scenario: Radius too large
-- **WHEN** `radius_m=100000`
-- **THEN** the response is HTTP 400 with `error.code = "radius_out_of_bounds"`
-
-#### Scenario: Boundary radius accepted
-- **WHEN** `radius_m=100` or `radius_m=50000`
-- **THEN** the request is not rejected for radius bounds
+## MODIFIED Requirements
 
 ### Requirement: Canonical query joins visible_posts and excludes blocks bidirectionally
 
@@ -97,38 +43,6 @@ Both `user_blocks` NOT-IN subqueries (on the primary `FROM visible_posts` clause
 #### Scenario: Reply counter does NOT apply viewer-block exclusion
 - **WHEN** post P has 3 visible replies, 1 of which is by a user X blocked by the viewer (via `user_blocks`)
 - **THEN** the response item for P has `reply_count = 3` (the blocked replier's row IS counted; the viewer simply does not see X's reply in the reply-list endpoint — the counter does not leak block state)
-
-### Requirement: Keyset pagination on (created_at DESC, id DESC)
-
-The endpoint SHALL paginate via keyset on `(created_at DESC, id DESC)` using the `posts_timeline_cursor_idx` index. The cursor parameter is a base64url-encoded JSON object `{"c":"<created_at ISO-8601>","i":"<post UUID>"}`. The endpoint MUST NOT use SQL `OFFSET`. A malformed cursor MUST yield HTTP 400 with error code `invalid_cursor`.
-
-#### Scenario: First page no cursor
-- **WHEN** the request has no `cursor`
-- **THEN** the SQL query has no `(created_at, id) <` clause AND returns the most recent posts
-
-#### Scenario: Subsequent page with cursor
-- **WHEN** the response on page 1 contains `next_cursor = "<token>"` AND the next request supplies `cursor=<token>`
-- **THEN** the SQL query includes `(created_at, id) < (cursor.c, cursor.i)` AND no row from page 1 appears in page 2
-
-#### Scenario: Malformed cursor rejected
-- **WHEN** `cursor=not-a-base64-json`
-- **THEN** the response is HTTP 400 with `error.code = "invalid_cursor"`
-
-### Requirement: Per-page cap of 30
-
-The endpoint SHALL `LIMIT` the SQL query to `31` (page-size 30 plus one probe row to detect a next page). The response `posts` array MUST contain at most 30 elements. The probe row, if present, MUST NOT appear in the response and MUST seed `next_cursor`.
-
-#### Scenario: At most 30 posts in response
-- **WHEN** there are 100 posts within radius for a given viewer
-- **THEN** `response.posts.length <= 30`
-
-#### Scenario: next_cursor present when more exist
-- **WHEN** there are >30 matching posts AND the response contains 30 posts
-- **THEN** `response.next_cursor` is a non-null base64url string
-
-#### Scenario: next_cursor null on last page
-- **WHEN** the response contains <30 posts (or exactly 30 with no further matches)
-- **THEN** `response.next_cursor` is `null`
 
 ### Requirement: Response shape
 
@@ -222,4 +136,3 @@ The `reply_count` field (added in V8) MUST be a JSON integer ≥ 0 and MUST be p
 #### Scenario: Test class exists
 - **WHEN** running `./gradlew :backend:ktor:test --tests '*NearbyTimelineServiceTest*'`
 - **THEN** the class is discovered AND every scenario above corresponds to at least one `@Test` method
-
