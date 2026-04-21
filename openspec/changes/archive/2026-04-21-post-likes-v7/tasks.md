@@ -9,7 +9,7 @@
 ## 2. docs back-reference
 
 - [x] 2.1 Add a one-line "V7 shipped in change post-likes-v7" back-reference note at or near `docs/05-Implementation.md` §690 (above the likes DDL block); do NOT modify the DDL itself (§694–702) or the `post_liked` notification reference at §851
-- [ ] 2.2 Update `docs/08-Roadmap-Risk.md` Phase 2 item 3 in the ARCHIVE commit (not this PR): mark Likes shipped; Reply deferred to V8
+- [x] 2.2 Update `docs/08-Roadmap-Risk.md` Phase 2 item 3 in the ARCHIVE commit (not this PR): mark Likes shipped; Reply deferred to V8
 
 ## 3. Like repository + service
 

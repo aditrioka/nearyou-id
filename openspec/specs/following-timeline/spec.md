@@ -35,6 +35,8 @@ The endpoint's data query SHALL be the canonical Following query from `docs/05-I
 
 Both block-exclusion subqueries MUST be present simultaneously so `BlockExclusionJoinRule` passes.
 
+As of V7, the query SHALL additionally `LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = :viewer` and project `(pl.user_id IS NOT NULL) AS liked_by_viewer` into the result set. The LEFT JOIN is PK-scoped (`post_likes_pk = (post_id, user_id)`), so at most one `post_likes` row matches per primary-query row — the join MUST NOT fan out rows, MUST NOT alter `COUNT(*)` over the result, MUST NOT appear in the `ORDER BY`, and MUST NOT appear in the keyset predicate `(p.created_at, p.id) < (:c, :i)`. Both `user_blocks` NOT-IN subqueries MUST remain present so `BlockExclusionJoinRule` continues to pass on the updated query literal.
+
 #### Scenario: Post from a non-followed author excluded
 - **WHEN** a post within the last day has `author_user_id = X` AND the caller does NOT follow X
 - **THEN** that post does NOT appear in the response
@@ -50,6 +52,10 @@ Both block-exclusion subqueries MUST be present simultaneously so `BlockExclusio
 #### Scenario: Author-blocked-by-viewer followed post excluded
 - **WHEN** the caller follows X AND there is a `user_blocks` row `(X, caller)`
 - **THEN** X's posts do NOT appear in the response
+
+#### Scenario: LEFT JOIN post_likes does not alter row count
+- **WHEN** 20 followed-author posts are eligible for the caller AND the caller has liked 6 of them
+- **THEN** the query returns exactly 20 rows (not 26; the LEFT JOIN is at-most-one via PK on `(post_id, user_id)`)
 
 ### Requirement: Keyset pagination on (created_at DESC, id DESC)
 
@@ -96,14 +102,17 @@ A successful response SHALL be HTTP 200 with body:
       "content": "<string>",
       "latitude": <double>,
       "longitude": <double>,
-      "created_at": "<ISO-8601 UTC>"
+      "created_at": "<ISO-8601 UTC>",
+      "liked_by_viewer": <boolean>
     }
   ],
   "next_cursor": "<string or null>"
 }
 ```
 
-The response shape is IDENTICAL to `nearby-timeline` MINUS the `distance_m` field. The `latitude`/`longitude` fields MUST be derived from `display_location` (NOT `actual_location`), preserving the jitter invariant from `post-creation`.
+The response shape is IDENTICAL to `nearby-timeline` MINUS the `distance_m` field AND inclusive of the `liked_by_viewer` field added in V7. The `latitude`/`longitude` fields MUST be derived from `display_location` (NOT `actual_location`), preserving the jitter invariant from `post-creation`.
+
+The `liked_by_viewer` field MUST be a JSON Boolean and MUST be present on EVERY post in the response (never omitted, never null). It MUST be `true` if and only if a `post_likes` row exists with `(post_id = <that post's id>, user_id = <caller>)`; otherwise `false`. The value is derived from the `LEFT JOIN post_likes` in the canonical query.
 
 #### Scenario: No distance_m field
 - **WHEN** a post appears in the response
@@ -116,6 +125,18 @@ The response shape is IDENTICAL to `nearby-timeline` MINUS the `distance_m` fiel
 #### Scenario: actual_location not exposed
 - **WHEN** searching the response JSON for `actual_location` or any value matching the post's actual coordinates
 - **THEN** no match is found
+
+#### Scenario: liked_by_viewer true when caller has liked the post
+- **WHEN** a post P is in the response AND a `post_likes` row `(P, caller)` exists
+- **THEN** the response item for P has `liked_by_viewer = true`
+
+#### Scenario: liked_by_viewer false when caller has not liked the post
+- **WHEN** a post P is in the response AND no `post_likes` row `(P, caller)` exists
+- **THEN** the response item for P has `liked_by_viewer = false`
+
+#### Scenario: liked_by_viewer present on every post
+- **WHEN** the response contains any number of posts (including zero, one, or many)
+- **THEN** every post object in `response.posts` contains the key `liked_by_viewer` with a JSON Boolean value (never omitted, never `null`)
 
 ### Requirement: Integration test coverage
 
@@ -131,6 +152,10 @@ The response shape is IDENTICAL to `nearby-timeline` MINUS the `distance_m` fiel
 7. Response has no `distance_m` field.
 8. Auth required: HTTP 401 without JWT.
 9. Malformed cursor rejected: HTTP 400 `invalid_cursor`.
+10. `liked_by_viewer = true` when caller has a `post_likes` row for the post.
+11. `liked_by_viewer = false` when caller has no `post_likes` row for the post.
+12. `liked_by_viewer` key present on every post (iterate response; assert key presence).
+13. LEFT JOIN cardinality invariant: 20 eligible posts with 6 liked → 20 returned, not 26.
 
 #### Scenario: Test class exists
 - **WHEN** running `./gradlew :backend:ktor:test --tests '*FollowingTimelineServiceTest*'`
