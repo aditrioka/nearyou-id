@@ -227,6 +227,46 @@ class BlockExclusionJoinLintTest : StringSpec({
         rule.lint(code).shouldBeEmpty()
     }
 
+    "follows_is_deliberately_not_protected_table — SELECT passes" {
+        // Encoding for the block-exclusion-lint ADDED requirement: `follows` is deliberately
+        // NOT in the protected-table set. This fixture + the rule's KDoc together guard
+        // against a future contributor adding `follows` out of misplaced completeness.
+        val code =
+            """
+            package id.nearyou.app.follow.repository
+
+            class T {
+                fun q(): String = "SELECT follower_id FROM follows WHERE followee_id = ?"
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
+    "follows_is_deliberately_not_protected_table — INSERT passes" {
+        val code =
+            """
+            package id.nearyou.app.follow.repository
+
+            class T {
+                fun q(): String =
+                    "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?) ON CONFLICT (follower_id, followee_id) DO NOTHING"
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
+    "follows_is_deliberately_not_protected_table — DELETE passes" {
+        val code =
+            """
+            package id.nearyou.app.follow.repository
+
+            class T {
+                fun q(): String = "DELETE FROM follows WHERE follower_id = ? AND followee_id = ?"
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
     "FROM postscategory does not match (word boundary)" {
         val code =
             """

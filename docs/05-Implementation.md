@@ -671,14 +671,14 @@ Application-level retry on `unique_violation` edge case (sub-microsecond collisi
 ```sql
 CREATE TABLE follows (
     follower_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    followed_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    followee_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (follower_id, followed_id),
-    CHECK (follower_id != followed_id)
+    PRIMARY KEY (follower_id, followee_id),
+    CHECK (follower_id != followee_id)
 );
 
 CREATE INDEX follows_follower_idx ON follows(follower_id, created_at DESC);
-CREATE INDEX follows_followed_idx ON follows(followed_id, created_at DESC);
+CREATE INDEX follows_followee_idx ON follows(followee_id, created_at DESC);
 ```
 
 **Rules**:
@@ -1058,7 +1058,7 @@ LIMIT 20;
 ```sql
 SELECT p.* FROM visible_posts p
 WHERE (p.created_at, p.id) < ($cursor_ts, $cursor_id)
-  AND p.author_id IN (SELECT followed_id FROM follows WHERE follower_id = :viewer_id)
+  AND p.author_id IN (SELECT followee_id FROM follows WHERE follower_id = :viewer_id)
   AND p.is_auto_hidden = FALSE
   AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
   AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
@@ -1121,7 +1121,7 @@ WHERE (
   AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
   AND (u.private_profile_opt_in = FALSE
        OR u.subscription_status NOT IN ('premium_active', 'premium_billing_retry')
-       OR EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = :viewer_id AND f.followed_id = u.id))
+       OR EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = :viewer_id AND f.followee_id = u.id))
 ORDER BY rank DESC, p.created_at DESC
 LIMIT 20 OFFSET :offset;
 ```
@@ -1293,8 +1293,8 @@ ON CONFLICT DO NOTHING;
 
 -- Cascade remove follow relationships bidirectionally
 DELETE FROM follows
-WHERE (follower_id = :blocker AND followed_id = :blocked)
-   OR (follower_id = :blocked AND followed_id = :blocker);
+WHERE (follower_id = :blocker AND followee_id = :blocked)
+   OR (follower_id = :blocked AND followee_id = :blocker);
 
 COMMIT;
 ```

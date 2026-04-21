@@ -8,17 +8,53 @@ import javax.sql.DataSource
 class JdbcUserBlockRepository(
     private val dataSource: DataSource,
 ) : UserBlockRepository {
+    /**
+     * Transactional cascade: `user_blocks` INSERT + bidirectional `follows` DELETE land
+     * together, per `docs/05-Implementation.md §1286–1300` and the `user-blocking`
+     * "follow-cascade enforced at block time" requirement. Without the transaction, a
+     * crash between INSERT and DELETE would leave a `user_blocks` row + a `follows` row
+     * for the same pair — violating the invariant "a block implies no follow in either
+     * direction."
+     *
+     * Pattern mirrors `JdbcPostRepository.createPost()` via `CreatePostService.create`:
+     * `autoCommit = false` + explicit `commit()/rollback()`. No generic `@Transactional`
+     * helper — one call site does not motivate one.
+     */
     override fun create(
         blockerId: UUID,
         blockedId: UUID,
     ): Boolean {
         dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT (blocker_id, blocked_id) DO NOTHING",
-            ).use { ps ->
-                ps.setObject(1, blockerId)
-                ps.setObject(2, blockedId)
-                return ps.executeUpdate() == 1
+            conn.autoCommit = false
+            try {
+                val inserted =
+                    conn.prepareStatement(
+                        "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT (blocker_id, blocked_id) DO NOTHING",
+                    ).use { ps ->
+                        ps.setObject(1, blockerId)
+                        ps.setObject(2, blockedId)
+                        ps.executeUpdate() == 1
+                    }
+                conn.prepareStatement(
+                    """
+                    DELETE FROM follows
+                     WHERE (follower_id = ? AND followee_id = ?)
+                        OR (follower_id = ? AND followee_id = ?)
+                    """.trimIndent(),
+                ).use { ps ->
+                    ps.setObject(1, blockerId)
+                    ps.setObject(2, blockedId)
+                    ps.setObject(3, blockedId)
+                    ps.setObject(4, blockerId)
+                    ps.executeUpdate()
+                }
+                conn.commit()
+                return inserted
+            } catch (t: Throwable) {
+                conn.rollback()
+                throw t
+            } finally {
+                conn.autoCommit = true
             }
         }
     }

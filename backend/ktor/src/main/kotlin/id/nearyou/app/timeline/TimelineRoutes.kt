@@ -28,6 +28,57 @@ data class NearbyPostDto(
 @Serializable
 data class NearbyResponse(val posts: List<NearbyPostDto>, val nextCursor: String? = null)
 
+@Serializable
+data class FollowingPostDto(
+    val id: String,
+    val authorUserId: String,
+    val content: String,
+    val latitude: Double,
+    val longitude: Double,
+    val createdAt: String,
+)
+
+@Serializable
+data class FollowingResponse(val posts: List<FollowingPostDto>, val nextCursor: String? = null)
+
+fun Application.followingTimelineRoutes(service: FollowingTimelineService) {
+    routing {
+        authenticate(AUTH_PROVIDER_USER) {
+            get("/api/v1/timeline/following") {
+                val principal =
+                    call.principal<UserPrincipal>() ?: run {
+                        call.respond(HttpStatusCode.Unauthorized)
+                        return@get
+                    }
+                val cursor =
+                    try {
+                        call.parameters["cursor"]?.let { decodeCursor(it) }
+                    } catch (_: InvalidCursorException) {
+                        call.respondError(HttpStatusCode.BadRequest, "invalid_cursor", "Cursor is malformed.")
+                        return@get
+                    }
+                val page = service.following(viewerId = principal.userId, cursor = cursor)
+                call.respond(
+                    FollowingResponse(
+                        posts =
+                            page.rows.map {
+                                FollowingPostDto(
+                                    id = it.id.toString(),
+                                    authorUserId = it.authorId.toString(),
+                                    content = it.content,
+                                    latitude = it.latitude,
+                                    longitude = it.longitude,
+                                    createdAt = it.createdAt.toString(),
+                                )
+                            },
+                        nextCursor = page.nextCursor?.let(::encodeCursor),
+                    ),
+                )
+            }
+        }
+    }
+}
+
 fun Application.timelineRoutes(service: NearbyTimelineService) {
     routing {
         authenticate(AUTH_PROVIDER_USER) {

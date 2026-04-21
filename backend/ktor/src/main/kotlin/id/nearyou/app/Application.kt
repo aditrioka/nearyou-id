@@ -24,6 +24,9 @@ import id.nearyou.app.auth.signup.WordPairResource
 import id.nearyou.app.auth.signup.signupRoutes
 import id.nearyou.app.block.BlockService
 import id.nearyou.app.block.blockRoutes
+import id.nearyou.app.follow.FollowService
+import id.nearyou.app.follow.followRoutes
+import id.nearyou.app.follow.userSocialRoutes
 import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.guard.ContentEmptyException
@@ -34,23 +37,29 @@ import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
 import id.nearyou.app.infra.repo.JdbcPostRepository
+import id.nearyou.app.infra.repo.JdbcPostsFollowingRepository
 import id.nearyou.app.infra.repo.JdbcPostsTimelineRepository
 import id.nearyou.app.infra.repo.JdbcRefreshTokenRepository
 import id.nearyou.app.infra.repo.JdbcRejectedIdentifierRepository
 import id.nearyou.app.infra.repo.JdbcReservedUsernameRepository
 import id.nearyou.app.infra.repo.JdbcUserBlockRepository
+import id.nearyou.app.infra.repo.JdbcUserFollowsRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.infra.repo.PostRepository
+import id.nearyou.app.infra.repo.PostsFollowingRepository
 import id.nearyou.app.infra.repo.PostsTimelineRepository
 import id.nearyou.app.infra.repo.RefreshTokenRepository
 import id.nearyou.app.infra.repo.RejectedIdentifierRepository
 import id.nearyou.app.infra.repo.ReservedUsernameRepository
 import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
+import id.nearyou.data.repository.UserFollowsRepository
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.LocationOutOfBoundsException
 import id.nearyou.app.post.postRoutes
+import id.nearyou.app.timeline.FollowingTimelineService
 import id.nearyou.app.timeline.NearbyTimelineService
+import id.nearyou.app.timeline.followingTimelineRoutes
 import id.nearyou.app.timeline.timelineRoutes
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -213,8 +222,12 @@ fun Application.module() {
         )
     val userBlockRepository: UserBlockRepository = JdbcUserBlockRepository(dataSource)
     val blockService = BlockService(userBlockRepository)
+    val userFollowsRepository: UserFollowsRepository = JdbcUserFollowsRepository(dataSource)
+    val followService = FollowService(userFollowsRepository)
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
     val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
+    val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
+    val followingTimelineService = FollowingTimelineService(postsFollowingRepository)
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -249,8 +262,12 @@ fun Application.module() {
                 single { createPostService }
                 single<UserBlockRepository> { userBlockRepository }
                 single { blockService }
+                single<UserFollowsRepository> { userFollowsRepository }
+                single { followService }
                 single<PostsTimelineRepository> { postsTimelineRepository }
                 single { nearbyTimelineService }
+                single<PostsFollowingRepository> { postsFollowingRepository }
+                single { followingTimelineService }
             },
         )
     }
@@ -265,7 +282,10 @@ fun Application.module() {
     appleS2SRoutes(appleS2SJwks, appleAudiences, userRepository, InMemoryDedup())
     postRoutes(createPostService)
     blockRoutes(blockService)
+    followRoutes(followService)
+    userSocialRoutes(followService)
     timelineRoutes(nearbyTimelineService)
+    followingTimelineRoutes(followingTimelineService)
 }
 
 private fun Application.csvAudiences(key: String): Set<String> =

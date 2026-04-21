@@ -317,6 +317,140 @@ class BlockEndpointsTest : StringSpec({
         }
     }
 
+    fun insertFollow(
+        follower: UUID,
+        followee: UUID,
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            ).use { ps ->
+                ps.setObject(1, follower)
+                ps.setObject(2, followee)
+                ps.executeUpdate()
+            }
+        }
+    }
+
+    fun countFollow(
+        follower: UUID,
+        followee: UUID,
+    ): Int {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT COUNT(*) FROM follows WHERE follower_id = ? AND followee_id = ?",
+            ).use { ps ->
+                ps.setObject(1, follower)
+                ps.setObject(2, followee)
+                ps.executeQuery().use { rs ->
+                    rs.next()
+                    return rs.getInt(1)
+                }
+            }
+        }
+    }
+
+    "POST /blocks/{B} cascades outbound follow A→B (follows row gone, block row present)" {
+        val (a, tokenA) = seedUser()
+        val (b, _) = seedUser()
+        try {
+            insertFollow(a, b)
+            countFollow(a, b) shouldBe 1
+            withBlocks {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/blocks/$b") { header(HttpHeaders.Authorization, "Bearer $tokenA") }
+                resp.status shouldBe HttpStatusCode.NoContent
+            }
+            countFollow(a, b) shouldBe 0
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "SELECT COUNT(*) FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?",
+                ).use { ps ->
+                    ps.setObject(1, a)
+                    ps.setObject(2, b)
+                    ps.executeQuery().use { rs ->
+                        rs.next() shouldBe true
+                        rs.getInt(1) shouldBe 1
+                    }
+                }
+            }
+        } finally {
+            cleanup(a, b)
+        }
+    }
+
+    "POST /blocks/{B} cascades inbound follow B→A" {
+        val (a, tokenA) = seedUser()
+        val (b, _) = seedUser()
+        try {
+            insertFollow(b, a)
+            countFollow(b, a) shouldBe 1
+            withBlocks {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/blocks/$b") { header(HttpHeaders.Authorization, "Bearer $tokenA") }
+                resp.status shouldBe HttpStatusCode.NoContent
+            }
+            countFollow(b, a) shouldBe 0
+        } finally {
+            cleanup(a, b)
+        }
+    }
+
+    "POST /blocks/{B} cascades both directions in one transaction" {
+        val (a, tokenA) = seedUser()
+        val (b, _) = seedUser()
+        try {
+            insertFollow(a, b)
+            insertFollow(b, a)
+            withBlocks {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/blocks/$b") { header(HttpHeaders.Authorization, "Bearer $tokenA") }
+                resp.status shouldBe HttpStatusCode.NoContent
+            }
+            countFollow(a, b) shouldBe 0
+            countFollow(b, a) shouldBe 0
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "SELECT COUNT(*) FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?",
+                ).use { ps ->
+                    ps.setObject(1, a)
+                    ps.setObject(2, b)
+                    ps.executeQuery().use { rs ->
+                        rs.next() shouldBe true
+                        rs.getInt(1) shouldBe 1
+                    }
+                }
+            }
+        } finally {
+            cleanup(a, b)
+        }
+    }
+
+    "POST /blocks/{B} with no follows rows still returns 204 and leaves follows untouched" {
+        val (a, tokenA) = seedUser()
+        val (b, _) = seedUser()
+        val (c, _) = seedUser()
+        val (d, _) = seedUser()
+        try {
+            // Unrelated follow C→D: must not be affected when A blocks B.
+            insertFollow(c, d)
+            withBlocks {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/blocks/$b") { header(HttpHeaders.Authorization, "Bearer $tokenA") }
+                resp.status shouldBe HttpStatusCode.NoContent
+            }
+            countFollow(a, b) shouldBe 0
+            countFollow(b, a) shouldBe 0
+            countFollow(c, d) shouldBe 1
+        } finally {
+            cleanup(a, b, c, d)
+        }
+    }
+
     "auth — all four endpoints return 401 without JWT" {
         val ghost = UUID.randomUUID()
         withBlocks {

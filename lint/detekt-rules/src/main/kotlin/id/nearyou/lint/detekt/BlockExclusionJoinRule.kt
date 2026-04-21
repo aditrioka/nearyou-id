@@ -35,6 +35,29 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  * which is intentional — `RawFromPostsRule` enforces "use the view", this rule enforces "join
  * the blocks table". See `docs/08-Roadmap-Risk.md` Phase 1 items 16 + 21 and the
  * `block-exclusion-lint` capability spec.
+ *
+ * ### Why `follows` is deliberately NOT a protected table
+ *
+ * Readers encountering this rule after the V6 `follows` migration may wonder whether `follows`
+ * is a missing entry in the protected-table set. It is not — the exclusion is deliberate, for
+ * three reasons:
+ *
+ * 1. `follows` rows carry only `(follower_id, followee_id, created_at)` — no user-visible
+ *    content (no `content`, `bio`, `display_name`, etc.). Protecting content tables prevents
+ *    leaking text through a block; `follows` has nothing to leak.
+ * 2. Business queries against `follows` are always caller-scoped: one side of the WHERE filter
+ *    is `= :viewer` (the caller's own UUID). The caller can never observe a `follows` row
+ *    whose composite identity doesn't involve themselves.
+ * 3. Content surfaced THROUGH `follows` — the Following timeline — lands on `visible_posts`,
+ *    where this rule re-checks for bidirectional `user_blocks` exclusion. The protection is
+ *    applied at the content surface, not the relationship surface.
+ *
+ * Adding `follows` to the protected set would force every follow/unfollow endpoint to wrap
+ * its `INSERT INTO follows` / `DELETE FROM follows` / `SELECT ... FROM follows` in an
+ * irrelevant `user_blocks` bidirectional join, breaking those endpoints' semantics. See the
+ * `block-exclusion-lint` spec ADDED requirement and the `follows_is_deliberately_not_protected_table`
+ * test fixture — both encode this decision in code as a guardrail against a future
+ * contributor adding `follows` out of misplaced completeness.
  */
 class BlockExclusionJoinRule(config: Config = Config.empty) : Rule(config) {
     override val issue: Issue =

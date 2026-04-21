@@ -84,8 +84,8 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
 12. Token version revocation (Redis cache + invalidation hooks + DB fallback)
 13. Post creation + PostGIS storage (dual column: `actual_location` NOT NULL + `display_location` NOT NULL with **HMAC-SHA256(JITTER_SECRET, post_id) jitter**)
 14. `renderDistance` implementation with fuzz-first / floor 5km / round-to-1km ordering in `:shared:distance`
-15. Nearby + Following + Global timeline spatial queries (using `display_location`) — **Nearby shipped** in `nearby-timeline-with-blocks` change (V5 + `GET /api/v1/timeline/nearby`); Following needs the `follows` schema; Global needs `admin_regions` polygon reverse-geocoding
-16. **Block user feature**: schema + endpoints + cascade follow removal + CI lint — **schema + endpoints + lint shipped** in `nearby-timeline-with-blocks` change (V5 `user_blocks` + `POST/DELETE/GET /api/v1/blocks` + Detekt `BlockExclusionJoinRule`); follow-cascade waits on follow system
+15. Nearby + Following + Global timeline spatial queries (using `display_location`) — **Nearby shipped** in `nearby-timeline-with-blocks` change (V5 + `GET /api/v1/timeline/nearby`); **Following shipped** in `following-timeline-with-follow-cascade` change (V6 + `GET /api/v1/timeline/following`); Global remains (needs `admin_regions` polygon reverse-geocoding)
+16. **Block user feature**: schema + endpoints + cascade follow removal + CI lint — **all shipped**: schema + endpoints + lint via `nearby-timeline-with-blocks` (V5 `user_blocks` + `POST/DELETE/GET /api/v1/blocks` + Detekt `BlockExclusionJoinRule`); follow-cascade via `following-timeline-with-follow-cascade` (transactional `user_blocks` INSERT + bidirectional `follows` DELETE in `BlockService.block()`)
 17. **Analytics consent schema** (`users.analytics_consent JSONB`) + consent-aware Amplitude wrapper (suppress if off)
 18. **FCM token registration endpoint** (`POST /api/v1/user/fcm-token`)
 19. **Health check endpoints** (`/health/live`, `/health/ready`) + Cloud Run probe config
@@ -100,7 +100,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
     - `posts_nearby_cursor_idx` composite spatial+time
     - `refresh_tokens` full schema + indexes
     - `post_edits` with UNIQUE `(post_id, edited_at)` temporal ordering + **`content_snapshot VARCHAR(280)`** + **`post_id ... ON DELETE CASCADE`** (retention bound to parent post lifetime, not fixed 1-year)
-    - `follows` schema + bidirectional indexes + CHECK self-follow
+    - `follows` schema + bidirectional indexes + CHECK self-follow — **shipped** as V6 in `following-timeline-with-follow-cascade` (column rename: canonical `followed_id` → `followee_id`)
     - `post_likes` schema
     - `post_replies` schema with soft-delete and block-aware read path + **`content VARCHAR(280)`** + **`is_auto_hidden BOOLEAN DEFAULT FALSE`** (mirrors the post-level flag for the 3-unique-reporters auto-hide)
     - `reports` schema with unique reporter/target constraint + **`reporter_id ... ON DELETE CASCADE`** (resolves NOT NULL + SET NULL conflict) + **`reviewed_by ... ON DELETE SET NULL`** (admin churn doesn't erase moderation history)
@@ -657,3 +657,17 @@ Default: Supabase Free (accept 7-day idle auto-pause) + Cloud Run scale-to-zero 
 ### 30. Mobile Build Flavor vs Runtime Config
 
 Default: build-time flavors (Android) / xcconfig (iOS) that bake `API_BASE_URL` into the APK/IPA. Alternative: runtime config fetched from Firebase Remote Config on first launch. Tradeoff: build-time is safer (no runtime switch exploit surface) but requires separate App Distribution / TestFlight builds for staging. Stick with build-time for MVP.
+
+### 31. Product Analytics Provider (Amplitude vs PostHog)
+
+Default: Amplitude free tier per `04-Architecture.md` § Observability Stack, graduating to paid at ~Month 24 when MAU >25k exceeds event quota (~Rp300k/month per the cost forecast). The `:infra:amplitude` abstraction keeps the swap cheap.
+
+Alternative: PostHog Cloud free tier (1M events/month) covers a larger MAU band before paid graduation. PostHog also bundles session replay + feature flags + experimentation, which Amplitude charges separately for. Effort to swap behind the existing abstraction: ~2-3 days (HTTP wrapper + event taxonomy re-map + identify/user-property shim). Consent-gating, taxonomy, and user-property schema in `04-Architecture.md` § Amplitude stay identical.
+
+Tradeoff:
+- **Stick with Amplitude**: product analytics UX is more polished for funnel/retention dashboards, which is the primary use case. Cost delay only matters at Month 24+.
+- **Swap to PostHog**: savings ~Rp300k/month once MAU >25k (~30% of observability line at Month 24). Unlocks session replay without paying Sentry Replay or FullStory. Risk: self-host path exists but is explicitly off-limits per guiding principle #3 (ops overhead).
+
+Trigger for re-evaluation: (a) Amplitude monthly bill projected to cross Rp300k, OR (b) product team requests session replay / feature flag A/B testing beyond Firebase Remote Config capability. Whichever fires first.
+
+Re-evaluate in Month 12. If swapping: do it BEFORE the paid graduation moment so historical event continuity is preserved in one tool. A mid-paid-tier swap wastes the Amplitude tail month.
