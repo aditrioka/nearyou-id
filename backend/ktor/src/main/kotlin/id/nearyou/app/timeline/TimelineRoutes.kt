@@ -12,6 +12,7 @@ import io.ktor.server.auth.principal
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -23,6 +24,7 @@ data class NearbyPostDto(
     val longitude: Double,
     val distanceM: Double,
     val createdAt: String,
+    @SerialName("liked_by_viewer") val likedByViewer: Boolean,
 )
 
 @Serializable
@@ -36,6 +38,7 @@ data class FollowingPostDto(
     val latitude: Double,
     val longitude: Double,
     val createdAt: String,
+    @SerialName("liked_by_viewer") val likedByViewer: Boolean,
 )
 
 @Serializable
@@ -69,6 +72,7 @@ fun Application.followingTimelineRoutes(service: FollowingTimelineService) {
                                     latitude = it.latitude,
                                     longitude = it.longitude,
                                     createdAt = it.createdAt.toString(),
+                                    likedByViewer = it.likedByViewer,
                                 )
                             },
                         nextCursor = page.nextCursor?.let(::encodeCursor),
@@ -136,6 +140,7 @@ fun Application.timelineRoutes(service: NearbyTimelineService) {
                                     longitude = it.longitude,
                                     distanceM = it.distanceMeters,
                                     createdAt = it.createdAt.toString(),
+                                    likedByViewer = it.likedByViewer,
                                 )
                             },
                         nextCursor = page.nextCursor?.let(::encodeCursor),

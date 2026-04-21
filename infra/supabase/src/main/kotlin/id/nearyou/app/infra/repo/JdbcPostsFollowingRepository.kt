@@ -37,33 +37,38 @@ class JdbcPostsFollowingRepository(
         //  - FROM visible_posts joined against the viewer's `follows` set via IN.
         //  - No ST_DWithin / ST_Distance — no radius, no distance projection.
         //  - lat/lng still come from display_location (jitter invariant preserved).
+        //  - LEFT JOIN post_likes for `liked_by_viewer`, PK-scoped to viewer so the
+        //    JOIN adds at most one row per page row (keyset / ORDER BY / LIMIT intact).
         //
         // Both user_blocks NOT-IN subqueries are required for BlockExclusionJoinRule.
         val sql =
             buildString {
                 append(
                     """
-                    SELECT id,
-                           author_id,
-                           content,
-                           ST_Y(display_location::geometry) AS lat,
-                           ST_X(display_location::geometry) AS lng,
-                           created_at
-                      FROM visible_posts
-                     WHERE author_id IN (SELECT followee_id FROM follows WHERE follower_id = ?)
-                       AND author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?)
-                       AND author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?)
+                    SELECT p.id,
+                           p.author_id,
+                           p.content,
+                           ST_Y(p.display_location::geometry) AS lat,
+                           ST_X(p.display_location::geometry) AS lng,
+                           p.created_at,
+                           (pl.user_id IS NOT NULL) AS liked_by_viewer
+                      FROM visible_posts p
+                      LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = ?
+                     WHERE p.author_id IN (SELECT followee_id FROM follows WHERE follower_id = ?)
+                       AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?)
+                       AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?)
                     """.trimIndent(),
                 )
                 if (cursorCreatedAt != null && cursorPostId != null) {
-                    append("\n   AND (created_at, id) < (?, ?)")
+                    append("\n   AND (p.created_at, p.id) < (?, ?)")
                 }
-                append("\n ORDER BY created_at DESC, id DESC")
+                append("\n ORDER BY p.created_at DESC, p.id DESC")
                 append("\n LIMIT ?")
             }
         dataSource.connection.use { conn ->
             conn.prepareStatement(sql).use { ps ->
                 var i = 1
+                ps.setObject(i++, viewerId) // pl.user_id = ?
                 ps.setObject(i++, viewerId)
                 ps.setObject(i++, viewerId)
                 ps.setObject(i++, viewerId)
@@ -84,6 +89,7 @@ class JdbcPostsFollowingRepository(
                                 longitude = rs.getDouble("lng"),
                                 distanceMeters = 0.0,
                                 createdAt = rs.getTimestamp("created_at").toInstant(),
+                                likedByViewer = rs.getBoolean("liked_by_viewer"),
                             )
                     }
                     return out

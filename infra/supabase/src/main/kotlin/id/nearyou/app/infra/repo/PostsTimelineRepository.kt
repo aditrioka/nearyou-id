@@ -11,6 +11,7 @@ data class TimelineRow(
     val longitude: Double,
     val distanceMeters: Double,
     val createdAt: Instant,
+    val likedByViewer: Boolean,
 )
 
 interface PostsTimelineRepository {

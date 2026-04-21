@@ -197,7 +197,15 @@ class FollowingTimelineServiceTest : StringSpec({
                 ids shouldBe listOf(pc.toString(), pb.toString(), pa.toString())
                 // No distance_m / distanceM in response.
                 val first = body["posts"]!!.jsonArray.first().jsonObject
-                first.keys shouldBe setOf("id", "authorUserId", "content", "latitude", "longitude", "createdAt")
+                first.keys shouldBe setOf(
+                    "id",
+                    "authorUserId",
+                    "content",
+                    "latitude",
+                    "longitude",
+                    "createdAt",
+                    "liked_by_viewer",
+                )
                 first.containsKey("distanceM") shouldBe false
                 first.containsKey("distance_m") shouldBe false
             }
@@ -364,6 +372,111 @@ class FollowingTimelineServiceTest : StringSpec({
             createClient { install(ClientCN) { json() } }
                 .get("/api/v1/timeline/following")
                 .status shouldBe HttpStatusCode.Unauthorized
+        }
+    }
+
+    "liked_by_viewer — true when caller has liked a followed-author post" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            follow(viewer, author)
+            val p = seedPost(author)
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
+                    ps.setObject(1, p)
+                    ps.setObject(2, viewer)
+                    ps.executeUpdate()
+                }
+            }
+            withFollowing {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/following") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val post = Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["posts"]!!.jsonArray
+                    .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                    .jsonObject
+                post["liked_by_viewer"]!!.jsonPrimitive.content shouldBe "true"
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "liked_by_viewer — false when caller has not liked" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            follow(viewer, author)
+            val p = seedPost(author)
+            withFollowing {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/following") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val post = Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["posts"]!!.jsonArray
+                    .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                    .jsonObject
+                post["liked_by_viewer"]!!.jsonPrimitive.content shouldBe "false"
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "liked_by_viewer — key present on every Following post" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            follow(viewer, author)
+            val posts = (0 until 5).map { seedPost(author).also { Thread.sleep(2) } }
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
+                    ps.setObject(1, posts[1]); ps.setObject(2, viewer); ps.executeUpdate()
+                }
+            }
+            withFollowing {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/following") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                arr.forEach { (it as JsonObject).containsKey("liked_by_viewer") shouldBe true }
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "liked_by_viewer — cardinality invariant: 20 eligible with 6 liked → 20 returned, not 26" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            follow(viewer, author)
+            val posts = (0 until 20).map { seedPost(author).also { Thread.sleep(2) } }
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
+                    posts.take(6).forEach { pid ->
+                        ps.setObject(1, pid); ps.setObject(2, viewer); ps.executeUpdate()
+                    }
+                }
+            }
+            withFollowing {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/following") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                arr shouldHaveSize 20
+            }
+        } finally {
+            cleanup(viewer, author)
         }
     }
 

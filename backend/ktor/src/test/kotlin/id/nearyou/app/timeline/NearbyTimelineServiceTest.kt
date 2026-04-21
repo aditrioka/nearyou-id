@@ -178,9 +178,18 @@ class NearbyTimelineServiceTest : StringSpec({
                 val body = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
                 val ids = body["posts"]!!.jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids shouldBe listOf(p3.toString(), p2.toString(), p1.toString())
-                // Each post item carries the documented seven keys.
+                // Each post item carries the documented keys (V7 adds liked_by_viewer).
                 val first = body["posts"]!!.jsonArray.first().jsonObject
-                first.keys shouldBe setOf("id", "authorUserId", "content", "latitude", "longitude", "distanceM", "createdAt")
+                first.keys shouldBe setOf(
+                    "id",
+                    "authorUserId",
+                    "content",
+                    "latitude",
+                    "longitude",
+                    "distanceM",
+                    "createdAt",
+                    "liked_by_viewer",
+                )
             }
         } finally {
             cleanup(viewer, author)
@@ -381,6 +390,123 @@ class NearbyTimelineServiceTest : StringSpec({
             createClient { install(ClientCN) { json() } }
                 .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=1000")
                 .status shouldBe HttpStatusCode.Unauthorized
+        }
+    }
+
+    "liked_by_viewer — true when caller has liked the post" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val p = seedPost(author, -6.200, 106.800)
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
+                    ps.setObject(1, p)
+                    ps.setObject(2, viewer)
+                    ps.executeUpdate()
+                }
+            }
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val post = Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["posts"]!!.jsonArray
+                    .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                    .jsonObject
+                post["liked_by_viewer"]!!.jsonPrimitive.content shouldBe "true"
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "liked_by_viewer — false when caller has not liked the post" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val p = seedPost(author, -6.200, 106.800)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val post = Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["posts"]!!.jsonArray
+                    .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                    .jsonObject
+                post["liked_by_viewer"]!!.jsonPrimitive.content shouldBe "false"
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "liked_by_viewer — key present on every post in the response" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val posts = (0 until 5).map { seedPost(author, -6.200 + it * 0.0001, 106.800) }
+            // Like only some of them to cover the mixed case.
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
+                    ps.setObject(1, posts[0]); ps.setObject(2, viewer); ps.executeUpdate()
+                    ps.setObject(1, posts[2]); ps.setObject(2, viewer); ps.executeUpdate()
+                }
+            }
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                arr.forEach { (it as JsonObject).containsKey("liked_by_viewer") shouldBe true }
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "liked_by_viewer — cardinality invariant: 35 visible posts with 7 liked → 35 returned, not 42" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val posts = (0 until 35).map {
+                seedPost(author, -6.200 + it * 0.0001, 106.800)
+                    .also { _ -> Thread.sleep(2) }
+            }
+            // Like 7 of them.
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
+                    posts.take(7).forEach { pid ->
+                        ps.setObject(1, pid); ps.setObject(2, viewer); ps.executeUpdate()
+                    }
+                }
+            }
+            withTimeline {
+                val client = createClient { install(ClientCN) { json() } }
+                val r1 =
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        header(HttpHeaders.Authorization, "Bearer $vt")
+                    }
+                val b1 = Json.parseToJsonElement(r1.bodyAsText()).jsonObject
+                b1["posts"]!!.jsonArray shouldHaveSize 30
+                val cursor = b1["nextCursor"]!!.jsonPrimitive.content
+                val r2 =
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000&cursor=$cursor") {
+                        header(HttpHeaders.Authorization, "Bearer $vt")
+                    }
+                val b2 = Json.parseToJsonElement(r2.bodyAsText()).jsonObject
+                b2["posts"]!!.jsonArray shouldHaveSize 5
+                val ids1 = b1["posts"]!!.jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }.toSet()
+                val ids2 = b2["posts"]!!.jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }.toSet()
+                (ids1 + ids2).size shouldBe 35
+            }
+        } finally {
+            cleanup(viewer, author)
         }
     }
 

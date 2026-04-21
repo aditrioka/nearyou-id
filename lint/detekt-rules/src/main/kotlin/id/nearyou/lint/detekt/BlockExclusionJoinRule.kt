@@ -58,6 +58,32 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  * `block-exclusion-lint` spec ADDED requirement and the `follows_is_deliberately_not_protected_table`
  * test fixture — both encode this decision in code as a guardrail against a future
  * contributor adding `follows` out of misplaced completeness.
+ *
+ * ### Why `post_likes` is deliberately NOT a protected table
+ *
+ * V7 introduced `post_likes` and the same question arises: should the protected-table set
+ * grow to include it? It should not — the exclusion is deliberate, for three reasons that
+ * parallel the `follows` argument above:
+ *
+ * 1. `post_likes` rows carry only `(post_id, user_id, created_at)` — no user-visible
+ *    content (no text body, no display name). Protecting content tables prevents leaking
+ *    text through a block; `post_likes` has nothing to leak.
+ * 2. Business queries against `post_likes` are always caller-scoped or aggregate: the
+ *    write paths (`POST /like`, `DELETE /like`) filter on `user_id = :caller`; the count
+ *    read (`GET /likes/count`) filters on `post_id = :post_id` and JOINs `visible_users`
+ *    for shadow-ban exclusion. A per-viewer `user_blocks` filter would leak the caller's
+ *    block list via a counter delta (see `post-likes` spec — deliberate privacy tradeoff).
+ * 3. Content surfaced THROUGH `post_likes` — the `liked_by_viewer` LEFT JOIN in both
+ *    timelines — lands on `visible_posts`, where this rule re-checks for bidirectional
+ *    `user_blocks` exclusion. The protection is applied at the content surface, not the
+ *    relationship surface.
+ *
+ * Adding `post_likes` to the protected set would force `DELETE FROM post_likes WHERE
+ * user_id = :caller` to wrap in an irrelevant `user_blocks` bidirectional join — blocking
+ * callers from ever cleaning up their own likes, since they may be in a current block
+ * relationship with the post author. The `post_likes_is_deliberately_not_protected_table`
+ * test fixture encodes this decision in code as a guardrail against future contributors
+ * adding `post_likes` out of misplaced completeness.
  */
 class BlockExclusionJoinRule(config: Config = Config.empty) : Rule(config) {
     override val issue: Issue =

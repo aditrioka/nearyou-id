@@ -267,6 +267,47 @@ class BlockExclusionJoinLintTest : StringSpec({
         rule.lint(code).shouldBeEmpty()
     }
 
+    "post_likes_is_deliberately_not_protected_table — count query passes" {
+        // Encoding for the block-exclusion-lint ADDED requirement (V7): `post_likes` is
+        // deliberately NOT in the protected-table set. The count query JOINs
+        // `visible_users` for shadow-ban exclusion; viewer-block exclusion is
+        // deliberately omitted as a privacy tradeoff (see post-likes spec).
+        val code =
+            """
+            package id.nearyou.app.engagement
+
+            class T {
+                fun q(): String = "SELECT COUNT(*) FROM post_likes pl JOIN visible_users vu ON vu.id = pl.user_id WHERE pl.post_id = ?"
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
+    "post_likes_is_deliberately_not_protected_table — INSERT passes" {
+        val code =
+            """
+            package id.nearyou.app.engagement
+
+            class T {
+                fun q(): String =
+                    "INSERT INTO post_likes (post_id, user_id) VALUES (?, ?) ON CONFLICT (post_id, user_id) DO NOTHING"
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
+    "post_likes_is_deliberately_not_protected_table — DELETE passes" {
+        val code =
+            """
+            package id.nearyou.app.engagement
+
+            class T {
+                fun q(): String = "DELETE FROM post_likes WHERE post_id = ? AND user_id = ?"
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
     "FROM postscategory does not match (word boundary)" {
         val code =
             """

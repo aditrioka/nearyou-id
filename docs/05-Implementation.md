@@ -690,6 +690,8 @@ CREATE INDEX follows_followee_idx ON follows(followee_id, created_at DESC);
 
 ## Post Likes Schema
 
+<!-- V7 shipped in change post-likes-v7. -->
+
 ```sql
 CREATE TABLE post_likes (
     post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
