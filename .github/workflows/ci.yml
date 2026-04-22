@@ -5,6 +5,13 @@ on:
     branches:
       - main
 
+# Cancel superseded runs: when a new push lands on the same PR/branch, any
+# in-flight run for a prior commit is aborted to free up runners and avoid
+# stale check results blocking the PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -30,6 +37,24 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # Postgres service container — mirrors `dev/docker-compose.yml` exactly so the
+    # `DB_URL=jdbc:postgresql://localhost:5433/nearyou_dev` default that integration
+    # tests resolve to in local dev also works on GHA runners. PostGIS is required
+    # by V4's geography columns on `posts` (ST_MakePoint, ST_SetSRID, ST_Distance).
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nearyou_dev
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d nearyou_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -37,11 +62,12 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
-      # Exclude network-tagged tests (upstream JWKS flakes) and database-tagged tests
-      # (require a running Postgres; CI has no compose stack yet — see follow-up
-      # issue to add a postgres service container so DB tests can run in PR CI).
+      # Network-tagged tests (upstream JWKS flakes) still excluded. Database-tagged
+      # tests NOW run against the service-container Postgres above.
       # Kotest 5.x tag expression grammar uses `&` (AND), `|` (OR), `!` (NOT) —
-      # comma is NOT a valid separator and causes the whole expression to fall
-      # back to "no filter", which makes every database-tagged test run against
-      # a nonexistent Postgres and explode with ConnectException.
-      - run: ./gradlew test -Dkotest.tags='!network & !database'
+      # comma is NOT a valid separator.
+      - run: ./gradlew test -Dkotest.tags='!network'
+        env:
+          DB_URL: jdbc:postgresql://localhost:5433/nearyou_dev
+          DB_USER: postgres
+          DB_PASSWORD: postgres
