@@ -48,6 +48,11 @@ class SecretsTest : StringSpec({
         resolver.resolve("anything").shouldBeNull()
     }
 
+    "EnvVarSecretResolver trims surrounding whitespace" {
+        val resolver = EnvVarSecretResolver { "  GxT3lL5vR2==\n" }
+        resolver.resolve("invite-code-secret") shouldBe "GxT3lL5vR2=="
+    }
+
     "invite-code-secret resolves via INVITE_CODE_SECRET env var" {
         var seen: String? = null
         val resolver =
