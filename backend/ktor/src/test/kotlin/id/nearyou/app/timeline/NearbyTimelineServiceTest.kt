@@ -135,7 +135,11 @@ class NearbyTimelineServiceTest : StringSpec({
         }
     }
 
-    fun seedReply(postId: UUID, authorId: UUID, deletedAt: java.time.Instant? = null) {
+    fun seedReply(
+        postId: UUID,
+        authorId: UUID,
+        deletedAt: java.time.Instant? = null,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "INSERT INTO post_replies (post_id, author_id, content, deleted_at) VALUES (?, ?, ?, ?)",
@@ -143,8 +147,11 @@ class NearbyTimelineServiceTest : StringSpec({
                 ps.setObject(1, postId)
                 ps.setObject(2, authorId)
                 ps.setString(3, "r-${UUID.randomUUID().toString().take(6)}")
-                if (deletedAt != null) ps.setTimestamp(4, java.sql.Timestamp.from(deletedAt))
-                else ps.setNull(4, java.sql.Types.TIMESTAMP_WITH_TIMEZONE)
+                if (deletedAt != null) {
+                    ps.setTimestamp(4, java.sql.Timestamp.from(deletedAt))
+                } else {
+                    ps.setNull(4, java.sql.Types.TIMESTAMP_WITH_TIMEZONE)
+                }
                 ps.executeUpdate()
             }
         }
@@ -172,7 +179,10 @@ class NearbyTimelineServiceTest : StringSpec({
         return id
     }
 
-    fun insertBlock(blocker: UUID, blocked: UUID) {
+    fun insertBlock(
+        blocker: UUID,
+        blocked: UUID,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
@@ -234,17 +244,18 @@ class NearbyTimelineServiceTest : StringSpec({
                 ids shouldBe listOf(p3.toString(), p2.toString(), p1.toString())
                 // Each post item carries the documented keys (V7 adds liked_by_viewer; V8 adds reply_count).
                 val first = body["posts"]!!.jsonArray.first().jsonObject
-                first.keys shouldBe setOf(
-                    "id",
-                    "authorUserId",
-                    "content",
-                    "latitude",
-                    "longitude",
-                    "distanceM",
-                    "createdAt",
-                    "liked_by_viewer",
-                    "reply_count",
-                )
+                first.keys shouldBe
+                    setOf(
+                        "id",
+                        "authorUserId",
+                        "content",
+                        "latitude",
+                        "longitude",
+                        "distanceM",
+                        "createdAt",
+                        "liked_by_viewer",
+                        "reply_count",
+                    )
             }
         } finally {
             cleanup(viewer, author)
@@ -299,9 +310,10 @@ class NearbyTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=1000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
-                val ids = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids shouldBe listOf(near.toString())
                 ids.contains(far.toString()) shouldBe false
             }
@@ -322,9 +334,10 @@ class NearbyTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
-                val ids = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids shouldBe listOf(visible.toString())
                 ids.contains(hidden.toString()) shouldBe false
             }
@@ -352,9 +365,10 @@ class NearbyTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
                             header(HttpHeaders.Authorization, "Bearer $ta")
                         }
-                val ids = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids.contains(bp.toString()) shouldBe false
             }
         } finally {
@@ -381,9 +395,10 @@ class NearbyTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
                             header(HttpHeaders.Authorization, "Bearer $ta")
                         }
-                val ids = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids.contains(bp.toString()) shouldBe false
             }
         } finally {
@@ -466,10 +481,11 @@ class NearbyTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
-                val post = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
-                    .jsonObject
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
                 post["liked_by_viewer"]!!.jsonPrimitive.content shouldBe "true"
             }
         } finally {
@@ -488,10 +504,11 @@ class NearbyTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
-                val post = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
-                    .jsonObject
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
                 post["liked_by_viewer"]!!.jsonPrimitive.content shouldBe "false"
             }
         } finally {
@@ -507,8 +524,12 @@ class NearbyTimelineServiceTest : StringSpec({
             // Like only some of them to cover the mixed case.
             dataSource.connection.use { conn ->
                 conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
-                    ps.setObject(1, posts[0]); ps.setObject(2, viewer); ps.executeUpdate()
-                    ps.setObject(1, posts[2]); ps.setObject(2, viewer); ps.executeUpdate()
+                    ps.setObject(1, posts[0])
+                    ps.setObject(2, viewer)
+                    ps.executeUpdate()
+                    ps.setObject(1, posts[2])
+                    ps.setObject(2, viewer)
+                    ps.executeUpdate()
                 }
             }
             withTimeline {
@@ -529,15 +550,18 @@ class NearbyTimelineServiceTest : StringSpec({
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            val posts = (0 until 35).map {
-                seedPost(author, -6.200 + it * 0.0001, 106.800)
-                    .also { _ -> Thread.sleep(2) }
-            }
+            val posts =
+                (0 until 35).map {
+                    seedPost(author, -6.200 + it * 0.0001, 106.800)
+                        .also { _ -> Thread.sleep(2) }
+                }
             // Like 7 of them.
             dataSource.connection.use { conn ->
                 conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
                     posts.take(7).forEach { pid ->
-                        ps.setObject(1, pid); ps.setObject(2, viewer); ps.executeUpdate()
+                        ps.setObject(1, pid)
+                        ps.setObject(2, viewer)
+                        ps.executeUpdate()
                     }
                 }
             }
@@ -737,9 +761,10 @@ class NearbyTimelineServiceTest : StringSpec({
         val (author, _) = seedUser()
         val (replier, _) = seedUser()
         try {
-            val posts = (0 until 5).map {
-                seedPost(author, -6.200 + it * 0.0001, 106.800).also { Thread.sleep(2) }
-            }
+            val posts =
+                (0 until 5).map {
+                    seedPost(author, -6.200 + it * 0.0001, 106.800).also { Thread.sleep(2) }
+                }
             // Spread 20 replies across the 5 posts (4 each).
             posts.forEach { pid -> repeat(4) { seedReply(pid, replier) } }
             withTimeline {

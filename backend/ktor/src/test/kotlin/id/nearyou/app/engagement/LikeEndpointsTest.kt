@@ -80,7 +80,10 @@ class LikeEndpointsTest : StringSpec({
         return id to token
     }
 
-    fun seedPost(authorId: UUID, autoHidden: Boolean = false): UUID {
+    fun seedPost(
+        authorId: UUID,
+        autoHidden: Boolean = false,
+    ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
             conn.prepareStatement(
@@ -106,7 +109,10 @@ class LikeEndpointsTest : StringSpec({
         return id
     }
 
-    fun insertBlock(blocker: UUID, blocked: UUID) {
+    fun insertBlock(
+        blocker: UUID,
+        blocked: UUID,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
@@ -118,7 +124,10 @@ class LikeEndpointsTest : StringSpec({
         }
     }
 
-    fun insertLike(postId: UUID, userId: UUID) {
+    fun insertLike(
+        postId: UUID,
+        userId: UUID,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "INSERT INTO post_likes (post_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
@@ -130,7 +139,10 @@ class LikeEndpointsTest : StringSpec({
         }
     }
 
-    fun countLikeRows(postId: UUID, userId: UUID? = null): Int {
+    fun countLikeRows(
+        postId: UUID,
+        userId: UUID? = null,
+    ): Int {
         dataSource.connection.use { conn ->
             val sql =
                 if (userId != null) {

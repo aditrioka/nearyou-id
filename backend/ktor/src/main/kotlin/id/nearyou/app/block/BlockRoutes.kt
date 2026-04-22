@@ -95,8 +95,7 @@ fun Application.blockRoutes(service: BlockService) {
     }
 }
 
-private fun parseUserId(raw: String?): UUID? =
-    raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+private fun parseUserId(raw: String?): UUID? = raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
 private suspend fun io.ktor.server.application.ApplicationCall.respondError(
     status: HttpStatusCode,

@@ -4,6 +4,9 @@ import io.gitlab.arturbosch.detekt.test.lint
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldHaveSize
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.io.path.writeText
 
 class RawFromPostsRuleTest : StringSpec({
 
@@ -98,4 +101,78 @@ class RawFromPostsRuleTest : StringSpec({
             """.trimIndent()
         rule.lint(code).shouldBeEmpty()
     }
+
+    // V9 moderation allowlist fixtures — the allowlist exempts files under
+    // `.../app/moderation/` whose name starts with `Report`. Scope is deliberately
+    // narrow: only `Report*.kt` files, and only in the moderation package. Used
+    // by the V9 ReportService's target-existence point-lookups on `posts`,
+    // `post_replies`, `users`, `chat_messages`. See visible-posts-view spec
+    // delta + reports capability design (the four-case rationale: reporting a
+    // blocker / blocked / shadow-banned / already-auto-hidden target is all
+    // legitimate behavior, so the point-lookup must NOT go through visible_posts).
+
+    "ReportService.kt under .../app/moderation/ with SELECT 1 FROM posts PASSES" {
+        val dir = Files.createTempDirectory("raw-posts-rule-mod")
+        val path = dir.resolve("app").resolve("moderation").resolve("ReportService.kt")
+        Files.createDirectories(path.parent)
+        path.writeText(
+            """
+            package id.nearyou.app.moderation
+
+            class ReportService {
+                fun targetExistsPost(): String =
+                    "SELECT 1 FROM posts WHERE id = ? AND deleted_at IS NULL"
+            }
+            """.trimIndent(),
+        )
+        try {
+            rule.lint(path).shouldBeEmpty()
+        } finally {
+            cleanupDir(dir)
+        }
+    }
+
+    "ModerationDashboardReader.kt under .../app/moderation/ with SELECT * FROM posts STILL FAILS" {
+        val dir = Files.createTempDirectory("raw-posts-rule-mod")
+        val path = dir.resolve("app").resolve("moderation").resolve("ModerationDashboardReader.kt")
+        Files.createDirectories(path.parent)
+        path.writeText(
+            """
+            package id.nearyou.app.moderation
+
+            class ModerationDashboardReader {
+                fun listAll(): String = "SELECT * FROM posts"
+            }
+            """.trimIndent(),
+        )
+        try {
+            rule.lint(path) shouldHaveSize 1
+        } finally {
+            cleanupDir(dir)
+        }
+    }
+
+    "ReportLikeDashboard.kt OUTSIDE .../app/moderation/ with SELECT * FROM posts STILL FAILS" {
+        val dir = Files.createTempDirectory("raw-posts-rule-mod")
+        val path = dir.resolve("app").resolve("engagement").resolve("ReportLikeDashboard.kt")
+        Files.createDirectories(path.parent)
+        path.writeText(
+            """
+            package id.nearyou.app.engagement
+
+            class ReportLikeDashboard {
+                fun listAll(): String = "SELECT * FROM posts"
+            }
+            """.trimIndent(),
+        )
+        try {
+            rule.lint(path) shouldHaveSize 1
+        } finally {
+            cleanupDir(dir)
+        }
+    }
 })
+
+private fun cleanupDir(dir: Path) {
+    Files.walk(dir).sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists)
+}

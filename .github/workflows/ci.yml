@@ -38,6 +38,10 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
       # Exclude network-tagged tests (upstream JWKS flakes) and database-tagged tests
-      # (require a running Postgres; CI has no compose stack). Run nightly / pre-deploy
-      # with `./gradlew test -Dkotest.tags=network` or `-Dkotest.tags=database`.
-      - run: ./gradlew test -Dkotest.tags='!network,!database'
+      # (require a running Postgres; CI has no compose stack yet — see follow-up
+      # issue to add a postgres service container so DB tests can run in PR CI).
+      # Kotest 5.x tag expression grammar uses `&` (AND), `|` (OR), `!` (NOT) —
+      # comma is NOT a valid separator and causes the whole expression to fall
+      # back to "no filter", which makes every database-tagged test run against
+      # a nonexistent Postgres and explode with ConnectException.
+      - run: ./gradlew test -Dkotest.tags='!network & !database'

@@ -24,6 +24,15 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  *  - Files under `.../app/post/repository/` whose name starts with `PostOwnContent`
  *    (own-content read paths that bypass shadow-ban visibility by design).
  *  - Files under `.../app/admin/` (admin module has full access).
+ *  - Files under `.../app/moderation/` whose name starts with `Report` — these are
+ *    the V9 report-submission paths (`ReportService`, `ReportRoutes`,
+ *    `ReportController`, `ReportTargetResolver`, etc.) that run point-lookup
+ *    existence checks (`SELECT 1 FROM posts WHERE id = ? AND deleted_at IS NULL`
+ *    and analogous queries for `post_replies` / `users` / `chat_messages`). Per the
+ *    `visible-posts-view` spec delta shipped with V9, these must deliberately NOT
+ *    go through `visible_posts` because reporting a blocked / blocked-by /
+ *    shadow-banned / already-auto-hidden target is all valid behavior (four-case
+ *    rationale in the `reports` capability design).
  *  - Any `KtDeclaration` (or an enclosing one) annotated `@AllowRawPostsRead("<reason>")`.
  */
 class RawFromPostsRule(config: Config = Config.empty) : Rule(config) {
@@ -62,11 +71,29 @@ class RawFromPostsRule(config: Config = Config.empty) : Rule(config) {
 
     private fun isAllowedPath(file: KtFile): Boolean {
         val normalized = file.virtualFilePath.replace('\\', '/')
-        // Admin module exempt.
+        // Admin module exempt (path OR package).
         if ("/app/admin/" in normalized) return true
-        // Own-content repositories exempt. File name check.
-        val name = file.name
-        if ("/app/post/repository/" in normalized && name.startsWith("PostOwnContent")) {
+        val pkg = file.packageFqName.asString()
+        if (pkg == "id.nearyou.app.admin" || pkg.startsWith("id.nearyou.app.admin.")) return true
+        // Prefer basename of the physical path over `KtFile.name`, which is "Test.kt" for
+        // synthetic in-memory files in detekt-test's `lint(String)` overload.
+        val baseName = normalized.substringAfterLast('/')
+        // Own-content repositories exempt. Path + filename prefix check.
+        if ("/app/post/repository/" in normalized && baseName.startsWith("PostOwnContent")) {
+            return true
+        }
+        // V9 report-submission module exempt — point-lookup existence checks on
+        // posts / post_replies / users / chat_messages that must NOT go through
+        // visible_posts (reporting blocked / shadow-banned / auto-hidden targets
+        // is valid). Scoped to `Report*.kt` files under `.../app/moderation/` so
+        // unrelated files in the same package (e.g. future
+        // `ModerationDashboardReader.kt`) still fire the rule. Package-based
+        // fallback (`id.nearyou.app.moderation`) mirrors admin's package check
+        // for synthetic-file tests.
+        val inModerationPath = "/app/moderation/" in normalized
+        val inModerationPkg =
+            pkg == "id.nearyou.app.moderation" || pkg.startsWith("id.nearyou.app.moderation.")
+        if ((inModerationPath || inModerationPkg) && baseName.startsWith("Report")) {
             return true
         }
         return false
