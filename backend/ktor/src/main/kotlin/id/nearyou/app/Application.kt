@@ -24,6 +24,8 @@ import id.nearyou.app.auth.signup.WordPairResource
 import id.nearyou.app.auth.signup.signupRoutes
 import id.nearyou.app.block.BlockService
 import id.nearyou.app.block.blockRoutes
+import id.nearyou.app.config.EnvVarSecretResolver
+import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.engagement.LikeService
 import id.nearyou.app.engagement.ReplyService
 import id.nearyou.app.engagement.likeRoutes
@@ -31,8 +33,6 @@ import id.nearyou.app.engagement.replyRoutes
 import id.nearyou.app.follow.FollowService
 import id.nearyou.app.follow.followRoutes
 import id.nearyou.app.follow.userSocialRoutes
-import id.nearyou.app.config.EnvVarSecretResolver
-import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.guard.ContentTooLongException
@@ -54,9 +54,6 @@ import id.nearyou.app.infra.repo.JdbcReservedUsernameRepository
 import id.nearyou.app.infra.repo.JdbcUserBlockRepository
 import id.nearyou.app.infra.repo.JdbcUserFollowsRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
-import id.nearyou.app.moderation.ReportRateLimiter
-import id.nearyou.app.moderation.ReportService
-import id.nearyou.app.moderation.reportRoutes
 import id.nearyou.app.infra.repo.PostRepository
 import id.nearyou.app.infra.repo.PostsFollowingRepository
 import id.nearyou.app.infra.repo.PostsTimelineRepository
@@ -65,12 +62,9 @@ import id.nearyou.app.infra.repo.RejectedIdentifierRepository
 import id.nearyou.app.infra.repo.ReservedUsernameRepository
 import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
-import id.nearyou.data.repository.ModerationQueueRepository
-import id.nearyou.data.repository.PostAutoHideRepository
-import id.nearyou.data.repository.PostLikeRepository
-import id.nearyou.data.repository.PostReplyRepository
-import id.nearyou.data.repository.ReportRepository
-import id.nearyou.data.repository.UserFollowsRepository
+import id.nearyou.app.moderation.ReportRateLimiter
+import id.nearyou.app.moderation.ReportService
+import id.nearyou.app.moderation.reportRoutes
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.LocationOutOfBoundsException
 import id.nearyou.app.post.postRoutes
@@ -78,6 +72,12 @@ import id.nearyou.app.timeline.FollowingTimelineService
 import id.nearyou.app.timeline.NearbyTimelineService
 import id.nearyou.app.timeline.followingTimelineRoutes
 import id.nearyou.app.timeline.timelineRoutes
+import id.nearyou.data.repository.ModerationQueueRepository
+import id.nearyou.data.repository.PostAutoHideRepository
+import id.nearyou.data.repository.PostLikeRepository
+import id.nearyou.data.repository.PostReplyRepository
+import id.nearyou.data.repository.ReportRepository
+import id.nearyou.data.repository.UserFollowsRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.http.HttpStatusCode

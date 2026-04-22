@@ -96,7 +96,10 @@ class ReportsReadPathNonRegressionTest : StringSpec({
         return id
     }
 
-    fun seedReply(postId: UUID, author: UUID): UUID {
+    fun seedReply(
+        postId: UUID,
+        author: UUID,
+    ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
             conn.prepareStatement(
@@ -112,7 +115,10 @@ class ReportsReadPathNonRegressionTest : StringSpec({
         return id
     }
 
-    fun insertFollow(follower: UUID, followee: UUID) {
+    fun insertFollow(
+        follower: UUID,
+        followee: UUID,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
@@ -149,28 +155,30 @@ class ReportsReadPathNonRegressionTest : StringSpec({
         val viewer = seedUser()
         val p = seedPost(author)
         try {
-            val beforeIds = timelineRepo.nearby(
-                viewerId = viewer,
-                viewerLat = -6.2,
-                viewerLng = 106.8,
-                radiusMeters = 50_000,
-                cursorCreatedAt = null,
-                cursorPostId = null,
-                limit = 50,
-            ).map { it.id }
+            val beforeIds =
+                timelineRepo.nearby(
+                    viewerId = viewer,
+                    viewerLat = -6.2,
+                    viewerLng = 106.8,
+                    radiusMeters = 50_000,
+                    cursorCreatedAt = null,
+                    cursorPostId = null,
+                    limit = 50,
+                ).map { it.id }
             (p in beforeIds) shouldBe true
             dataSource.connection.use { conn ->
                 autoHide.flipIsAutoHidden(conn, ReportTargetType.POST, p)
             }
-            val afterIds = timelineRepo.nearby(
-                viewerId = viewer,
-                viewerLat = -6.2,
-                viewerLng = 106.8,
-                radiusMeters = 50_000,
-                cursorCreatedAt = null,
-                cursorPostId = null,
-                limit = 50,
-            ).map { it.id }
+            val afterIds =
+                timelineRepo.nearby(
+                    viewerId = viewer,
+                    viewerLat = -6.2,
+                    viewerLng = 106.8,
+                    radiusMeters = 50_000,
+                    cursorCreatedAt = null,
+                    cursorPostId = null,
+                    limit = 50,
+                ).map { it.id }
             (p !in afterIds) shouldBe true
         } finally {
             cleanup(author, viewer)
@@ -185,22 +193,24 @@ class ReportsReadPathNonRegressionTest : StringSpec({
         val p = seedPost(author)
         try {
             insertFollow(follower, author)
-            val beforeIds = followingRepo.following(
-                viewerId = follower,
-                cursorCreatedAt = null,
-                cursorPostId = null,
-                limit = 50,
-            ).map { it.id }
+            val beforeIds =
+                followingRepo.following(
+                    viewerId = follower,
+                    cursorCreatedAt = null,
+                    cursorPostId = null,
+                    limit = 50,
+                ).map { it.id }
             (p in beforeIds) shouldBe true
             dataSource.connection.use { conn ->
                 autoHide.flipIsAutoHidden(conn, ReportTargetType.POST, p)
             }
-            val afterIds = followingRepo.following(
-                viewerId = follower,
-                cursorCreatedAt = null,
-                cursorPostId = null,
-                limit = 50,
-            ).map { it.id }
+            val afterIds =
+                followingRepo.following(
+                    viewerId = follower,
+                    cursorCreatedAt = null,
+                    cursorPostId = null,
+                    limit = 50,
+                ).map { it.id }
             (p !in afterIds) shouldBe true
         } finally {
             cleanup(author, follower)
@@ -216,24 +226,26 @@ class ReportsReadPathNonRegressionTest : StringSpec({
         val p = seedPost(postAuthor)
         val r = seedReply(p, replyAuthor)
         try {
-            val before = replyRepo.listByPost(
-                postId = p,
-                viewerId = viewer,
-                cursorCreatedAt = null,
-                cursorReplyId = null,
-                limit = 50,
-            ).map { it.id }
+            val before =
+                replyRepo.listByPost(
+                    postId = p,
+                    viewerId = viewer,
+                    cursorCreatedAt = null,
+                    cursorReplyId = null,
+                    limit = 50,
+                ).map { it.id }
             (r in before) shouldBe true
             dataSource.connection.use { conn ->
                 autoHide.flipIsAutoHidden(conn, ReportTargetType.REPLY, r)
             }
-            val after = replyRepo.listByPost(
-                postId = p,
-                viewerId = viewer,
-                cursorCreatedAt = null,
-                cursorReplyId = null,
-                limit = 50,
-            ).map { it.id }
+            val after =
+                replyRepo.listByPost(
+                    postId = p,
+                    viewerId = viewer,
+                    cursorCreatedAt = null,
+                    cursorReplyId = null,
+                    limit = 50,
+                ).map { it.id }
             (r !in after) shouldBe true
         } finally {
             cleanup(postAuthor, replyAuthor, viewer)
@@ -251,13 +263,15 @@ class ReportsReadPathNonRegressionTest : StringSpec({
             dataSource.connection.use { conn ->
                 autoHide.flipIsAutoHidden(conn, ReportTargetType.REPLY, r)
             }
-            val own = replyRepo.listByPost(
-                postId = p,
-                viewerId = replyAuthor, // author is viewer
-                cursorCreatedAt = null,
-                cursorReplyId = null,
-                limit = 50,
-            ).map { it.id }
+            val own =
+                replyRepo.listByPost(
+                    postId = p,
+                    // author is viewer
+                    viewerId = replyAuthor,
+                    cursorCreatedAt = null,
+                    cursorReplyId = null,
+                    limit = 50,
+                ).map { it.id }
             (r in own) shouldBe true
         } finally {
             cleanup(postAuthor, replyAuthor)
@@ -278,41 +292,45 @@ class ReportsReadPathNonRegressionTest : StringSpec({
         val r = seedReply(p, replyAuthor)
         try {
             insertFollow(follower, author)
-            val beforeNearby = timelineRepo.nearby(
-                viewerId = follower,
-                viewerLat = -6.2,
-                viewerLng = 106.8,
-                radiusMeters = 50_000,
-                cursorCreatedAt = null,
-                cursorPostId = null,
-                limit = 50,
-            ).first { it.id == p }
-            val beforeFollowing = followingRepo.following(
-                viewerId = follower,
-                cursorCreatedAt = null,
-                cursorPostId = null,
-                limit = 50,
-            ).first { it.id == p }
+            val beforeNearby =
+                timelineRepo.nearby(
+                    viewerId = follower,
+                    viewerLat = -6.2,
+                    viewerLng = 106.8,
+                    radiusMeters = 50_000,
+                    cursorCreatedAt = null,
+                    cursorPostId = null,
+                    limit = 50,
+                ).first { it.id == p }
+            val beforeFollowing =
+                followingRepo.following(
+                    viewerId = follower,
+                    cursorCreatedAt = null,
+                    cursorPostId = null,
+                    limit = 50,
+                ).first { it.id == p }
             beforeNearby.replyCount shouldBe 1
             beforeFollowing.replyCount shouldBe 1
             dataSource.connection.use { conn ->
                 autoHide.flipIsAutoHidden(conn, ReportTargetType.REPLY, r)
             }
-            val afterNearby = timelineRepo.nearby(
-                viewerId = follower,
-                viewerLat = -6.2,
-                viewerLng = 106.8,
-                radiusMeters = 50_000,
-                cursorCreatedAt = null,
-                cursorPostId = null,
-                limit = 50,
-            ).first { it.id == p }
-            val afterFollowing = followingRepo.following(
-                viewerId = follower,
-                cursorCreatedAt = null,
-                cursorPostId = null,
-                limit = 50,
-            ).first { it.id == p }
+            val afterNearby =
+                timelineRepo.nearby(
+                    viewerId = follower,
+                    viewerLat = -6.2,
+                    viewerLng = 106.8,
+                    radiusMeters = 50_000,
+                    cursorCreatedAt = null,
+                    cursorPostId = null,
+                    limit = 50,
+                ).first { it.id == p }
+            val afterFollowing =
+                followingRepo.following(
+                    viewerId = follower,
+                    cursorCreatedAt = null,
+                    cursorPostId = null,
+                    limit = 50,
+                ).first { it.id == p }
             // V8 counter is shadow-ban-filter-only — auto-hide flip is invisible to it.
             afterNearby.replyCount shouldBe 1
             afterFollowing.replyCount shouldBe 1
@@ -331,18 +349,22 @@ class ReportsReadPathNonRegressionTest : StringSpec({
     // bringing up the full Ktor + jitter + auth stack for a non-regression
     // assertion that V9 deliberately did not touch.
     "7.6 PostRoutes response JSON still emits the 6 documented keys (no V9 drift)" {
-        val path = Path.of(
-            System.getProperty("user.dir"),
-            "src", "main", "kotlin",
-            "id", "nearyou", "app", "post", "PostRoutes.kt",
-        ).let { local ->
-            if (Files.exists(local)) local
-            else Path.of(
+        val path =
+            Path.of(
                 System.getProperty("user.dir"),
-                "backend", "ktor", "src", "main", "kotlin",
+                "src", "main", "kotlin",
                 "id", "nearyou", "app", "post", "PostRoutes.kt",
-            )
-        }
+            ).let { local ->
+                if (Files.exists(local)) {
+                    local
+                } else {
+                    Path.of(
+                        System.getProperty("user.dir"),
+                        "backend", "ktor", "src", "main", "kotlin",
+                        "id", "nearyou", "app", "post", "PostRoutes.kt",
+                    )
+                }
+            }
         Files.exists(path) shouldBe true
         val src = Files.readString(path)
         // All 6 keys present, nothing else named in the buildJsonObject block.
@@ -383,9 +405,10 @@ class ReportsReadPathNonRegressionTest : StringSpec({
         // the file lives in a sibling module (`infra/supabase`), so walk up to the
         // repo root (the directory containing `settings.gradle.kts`) and resolve
         // from there.
-        val path = repoRoot().resolve(
-            "infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostReplyRepository.kt",
-        )
+        val path =
+            repoRoot().resolve(
+                "infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostReplyRepository.kt",
+            )
         Files.exists(path) shouldBe true
         val src = Files.readString(path)
         // V8 literal uses positional `?` for viewer and `pr.` alias.

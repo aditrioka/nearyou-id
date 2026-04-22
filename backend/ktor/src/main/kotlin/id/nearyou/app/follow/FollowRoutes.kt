@@ -179,8 +179,7 @@ private fun FollowPage.toResponse(): FollowListResponse =
 
 private const val FOLLOW_BLOCKED_BODY = """{"error":{"code":"follow_blocked"}}"""
 
-private fun parseUserId(raw: String?): UUID? =
-    raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+private fun parseUserId(raw: String?): UUID? = raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
 private suspend fun io.ktor.server.application.ApplicationCall.respondError(
     status: HttpStatusCode,

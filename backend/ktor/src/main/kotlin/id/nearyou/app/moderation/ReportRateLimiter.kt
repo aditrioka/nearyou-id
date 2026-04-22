@@ -78,7 +78,10 @@ class ReportRateLimiter(
         }
     }
 
-    private fun pruneOlderThan(bucket: ArrayDeque<Instant>, threshold: Instant) {
+    private fun pruneOlderThan(
+        bucket: ArrayDeque<Instant>,
+        threshold: Instant,
+    ) {
         while (bucket.isNotEmpty() && !bucket.peekFirst().isAfter(threshold)) {
             bucket.pollFirst()
         }

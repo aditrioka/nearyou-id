@@ -135,8 +135,10 @@ private const val RATE_LIMITED = "rate_limited"
 
 private const val MAX_NOTE_CODE_POINTS = 200
 
-private fun errorEnvelope(code: String, message: String): Map<String, Any> =
-    mapOf("error" to mapOf("code" to code, "message" to message))
+private fun errorEnvelope(
+    code: String,
+    message: String,
+): Map<String, Any> = mapOf("error" to mapOf("code" to code, "message" to message))
 
 private fun normalizeReasonNote(raw: String?): String? {
     if (raw == null) return null

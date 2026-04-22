@@ -64,7 +64,10 @@ class MigrationV8SmokeTest : StringSpec({
         return id
     }
 
-    fun seedPost(conn: Connection, authorId: UUID): UUID {
+    fun seedPost(
+        conn: Connection,
+        authorId: UUID,
+    ): UUID {
         val id = UUID.randomUUID()
         conn.prepareStatement(
             """
@@ -87,7 +90,12 @@ class MigrationV8SmokeTest : StringSpec({
         return id
     }
 
-    fun insertReply(conn: Connection, postId: UUID, authorId: UUID, deletedAt: Instant? = null): UUID {
+    fun insertReply(
+        conn: Connection,
+        postId: UUID,
+        authorId: UUID,
+        deletedAt: Instant? = null,
+    ): UUID {
         val id = UUID.randomUUID()
         conn.prepareStatement(
             """

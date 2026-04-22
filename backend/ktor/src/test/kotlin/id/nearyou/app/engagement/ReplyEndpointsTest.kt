@@ -95,7 +95,10 @@ class ReplyEndpointsTest : StringSpec({
         return id to token
     }
 
-    fun seedPost(authorId: UUID, autoHidden: Boolean = false): UUID {
+    fun seedPost(
+        authorId: UUID,
+        autoHidden: Boolean = false,
+    ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
             conn.prepareStatement(
@@ -121,7 +124,10 @@ class ReplyEndpointsTest : StringSpec({
         return id
     }
 
-    fun insertBlock(blocker: UUID, blocked: UUID) {
+    fun insertBlock(
+        blocker: UUID,
+        blocked: UUID,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
@@ -150,8 +156,11 @@ class ReplyEndpointsTest : StringSpec({
                 ps.setObject(3, authorId)
                 ps.setString(4, content)
                 ps.setBoolean(5, autoHidden)
-                if (deletedAt != null) ps.setTimestamp(6, Timestamp.from(deletedAt))
-                else ps.setNull(6, java.sql.Types.TIMESTAMP_WITH_TIMEZONE)
+                if (deletedAt != null) {
+                    ps.setTimestamp(6, Timestamp.from(deletedAt))
+                } else {
+                    ps.setNull(6, java.sql.Types.TIMESTAMP_WITH_TIMEZONE)
+                }
                 ps.executeUpdate()
             }
         }
@@ -402,22 +411,26 @@ class ReplyEndpointsTest : StringSpec({
                 bodies +=
                     client.post("/api/v1/posts/$missingUuid/replies") {
                         header(HttpHeaders.Authorization, "Bearer $t1")
-                        contentType(ContentType.Application.Json); setBody("""{"content":"hi"}""")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"content":"hi"}""")
                     }.bodyAsText()
                 bodies +=
                     client.post("/api/v1/posts/$autoHiddenPost/replies") {
                         header(HttpHeaders.Authorization, "Bearer $t1")
-                        contentType(ContentType.Application.Json); setBody("""{"content":"hi"}""")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"content":"hi"}""")
                     }.bodyAsText()
                 bodies +=
                     client.post("/api/v1/posts/$p2/replies") {
                         header(HttpHeaders.Authorization, "Bearer $t2")
-                        contentType(ContentType.Application.Json); setBody("""{"content":"hi"}""")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"content":"hi"}""")
                     }.bodyAsText()
                 bodies +=
                     client.post("/api/v1/posts/$p3/replies") {
                         header(HttpHeaders.Authorization, "Bearer $t3")
-                        contentType(ContentType.Application.Json); setBody("""{"content":"hi"}""")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"content":"hi"}""")
                     }.bodyAsText()
             }
             bodies[0] shouldBe "{\"error\":{\"code\":\"post_not_found\"}}"
@@ -435,8 +448,10 @@ class ReplyEndpointsTest : StringSpec({
         val (replier, _) = seedUser()
         try {
             val p = seedPost(author)
-            val r1 = seedReply(p, replier); Thread.sleep(3)
-            val r2 = seedReply(p, replier); Thread.sleep(3)
+            val r1 = seedReply(p, replier)
+            Thread.sleep(3)
+            val r2 = seedReply(p, replier)
+            Thread.sleep(3)
             val r3 = seedReply(p, replier)
             withReplies {
                 val resp =
@@ -771,7 +786,8 @@ class ReplyEndpointsTest : StringSpec({
         withReplies {
             val client = createClient { install(ClientCN) { json() } }
             client.post("/api/v1/posts/$ghostPost/replies") {
-                contentType(ContentType.Application.Json); setBody("""{"content":"hi"}""")
+                contentType(ContentType.Application.Json)
+                setBody("""{"content":"hi"}""")
             }.status shouldBe HttpStatusCode.Unauthorized
             client.get("/api/v1/posts/$ghostPost/replies").status shouldBe HttpStatusCode.Unauthorized
             client.delete("/api/v1/posts/$ghostPost/replies/$ghostReply").status shouldBe HttpStatusCode.Unauthorized

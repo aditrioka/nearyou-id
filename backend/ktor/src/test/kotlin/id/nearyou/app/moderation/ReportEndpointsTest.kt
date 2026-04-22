@@ -14,7 +14,6 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientCN
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -38,6 +37,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientCN
 
 /**
  * Integration tests for `POST /api/v1/reports` — exercises the full V9 flow
@@ -125,7 +125,11 @@ class ReportEndpointsTest : StringSpec({
 
     fun seedAgedUser() = seedUser(createdAt = Instant.now().minus(Duration.ofDays(30)))
 
-    fun seedPost(authorId: UUID, autoHidden: Boolean = false, softDeleted: Boolean = false): UUID {
+    fun seedPost(
+        authorId: UUID,
+        autoHidden: Boolean = false,
+        softDeleted: Boolean = false,
+    ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
             conn.prepareStatement(
@@ -158,7 +162,11 @@ class ReportEndpointsTest : StringSpec({
         return id
     }
 
-    fun seedReply(postId: UUID, authorId: UUID, softDeleted: Boolean = false): UUID {
+    fun seedReply(
+        postId: UUID,
+        authorId: UUID,
+        softDeleted: Boolean = false,
+    ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
             conn.prepareStatement(
@@ -193,7 +201,10 @@ class ReportEndpointsTest : StringSpec({
         return id
     }
 
-    fun insertBlock(blocker: UUID, blocked: UUID) {
+    fun insertBlock(
+        blocker: UUID,
+        blocked: UUID,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
@@ -205,7 +216,11 @@ class ReportEndpointsTest : StringSpec({
         }
     }
 
-    fun insertReportDirect(reporterId: UUID, targetType: String, targetId: UUID) {
+    fun insertReportDirect(
+        reporterId: UUID,
+        targetType: String,
+        targetId: UUID,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "INSERT INTO reports (reporter_id, target_type, target_id, reason_category) VALUES (?, ?, ?, 'spam')",
@@ -218,7 +233,10 @@ class ReportEndpointsTest : StringSpec({
         }
     }
 
-    fun countReports(targetType: String, targetId: UUID): Int {
+    fun countReports(
+        targetType: String,
+        targetId: UUID,
+    ): Int {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "SELECT COUNT(*) FROM reports WHERE target_type = ? AND target_id = ?",
@@ -257,7 +275,10 @@ class ReportEndpointsTest : StringSpec({
         }
     }
 
-    fun queueRowCount(targetType: String, targetId: UUID): Int {
+    fun queueRowCount(
+        targetType: String,
+        targetId: UUID,
+    ): Int {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
@@ -304,7 +325,12 @@ class ReportEndpointsTest : StringSpec({
         testApplication {
             application {
                 install(ContentNegotiation) {
-                    json(Json { ignoreUnknownKeys = true; explicitNulls = false })
+                    json(
+                        Json {
+                            ignoreUnknownKeys = true
+                            explicitNulls = false
+                        },
+                    )
                 }
                 install(Authentication) { configureUserJwt(keys, users, Instant::now) }
                 reportRoutes(service)
@@ -313,16 +339,21 @@ class ReportEndpointsTest : StringSpec({
         }
     }
 
-    fun validBody(targetType: String, targetId: UUID, reason: String = "spam"): String =
-        """{"target_type":"$targetType","target_id":"$targetId","reason_category":"$reason"}"""
+    fun validBody(
+        targetType: String,
+        targetId: UUID,
+        reason: String = "spam",
+    ): String = """{"target_type":"$targetType","target_id":"$targetId","reason_category":"$reason"}"""
 
-    suspend fun ApplicationTestBuilder.postReport(token: String, body: String) =
-        createClient { install(ClientCN) { json() } }
-            .post("/api/v1/reports") {
-                header(HttpHeaders.Authorization, "Bearer $token")
-                contentType(ContentType.Application.Json)
-                setBody(body)
-            }
+    suspend fun ApplicationTestBuilder.postReport(
+        token: String,
+        body: String,
+    ) = createClient { install(ClientCN) { json() } }
+        .post("/api/v1/reports") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
 
     // --- 6.1 Happy path per target_type ---------------------------------------------------
 
@@ -842,7 +873,8 @@ class ReportEndpointsTest : StringSpec({
         } finally {
             cleanup(r1, r2, r3, author)
             // suppress "tok3" unused var warning
-            @Suppress("UNUSED_EXPRESSION") tok3
+            @Suppress("UNUSED_EXPRESSION")
+            tok3
         }
     }
 
@@ -862,25 +894,30 @@ class ReportEndpointsTest : StringSpec({
             val autoHide = JdbcPostAutoHideRepository()
             val limiter = ReportRateLimiter()
             val service = ReportService(dataSource, reports, queue, autoHide, limiter)
-            val tA = Thread {
-                service.submit(
-                    r3,
-                    id.nearyou.data.repository.ReportTargetType.POST,
-                    p,
-                    id.nearyou.data.repository.ReportReasonCategory.SPAM,
-                    null,
-                )
-            }
-            val tB = Thread {
-                service.submit(
-                    r4,
-                    id.nearyou.data.repository.ReportTargetType.POST,
-                    p,
-                    id.nearyou.data.repository.ReportReasonCategory.SPAM,
-                    null,
-                )
-            }
-            tA.start(); tB.start(); tA.join(); tB.join()
+            val tA =
+                Thread {
+                    service.submit(
+                        r3,
+                        id.nearyou.data.repository.ReportTargetType.POST,
+                        p,
+                        id.nearyou.data.repository.ReportReasonCategory.SPAM,
+                        null,
+                    )
+                }
+            val tB =
+                Thread {
+                    service.submit(
+                        r4,
+                        id.nearyou.data.repository.ReportTargetType.POST,
+                        p,
+                        id.nearyou.data.repository.ReportReasonCategory.SPAM,
+                        null,
+                    )
+                }
+            tA.start()
+            tB.start()
+            tA.join()
+            tB.join()
             queueRowCount("post", p) shouldBe 1
             isPostAutoHidden(p) shouldBe true
         } finally {
@@ -955,7 +992,10 @@ private fun hikari(): HikariDataSource {
 private fun parseErrorCode(body: String): String =
     Json.parseToJsonElement(body).jsonObject["error"]!!.jsonObject["code"]!!.jsonPrimitive.content
 
-private fun assertEnvelope(body: String, expectedCode: String) {
+private fun assertEnvelope(
+    body: String,
+    expectedCode: String,
+) {
     val error = Json.parseToJsonElement(body).jsonObject["error"]!!.jsonObject
     error["code"]!!.jsonPrimitive.content shouldBe expectedCode
     error["message"]!!.jsonPrimitive.content shouldContain Regex(".+")

@@ -95,8 +95,7 @@ data class LikesCountResponse(val count: Long)
 
 private const val POST_NOT_FOUND_BODY = """{"error":{"code":"post_not_found"}}"""
 
-private fun parseUuid(raw: String?): UUID? =
-    raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+private fun parseUuid(raw: String?): UUID? = raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
 private suspend fun io.ktor.server.application.ApplicationCall.respondInvalidUuid() {
     respond(

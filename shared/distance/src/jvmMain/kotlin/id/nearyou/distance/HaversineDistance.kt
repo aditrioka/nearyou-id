@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:filename")
+
 package id.nearyou.distance
 
 import kotlin.math.PI

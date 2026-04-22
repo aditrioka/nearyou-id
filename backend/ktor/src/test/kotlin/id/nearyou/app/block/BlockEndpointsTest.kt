@@ -25,7 +25,6 @@ import io.ktor.server.auth.Authentication
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -461,4 +460,3 @@ class BlockEndpointsTest : StringSpec({
         }
     }
 })
-

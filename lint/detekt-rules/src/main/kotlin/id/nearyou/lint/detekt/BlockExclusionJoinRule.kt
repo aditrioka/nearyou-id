@@ -7,7 +7,9 @@ import io.gitlab.arturbosch.detekt.api.Entity
 import io.gitlab.arturbosch.detekt.api.Issue
 import io.gitlab.arturbosch.detekt.api.Rule
 import io.gitlab.arturbosch.detekt.api.Severity
+import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtAnnotated
+import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
@@ -194,8 +196,7 @@ class BlockExclusionJoinRule(config: Config = Config.empty) : Rule(config) {
         return root.text to (leftmost === this)
     }
 
-    private fun org.jetbrains.kotlin.psi.KtBinaryExpression.isPlus(): Boolean =
-        operationToken === org.jetbrains.kotlin.lexer.KtTokens.PLUS
+    private fun KtBinaryExpression.isPlus(): Boolean = operationToken === KtTokens.PLUS
 
     private fun violates(text: String): Boolean {
         if (!PROTECTED_TABLE_PATTERN.containsMatchIn(text)) return false

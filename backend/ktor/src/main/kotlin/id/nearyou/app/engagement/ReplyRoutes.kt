@@ -2,10 +2,10 @@ package id.nearyou.app.engagement
 
 import id.nearyou.app.auth.AUTH_PROVIDER_USER
 import id.nearyou.app.auth.UserPrincipal
+import id.nearyou.app.common.Cursor
 import id.nearyou.app.common.InvalidCursorException
 import id.nearyou.app.common.decodeCursor
 import id.nearyou.app.common.encodeCursor
-import id.nearyou.app.common.Cursor
 import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.guard.ContentTooLongException
@@ -40,7 +40,10 @@ import java.util.UUID
  *  - `DELETE` NEVER returns 403 or 404 — always `204` regardless of not-yours /
  *    already-tombstoned / never-existed. The repository guard scopes the UPDATE.
  */
-fun Application.replyRoutes(service: ReplyService, contentGuard: ContentLengthGuard) {
+fun Application.replyRoutes(
+    service: ReplyService,
+    contentGuard: ContentLengthGuard,
+) {
     routing {
         authenticate(AUTH_PROVIDER_USER) {
             post("/api/v1/posts/{post_id}/replies") {
@@ -191,8 +194,7 @@ private fun PostReplyRow.toDto(): ReplyDto =
 
 private const val POST_NOT_FOUND_BODY = """{"error":{"code":"post_not_found"}}"""
 
-private fun parseUuid(raw: String?): UUID? =
-    raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+private fun parseUuid(raw: String?): UUID? = raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
 private suspend fun io.ktor.server.application.ApplicationCall.respondInvalidUuid(message: String) {
     respond(

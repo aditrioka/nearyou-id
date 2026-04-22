@@ -1,7 +1,6 @@
 package id.nearyou.app.moderation
 
 import ch.qos.logback.classic.Level
-import ch.qos.logback.classic.Logger as LogbackLogger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import com.zaxxer.hikari.HikariConfig
@@ -21,6 +20,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
+import ch.qos.logback.classic.Logger as LogbackLogger
 
 /**
  * Observability non-regression for the V9 `auto_hide_triggered` log line.
@@ -70,7 +70,10 @@ class ReportObservabilityTest : StringSpec({
 
     fun seedAgedUser() = seedUser(createdAt = Instant.now().minus(Duration.ofDays(30)))
 
-    fun seedPost(author: UUID, autoHidden: Boolean = false): UUID {
+    fun seedPost(
+        author: UUID,
+        autoHidden: Boolean = false,
+    ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
             conn.prepareStatement(
@@ -97,7 +100,11 @@ class ReportObservabilityTest : StringSpec({
         return id
     }
 
-    fun directInsertReport(reporter: UUID, targetType: String, targetId: UUID) {
+    fun directInsertReport(
+        reporter: UUID,
+        targetType: String,
+        targetId: UUID,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "INSERT INTO reports (reporter_id, target_type, target_id, reason_category) VALUES (?, ?, ?, 'spam')",

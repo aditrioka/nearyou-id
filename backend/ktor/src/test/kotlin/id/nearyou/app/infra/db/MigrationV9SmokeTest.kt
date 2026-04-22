@@ -44,7 +44,10 @@ class MigrationV9SmokeTest : StringSpec({
         .load()
         .migrate()
 
-    fun seedUser(conn: Connection, shortPrefix: String = "v9"): UUID {
+    fun seedUser(
+        conn: Connection,
+        shortPrefix: String = "v9",
+    ): UUID {
         val id = UUID.randomUUID()
         val short = id.toString().replace("-", "").take(8)
         conn.prepareStatement(
@@ -299,8 +302,13 @@ class MigrationV9SmokeTest : StringSpec({
             try {
                 val triggers =
                     listOf(
-                        "auto_hide_3_reports", "perspective_api_high_score", "uu_ite_keyword_match",
-                        "admin_flag", "csam_detected", "anomaly_detection", "username_flagged",
+                        "auto_hide_3_reports",
+                        "perspective_api_high_score",
+                        "uu_ite_keyword_match",
+                        "admin_flag",
+                        "csam_detected",
+                        "anomaly_detection",
+                        "username_flagged",
                     )
                 triggers.forEach { t ->
                     conn.prepareStatement(

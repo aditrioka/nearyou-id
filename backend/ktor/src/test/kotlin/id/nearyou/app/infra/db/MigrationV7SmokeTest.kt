@@ -55,7 +55,10 @@ class MigrationV7SmokeTest : StringSpec({
         return id
     }
 
-    fun seedPost(conn: Connection, authorId: UUID): UUID {
+    fun seedPost(
+        conn: Connection,
+        authorId: UUID,
+    ): UUID {
         val id = UUID.randomUUID()
         conn.prepareStatement(
             """

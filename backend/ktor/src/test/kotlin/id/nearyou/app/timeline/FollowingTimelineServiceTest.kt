@@ -156,7 +156,11 @@ class FollowingTimelineServiceTest : StringSpec({
         }
     }
 
-    fun seedReply(postId: UUID, authorId: UUID, deletedAt: java.time.Instant? = null) {
+    fun seedReply(
+        postId: UUID,
+        authorId: UUID,
+        deletedAt: java.time.Instant? = null,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "INSERT INTO post_replies (post_id, author_id, content, deleted_at) VALUES (?, ?, ?, ?)",
@@ -164,8 +168,11 @@ class FollowingTimelineServiceTest : StringSpec({
                 ps.setObject(1, postId)
                 ps.setObject(2, authorId)
                 ps.setString(3, "r-${UUID.randomUUID().toString().take(6)}")
-                if (deletedAt != null) ps.setTimestamp(4, java.sql.Timestamp.from(deletedAt))
-                else ps.setNull(4, java.sql.Types.TIMESTAMP_WITH_TIMEZONE)
+                if (deletedAt != null) {
+                    ps.setTimestamp(4, java.sql.Timestamp.from(deletedAt))
+                } else {
+                    ps.setNull(4, java.sql.Types.TIMESTAMP_WITH_TIMEZONE)
+                }
                 ps.executeUpdate()
             }
         }
@@ -237,16 +244,17 @@ class FollowingTimelineServiceTest : StringSpec({
                 ids shouldBe listOf(pc.toString(), pb.toString(), pa.toString())
                 // No distance_m / distanceM in response.
                 val first = body["posts"]!!.jsonArray.first().jsonObject
-                first.keys shouldBe setOf(
-                    "id",
-                    "authorUserId",
-                    "content",
-                    "latitude",
-                    "longitude",
-                    "createdAt",
-                    "liked_by_viewer",
-                    "reply_count",
-                )
+                first.keys shouldBe
+                    setOf(
+                        "id",
+                        "authorUserId",
+                        "content",
+                        "latitude",
+                        "longitude",
+                        "createdAt",
+                        "liked_by_viewer",
+                        "reply_count",
+                    )
                 first.containsKey("distanceM") shouldBe false
                 first.containsKey("distance_m") shouldBe false
             }
@@ -326,9 +334,10 @@ class FollowingTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/following") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
-                val ids = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids.contains(visible.toString()) shouldBe true
                 ids.contains(hidden.toString()) shouldBe false
             }
@@ -350,9 +359,10 @@ class FollowingTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/following") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
-                val ids = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids.contains(p.toString()) shouldBe false
             }
         } finally {
@@ -373,9 +383,10 @@ class FollowingTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/following") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
-                val ids = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids.contains(p.toString()) shouldBe false
             }
         } finally {
@@ -397,9 +408,10 @@ class FollowingTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/following") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
-                val ids = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids shouldBe listOf(mine.toString())
                 ids.contains(theirs.toString()) shouldBe false
             }
@@ -435,10 +447,11 @@ class FollowingTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/following") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
-                val post = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
-                    .jsonObject
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
                 post["liked_by_viewer"]!!.jsonPrimitive.content shouldBe "true"
             }
         } finally {
@@ -458,10 +471,11 @@ class FollowingTimelineServiceTest : StringSpec({
                         .get("/api/v1/timeline/following") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
-                val post = Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["posts"]!!.jsonArray
-                    .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
-                    .jsonObject
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
                 post["liked_by_viewer"]!!.jsonPrimitive.content shouldBe "false"
             }
         } finally {
@@ -477,7 +491,9 @@ class FollowingTimelineServiceTest : StringSpec({
             val posts = (0 until 5).map { seedPost(author).also { Thread.sleep(2) } }
             dataSource.connection.use { conn ->
                 conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
-                    ps.setObject(1, posts[1]); ps.setObject(2, viewer); ps.executeUpdate()
+                    ps.setObject(1, posts[1])
+                    ps.setObject(2, viewer)
+                    ps.executeUpdate()
                 }
             }
             withFollowing {
@@ -503,7 +519,9 @@ class FollowingTimelineServiceTest : StringSpec({
             dataSource.connection.use { conn ->
                 conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
                     posts.take(6).forEach { pid ->
-                        ps.setObject(1, pid); ps.setObject(2, viewer); ps.executeUpdate()
+                        ps.setObject(1, pid)
+                        ps.setObject(2, viewer)
+                        ps.executeUpdate()
                     }
                 }
             }
@@ -674,7 +692,10 @@ class FollowingTimelineServiceTest : StringSpec({
         val (author, _) = seedUser()
         try {
             follow(viewer, author)
-            repeat(3) { seedPost(author); Thread.sleep(2) }
+            repeat(3) {
+                seedPost(author)
+                Thread.sleep(2)
+            }
             withFollowing {
                 val resp =
                     createClient { install(ClientCN) { json() } }
