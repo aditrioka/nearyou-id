@@ -71,3 +71,44 @@ jobs:
           DB_URL: jdbc:postgresql://localhost:5433/nearyou_dev
           DB_USER: postgres
           DB_PASSWORD: postgres
+
+  # Runs Flyway against a Postgres instance configured to mirror a fresh
+  # Supabase project — PostGIS installed-but-not-enabled, realtime/auth
+  # schemas pre-seeded. Catches migrations that rely on environment state
+  # they don't explicitly establish (the class of bug that broke the first
+  # two staging deploys: V4 forgot `CREATE EXTENSION postgis`, V2's realtime
+  # guard skipped on plain Postgres and hid a reference to a missing table).
+  # See `dev/supabase-parity-init.sql` for the simulated starting state.
+  migrate-supabase-parity:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: parity
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d parity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply Supabase-parity starting state
+        run: |
+          PGPASSWORD=postgres psql \
+            -h localhost -p 5434 -U postgres -d parity \
+            -v ON_ERROR_STOP=1 \
+            -f dev/supabase-parity-init.sql
+      - name: Run Flyway migrate
+        run: |
+          docker run --rm --network=host \
+            -v "$PWD/backend/ktor/src/main/resources/db/migration:/flyway/sql:ro" \
+            flyway/flyway:10 \
+            -url=jdbc:postgresql://localhost:5434/parity \
+            -user=postgres -password=postgres \
+            -locations=filesystem:/flyway/sql \
+            migrate
