@@ -56,11 +56,18 @@ CREATE        INDEX refresh_tokens_expires_idx
     ON refresh_tokens (expires_at) WHERE revoked_at IS NULL;
 
 -- Supabase realtime RLS. Plain Postgres has no `realtime` schema so the whole block
--- is skipped. Postgres has no CREATE POLICY IF NOT EXISTS, so DROP+CREATE is the
--- idempotent pattern.
+-- is skipped. The policy body references `public.conversation_participants`, which is
+-- created by a later migration (conversations feature), so we additionally gate on
+-- that table existing — otherwise CREATE POLICY fails on a fresh Supabase DB where
+-- `realtime` exists but the conversations table doesn't yet.
+-- Postgres has no CREATE POLICY IF NOT EXISTS, so DROP+CREATE is the idempotent pattern.
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'realtime') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'realtime')
+       AND EXISTS (
+           SELECT 1 FROM information_schema.tables
+           WHERE table_schema = 'public' AND table_name = 'conversation_participants'
+       ) THEN
         EXECUTE $policy$
             DROP POLICY IF EXISTS participants_can_subscribe ON realtime.messages;
             CREATE POLICY participants_can_subscribe ON realtime.messages
