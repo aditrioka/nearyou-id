@@ -29,7 +29,17 @@ dependencyResolutionManagement {
     }
 }
 
-include(":mobile:app")
+// Mobile (Android + Compose Multiplatform) is conditionally excluded when building
+// backend-only artefacts from environments without an Android SDK — e.g. the
+// Cloud Run Docker builder image. Pass `-PincludeMobile=false` to skip the
+// `:mobile:app` project from settings evaluation; the Android plugin is then
+// never applied, so the JDK-only builder can run Gradle successfully. All other
+// builds (local dev, CI `assemble`, CI `test`) include mobile by default so the
+// KMP compile surface stays covered.
+val includeMobile: String = (providers.gradleProperty("includeMobile").orNull ?: "true")
+if (includeMobile.toBoolean()) {
+    include(":mobile:app")
+}
 include(":backend:ktor")
 include(":shared:tmp")
 include(":shared:distance")

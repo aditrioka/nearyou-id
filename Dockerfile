@@ -37,6 +37,10 @@ COPY build-logic build-logic
 
 # Subproject build.gradle.kts files to allow Gradle to compute the full dep graph
 # before source copy (improves layer caching).
+# NB: `:mobile:app` is intentionally excluded from Docker builds — see
+# `settings.gradle.kts` + the `-PincludeMobile=false` flag below. The Android
+# plugin it applies would otherwise force Gradle to resolve an Android SDK that
+# this JDK-only builder does not ship.
 COPY backend/ktor/build.gradle.kts backend/ktor/build.gradle.kts
 COPY core/data/build.gradle.kts core/data/build.gradle.kts
 COPY core/domain/build.gradle.kts core/domain/build.gradle.kts
@@ -44,7 +48,6 @@ COPY infra/supabase/build.gradle.kts infra/supabase/build.gradle.kts
 COPY lint/detekt-rules/build.gradle.kts lint/detekt-rules/build.gradle.kts
 COPY shared/distance/build.gradle.kts shared/distance/build.gradle.kts
 COPY shared/tmp/build.gradle.kts shared/tmp/build.gradle.kts
-COPY mobile/app/build.gradle.kts mobile/app/build.gradle.kts
 
 # Now copy actual sources for the modules the Ktor jar depends on.
 COPY backend/ktor/src backend/ktor/src
@@ -60,7 +63,9 @@ COPY shared/tmp/src shared/tmp/src
 # only pay for the changed subproject.
 RUN --mount=type=cache,target=/root/.gradle \
     --mount=type=cache,target=/workspace/.gradle \
-    ./gradlew :backend:ktor:installDist -x test --no-daemon --console=plain
+    ./gradlew :backend:ktor:installDist -x test \
+        -PincludeMobile=false \
+        --no-daemon --console=plain
 
 # ---- runtime ---------------------------------------------------------------
 
