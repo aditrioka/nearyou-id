@@ -90,6 +90,7 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
 import kotlinx.serialization.json.Json
+import org.flywaydb.core.Flyway
 import org.koin.dsl.module
 import org.koin.ktor.plugin.Koin
 import org.koin.logger.slf4jLogger
@@ -171,6 +172,21 @@ fun Application.module() {
             maxPoolSize = environment.config.propertyOrNull("db.maxPoolSize")?.getString()?.toInt() ?: 20,
         )
     val dataSource: DataSource = DataSourceFactory.create(dbConfig)
+
+    // Staging-simplified bootstrap: Ktor runs Flyway migrations at startup on the same
+    // data source the app will serve requests against. The `RUN_FLYWAY_ON_STARTUP` env
+    // var gates it — Cloud Run staging sets it `true`; tests use their own
+    // KotestProjectConfig.beforeProject() to avoid a double migration; prod later
+    // splits this into a dedicated Cloud Run Job (`nearyou-migrate`) per the
+    // docs/04-Architecture.md deployment plan.
+    if (System.getenv("RUN_FLYWAY_ON_STARTUP") == "true") {
+        Flyway
+            .configure()
+            .dataSource(dataSource)
+            .locations("classpath:db/migration")
+            .load()
+            .migrate()
+    }
 
     val secrets: SecretResolver = EnvVarSecretResolver()
     val rsaPem =

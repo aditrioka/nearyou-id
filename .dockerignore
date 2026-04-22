@@ -1,0 +1,42 @@
+# Build artefacts — regenerated inside the container via Gradle cache mounts.
+**/build/
+**/.gradle/
+.gradle/
+build/
+
+# IDE / editor metadata — never useful at build time.
+.idea/
+.vscode/
+*.iml
+*.iws
+
+# Local secrets / env files — MUST NOT ship into images.
+.env
+.env.*
+*.pem
+*.p8
+*.p12
+
+# Git metadata — not needed for application build.
+.git/
+.gitignore
+.gitattributes
+
+# Openspec / docs — not part of runtime classpath.
+openspec/
+docs/
+*.md
+
+# Mobile module — backend image doesn't ship mobile code.
+mobile/
+
+# CI / infra configs — used outside of container.
+.github/
+dev/
+
+# macOS / Windows metadata.
+.DS_Store
+Thumbs.db
+
+# Claude Code / Cowork local session state.
+.claude/

@@ -1,0 +1,76 @@
+name: Deploy staging
+
+# Auto-deploy on every push to main. `workflow_dispatch` also exposed for manual
+# re-deploys (e.g. rolling back by redeploying an earlier commit).
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  GAR_REPO: nearyou-backend
+  SERVICE: nearyou-backend-staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Reserved for future Workload Identity Federation migration.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          IMAGE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${GAR_REPO}/${SERVICE}:${GITHUB_SHA::12}"
+          echo "IMAGE=${IMAGE}" >> $GITHUB_ENV
+          docker build -t "${IMAGE}" .
+
+      - name: Push Docker image
+        run: docker push "${IMAGE}"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${SERVICE}" \
+            --image="${IMAGE}" \
+            --region="${{ secrets.GCP_REGION }}" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=2 \
+            --memory=512Mi \
+            --cpu=1 \
+            --concurrency=80 \
+            --timeout=60 \
+            --set-env-vars=KTOR_ENV=staging,RUN_FLYWAY_ON_STARTUP=true \
+            --set-secrets="DB_URL=staging-db-url:latest,DB_USER=staging-db-user:latest,DB_PASSWORD=staging-db-password:latest,KTOR_RSA_PRIVATE_KEY=staging-ktor-rsa-private-key:latest,JITTER_SECRET=staging-jitter-secret:latest,INVITE_CODE_SECRET=staging-invite-code-secret:latest,SUPABASE_JWT_SECRET=staging-supabase-jwt-secret:latest,REDIS_URL=staging-redis-url:latest" \
+            --quiet
+
+      - name: Show service URL
+        run: |
+          URL=$(gcloud run services describe "${SERVICE}" \
+            --region="${{ secrets.GCP_REGION }}" \
+            --format='value(status.url)')
+          echo "Service deployed: ${URL}"
+          echo "## Staging deploy" >> $GITHUB_STEP_SUMMARY
+          echo "- Image: \`${IMAGE}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: ${URL}" >> $GITHUB_STEP_SUMMARY
