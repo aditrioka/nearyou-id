@@ -264,6 +264,134 @@ class ReportsReadPathNonRegressionTest : StringSpec({
         }
     }
 
+    // --- 7.5 reply_count preserved ---
+    //
+    // V8 spec: timeline reply_count excludes shadow-banned authors via
+    // `JOIN visible_users`, but does NOT filter on `is_auto_hidden`. V9's
+    // auto-hide flip on a reply must therefore leave reply_count unchanged on
+    // both timelines.
+    "7.5 reply_count unchanged after post_replies.is_auto_hidden flipped TRUE" {
+        val author = seedUser()
+        val replyAuthor = seedUser()
+        val follower = seedUser()
+        val p = seedPost(author)
+        val r = seedReply(p, replyAuthor)
+        try {
+            insertFollow(follower, author)
+            val beforeNearby = timelineRepo.nearby(
+                viewerId = follower,
+                viewerLat = -6.2,
+                viewerLng = 106.8,
+                radiusMeters = 50_000,
+                cursorCreatedAt = null,
+                cursorPostId = null,
+                limit = 50,
+            ).first { it.id == p }
+            val beforeFollowing = followingRepo.following(
+                viewerId = follower,
+                cursorCreatedAt = null,
+                cursorPostId = null,
+                limit = 50,
+            ).first { it.id == p }
+            beforeNearby.replyCount shouldBe 1
+            beforeFollowing.replyCount shouldBe 1
+            dataSource.connection.use { conn ->
+                autoHide.flipIsAutoHidden(conn, ReportTargetType.REPLY, r)
+            }
+            val afterNearby = timelineRepo.nearby(
+                viewerId = follower,
+                viewerLat = -6.2,
+                viewerLng = 106.8,
+                radiusMeters = 50_000,
+                cursorCreatedAt = null,
+                cursorPostId = null,
+                limit = 50,
+            ).first { it.id == p }
+            val afterFollowing = followingRepo.following(
+                viewerId = follower,
+                cursorCreatedAt = null,
+                cursorPostId = null,
+                limit = 50,
+            ).first { it.id == p }
+            // V8 counter is shadow-ban-filter-only — auto-hide flip is invisible to it.
+            afterNearby.replyCount shouldBe 1
+            afterFollowing.replyCount shouldBe 1
+        } finally {
+            cleanup(author, replyAuthor, follower)
+        }
+    }
+
+    // --- 7.6 POST /posts response shape + insert default ---
+    //
+    // V9 introduces no change to the POST /api/v1/posts path. Assert (a) the
+    // PostRoutes response JSON builder emits exactly the documented 6-key set
+    // `{ id, content, latitude, longitude, distance_m, created_at }`, (b) a
+    // freshly-inserted `posts` row defaults `is_auto_hidden` to FALSE at the
+    // schema level. Grep + schema check is cheaper and more stable than
+    // bringing up the full Ktor + jitter + auth stack for a non-regression
+    // assertion that V9 deliberately did not touch.
+    "7.6 PostRoutes response JSON still emits the 6 documented keys (no V9 drift)" {
+        val path = Path.of(
+            System.getProperty("user.dir"),
+            "src", "main", "kotlin",
+            "id", "nearyou", "app", "post", "PostRoutes.kt",
+        ).let { local ->
+            if (Files.exists(local)) local
+            else Path.of(
+                System.getProperty("user.dir"),
+                "backend", "ktor", "src", "main", "kotlin",
+                "id", "nearyou", "app", "post", "PostRoutes.kt",
+            )
+        }
+        Files.exists(path) shouldBe true
+        val src = Files.readString(path)
+        // All 6 keys present, nothing else named in the buildJsonObject block.
+        listOf(
+            """put("id",""",
+            """put("content",""",
+            """put("latitude",""",
+            """put("longitude",""",
+            """put("distance_m",""",
+            """put("created_at",""",
+        ).forEach { needle -> src shouldContain needle }
+        // Spot-check: no 7th key slipped in.
+        Regex("""put\("([^"]+)",""").findAll(src).map { it.groupValues[1] }.toSet() shouldBe
+            setOf("id", "content", "latitude", "longitude", "distance_m", "created_at")
+    }
+
+    "7.6b posts.is_auto_hidden column default is FALSE at schema level" {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT column_default
+                  FROM information_schema.columns
+                 WHERE table_name = 'posts' AND column_name = 'is_auto_hidden'
+                """.trimIndent(),
+            ).use { ps ->
+                ps.executeQuery().use { rs ->
+                    rs.next() shouldBe true
+                    rs.getString(1).lowercase() shouldContain "false"
+                }
+            }
+        }
+    }
+
+    // --- 7.7 reply list SQL literal still has the author-bypass OR clause ---
+
+    "7.7 JdbcPostReplyRepository.listByPost SQL literal still contains (is_auto_hidden = FALSE OR author_id = viewer)" {
+        // `user.dir` is `backend/ktor` when gradle runs tests on that submodule;
+        // the file lives in a sibling module (`infra/supabase`), so walk up to the
+        // repo root (the directory containing `settings.gradle.kts`) and resolve
+        // from there.
+        val path = repoRoot().resolve(
+            "infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostReplyRepository.kt",
+        )
+        Files.exists(path) shouldBe true
+        val src = Files.readString(path)
+        // V8 literal uses positional `?` for viewer and `pr.` alias.
+        src shouldContain "pr.is_auto_hidden = FALSE OR pr.author_id = ?"
+    }
+
     // --- 7.8 visible_posts view definition equivalence ---
 
     "7.8 visible_posts view still equals SELECT * FROM posts WHERE is_auto_hidden = FALSE" {
@@ -327,3 +455,17 @@ class ReportsReadPathNonRegressionTest : StringSpec({
 // Tiny custom-matcher helper just to keep assertion output readable.
 @Suppress("unused")
 private fun String.shouldContainIgnoringCase(substr: String) = this.lowercase() shouldContain substr.lowercase()
+
+/**
+ * Walk up from `user.dir` until we find the directory containing `settings.gradle.kts`
+ * — that's the repo root. Gradle sets `user.dir` to the submodule dir when running
+ * submodule tests, so cross-module source lookups need this.
+ */
+private fun repoRoot(): Path {
+    var dir: Path? = Path.of(System.getProperty("user.dir")).toAbsolutePath()
+    while (dir != null) {
+        if (Files.exists(dir.resolve("settings.gradle.kts"))) return dir
+        dir = dir.parent
+    }
+    error("Could not locate repo root (settings.gradle.kts) from ${System.getProperty("user.dir")}")
+}

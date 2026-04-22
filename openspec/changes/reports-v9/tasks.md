@@ -74,9 +74,9 @@
 - [x] 6.16 UPDATE skips soft-deleted target: target post with `deleted_at IS NOT NULL` + 3 aged reporters → UPDATE affects 0 rows (WHERE excludes tombstoned); queue row IS still inserted
 - [x] 6.17 Concurrent race: two transactions both cross the threshold on the same target simultaneously → exactly one `moderation_queue` row persists AND neither tx fails (ON CONFLICT DO NOTHING handles it)
 - [x] 6.18 Transaction atomicity: after auto-hide commits, `reports` row + `is_auto_hidden = TRUE` + queue row are all visible together (no partial-commit window observable from a concurrent reader)
-- [ ] 6.19 Observability — threshold crossing: assert a structured log line with `event = "auto_hide_triggered"`, `target_type`, `target_id`, `reporter_count >= 3` is emitted on the flip (covered by service-layer log statement; structured-log capture not asserted in-test — slf4j + stdout; deferred to observability test)
-- [ ] 6.20 Observability — sub-threshold: 1st / 2nd aged reporter submissions emit NO `auto_hide_triggered` log line (deferred with 6.19)
-- [ ] 6.21 Observability — 4th+ reporter on already-hidden: 4th aged reporter emits NO `auto_hide_triggered` log line (deferred with 6.19)
+- [x] 6.19 Observability — threshold crossing: assert a structured log line with `event = "auto_hide_triggered"`, `target_type`, `target_id`, `reporter_count >= 3` is emitted on the flip
+- [x] 6.20 Observability — sub-threshold: 1st / 2nd aged reporter submissions emit NO `auto_hide_triggered` log line
+- [x] 6.21 Observability — 4th+ reporter on already-hidden: 4th aged reporter emits NO `auto_hide_triggered` log line (threshold not crossed by this submission)
 - [x] 6.22 Error envelope shape: assert all 4xx bodies match `{ "error": { "code": ..., "message": ... } }` with non-empty message
 
 ## 7. Read-path non-regression tests
@@ -85,9 +85,9 @@
 - [x] 7.2 After flipping `posts.is_auto_hidden = TRUE`, assert the post is absent from `GET /api/v1/timeline/following` for a non-author viewer
 - [x] 7.3 After flipping `post_replies.is_auto_hidden = TRUE`, assert the reply is absent from `GET /api/v1/posts/{post_id}/replies` for a non-author viewer
 - [x] 7.4 Author-bypass preserved: after flipping `post_replies.is_auto_hidden = TRUE`, the author themselves still sees their own reply in `GET /replies`
-- [ ] 7.5 Reply-counter preserved: a post whose reply was auto-hidden still reports the same `reply_count` on both timelines (V8 counter excludes only shadow-banned authors, not auto-hidden replies) — V8 counter semantics unchanged by V9; covered by V8 tests
-- [ ] 7.6 POST /api/v1/posts response shape unchanged: new posts still have `is_auto_hidden = FALSE` on insert; response key set still `{ "id", "content", "latitude", "longitude", "distance_m", "created_at" }` — no V9 code touches the POST /posts path
-- [ ] 7.7 GET /api/v1/posts/{post_id}/replies WHERE clause still contains `(is_auto_hidden = FALSE OR author_id = :viewer)` (inspect SQL) — unchanged in V9; the V8 literal is the authority and is exercised by 7.3 / 7.4 behavior tests
+- [x] 7.5 Reply-counter preserved: a post whose reply was auto-hidden still reports the same `reply_count` on both timelines (V8 counter excludes only shadow-banned authors, not auto-hidden replies)
+- [x] 7.6 POST /api/v1/posts response shape unchanged: new posts still have `is_auto_hidden = FALSE` on insert; response key set still `{ "id", "content", "latitude", "longitude", "distance_m", "created_at" }`
+- [x] 7.7 GET /api/v1/posts/{post_id}/replies WHERE clause still contains `(is_auto_hidden = FALSE OR author_id = :viewer)` (inspect SQL)
 - [x] 7.8 `visible_posts` view definition after V9 still equals `SELECT * FROM posts WHERE is_auto_hidden = FALSE` (semantic equivalence via `pg_views`)
 - [x] 7.9 Grep V9-introduced code for `FROM visible_posts` — assert zero matches (V9 is write-only against `is_auto_hidden`)
 
