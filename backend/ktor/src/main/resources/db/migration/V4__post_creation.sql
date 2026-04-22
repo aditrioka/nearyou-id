@@ -7,6 +7,10 @@
 --
 -- FTS-specific columns (content_tsv + GIN indexes) are deferred to the Search change.
 
+-- PostGIS is required for GEOGRAPHY(POINT, 4326). Local test containers use a
+-- postgis image where this is a no-op; Supabase exposes PostGIS but doesn't
+-- enable it on a fresh project, so we must enable it ourselves.
+CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 CREATE TABLE posts (
