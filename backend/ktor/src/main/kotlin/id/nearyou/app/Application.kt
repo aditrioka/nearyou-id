@@ -180,12 +180,16 @@ fun Application.module() {
     // splits this into a dedicated Cloud Run Job (`nearyou-migrate`) per the
     // docs/04-Architecture.md deployment plan.
     if (System.getenv("RUN_FLYWAY_ON_STARTUP") == "true") {
-        Flyway
-            .configure()
-            .dataSource(dataSource)
-            .locations("classpath:db/migration")
-            .load()
-            .migrate()
+        val flyway =
+            Flyway
+                .configure()
+                .dataSource(dataSource)
+                .locations("classpath:db/migration")
+                .load()
+        // Clears any failed entries + realigns checksums so a previously-broken
+        // migration can be retried after the SQL is fixed. No-op on a clean DB.
+        flyway.repair()
+        flyway.migrate()
     }
 
     val secrets: SecretResolver = EnvVarSecretResolver()
