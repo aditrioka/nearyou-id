@@ -40,6 +40,8 @@ import id.nearyou.app.guard.installContentLengthGuard
 import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
+import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
+import id.nearyou.app.infra.repo.JdbcPostAutoHideRepository
 import id.nearyou.app.infra.repo.JdbcPostLikeRepository
 import id.nearyou.app.infra.repo.JdbcPostReplyRepository
 import id.nearyou.app.infra.repo.JdbcPostRepository
@@ -47,10 +49,14 @@ import id.nearyou.app.infra.repo.JdbcPostsFollowingRepository
 import id.nearyou.app.infra.repo.JdbcPostsTimelineRepository
 import id.nearyou.app.infra.repo.JdbcRefreshTokenRepository
 import id.nearyou.app.infra.repo.JdbcRejectedIdentifierRepository
+import id.nearyou.app.infra.repo.JdbcReportRepository
 import id.nearyou.app.infra.repo.JdbcReservedUsernameRepository
 import id.nearyou.app.infra.repo.JdbcUserBlockRepository
 import id.nearyou.app.infra.repo.JdbcUserFollowsRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.moderation.ReportRateLimiter
+import id.nearyou.app.moderation.ReportService
+import id.nearyou.app.moderation.reportRoutes
 import id.nearyou.app.infra.repo.PostRepository
 import id.nearyou.app.infra.repo.PostsFollowingRepository
 import id.nearyou.app.infra.repo.PostsTimelineRepository
@@ -59,8 +65,11 @@ import id.nearyou.app.infra.repo.RejectedIdentifierRepository
 import id.nearyou.app.infra.repo.ReservedUsernameRepository
 import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
+import id.nearyou.data.repository.ModerationQueueRepository
+import id.nearyou.data.repository.PostAutoHideRepository
 import id.nearyou.data.repository.PostLikeRepository
 import id.nearyou.data.repository.PostReplyRepository
+import id.nearyou.data.repository.ReportRepository
 import id.nearyou.data.repository.UserFollowsRepository
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.LocationOutOfBoundsException
@@ -240,6 +249,18 @@ fun Application.module() {
     val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
     val followingTimelineService = FollowingTimelineService(postsFollowingRepository)
+    val reportRepository: ReportRepository = JdbcReportRepository()
+    val moderationQueueRepository: ModerationQueueRepository = JdbcModerationQueueRepository()
+    val postAutoHideRepository: PostAutoHideRepository = JdbcPostAutoHideRepository()
+    val reportRateLimiter = ReportRateLimiter()
+    val reportService =
+        ReportService(
+            dataSource = dataSource,
+            reports = reportRepository,
+            moderationQueue = moderationQueueRepository,
+            postAutoHide = postAutoHideRepository,
+            rateLimiter = reportRateLimiter,
+        )
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -284,6 +305,11 @@ fun Application.module() {
                 single { nearbyTimelineService }
                 single<PostsFollowingRepository> { postsFollowingRepository }
                 single { followingTimelineService }
+                single<ReportRepository> { reportRepository }
+                single<ModerationQueueRepository> { moderationQueueRepository }
+                single<PostAutoHideRepository> { postAutoHideRepository }
+                single { reportRateLimiter }
+                single { reportService }
             },
         )
     }
@@ -304,6 +330,7 @@ fun Application.module() {
     replyRoutes(replyService, contentLengthGuard)
     timelineRoutes(nearbyTimelineService)
     followingTimelineRoutes(followingTimelineService)
+    reportRoutes(reportService)
 }
 
 private fun Application.csvAudiences(key: String): Set<String> =
