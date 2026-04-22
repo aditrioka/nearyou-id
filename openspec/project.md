@@ -103,6 +103,31 @@ Other conventions:
 
 ---
 
+## Change Delivery Workflow
+
+Direct push to `main` is hook-blocked — every change ships via feature branch + PR + squash-merge.
+
+**Change naming.** Kebab-case, descriptive, no `-v<N>` suffix. A change name describes what it adds, not which Flyway version it happens to bump — a change can ship zero or multiple migrations, and not every product change touches the schema. Pre-V7 archives follow this (`signup-flow`, `post-creation-geo`, `nearby-timeline-with-blocks`, `following-timeline-with-follow-cascade`); the V7–V9 trio (`post-likes-v7`, `post-replies-v8`, `reports-v9`) used an interim suffix that we're standardizing away from.
+
+**Branch naming.**
+- OpenSpec features: the change name itself (e.g., `post-reposts`, `notifications-api`).
+- Archive: `openspec/archive-<change-name>`.
+- Infra / tooling / CI / docs-only: `<area>/<slug>` (e.g., `ci/postgres-service`, `docs/workflow-conventions`).
+
+**Sequence per OpenSpec change.**
+1. **Feature PR** — feat commit(s) on the change branch. Squash-merge after CI green.
+2. **Archive PR** — separate branch, run `openspec archive <change>` locally, docs-only PR, squash-merge. Produces the "one feat commit + one archive commit" pair on `main` visible in the V5–V8 git log precedent.
+
+**When NOT to use OpenSpec.** Infra / tooling / CI / docs-only changes go through regular PRs. OpenSpec is for spec-driven product changes — capability + behavior + WHEN/THEN scenarios. Detekt rules, CI config, `build-logic/`, ops docs, READMEs: regular PR.
+
+**Archive timing.** Right after the feat PR merges + CI green. Not after prod ship. Deploy tasks (typically 8.x in the task list) stay unchecked until infra is provisioned — don't block archive on them. Until archive runs, the change's spec delta isn't in `openspec/specs/`, blocking the next proposal from referencing the new baseline.
+
+**Force-push.** `--force-with-lease` on topic branches is fine (rewrite your own history freely). `main` requires explicit per-push user authorization — the hook enforces this.
+
+**CI expectations.** See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Three jobs — `lint` (ktlint), `build` (assemble), `test` (full suite including `@Tags("database")`). Test job uses a `postgis/postgis:16-3.4` service container mirroring `dev/docker-compose.yml`; DB tests auto-boot Flyway V1..V9 once per test JVM via `KotestProjectConfig.beforeProject()` — don't add per-spec Flyway migrate calls. `concurrency: cancel-in-progress` aborts stale runs on new pushes.
+
+---
+
 ## Key Architectural Decisions
 
 - **Modular monolith**, not microservices. One Ktor deployable.
