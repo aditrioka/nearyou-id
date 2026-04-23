@@ -132,11 +132,8 @@ class ReportObservabilityTest : StringSpec({
 
     fun buildService(): ReportService {
         val notificationRepo = id.nearyou.app.infra.repo.JdbcNotificationRepository(dataSource)
-        val notifications =
-            id.nearyou.app.notifications.DbNotificationEmitter(
-                notificationRepo,
-                id.nearyou.app.notifications.NoopNotificationDispatcher(),
-            )
+        val dispatcher = id.nearyou.app.notifications.NoopNotificationDispatcher()
+        val notifications = id.nearyou.app.notifications.DbNotificationEmitter(notificationRepo)
         return ReportService(
             dataSource = dataSource,
             reports = JdbcReportRepository(),
@@ -144,6 +141,7 @@ class ReportObservabilityTest : StringSpec({
             postAutoHide = JdbcPostAutoHideRepository(),
             rateLimiter = ReportRateLimiter(),
             notifications = notifications,
+            dispatcher = dispatcher,
         )
     }
 

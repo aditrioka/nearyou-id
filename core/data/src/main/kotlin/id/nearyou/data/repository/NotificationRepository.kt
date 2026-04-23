@@ -98,30 +98,36 @@ interface NotificationRepository {
 /**
  * The 13 notification types from docs/05-Implementation.md §826–832. Values
  * serialize to the snake_case strings that match the V10 CHECK constraint.
- * V10 writes only the first 4; the remaining 9 are reserved for future
- * feature changes.
+ * V10 writes only `post_liked`, `post_replied`, `followed`, `post_auto_hidden`;
+ * the remaining 9 are reserved for future feature changes.
  */
 enum class NotificationType(val wire: String) {
     POST_LIKED("post_liked"),
     POST_REPLIED("post_replied"),
     FOLLOWED("followed"),
-    POST_AUTO_HIDDEN("post_auto_hidden"),
     CHAT_MESSAGE("chat_message"),
-    CHAT_MESSAGE_REDACTED("chat_message_redacted"),
-    SUBSCRIPTION_PURCHASED("subscription_purchased"),
-    SUBSCRIPTION_EXPIRING("subscription_expiring"),
+    SUBSCRIPTION_BILLING_ISSUE("subscription_billing_issue"),
     SUBSCRIPTION_EXPIRED("subscription_expired"),
+    POST_AUTO_HIDDEN("post_auto_hidden"),
     ACCOUNT_ACTION_APPLIED("account_action_applied"),
     DATA_EXPORT_READY("data_export_ready"),
+    CHAT_MESSAGE_REDACTED("chat_message_redacted"),
     PRIVACY_FLIP_WARNING("privacy_flip_warning"),
     USERNAME_RELEASE_SCHEDULED("username_release_scheduled"),
     APPLE_RELAY_EMAIL_CHANGED("apple_relay_email_changed"),
     ;
 
     companion object {
-        fun fromWire(value: String): NotificationType =
+        /**
+         * Returns the matching enum, or `null` if [value] is not one of the 13
+         * known wire strings. Callers at the read boundary (e.g.
+         * `JdbcNotificationRepository.listByUser`) use this to skip — rather
+         * than crash on — rows with an unexpected `type`. This shields the list
+         * endpoint from a DB-level enum widening that ships ahead of the
+         * service code (or an unlikely manual INSERT bypassing the CHECK).
+         */
+        fun fromWireOrNull(value: String): NotificationType? =
             entries.firstOrNull { it.wire == value }
-                ?: error("Unknown notification type: $value")
     }
 }
 

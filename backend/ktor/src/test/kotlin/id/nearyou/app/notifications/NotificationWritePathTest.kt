@@ -280,10 +280,10 @@ class NotificationWritePathTest : StringSpec({
     val dataSource: DataSource = hikari()
     val notificationsRepo: NotificationRepository = JdbcNotificationRepository(dataSource)
     val dispatcher = NoopNotificationDispatcher()
-    val emitter = DbNotificationEmitter(notificationsRepo, dispatcher)
-    val likeService = LikeService(dataSource, JdbcPostLikeRepository(dataSource), emitter)
-    val replyService = ReplyService(dataSource, JdbcPostReplyRepository(dataSource), emitter)
-    val followService = FollowService(dataSource, JdbcUserFollowsRepository(dataSource), emitter)
+    val emitter = DbNotificationEmitter(notificationsRepo)
+    val likeService = LikeService(dataSource, JdbcPostLikeRepository(dataSource), emitter, dispatcher)
+    val replyService = ReplyService(dataSource, JdbcPostReplyRepository(dataSource), emitter, dispatcher)
+    val followService = FollowService(dataSource, JdbcUserFollowsRepository(dataSource), emitter, dispatcher)
     val contentGuard = ContentLengthGuard(mapOf("reply.content" to 280))
     val reportService =
         ReportService(
@@ -293,6 +293,7 @@ class NotificationWritePathTest : StringSpec({
             postAutoHide = JdbcPostAutoHideRepository(),
             rateLimiter = ReportRateLimiter(),
             notifications = emitter,
+            dispatcher = dispatcher,
         )
 
     "10.1 Like → post_liked notification with body_data.post_excerpt" {
@@ -574,11 +575,11 @@ class NotificationWritePathTest : StringSpec({
                     targetType: String?,
                     targetId: UUID?,
                     bodyData: kotlinx.serialization.json.JsonObject,
-                ) {
+                ): UUID? {
                     throw RuntimeException("simulated emit failure")
                 }
             }
-        val failService = LikeService(dataSource, JdbcPostLikeRepository(dataSource), failing)
+        val failService = LikeService(dataSource, JdbcPostLikeRepository(dataSource), failing, dispatcher)
         try {
             runCatching { failService.like(p, bob) }.isFailure shouldBe true
             // No like row should persist — the failed emit rolled back the whole TX.
@@ -611,11 +612,11 @@ class NotificationWritePathTest : StringSpec({
                     targetType: String?,
                     targetId: UUID?,
                     bodyData: kotlinx.serialization.json.JsonObject,
-                ) {
+                ): UUID? {
                     throw RuntimeException("simulated emit failure")
                 }
             }
-        val failReply = ReplyService(dataSource, JdbcPostReplyRepository(dataSource), failing)
+        val failReply = ReplyService(dataSource, JdbcPostReplyRepository(dataSource), failing, dispatcher)
         try {
             runCatching { failReply.post(p, bob, "text") }.isFailure shouldBe true
             dataSource.connection.use { conn ->
@@ -646,11 +647,11 @@ class NotificationWritePathTest : StringSpec({
                     targetType: String?,
                     targetId: UUID?,
                     bodyData: kotlinx.serialization.json.JsonObject,
-                ) {
+                ): UUID? {
                     throw RuntimeException("simulated emit failure")
                 }
             }
-        val failFollow = FollowService(dataSource, JdbcUserFollowsRepository(dataSource), failing)
+        val failFollow = FollowService(dataSource, JdbcUserFollowsRepository(dataSource), failing, dispatcher)
         try {
             runCatching { failFollow.follow(bob, alice) }.isFailure shouldBe true
             dataSource.connection.use { conn ->
@@ -684,7 +685,7 @@ class NotificationWritePathTest : StringSpec({
                     targetType: String?,
                     targetId: UUID?,
                     bodyData: kotlinx.serialization.json.JsonObject,
-                ) {
+                ): UUID? {
                     throw RuntimeException("simulated emit failure")
                 }
             }
@@ -696,6 +697,7 @@ class NotificationWritePathTest : StringSpec({
                 postAutoHide = JdbcPostAutoHideRepository(),
                 rateLimiter = ReportRateLimiter(),
                 notifications = failing,
+                dispatcher = dispatcher,
             )
         try {
             insertReportRow(dataSource, r1, "post", p)

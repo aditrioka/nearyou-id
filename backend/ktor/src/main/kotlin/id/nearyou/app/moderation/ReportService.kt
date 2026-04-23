@@ -3,6 +3,7 @@ package id.nearyou.app.moderation
 import id.nearyou.app.lint.AllowMissingBlockJoin
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.data.repository.ModerationQueueRepository
+import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.PostAutoHideRepository
 import id.nearyou.data.repository.ReportReasonCategory
@@ -39,6 +40,7 @@ class ReportService(
     private val postAutoHide: PostAutoHideRepository,
     private val rateLimiter: ReportRateLimiter,
     private val notifications: NotificationEmitter,
+    private val dispatcher: NotificationDispatcher,
 ) {
     /**
      * Runs the full report-submission flow. Returns a typed [Result] that the
@@ -74,6 +76,10 @@ class ReportService(
         }
 
         // 4. Single transaction: INSERT → COUNT → conditional UPDATE + queue INSERT.
+        //    Notification dispatch is deferred until after commit (design
+        //    Decision 9) so a non-noop dispatcher never observes a row that
+        //    ends up rolled back.
+        var emittedNotificationId: UUID? = null
         dataSource.connection.use { conn ->
             conn.autoCommit = false
             try {
@@ -123,23 +129,24 @@ class ReportService(
                     if (insertedQueue && flipped == 1) {
                         val targetAuthorId = loadTargetAuthorId(conn, targetType, targetId)
                         if (targetAuthorId != null) {
-                            notifications.emit(
-                                conn = conn,
-                                recipientId = targetAuthorId,
-                                actorUserId = null,
-                                type = NotificationType.POST_AUTO_HIDDEN,
-                                targetType =
-                                    when (targetType) {
-                                        ReportTargetType.POST -> "post"
-                                        ReportTargetType.REPLY -> "reply"
-                                        else -> null
-                                    },
-                                targetId = targetId,
-                                bodyData =
-                                    buildJsonObject {
-                                        put("reason", JsonPrimitive("auto_hide_3_reports"))
-                                    },
-                            )
+                            emittedNotificationId =
+                                notifications.emit(
+                                    conn = conn,
+                                    recipientId = targetAuthorId,
+                                    actorUserId = null,
+                                    type = NotificationType.POST_AUTO_HIDDEN,
+                                    targetType =
+                                        when (targetType) {
+                                            ReportTargetType.POST -> "post"
+                                            ReportTargetType.REPLY -> "reply"
+                                            else -> null
+                                        },
+                                    targetId = targetId,
+                                    bodyData =
+                                        buildJsonObject {
+                                            put("reason", JsonPrimitive("auto_hide_3_reports"))
+                                        },
+                                )
                         }
                     }
                 }
@@ -151,6 +158,11 @@ class ReportService(
                 conn.autoCommit = true
             }
         }
+
+        // Post-commit dispatch — see Decision 9 in the change design. Today
+        // the dispatcher is a no-op, but keeping the call out of the TX keeps
+        // a future FCM dispatcher from observing a rolled-back notification.
+        emittedNotificationId?.let(dispatcher::dispatch)
 
         return Result.Success(remainingQuota = slot.remaining)
     }

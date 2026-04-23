@@ -68,7 +68,6 @@ import id.nearyou.app.moderation.ReportService
 import id.nearyou.app.moderation.reportRoutes
 import id.nearyou.app.notifications.DbNotificationEmitter
 import id.nearyou.app.notifications.NoopNotificationDispatcher
-import id.nearyou.app.notifications.NotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.notifications.NotificationService
 import id.nearyou.app.notifications.notificationRoutes
@@ -80,6 +79,7 @@ import id.nearyou.app.timeline.NearbyTimelineService
 import id.nearyou.app.timeline.followingTimelineRoutes
 import id.nearyou.app.timeline.timelineRoutes
 import id.nearyou.data.repository.ModerationQueueRepository
+import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationRepository
 import id.nearyou.data.repository.PostAutoHideRepository
 import id.nearyou.data.repository.PostLikeRepository
@@ -269,15 +269,17 @@ fun Application.module() {
     val blockService = BlockService(userBlockRepository)
     val notificationRepository: NotificationRepository = JdbcNotificationRepository(dataSource)
     val notificationDispatcher: NotificationDispatcher = NoopNotificationDispatcher()
-    val notificationEmitter: NotificationEmitter =
-        DbNotificationEmitter(notificationRepository, notificationDispatcher)
+    val notificationEmitter: NotificationEmitter = DbNotificationEmitter(notificationRepository)
     val notificationService = NotificationService(notificationRepository)
     val userFollowsRepository: UserFollowsRepository = JdbcUserFollowsRepository(dataSource)
-    val followService = FollowService(dataSource, userFollowsRepository, notificationEmitter)
+    val followService =
+        FollowService(dataSource, userFollowsRepository, notificationEmitter, notificationDispatcher)
     val postLikeRepository: PostLikeRepository = JdbcPostLikeRepository(dataSource)
-    val likeService = LikeService(dataSource, postLikeRepository, notificationEmitter)
+    val likeService =
+        LikeService(dataSource, postLikeRepository, notificationEmitter, notificationDispatcher)
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
-    val replyService = ReplyService(dataSource, postReplyRepository, notificationEmitter)
+    val replyService =
+        ReplyService(dataSource, postReplyRepository, notificationEmitter, notificationDispatcher)
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
     val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
@@ -294,6 +296,7 @@ fun Application.module() {
             postAutoHide = postAutoHideRepository,
             rateLimiter = reportRateLimiter,
             notifications = notificationEmitter,
+            dispatcher = notificationDispatcher,
         )
     val signupService =
         SignupService(

@@ -4,6 +4,7 @@ import id.nearyou.data.repository.NotificationRepository
 import id.nearyou.data.repository.NotificationRow
 import id.nearyou.data.repository.NotificationType
 import org.postgresql.util.PGobject
+import org.slf4j.LoggerFactory
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.Timestamp
@@ -116,7 +117,10 @@ class JdbcNotificationRepository(
                 ps.setInt(i, limit)
                 ps.executeQuery().use { rs ->
                     val out = mutableListOf<NotificationRow>()
-                    while (rs.next()) out += rs.toRow()
+                    while (rs.next()) {
+                        val row = rs.toRowOrNull()
+                        if (row != null) out += row
+                    }
                     return out
                 }
             }
@@ -184,16 +188,32 @@ class JdbcNotificationRepository(
         }
     }
 
-    private fun ResultSet.toRow(): NotificationRow =
-        NotificationRow(
+    private fun ResultSet.toRowOrNull(): NotificationRow? {
+        val rawType = getString("type")
+        val type = NotificationType.fromWireOrNull(rawType)
+        if (type == null) {
+            val id = getObject("id", UUID::class.java)
+            log.warn(
+                "event=notification_row_skipped reason=unknown_type id={} type={}",
+                id,
+                rawType,
+            )
+            return null
+        }
+        return NotificationRow(
             id = getObject("id", UUID::class.java),
             userId = getObject("user_id", UUID::class.java),
-            type = NotificationType.fromWire(getString("type")),
+            type = type,
             actorUserId = getObject("actor_user_id", UUID::class.java),
             targetType = getString("target_type"),
             targetId = getObject("target_id", UUID::class.java),
-            bodyDataJson = getString("body_data_json"),
+            bodyDataJson = getString("body_data_json") ?: "{}",
             createdAt = getTimestamp("created_at").toInstant(),
             readAt = getTimestamp("read_at")?.toInstant(),
         )
+    }
+
+    companion object {
+        private val log = LoggerFactory.getLogger(JdbcNotificationRepository::class.java)
+    }
 }

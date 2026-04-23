@@ -3,6 +3,7 @@ package id.nearyou.app.follow
 import id.nearyou.app.common.Cursor
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.data.repository.FollowListRow
+import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.UserFollowsRepository
 import kotlinx.serialization.json.buildJsonObject
@@ -21,32 +22,36 @@ import javax.sql.DataSource
  * V10 notification coupling: `follow` opens a single transaction for the
  * `follows` INSERT + `followed` emit. Re-follow (ON CONFLICT no-op) does NOT
  * emit — only the new-edge transition does. Unfollow deliberately has no
- * counter-notification (no `unfollowed` type in the enum).
+ * counter-notification (no `unfollowed` type in the enum). Dispatch runs
+ * AFTER commit.
  */
 class FollowService(
     private val dataSource: DataSource,
     private val follows: UserFollowsRepository,
     private val notifications: NotificationEmitter,
+    private val dispatcher: NotificationDispatcher,
 ) {
     fun follow(
         followerId: UUID,
         followeeId: UUID,
     ) {
         if (followerId == followeeId) throw CannotFollowSelfException()
+        var emittedId: UUID? = null
         dataSource.connection.use { conn ->
             conn.autoCommit = false
             try {
                 val inserted = follows.followInTx(conn, followerId, followeeId)
                 if (inserted) {
-                    notifications.emit(
-                        conn = conn,
-                        recipientId = followeeId,
-                        actorUserId = followerId,
-                        type = NotificationType.FOLLOWED,
-                        targetType = null,
-                        targetId = null,
-                        bodyData = buildJsonObject {},
-                    )
+                    emittedId =
+                        notifications.emit(
+                            conn = conn,
+                            recipientId = followeeId,
+                            actorUserId = followerId,
+                            type = NotificationType.FOLLOWED,
+                            targetType = null,
+                            targetId = null,
+                            bodyData = buildJsonObject {},
+                        )
                 }
                 conn.commit()
             } catch (t: Throwable) {
@@ -56,6 +61,7 @@ class FollowService(
                 conn.autoCommit = true
             }
         }
+        emittedId?.let(dispatcher::dispatch)
     }
 
     fun unfollow(

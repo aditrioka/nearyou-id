@@ -1,6 +1,7 @@
 package id.nearyou.app.engagement
 
 import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.PostLikeRepository
 import kotlinx.serialization.json.JsonPrimitive
@@ -23,17 +24,21 @@ import javax.sql.DataSource
  * `post_likes` INSERT + the `post_liked` notification INSERT. If the emit fails,
  * the like itself rolls back (in-app-notifications design Decision 1). Re-likes
  * (ON CONFLICT no-op) do NOT emit — only the not-liked → liked transition does.
+ * Dispatch runs AFTER commit so a future FCM dispatcher never observes a
+ * notification that ended up rolled back.
  */
 class LikeService(
     private val dataSource: DataSource,
     private val likes: PostLikeRepository,
     private val notifications: NotificationEmitter,
+    private val dispatcher: NotificationDispatcher,
 ) {
     fun like(
         postId: UUID,
         userId: UUID,
     ) {
         likes.resolveVisiblePost(postId, userId) ?: throw PostNotFoundException()
+        var emittedId: UUID? = null
         dataSource.connection.use { conn ->
             conn.autoCommit = false
             try {
@@ -41,18 +46,19 @@ class LikeService(
                 if (inserted) {
                     val target = likes.loadPostAuthorAndExcerpt(conn, postId)
                     if (target != null) {
-                        notifications.emit(
-                            conn = conn,
-                            recipientId = target.authorId,
-                            actorUserId = userId,
-                            type = NotificationType.POST_LIKED,
-                            targetType = "post",
-                            targetId = postId,
-                            bodyData =
-                                buildJsonObject {
-                                    put("post_excerpt", JsonPrimitive(target.excerpt))
-                                },
-                        )
+                        emittedId =
+                            notifications.emit(
+                                conn = conn,
+                                recipientId = target.authorId,
+                                actorUserId = userId,
+                                type = NotificationType.POST_LIKED,
+                                targetType = "post",
+                                targetId = postId,
+                                bodyData =
+                                    buildJsonObject {
+                                        put("post_excerpt", JsonPrimitive(target.excerpt))
+                                    },
+                            )
                     }
                 }
                 conn.commit()
@@ -63,6 +69,7 @@ class LikeService(
                 conn.autoCommit = true
             }
         }
+        emittedId?.let(dispatcher::dispatch)
     }
 
     fun unlike(

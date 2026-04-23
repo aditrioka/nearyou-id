@@ -1,6 +1,7 @@
 package id.nearyou.app.engagement
 
 import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.PostReplyRepository
 import id.nearyou.data.repository.PostReplyRow
@@ -25,12 +26,14 @@ import javax.sql.DataSource
  * guard makes non-author / already-tombstoned / never-existed all no-ops.
  *
  * V10 notification coupling: `post` opens a single transaction for the reply
- * INSERT + `post_replied` emit. Emit failure rolls back the reply.
+ * INSERT + `post_replied` emit. Emit failure rolls back the reply. Dispatch
+ * runs AFTER commit.
  */
 class ReplyService(
     private val dataSource: DataSource,
     private val replies: PostReplyRepository,
     private val notifications: NotificationEmitter,
+    private val dispatcher: NotificationDispatcher,
 ) {
     fun post(
         postId: UUID,
@@ -38,35 +41,40 @@ class ReplyService(
         content: String,
     ): PostReplyRow {
         replies.resolveVisiblePost(postId, authorId) ?: throw PostNotFoundException()
-        dataSource.connection.use { conn ->
-            conn.autoCommit = false
-            try {
-                val row = replies.insertInTx(conn, postId = postId, authorId = authorId, content = content)
-                val parentAuthor = replies.loadParentAuthorId(conn, postId)
-                if (parentAuthor != null) {
-                    notifications.emit(
-                        conn = conn,
-                        recipientId = parentAuthor,
-                        actorUserId = authorId,
-                        type = NotificationType.POST_REPLIED,
-                        targetType = "post",
-                        targetId = postId,
-                        bodyData =
-                            buildJsonObject {
-                                put("reply_id", JsonPrimitive(row.id.toString()))
-                                put("reply_excerpt", JsonPrimitive(row.content.firstCodePoints(80)))
-                            },
-                    )
+        var emittedId: UUID? = null
+        val row =
+            dataSource.connection.use { conn ->
+                conn.autoCommit = false
+                try {
+                    val inserted = replies.insertInTx(conn, postId = postId, authorId = authorId, content = content)
+                    val parentAuthor = replies.loadParentAuthorId(conn, postId)
+                    if (parentAuthor != null) {
+                        emittedId =
+                            notifications.emit(
+                                conn = conn,
+                                recipientId = parentAuthor,
+                                actorUserId = authorId,
+                                type = NotificationType.POST_REPLIED,
+                                targetType = "post",
+                                targetId = postId,
+                                bodyData =
+                                    buildJsonObject {
+                                        put("reply_id", JsonPrimitive(inserted.id.toString()))
+                                        put("reply_excerpt", JsonPrimitive(inserted.content.firstCodePoints(80)))
+                                    },
+                            )
+                    }
+                    conn.commit()
+                    inserted
+                } catch (t: Throwable) {
+                    conn.rollback()
+                    throw t
+                } finally {
+                    conn.autoCommit = true
                 }
-                conn.commit()
-                return row
-            } catch (t: Throwable) {
-                conn.rollback()
-                throw t
-            } finally {
-                conn.autoCommit = true
             }
-        }
+        emittedId?.let(dispatcher::dispatch)
+        return row
     }
 
     fun list(
@@ -99,11 +107,9 @@ class ReplyService(
 }
 
 /**
- * Local duplicate of the `firstCodePoints` helper in `:infra:supabase`. Kept
- * private here because surrogate-pair-safe truncation is a cross-cutting
- * concern used at two boundaries: the repo (LikeService excerpt loader) and
- * the service (ReplyService reply excerpt). Keeping both avoids a cross-module
- * shared-utils introduction for a 10-line helper.
+ * Private surrogate-pair-safe truncation helper, mirroring the same 80-code-point
+ * rule used in `:infra:supabase` for the like excerpt. Kept local to avoid a
+ * one-function shared-util module for a 10-line helper.
  */
 private fun String.firstCodePoints(n: Int): String {
     if (n <= 0) return ""

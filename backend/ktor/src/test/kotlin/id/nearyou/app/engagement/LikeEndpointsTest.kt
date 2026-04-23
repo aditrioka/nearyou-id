@@ -58,8 +58,9 @@ class LikeEndpointsTest : StringSpec({
     val users = JdbcUserRepository(dataSource)
     val likes = JdbcPostLikeRepository(dataSource)
     val notificationsRepo = JdbcNotificationRepository(dataSource)
-    val notificationEmitter = DbNotificationEmitter(notificationsRepo, NoopNotificationDispatcher())
-    val service = LikeService(dataSource, likes, notificationEmitter)
+    val dispatcher = NoopNotificationDispatcher()
+    val notificationEmitter = DbNotificationEmitter(notificationsRepo)
+    val service = LikeService(dataSource, likes, notificationEmitter, dispatcher)
 
     fun seedUser(shadowBanned: Boolean = false): Pair<UUID, String> {
         val id = UUID.randomUUID()

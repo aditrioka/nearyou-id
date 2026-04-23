@@ -61,8 +61,9 @@ class FollowEndpointsTest : StringSpec({
     val users = JdbcUserRepository(dataSource)
     val follows = JdbcUserFollowsRepository(dataSource)
     val notificationsRepo = JdbcNotificationRepository(dataSource)
-    val notificationEmitter = DbNotificationEmitter(notificationsRepo, NoopNotificationDispatcher())
-    val service = FollowService(dataSource, follows, notificationEmitter)
+    val dispatcher = NoopNotificationDispatcher()
+    val notificationEmitter = DbNotificationEmitter(notificationsRepo)
+    val service = FollowService(dataSource, follows, notificationEmitter, dispatcher)
 
     fun seedUser(): Pair<UUID, String> {
         val id = UUID.randomUUID()

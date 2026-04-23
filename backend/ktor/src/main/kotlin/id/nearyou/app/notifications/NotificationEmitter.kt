@@ -19,13 +19,16 @@ import java.util.UUID
  *    depth; the V6 self-follow CHECK constraint, V7 post-likes PK, V8
  *    post_replies FK shape all fail self-actions upstream, but the notification
  *    layer also filters to be safe).
- *  - Block: if [actor] is non-null and either direction of `user_blocks` has a
- *    row between actor and recipient, the emit is skipped (write-time
+ *  - Block: if [actorUserId] is non-null and either direction of `user_blocks`
+ *    has a row between actor and recipient, the emit is skipped (write-time
  *    suppression per design Decision 2). System-originated emits with
  *    `actor == null` (auto-hide) skip the block check entirely.
  *
- * After a successful INSERT, the emitter calls [NotificationDispatcher.dispatch]
- * — V10 dispatcher is a no-op, but the seam keeps the FCM change a drop-in.
+ * Returns the inserted notification's id on success, or `null` if the emit
+ * was suppressed. Dispatch is intentionally NOT called here — the caller
+ * (service layer) owns the commit boundary and dispatches post-commit so a
+ * future non-noop dispatcher (FCM) never observes a notification that ended
+ * up rolled back.
  */
 interface NotificationEmitter {
     fun emit(
@@ -36,20 +39,16 @@ interface NotificationEmitter {
         targetType: String?,
         targetId: UUID?,
         bodyData: JsonObject,
-    )
+    ): UUID?
 }
 
 /**
- * Default [NotificationEmitter] impl: suppress → INSERT → dispatch.
- *
- * Dispatch is called inline after the INSERT succeeds. The in-app-only
- * dispatcher is a no-op; a future FCM dispatcher may want to defer until
- * commit, which it can do via its own implementation — the interface
- * signature stays stable.
+ * Default [NotificationEmitter] impl: suppress → INSERT. The INSERT happens
+ * on the passed [Connection] inside the caller's transaction. Dispatch is the
+ * caller's responsibility (post-commit) — see the interface KDoc.
  */
 class DbNotificationEmitter(
     private val notifications: NotificationRepository,
-    private val dispatcher: NotificationDispatcher,
 ) : NotificationEmitter {
     override fun emit(
         conn: Connection,
@@ -59,14 +58,14 @@ class DbNotificationEmitter(
         targetType: String?,
         targetId: UUID?,
         bodyData: JsonObject,
-    ) {
+    ): UUID? {
         if (actorUserId != null && actorUserId == recipientId) {
             log.debug(
                 "event=notification_suppressed type={} recipient={} reason=self_action",
                 type.wire,
                 recipientId,
             )
-            return
+            return null
         }
         if (actorUserId != null && notifications.isBlockedBetween(conn, actorUserId, recipientId)) {
             log.debug(
@@ -75,7 +74,7 @@ class DbNotificationEmitter(
                 recipientId,
                 actorUserId,
             )
-            return
+            return null
         }
         val id =
             notifications.insert(
@@ -94,7 +93,7 @@ class DbNotificationEmitter(
             actorUserId,
             id,
         )
-        dispatcher.dispatch(id)
+        return id
     }
 
     companion object {

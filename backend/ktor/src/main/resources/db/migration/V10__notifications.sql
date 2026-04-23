@@ -22,8 +22,7 @@
 --
 -- Reserved-for-future enum values (no V10 writers — each ships with its feature):
 --   * chat_message, chat_message_redacted (chat feature)
---   * subscription_purchased, subscription_expiring, subscription_expired
---     (subscription / billing feature)
+--   * subscription_billing_issue, subscription_expired (RevenueCat billing + lapse)
 --   * account_action_applied (admin moderation action)
 --   * data_export_ready (privacy / data-export worker)
 --   * privacy_flip_warning (username / profile privacy toggle)
@@ -44,22 +43,21 @@ CREATE TABLE notifications (
         'post_liked',
         'post_replied',
         'followed',
-        'post_auto_hidden',
         'chat_message',
-        'chat_message_redacted',
-        'subscription_purchased',
-        'subscription_expiring',
+        'subscription_billing_issue',
         'subscription_expired',
+        'post_auto_hidden',
         'account_action_applied',
         'data_export_ready',
+        'chat_message_redacted',
         'privacy_flip_warning',
         'username_release_scheduled',
         'apple_relay_email_changed'
     )),
     actor_user_id  UUID REFERENCES users(id) ON DELETE SET NULL,
-    target_type    VARCHAR(32),
+    target_type    VARCHAR(16),
     target_id      UUID,
-    body_data      JSONB NOT NULL DEFAULT '{}'::jsonb,
+    body_data      JSONB,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     read_at        TIMESTAMPTZ
 );

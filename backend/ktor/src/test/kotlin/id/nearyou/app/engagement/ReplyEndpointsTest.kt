@@ -72,8 +72,9 @@ class ReplyEndpointsTest : StringSpec({
     val users = JdbcUserRepository(dataSource)
     val repo = JdbcPostReplyRepository(dataSource)
     val notificationsRepo = JdbcNotificationRepository(dataSource)
-    val notificationEmitter = DbNotificationEmitter(notificationsRepo, NoopNotificationDispatcher())
-    val service = ReplyService(dataSource, repo, notificationEmitter)
+    val dispatcher = NoopNotificationDispatcher()
+    val notificationEmitter = DbNotificationEmitter(notificationsRepo)
+    val service = ReplyService(dataSource, repo, notificationEmitter, dispatcher)
     val contentGuard = ContentLengthGuard(mapOf(REPLY_CONTENT_KEY to 280))
 
     fun seedUser(shadowBanned: Boolean = false): Pair<UUID, String> {
