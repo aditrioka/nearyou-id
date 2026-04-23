@@ -24,7 +24,7 @@ Domain `nearyou.id` sudah terdaftar di Hostinger. Langkah berikut memindah DNS m
   - [ ] `api.nearyou.id` (production API)
   - [ ] `admin.nearyou.id` (production admin panel)
   - [ ] `img.nearyou.id` (production CF Images delivery)
-  - [ ] `api-staging.nearyou.id`
+  - [x] `api-staging.nearyou.id` — CNAME → `ghs.googlehosted.com` (Cloud Run domain mapping, DNS-only / grey cloud in Cloudflare). TLS provisioning may take 15–60 min on initial setup.
   - [ ] `admin-staging.nearyou.id`
   - [ ] `img-staging.nearyou.id`
 
@@ -86,8 +86,17 @@ Domain `nearyou.id` sudah terdaftar di Hostinger. Langkah berikut memindah DNS m
 
 **Notes**:
 - GCP project ID prod: _________________
-- GCP project ID staging: _________________
+- GCP project ID staging: `nearyou-staging`
 - Billing account ID: _________________
+
+**Staging Cloud Run service** (2026-04-22):
+- Service name: `nearyou-backend-staging`
+- Region: `asia-southeast1` (Jakarta)
+- Raw URL (fallback if custom domain breaks): `https://nearyou-backend-staging-gswrppbqaa-as.a.run.app`
+- Custom domain: `https://api-staging.nearyou.id` (pending TLS cert on initial setup)
+- Deploy workflow: `.github/workflows/deploy-staging.yml` (auto-triggers on push to `main`)
+- Secrets: loaded from Secret Manager as `staging-*` (see deploy workflow `--set-secrets`)
+- Domain ownership verified via Search Console under `nearyouid.founder@gmail.com`
 
 ---
 
@@ -106,7 +115,7 @@ Bisa signup berurutan dalam 1-2 sore. Gunakan email dedicated untuk admin NearYo
 
 **Notes**:
 - Prod project URL: _________________
-- Staging project URL: _________________
+- Staging project URL: stored in GCP Secret Manager as `staging-db-url` (project `nearyou-staging`). Flyway history V1..V9 verified 2026-04-22, all `success=true`.
 
 ### 3.2 Upstash (Redis)
 
