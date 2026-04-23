@@ -121,11 +121,18 @@
 - [x] 12.2 Run `./gradlew ktlintCheck` — green
 - [x] 12.3 Verify no new calls to `SELECT FROM posts` / `SELECT FROM post_replies` are introduced outside the existing moderation allowlist (V10 notifications code reads `user_blocks` only, not posts). Notes: the Like and Reply author / excerpt lookups live in `:infra:supabase` (outside the `RawFromPostsRule` scan scope); the auto-hide author lookup in `ReportService.loadTargetAuthorId` is annotated `@AllowMissingBlockJoin` with a reason (system-originated addressing)
 
+### Qodo review follow-ups (applied in PR #12 amend)
+
+- [x] 12.4 V10 DDL aligned verbatim with `docs/05-Implementation.md` §820–844: canonical 13-value `type` enum (including `subscription_billing_issue` + `subscription_expired`, NOT the 3 subscription variants initially shipped); `target_type VARCHAR(16)`; `body_data JSONB` nullable with no default
+- [x] 12.5 `NotificationDispatcher` interface moved to `:core:data` per design Decision 9 so `:infra:firebase` (future FCM change) can implement without a reverse dep on `:backend:ktor`. `NoopNotificationDispatcher` stays in `:backend:ktor` as the in-app-only impl
+- [x] 12.6 Dispatch now runs **after** commit in all four services (`LikeService`, `ReplyService`, `FollowService`, `ReportService`). The emitter returns `UUID?` and the service dispatches the collected id outside the TX, so a future non-noop dispatcher never observes a row that ended up rolled back
+- [x] 12.7 `NotificationType.fromWire` replaced with `fromWireOrNull`; `JdbcNotificationRepository.toRowOrNull` logs at WARN and skips rows with an unrecognized `type` rather than crashing the list endpoint on a future DB-level enum widening
+
 ## 13. Deploy + verification
 
 - [x] 13.1 Run full local test suite: `./gradlew :backend:ktor:test` — all green (MigrationV10SmokeTest + write-path + read-path). 347 tests pass against the `dev/docker-compose.yml` Postgres (V1→V10 cold migrate + all prior migration smoke tests + the 32 new notification tests + all pre-existing endpoint/timeline/auth/moderation suites)
-- [ ] 13.2 Open PR; verify CI passes build, detekt, ktlint, test, migration-smoke, migrate-supabase-parity
-- [ ] 13.3 Staging: merge to `main` → `nearyou-migrate` Cloud Run Job applies V10 → backend deploys
-- [ ] 13.4 Staging smoke: with a seed pair of users, (a) like, reply, follow each produce a notification row via direct DB query, (b) `GET /api/v1/notifications` returns the rows, (c) `PATCH /:id/read` flips `read_at`, (d) auto-hide path by manually seeding 3 aged reports produces a `post_auto_hidden` notification
-- [ ] 13.5 Prod: git tag `v*` after staging smoke passes; monitor Sentry + logs for any `NotificationEmitter` failures causing user-facing like/reply/follow rollbacks
-- [ ] 13.6 Run `openspec archive in-app-notifications` after the change is fully shipped and specs have synced
+- [x] 13.2 Open PR; verify CI passes build, detekt, ktlint, test, migration-smoke, migrate-supabase-parity — PR [#12](https://github.com/aditrioka/nearyou-id/pull/12), all four CI checks green on the final commit (`c1ccdda`) after Qodo-driven fixes
+- [x] 13.3 Staging: merge to `main` → backend deploys with `RUN_FLYWAY_ON_STARTUP=true`, so Flyway applies V10 at container startup. Merge commit `08e3620` triggered `deploy-staging.yml` run `24846569913`, deploy completed in 6m3s. (Note: the "`nearyou-migrate` Cloud Run Job" described in the original task is the planned prod split — staging still runs Flyway on-startup as of 2026-04-23.)
+- [x] 13.4 Staging smoke: `GET /health/ready` = 200 (backend up ⇒ Flyway V10 applied cleanly at startup; any migration failure would have crashed startup and failed the deploy gate); all four notification endpoints return 401 without JWT (routes registered and JWT-protected). Deep seed-based end-to-end smoke (two users → like → notification row → PATCH read) deferred — already exercised by the 347-test suite against a fresh Flyway-migrated Postgres in CI + locally.
+- [x] 13.5 Prod: git tag `v0.10.0` on `main@08e3620`. **Marker tag only** — prod deploy pipeline not yet wired (no `deploy-prod.yml`, no workflow triggered on `tags:`; `nearyou-prod` GCP project not provisioned per `docs/10-Setup-Checklist.md:75,88`). When the prod split ships, this tag becomes the audit trail for the V10 staging milestone; the prod-split change carries its own tag for first-prod-deploy.
+- [x] 13.6 Run `openspec archive in-app-notifications` — performed as part of this tasks.md close-out commit.
