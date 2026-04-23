@@ -6,8 +6,11 @@ import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
+import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcPostLikeRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.notifications.DbNotificationEmitter
+import id.nearyou.app.notifications.NoopNotificationDispatcher
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -54,7 +57,10 @@ class LikeEndpointsTest : StringSpec({
     val jwtIssuer = JwtIssuer(keys)
     val users = JdbcUserRepository(dataSource)
     val likes = JdbcPostLikeRepository(dataSource)
-    val service = LikeService(likes)
+    val notificationsRepo = JdbcNotificationRepository(dataSource)
+    val dispatcher = NoopNotificationDispatcher()
+    val notificationEmitter = DbNotificationEmitter(notificationsRepo)
+    val service = LikeService(dataSource, likes, notificationEmitter, dispatcher)
 
     fun seedUser(shadowBanned: Boolean = false): Pair<UUID, String> {
         val id = UUID.randomUUID()

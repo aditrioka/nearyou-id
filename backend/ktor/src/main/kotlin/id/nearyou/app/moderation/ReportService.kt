@@ -1,11 +1,18 @@
 package id.nearyou.app.moderation
 
+import id.nearyou.app.lint.AllowMissingBlockJoin
+import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.data.repository.ModerationQueueRepository
+import id.nearyou.data.repository.NotificationDispatcher
+import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.PostAutoHideRepository
 import id.nearyou.data.repository.ReportReasonCategory
 import id.nearyou.data.repository.ReportRepository
 import id.nearyou.data.repository.ReportTargetType
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import org.slf4j.LoggerFactory
+import java.sql.Connection
 import java.sql.SQLException
 import java.util.UUID
 import javax.sql.DataSource
@@ -32,6 +39,8 @@ class ReportService(
     private val moderationQueue: ModerationQueueRepository,
     private val postAutoHide: PostAutoHideRepository,
     private val rateLimiter: ReportRateLimiter,
+    private val notifications: NotificationEmitter,
+    private val dispatcher: NotificationDispatcher,
 ) {
     /**
      * Runs the full report-submission flow. Returns a typed [Result] that the
@@ -67,6 +76,10 @@ class ReportService(
         }
 
         // 4. Single transaction: INSERT → COUNT → conditional UPDATE + queue INSERT.
+        //    Notification dispatch is deferred until after commit (design
+        //    Decision 9) so a non-noop dispatcher never observes a row that
+        //    ends up rolled back.
+        var emittedNotificationId: UUID? = null
         dataSource.connection.use { conn ->
             conn.autoCommit = false
             try {
@@ -91,10 +104,7 @@ class ReportService(
                 val count = reports.countDistinctAgedReporters(conn, targetType, targetId)
                 if (count >= AUTO_HIDE_THRESHOLD) {
                     val insertedQueue = moderationQueue.upsertAutoHideRow(conn, targetType, targetId)
-                    postAutoHide.flipIsAutoHidden(conn, targetType, targetId)
-                    // Observability — emit only on a fresh queue-row insert (the
-                    // threshold crossing itself, not the 4th/5th reporter on an
-                    // already-hidden target).
+                    val flipped = postAutoHide.flipIsAutoHidden(conn, targetType, targetId)
                     if (insertedQueue) {
                         log.info(
                             "event=auto_hide_triggered target_type={} target_id={} reporter_count={}",
@@ -102,9 +112,42 @@ class ReportService(
                             targetId,
                             count,
                         )
-                        // TODO: notifications-api-v??
-                        //   Emit a `post_auto_hidden` notification once the
-                        //   notifications API lands (Phase 2 item 5).
+                    }
+                    // Emit `post_auto_hidden` ONLY on the FIRST threshold crossing.
+                    // The `insertedQueue` flag (from `moderation_queue` upsert with
+                    // ON CONFLICT DO NOTHING) is the canonical "we just crossed the
+                    // threshold" signal — it's true exactly once per target. Gating
+                    // on `flipped == 1` is insufficient: UPDATE SET is_auto_hidden =
+                    // TRUE re-issued on an already-hidden row returns 1 affected row
+                    // (Postgres counts matching rows even when the value is unchanged),
+                    // so 4th/5th reporters would double-emit.
+                    //
+                    // We still check `flipped == 1` to skip `user` / `chat_message`
+                    // target types (no `is_auto_hidden` column → 0 rows). Combined
+                    // the two predicates give: fires on post/reply threshold crossing,
+                    // never on already-hidden re-reports, never on user/chat_message.
+                    if (insertedQueue && flipped == 1) {
+                        val targetAuthorId = loadTargetAuthorId(conn, targetType, targetId)
+                        if (targetAuthorId != null) {
+                            emittedNotificationId =
+                                notifications.emit(
+                                    conn = conn,
+                                    recipientId = targetAuthorId,
+                                    actorUserId = null,
+                                    type = NotificationType.POST_AUTO_HIDDEN,
+                                    targetType =
+                                        when (targetType) {
+                                            ReportTargetType.POST -> "post"
+                                            ReportTargetType.REPLY -> "reply"
+                                            else -> null
+                                        },
+                                    targetId = targetId,
+                                    bodyData =
+                                        buildJsonObject {
+                                            put("reason", JsonPrimitive("auto_hide_3_reports"))
+                                        },
+                                )
+                        }
                     }
                 }
                 conn.commit()
@@ -116,7 +159,45 @@ class ReportService(
             }
         }
 
+        // Post-commit dispatch — see Decision 9 in the change design. Today
+        // the dispatcher is a no-op, but keeping the call out of the TX keeps
+        // a future FCM dispatcher from observing a rolled-back notification.
+        emittedNotificationId?.let(dispatcher::dispatch)
+
         return Result.Success(remainingQuota = slot.remaining)
+    }
+
+    /**
+     * Author lookup for the auto-hidden target. Raw `posts` / `post_replies`
+     * reads are allowlisted for `Report*.kt` files in `app/moderation/` by the
+     * `RawFromPostsRule` Detekt rule (same allowlist that covers the V9 report
+     * target-existence checks). `user` / `chat_message` variants return null
+     * — they have no author row and the caller already skipped the emit on
+     * `flipped == 0` for those target types.
+     */
+    @AllowMissingBlockJoin(
+        "System-originated auto-hide notification addressing: the author is the known " +
+            "recipient (docs/05-Implementation.md:833). Block-exclusion does not apply — " +
+            "the recipient's visibility of their own content is not in question; there is no " +
+            "viewer whose blocks would filter this lookup.",
+    )
+    private fun loadTargetAuthorId(
+        conn: Connection,
+        targetType: ReportTargetType,
+        targetId: UUID,
+    ): UUID? {
+        val sql =
+            when (targetType) {
+                ReportTargetType.POST -> "SELECT author_id FROM posts WHERE id = ?"
+                ReportTargetType.REPLY -> "SELECT author_id FROM post_replies WHERE id = ?"
+                ReportTargetType.USER, ReportTargetType.CHAT_MESSAGE -> return null
+            }
+        conn.prepareStatement(sql).use { ps ->
+            ps.setObject(1, targetId)
+            ps.executeQuery().use { rs ->
+                return if (rs.next()) rs.getObject("author_id", UUID::class.java) else null
+            }
+        }
     }
 
     sealed interface Result {

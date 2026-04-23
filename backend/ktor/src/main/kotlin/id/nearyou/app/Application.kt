@@ -41,6 +41,7 @@ import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
+import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcPostAutoHideRepository
 import id.nearyou.app.infra.repo.JdbcPostLikeRepository
 import id.nearyou.app.infra.repo.JdbcPostReplyRepository
@@ -65,6 +66,11 @@ import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.moderation.ReportRateLimiter
 import id.nearyou.app.moderation.ReportService
 import id.nearyou.app.moderation.reportRoutes
+import id.nearyou.app.notifications.DbNotificationEmitter
+import id.nearyou.app.notifications.NoopNotificationDispatcher
+import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.app.notifications.NotificationService
+import id.nearyou.app.notifications.notificationRoutes
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.LocationOutOfBoundsException
 import id.nearyou.app.post.postRoutes
@@ -73,6 +79,8 @@ import id.nearyou.app.timeline.NearbyTimelineService
 import id.nearyou.app.timeline.followingTimelineRoutes
 import id.nearyou.app.timeline.timelineRoutes
 import id.nearyou.data.repository.ModerationQueueRepository
+import id.nearyou.data.repository.NotificationDispatcher
+import id.nearyou.data.repository.NotificationRepository
 import id.nearyou.data.repository.PostAutoHideRepository
 import id.nearyou.data.repository.PostLikeRepository
 import id.nearyou.data.repository.PostReplyRepository
@@ -259,12 +267,19 @@ fun Application.module() {
         )
     val userBlockRepository: UserBlockRepository = JdbcUserBlockRepository(dataSource)
     val blockService = BlockService(userBlockRepository)
+    val notificationRepository: NotificationRepository = JdbcNotificationRepository(dataSource)
+    val notificationDispatcher: NotificationDispatcher = NoopNotificationDispatcher()
+    val notificationEmitter: NotificationEmitter = DbNotificationEmitter(notificationRepository)
+    val notificationService = NotificationService(notificationRepository)
     val userFollowsRepository: UserFollowsRepository = JdbcUserFollowsRepository(dataSource)
-    val followService = FollowService(userFollowsRepository)
+    val followService =
+        FollowService(dataSource, userFollowsRepository, notificationEmitter, notificationDispatcher)
     val postLikeRepository: PostLikeRepository = JdbcPostLikeRepository(dataSource)
-    val likeService = LikeService(postLikeRepository)
+    val likeService =
+        LikeService(dataSource, postLikeRepository, notificationEmitter, notificationDispatcher)
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
-    val replyService = ReplyService(postReplyRepository)
+    val replyService =
+        ReplyService(dataSource, postReplyRepository, notificationEmitter, notificationDispatcher)
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
     val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
@@ -280,6 +295,8 @@ fun Application.module() {
             moderationQueue = moderationQueueRepository,
             postAutoHide = postAutoHideRepository,
             rateLimiter = reportRateLimiter,
+            notifications = notificationEmitter,
+            dispatcher = notificationDispatcher,
         )
     val signupService =
         SignupService(
@@ -330,6 +347,10 @@ fun Application.module() {
                 single<PostAutoHideRepository> { postAutoHideRepository }
                 single { reportRateLimiter }
                 single { reportService }
+                single<NotificationRepository> { notificationRepository }
+                single<NotificationDispatcher> { notificationDispatcher }
+                single<NotificationEmitter> { notificationEmitter }
+                single { notificationService }
             },
         )
     }
@@ -351,6 +372,7 @@ fun Application.module() {
     timelineRoutes(nearbyTimelineService)
     followingTimelineRoutes(followingTimelineService)
     reportRoutes(reportService)
+    notificationRoutes(notificationService)
 }
 
 private fun Application.csvAudiences(key: String): Set<String> =

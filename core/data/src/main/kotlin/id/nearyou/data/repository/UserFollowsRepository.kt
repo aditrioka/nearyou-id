@@ -1,5 +1,6 @@
 package id.nearyou.data.repository
 
+import java.sql.Connection
 import java.time.Instant
 import java.util.UUID
 
@@ -69,6 +70,22 @@ interface UserFollowsRepository {
         cursorUserId: UUID?,
         limit: Int,
     ): List<FollowListRow>
+
+    /**
+     * Transactional variant of [follow] — runs block-check + INSERT on the
+     * caller-supplied [Connection] so a same-TX notification emit rides the
+     * primary action. Returns `true` when a row was inserted (new follow edge),
+     * `false` when `ON CONFLICT DO NOTHING` absorbed the INSERT (re-follow is
+     * a no-op, so no notification should be emitted).
+     *
+     * Same exception semantics as [follow]: [FollowBlockedException] for a
+     * mutual-block row, [UserNotFoundException] on FK violation.
+     */
+    fun followInTx(
+        conn: Connection,
+        follower: UUID,
+        followee: UUID,
+    ): Boolean
 }
 
 class FollowBlockedException : RuntimeException("follow blocked by user_blocks row in one or both directions")

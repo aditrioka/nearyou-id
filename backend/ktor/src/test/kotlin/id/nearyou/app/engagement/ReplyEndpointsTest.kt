@@ -9,8 +9,11 @@ import id.nearyou.app.auth.jwt.TestKeys
 import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.guard.ContentTooLongException
+import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcPostReplyRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.notifications.DbNotificationEmitter
+import id.nearyou.app.notifications.NoopNotificationDispatcher
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldHaveSize
@@ -68,7 +71,10 @@ class ReplyEndpointsTest : StringSpec({
     val jwtIssuer = JwtIssuer(keys)
     val users = JdbcUserRepository(dataSource)
     val repo = JdbcPostReplyRepository(dataSource)
-    val service = ReplyService(repo)
+    val notificationsRepo = JdbcNotificationRepository(dataSource)
+    val dispatcher = NoopNotificationDispatcher()
+    val notificationEmitter = DbNotificationEmitter(notificationsRepo)
+    val service = ReplyService(dataSource, repo, notificationEmitter, dispatcher)
     val contentGuard = ContentLengthGuard(mapOf(REPLY_CONTENT_KEY to 280))
 
     fun seedUser(shadowBanned: Boolean = false): Pair<UUID, String> {

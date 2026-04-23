@@ -6,8 +6,11 @@ import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
+import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcUserFollowsRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.notifications.DbNotificationEmitter
+import id.nearyou.app.notifications.NoopNotificationDispatcher
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldHaveSize
@@ -57,7 +60,10 @@ class FollowEndpointsTest : StringSpec({
     val jwtIssuer = JwtIssuer(keys)
     val users = JdbcUserRepository(dataSource)
     val follows = JdbcUserFollowsRepository(dataSource)
-    val service = FollowService(follows)
+    val notificationsRepo = JdbcNotificationRepository(dataSource)
+    val dispatcher = NoopNotificationDispatcher()
+    val notificationEmitter = DbNotificationEmitter(notificationsRepo)
+    val service = FollowService(dataSource, follows, notificationEmitter, dispatcher)
 
     fun seedUser(): Pair<UUID, String> {
         val id = UUID.randomUUID()

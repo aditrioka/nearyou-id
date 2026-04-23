@@ -1,6 +1,8 @@
 package id.nearyou.app.infra.repo
 
+import id.nearyou.data.repository.PostAuthorExcerpt
 import id.nearyou.data.repository.PostLikeRepository
+import java.sql.Connection
 import java.util.UUID
 import javax.sql.DataSource
 
@@ -61,6 +63,44 @@ class JdbcPostLikeRepository(
                     rs.next()
                     return rs.getLong(1)
                 }
+            }
+        }
+    }
+
+    override fun likeInTx(
+        conn: Connection,
+        postId: UUID,
+        userId: UUID,
+    ): Boolean {
+        conn.prepareStatement(
+            "INSERT INTO post_likes (post_id, user_id) VALUES (?, ?) ON CONFLICT (post_id, user_id) DO NOTHING",
+        ).use { ps ->
+            ps.setObject(1, postId)
+            ps.setObject(2, userId)
+            return ps.executeUpdate() == 1
+        }
+    }
+
+    override fun loadPostAuthorAndExcerpt(
+        conn: Connection,
+        postId: UUID,
+    ): PostAuthorExcerpt? {
+        // Raw `posts` read is scoped to infra/supabase (outside the :backend:ktor
+        // RawFromPostsRule scan). The caller (LikeService) already gated visibility
+        // via `resolveVisiblePost`; this is a tight author-id + excerpt fetch for
+        // the notification body_data.
+        conn.prepareStatement(
+            "SELECT author_id, content FROM posts WHERE id = ? AND deleted_at IS NULL",
+        ).use { ps ->
+            ps.setObject(1, postId)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                val author = rs.getObject("author_id", UUID::class.java)
+                val content = rs.getString("content") ?: ""
+                return PostAuthorExcerpt(
+                    authorId = author,
+                    excerpt = content.firstCodePoints(80),
+                )
             }
         }
     }

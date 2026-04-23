@@ -1,5 +1,6 @@
 package id.nearyou.data.repository
 
+import java.sql.Connection
 import java.util.UUID
 
 /**
@@ -48,4 +49,34 @@ interface PostLikeRepository {
         postId: UUID,
         viewerId: UUID,
     ): UUID?
+
+    /**
+     * Transactional variant of [like] — runs on the caller-supplied
+     * [Connection] so the INSERT rides the primary action's open transaction
+     * alongside a same-TX notification emit. Returns `true` when a row was
+     * inserted (transition "not liked" → "liked"), `false` when `ON CONFLICT
+     * DO NOTHING` absorbed the INSERT (re-like is a no-op, so no notification
+     * should be emitted).
+     */
+    fun likeInTx(
+        conn: Connection,
+        postId: UUID,
+        userId: UUID,
+    ): Boolean
+
+    /**
+     * Transactional author + content-excerpt lookup used by the like emit path
+     * to build the `post_liked` notification's `body_data.post_excerpt`. Returns
+     * `null` when the post is missing or soft-deleted (the like INSERT would
+     * have FK-cascaded away by then — belt-and-suspenders).
+     */
+    fun loadPostAuthorAndExcerpt(
+        conn: Connection,
+        postId: UUID,
+    ): PostAuthorExcerpt?
 }
+
+data class PostAuthorExcerpt(
+    val authorId: UUID,
+    val excerpt: String,
+)

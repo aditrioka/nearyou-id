@@ -130,14 +130,20 @@ class ReportObservabilityTest : StringSpec({
         }
     }
 
-    fun buildService(): ReportService =
-        ReportService(
+    fun buildService(): ReportService {
+        val notificationRepo = id.nearyou.app.infra.repo.JdbcNotificationRepository(dataSource)
+        val dispatcher = id.nearyou.app.notifications.NoopNotificationDispatcher()
+        val notifications = id.nearyou.app.notifications.DbNotificationEmitter(notificationRepo)
+        return ReportService(
             dataSource = dataSource,
             reports = JdbcReportRepository(),
             moderationQueue = JdbcModerationQueueRepository(),
             postAutoHide = JdbcPostAutoHideRepository(),
             rateLimiter = ReportRateLimiter(),
+            notifications = notifications,
+            dispatcher = dispatcher,
         )
+    }
 
     fun withLogCapture(block: (ListAppender<ILoggingEvent>) -> Unit) {
         val logger = LoggerFactory.getLogger(ReportService::class.java) as LogbackLogger

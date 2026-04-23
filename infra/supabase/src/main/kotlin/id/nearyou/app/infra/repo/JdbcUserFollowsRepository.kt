@@ -5,6 +5,7 @@ import id.nearyou.data.repository.FollowListRow
 import id.nearyou.data.repository.ProfileUserNotFoundException
 import id.nearyou.data.repository.UserFollowsRepository
 import id.nearyou.data.repository.UserNotFoundException
+import java.sql.Connection
 import java.sql.SQLException
 import java.sql.Timestamp
 import java.time.Instant
@@ -130,6 +131,41 @@ class JdbcUserFollowsRepository(
                     append("\n LIMIT ?")
                 }
             return conn.queryFollowListPage(sql, profileId, viewerId, cursorCreatedAt, cursorUserId, limit)
+        }
+    }
+
+    override fun followInTx(
+        conn: Connection,
+        follower: UUID,
+        followee: UUID,
+    ): Boolean {
+        conn.prepareStatement(
+            """
+            SELECT 1 FROM user_blocks
+             WHERE (blocker_id = ? AND blocked_id = ?)
+                OR (blocker_id = ? AND blocked_id = ?)
+             LIMIT 1
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setObject(1, follower)
+            ps.setObject(2, followee)
+            ps.setObject(3, followee)
+            ps.setObject(4, follower)
+            ps.executeQuery().use { rs ->
+                if (rs.next()) throw FollowBlockedException()
+            }
+        }
+        try {
+            conn.prepareStatement(
+                "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?) ON CONFLICT (follower_id, followee_id) DO NOTHING",
+            ).use { ps ->
+                ps.setObject(1, follower)
+                ps.setObject(2, followee)
+                return ps.executeUpdate() == 1
+            }
+        } catch (ex: SQLException) {
+            if (ex.sqlState == "23503") throw UserNotFoundException()
+            throw ex
         }
     }
 
