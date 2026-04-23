@@ -126,8 +126,7 @@ enum class NotificationType(val wire: String) {
          * endpoint from a DB-level enum widening that ships ahead of the
          * service code (or an unlikely manual INSERT bypassing the CHECK).
          */
-        fun fromWireOrNull(value: String): NotificationType? =
-            entries.firstOrNull { it.wire == value }
+        fun fromWireOrNull(value: String): NotificationType? = entries.firstOrNull { it.wire == value }
     }
 }
 
