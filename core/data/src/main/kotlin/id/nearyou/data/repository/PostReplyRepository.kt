@@ -1,5 +1,6 @@
 package id.nearyou.data.repository
 
+import java.sql.Connection
 import java.time.Instant
 import java.util.UUID
 
@@ -74,6 +75,29 @@ interface PostReplyRepository {
     fun resolveVisiblePost(
         postId: UUID,
         viewerId: UUID,
+    ): UUID?
+
+    /**
+     * Transactional variant of [insert] — runs on the caller-supplied
+     * [Connection] so the INSERT rides the primary action's open transaction
+     * alongside a same-TX notification emit.
+     */
+    fun insertInTx(
+        conn: Connection,
+        postId: UUID,
+        authorId: UUID,
+        content: String,
+    ): PostReplyRow
+
+    /**
+     * Transactional parent-post author lookup used by the reply emit path to
+     * address the `post_replied` notification. Returns `null` on missing /
+     * soft-deleted parent post (the INSERT would already have failed its FK,
+     * so this is belt-and-suspenders).
+     */
+    fun loadParentAuthorId(
+        conn: Connection,
+        parentPostId: UUID,
     ): UUID?
 }
 

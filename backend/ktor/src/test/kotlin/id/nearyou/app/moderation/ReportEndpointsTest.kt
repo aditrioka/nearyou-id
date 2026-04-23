@@ -321,7 +321,13 @@ class ReportEndpointsTest : StringSpec({
         val reports = JdbcReportRepository()
         val queue = JdbcModerationQueueRepository()
         val autoHide = JdbcPostAutoHideRepository()
-        val service = ReportService(dataSource, reports, queue, autoHide, limiter)
+        val notificationRepo = id.nearyou.app.infra.repo.JdbcNotificationRepository(dataSource)
+        val notifications =
+            id.nearyou.app.notifications.DbNotificationEmitter(
+                notificationRepo,
+                id.nearyou.app.notifications.NoopNotificationDispatcher(),
+            )
+        val service = ReportService(dataSource, reports, queue, autoHide, limiter, notifications)
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -893,7 +899,13 @@ class ReportEndpointsTest : StringSpec({
             val queue = JdbcModerationQueueRepository()
             val autoHide = JdbcPostAutoHideRepository()
             val limiter = ReportRateLimiter()
-            val service = ReportService(dataSource, reports, queue, autoHide, limiter)
+            val notificationRepo = id.nearyou.app.infra.repo.JdbcNotificationRepository(dataSource)
+            val notifications =
+                id.nearyou.app.notifications.DbNotificationEmitter(
+                    notificationRepo,
+                    id.nearyou.app.notifications.NoopNotificationDispatcher(),
+                )
+            val service = ReportService(dataSource, reports, queue, autoHide, limiter, notifications)
             val tA =
                 Thread {
                     service.submit(

@@ -48,6 +48,9 @@ dependencies {
     testImplementation(libs.ktor.serverTestHost)
     testImplementation(libs.kotest.runnerJunit5)
     testImplementation(libs.kotest.assertionsCore)
+    // The V10 notifications smoke test constructs `PGobject` directly to seed
+    // jsonb columns; promote the driver out of runtime-only on the test classpath.
+    testImplementation(libs.postgresql)
 
     detektPlugins(projects.lint.detektRules)
 }

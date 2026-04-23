@@ -2,6 +2,7 @@ package id.nearyou.app.infra.repo
 
 import id.nearyou.data.repository.PostReplyRepository
 import id.nearyou.data.repository.PostReplyRow
+import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.time.Instant
@@ -150,6 +151,46 @@ class JdbcPostReplyRepository(
                 ps.executeQuery().use { rs ->
                     return if (rs.next()) rs.getObject("id", UUID::class.java) else null
                 }
+            }
+        }
+    }
+
+    override fun insertInTx(
+        conn: Connection,
+        postId: UUID,
+        authorId: UUID,
+        content: String,
+    ): PostReplyRow {
+        conn.prepareStatement(
+            """
+            INSERT INTO post_replies (post_id, author_id, content)
+            VALUES (?, ?, ?)
+            RETURNING id, post_id, author_id, content, is_auto_hidden, created_at, updated_at, deleted_at
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setObject(1, postId)
+            ps.setObject(2, authorId)
+            ps.setString(3, content)
+            ps.executeQuery().use { rs ->
+                check(rs.next()) { "INSERT ... RETURNING produced no row" }
+                return rs.toRow()
+            }
+        }
+    }
+
+    override fun loadParentAuthorId(
+        conn: Connection,
+        parentPostId: UUID,
+    ): UUID? {
+        // Raw `posts` read is scoped to infra/supabase (outside the :backend:ktor
+        // RawFromPostsRule scan). Caller (ReplyService) already gated visibility
+        // via `resolveVisiblePost`.
+        conn.prepareStatement(
+            "SELECT author_id FROM posts WHERE id = ? AND deleted_at IS NULL",
+        ).use { ps ->
+            ps.setObject(1, parentPostId)
+            ps.executeQuery().use { rs ->
+                return if (rs.next()) rs.getObject("author_id", UUID::class.java) else null
             }
         }
     }
