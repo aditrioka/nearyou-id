@@ -252,6 +252,7 @@ class NearbyTimelineServiceTest : StringSpec({
                         "latitude",
                         "longitude",
                         "distanceM",
+                        "city_name",
                         "createdAt",
                         "liked_by_viewer",
                         "reply_count",
@@ -779,6 +780,118 @@ class NearbyTimelineServiceTest : StringSpec({
             }
         } finally {
             cleanup(viewer, author, replier)
+        }
+    }
+
+    // ---- V11: city_name tests (nearby-timeline spec delta) ----
+    //
+    // Session 1 note: admin_regions is empty in this session, so real trigger-populated
+    // matches are covered by Session 2's MigrationV11SmokeTest once the polygon seed lands.
+    // These scenarios exercise the trigger's caller-override guard to simulate a populated
+    // row, plus the NULL-as-"" path with the default seedPost (trigger falls through to
+    // step 4 → NULL with an empty admin_regions table).
+
+    fun seedPostWithCity(
+        authorId: UUID,
+        cityName: String?,
+        lat: Double = -6.200,
+        lng: Double = 106.800,
+    ): UUID {
+        val id = UUID.randomUUID()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO posts (id, author_id, content, display_location, actual_location, is_auto_hidden, city_name)
+                VALUES (?, ?, ?,
+                  ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
+                  ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
+                  FALSE, ?)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setObject(2, authorId)
+                ps.setString(3, "post-${id.toString().take(6)}")
+                ps.setDouble(4, lng)
+                ps.setDouble(5, lat)
+                ps.setDouble(6, lng)
+                ps.setDouble(7, lat)
+                if (cityName != null) ps.setString(8, cityName) else ps.setNull(8, java.sql.Types.VARCHAR)
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
+    "city_name — key present on every Nearby post and is always a string" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            seedPostWithCity(author, cityName = "Jakarta Pusat", lat = -6.200, lng = 106.800)
+            Thread.sleep(2)
+            seedPostWithCity(author, cityName = null, lat = -6.201, lng = 106.801)
+            Thread.sleep(2)
+            seedPostWithCity(author, cityName = "Jakarta Selatan", lat = -6.202, lng = 106.802)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                arr.forEach {
+                    val obj = it as JsonObject
+                    obj.containsKey("city_name") shouldBe true
+                    obj["city_name"]!!.jsonPrimitive.isString shouldBe true
+                }
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "city_name — reflects trigger-populated (or override-supplied) value on Nearby" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val p = seedPostWithCity(author, cityName = "Surabaya", lat = -6.200, lng = 106.800)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                post["city_name"]!!.jsonPrimitive.content shouldBe "Surabaya"
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "city_name — empty string for Nearby post whose underlying row is NULL" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val p = seedPostWithCity(author, cityName = null, lat = -6.200, lng = 106.800)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                post["city_name"]!!.jsonPrimitive.content shouldBe ""
+            }
+        } finally {
+            cleanup(viewer, author)
         }
     }
 })

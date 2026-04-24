@@ -6,7 +6,7 @@ import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
-import id.nearyou.app.infra.repo.JdbcPostsFollowingRepository
+import id.nearyou.app.infra.repo.JdbcPostsGlobalRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
@@ -48,14 +48,14 @@ private fun hikari(): HikariDataSource {
 }
 
 @Tags("database")
-class FollowingTimelineServiceTest : StringSpec({
+class GlobalTimelineServiceTest : StringSpec({
 
     val dataSource = hikari()
-    val keys = RsaKeyLoader(TestKeys.freshEncodedPemPrivateKey(), kid = "test-following")
+    val keys = RsaKeyLoader(TestKeys.freshEncodedPemPrivateKey(), kid = "test-global")
     val jwtIssuer = JwtIssuer(keys)
     val users = JdbcUserRepository(dataSource)
-    val timeline = JdbcPostsFollowingRepository(dataSource)
-    val service = FollowingTimelineService(timeline)
+    val timeline = JdbcPostsGlobalRepository(dataSource)
+    val service = GlobalTimelineService(timeline)
 
     fun seedUser(): Pair<UUID, String> {
         val id = UUID.randomUUID()
@@ -69,10 +69,10 @@ class FollowingTimelineServiceTest : StringSpec({
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
-                ps.setString(2, "ft_$short")
-                ps.setString(3, "Following Timeline Tester")
+                ps.setString(2, "gt_$short")
+                ps.setString(3, "Global Timeline Tester")
                 ps.setDate(4, Date.valueOf(LocalDate.of(1990, 1, 1)))
-                ps.setString(5, "g${short.take(7)}")
+                ps.setString(5, "j${short.take(7)}")
                 ps.executeUpdate()
             }
         }
@@ -80,21 +80,55 @@ class FollowingTimelineServiceTest : StringSpec({
         return id to token
     }
 
+    fun seedShadowBannedUser(): UUID {
+        val id = UUID.randomUUID()
+        val short = id.toString().replace("-", "").take(8)
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO users (
+                    id, username, display_name, date_of_birth, invite_code_prefix, is_shadow_banned
+                ) VALUES (?, ?, ?, ?, ?, TRUE)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setString(2, "gsb_$short")
+                ps.setString(3, "Shadow Banned")
+                ps.setDate(4, Date.valueOf(LocalDate.of(1990, 1, 1)))
+                ps.setString(5, "k${short.take(7)}")
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
+    /**
+     * Seed a post. By default lets the V11 `posts_set_city_tg` trigger populate `city_name`
+     * based on the supplied `actual_location` + current `admin_regions` seed — in Session 1
+     * that seed is empty, so the trigger falls through to step 4 and `city_name` stays NULL,
+     * which is the legacy-row case the spec expects to render as "".
+     *
+     * Callers may pass [cityNameOverride] to short-circuit the trigger and pin a specific
+     * label (spec: the trigger's caller-override guard — `IF NEW.city_name IS NOT NULL`).
+     * This is how Session 1 tests simulate the "trigger-populated value" scenario without
+     * needing the polygon seed.
+     */
     fun seedPost(
         authorId: UUID,
         lat: Double = -6.200,
         lng: Double = 106.800,
         autoHidden: Boolean = false,
+        cityNameOverride: String? = null,
     ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
-                INSERT INTO posts (id, author_id, content, display_location, actual_location, is_auto_hidden)
+                INSERT INTO posts (id, author_id, content, display_location, actual_location, is_auto_hidden, city_name)
                 VALUES (?, ?, ?,
                   ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
                   ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
-                  ?)
+                  ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
@@ -105,55 +139,15 @@ class FollowingTimelineServiceTest : StringSpec({
                 ps.setDouble(6, lng)
                 ps.setDouble(7, lat)
                 ps.setBoolean(8, autoHidden)
+                if (cityNameOverride != null) {
+                    ps.setString(9, cityNameOverride)
+                } else {
+                    ps.setNull(9, java.sql.Types.VARCHAR)
+                }
                 ps.executeUpdate()
             }
         }
         return id
-    }
-
-    fun follow(
-        follower: UUID,
-        followee: UUID,
-    ) {
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
-            ).use { ps ->
-                ps.setObject(1, follower)
-                ps.setObject(2, followee)
-                ps.executeUpdate()
-            }
-        }
-    }
-
-    fun insertBlock(
-        blocker: UUID,
-        blocked: UUID,
-    ) {
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
-            ).use { ps ->
-                ps.setObject(1, blocker)
-                ps.setObject(2, blocked)
-                ps.executeUpdate()
-            }
-        }
-    }
-
-    fun cleanup(vararg userIds: UUID) {
-        dataSource.connection.use { conn ->
-            conn.createStatement().use { st ->
-                userIds.forEach {
-                    // posts cascade fails (RESTRICT) — delete posts explicitly first.
-                    // V8: also hard-delete any replies authored by this user elsewhere
-                    // (post_replies.author_id is RESTRICT).
-                    st.executeUpdate("DELETE FROM post_replies WHERE author_id = '$it'")
-                    st.executeUpdate("DELETE FROM posts WHERE author_id = '$it'")
-                    st.executeUpdate("DELETE FROM users WHERE id = '$it'")
-                }
-            }
-        }
     }
 
     fun seedReply(
@@ -178,29 +172,34 @@ class FollowingTimelineServiceTest : StringSpec({
         }
     }
 
-    fun seedShadowBannedUser(): UUID {
-        val id = UUID.randomUUID()
-        val short = id.toString().replace("-", "").take(8)
+    fun insertBlock(
+        blocker: UUID,
+        blocked: UUID,
+    ) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
-                """
-                INSERT INTO users (
-                    id, username, display_name, date_of_birth, invite_code_prefix, is_shadow_banned
-                ) VALUES (?, ?, ?, ?, ?, TRUE)
-                """.trimIndent(),
+                "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
             ).use { ps ->
-                ps.setObject(1, id)
-                ps.setString(2, "fsb_$short")
-                ps.setString(3, "Shadow Banned")
-                ps.setDate(4, Date.valueOf(LocalDate.of(1990, 1, 1)))
-                ps.setString(5, "h${short.take(7)}")
+                ps.setObject(1, blocker)
+                ps.setObject(2, blocked)
                 ps.executeUpdate()
             }
         }
-        return id
     }
 
-    suspend fun withFollowing(block: suspend io.ktor.server.testing.ApplicationTestBuilder.() -> Unit) {
+    fun cleanup(vararg userIds: UUID) {
+        dataSource.connection.use { conn ->
+            conn.createStatement().use { st ->
+                userIds.forEach {
+                    st.executeUpdate("DELETE FROM post_replies WHERE author_id = '$it'")
+                    st.executeUpdate("DELETE FROM posts WHERE author_id = '$it'")
+                    st.executeUpdate("DELETE FROM users WHERE id = '$it'")
+                }
+            }
+        }
+    }
+
+    suspend fun withGlobal(block: suspend io.ktor.server.testing.ApplicationTestBuilder.() -> Unit) {
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -212,94 +211,64 @@ class FollowingTimelineServiceTest : StringSpec({
                     )
                 }
                 install(Authentication) { configureUserJwt(keys, users, java.time.Instant::now) }
-                followingTimelineRoutes(service)
+                globalTimelineRoutes(service)
             }
             block()
         }
     }
 
-    "happy path — viewer sees posts from three followed authors ordered DESC by created_at" {
+    // 1. Happy path: three posts by three different authors in three different cities,
+    //    each carrying the expected city_name (simulated via cityNameOverride — Session 1
+    //    lands without the polygon seed).
+    "happy path — three posts from three authors with distinct city labels, DESC by created_at" {
         val (viewer, vt) = seedUser()
         val (a, _) = seedUser()
         val (b, _) = seedUser()
         val (c, _) = seedUser()
         try {
-            follow(viewer, a)
-            follow(viewer, b)
-            follow(viewer, c)
-            val pa = seedPost(a)
+            val pa = seedPost(a, cityNameOverride = "Jakarta Pusat")
             Thread.sleep(10)
-            val pb = seedPost(b)
+            val pb = seedPost(b, cityNameOverride = "Bandung")
             Thread.sleep(10)
-            val pc = seedPost(c)
-            withFollowing {
+            val pc = seedPost(c, cityNameOverride = "Surabaya")
+            withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
+                        .get("/api/v1/timeline/global") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
                 val body = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
-                val ids = body["posts"]!!.jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
-                ids shouldBe listOf(pc.toString(), pb.toString(), pa.toString())
-                // No distance_m / distanceM in response.
-                val first = body["posts"]!!.jsonArray.first().jsonObject
-                first.keys shouldBe
-                    setOf(
-                        "id",
-                        "authorUserId",
-                        "content",
-                        "latitude",
-                        "longitude",
-                        "city_name",
-                        "createdAt",
-                        "liked_by_viewer",
-                        "reply_count",
-                    )
-                first.containsKey("distanceM") shouldBe false
-                first.containsKey("distance_m") shouldBe false
+                val arr = body["posts"]!!.jsonArray
+                val ids = arr.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                // Ordering: newest first. pa, pb, pc were created oldest → newest.
+                ids.indexOf(pc.toString()) shouldBe 0
+                ids.indexOf(pb.toString()) shouldBe 1
+                ids.indexOf(pa.toString()) shouldBe 2
+                // city_name labels
+                val byId = arr.associate { (it as JsonObject)["id"]!!.jsonPrimitive.content to it }
+                byId[pa.toString()]!!["city_name"]!!.jsonPrimitive.content shouldBe "Jakarta Pusat"
+                byId[pb.toString()]!!["city_name"]!!.jsonPrimitive.content shouldBe "Bandung"
+                byId[pc.toString()]!!["city_name"]!!.jsonPrimitive.content shouldBe "Surabaya"
             }
         } finally {
             cleanup(viewer, a, b, c)
         }
     }
 
-    "empty result — viewer follows nobody, posts = [], nextCursor = null" {
-        val (viewer, vt) = seedUser()
-        val (other, _) = seedUser()
-        try {
-            // `other` has a post but viewer does not follow them.
-            seedPost(other)
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                resp.status shouldBe HttpStatusCode.OK
-                val body = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
-                body["posts"]!!.jsonArray shouldHaveSize 0
-                val nc = body["nextCursor"]
-                (nc == null || nc == kotlinx.serialization.json.JsonNull) shouldBe true
-            }
-        } finally {
-            cleanup(viewer, other)
-        }
-    }
-
+    // 2. Cursor pagination: 35 posts → page 1 = 30 + nextCursor, page 2 = 5, no overlap.
     "cursor pagination — 35 posts, page 1 of 30 + cursor, page 2 of 5, no overlap" {
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            follow(viewer, author)
             for (i in 0 until 35) {
                 seedPost(author)
                 Thread.sleep(2)
             }
-            withFollowing {
+            withGlobal {
                 val client = createClient { install(ClientCN) { json() } }
                 val r1 =
-                    client.get("/api/v1/timeline/following") {
+                    client.get("/api/v1/timeline/global") {
                         header(HttpHeaders.Authorization, "Bearer $vt")
                     }
                 r1.status shouldBe HttpStatusCode.OK
@@ -307,7 +276,7 @@ class FollowingTimelineServiceTest : StringSpec({
                 b1["posts"]!!.jsonArray shouldHaveSize 30
                 val cursor = b1["nextCursor"]!!.jsonPrimitive.content
                 val r2 =
-                    client.get("/api/v1/timeline/following?cursor=$cursor") {
+                    client.get("/api/v1/timeline/global?cursor=$cursor") {
                         header(HttpHeaders.Authorization, "Bearer $vt")
                     }
                 r2.status shouldBe HttpStatusCode.OK
@@ -322,17 +291,40 @@ class FollowingTimelineServiceTest : StringSpec({
         }
     }
 
-    "auto-hidden followed-author post excluded (visible_posts view filter)" {
+    // 3. No follows filter: caller follows nobody, but still sees the stranger's post.
+    "no follows filter — caller follows nobody yet still sees every visible author's post" {
+        val (viewer, vt) = seedUser()
+        val (stranger, _) = seedUser()
+        try {
+            val p = seedPost(stranger)
+            withGlobal {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/global") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                ids.contains(p.toString()) shouldBe true
+            }
+        } finally {
+            cleanup(viewer, stranger)
+        }
+    }
+
+    // 4. Auto-hidden exclusion.
+    "auto-hidden post excluded via visible_posts view" {
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            follow(viewer, author)
             val visible = seedPost(author)
             val hidden = seedPost(author, autoHidden = true)
-            withFollowing {
+            withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
+                        .get("/api/v1/timeline/global") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val ids =
@@ -347,17 +339,17 @@ class FollowingTimelineServiceTest : StringSpec({
         }
     }
 
-    "bidirectional block exclusion — viewer-blocked-author hidden even if followed" {
+    // 5a. Bidirectional block exclusion: viewer blocked author.
+    "bidirectional block exclusion — viewer blocked author hides their posts" {
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            follow(viewer, author)
             val p = seedPost(author)
-            insertBlock(viewer, author) // viewer blocked author
-            withFollowing {
+            insertBlock(viewer, author)
+            withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
+                        .get("/api/v1/timeline/global") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val ids =
@@ -371,17 +363,17 @@ class FollowingTimelineServiceTest : StringSpec({
         }
     }
 
-    "bidirectional block exclusion — author-blocked-viewer hidden even if followed" {
+    // 5b. Bidirectional block exclusion: author blocked viewer.
+    "bidirectional block exclusion — author blocked viewer hides their posts" {
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            follow(viewer, author)
             val p = seedPost(author)
-            insertBlock(author, viewer) // author blocked viewer
-            withFollowing {
+            insertBlock(author, viewer)
+            withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
+                        .get("/api/v1/timeline/global") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val ids =
@@ -395,45 +387,20 @@ class FollowingTimelineServiceTest : StringSpec({
         }
     }
 
-    "non-followed-author posts excluded" {
-        val (viewer, vt) = seedUser()
-        val (followed, _) = seedUser()
-        val (stranger, _) = seedUser()
-        try {
-            follow(viewer, followed)
-            val mine = seedPost(followed)
-            val theirs = seedPost(stranger)
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                val ids =
-                    Json.parseToJsonElement(resp.bodyAsText())
-                        .jsonObject["posts"]!!.jsonArray
-                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
-                ids shouldBe listOf(mine.toString())
-                ids.contains(theirs.toString()) shouldBe false
-            }
-        } finally {
-            cleanup(viewer, followed, stranger)
-        }
-    }
-
+    // 6. Auth required.
     "auth required — 401 without JWT" {
-        withFollowing {
+        withGlobal {
             createClient { install(ClientCN) { json() } }
-                .get("/api/v1/timeline/following")
+                .get("/api/v1/timeline/global")
                 .status shouldBe HttpStatusCode.Unauthorized
         }
     }
 
-    "liked_by_viewer — true when caller has liked a followed-author post" {
+    // 7a. liked_by_viewer true.
+    "liked_by_viewer — true when caller has liked a post" {
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            follow(viewer, author)
             val p = seedPost(author)
             dataSource.connection.use { conn ->
                 conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
@@ -442,10 +409,10 @@ class FollowingTimelineServiceTest : StringSpec({
                     ps.executeUpdate()
                 }
             }
-            withFollowing {
+            withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
+                        .get("/api/v1/timeline/global") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val post =
@@ -460,16 +427,16 @@ class FollowingTimelineServiceTest : StringSpec({
         }
     }
 
+    // 7b. liked_by_viewer false.
     "liked_by_viewer — false when caller has not liked" {
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            follow(viewer, author)
             val p = seedPost(author)
-            withFollowing {
+            withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
+                        .get("/api/v1/timeline/global") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val post =
@@ -484,23 +451,19 @@ class FollowingTimelineServiceTest : StringSpec({
         }
     }
 
-    "liked_by_viewer — key present on every Following post" {
+    // 7c. liked_by_viewer key present on every post.
+    "liked_by_viewer — key present on every Global post" {
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            follow(viewer, author)
-            val posts = (0 until 5).map { seedPost(author).also { Thread.sleep(2) } }
-            dataSource.connection.use { conn ->
-                conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
-                    ps.setObject(1, posts[1])
-                    ps.setObject(2, viewer)
-                    ps.executeUpdate()
-                }
+            repeat(5) {
+                seedPost(author)
+                Thread.sleep(2)
             }
-            withFollowing {
+            withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
+                        .get("/api/v1/timeline/global") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
@@ -511,28 +474,29 @@ class FollowingTimelineServiceTest : StringSpec({
         }
     }
 
-    "liked_by_viewer — cardinality invariant: 20 eligible with 6 liked → 20 returned, not 26" {
+    // 8. LEFT JOIN cardinality invariant with likes.
+    "liked_by_viewer — cardinality invariant: 20 visible with 7 liked → 20 rows, not 27" {
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            follow(viewer, author)
             val posts = (0 until 20).map { seedPost(author).also { Thread.sleep(2) } }
             dataSource.connection.use { conn ->
                 conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
-                    posts.take(6).forEach { pid ->
+                    posts.take(7).forEach { pid ->
                         ps.setObject(1, pid)
                         ps.setObject(2, viewer)
                         ps.executeUpdate()
                     }
                 }
             }
-            withFollowing {
+            withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
+                        .get("/api/v1/timeline/global") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                // At most PAGE_SIZE=30; we seeded only 20 so expect exactly 20.
                 arr shouldHaveSize 20
             }
         } finally {
@@ -540,277 +504,16 @@ class FollowingTimelineServiceTest : StringSpec({
         }
     }
 
-    "invalid cursor — 400 invalid_cursor" {
-        val (viewer, vt) = seedUser()
-        try {
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following?cursor=not-a-cursor") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                resp.status shouldBe HttpStatusCode.BadRequest
-                Json.parseToJsonElement(resp.bodyAsText())
-                    .jsonObject["error"]!!.jsonObject["code"]!!
-                    .jsonPrimitive.content shouldBe "invalid_cursor"
-            }
-        } finally {
-            cleanup(viewer)
-        }
-    }
-
-    // ---- V8: reply_count tests ----
-
-    "reply_count — 0 for a followed-author post with no replies" {
+    // 9. reply_count = 0 for a post with no replies.
+    "reply_count — 0 for a post with no replies" {
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            follow(viewer, author)
             val p = seedPost(author)
-            withFollowing {
+            withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
-                val post = arr.first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
-                (post as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "0"
-            }
-        } finally {
-            cleanup(viewer, author)
-        }
-    }
-
-    "reply_count — exact count when multiple visible replies exist" {
-        val (viewer, vt) = seedUser()
-        val (author, _) = seedUser()
-        val (replier, _) = seedUser()
-        try {
-            follow(viewer, author)
-            val p = seedPost(author)
-            seedReply(p, replier)
-            seedReply(p, replier)
-            seedReply(p, replier)
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
-                val post = arr.first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
-                (post as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "3"
-            }
-        } finally {
-            cleanup(viewer, author, replier)
-        }
-    }
-
-    "reply_count — excludes shadow-banned repliers via visible_users JOIN" {
-        val (viewer, vt) = seedUser()
-        val (author, _) = seedUser()
-        val (replierVisible, _) = seedUser()
-        val replierBanned = seedShadowBannedUser()
-        try {
-            follow(viewer, author)
-            val p = seedPost(author)
-            seedReply(p, replierVisible)
-            seedReply(p, replierVisible)
-            seedReply(p, replierBanned)
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
-                val post = arr.first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
-                (post as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "2"
-            }
-        } finally {
-            cleanup(viewer, author, replierVisible, replierBanned)
-        }
-    }
-
-    "reply_count — excludes soft-deleted replies" {
-        val (viewer, vt) = seedUser()
-        val (author, _) = seedUser()
-        val (replier, _) = seedUser()
-        try {
-            follow(viewer, author)
-            val p = seedPost(author)
-            seedReply(p, replier)
-            seedReply(p, replier)
-            seedReply(p, replier)
-            seedReply(p, replier, deletedAt = java.time.Instant.now())
-            seedReply(p, replier, deletedAt = java.time.Instant.now())
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
-                val post = arr.first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
-                (post as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "3"
-            }
-        } finally {
-            cleanup(viewer, author, replier)
-        }
-    }
-
-    "reply_count — does NOT apply viewer-block exclusion (privacy tradeoff)" {
-        val (viewer, vt) = seedUser()
-        val (author, _) = seedUser()
-        val (replierOk1, _) = seedUser()
-        val (replierOk2, _) = seedUser()
-        val (replierBlocked, _) = seedUser()
-        try {
-            follow(viewer, author)
-            insertBlock(viewer, replierBlocked)
-            val p = seedPost(author)
-            seedReply(p, replierOk1)
-            seedReply(p, replierOk2)
-            seedReply(p, replierBlocked)
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
-                val post = arr.first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
-                (post as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "3"
-            }
-        } finally {
-            cleanup(viewer, author, replierOk1, replierOk2, replierBlocked)
-        }
-    }
-
-    "reply_count — key present on every Following post" {
-        val (viewer, vt) = seedUser()
-        val (author, _) = seedUser()
-        try {
-            follow(viewer, author)
-            repeat(3) {
-                seedPost(author)
-                Thread.sleep(2)
-            }
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
-                arr.forEach { (it as JsonObject).containsKey("reply_count") shouldBe true }
-            }
-        } finally {
-            cleanup(viewer, author)
-        }
-    }
-
-    "reply_count — LATERAL cardinality invariant: 5 eligible posts with 20 total replies → 5 rows, not 25" {
-        val (viewer, vt) = seedUser()
-        val (author, _) = seedUser()
-        val (replier, _) = seedUser()
-        try {
-            follow(viewer, author)
-            val posts = (0 until 5).map { seedPost(author).also { Thread.sleep(2) } }
-            posts.forEach { pid -> repeat(4) { seedReply(pid, replier) } }
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
-                arr shouldHaveSize 5
-                arr.forEach { (it as JsonObject)["reply_count"]!!.jsonPrimitive.content shouldBe "4" }
-            }
-        } finally {
-            cleanup(viewer, author, replier)
-        }
-    }
-
-    // ---- V11: city_name tests (following-timeline spec delta) ----
-    //
-    // Session 1 note: admin_regions is empty in this session, so real trigger-populated
-    // matches are covered by Session 2's MigrationV11SmokeTest once the polygon seed lands.
-    // These scenarios exercise the trigger's caller-override guard to simulate a populated
-    // row, plus the NULL-as-"" path (trigger falls through to step 4 against empty
-    // admin_regions).
-
-    fun seedPostWithCity(
-        authorId: UUID,
-        cityName: String?,
-        lat: Double = -6.200,
-        lng: Double = 106.800,
-    ): UUID {
-        val id = UUID.randomUUID()
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                INSERT INTO posts (id, author_id, content, display_location, actual_location, is_auto_hidden, city_name)
-                VALUES (?, ?, ?,
-                  ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
-                  ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
-                  FALSE, ?)
-                """.trimIndent(),
-            ).use { ps ->
-                ps.setObject(1, id)
-                ps.setObject(2, authorId)
-                ps.setString(3, "post-${id.toString().take(6)}")
-                ps.setDouble(4, lng)
-                ps.setDouble(5, lat)
-                ps.setDouble(6, lng)
-                ps.setDouble(7, lat)
-                if (cityName != null) ps.setString(8, cityName) else ps.setNull(8, java.sql.Types.VARCHAR)
-                ps.executeUpdate()
-            }
-        }
-        return id
-    }
-
-    "city_name — key present on every Following post and is always a string" {
-        val (viewer, vt) = seedUser()
-        val (author, _) = seedUser()
-        try {
-            follow(viewer, author)
-            seedPostWithCity(author, cityName = "Bandung")
-            Thread.sleep(2)
-            seedPostWithCity(author, cityName = null)
-            Thread.sleep(2)
-            seedPostWithCity(author, cityName = "Jakarta Selatan")
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
-                            header(HttpHeaders.Authorization, "Bearer $vt")
-                        }
-                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
-                arr.forEach {
-                    val obj = it as JsonObject
-                    obj.containsKey("city_name") shouldBe true
-                    obj["city_name"]!!.jsonPrimitive.isString shouldBe true
-                }
-            }
-        } finally {
-            cleanup(viewer, author)
-        }
-    }
-
-    "city_name — reflects trigger-populated (or override-supplied) value on Following" {
-        val (viewer, vt) = seedUser()
-        val (author, _) = seedUser()
-        try {
-            follow(viewer, author)
-            val p = seedPostWithCity(author, cityName = "Bandung")
-            withFollowing {
-                val resp =
-                    createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
+                        .get("/api/v1/timeline/global") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val post =
@@ -818,23 +521,142 @@ class FollowingTimelineServiceTest : StringSpec({
                         .jsonObject["posts"]!!.jsonArray
                         .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
                         .jsonObject
-                post["city_name"]!!.jsonPrimitive.content shouldBe "Bandung"
+                post["reply_count"]!!.jsonPrimitive.content shouldBe "0"
             }
         } finally {
             cleanup(viewer, author)
         }
     }
 
-    "city_name — empty string for Following post whose underlying row is NULL" {
+    // 10. reply_count excludes shadow-banned repliers.
+    "reply_count — excludes shadow-banned repliers via visible_users JOIN" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        val (replierVisible, _) = seedUser()
+        val replierBanned = seedShadowBannedUser()
+        try {
+            val p = seedPost(author)
+            seedReply(p, replierVisible)
+            seedReply(p, replierVisible)
+            seedReply(p, replierBanned)
+            withGlobal {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/global") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                post["reply_count"]!!.jsonPrimitive.content shouldBe "2"
+            }
+        } finally {
+            cleanup(viewer, author, replierVisible, replierBanned)
+        }
+    }
+
+    // 11. reply_count excludes soft-deleted replies.
+    "reply_count — excludes soft-deleted replies" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        val (replier, _) = seedUser()
+        try {
+            val p = seedPost(author)
+            seedReply(p, replier)
+            seedReply(p, replier)
+            seedReply(p, replier)
+            seedReply(p, replier, deletedAt = java.time.Instant.now())
+            seedReply(p, replier, deletedAt = java.time.Instant.now())
+            withGlobal {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/global") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                post["reply_count"]!!.jsonPrimitive.content shouldBe "3"
+            }
+        } finally {
+            cleanup(viewer, author, replier)
+        }
+    }
+
+    // 12. reply_count does NOT apply viewer-block exclusion (privacy tradeoff).
+    "reply_count — does NOT apply viewer-block exclusion (privacy tradeoff)" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        val (replierOk1, _) = seedUser()
+        val (replierOk2, _) = seedUser()
+        val (replierBlocked, _) = seedUser()
+        try {
+            insertBlock(viewer, replierBlocked)
+            val p = seedPost(author)
+            seedReply(p, replierOk1)
+            seedReply(p, replierOk2)
+            seedReply(p, replierBlocked)
+            withGlobal {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/global") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                post["reply_count"]!!.jsonPrimitive.content shouldBe "3"
+            }
+        } finally {
+            cleanup(viewer, author, replierOk1, replierOk2, replierBlocked)
+        }
+    }
+
+    // 13. city_name reflects trigger-populated value.
+    //     Session 1 note: admin_regions is empty in this session, so we exercise the
+    //     trigger's caller-override guard (cityNameOverride) to pin a label. The full
+    //     "trigger picks strict match from polygon" scenario is covered by Session 2's
+    //     MigrationV11SmokeTest once the seed lands.
+    "city_name — reflects trigger-populated (or override-supplied) value" {
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            follow(viewer, author)
-            val p = seedPostWithCity(author, cityName = null)
-            withFollowing {
+            val p = seedPost(author, cityNameOverride = "Jakarta Selatan")
+            withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/following") {
+                        .get("/api/v1/timeline/global") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                post["city_name"]!!.jsonPrimitive.content shouldBe "Jakarta Selatan"
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    // 14. city_name = "" for legacy/NULL row.
+    "city_name — empty string when underlying row is NULL" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            // No cityNameOverride + empty admin_regions seed ⇒ trigger leaves NULL.
+            val p = seedPost(author)
+            withGlobal {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/global") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val post =
@@ -846,6 +668,96 @@ class FollowingTimelineServiceTest : StringSpec({
             }
         } finally {
             cleanup(viewer, author)
+        }
+    }
+
+    // 15. city_name key present on every post, always string-typed.
+    "city_name — key present on every Global post and is always a string" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            seedPost(author, cityNameOverride = "Jakarta Pusat")
+            Thread.sleep(2)
+            seedPost(author) // NULL → ""
+            Thread.sleep(2)
+            seedPost(author, cityNameOverride = "Surabaya")
+            withGlobal {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/global") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                arr.forEach {
+                    val obj = it as JsonObject
+                    obj.containsKey("city_name") shouldBe true
+                    // Always a JSON string primitive (never null).
+                    obj["city_name"]!!.jsonPrimitive.isString shouldBe true
+                }
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    // 16. distance_m absent on every post in Global responses.
+    "distance_m — absent from every Global post (Global is not geographic)" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            repeat(3) {
+                seedPost(author)
+                Thread.sleep(2)
+            }
+            withGlobal {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/global") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                arr.forEach {
+                    val obj = it as JsonObject
+                    obj.containsKey("distanceM") shouldBe false
+                    obj.containsKey("distance_m") shouldBe false
+                }
+                // Documented full key set.
+                val first = arr.first().jsonObject
+                first.keys shouldBe
+                    setOf(
+                        "id",
+                        "authorUserId",
+                        "content",
+                        "latitude",
+                        "longitude",
+                        "city_name",
+                        "createdAt",
+                        "liked_by_viewer",
+                        "reply_count",
+                    )
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    // 17. Malformed cursor → 400 invalid_cursor.
+    "invalid cursor — 400 invalid_cursor" {
+        val (viewer, vt) = seedUser()
+        try {
+            withGlobal {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/global?cursor=not-a-cursor") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.BadRequest
+                Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["error"]!!.jsonObject["code"]!!
+                    .jsonPrimitive.content shouldBe "invalid_cursor"
+            }
+        } finally {
+            cleanup(viewer)
         }
     }
 })
