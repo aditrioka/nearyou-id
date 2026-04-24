@@ -1,9 +1,9 @@
 ---
 name: next-change
-description: Determine the next OpenSpec change to work on for nearyou-id by reading docs/, openspec/specs/, openspec/changes/archive/, and recent commits — then hand off to openspec-propose to scaffold the proposal, push it to a remote branch for qodo review, and iterate on the review feedback before asking whether to proceed to apply.
+description: Determine the next OpenSpec change to work on for nearyou-id by reading docs/, openspec/specs/, openspec/changes/archive/, and recent commits — then hand off to openspec-propose to scaffold the proposal, push it to a remote branch for auto-review (Claude as primary + qodo as complementary), and iterate on the review feedback before asking whether to proceed to apply.
 ---
 
-Figure out what should be built next for nearyou-id, kick off an OpenSpec proposal for it, push it for qodo review, and iterate on the review feedback — all in one skill.
+Figure out what should be built next for nearyou-id, kick off an OpenSpec proposal for it, push it for auto-review (Claude + qodo), and iterate on the combined review feedback — all in one skill.
 
 ## Context
 
@@ -16,7 +16,7 @@ The roadmap lives in `docs/08-Roadmap-Risk.md` and `docs/09-Versions.md`. Alread
 - `openspec/specs/` — current authoritative specs
 - `openspec/changes/archive/` — completed changes
 
-Proposals land as their own PRs (branch name = change name) and get reviewed by qodo before the user decides whether to move into implementation. This skill drives that loop end-to-end.
+Proposals land as their own PRs (branch name = change name) and get auto-reviewed by Claude (via the `.github/workflows/claude-code-review.yml` workflow running `anthropics/claude-code-action@v1` with a CLAUDE.md-aware custom prompt) before the user decides whether to move into implementation. This skill drives that loop end-to-end.
 
 ## Steps
 
@@ -66,7 +66,7 @@ Proposals land as their own PRs (branch name = change name) and get reviewed by 
 
    **Why this exists:** without an explicit reconciliation pass, proposals shipped fast tend to skim canonical docs once, write spec based on skim, and accumulate silent divergence that only surfaces mid-implementation (see the first entry in `FOLLOW_UPS.md` for the incident that motivated this step).
 
-### Phase C — Push for qodo review
+### Phase C — Push for auto-review
 
 8. **Create the feature branch.** Starting from `main` (if there's other untracked/uncommitted work in the tree that isn't the proposal, ask the user what to do — do NOT silently stash or commit unknown state):
    ```bash
@@ -109,71 +109,62 @@ Proposals land as their own PRs (branch name = change name) and get reviewed by 
    ```
    Capture the PR number + URL from the `gh pr create` output for subsequent steps.
 
-### Phase D — Iterate on qodo review
+### Phase D — Iterate on auto-reviews
 
-11. **Wait for qodo review.** Qodo reviews typically post within 2–5 minutes of a push. Use `ScheduleWakeup` with `delaySeconds: 270` (cache-friendly) to pause. On wake-up, poll:
+Two reviewers run in parallel and are treated as **complementary**, not competing:
+
+- **Claude** (primary) — runs via `.github/workflows/claude-code-review.yml` (`anthropics/claude-code-action@v1`, custom prompt per `code.claude.com/docs/en/github-actions`, `--max-turns 5`, `timeout-minutes: 10`). Posts **one consolidated review comment** as `claude`. Typical: <$2/PR, 1–5 min wall-clock.
+- **qodo** (complementary) — runs via the qodo GitHub App (no workflow file on our side; installed at repo level). Posts as `qodo-code-review` with structured inline-style comments + top-level summary. Typical: <1 min wall-clock. Quota-capped on the free tier.
+
+Wait strategy: give qodo **2 minutes** grace; if no qodo output by then, proceed with whatever's available (typically Claude). Claude has the longer wait window because we control it and it's the primary signal.
+
+11. **Wait for review comments from both reviewers.** Schedule a `ScheduleWakeup` with `delaySeconds: 120` to give qodo its 2-min window (and start Claude's clock). On wake-up, poll:
     ```bash
-    gh pr view <pr-number> --json reviews,comments,reviewThreads \
-      --jq '{reviews: [.reviews[] | select(.author.login | test("qodo"; "i"))],
-             comments: [.comments[] | select(.author.login | test("qodo"; "i"))],
-             threads:  [.reviewThreads[] | select(.comments.nodes[0].author.login | test("qodo"; "i"))]}'
+    gh pr view <pr-number> --json comments,reviews \
+      --jq '{claude: {
+               comments: [.comments[] | select(.author.login == "claude")],
+               reviews:  [.reviews[]  | select(.author.login == "claude")]
+             },
+             qodo: {
+               comments: [.comments[] | select(.author.login | test("qodo"; "i"))],
+               reviews:  [.reviews[]  | select(.author.login | test("qodo"; "i"))]
+             }}'
     ```
-    Stopping conditions:
-    - Qodo has posted at least one review AND no new qodo review in the last 60 seconds → proceed.
-    - No qodo review after 15 minutes total wait → tell the user qodo didn't respond and ask whether to proceed without the review, wait longer, or abort.
+    Decision ladder:
+    - **qodo present + claude present** → proceed to step 12 with both.
+    - **qodo present + claude absent** → keep polling for claude (up to 12 min total). Proceed alone once claude lands or times out.
+    - **qodo absent + claude present** → 2-min qodo grace has started (or elapsed); if 2 min since push has passed, proceed with claude alone; else `ScheduleWakeup 60s`.
+    - **Both absent** → `ScheduleWakeup 90s` (up to 3 reschedules). If still absent after 12 min total, fetch `gh run list --workflow "Claude Code Review" --limit 1 --json status,conclusion` — if run failed or completed-with-0-comments, tell the user and ask whether to proceed or debug.
 
-    Do NOT poll in a tight loop. Use `ScheduleWakeup` between checks. Each wake-up, only run the single `gh pr view` above — don't do other work.
+    Do NOT poll in a tight loop. Use `ScheduleWakeup` between checks. Each wake-up, only run the single `gh pr view` above.
 
-12. **Categorize every qodo comment.** For each review comment / suggestion / inline thread, sort into one of two buckets:
+12. **Read both reviewers' outputs.** Each produces a different shape:
+    - **Claude comment** — one free-form markdown body grouped by severity (bug / invariant / suggestion / question).
+    - **qodo review** — top-level summary + structured inline suggestions (with severity pills, often `🐞 Bug` / `📘 Rule violation` / `📎 Requirement gap`).
+    
+    Build a **merged findings list**:
+    - Tag each finding with its source (`claude` or `qodo`).
+    - Deduplicate: if both flag the same file:line with overlapping meaning, keep one with both sources listed.
+    - Classify by severity: **blocking** (bug / invariant violation / rule violation / incorrectness) vs **non-blocking** (suggestion / nit / question / style).
+    - If either reviewer explicitly says "no material findings" / "LGTM," note that but still process the other's findings.
+    
+    You cannot programmatically auto-apply feedback from either (Claude's is prose; qodo's inline comments need manual patch per suggestion). Instead, you judge + surface to user.
 
-    **Safe-apply** (auto-apply + resolve):
-    - Typos, grammar, punctuation
-    - Missing SHALL/MUST in a requirement body (spec-validation class)
-    - Missing `#### Scenario:` header under a requirement
-    - Clarifying wording that doesn't change intent (e.g., "A MUST be B" → "A MUST be B before C runs" where C is already established in the same spec)
-    - Cross-reference fixes (wrong line number, wrong file path in a prose reference)
-    - Explicit test coverage gaps called out in spec (e.g., "add scenario: …")
-    - Dead markdown (empty bullets, broken list indentation)
+13. **Present findings to user via `AskUserQuestion`.** Show a concise digest (1–2 sentences per finding, citing `file:line` when present) grouped by blocking vs non-blocking. Options:
+    - **Apply the blocking fixes myself, keep non-blocking as-is (Recommended)** — you (Claude, the skill author) attempt the blocking fixes: edit the proposal/design/specs/tasks files, re-run `openspec validate --strict`, commit + push. Then ask the user again with the same question after the next review round.
+    - **Apply all findings (blocking + non-blocking)** — same as above but address non-blocking too.
+    - **Ignore the review and hand off to `/opsx:apply`** — skip fixes, proceed to implementation. Record the skipped findings in the PR description so they're visible later.
+    - **Pause — I'll review the PR myself** — stop here; user will re-invoke `/opsx:apply` or `/next-change` when ready.
 
-    **Needs-user** (surface, do NOT auto-apply):
-    - Scope change (add/remove a capability, widen/narrow a requirement)
-    - Capability rename
-    - Architectural decision reversal (e.g., qodo suggests on-read reverse-geocode where design rejected it)
-    - Dataset / library / tool choice change
-    - Security / privacy / compliance implication
-    - Anything marked by qodo as "critical" / "major" / "blocking"
-    - Anything where the fix requires a judgment call the user hasn't authorized (e.g., "consider splitting this into two changes")
-    - Dependency additions (new libraries, new infra components)
+14. **On "apply" options: edit → validate → commit → push → loop.** If the user selected an apply option, make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply Claude review feedback to <change-name>` (list the fixes in the commit body), and push. The push re-triggers Claude auto-review — loop back to step 11.
 
-    When in doubt, classify as needs-user. Don't silently make decisions the user should make.
-
-13. **Apply all safe-apply items in one batch.** Edit the relevant proposal/design/specs/tasks files. Re-run `openspec validate <change-name> --strict` after the edits. Commit:
-    ```bash
-    git add openspec/changes/<change-name>/
-    git commit -m "docs(openspec): apply qodo review nits to <change-name>"
-    git push
-    ```
-    Commit message body: bulleted list of what changed (one line per qodo comment addressed, referencing the file and the nature of the fix).
-
-14. **Resolve the safe-apply review threads.** For each thread backed by a qodo comment that you just addressed:
-    ```bash
-    gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -F id=<thread-id>
-    ```
-    Get `thread-id` values from the `reviewThreads` array of the earlier `gh pr view --json reviewThreads` call. Do NOT resolve needs-user threads — leave them open for the user to see.
-
-15. **Surface the needs-user items + ask to proceed.** Use `AskUserQuestion` with a summary of each needs-user item (what qodo said + which file + why you didn't auto-apply) and four options:
-    - **Apply all and commit (Recommended when nothing looks scope-level)** — the fixes are clearly-correct and within the authorized scope; apply them, commit, push, resolve the threads.
-    - **Apply with modifications** — walk through each needs-user item with the user and apply per their call.
-    - **Ignore qodo's remaining feedback and hand off to /opsx:apply** — proceed to implementation.
-    - **Pause — I want to review the PR myself before deciding** — stop here; user will re-invoke `/opsx:apply` or `/next-change` when ready.
-
-    If the user picks "Apply all" or "Apply with modifications," edit → validate → commit → push → resolve threads → loop back to step 11 once (one more qodo round is normal if substantive changes went in; if user picks "Apply all," expect one more cheap round). Cap the loop at 3 iterations total — if qodo keeps surfacing new concerns after round 3, stop and hand control to the user.
+    Cap the loop at **2 iterations total**. If Claude keeps surfacing new blocking findings after round 2, stop and ask the user to triage — recurring findings usually signal scope confusion that the skill can't resolve autonomously.
 
 ### Phase E — Hand off
 
-16. **After the review loop settles (no new qodo threads, or user chose to stop iterating):**
+15. **After the review loop settles (no new blocking findings, or user chose to stop iterating):**
     - If the user chose to proceed: remind them to run `/opsx:apply` (or ask whether to invoke it now via `AskUserQuestion`).
-    - If the user chose to pause: report the PR URL, the open thread count, and stop.
+    - If the user chose to pause: report the PR URL, list any non-blocking findings still unaddressed, and stop.
 
 ## Notes
 
@@ -183,7 +174,7 @@ Proposals land as their own PRs (branch name = change name) and get reviewed by 
 - **Only propose an OpenSpec change if it's spec-driven** — capability + behavior + WHEN/THEN scenarios. If the candidate is pure infra / tooling / CI / docs, recommend a regular PR instead and don't hand off to `openspec-propose`, and skip Phases B–E entirely.
 - **Feat vs archive PRs.** This skill handles only the proposal PR (docs-only, spec-driven). Implementation (feat commits) and archiving are separate PRs per `openspec/project.md` § Change Delivery Workflow — do NOT land feat commits or run `openspec archive` on this branch.
 - **Don't `--no-verify` or skip hooks.** If pre-commit hooks fail, diagnose and fix the underlying issue. The `main` branch has a direct-push hook-block; feature branches are fine.
-- **Don't force-push.** Every push in this skill is either the initial push (step 10) or a new commit on top of the branch (steps 13, 15). `--force-with-lease` is only appropriate if rewriting already-pushed history, which this skill never does.
+- **Don't force-push.** Every push in this skill is either the initial push (step 10) or a new commit on top of the branch (step 14 during the review loop). `--force-with-lease` is only appropriate if rewriting already-pushed history, which this skill never does.
 - **Out-of-scope findings during any step** (especially Phase B.5 reconciliation) go to `FOLLOW_UPS.md` at repo root. Format per existing entries. NEVER sweep findings silently and NEVER force them into the current change's scope. If `FOLLOW_UPS.md` doesn't exist yet, create it with an intro blurb and the first entry.
 - **Stashing user work.** If Phase C step 7 finds uncommitted local changes that aren't the proposal, ask the user before stashing or committing them — do not silently stash. The untracked proposal directory is the only expected working-tree state after `openspec-propose` runs.
-- **Qodo bot name.** The grep in step 10 matches `qodo` case-insensitive. If this project ever migrates to a different review bot, update the filter rather than hard-coding a specific handle.
+- **Reviewer author logins.** Step 11 polls two authors: `claude` (exact match — the Claude GitHub App via `anthropics/claude-code-action@v1`) and `qodo-code-review` / similar (regex `test("qodo"; "i")` — the qodo GitHub App). Claude = primary, CLAUDE.md-aware, longer wait window. qodo = complementary, quota-capped free tier, 2-min grace. They catch different classes of issue — treat as complementary, NOT as alternatives to one another. If a third reviewer joins, extend the query + merge logic in step 12.

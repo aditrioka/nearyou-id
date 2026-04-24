@@ -34,17 +34,41 @@ jobs:
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
-        timeout-minutes: 8
+        timeout-minutes: 10
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # DEBUG: exposes full SDK output in action logs so we can see tool_use
-          # calls + permission denials. Currently workflow completes "success"
-          # but posts 0 comments with 11 permission_denials — we need visibility
-          # to figure out what the plugin is trying to do and why it's blocked.
-          # Also caps runtime at 8 min to stop $5/PR cost bleed while debugging.
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          show_full_output: true
+          prompt: |
+            Review PR #${{ github.event.pull_request.number }} in
+            ${{ github.repository }}.
 
+            1. Read `CLAUDE.md` at the repo root for project conventions,
+               critical invariants (shadow-ban safety, bidirectional block
+               exclusion, coordinate jitter, rate-limit TTL, Redis hash tags,
+               etc.), and the review rubric.
+            2. Fetch the PR diff via `gh pr diff ${{ github.event.pull_request.number }}`.
+            3. Identify at most 5 of the most important findings. Prioritize:
+               (a) bugs / incorrectness, (b) invariant violations against
+               `CLAUDE.md`, (c) missing test coverage for new behavior.
+               Skip style/formatting nits — ktlint + Detekt handle those.
+            4. Post ONE consolidated review comment via:
+                 `gh pr review ${{ github.event.pull_request.number }} \
+                    --body "<findings in markdown>" --comment`
+               Group findings by severity (bug / invariant / suggestion /
+               question). Reference files by `path:line` when flagging.
+            5. If no material findings, still post a short confirmation
+               comment saying so — don't leave the PR without any signal.
+            6. Stop after posting. Do not spawn subagents. Do not iterate.
+          claude_args: "--max-turns 5"
+          # Why this shape (not the `code-review@claude-code-plugins` plugin):
+          # - The plugin at that marketplace path is designed for local
+          #   on-demand reviews before push (see
+          #   https://code.claude.com/docs/en/code-review "Related resources"),
+          #   not CI. In CI the plugin ran 10+ min + $5/PR without posting.
+          # - The documented CI pattern at
+          #   https://code.claude.com/docs/en/github-actions "Using Skills"
+          #   is a direct prompt + `--max-turns` — simpler and cheaper.
+          # - For inline-comment-with-severity output, the managed
+          #   `Code Review` product is the officially supported path; it
+          #   requires Team/Enterprise at $15-25/PR. Out of scope for us.
+          # - `show_full_output` intentionally OFF; the plugin-debug data
+          #   we needed was captured on PRs #17-#19.
