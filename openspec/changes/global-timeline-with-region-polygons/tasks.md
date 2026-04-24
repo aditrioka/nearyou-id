@@ -1,3 +1,30 @@
+# Tasks — `global-timeline-with-region-polygons`
+
+## ⚠️ Session scoping (read first)
+
+This change is intentionally split across **multiple sessions**. Before picking tasks off the list below, read [`DEFERRED.md`](DEFERRED.md) in this folder — it has the per-cluster blockers, unblock triggers, and the explicit Session 1 scope.
+
+**Session 1 (the current, AI-friendly session):** execute only these task IDs — they're dataset-independent and ship a V11 migration that Flyway can apply even before the polygon seed lands, plus the Global endpoint + Nearby/Following `city_name` projection + lint KDoc + tests that tolerate an empty `admin_regions` table:
+
+- **Task group 2** — tasks `2.2`, `2.3`, `2.5`, `2.6`, `2.7` only (schema + indexes + trigger function + trigger + `CREATE OR REPLACE VIEW`). Skip 2.1 (header with license text), 2.4 (polygon seed), 2.8 (CoordinateJitter allowlist — rule doesn't exist), 2.9–2.11 (seed-dependent verification).
+- **Task group 3** — all of `3.1`–`3.10` (Global service + repo + route + DTO + Koin wiring + integration tests; tests can run against an empty `admin_regions` — all scenarios that need seeded polygons should be marked pending / TODO-once-seeded rather than failing).
+- **Task group 4** — all of `4.1`–`4.7` (Nearby + Following `city_name` projection + DTOs + test extensions).
+- **Task group 5** — tasks `5.1`, `5.2` only (BlockExclusionJoinRule KDoc + new fixtures). Skip 5.3, 5.4 (CoordinateJitterRule — separate change).
+- **Task group 7** — tasks `7.1`–`7.5` only (local `./gradlew test`, `detekt`, manual curl script, `openspec validate --strict`). Skip 7.6, 7.7, 7.8 (doc sync — those land in the archive PR per `openspec/project.md` § Change Delivery Workflow).
+
+**Deferred to Session 2 (after dataset is prepared offline):**
+- Task group 1 (all of `1.x` — dataset acquisition: BPS vs OSM decision, download, hand-curate DKI, convert to SQL, `ST_IsValid` pass, maritime buffer).
+- Tasks `2.1`, `2.4`, `2.9`–`2.11` (V11 header finalization, seed INSERTs, row-count + polygon-validity verification).
+
+**Deferred to future changes:**
+- Tasks `5.3`, `5.4` — require a `CoordinateJitterRule` Detekt rule that does NOT yet exist in `lint/detekt-rules/`. Scope creep to build it here; file as its own change (`rule(coordinate-jitter-lint)` or similar).
+- Tasks `6.1`–`6.3` — optional backfill job, deferred until post-soft-launch when legacy NULL `city_name` posts make it worth running.
+- Tasks `7.6`–`7.8` — doc sync (Phase 1 item 15 shipped, `docs/02-Product.md` §3 shipped, canonical Global query to `docs/05`); these belong to the archive PR per workflow convention.
+
+**If you're an AI agent invoked via `/opsx:apply`:** you MAY receive additional free-form scope instructions as args — those override this preamble. If no override, execute exactly the Session 1 scope above. If in doubt, surface to the user before deviating. Any newly-discovered out-of-scope work goes into [`../../../FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) at repo root, not inline here.
+
+---
+
 ## 1. Dataset acquisition
 
 - [ ] 1.1 Decide dataset source: default BPS (CC-BY 4.0); fallback to OpenStreetMap `admin_level = 5` (ODbL) if the BPS GeoJSON is not obtainable in kabupaten/kota MULTIPOLYGON form. Record the decision and the final attribution string in `design.md` Open Question 1 and in the V11 header.
