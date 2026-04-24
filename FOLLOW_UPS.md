@@ -62,19 +62,22 @@ Specs at fault:
 
 **Impact (if shipped):** Mobile client cannot deterministically deep-link to the notification target without a second query. Outer `notifications.target_id` is populated, so the practical workaround exists — but the body_data contract is violated, and future notification features that rely on richer `post_id` access in body_data won't work.
 
-**Ambiguity to resolve first:** Is the canonical `docs/05` catalog over-specified, or is the shipped `body_data` under-specified? Mobile client today uses `target_id` from the outer row for deep-linking and hasn't complained (no mobile client shipped yet, actually). Either direction is a legit fix:
-- **(Direction X) Amend shipped code + spec to add `post_id`** — honors canonical docs as-is. No migration needed (JSONB is additive; reading code tolerates missing key).
-- **(Direction Y) Amend `docs/05` to drop `post_id` from body_data** — concede the catalog was over-specified because `target_id` suffices. Docs update only.
+**Triage resolution (2026-04-24): Direction Y.** Verified against shipped code by inspecting `NotificationWritePathTest.kt` (lines 308, 311, 392, 395, 396, 488, 497, 517) — the test suite pins the shipped emit shapes:
+- `post_liked` → `target_type="post"`, body `{post_excerpt}`.
+- `post_replied` → `target_type="post"` (the replied-to post), body `{reply_id, reply_excerpt}` (the `reply_id` is required since target points to the parent post, not the reply itself).
+- `post_auto_hidden` → `target_type="post"` or `"reply"` (dynamic by what got auto-hidden), body `{reason}`.
+
+Architect's reading: `(target_type, target_id)` is the canonical addressing mechanism on the outer row. `body_data` should carry only what the addressing can't supply — excerpts, secondary IDs like `reply_id` where target points at a different entity, reason strings. Duplicating `post_id` inside body_data would be redundant in all three cases, and for `post_auto_hidden` specifically the duplicated `post_id` would be actively wrong whenever target_type resolves to `reply`. **Shipped code is architecturally correct; `docs/05` was over-specified.** Industry precedent (GitHub notifications, Linear, Slack) follows the same "top-level addressability + non-redundant payload" pattern.
 
 **Action items:**
-- [ ] Triage X vs Y with user (mobile UX needs). If unclear, default to X (honor canonical; cheaper to amend code than to drop provenance from docs).
-- [ ] If X: update emit helper in `backend/ktor/src/main/kotlin/id/nearyou/app/notification/` (search for `post_liked` / `post_replied` / `post_auto_hidden` emitters) to include `post_id` in JSONB body. Integration test asserts presence.
-- [ ] If X: update 4 spec files listed above to reflect the corrected body_data shape.
-- [ ] If X: verify current `openspec/specs/in-app-notifications/spec.md` (not the archive) — amend there so the authoritative spec carries the canonical shape going forward.
-- [ ] If Y: amend `docs/05-Implementation.md:851–867` to drop `post_id` from the three types. No code or spec change.
-- [ ] No DB migration in either direction — `body_data` is JSONB, keys are forward-compatible.
+- [x] Triage X vs Y — resolved: Y, with evidence from shipped tests.
+- [x] Amend `docs/05-Implementation.md:851–867` table: drop `post_id` from body_data for `post_liked`, `post_replied` (swap to `{reply_id, reply_excerpt}`), and `post_auto_hidden`. Add a convention preamble ("body_data carries only what target addressing cannot supply") + per-row rationale for the three amendments. Add a `target_type` column to the table so future readers see the addressing shape alongside the body payload.
+- [ ] Merge the docs amendment PR.
+- [x] No code changes. No migration. No spec changes (archived `openspec/changes/archive/2026-04-23-in-app-notifications/` reflects the shipped-code reality already; the divergence was only in `docs/05`).
 
-**Close criteria:** delete this entry when direction is chosen AND all chosen-path action items are merged.
+**Close criteria:** delete this entry when the docs amendment PR merges.
 
 **Related PRs:**
-- (TBD — depends on X vs Y triage)
+- (fill in once the `docs/amend-v10-notifications-body-data` PR is open)
+
+**Out-of-scope but worth a future audit:** `chat_message` + `chat_message_redacted` body_data may include fields that duplicate target addressing once chat ships. Re-verify against real emit-site code at that time. Not tracked here because chat isn't shipped yet.

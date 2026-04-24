@@ -850,21 +850,27 @@ CREATE INDEX notifications_user_all_idx
 
 **Event type catalog**:
 
-| Type | Trigger | Actor | Body data |
-|------|---------|-------|-----------|
-| `post_liked` | Another user likes a post | liker | `{post_id, post_excerpt}` |
-| `post_replied` | Another user replies | replier | `{post_id, reply_excerpt}` |
-| `followed` | Another user follows | follower | `{}` |
-| `chat_message` | New chat message | sender | `{conversation_id, preview}` |
-| `subscription_billing_issue` | RevenueCat `BILLING_ISSUE` | NULL | `{grace_end_at}` |
-| `subscription_expired` | Premium period lapsed | NULL | `{}` |
-| `post_auto_hidden` | 3 reports auto-hid user's post | NULL | `{post_id, reason}` |
-| `account_action_applied` | Admin action on user | NULL | `{action_type, reason, suspended_until}` |
-| `data_export_ready` | Export worker finished | NULL | `{signed_url, expires_at}` |
-| `chat_message_redacted` | Admin redacted a message in a conversation the user participates in | NULL | `{conversation_id, message_id}` |
-| `privacy_flip_warning` | Downgrade-to-Free with private profile, flip scheduled | NULL | `{privacy_flip_scheduled_at}` |
-| `username_release_scheduled` | User's custom username change confirmed; old handle releases at `released_at` | NULL | `{old_username, released_at}` |
-| `apple_relay_email_changed` | Apple S2S `email-disabled`/`email-enabled` event | NULL | `{new_email_masked}` |
+The canonical addressing for every notification is `(target_type, target_id)` on the outer row — that column pair is what deep-links and routes to. **`body_data` carries only payload that the outer addressing cannot supply** (excerpts, secondary entity IDs where target alone isn't enough to render, status strings, timestamps). Do NOT duplicate `target_id` inside `body_data`; keys that mirror the outer addressing are redundant and risk drifting. See `V10__notifications.sql` for the shipped column definitions and `NotificationWritePathTest.kt` for the reference emit-site shapes verified under test.
+
+| Type | Trigger | Actor | `target_type` | Body data |
+|------|---------|-------|---------------|-----------|
+| `post_liked` | Another user likes a post | liker | `post` | `{post_excerpt}` |
+| `post_replied` | Another user replies | replier | `post` (the replied-to post) | `{reply_id, reply_excerpt}` |
+| `followed` | Another user follows | follower | NULL | `{}` |
+| `chat_message` | New chat message | sender | `message` | `{conversation_id, preview}` |
+| `subscription_billing_issue` | RevenueCat `BILLING_ISSUE` | NULL | NULL | `{grace_end_at}` |
+| `subscription_expired` | Premium period lapsed | NULL | NULL | `{}` |
+| `post_auto_hidden` | 3 reports auto-hid user's post or reply | NULL | `post` or `reply` (dynamic) | `{reason}` |
+| `account_action_applied` | Admin action on user | NULL | NULL | `{action_type, reason, suspended_until}` |
+| `data_export_ready` | Export worker finished | NULL | NULL | `{signed_url, expires_at}` |
+| `chat_message_redacted` | Admin redacted a message in a conversation the user participates in | NULL | `message` | `{conversation_id}` |
+| `privacy_flip_warning` | Downgrade-to-Free with private profile, flip scheduled | NULL | NULL | `{privacy_flip_scheduled_at}` |
+| `username_release_scheduled` | User's custom username change confirmed; old handle releases at `released_at` | NULL | NULL | `{old_username, released_at}` |
+| `apple_relay_email_changed` | Apple S2S `email-disabled`/`email-enabled` event | NULL | NULL | `{new_email_masked}` |
+
+Rationale for `post_liked` / `post_replied` / `post_auto_hidden`: the `(target_type='post', target_id=<post_id>)` outer pair already answers "which post." `body_data` only needs what can't be inferred — an excerpt for readable UI, a `reply_id` for deep-scroll to the specific reply inside a parent post (target points at the *parent*, so the reply's own id has to come from payload), a `reason` string for the auto-hide copy. The earlier catalog duplicated `post_id` inside `body_data` for these three; `post_auto_hidden` additionally covered a `reply` target case where the duplicated `post_id` would have been actively wrong. V10 shipped the correct shape; this table was amended 2026-04-24 to match (see [`FOLLOW_UPS.md`](../FOLLOW_UPS.md) entry `v10-notifications-body-data-missing-post-id`).
+
+Rationale for `chat_message_redacted`: target_id is the redacted message; `conversation_id` in body_data lets the client route without a second fetch, since the message may no longer be visible (redaction).
 
 ---
 
