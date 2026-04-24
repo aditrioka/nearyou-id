@@ -50,16 +50,32 @@ Proposals land as their own PRs (branch name = change name) and get reviewed by 
 
 6. **Validate before pushing.** Run `openspec validate <change-name> --strict`. If it fails, fix the artifact(s) it flagged before proceeding. Do NOT push an invalid change.
 
+7. **Reconciliation pass against canonical docs.** Before pushing, diff every non-trivial claim in `proposal.md` / `design.md` / `specs/**` against the canonical sources it cites.
+
+   Procedure:
+   - Build a list of every `docs/<file>` or `openspec/specs/<capability>` reference the proposal makes (grep for `docs/` and capability names).
+   - Re-read the specific **sections** cited (not just skim). Pay particular attention to: schema column names, CHECK constraints, algorithms, fallback ladders, quotas/limits, default values, enum vocabularies.
+   - For each non-trivial claim in the proposal (new column, new algorithm step, deferred-vs-included scope line), locate the canonical source and verify exact alignment.
+
+   For each divergence found, classify and act:
+   - **(a) Proposal is under-specified / diverges from canonical docs → fix the proposal.** Amend `proposal.md` / `design.md` / `specs/**` to match the canonical source. Re-run `openspec validate --strict`. Commit the amendment before pushing. Example: canonical docs prescribe a 4-step fallback ladder; proposal specs step 1 only → amend proposal to include all 4 steps.
+   - **(b) Proposal is correct; canonical docs are stale or wrong → DO NOT rewrite docs as part of this change.** Log a follow-up item in `FOLLOW_UPS.md` at repo root (create file if it doesn't exist — see the Notes section for format). Keep the proposal as-is.
+   - **(c) Ambiguous or best-practice judgment call → surface to user via `AskUserQuestion`** with the options (align proposal to docs / amend docs to proposal / hybrid compromise). Do not silently decide.
+
+   **Target: zero silent divergence at push time.** If you catch yourself thinking "close enough, ship it," re-read this step.
+
+   **Why this exists:** without an explicit reconciliation pass, proposals shipped fast tend to skim canonical docs once, write spec based on skim, and accumulate silent divergence that only surfaces mid-implementation (see the first entry in `FOLLOW_UPS.md` for the incident that motivated this step).
+
 ### Phase C — Push for qodo review
 
-7. **Create the feature branch.** Starting from `main` (if there's other untracked/uncommitted work in the tree that isn't the proposal, ask the user what to do — do NOT silently stash or commit unknown state):
+8. **Create the feature branch.** Starting from `main` (if there's other untracked/uncommitted work in the tree that isn't the proposal, ask the user what to do — do NOT silently stash or commit unknown state):
    ```bash
    git checkout main && git pull --ff-only
    git checkout -b <change-name>
    ```
    Branch name MUST equal the change name per `openspec/project.md` § Change Delivery Workflow.
 
-8. **Commit only the proposal directory.**
+9. **Commit only the proposal directory.**
    ```bash
    git add openspec/changes/<change-name>/
    ```
@@ -67,7 +83,7 @@ Proposals land as their own PRs (branch name = change name) and get reviewed by 
 
    Commit message: `docs(openspec): propose <change-name>` with a short body summarizing what the change will add (1–3 sentences, derived from `proposal.md` § Why + § What Changes).
 
-9. **Push + open the PR.**
+10. **Push + open the PR.**
    ```bash
    git push -u origin <change-name>
    gh pr create --title "docs(openspec): propose <change-name>" --body "$(cat <<'EOF'
@@ -95,7 +111,7 @@ Proposals land as their own PRs (branch name = change name) and get reviewed by 
 
 ### Phase D — Iterate on qodo review
 
-10. **Wait for qodo review.** Qodo reviews typically post within 2–5 minutes of a push. Use `ScheduleWakeup` with `delaySeconds: 270` (cache-friendly) to pause. On wake-up, poll:
+11. **Wait for qodo review.** Qodo reviews typically post within 2–5 minutes of a push. Use `ScheduleWakeup` with `delaySeconds: 270` (cache-friendly) to pause. On wake-up, poll:
     ```bash
     gh pr view <pr-number> --json reviews,comments,reviewThreads \
       --jq '{reviews: [.reviews[] | select(.author.login | test("qodo"; "i"))],
@@ -108,7 +124,7 @@ Proposals land as their own PRs (branch name = change name) and get reviewed by 
 
     Do NOT poll in a tight loop. Use `ScheduleWakeup` between checks. Each wake-up, only run the single `gh pr view` above — don't do other work.
 
-11. **Categorize every qodo comment.** For each review comment / suggestion / inline thread, sort into one of two buckets:
+12. **Categorize every qodo comment.** For each review comment / suggestion / inline thread, sort into one of two buckets:
 
     **Safe-apply** (auto-apply + resolve):
     - Typos, grammar, punctuation
@@ -131,7 +147,7 @@ Proposals land as their own PRs (branch name = change name) and get reviewed by 
 
     When in doubt, classify as needs-user. Don't silently make decisions the user should make.
 
-12. **Apply all safe-apply items in one batch.** Edit the relevant proposal/design/specs/tasks files. Re-run `openspec validate <change-name> --strict` after the edits. Commit:
+13. **Apply all safe-apply items in one batch.** Edit the relevant proposal/design/specs/tasks files. Re-run `openspec validate <change-name> --strict` after the edits. Commit:
     ```bash
     git add openspec/changes/<change-name>/
     git commit -m "docs(openspec): apply qodo review nits to <change-name>"
@@ -139,23 +155,23 @@ Proposals land as their own PRs (branch name = change name) and get reviewed by 
     ```
     Commit message body: bulleted list of what changed (one line per qodo comment addressed, referencing the file and the nature of the fix).
 
-13. **Resolve the safe-apply review threads.** For each thread backed by a qodo comment that you just addressed:
+14. **Resolve the safe-apply review threads.** For each thread backed by a qodo comment that you just addressed:
     ```bash
     gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -F id=<thread-id>
     ```
     Get `thread-id` values from the `reviewThreads` array of the earlier `gh pr view --json reviewThreads` call. Do NOT resolve needs-user threads — leave them open for the user to see.
 
-14. **Surface the needs-user items + ask to proceed.** Use `AskUserQuestion` with a summary of each needs-user item (what qodo said + which file + why you didn't auto-apply) and four options:
+15. **Surface the needs-user items + ask to proceed.** Use `AskUserQuestion` with a summary of each needs-user item (what qodo said + which file + why you didn't auto-apply) and four options:
     - **Apply all and commit (Recommended when nothing looks scope-level)** — the fixes are clearly-correct and within the authorized scope; apply them, commit, push, resolve the threads.
     - **Apply with modifications** — walk through each needs-user item with the user and apply per their call.
     - **Ignore qodo's remaining feedback and hand off to /opsx:apply** — proceed to implementation.
     - **Pause — I want to review the PR myself before deciding** — stop here; user will re-invoke `/opsx:apply` or `/next-change` when ready.
 
-    If the user picks "Apply all" or "Apply with modifications," edit → validate → commit → push → resolve threads → loop back to step 10 once (one more qodo round is normal if substantive changes went in; if user picks "Apply all," expect one more cheap round). Cap the loop at 3 iterations total — if qodo keeps surfacing new concerns after round 3, stop and hand control to the user.
+    If the user picks "Apply all" or "Apply with modifications," edit → validate → commit → push → resolve threads → loop back to step 11 once (one more qodo round is normal if substantive changes went in; if user picks "Apply all," expect one more cheap round). Cap the loop at 3 iterations total — if qodo keeps surfacing new concerns after round 3, stop and hand control to the user.
 
 ### Phase E — Hand off
 
-15. **After the review loop settles (no new qodo threads, or user chose to stop iterating):**
+16. **After the review loop settles (no new qodo threads, or user chose to stop iterating):**
     - If the user chose to proceed: remind them to run `/opsx:apply` (or ask whether to invoke it now via `AskUserQuestion`).
     - If the user chose to pause: report the PR URL, the open thread count, and stop.
 
@@ -167,6 +183,7 @@ Proposals land as their own PRs (branch name = change name) and get reviewed by 
 - **Only propose an OpenSpec change if it's spec-driven** — capability + behavior + WHEN/THEN scenarios. If the candidate is pure infra / tooling / CI / docs, recommend a regular PR instead and don't hand off to `openspec-propose`, and skip Phases B–E entirely.
 - **Feat vs archive PRs.** This skill handles only the proposal PR (docs-only, spec-driven). Implementation (feat commits) and archiving are separate PRs per `openspec/project.md` § Change Delivery Workflow — do NOT land feat commits or run `openspec archive` on this branch.
 - **Don't `--no-verify` or skip hooks.** If pre-commit hooks fail, diagnose and fix the underlying issue. The `main` branch has a direct-push hook-block; feature branches are fine.
-- **Don't force-push.** Every push in this skill is either the initial push (step 9) or a new commit on top of the branch (steps 12, 14). `--force-with-lease` is only appropriate if rewriting already-pushed history, which this skill never does.
+- **Don't force-push.** Every push in this skill is either the initial push (step 10) or a new commit on top of the branch (steps 13, 15). `--force-with-lease` is only appropriate if rewriting already-pushed history, which this skill never does.
+- **Out-of-scope findings during any step** (especially Phase B.5 reconciliation) go to `FOLLOW_UPS.md` at repo root. Format per existing entries. NEVER sweep findings silently and NEVER force them into the current change's scope. If `FOLLOW_UPS.md` doesn't exist yet, create it with an intro blurb and the first entry.
 - **Stashing user work.** If Phase C step 7 finds uncommitted local changes that aren't the proposal, ask the user before stashing or committing them — do not silently stash. The untracked proposal directory is the only expected working-tree state after `openspec-propose` runs.
 - **Qodo bot name.** The grep in step 10 matches `qodo` case-insensitive. If this project ever migrates to a different review bot, update the filter rather than hard-coding a specific handle.
