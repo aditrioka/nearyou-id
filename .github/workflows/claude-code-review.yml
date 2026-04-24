@@ -34,17 +34,23 @@ jobs:
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
-        timeout-minutes: 8
+        timeout-minutes: 20
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # DEBUG: exposes full SDK output in action logs so we can see tool_use
-          # calls + permission denials. Currently workflow completes "success"
-          # but posts 0 comments with 11 permission_denials — we need visibility
-          # to figure out what the plugin is trying to do and why it's blocked.
-          # Also caps runtime at 8 min to stop $5/PR cost bleed while debugging.
+          # Timeline we observed on real PRs:
+          #   PR #17 (small fix):        2m 6s  — plugin completed, posted 0 comments
+          #   PR #18 (skill + docs):     5m 15s — plugin completed, posted 0 comments
+          #   PR #19 (proposal amend): 10m 45s — plugin completed, posted 0 comments
+          #   PR #19 (rebase):         >8m     — killed by previous 8-min timeout cap
+          # Plugin's multi-step flow (find CLAUDE.md → fetch PR → analyze files →
+          # generate findings → write buffer → post) is scaling roughly linearly
+          # with diff size. Cap at 20 min gives headroom for large PRs without
+          # runaway cost. See show_full_output logs on failed runs to diagnose
+          # why the post-buffered-inline-comments step reads "No buffered inline
+          # comments" even when the plugin completes.
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           show_full_output: true
 
