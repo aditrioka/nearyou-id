@@ -373,4 +373,85 @@ class BlockExclusionJoinLintTest : StringSpec({
             """.trimIndent()
         rule.lint(code).shouldBeEmpty()
     }
+
+    // ---- V11: Global-timeline + admin_regions fixtures
+    //          (block-exclusion-lint spec delta in global-timeline-with-region-polygons) ----
+
+    "global_timeline_query_with_bidirectional_block_exclusion — passes" {
+        // Canonical V11 Global literal from JdbcPostsGlobalRepository. FROM visible_posts,
+        // no follows filter (Global is every visible author), both bidirectional
+        // user_blocks NOT-IN subqueries, and the V7 + V8 LEFT JOIN pattern. Must NOT trip.
+        val code =
+            """
+            package id.nearyou.app.infra.repo
+
+            class T {
+                fun q(): String =
+                    "SELECT p.id, p.author_id, p.content, " +
+                        "ST_Y(p.display_location::geometry) AS lat, " +
+                        "ST_X(p.display_location::geometry) AS lng, " +
+                        "p.city_name, p.created_at, " +
+                        "(pl.user_id IS NOT NULL) AS liked_by_viewer, c.n AS reply_count " +
+                        "FROM visible_posts p " +
+                        "LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = ? " +
+                        "LEFT JOIN LATERAL (SELECT COUNT(*) AS n FROM post_replies pr " +
+                        "JOIN visible_users vu ON vu.id = pr.author_id " +
+                        "WHERE pr.post_id = p.id AND pr.deleted_at IS NULL) c ON TRUE " +
+                        "WHERE p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?) " +
+                        "AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?) " +
+                        "ORDER BY p.created_at DESC, p.id DESC LIMIT 31"
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
+    "global_timeline_query_missing_blocked_id_fails — rule fires" {
+        // Same Global-shaped literal with the second NOT-IN (blocked_id side) removed.
+        // blocker_id = is present; blocked_id = is absent. Rule MUST fire.
+        val code =
+            """
+            package id.nearyou.app.infra.repo
+
+            class T {
+                fun q(): String =
+                    "SELECT p.id FROM visible_posts p " +
+                        "WHERE p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?) " +
+                        "ORDER BY p.created_at DESC LIMIT 31"
+            }
+            """.trimIndent()
+        rule.lint(code) shouldHaveSize 1
+    }
+
+    "global_timeline_query_missing_blocker_id_fails — rule fires" {
+        // Same Global-shaped literal with the first NOT-IN (blocker_id side) removed.
+        // blocked_id = is present; blocker_id = is absent. Rule MUST fire.
+        val code =
+            """
+            package id.nearyou.app.infra.repo
+
+            class T {
+                fun q(): String =
+                    "SELECT p.id FROM visible_posts p " +
+                        "WHERE p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?) " +
+                        "ORDER BY p.created_at DESC LIMIT 31"
+            }
+            """.trimIndent()
+        rule.lint(code) shouldHaveSize 1
+    }
+
+    "admin_regions_is_deliberately_not_protected_table — SELECT passes" {
+        // Encoding for the V11 block-exclusion-lint ADDED requirement: admin_regions is
+        // deliberately NOT in the protected-table set. Reference-data table, no user-
+        // visible content, no per-viewer surface. Must NOT trip the rule — even though
+        // the literal mentions no user_blocks at all.
+        val code =
+            """
+            package id.nearyou.app.reference
+
+            class T {
+                fun q(): String = "SELECT id FROM admin_regions WHERE level = 'kabupaten_kota'"
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
 })
