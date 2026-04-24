@@ -71,6 +71,8 @@ When running as a code reviewer (via `anthropics/claude-code-action` on a pull r
 
 6. **Output format.** Structured, scannable. For OpenSpec changes, cite the requirement by its `### Requirement:` header when flagging. For implementation, cite the file:line. Use GitHub suggestion blocks (```` ```suggestion ````) where a concrete one-line fix exists.
 
+7. **Reconcile proposals against canonical docs.** For any `docs(openspec): propose` PR: for every claim the proposal makes about schema (new columns, new tables, new CHECK constraints), algorithms (fallback ladders, rate-limit formulas, trigger bodies), or domain rules — find the canonical source (the specific `docs/<file>` or `openspec/specs/<capability>` section the proposal cites or should cite) and verify exact alignment. If the proposal diverges from canonical docs without an explicit "amend docs" statement in `proposal.md`, flag it. Divergence found post-merge is a failure mode the project has hit before (see `FOLLOW_UPS.md`); reviewers are the last line of defense. Bias toward flagging "does proposal match docs §X?" as a `question` when unsure — docs are canonical until proven otherwise.
+
 ## When NOT to use OpenSpec
 
 Infra / tooling / CI / docs-only changes go through regular PRs. OpenSpec is for spec-driven product changes — capability + behavior + WHEN/THEN scenarios. Detekt rules, CI config, `build-logic/`, ops docs, READMEs: regular PR, regular commit prefix.
