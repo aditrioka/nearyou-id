@@ -19,7 +19,7 @@ Canonical references:
 **Goals:**
 - Ship a `GET /api/v1/timeline/global` endpoint with the same cursor shape, pagination cap, and block-exclusion invariants as Nearby + Following.
 - Land `admin_regions` as a seeded PostGIS reference table in a single Flyway migration.
-- Denormalize the reverse-geocode result to `posts.city_name` + `posts.city_admin_region_id` via a BEFORE INSERT trigger so the Global hot path is a pure keyset index scan with no spatial work at read time.
+- Populate the pre-existing `posts.city_name` + `posts.city_match_type` columns (V4) via a BEFORE INSERT trigger implementing the 4-step fallback ladder from `docs/02-Product.md:192–196`, so the Global hot path is a pure keyset index scan with no spatial work at read time.
 - Keep `actual_location` DB-side only: the trigger is a second sanctioned reader (alongside the admin path), never surfacing the coordinate or its lat/lng to any client.
 - Extend Nearby + Following response shapes with `city_name` so all three timelines present a consistent post payload.
 
@@ -41,24 +41,83 @@ All in one migration + one Ktor module + test coverage, mirroring the `nearby-ti
 
 **Alternative considered:** Ship `admin_regions` + trigger in one change, Global endpoint in a follow-up. Rejected — the trigger without the endpoint is an unexercised write-path addition with no behavior under test; the endpoint without the trigger requires a query-time reverse geocode we explicitly reject (Decision 4). Both land together.
 
-### Decision 2: Materialize city via a BEFORE INSERT trigger on `posts`, write to `posts.city_name` + `posts.city_admin_region_id`
+### Decision 2: Materialize city via a BEFORE INSERT trigger on `posts` implementing the 4-step fallback ladder from `docs/02-Product.md`
 
-On `INSERT INTO posts`, a trigger runs:
+The trigger writes to **existing** `posts.city_name` + `posts.city_match_type` columns (added in V4; see `backend/ktor/src/main/resources/db/migration/V4__post_creation.sql:22–23`). V11 adds zero new columns to `posts`.
+
+On `INSERT INTO posts`, the trigger runs the 4-step ladder specified verbatim in [`docs/02-Product.md:192–196`](docs/02-Product.md) §"Polygon-Based Reverse Geocoding":
+
 ```sql
-SELECT id, name
-  INTO NEW.city_admin_region_id, NEW.city_name
-  FROM admin_regions
- WHERE level = 'kabupaten_kota'
-   AND ST_Contains(geom, NEW.actual_location::geometry)
- LIMIT 1;
-```
-If no polygon contains the point (rare — BPS coverage is full Indonesia; gaps are coastal artifacts), both columns stay NULL. The post INSERT still succeeds.
+CREATE OR REPLACE FUNCTION posts_set_city_fn() RETURNS TRIGGER AS $$
+DECLARE
+    matched_name TEXT;
+BEGIN
+    -- Caller override: if city_name was explicitly supplied, do nothing.
+    IF NEW.city_name IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
 
-**Why denormalize:**
+    -- Step 1: strict ST_Contains match.
+    SELECT name INTO matched_name
+      FROM admin_regions
+     WHERE level = 'kabupaten_kota'
+       AND ST_Contains(geom::geometry, NEW.actual_location::geometry)
+     LIMIT 1;
+    IF matched_name IS NOT NULL THEN
+        NEW.city_name := matched_name;
+        NEW.city_match_type := 'strict';
+        RETURN NEW;
+    END IF;
+
+    -- Step 2: 10-meter buffered match + deterministic centroid tie-breaker.
+    SELECT name INTO matched_name
+      FROM admin_regions
+     WHERE level = 'kabupaten_kota'
+       AND ST_DWithin(geom, NEW.actual_location, 10)
+     ORDER BY ST_Distance(geom_centroid, NEW.actual_location) ASC
+     LIMIT 1;
+    IF matched_name IS NOT NULL THEN
+        NEW.city_name := matched_name;
+        NEW.city_match_type := 'buffered_10m';
+        RETURN NEW;
+    END IF;
+
+    -- Step 3: nearest kabupaten/kota within 50 km (catches coastal + EEZ-adjacent posts).
+    SELECT name INTO matched_name
+      FROM admin_regions
+     WHERE level = 'kabupaten_kota'
+       AND ST_DWithin(geom, NEW.actual_location, 50000)
+     ORDER BY ST_Distance(geom, NEW.actual_location) ASC
+     LIMIT 1;
+    IF matched_name IS NOT NULL THEN
+        NEW.city_name := matched_name;
+        NEW.city_match_type := 'fuzzy_match';
+        RETURN NEW;
+    END IF;
+
+    -- Step 4: out of range. Both columns stay NULL.
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+Distance arguments use GEOGRAPHY semantics (meters), not geometry degrees — `admin_regions.geom` + `posts.actual_location` are both `GEOGRAPHY(*, 4326)`, so `ST_DWithin(geog, geog, meters)` is the natural call. Coastal kabupaten polygons are already extended by a 12 nautical mile (~22 km) maritime buffer at import time (Decision 4a below), so step 1 still matches posts in nearshore waters; step 3's 50 km backstop catches posts further out.
+
+**Why denormalize the match name (not just the FK):**
 - Global's hot path becomes a simple keyset on `(created_at DESC, id DESC)` against `visible_posts` — no `ST_Contains` per row, no JOIN, no polygon scan.
-- `admin_regions` has ~540 rows, but `ST_Contains` against a multipolygon GIST index is still 1–3 ms per call. At Global p95 <200 ms (`docs/08-Roadmap-Risk.md:169`) with 30 rows/page, that's 30–90 ms budget spent on something we can pre-compute once.
-- City names change very rarely (kabupaten/kota boundaries are politically stable); staleness risk is real but bounded. When a polygon re-seed does land, the optional backfill job re-runs the reverse-geocode against the affected posts.
-- The FK `city_admin_region_id` preserves the link even if a future re-seed changes the display `name` — the string snapshot is what renders; the FK is what survives.
+- `admin_regions` has ~540 rows, but a 4-step ladder against multipolygon GIST indexes is 1–5 ms per INSERT. At Global p95 <200 ms ([`docs/08-Roadmap-Risk.md:169`](docs/08-Roadmap-Risk.md)) with 30 rows/page, that's 30–150 ms budget spent on something we can pre-compute once.
+- City names change very rarely (kabupaten/kota boundaries are politically stable); staleness risk is real but bounded. When a polygon re-seed does land, the optional backfill job re-runs the 4-step ladder against the affected posts.
+
+**Why `city_match_type` (provenance tag):**
+- Debuggability — when a city label looks wrong, `match_type` reveals which step produced it. Without it, "why is this post labeled Jakarta Selatan?" is an un-answerable question 6 months from now.
+- Analytics — measure `strict` vs `fuzzy_match` ratio to prioritize polygon-coverage improvements; a rising `fuzzy_match` rate signals a polygon gap needing a refresh migration.
+- Industry precedent — Google Geocoding API's `geometry.location_type` (`ROOFTOP`/`RANGE_INTERPOLATED`/`GEOMETRIC_CENTER`/`APPROXIMATE`), Mapbox's `relevance`, OSM Nominatim's `type` all tag matches with provenance. Dropping provenance is a visible engineering regression.
+- Column is DB-internal: client responses project only `city_name`. `city_match_type` is consumed by admin tooling + future analytics. Adding it isn't a payload bloat problem.
+
+**Why NO `city_admin_region_id` FK column:**
+- The canonical schema at [`docs/05-Implementation.md:553–567`](docs/05-Implementation.md) §Posts Schema specifies `city_name` + `city_match_type` only — no FK. Adding one diverges from canonical docs.
+- YAGNI — the proposed FK's value ("survive polygon name drift in re-seeds") is speculative. Kabupaten/kota names rarely change; when they do, the snapshot `city_name` is arguably what we *want* to preserve (historical truth of what the label was when the post was created).
+- If concrete analytics demands ID-stable joins later, a non-breaking follow-up migration can add the column. Ship small now, extend if motivated.
 
 **Alternative considered:** Compute `city_name` at read time via `LEFT JOIN admin_regions ON ST_Contains(geom, p.actual_location)`. Rejected — forces the Global endpoint to read `actual_location` out of `visible_posts`, which is an unacceptable broadening of the coordinate-jitter invariant (`actual_location` gets projected into business-query rows, where the next lint slip exposes it to clients). Also breaks the spatial budget at p95.
 
@@ -66,18 +125,22 @@ If no polygon contains the point (rare — BPS coverage is full Indonesia; gaps 
 
 **Alternative considered:** Application-layer reverse-geocode in `PostService.createPost()` before the INSERT (read `admin_regions`, compute, pass into the INSERT columns). Rejected — the trigger is simpler, race-free, and the only place `actual_location` is used; keeping the geocoding in SQL means no additional application reader of `actual_location` (`CoordinateJitterRule` allowlist stays tight).
 
+**Alternative considered:** Single-step `ST_Contains` only (drop steps 2–4). Rejected during the post-proposal reconciliation pass — Indonesia is an archipelago, and canonical docs explicitly prescribe the 4-step fallback to handle coastal points, boundary artifacts, and polygon-coverage gaps. Shipping single-step would systematically NULL-out thousands of legitimate posts; see [`FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) for the incident write-up.
+
+**Alternative considered:** Redis `geocode:{geocell:<lat2dp>_<lng2dp>}` cache (per [`docs/02-Product.md:205`](docs/02-Product.md)). Deferred — the 4-step ladder is 1–5ms at current write rate. Redis cache makes sense at scale; its wiring belongs with the broader Redis rate-limit infrastructure change (Phase 1 item 24), not with this change.
+
 ### Decision 3: Ship `admin_regions` + seed in one versioned Flyway migration
 
-The next unused number is **V11**. File name: `V11__admin_regions_and_post_city.sql`. Contents, in order:
-1. `CREATE TABLE admin_regions (...)` exactly per `docs/05-Implementation.md:1007–1017`.
+The next unused number is **V11**. File name: `V11__admin_regions.sql`. Contents, in order:
+1. `CREATE TABLE admin_regions (...)` exactly per [`docs/05-Implementation.md:1007–1017`](docs/05-Implementation.md).
 2. GIST + btree indexes.
 3. Province seed (~38 rows).
-4. Kabupaten/kota seed (~500 rows) including the 5 DKI kotamadya + Kepulauan Seribu at `level = 'kabupaten_kota'`.
-5. `ALTER TABLE posts ADD COLUMN city_name TEXT NULL`.
-6. `ALTER TABLE posts ADD COLUMN city_admin_region_id INT NULL REFERENCES admin_regions(id) ON DELETE SET NULL`.
-7. `CREATE OR REPLACE FUNCTION posts_set_city_fn() RETURNS TRIGGER ...`.
-8. `CREATE TRIGGER posts_set_city_tg BEFORE INSERT ON posts FOR EACH ROW EXECUTE FUNCTION posts_set_city_fn()`.
-9. `CREATE OR REPLACE VIEW visible_posts AS ...` (replaces the V4/V5 definition; same filter, adds `p.city_name` + `p.city_admin_region_id` to the SELECT list).
+4. Kabupaten/kota seed (~500 rows) — polygons extended by a 12nm maritime buffer before insert per Decision 4a — including the 5 DKI kotamadya + Kepulauan Seribu at `level = 'kabupaten_kota'`.
+5. `CREATE OR REPLACE FUNCTION posts_set_city_fn() RETURNS TRIGGER ...` implementing the 4-step fallback (Decision 2).
+6. `CREATE TRIGGER posts_set_city_tg BEFORE INSERT ON posts FOR EACH ROW EXECUTE FUNCTION posts_set_city_fn()`.
+7. `CREATE OR REPLACE VIEW visible_posts AS SELECT * FROM posts WHERE is_auto_hidden = FALSE` — idempotent no-op refresh. V4 defined this view; `SELECT *` already projects every column including `city_name` + `city_match_type`. V11 re-issues the DDL so `pg_views.definition` reflects V11's audit timestamp and future consumers have an explicit V11 anchor.
+
+**No `ALTER TABLE posts`.** The target columns (`city_name`, `city_match_type`) already exist on `posts` from V4. This was confirmed during the Phase B.5 reconciliation pass against `docs/05-Implementation.md` §Posts Schema.
 
 The migration will be large (polygon WKT inline: ~15–25 MB). That's acceptable — Flyway handles it, the repo already expects versioned migrations to be authoritative, and a subsequent polygon update lands as V12 (or later) with full diff auditability. We explicitly reject `R__admin_regions_seed.sql` repeatable migration; the project has no `R__` precedent, and introducing one for one reference table is scope creep.
 
@@ -160,9 +223,21 @@ The rule's current allowlist already permits the admin path. Extend the KDoc to 
 
 ### Decision 8: `admin_regions.id` is INT, surrogate; seeded IDs are stable across re-seeds
 
-Use INT (small, ~540 rows). Seeded IDs come from the dataset's stable code (BPS `kode_wilayah` for BPS, OSM relation ID for OSM). The exact mapping is in the migration header. Once committed, IDs MUST NOT change across re-seeds — `posts.city_admin_region_id` references them. Changing an ID would orphan existing denorms.
+Use INT (small, ~540 rows). Seeded IDs come from the dataset's stable code (BPS `kode_wilayah` for BPS, OSM relation ID for OSM). The exact mapping is in the migration header. Once committed, IDs MUST NOT change across re-seeds — even though `posts` holds no FK to `admin_regions` (per Decision 2), the `parent_id` self-FK within `admin_regions` depends on stable IDs, and any future analytics change that wants to re-introduce a posts→regions FK gets broken by ID churn.
 
 If a re-seed renames a region (e.g., "Kabupaten Nagan Raya" → "Nagan Raya" stylistic fix), update the row in place (`UPDATE admin_regions SET name = ... WHERE id = ...`). Existing `posts.city_name` snapshots stay frozen until the optional backfill job re-runs — that's the deliberate tradeoff in Decision 2.
+
+### Decision 4a: Maritime 12nm buffer applied during import, not at query time
+
+Per [`docs/02-Product.md:200–203`](docs/02-Product.md): "Points at sea within 12 nautical miles of a coastal kabupaten's shoreline are assigned to that kabupaten. Buffer coastal kabupaten polygons by 12 nautical miles (~22km) maritime extension in the import script."
+
+This is a **data-engineering concern, not a query concern.** The import / dataset-prep step identifies coastal kabupaten polygons and applies `ST_Buffer(geom::geometry, <22km in degrees>)` (or equivalent geography-space buffer) before inserting. At query time, the trigger's 4-step ladder operates on the already-buffered polygons — step 1 (`ST_Contains`) matches posts in nearshore waters as if they were inside land.
+
+Posts in the EEZ (beyond ~22 km from any coast) do NOT match step 1. Step 3 (50km nearest neighbor) catches most of them; posts in the open ocean / international waters beyond 50 km legitimately fall to step 4 (both NULL). Per product spec, those render as "Indonesia" or "Luar Indonesia" at the UI layer.
+
+**Alternative considered:** Apply the 12nm buffer at query time (`ST_DWithin(geom, actual_location, 22000)` as a step 1.5). Rejected — doubles the query work per INSERT and conflates "inside buffer" with "on land" in provenance. Import-time buffering keeps the trigger's step semantics clean (step 1 match = inside the authoritative boundary, including maritime extension).
+
+**Alternative considered:** Ship without maritime buffering, rely on step 3 for all coastal posts. Rejected — coastal Jakarta posts would routinely fall to `fuzzy_match` even when the post is 500m offshore in Teluk Jakarta, which is UX-wrong (they clearly belong to Jakarta Utara, not fuzzy-matched by distance). Buffering at import is the right layer.
 
 ### Decision 9: No guest-access path in this change
 
@@ -177,35 +252,23 @@ The Global endpoint in this change rejects missing `Authorization` headers with 
 
 ## Risks / Trade-offs
 
-- **Risk:** Polygon coverage gaps produce NULL `city_name` on some legitimate posts (coastal spots, reclaimed land, very new regions). → **Mitigation:** Response spec tolerates NULL (serializes as empty string). The optional backfill job re-computes on polygon re-seed. Ops monitoring via a one-shot query `SELECT COUNT(*) FROM posts WHERE created_at > :last_deploy AND city_name IS NULL` surfaces anomalies.
-- **Risk:** Trigger slows down `INSERT INTO posts` by 1–3 ms (single `ST_Contains` on GIST-indexed MULTIPOLYGON). → **Mitigation:** 1–3 ms on the post-creation path is acceptable (current p95 budget is far larger). Benchmarked as part of Phase 2 item 14 dataset work.
+- **Risk:** Polygon coverage gaps produce step-4 NULL `city_name` on some legitimate posts (deep ocean, remote EEZ, reclaimed land not yet in the dataset). → **Mitigation:** Response spec tolerates NULL (serializes as empty string). The optional backfill job re-computes on polygon re-seed. Ops monitoring via `SELECT city_match_type, COUNT(*) FROM posts WHERE created_at > :last_deploy GROUP BY city_match_type` surfaces rising fuzzy/NULL rates — that's exactly what `city_match_type` provenance is for.
+- **Risk:** Trigger slows down `INSERT INTO posts` by 1–5 ms (4-step ladder across GIST-indexed MULTIPOLYGON). → **Mitigation:** 1–5 ms on the post-creation path is acceptable (current p95 budget is far larger). Benchmarked as part of Phase 2 item 14 dataset work. Step 1 short-circuits in the 95%+ strict-match case; steps 2–4 only run on the minority.
 - **Risk:** Polygon dataset licensing disclosure is missed. → **Mitigation:** Migration header carries the license line; app legal section (`docs/01-Business.md` privacy policy checklist) adds the attribution line pre-launch. Tracked as a task.
 - **Risk:** Nearby/Following response shape change (additive `city_name`) surprises a client that uses strict decoding. → **Mitigation:** `:mobile:app` uses permissive kotlinx.serialization config. No prod mobile client is shipped yet (Phase 3). Backend integration tests cover the new shape. Document the change in the PR description.
 - **Risk:** `admin_regions` IDs drift across re-seeds (e.g., someone uses a new dataset with different codes). → **Mitigation:** Decision 8 explicitly fixes IDs at the dataset's stable code (BPS `kode_wilayah` / OSM relation ID). Migration header documents the rule. Re-seeds MUST UPDATE by ID, not DELETE + INSERT.
-- **Risk:** Trigger conflict with future `posts` write paths (e.g., admin backfill, bulk import). → **Mitigation:** Trigger is `BEFORE INSERT FOR EACH ROW` — fires on every INSERT. Bulk imports that want to bypass reverse-geocoding (e.g., importing without `actual_location`) can set `city_name` + `city_admin_region_id` explicitly in the INSERT column list; the trigger's subquery runs but the NEW fields already populated by the caller remain untouched. Document the subquery's `SELECT ... INTO` semantics (no-op when the target fields are already non-null AND no error if the query returns zero rows).
-
-  Actually — the trigger above always writes `NEW.city_admin_region_id` / `NEW.city_name`. To make it caller-overridable, the trigger body must be:
-  ```sql
-  IF NEW.city_admin_region_id IS NULL AND NEW.city_name IS NULL THEN
-    SELECT id, name
-      INTO NEW.city_admin_region_id, NEW.city_name
-      FROM admin_regions
-     WHERE level = 'kabupaten_kota'
-       AND ST_Contains(geom, NEW.actual_location::geometry)
-     LIMIT 1;
-  END IF;
-  ```
-  This is the version the migration ships.
+- **Risk:** Trigger conflict with future `posts` write paths (e.g., admin backfill, bulk import). → **Mitigation:** Trigger's first check is `IF NEW.city_name IS NOT NULL THEN RETURN NEW` — callers that explicitly supply `city_name` short-circuit the 4-step ladder. Bulk imports and backfill jobs can either (a) supply `city_name` + `city_match_type` explicitly (trigger no-ops), or (b) run the 4-step SQL manually in their `UPDATE`. Design pattern matches V3's `reserved_usernames_protect_seed_trigger`.
 - **Risk:** Very large migration file (~15–25 MB WKT) triggers repo-size concerns or CI diff timeouts. → **Mitigation:** One-time cost. GitHub handles; CI `git diff` is unaffected because migration diffs are not reviewed line-by-line. Future polygon updates land as new versioned migrations — no edit churn on V11.
-- **Risk:** A polygon with no `ST_Contains` match (gap) plus a caller that does NOT supply `city_name` explicitly yields NULL — but only on legacy re-writes where `actual_location` somehow falls into a gap. → **Mitigation:** Product-acceptable. Response spec renders `""`.
+- **Risk:** A polygon-coverage gap beyond 50 km (step-4 NULL) misleads users who expect every post to carry a label. → **Mitigation:** Product-acceptable per [`docs/02-Product.md:196`](docs/02-Product.md) — UI substitutes "Indonesia" / "Luar Indonesia" at the render layer. Response spec renders `""` (DB NULL → JSON empty string); client handles the substitution.
+- **Risk:** `city_match_type` values diverge from the enum vocabulary if a refresh migration adds a new step. → **Mitigation:** V11 locks the 4-value enum (`strict` / `buffered_10m` / `fuzzy_match` / NULL). Adding a step means amending `docs/02-Product.md` first (canonical), then proposing a change that bumps the enum with a CHECK constraint. No ad-hoc values.
 
 ## Migration Plan
 
-1. **Dataset prep (pre-migration authoring):** Pull BPS kabupaten/kota GeoJSON (or OSM fallback). Convert to SQL INSERT statements with `ST_GeomFromGeoJSON(...)` literals. Hand-curate the 5 DKI kotamadya + Kepulauan Seribu rows. Verify row count (~540) and that `ST_IsValid(geom)` returns TRUE for every row. Commit the generated SQL into `V11__admin_regions_and_post_city.sql`.
-2. **Flyway V11 applies:** Creates `admin_regions`, seeds it, alters `posts` to add two columns, creates the trigger, replaces the `visible_posts` view. Additive — no downtime, no lock on existing reads of `posts` or `visible_posts` beyond the standard ALTER TABLE brief exclusive lock (seconds on Supabase Pro prod; dev + staging smaller). Flyway wraps in a transaction.
+1. **Dataset prep (pre-migration authoring):** Pull BPS kabupaten/kota GeoJSON (or OSM fallback). Apply the 12nm (~22km) maritime buffer to coastal kabupaten polygons via the import script (see Decision 4a). Convert to SQL INSERT statements with `ST_GeomFromGeoJSON(...)` literals. Hand-curate the 5 DKI kotamadya + Kepulauan Seribu rows. Verify row count (~540) and that `ST_IsValid(geom)` returns TRUE for every row (including the buffered ones). Commit the generated SQL into `V11__admin_regions.sql`.
+2. **Flyway V11 applies:** Creates `admin_regions`, seeds it (with buffered polygons), creates the trigger + function, idempotent refresh of `visible_posts`. Fully additive — no `ALTER TABLE posts`, no downtime, no lock on existing reads. Flyway wraps in a transaction.
 3. **Backend deploy:** `GlobalTimelineService`, `TimelineRoutes` registration for `/timeline/global`, DTO `city_name: String` field added to `Post` (+ `NearbyTimelineService` + `FollowingTimelineService` SELECT lists extended to project `city_name`). Deploys after Flyway V11 completes. Container startup is unchanged.
-4. **Backfill (optional):** `backend/ktor/.../tools/BackfillPostCityJob.kt` (manually-invoked SQL: `UPDATE posts p SET city_name = r.name, city_admin_region_id = r.id FROM admin_regions r WHERE r.level = 'kabupaten_kota' AND ST_Contains(r.geom, p.actual_location::geometry) AND p.city_name IS NULL`). Safe to run at any time. NOT required for this change to ship. Tracked as an optional task; defer until the Global feed has enough legacy posts to make the UX difference visible (~post-soft-launch).
-5. **Rollback:** Revert the Ktor deploy first; Global endpoint disappears. V11 stays — it's additive; no other code paths break with the new columns present. If V11 must also be reverted (unlikely in prod; possible in dev): drop the trigger, drop the two `posts` columns, restore the pre-V11 `visible_posts` view definition, drop `admin_regions`. Pre-revert snapshot: `pg_dump` the `admin_regions` table so the dataset is preserved.
+4. **Backfill (optional):** `backend/ktor/.../tools/BackfillPostCityJob.kt` — a one-shot manually-invoked job that runs the same 4-step ladder as the trigger across every `posts` row where `city_name IS NULL`. The SQL is a `WITH matched AS (... 4 UNION-ALL'd ladder steps ...) UPDATE posts SET city_name = m.name, city_match_type = m.match_type FROM matched m WHERE posts.id = m.id`. Safe to run at any time. NOT required for this change to ship. Tracked as an optional task; defer until the Global feed has enough legacy posts to make the UX difference visible (~post-soft-launch).
+5. **Rollback:** Revert the Ktor deploy first; Global endpoint disappears. V11 stays — it's additive; no other code paths break with the new trigger present (Nearby + Following tolerate NULL `city_name` just like Global). If V11 must also be reverted (unlikely in prod; possible in dev): drop the trigger + function, drop `admin_regions`. `posts` schema and `visible_posts` view are unchanged, so no revert work there. Pre-revert snapshot: `pg_dump` the `admin_regions` table so the dataset is preserved.
 6. **Doc sync:** Update `docs/02-Product.md` §3 (Global timeline shipped), `docs/08-Roadmap-Risk.md` Phase 1 item 15 + Phase 2 item 2, `docs/05-Implementation.md` §"Timeline Implementation" (Global query added). Land docs in the archive PR per the change delivery workflow in `openspec/project.md`.
 
 ## Open Questions

@@ -29,15 +29,15 @@ Short-lived working document. Tracks items surfaced during a change or a review 
 **Action items:**
 - [x] Update `.claude/skills/next-change/SKILL.md`: add Phase B.5 reconciliation pass (diff proposal claims against canonical docs before pushing) + FOLLOW_UPS.md convention bullet in Notes.
 - [x] Update [`CLAUDE.md`](CLAUDE.md) "Reviewing a PR" section: add explicit "reconcile proposals against canonical docs" rule for `docs(openspec): propose` reviews.
-- [ ] Amend the `global-timeline-with-region-polygons` proposal on its feat branch (`proposal.md` + `design.md` + `specs/region-polygons/spec.md` + `specs/post-creation/spec.md` + `specs/users-schema/spec.md` + `specs/visible-posts-view/spec.md`) to reflect Option A: drop `city_admin_region_id` FK, add `city_match_type` semantics, trigger body = 4-step fallback ladder, keep maritime buffering as dataset-prep concern, keep Redis geocode cache as deferred.
-- [ ] Run `openspec validate global-timeline-with-region-polygons --strict` after amendment.
+- [x] Amend the `global-timeline-with-region-polygons` proposal on its feat branch (`proposal.md` + `design.md` + 7 spec files + `tasks.md`) to reflect Option A: drop `city_admin_region_id` FK, add `city_match_type` semantics, trigger body = 4-step fallback ladder, maritime buffering as dataset-prep concern, Redis geocode cache explicitly deferred.
+- [x] Run `openspec validate global-timeline-with-region-polygons --strict` after amendment. **Result: valid.**
 - [x] Post-amendment docs/ audit: scan [`docs/02-Product.md`](docs/02-Product.md) + [`docs/05-Implementation.md`](docs/05-Implementation.md) for any other areas where proposals authored in the last 2 weeks may have diverged (especially around chat, search, moderation — similarly detailed domain sections). File separate FOLLOW_UPS entries if found. **Done 2026-04-24 — Explore-agent audit covered V5–V10. Three divergences found in V10 in-app notifications body_data; filed as separate entry [`v10-notifications-body-data-missing-post-id`](#v10-notifications-body-data-missing-post-id--2026-04-24) below. V5–V9 all clean.**
 
 **Close criteria:** delete this entry when all 5 checkboxes above are merged.
 
 **Related PRs:**
 - [#18](https://github.com/aditrioka/nearyou-id/pull/18) (skill + CLAUDE.md + FOLLOW_UPS convention, merged)
-- [#19](https://github.com/aditrioka/nearyou-id/pull/19) (proposal amendment, open)
+- [#19](https://github.com/aditrioka/nearyou-id/pull/19) (proposal amendment + audit-findings entry, open)
 
 ---
 

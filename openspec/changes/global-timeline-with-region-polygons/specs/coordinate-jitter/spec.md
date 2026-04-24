@@ -6,7 +6,7 @@ The `posts_set_city_tg` BEFORE INSERT trigger (see `region-polygons` capability)
 
 1. **DB-side only** — the read happens in PL/pgSQL inside the trigger function. No application code gains access to `actual_location` through this path.
 2. **Write-path only** — the trigger fires on INSERT, not on SELECT. Read paths still MUST NOT touch `actual_location` in any non-admin code.
-3. **No client-facing projection** — the trigger writes `city_name` (a string) and `city_admin_region_id` (an integer). Neither value reveals coordinates. No `actual_location`-derived latitude, longitude, or geometry representation is stored outside `posts.actual_location` itself.
+3. **No client-facing projection** — the trigger writes `city_name` (a string) and `city_match_type` (a short provenance tag: `'strict'` / `'buffered_10m'` / `'fuzzy_match'` / NULL). Neither value reveals coordinates. No `actual_location`-derived latitude, longitude, or geometry representation is stored outside `posts.actual_location` itself. `city_match_type` is admin/internal only and is never projected into client-facing responses.
 
 Read paths that surface posts to clients (Nearby, Following, Global timelines, post-detail endpoints) MUST continue to derive displayed `latitude`/`longitude` from `display_location` (the fuzzed coordinate). The existence of the trigger MUST NOT be interpreted as a broadening of the read-path rule.
 
@@ -20,12 +20,12 @@ Read paths that surface posts to clients (Nearby, Following, Global timelines, p
 
 ### Requirement: Jitter-rule allowlist extended for V11 migration file
 
-The Detekt / CI rule enforcing "non-admin paths must use `fuzzed_location` / `display_location`, never `actual_location`" (per `docs/08-Roadmap-Risk.md` § Coding Conventions Spatial rule) SHALL add `backend/ktor/src/main/resources/db/migration/V11__admin_regions_and_post_city.sql` to its allowlist. The allowlist entry is narrowly scoped to that one file; future migrations that touch `actual_location` outside the admin path require explicit per-file additions.
+The Detekt / CI rule enforcing "non-admin paths must use `fuzzed_location` / `display_location`, never `actual_location`" (per `docs/08-Roadmap-Risk.md` § Coding Conventions Spatial rule) SHALL add `backend/ktor/src/main/resources/db/migration/V11__admin_regions.sql` to its allowlist. The allowlist entry is narrowly scoped to that one file; future migrations that touch `actual_location` outside the admin path require explicit per-file additions.
 
 The rule's existing allowed patterns (admin module, V4 migration where `actual_location` is defined, the coordinate-jitter implementation) remain unchanged. Rule behavior (token-matching logic, error messaging) is unchanged.
 
 #### Scenario: V11 migration allowed despite containing actual_location
-- **WHEN** `V11__admin_regions_and_post_city.sql` contains `ST_Contains(geom::geometry, NEW.actual_location::geometry)`
+- **WHEN** `V11__admin_regions.sql` contains `ST_Contains(geom::geometry, NEW.actual_location::geometry)`
 - **THEN** `./gradlew detekt` passes (the file is on the allowlist)
 
 #### Scenario: Unrelated new migration NOT auto-allowed
