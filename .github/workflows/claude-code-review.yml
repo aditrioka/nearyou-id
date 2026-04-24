@@ -34,11 +34,17 @@ jobs:
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
+        timeout-minutes: 8
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          # DEBUG: exposes full SDK output in action logs so we can see tool_use
+          # calls + permission denials. Currently workflow completes "success"
+          # but posts 0 comments with 11 permission_denials — we need visibility
+          # to figure out what the plugin is trying to do and why it's blocked.
+          # Also caps runtime at 8 min to stop $5/PR cost bleed while debugging.
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
+          show_full_output: true
 
