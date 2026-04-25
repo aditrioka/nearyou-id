@@ -10,34 +10,35 @@ For reference, Session 1 implements these tasks: **2.2, 2.3, 2.5, 2.6, 2.7, 3.1�
 
 ## Deferred
 
-### Cluster A — Dataset acquisition (tasks 1.1 – 1.5)
+### Cluster A — Dataset acquisition (tasks 1.1 – 1.5) — ✅ RESOLVED
 
-| Task | Status / Blocker | Unblock trigger |
-|------|------------------|-----------------|
-| 1.1 Decide BPS vs OSM | ✅ **Resolved — OSM.** Rationale + attribution string locked in `design.md` Open Question 1. | Done. |
-| 1.2 Download source GeoJSON | Unblocked by 1.1. Reproducible via the Overpass pipeline in [`dev/scripts/import-admin-regions/`](../../../dev/scripts/import-admin-regions/) — no account/auth required. Output ~15–25 MB, fetched in ~5–10 min. | Run the scaffold's `fetch-overpass.sh`; commit the generated SQL into V11. |
-| 1.3 Hand-curate DKI 5 kotamadya + Kepulauan Seribu | Automated in the scaffold via a second Overpass query at `admin_level = 6` inside DKI's polygon (no manual polygon-splitting needed — OSM has them as distinct relations). | 1.2 done. |
-| 1.4 Convert GeoJSON → SQL `ST_GeomFromGeoJSON` | Covered by `generate-seed.py` in the scaffold: stages to local Postgres, applies `ST_MakeValid`, applies 12nm buffer to coastal kabupaten, emits sorted `INSERT` block (provinces first for FK order). | 1.2 done. |
-| 1.5 Validate `ST_IsValid(geom)` per row | Done by the scaffold during staging (invalid → `ST_MakeValid` fixup; fixups logged inline in the generated SQL comment block). Final `SELECT COUNT(*) FROM admin_regions WHERE NOT ST_IsValid(geom::geometry)` asserted = 0 before emitting SQL. | 1.4 done. |
+| Task | Status |
+|------|--------|
+| 1.1 Decide BPS vs OSM | ✅ **OSM.** Rationale + attribution string locked in `design.md` Open Question 1. |
+| 1.2 Download source GeoJSON | ✅ Session 2 ran the scaffold's `fetch-overpass.sh` against `area:3600304751` (Indonesia, verified). 39 level-4 relations + 516 level-5 relations fetched. |
+| 1.3 Hand-curate DKI 5 kotamadya + Kepulauan Seribu | ✅ OSM models all 6 DKI children (5 kotamadya + Kepulauan Seribu) at `admin_level = 5` alongside every other kabupaten/kota — no DKI-specific query needed; all 6 present in the level-5 set. |
+| 1.3.5 12nm maritime buffer on coastal kab | ✅ Applied at import time by `generate-seed.py` via `ST_Buffer(geom::geometry, 0.198°)` on rows whose centroid is within 50 km of `ST_Boundary(ST_Union(provinces::geometry))`. 48 of 514 kabupaten/kota buffered. |
+| 1.4 Convert GeoJSON → SQL | ✅ `generate-seed.py` stages to Postgres, runs ST_MakeValid + buffer + ST_SimplifyPreserveTopology (5.5m tolerance) + 6-decimal ST_AsText, emits 552 sorted INSERTs to `backend/ktor/src/main/resources/db/migration/V12__admin_regions_seed.sql` (~33 MB). |
+| 1.5 ST_IsValid(geom) = TRUE per row | ✅ 0 invalid after the pipeline's ST_MakeValid pass. A final post-INSERT sweep in V12 (`ST_Multi(ST_CollectionExtract(ST_MakeValid(...), 3))`) handles 3 rows that tip into self-intersection on precision=6 WKT round-trip. |
 
-**When to revisit:** Session 2 — run the scaffold end-to-end, commit generated SQL into V11 (or V12 if V11 already merged without seed).
+**One filter worth noting:** one level-4 OSM relation (`Ngawi`, relation 20407794) is mis-tagged as a province — its `ref:ID:kemendagri` code is `35.21` (4-digit dotted = kabupaten) instead of `35` (2-digit = province). The scaffold filters level-4 with dotted kemendagri. See `dev/scripts/import-admin-regions/generate-seed.py` `_is_misplaced_province()`.
 
 ---
 
-### Cluster B — Seed-dependent V11 pieces (tasks 2.1, 2.4, 2.8 – 2.11)
+### Cluster B — Seed-dependent V11/V12 pieces (tasks 2.1, 2.4, 2.9 – 2.11) — ✅ RESOLVED
 
-| Task | Blocker | Unblock trigger |
-|------|---------|-----------------|
-| 2.1 V11 header (license + attribution text) | Depends on 1.1 (source decision). | 1.1 done. Amend header of V11 before first push. |
-| 2.4 INSERT province + kabupaten/kota seed | Depends on 1.4 (converted SQL). | 1.4 done. Paste seed block into V11 between DDL and trigger creation. |
-| 2.8 Add V11 to `CoordinateJitterRule` allowlist | Rule does not exist in the repo (see Cluster C). | Cluster C done. |
-| 2.9 Run `flywayMigrate` + verify row count ≥ 540 | Schema-only migration applies cleanly, but the row-count assertion fails without seed. | Cluster A done. |
-| 2.10 `MigrationV11SmokeTest` (polygon-dependent scenarios) | Scenarios that depend on seeded polygons: "all `ST_IsValid`", "DKI 5 kotamadya + Kepulauan Seribu present at `kabupaten_kota` level", "trigger populates city inside polygon". | Cluster A done; extend the test class in Session 2. |
-| 2.11 Execute the polygon-dependent scenarios | Depends on 2.10 being green. | 2.10 done. |
+| Task | Status |
+|------|--------|
+| 2.1 License + attribution header | ✅ Shipped in V12 header (not V11 — see Decision 3 amendment). ODbL attribution string present, source URL + fetch date + snapshot notes + Ngawi filter + validity sweep all documented. |
+| 2.4 INSERT province + kabupaten/kota seed | ✅ 552 INSERTs (38 provinces + 514 kabupaten/kota) in `V12__admin_regions_seed.sql`. Coastal kab carry the 22km buffer in `geom`. IDs = OSM relation IDs per Decision 8. |
+| 2.8 Add V11 to `CoordinateJitterRule` allowlist | Rule does not exist in the repo (see Cluster C). | Cluster C done.
+| 2.9 `flywayMigrate` + verify row count ≥ 540 | ✅ V12 applies cleanly in a cold migrate and via test-bootstrap. Row count = 552 (≥ 540). |
+| 2.10 `MigrationV12SmokeTest` polygon scenarios | ✅ `backend/ktor/src/test/kotlin/id/nearyou/app/infra/db/MigrationV12SmokeTest.kt` covers all scenarios: V12 applied + row counts, ST_IsValid=TRUE for every row, all 6 DKI kotamadya present, every kab/kota has non-null parent, trigger step-1 strict matches for Jakarta Selatan + Kota Bandung, trigger step-4 NULL for deep-ocean posts, caller-override short-circuit, flyway_schema_history row for V12, ODbL attribution string in the migration file. |
+| 2.11 Green test run | ✅ 10/10 MigrationV12SmokeTest cases green. Full suite: 384 tests / 0 failures / 0 errors. |
 
-**Note on design alignment:** `design.md` Decision 3 explicitly rejected splitting V11 into schema + seed migrations. Session 1 writes V11 DDL now AND keeps the branch unpushed until Cluster A completes, so `admin_regions` never ships empty to `main`. If timeline pressure forces a schema-only ship, amend `design.md` Decision 3 in the same commit.
+**Design Decision 3 amendment.** The original "single V11 migration" approach was amended during Session 2 to document the schema/seed split (V11 = schema + trigger + view, V12 = seed). The V11-without-seed window was safe because the trigger + response DTOs are both NULL-tolerant. See `design.md` Decision 3 "Status: amended during Session 2" for the full rationale.
 
-**When to revisit:** Session 2, after Cluster A.
+**2.8 remains deferred** — it's a `CoordinateJitterRule` concern in Cluster C, not Cluster B. The allowlist update rides with whichever change creates that rule.
 
 ---
 

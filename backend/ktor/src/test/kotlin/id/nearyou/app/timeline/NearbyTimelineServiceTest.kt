@@ -876,11 +876,15 @@ class NearbyTimelineServiceTest : StringSpec({
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            val p = seedPostWithCity(author, cityName = null, lat = -6.200, lng = 106.800)
+            // Deep Indian Ocean (>50km from any kabupaten even with 12nm maritime
+            // buffer applied). cityName=null + trigger step 4 ⇒ NULL underlying row.
+            // Viewer + post both inside the envelope [-11, 6.5] × [94, 142], within
+            // the 5km radius filter.
+            val p = seedPostWithCity(author, cityName = null, lat = -10.500, lng = 105.000)
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-10.5&lng=105.0&radius_m=5000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val post =
