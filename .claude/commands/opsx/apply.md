@@ -41,8 +41,8 @@ Implement tasks from an OpenSpec change.
    - Dynamic instruction based on current state
 
    **Handle states:**
-   - If `state: "blocked"` (missing artifacts): show message, suggest using `/opsx:continue`
-   - If `state: "all_done"`: congratulate, suggest archive
+   - If `state: "blocked"` (missing artifacts): show message, suggest re-running `/opsx:propose` to fill missing artifacts
+   - If `state: "all_done"`: congratulate, suggest archive via `/opsx:archive`
    - Otherwise: proceed to implementation
 
 4. **Read context files**
@@ -150,3 +150,18 @@ This skill supports the "actions on a change" model:
 
 - **Can be invoked anytime**: Before all artifacts are done (if tasks exist), after partial implementation, interleaved with other actions
 - **Allows artifact updates**: If implementation reveals design issues, suggest updating artifacts - not phase-locked, work fluidly
+
+**Branching (nearyou-id project — one PR per change lifecycle)**
+
+When this command is invoked for a change that already has an open proposal PR (the typical case after `/next-change`), commit and push feat work to the **existing change branch** — the one `/next-change` opened, branch name = change name. Do NOT create a new feat branch and do NOT open a new PR. The same PR carries proposal → review iteration → feat → archive commits through to a single squash-merge.
+
+After feat commits land:
+- Update the existing PR's title from `docs(openspec): propose <change-name>` to `feat(<area>): <change-name>` (or matching conventional-commit prefix). Use `gh pr edit <pr-number> --title "..."`.
+- Update the PR body to reflect the implementation now included (add a "Migrations" / "Tests" / "Capabilities-shipped" section as appropriate). Use `gh pr edit <pr-number> --body "..."`.
+
+If the change has no open PR yet (e.g., the user invoked apply directly without going through `/next-change`), create the change branch from `main` (branch name = change name), commit the feat work, and open the unified-lifecycle PR — the proposal commits will follow on the same branch when the user returns to scaffold them. This is rare; the standard flow opens the PR at proposal time.
+
+Per `openspec/project.md` § Change Delivery Workflow ("Sequence per OpenSpec change — one PR carries the full lifecycle"). Pre-PR-#37 archives ran the OLD 3-PR shape; PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) (`like-rate-limit`) was the first change to ship under the new one-PR convention. PR [#38](https://github.com/aditrioka/nearyou-id/pull/38) is the docs PR that codified the convention after the fact.
+
+<!-- Mirror of .claude/skills/openspec-apply-change/SKILL.md § Branching — keep in sync. -->
+

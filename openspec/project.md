@@ -82,7 +82,7 @@ Enforced by CI (see [`docs/08-Roadmap-Risk.md`](../docs/08-Roadmap-Risk.md) § D
 
 - **Shadow-ban safety**: business code must query `visible_*` views, never raw `FROM posts|users|post_replies|chat_messages`. Raw reads allowed only in Repository own-content paths and the admin module.
 - **Block enforcement**: business queries touching posts/users/chat_messages/post_replies must include the block-exclusion join.
-- **Spatial**: non-admin paths must use `fuzzed_location`, never `actual_location`, for `ST_DWithin`/`ST_Distance`.
+- **Spatial**: non-admin paths must use `display_location` (HMAC-fuzzed), never `actual_location`, for `ST_DWithin`/`ST_Distance`. Exceptions: admin module + the one sanctioned reverse-geocode path (`posts_set_city_tg` trigger, DB-side only).
 - **Client IP**: use the `clientIp` request-context value (populated by Cloudflare-aware middleware reading `CF-Connecting-IP`). Direct `X-Forwarded-For` reads are forbidden.
 - **Rate-limit TTL**: must call `computeTTLToNextReset(user_id)` (per-user WIB midnight stagger). No hardcoded midnight math.
 - **Redis keys**: must include hash tag `{scope:<value>}` for cluster-safe multi-key ops.
@@ -94,6 +94,8 @@ Enforced by CI (see [`docs/08-Roadmap-Risk.md`](../docs/08-Roadmap-Risk.md) § D
 - **Mobile strings**: no hardcoded UI strings; must go through Moko Resources.
 - **Partial indexes**: no `NOW()` in `WHERE` (non-immutable; PG rejects).
 - **RLS changes**: mandatory test case "JWT `sub` not in `public.users` → deny" on every policy change.
+- **Secrets**: Ktor MUST read via the `secretKey(env, name)` helper (per Environments section above). Direct secret-name reads are a lint violation.
+- **No vendor SDK import outside `:infra:*`** — domain/data code depends only on interfaces (per Module Structure section above).
 
 Other conventions:
 - API versioning: `/api/v1/...` from day one.
@@ -124,7 +126,7 @@ Direct push to `main` is hook-blocked — every change ships via feature branch 
 3. **`/opsx:archive` pushes the archive commit to the same branch.** `openspec archive <change>` is run locally; the resulting `openspec/specs/**` updates and the move of `openspec/changes/<change-name>/` under `archive/` are committed and pushed. Do NOT open a separate archive PR.
 4. **Single squash-merge to `main` at end-of-lifecycle** — after the archive commit is pushed and CI is green. The squash produces ONE commit on `main` carrying the entire change (proposal + feat + archive in the squash body).
 
-**Precedent transition.** The V5–V11 git log shows the OLD 3-PR shape (e.g., `global-timeline-with-region-polygons` shipped as PR #15 propose + PR #29/#31 feat + PR #35 archive — three separate squash-merges). That convention is **deprecated**. PR #37 (`like-rate-limit`) is the FIRST change slated to ship under the one-PR convention. Future contributors reading `git log` will see two regimes pre-#37 and post-#37.
+**Precedent transition.** The V5–V11 git log shows the OLD 3-PR shape (e.g., `global-timeline-with-region-polygons` shipped as PR [#15](https://github.com/aditrioka/nearyou-id/pull/15) propose + PR [#29](https://github.com/aditrioka/nearyou-id/pull/29)/[#31](https://github.com/aditrioka/nearyou-id/pull/31) feat + PR [#35](https://github.com/aditrioka/nearyou-id/pull/35) archive — three separate squash-merges). That convention is **deprecated**. PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) (`like-rate-limit`) was the FIRST change to ship under the one-PR convention; PR [#38](https://github.com/aditrioka/nearyou-id/pull/38) is the docs PR that codified the convention after the fact. Future contributors reading `git log` will see two regimes pre-#37 and post-#37.
 
 **Iteration rule applies to ALL phases.** Push new commits to the same branch through proposal-review, implementation, AND archive. Do NOT open new PRs per phase. PR number stays stable from `/next-change` opening it through final squash-merge.
 
@@ -185,7 +187,7 @@ Precedent (3-PR-era): PR #34 (`coordinate-jitter-lint-rule` archive PR) merged f
 
 **Force-push.** `--force-with-lease` on topic branches is fine (rewrite your own history freely). `main` requires explicit per-push user authorization — the hook enforces this.
 
-**CI expectations.** See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Four jobs — `lint` (ktlint), `build` (assemble), `test` (full suite including `@Tags("database")`), and `migrate-supabase-parity`. Test job uses a `postgis/postgis:16-3.4` service container mirroring `dev/docker-compose.yml`; DB tests auto-boot Flyway V1..V9 once per test JVM via `KotestProjectConfig.beforeProject()` — don't add per-spec Flyway migrate calls. The `migrate-supabase-parity` job drops auto-enabled extensions and pre-seeds Supabase's `realtime` / `auth` schema surface (see `dev/supabase-parity-init.sql`) before running Flyway, catching migrations that depend on environment state they don't establish themselves — extend the parity init SQL alongside any new migration that assumes new Supabase-provided state. `concurrency: cancel-in-progress` aborts stale runs on new pushes.
+**CI expectations.** See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Three jobs — `lint` (runs both `ktlintCheck` AND `detekt` in one job; previously `detekt` was missing — see PRs [#31](https://github.com/aditrioka/nearyou-id/pull/31) / [#32](https://github.com/aditrioka/nearyou-id/pull/32)), `test` (full suite, excludes only `network`-tagged tests; database-tagged tests run against the service-container Postgres + Redis), and `migrate-supabase-parity`. A standalone `build` (assemble) job used to live here but was dropped in PR [#45](https://github.com/aditrioka/nearyou-id/pull/45) — redundant with `test`, which compiles main code as a prerequisite. Test job uses `postgis/postgis:16-3.4` + `redis:7-alpine` service containers mirroring `dev/docker-compose.yml`; DB tests auto-boot the full current Flyway migration set once per test JVM via `KotestProjectConfig.beforeProject()` — don't add per-spec Flyway migrate calls. The `migrate-supabase-parity` job drops auto-enabled extensions and pre-seeds Supabase's `realtime` / `auth` schema surface (see `dev/supabase-parity-init.sql`) before running Flyway, catching migrations that depend on environment state they don't establish themselves — extend the parity init SQL alongside any new migration that assumes new Supabase-provided state. `paths-ignore` skips the full lane on docs-only PRs (`docs/**`, `**/*.md`, `.gitignore`, `LICENSE`); `concurrency: cancel-in-progress` aborts stale runs on new pushes.
 
 ---
 
@@ -193,7 +195,7 @@ Precedent (3-PR-era): PR #34 (`coordinate-jitter-lint-rule` archive PR) merged f
 
 - **Modular monolith**, not microservices. One Ktor deployable.
 - **Dual JWT**: RS256 for REST (with JWKS + kid rotation) + HS256 for Supabase Realtime WSS. Third-Party Auth migration is trivial later. See [`docs/05-Implementation.md`](../docs/05-Implementation.md) § Authentication.
-- **Coordinate fuzzing**: posts store both `actual_location` and `fuzzed_location` (HMAC-SHA256 jitter with `JITTER_SECRET`). Non-admin reads use fuzzed only.
+- **Coordinate fuzzing**: posts store both `actual_location` and `display_location` (HMAC-SHA256 jitter with `JITTER_SECRET`). Non-admin reads use `display_location` only.
 - **Chat write path is Ktor-authoritative**: client writes REST → Ktor persists → Ktor broadcasts. No direct Postgres Changes subscription from clients.
 - **CSAM trigger path**: Cloudflare CSAM Tool does NOT emit webhooks. MVP path is admin-triggered from the Admin Panel after CF's daily email; Phase 2 adds an optional CF Worker forwarder.
 - **18+ only + under-18 blocklist** (`rejected_identifiers`); no account recovery by design.
