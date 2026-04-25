@@ -4,6 +4,15 @@ on:
   pull_request:
     branches:
       - main
+    # paths-ignore fires only when EVERY changed path matches — any code-touching PR
+    # still runs the full lane. Pure docs / OpenSpec-proposal PRs (which are
+    # docs-only by construction in this project) skip CI entirely. The save is one
+    # full runner-set per such PR.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.gitignore'
+      - 'LICENSE'
 
 # Cancel superseded runs: when a new push lands on the same PR/branch, any
 # in-flight run for a prior commit is aborted to free up runners and avoid
@@ -13,6 +22,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # `lint` runs both linters in one job: ktlintCheck + detekt. Previously detekt
+  # was missing from CI even though CLAUDE.md claimed both ran — PRs #31 / #32
+  # hit detekt failures locally that CI didn't catch.
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -22,19 +34,13 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew ktlintCheck
+      - run: ./gradlew ktlintCheck detekt
 
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-      - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew assemble
-
+  # NOTE: a standalone `build: ./gradlew assemble` job used to live here. It was
+  # redundant with `test` (which compiles all main code as a prerequisite to
+  # running tests) — dropping it saves a full runner per PR with zero loss of
+  # signal. If `test` ever needs splitting, re-add a focused compile-only gate
+  # rather than reviving full assemble.
   test:
     runs-on: ubuntu-latest
     # Service containers — mirror `dev/docker-compose.yml` exactly so the defaults

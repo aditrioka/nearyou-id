@@ -39,14 +39,32 @@ jobs:
         run: |
           gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
 
-      - name: Build Docker image
+      # buildx + GHA cache: the Dockerfile already declares BuildKit cache mounts
+      # for `/root/.gradle` and `/workspace/.gradle`, but those caches don't
+      # survive between ephemeral GHA runners with the default builder. Switching
+      # to buildx with `cache-from/to type=gha` persists the Gradle dep cache and
+      # most builder layers across deploys. Empirically cuts Docker build time
+      # from ~5 min cold to ~1-2 min warm on incremental code changes.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image tag
         run: |
           IMAGE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${GAR_REPO}/${SERVICE}:${GITHUB_SHA::12}"
           echo "IMAGE=${IMAGE}" >> $GITHUB_ENV
-          docker build -t "${IMAGE}" .
 
-      - name: Push Docker image
-        run: docker push "${IMAGE}"
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}
+          # `mode=max` caches every intermediate layer (not just the final
+          # exported one) so subsequent builds reuse Gradle dep resolution +
+          # subproject compile output. The cache is scoped per-branch by GHA
+          # automatically; main-branch deploys share state across runs.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       # max-instances=1 while RUN_FLYWAY_ON_STARTUP=true — prevents racing on the
       # flyway_schema_history_lock during scale-out. Lift this cap once migrations
