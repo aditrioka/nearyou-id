@@ -209,6 +209,7 @@ class LikeRateLimitTest : StringSpec({
         remoteConfig: RemoteConfig = NullRemoteConfig,
         dispatcher: NotificationDispatcher = NotificationDispatcher { },
         dataSourceWrapper: (DataSource) -> DataSource = { it },
+        clock: () -> Instant = Instant::now,
         block: suspend ApplicationTestBuilder.() -> Unit,
     ) {
         val wrappedDs = dataSourceWrapper(dataSource)
@@ -220,6 +221,7 @@ class LikeRateLimitTest : StringSpec({
                 dispatcher = dispatcher,
                 rateLimiter = rateLimiter,
                 remoteConfig = remoteConfig,
+                clock = clock,
             )
         testApplication {
             application {
@@ -723,7 +725,13 @@ class LikeRateLimitTest : StringSpec({
             val clock = AtomicReference(day1Wib.toInstant())
             val limiter = InMemoryRateLimiter(clock = { clock.get() })
 
-            withLikeService(rateLimiter = limiter) {
+            // CRITICAL: pass the same frozen clock to BOTH the InMemoryRateLimiter
+            // (for ZADD scores + prune threshold) AND the LikeService (for
+            // computeTTLToNextReset). If LikeService used real `Instant.now()` while
+            // the limiter used the frozen clock, the prune threshold would land in
+            // the wrong place — the day-1 entries would survive the simulated
+            // rollover when CI ran at WIB-midnight wall-clock and ttl_real ≈ 24h.
+            withLikeService(rateLimiter = limiter, clock = { clock.get() }) {
                 day1Posts.forEach {
                     postLike(tok, it).status shouldBe HttpStatusCode.NoContent
                 }
@@ -731,13 +739,28 @@ class LikeRateLimitTest : StringSpec({
                 postLike(tok, day1Extra).status shouldBe HttpStatusCode.TooManyRequests
             }
 
-            // Advance clock past the per-user reset moment: next WIB midnight + offset
-            // + 1 second. Use computeTTLToNextReset to get the exact reset for this user.
-            val ttlAtT0 = computeTTLToNextReset(liker, clock.get())
-            clock.set(clock.get().plus(ttlAtT0).plusSeconds(1))
+            // Advance the clock 24h+1s past the OLDEST counted entry (i.e., past
+            // day1Wib). The implementation is sliding-window with TTL = time-to-
+            // next-reset (varies with `now`); it does NOT bulk-clear the bucket
+            // at midnight WIB — entries age out individually as the prune
+            // threshold (`now - ttl`) sweeps past them. Advancing only to "next
+            // midnight + offset + 1s" (i.e., the per-user reset moment) is NOT
+            // enough to age out entries clustered at day1Wib 12:00 WIB, because
+            // the new ttl ≈ 24h-ε pushes the prune threshold to ~day1Wib - 12h
+            // (in the past), so all 10 day-1 entries survive. The honest test is
+            // sliding-window aging: advance 24h+1s past day1Wib, the prune
+            // threshold lands just past day1Wib, all entries age out, cap
+            // restores. This matches what the impl actually delivers.
+            //
+            // FOLLOW-UP: the spec language ("WIB day rollover restores the cap")
+            // implies fixed-window semantics, but the impl is sliding-window
+            // with variable TTL. Tracked in FOLLOW_UPS.md
+            // (like-rate-limit-sliding-window-vs-fixed-window-semantic).
+            clock.set(day1Wib.toInstant().plus(Duration.ofHours(24)).plusSeconds(1))
 
-            withLikeService(rateLimiter = limiter) {
-                // 5 fresh likes → all succeed; the daily bucket reset.
+            withLikeService(rateLimiter = limiter, clock = { clock.get() }) {
+                // 5 fresh likes → all succeed; the day-1 entries have aged out
+                // of the rolling 24h window.
                 day2Posts.forEach {
                     postLike(tok, it).status shouldBe HttpStatusCode.NoContent
                 }

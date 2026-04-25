@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.slf4j.LoggerFactory
 import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 import javax.sql.DataSource
 
@@ -66,6 +67,7 @@ class LikeService(
     private val dispatcher: NotificationDispatcher,
     private val rateLimiter: RateLimiter,
     private val remoteConfig: RemoteConfig,
+    private val clock: () -> Instant = Instant::now,
 ) {
     /**
      * Result of the like attempt. The HTTP layer maps each variant to a status code
@@ -97,7 +99,7 @@ class LikeService(
                         userId = userId,
                         key = dailyKey(userId),
                         capacity = cap,
-                        ttl = computeTTLToNextReset(userId),
+                        ttl = computeTTLToNextReset(userId, clock()),
                     )
                 }
             when (outcome) {
