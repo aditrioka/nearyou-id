@@ -7,6 +7,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.koin.core)
     implementation(libs.lettuce.core)
+    implementation(libs.slf4j.api)
 
     testImplementation(libs.kotest.runnerJunit5)
     testImplementation(libs.kotest.assertionsCore)
