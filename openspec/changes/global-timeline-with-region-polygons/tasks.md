@@ -21,7 +21,7 @@ This change is intentionally split across **multiple sessions**. Before picking 
 - Tasks `6.1`–`6.3` — optional backfill job, deferred until post-soft-launch when legacy NULL `city_name` posts make it worth running.
 - Tasks `7.6`–`7.8` — doc sync (Phase 1 item 15 shipped, `docs/02-Product.md` §3 shipped, canonical Global query to `docs/05`); these belong to the archive PR per workflow convention.
 
-**If you're an AI agent invoked via `/opsx:apply`:** you MAY receive additional free-form scope instructions as args — those override this preamble. If no override, execute exactly the Session 1 scope above. If in doubt, surface to the user before deviating. Any newly-discovered out-of-scope work goes into [`../../../FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) at repo root, not inline here.
+**If you're an AI agent invoked via `/opsx:apply`:** you MAY receive additional free-form scope instructions as args — those override this preamble. If no override, execute exactly the Session 1 scope above. If in doubt, surface to the user before deviating. Any newly-discovered out-of-scope work goes into `FOLLOW_UPS.md` at repo root (transient file — create if missing; the intro + Format block from PR [#18](https://github.com/aditrioka/nearyou-id/pull/18) is the canonical template, per `.claude/skills/next-change/SKILL.md` Notes), not inline here.
 
 ---
 
