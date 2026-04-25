@@ -77,13 +77,13 @@
 
 ## 9. Pre-push + CI verification
 
-- [ ] 9.1 Run `openspec validate like-rate-limit --strict` — green
-- [ ] 9.2 Run `./gradlew ktlintCheck detekt` — green (both new rules registered, both green on the codebase as ported)
-- [ ] 9.3 Run `./gradlew :backend:ktor:test :infra:redis:test :core:domain:test :lint:detekt-rules:test` — green
-- [ ] 9.4 Run `./gradlew :backend:ktor:test --tests '*ReportEndpointsTest*' --tests '*ReportRateLimiterTest*'` — V9 suite green against ported impl
-- [ ] 9.5 Verify git tree shows expected files only (no `.gradle/`, no `.idea/`, no debug logs accidentally staged)
-- [ ] 9.6 Push and confirm CI's `lint`, `build`, `test`, and `migrate-supabase-parity` jobs all green (Redis service container running)
-- [ ] 9.7 Wait for staging deploy (`deploy-staging.yml`) green; smoke test: hit 10 likes from a Free synthetic account, expect 11th to return 429 + `Retry-After`
+- [x] 9.1 `openspec validate like-rate-limit --strict` — green at HEAD `728b9a8`.
+- [x] 9.2 `./gradlew ktlintCheck detekt -PincludeMobile=false` — green. Both new Detekt rules (`RateLimitTtlRule`, `RedisHashTagRule`) registered via `NearYouRuleSetProvider` and produce 0 findings on the codebase. ktlint clean across all modules.
+- [x] 9.3 `./gradlew :backend:ktor:test :infra:redis:test :core:domain:test :lint:detekt-rules:test -PincludeMobile=false` — green. Aggregate **511 tests across 4 modules, 0 failures, 0 errors** (backend/ktor: 405 incl. LikeRateLimitTest 21/21 + ReportEndpointsTest 23/23, core/domain: 13, infra/redis: 10, lint/detekt-rules: 83 incl. RateLimitTtlRuleTest 11/11 + RedisHashTagRuleTest 14/14).
+- [x] 9.4 V9 suite green against ported impl. **Spec-drift documented**: the original task referenced Gradle's `--tests` flag, but Kotest spec discovery in this repo uses the `-Dkotest.filter.specs=*<SpecName>*` system property (wired in each module's `tasks.withType<Test>` config). The equivalent invocation is `./gradlew :backend:ktor:test --rerun-tasks "-Dkotest.filter.specs=*ReportEndpointsTest"` → 23/23 green. There is no `ReportRateLimiterTest` class — see task 7.4 for why (V9 had no separate unit test class to re-point; HTTP-level assertions live in ReportEndpointsTest).
+- [x] 9.5 Git tree clean: only the proposal directory + the section-1-through-8 implementation files staged across the 9 commits. No `.gradle/`, no `.idea/`, no debug logs. Untracked `.claude/worktrees/` is local-only infrastructure (worktree of PR #38), correctly out of the index.
+- [ ] 9.6 Push and confirm CI's `lint`, `build`, `test`, `migrate-supabase-parity` jobs all green on HEAD `728b9a8` (Redis service container running). **Status at time of this tick batch:** `migrate-supabase-parity` SUCCESS; `lint` / `build` / `test` IN_PROGRESS. Will tick once CI completes — separate sweep commit.
+- [ ] 9.7 Wait for staging deploy (`deploy-staging.yml`) green; smoke test: hit 10 likes from a Free synthetic account, expect 11th to return 429 + `Retry-After`. **Blocked on task 1.7** (staging-redis-url GCP slot verification). Staging deploy will fail loudly if the slot is missing — that surfacing is the safety net. Will tick after the user confirms the slot exists.
 
 ## 10. Doc sync (in archive PR, not feat PR)
 
