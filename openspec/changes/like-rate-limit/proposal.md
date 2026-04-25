@@ -18,7 +18,7 @@ The infrastructure shipped here is also a hard prerequisite for at least four al
 - **NEW: two Detekt rules in `:lint:detekt-rules`** (mirroring the `CoordinateJitterRule` + `BlockExclusionJoinRule` allowlist-by-path + annotation pattern from PR #32):
   - `RateLimitTtlRule` — every Kotlin call site that constructs a daily Redis rate-limit key MUST also call `computeTTLToNextReset(...)` for the TTL. Hardcoded `86400`, `Duration.ofDays(1)`, or midnight math at a daily limiter site fails CI. Allowlist via `/src/test/` path + `@AllowDailyTtlOverride("<reason>")` annotation.
   - `RedisHashTagRule` — any Kotlin string literal that builds a rate-limit key (matching pattern `rate:*` or starting with `{scope:`) MUST contain a `{scope:<value>}` hash tag segment. Same allowlist pattern.
-- **MODIFIED: `ReportRateLimiter` (V9)** — port from in-process `ConcurrentHashMap` to the new `RateLimiter` interface. Public behavior identical (the existing V9 test suite must still pass without modification). Removes the "deferred to a separate change" comment.
+- **MODIFIED: `ReportRateLimiter` (V9)** — port from in-process `ConcurrentHashMap` to the new `RateLimiter` interface. Public moderation-route behavior identical. V9's `ReportRateLimiterTest` is re-pointed at an in-memory `RateLimiter` test double for plumbing checks (cap/window wiring, 409-release call site); the canonical correctness gate moves to the new `RedisRateLimiterIntegrationTest` against a real Redis container — see design.md Decision 7 for the full split rationale. Removes the "deferred to a separate change" comment.
 
 ## Capabilities
 
@@ -40,7 +40,7 @@ The infrastructure shipped here is also a hard prerequisite for at least four al
   - New flag plumbing for `premium_like_cap_override` in the existing `:infra:remote-config` module.
   - New Detekt rules + their fixtures under `:lint:detekt-rules`.
   - `LikeService` (or its handler) gains two pre-DB rate-limit checks.
-  - `ReportRateLimiter.kt` rewritten to delegate to the new interface; the V9 test suite is the regression gate.
+  - `ReportRateLimiter.kt` rewritten to delegate to the new interface; V9's `ReportEndpointsTest` (HTTP-level, end-to-end) is the byte-for-byte regression gate. V9's unit-level `ReportRateLimiterTest` is re-pointed at an in-memory `RateLimiter` test double — see design.md Decision 7.
 - **DB**: none. No new tables, no new columns, no new migrations.
 - **Dependencies**: adds the Lettuce client to `gradle/libs.versions.toml` (single new pin, recorded per the existing pinning policy in [`docs/09-Versions.md`](../../../docs/09-Versions.md)).
 - **API**: `POST /api/v1/posts/{post_id}/like` adds 429 to its response set; the 204 success path is unchanged. No request shape change. Mobile already handles 429 generically (timeline rate-limit screen), but the like-button-specific copy may be tightened in a follow-up UI change (out of scope here).

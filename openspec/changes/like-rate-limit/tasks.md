@@ -15,7 +15,7 @@
 - [ ] 2.2 Define sealed interface `Outcome` with `Allowed(remaining: Int)` and `RateLimited(retryAfterSeconds: Long)` — match V9 `ReportRateLimiter.Outcome` shape byte-for-byte
 - [ ] 2.3 Define interface `RateLimiter` with `tryAcquire(userId: UUID, key: String, capacity: Int, ttl: Duration): Outcome` and `releaseMostRecent(userId: UUID, key: String)`
 - [ ] 2.4 Verify the interface compiles in `:core:domain` without any Redis or vendor SDK imports
-- [ ] 2.5 Add `RateLimiterTest` (commonTest) — interface contract tests using a fake in-process implementation; the contract MUST exactly mirror what V9's existing `ReportRateLimiter` test suite asserts
+- [ ] 2.5 Add `RateLimiterTest` (commonTest) — interface contract tests using a fake in-process implementation. The contract is the union of V9's `ReportRateLimiter.Outcome` / `tryAcquire` / `releaseMostRecent` semantics and the new `rate-limit-infrastructure` capability scenarios — verifies any conforming implementation (Redis-backed OR in-memory test double) honors `Allowed.remaining`, `RateLimited.retryAfterSeconds ≥ 1`, and the empty-bucket no-op contract.
 
 ## 3. `computeTTLToNextReset(userId)` shared helper
 
@@ -34,7 +34,7 @@
 - [ ] 4.6 Wire the `RedisRateLimiter` as the production `RateLimiter` Koin binding in `:backend:ktor` Application setup
 - [ ] 4.7 Add `redis:7-alpine` service container to `.github/workflows/ci.yml` `test` job (mirroring the `postgis/postgis:16-3.4` setup)
 - [ ] 4.8 Boot Redis once per test JVM via `KotestProjectConfig.beforeProject()` (mirroring the existing Flyway-bootstrap pattern); inject the URL into `RedisRateLimiter` via Koin override
-- [ ] 4.9 Implement `RedisRateLimiterIntegrationTest` (`:infra:redis/src/test/kotlin/`, tagged `database`) covering: empty-bucket admit-then-reject, Retry-After math ±2s, releaseMostRecent restores slot, 10-thread concurrent capacity-boundary test, old-entry pruning, hash-tag co-location (CRC16 slot equivalence)
+- [ ] 4.9 Implement `RedisRateLimiterIntegrationTest` (`:infra:redis/src/test/kotlin/`, tagged `database`) covering all 10 scenarios from `rate-limit-infrastructure/spec.md` § Test coverage: empty-bucket admit-then-reject, Retry-After math ±5s, releaseMostRecent restores slot, releaseMostRecent on empty bucket is no-op, parallel-coroutine concurrent capacity-boundary, old-entry pruning, hash-tag CRC16 equivalence, two same-millisecond inserts both land, bucket-over-capacity preserved on cap reduction, V9 contract subsumption (10-succeed window, 11th-429, Retry-After-reflects-oldest, 409-release-on-empty).
 
 ## 5. Hash-tag key format Detekt rules
 
@@ -70,8 +70,8 @@
 ## 8. Tests for `POST /like` rate limit
 
 - [ ] 8.1 Implement `LikeRateLimitTest` (`:backend:ktor/src/test/kotlin/`, tagged `database`, depends on Redis service container)
-- [ ] 8.2 Cover all 16 scenarios from the `post-likes` spec § Integration test coverage requirement: 10-succeed, 11th-rate-limited, Retry-After ±2s, Premium-skip-daily, premium_billing_retry-skip-daily, 500-burst-Premium, 500-burst-Free-with-override, override-raises-cap-to-20, override-lowers-cap-mid-day, override-zero-falls-to-default, re-like-releases-both-slots, 404-consumes-slot, daily-short-circuits-before-visible-posts, hash-tag-key-shape-verified, WIB-rollover-restores-cap, unlike-no-slot-consumed
-- [ ] 8.3 Use a clock-controlled fake `Instant` (mirror `ReportRateLimiterTest` precedent) for the WIB rollover and Retry-After ±2s assertions
+- [ ] 8.2 Cover all 21 scenarios from the `post-likes` spec § Integration test coverage requirement: 10-succeed, 11th-rate-limited, Retry-After ±5s, Premium-skip-daily, premium_billing_retry-skip-daily, 500-burst-Premium, 500-burst-Free-with-override, override-raises-cap-to-20, override-lowers-cap-mid-day, override-zero-falls-to-default, override-malformed-string-falls-to-default, override-remote-config-error-falls-to-default, re-like-Free-releases-both-slots, re-like-Premium-releases-burst-only, 404-consumes-slot, daily-short-circuits-before-visible-posts, hash-tag-key-shape-verified, WIB-rollover-restores-cap, unlike-no-slot-consumed, notification-emit-does-not-block-response, tier-read-from-auth-principal-not-DB
+- [ ] 8.3 Use a clock-controlled fake `Instant` (mirror `ReportRateLimiterTest` precedent) for the WIB rollover assertions; Retry-After uses ±5s tolerance per the spec
 - [ ] 8.4 Add a `LikeRateLimitTest` scenario asserting the daily key string is exactly `{scope:rate_like_day}:{user:<uuid>}` and the burst key is exactly `{scope:rate_like_burst}:{user:<uuid>}`
 - [ ] 8.5 Run `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :infra:redis:test :core:domain:test` locally — ALL must pass before push (per `CLAUDE.md` § Pre-push verification: ktlintCheck + detekt are both required)
 
