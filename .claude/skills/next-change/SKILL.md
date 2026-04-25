@@ -16,7 +16,7 @@ The roadmap lives in `docs/08-Roadmap-Risk.md` and `docs/09-Versions.md`. Alread
 - `openspec/specs/` — current authoritative specs
 - `openspec/changes/archive/` — completed changes
 
-Proposals land as their own PRs (branch name = change name) and get auto-reviewed by Claude (via the `.github/workflows/claude-code-review.yml` workflow running `anthropics/claude-code-action@v1` with a CLAUDE.md-aware custom prompt) before the user decides whether to move into implementation. This skill drives that loop end-to-end.
+Proposals land as their own PRs (branch name = change name) and get reviewed before the user decides whether to move into implementation. Two review channels run in parallel: (a) the qodo GitHub App auto-posts on every PR push (zero skill effort), and (b) for self-authored proposals — i.e., almost everything this skill produces — the skill spawns a `general-purpose` sub-agent for an independent CLAUDE.md-aware pass (the auto-Claude-review GitHub Action was retired post-PR #36 because its OAuth/quota failure rate made the signal unreliable; sub-agent review runs in-session, no GitHub round-trip, and the dispatching is captured here so it's not skipped). This skill drives that loop end-to-end.
 
 ## Steps
 
@@ -109,56 +109,50 @@ Proposals land as their own PRs (branch name = change name) and get auto-reviewe
    ```
    Capture the PR number + URL from the `gh pr create` output for subsequent steps.
 
-### Phase D — Iterate on auto-reviews
+### Phase D — Iterate on reviews
 
-Two reviewers run in parallel and are treated as **complementary**, not competing:
+Two review channels run in parallel and are treated as **complementary**, not competing:
 
-- **Claude** (primary) — runs via `.github/workflows/claude-code-review.yml` (`anthropics/claude-code-action@v1`, custom prompt per `code.claude.com/docs/en/github-actions`, `--max-turns 5`, `timeout-minutes: 10`). Posts **one consolidated review comment** as `claude`. Typical: <$2/PR, 1–5 min wall-clock.
-- **qodo** (complementary) — runs via the qodo GitHub App (no workflow file on our side; installed at repo level). Posts as `qodo-code-review` with structured inline-style comments + top-level summary. Typical: <1 min wall-clock. Quota-capped on the free tier.
+- **qodo** (auto, GitHub-side) — runs via the qodo GitHub App (no workflow file on our side; installed at repo level). Posts as `qodo-code-review` with structured inline-style comments + top-level summary. Typical: <1 min wall-clock. Quota-capped on the free tier.
+- **Sub-agent** (in-session, skill-driven) — for self-authored proposals (i.e., everything this skill produces), step 11 below explicitly spawns a `general-purpose` sub-agent with PR URL + CLAUDE.md context. Catches the in-session bias surface that self-review misses (stale references, allowlist gaps, spec/code drift). Per `CLAUDE.md` § Reviewing a PR §7. Typical: 2–4 min wall-clock per dispatch.
 
-Wait strategy: give qodo **2 minutes** grace; if no qodo output by then, proceed with whatever's available (typically Claude). Claude has the longer wait window because we control it and it's the primary signal.
+(The previous auto-Claude-review GitHub Action was retired in PR #36 — its OAuth/quota failure rate climbed to ~89% in the global-timeline ship cycle, so the signal stopped being trustworthy. Sub-agent review in-session is faster, more reliable, and lets the skill author own severity calls directly.)
 
-11. **Wait for review comments from both reviewers.** Schedule a `ScheduleWakeup` with `delaySeconds: 120` to give qodo its 2-min window (and start Claude's clock). On wake-up, poll:
-    ```bash
-    gh pr view <pr-number> --json comments,reviews \
-      --jq '{claude: {
-               comments: [.comments[] | select(.author.login == "claude")],
-               reviews:  [.reviews[]  | select(.author.login == "claude")]
-             },
-             qodo: {
-               comments: [.comments[] | select(.author.login | test("qodo"; "i"))],
-               reviews:  [.reviews[]  | select(.author.login | test("qodo"; "i"))]
-             }}'
-    ```
-    Decision ladder:
-    - **qodo present + claude present** → proceed to step 12 with both.
-    - **qodo present + claude absent** → keep polling for claude (up to 12 min total). Proceed alone once claude lands or times out.
-    - **qodo absent + claude present** → 2-min qodo grace has started (or elapsed); if 2 min since push has passed, proceed with claude alone; else `ScheduleWakeup 60s`.
-    - **Both absent** → `ScheduleWakeup 90s` (up to 3 reschedules). If still absent after 12 min total, fetch `gh run list --workflow "Claude Code Review" --limit 1 --json status,conclusion` — if run failed or completed-with-0-comments, tell the user and ask whether to proceed or debug.
+11. **Spawn sub-agent review + wait for qodo.** In parallel:
+    - **Sub-agent dispatch** (immediate): invoke the `general-purpose` agent with a self-contained prompt — include the PR URL, the change name, "read CLAUDE.md § Reviewing a PR before reviewing," and ask for a structured report under 600 words grouped by severity (bug / invariant / suggestion / question). Return findings to this skill's context as the agent's tool result.
+    - **qodo polling** (deferred): schedule a `ScheduleWakeup` with `delaySeconds: 120` to give qodo its 2-min window. On wake-up, poll:
+      ```bash
+      gh pr view <pr-number> --json comments,reviews \
+        --jq '{qodo: {
+                 comments: [.comments[] | select(.author.login | test("qodo"; "i"))],
+                 reviews:  [.reviews[]  | select(.author.login | test("qodo"; "i"))]
+               }}'
+      ```
+      If qodo absent at 120 s, `ScheduleWakeup 90s` (up to 3 reschedules). If still absent after 6 min total, proceed with sub-agent findings alone.
 
-    Do NOT poll in a tight loop. Use `ScheduleWakeup` between checks. Each wake-up, only run the single `gh pr view` above.
+    Do NOT poll qodo in a tight loop. Use `ScheduleWakeup` between checks.
 
-12. **Read both reviewers' outputs.** Each produces a different shape:
-    - **Claude comment** — one free-form markdown body grouped by severity (bug / invariant / suggestion / question).
-    - **qodo review** — top-level summary + structured inline suggestions (with severity pills, often `🐞 Bug` / `📘 Rule violation` / `📎 Requirement gap`).
-    
+12. **Read both channels' outputs.** Each produces a different shape:
+    - **Sub-agent report** — markdown grouped by severity, ≤600 words, in your tool-result context.
+    - **qodo review** — top-level summary + structured inline suggestions (with severity pills, often `🐞 Bug` / `📘 Rule violation` / `📎 Requirement gap`) on the GitHub PR.
+
     Build a **merged findings list**:
-    - Tag each finding with its source (`claude` or `qodo`).
+    - Tag each finding with its source (`sub-agent` or `qodo`).
     - Deduplicate: if both flag the same file:line with overlapping meaning, keep one with both sources listed.
     - Classify by severity: **blocking** (bug / invariant violation / rule violation / incorrectness) vs **non-blocking** (suggestion / nit / question / style).
-    - If either reviewer explicitly says "no material findings" / "LGTM," note that but still process the other's findings.
-    
-    You cannot programmatically auto-apply feedback from either (Claude's is prose; qodo's inline comments need manual patch per suggestion). Instead, you judge + surface to user.
+    - If either channel explicitly says "no material findings" / "LGTM," note that but still process the other's findings.
+
+    Sub-agent findings are prose; qodo's inline comments need manual patch per suggestion. You judge + surface to user.
 
 13. **Present findings to user via `AskUserQuestion`.** Show a concise digest (1–2 sentences per finding, citing `file:line` when present) grouped by blocking vs non-blocking. Options:
-    - **Apply the blocking fixes myself, keep non-blocking as-is (Recommended)** — you (Claude, the skill author) attempt the blocking fixes: edit the proposal/design/specs/tasks files, re-run `openspec validate --strict`, commit + push. Then ask the user again with the same question after the next review round.
+    - **Apply the blocking fixes myself, keep non-blocking as-is (Recommended)** — you (Claude, the skill author) attempt the blocking fixes: edit the proposal/design/specs/tasks files, re-run `openspec validate --strict`, commit + push. Then re-invoke step 11 (new sub-agent dispatch + qodo poll on the new push).
     - **Apply all findings (blocking + non-blocking)** — same as above but address non-blocking too.
     - **Ignore the review and hand off to `/opsx:apply`** — skip fixes, proceed to implementation. Record the skipped findings in the PR description so they're visible later.
     - **Pause — I'll review the PR myself** — stop here; user will re-invoke `/opsx:apply` or `/next-change` when ready.
 
-14. **On "apply" options: edit → validate → commit → push → loop.** If the user selected an apply option, make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply Claude review feedback to <change-name>` (list the fixes in the commit body), and push. The push re-triggers Claude auto-review — loop back to step 11.
+14. **On "apply" options: edit → validate → commit → push → loop.** If the user selected an apply option, make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply review feedback to <change-name>` (list the fixes in the commit body), and push. After the push re-triggers qodo, loop back to step 11.
 
-    Cap the loop at **2 iterations total**. If Claude keeps surfacing new blocking findings after round 2, stop and ask the user to triage — recurring findings usually signal scope confusion that the skill can't resolve autonomously.
+    Cap the loop at **2 iterations total**. If new blocking findings keep surfacing after round 2, stop and ask the user to triage — recurring findings usually signal scope confusion that the skill can't resolve autonomously.
 
 ### Phase E — Hand off
 
@@ -177,4 +171,5 @@ Wait strategy: give qodo **2 minutes** grace; if no qodo output by then, proceed
 - **Don't force-push.** Every push in this skill is either the initial push (step 10) or a new commit on top of the branch (step 14 during the review loop). `--force-with-lease` is only appropriate if rewriting already-pushed history, which this skill never does.
 - **Out-of-scope findings during any step** (especially Phase B.5 reconciliation) go to `FOLLOW_UPS.md` at repo root. This file is transient — the convention is "delete entries when their action items are merged, delete the file itself when empty, recreate it when a new finding arises." NEVER sweep findings silently and NEVER force them into the current change's scope. If `FOLLOW_UPS.md` doesn't exist, create it with an intro blurb (preserved across recreations — same header + Format block as PR [#18](https://github.com/aditrioka/nearyou-id/pull/18) shipped) and your first entry.
 - **Stashing user work.** If Phase C step 7 finds uncommitted local changes that aren't the proposal, ask the user before stashing or committing them — do not silently stash. The untracked proposal directory is the only expected working-tree state after `openspec-propose` runs.
-- **Reviewer author logins.** Step 11 polls two authors: `claude` (exact match — the Claude GitHub App via `anthropics/claude-code-action@v1`) and `qodo-code-review` / similar (regex `test("qodo"; "i")` — the qodo GitHub App). Claude = primary, CLAUDE.md-aware, longer wait window. qodo = complementary, quota-capped free tier, 2-min grace. They catch different classes of issue — treat as complementary, NOT as alternatives to one another. If a third reviewer joins, extend the query + merge logic in step 12.
+- **Review channels.** Step 11 dispatches two complementary channels: an in-session `general-purpose` sub-agent (CLAUDE.md-aware, fast, no GitHub round-trip) and the qodo GitHub App (auto-posts as `qodo-code-review` / similar — regex `test("qodo"; "i")`). The legacy auto-Claude-review GitHub Action (`.github/workflows/claude-code-review.yml`) was retired in PR #36 — its OAuth/quota failure rate hit ~89% in the global-timeline ship cycle, so the signal stopped being trustworthy. The on-demand `claude.yml` workflow that responds to `@claude` mentions in PR comments is **kept** — that's a separate, lower-frequency channel a reviewer can manually invoke for ad-hoc Q&A on a specific point. If a third auto-reviewer joins later, extend the qodo query + merge logic in step 12.
+- **External-data dependencies need a sanity-check task.** If the candidate change pulls from an external open-data source (OSM via Overpass, BPS GeoJSON, CC-BY datasets, third-party fixture files) — add an explicit verification step to `tasks.md` Phase 1 *before* any scripting. Concrete shape: a one-shot lookup that confirms the upstream identifier matches the expected entity (e.g., `relation(304751)` returns `{name: "Indonesia", ISO3166-1: "ID"}` for the OSM Indonesia area; pin a known kabupaten and assert `admin_level=5` for Indonesian convention). Hardcoded IDs in scaffolds drift over time (re-numbered relations, license changes, dataset retirements); verify each at the start of the work session, don't trust comments in old import scripts. Precedent: the global-timeline import scaffold landed with `area:3600304716` (an Indian relation) hardcoded; required 3 fetch cycles to discover Indonesia is `area:3600304751` and that DKI kotamadya live at `admin_level=5`, not `admin_level=6` as initially assumed (PR #31).

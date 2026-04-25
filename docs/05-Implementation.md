@@ -1126,6 +1126,24 @@ The schema/seed split (V11 schema in Session 1, V12 seed in Session 2) deviated 
 
 Key format uses hash tag `{scope:<value>}` for Upstash cluster co-location (multi-key ops are safe).
 
+### Geometry-heavy migration conventions
+
+Any seed migration that ships PostGIS geometry larger than ~5 MB (the V12 admin_regions seed at 33 MB is the precedent) MUST follow these three steps to keep the migration auditable, deterministic, and applies-cleanly:
+
+1. **Apply `ST_SimplifyPreserveTopology` with a tolerance smaller than the tightest spatial threshold the consumer uses.** Raw OSM/BPS polygons are typically 11mm-precision (vastly over-spec for kabupaten labels). For the `posts_set_city_tg` trigger whose step-2 buffered-match runs at 10m, a 5.5m simplification tolerance is safely under the buffer (any displacement smaller than the buffer is absorbed by the ladder). Per `dev/scripts/import-admin-regions/generate-seed.py:255` (`ST_SimplifyPreserveTopology(geom::geometry, 0.00005)`).
+
+2. **Cap `ST_AsText` precision at the smallest the consumer needs.** PostGIS defaults to 16 decimals (~0.1 mm). 6 decimals (~10 cm at equator) is plenty for any geo feature larger than a backyard and halves WKT byte size. Trade-off: precision-truncation can tip 2-3 borderline polygons into self-intersection on round-trip — handled by step 3.
+
+3. **End the migration with an idempotent validity sweep.** Required final statement:
+   ```sql
+   UPDATE <seed_table>
+      SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(geom::geometry), 3))::geography
+    WHERE NOT ST_IsValid(geom::geometry);
+   ```
+   `ST_MakeValid` may return a `GeometryCollection` for self-intersection cases (mixing polygon parts with lines/points where rings cross); `ST_CollectionExtract(..., 3)` keeps only POLYGON parts; `ST_Multi` re-wraps to MULTIPOLYGON to satisfy the column type. Idempotent: a second invocation finds zero invalid rows and updates nothing.
+
+Combined effect on V12: 72 MB → 33 MB at unchanged trigger semantics; 3 precision-truncation self-intersections (Karanganyar, Sukoharjo, Buton Selatan) cleaned by the trailing sweep. The V12 migration header documents the affected row names so future contributors auditing `flyway_schema_history` can correlate.
+
 ---
 
 ## Search Implementation (PostgreSQL FTS + pg_trgm)

@@ -101,6 +101,9 @@ Other conventions:
 - Tests: Kotest/JUnit5, Ktor test framework, Docker-based integration tests.
 - DB role separation: `main_app`, `admin_app`, `flyway_migrator` — each its own Secret Manager slot. DDL only via `flyway_migrator`.
 
+**Test-data conventions:**
+- **Inputs to integration tests against seeded reference tables** (`admin_regions`, `reserved_usernames`, etc.) MUST produce a deterministic outcome regardless of seed cardinality. A test that asserts "post at (-6.2, 106.8) → city_name NULL" is fragile because the assumption holds only while `admin_regions` is empty — once seeded, those coords become Jakarta. Either pick inputs that fall outside ALL seeded rows by construction (deep-ocean coords, unicode strings no real row uses) OR set up the test's reference data explicitly per-test rather than relying on the global seed state. Precedent: 3 timeline-test "legacy NULL row" assertions broke at V12 seed merge (PR #31) because the inputs used Jakarta-area coords; fix used `(-10.5, 105.0)` deep-Indian-Ocean coords that no kabupaten polygon covers.
+
 ---
 
 ## Change Delivery Workflow
@@ -125,6 +128,22 @@ Direct push to `main` is hook-blocked — every change ships via feature branch 
 2. **If you must stack** (e.g., one is a low-priority docs PR you want pre-reviewed in parallel): the moment the parent PR merges, manually retarget the child via `gh pr edit <child> --base main` AND rebase the child branch onto `main` to drop the now-redundant parent commit (`git rebase main <child-branch>` — Git skips commits whose tree matches the squash-merged equivalent on `main`). Force-push with `--force-with-lease`.
 
 **Recovery if a child PR was already merged into the orphaned parent branch:** rebase the child branch onto current `origin/main` (drops the redundant parent commit), force-push with `--force-with-lease`, open a new PR with the rebased branch as head and `main` as base. The merged-but-orphaned PR can be left as-is (it's noise but not destructive). Precedent: `feat/global-timeline-session-1` recovered via PR #29 after #27 merged into the docs branch instead of `main`.
+
+**Splitting on an offline-prep boundary.** When a change has a heavy offline data-prep step (polygon seeds, ML model weights, large CSV/JSON fixtures, dataset license verification, etc.) that would block the code review of the rest of the change, the schema/code half MAY ship as a separate feat PR ahead of the data half. Required preconditions:
+
+1. Target columns / response DTOs / business queries MUST be NULL-tolerant or empty-state-tolerant — there must be no window where a missing seed crashes a request or surfaces a malformed response.
+2. The split MUST be documented in `design.md` (amend the relevant Decision in-place; reviewers should see the split rationale at archive time).
+3. The two PRs MUST land on `main` in the same calendar week — no "we'll seed it later" indefinite holds. If the data half slips, revert the schema half and ship together.
+
+Precedent: `global-timeline-with-region-polygons` shipped V11 (schema + trigger + view) as Session 1 PR #29 while the OSM dataset was being prepared offline; V12 (552-row polygon seed) followed as Session 2 PR #31. Session-scope preamble lived in `tasks.md`, design amendment in `design.md` Decision 3 ("Status: amended during Session 2"). The 4-step trigger fallback ladder + NULL-as-`""` DTO mapping made the V11-only deploy state safe.
+
+**Archive PRs touching shared specs.** When two changes both add requirements to the same canonical capability spec (e.g., both `coordinate-jitter-lint-rule` and `global-timeline-with-region-polygons` add to `openspec/specs/coordinate-jitter/spec.md`), their archive PRs WILL conflict — `openspec archive` rewrites the spec from each change's delta independently, so each archive branch's diff is "main + my delta," and the second PR to merge sees a conflict on the shared file. Resolution:
+
+1. **Merge them sequentially**, not in parallel. The first archive PR to merge writes the canonical content; the second must rebase onto fresh `main` and resolve.
+2. **Resolution rule**: prefer the version that matches the actually-shipped runtime behaviour. Earlier-draft requirements in the second change that have been superseded by the first change's implementation should be DROPPED (with a one-line note in the resolving commit's message), not concatenated. Concatenating produces contradictory requirements that confuse future readers.
+3. Force-push the rebased branch with `--force-with-lease` after `openspec validate --specs <capability> --strict` passes.
+
+Precedent: PR #34 (`coordinate-jitter-lint-rule` archive) merged first; PR #35 (`global-timeline-with-region-polygons` archive) hit a 5-vs-3 requirement conflict on `coordinate-jitter` spec. Resolution kept #34's 5 (canonical lint rule) + 2 of #35's 3 (trigger as DB-side sanctioned reader + reverse-geocode rationale); dropped #35's "Jitter-rule allowlist extended for V11 .sql file" requirement — superseded by the Kotlin-only rule design that #34 actually shipped.
 
 **When NOT to use OpenSpec.** Infra / tooling / CI / docs-only changes go through regular PRs. OpenSpec is for spec-driven product changes — capability + behavior + WHEN/THEN scenarios. Detekt rules, CI config, `build-logic/`, ops docs, READMEs: regular PR.
 
