@@ -1689,6 +1689,8 @@ Hash tag `{scope:<value>}` ensures same-scope keys map to the same Redis slot. M
 
 ## Rate Limiting Implementation (4-Layer, Hardened)
 
+> **Layer 2 shipped** via change `like-rate-limit` (`rate-limit-infrastructure` capability) — see `openspec/specs/rate-limit-infrastructure/spec.md` for the canonical contract. Production binding is the Redis-backed `RedisRateLimiter` in `:infra:redis` (single-Lua sliding-window script, hash-tag-formatted keys, `withContext(Dispatchers.IO)` wrap at the call site). The `RateLimiter` interface lives in `:core:domain` so business code depends on the contract, not Lettuce. The `computeTTLToNextReset(userId)` shared function + the hash-tag key format are enforced at every daily-rate-limit call site by `RateLimitTtlRule` and `RedisHashTagRule` Detekt rules. V9's `ReportRateLimiter` (10/hour) is also ported to this infra. **Like rate limit on `POST /api/v1/posts/{post_id}/like`** ships under the same change: 10/day Free + 500/hour burst (both tiers), `premium_like_cap_override` Remote Config flag, idempotent re-like releases the slot. Layer 1 / Layer 3 / Layer 4 remain future work.
+
 ### Layer 1: Per IP + Attestation-Gated Guest Token + Pre-Issuance Rate Limits
 
 **Guest flow**:
