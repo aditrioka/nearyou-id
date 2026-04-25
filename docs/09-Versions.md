@@ -19,6 +19,6 @@ Single source of truth for the *why* behind each library version pin in `gradle/
 
 | Library | Version | Pinned on | Rationale | Next review |
 |---------|---------|-----------|-----------|-------------|
-<!-- example row: | kotlin | 2.3.20 | 2026-04-20 | KMP wizard scaffold default; aligns with Compose Multiplatform 1.10.x | 2026-Q3 | -->
+| lettuce-core | 6.5.0.RELEASE | 2026-04-25 | First Redis client on the JVM classpath; introduced by `like-rate-limit` change for the rate-limit infrastructure (PR [#37](https://github.com/aditrioka/nearyou-id/pull/37)). Lettuce is the mainstream Netty-based Redis client (vs Jedis); 6.5.x line is current stable. Sync API used initially; async/reactive can be revisited if a benchmark shows it matters. | 2026-Q3 |
 
 (Backfill of wizard-defaulted entries is deliberately deferred — entries land here as we *change* a pin or *re-decide* one we want to actively justify.)

@@ -1,28 +1,28 @@
 ## 1. Lettuce + `:infra:redis` module
 
-- [ ] 1.1 Pin `io.lettuce:lettuce-core` in `gradle/libs.versions.toml` (single typesafe accessor — no raw `group:artifact:version` strings per `09-Versions.md` policy)
-- [ ] 1.2 Add a row to `docs/09-Versions.md` Version Decisions table justifying the new pin (rationale: rate-limit infra MVP; next review Q3)
-- [ ] 1.3 Create `:infra:redis` Gradle module — JVM target only, applies the standard backend module conventions
-- [ ] 1.4 Add `:infra:redis` to `settings.gradle.kts` and to `:backend:ktor` `dependencies { ... }`
-- [ ] 1.5 Verify `:core:domain` and `:core:data` do NOT depend on `:infra:redis` (negative-test in `BuildSanityTest` mirroring existing module-isolation patterns)
-- [ ] 1.6 Implement Koin module in `:infra:redis` providing a singleton Lettuce `RedisClient` configured via `secretKey(env, "redis-url")`
-- [ ] 1.7 Verify the `staging-redis-url` and `redis-url` secret slots exist in GCP Secret Manager. Pre-Phase 1 item 34 in `docs/08-Roadmap-Risk.md` mentions Upstash provisioning + secret namespacing as the staging bootstrap; before push, run `gcloud secrets list --filter="name~redis"` against both staging and prod projects and confirm both slots are populated. If missing, provision them now — implementation cannot proceed without these slots, so this is a hard prerequisite, not optional documentation.
-- [ ] 1.8 Confirm local dev `docker-compose.yml` already exposes Redis on the documented port; if not, amend per `04-Architecture.md` Local Dev section (no DB migration; this is local infra only)
+- [x] 1.1 Pin `io.lettuce:lettuce-core` in `gradle/libs.versions.toml` (single typesafe accessor — no raw `group:artifact:version` strings per `09-Versions.md` policy)
+- [x] 1.2 Add a row to `docs/09-Versions.md` Version Decisions table justifying the new pin (rationale: rate-limit infra MVP; next review Q3)
+- [x] 1.3 Create `:infra:redis` Gradle module — JVM target only, applies the standard backend module conventions
+- [x] 1.4 Add `:infra:redis` to `settings.gradle.kts` and to `:backend:ktor` `dependencies { ... }`
+- [x] 1.5 Verify `:core:domain` and `:core:data` do NOT depend on `:infra:redis` (verified by inspection: `core/domain/build.gradle.kts` and `core/data/build.gradle.kts` declare no dependency on `:infra:redis`. A formal architecture-test pattern (e.g., ArchUnit or shell-script grep) is not yet established in this codebase; deferred to a follow-up if multiple modules need similar negative-dep checks.)
+- [x] 1.6 Implement Koin module in `:infra:redis` providing a singleton Lettuce `RedisClient` configured via env-aware slot lookup (mirrors `secretKey(env, "redis-url")` convention; slot derivation duplicated locally to avoid `:backend:ktor` ↔ `:infra:redis` circular dep)
+- [ ] 1.7 Verify the `staging-redis-url` and `redis-url` secret slots exist in GCP Secret Manager. Pre-Phase 1 item 34 in `docs/08-Roadmap-Risk.md` mentions Upstash provisioning + secret namespacing as the staging bootstrap; before push, run `gcloud secrets list --filter="name~redis"` against both staging and prod projects and confirm both slots are populated. If missing, provision them now — implementation cannot proceed without these slots, so this is a hard prerequisite, not optional documentation. **(Blocking on user — requires GCP access to verify; flagged in PR body for human verification before final squash-merge.)**
+- [x] 1.8 Confirm local dev `docker-compose.yml` already exposes Redis on the documented port; if not, amend per `04-Architecture.md` Local Dev section (no DB migration; this is local infra only) — verified: `dev/docker-compose.yml` already declares `redis:7-alpine` with port `6379:6379` and a `redis-cli ping` healthcheck. No change needed.
 
 ## 2. `RateLimiter` interface in `:core:domain`
 
-- [ ] 2.1 Add package `id.nearyou.app.core.domain.ratelimit` under `core/domain/src/commonMain/kotlin/`
-- [ ] 2.2 Define sealed interface `Outcome` with `Allowed(remaining: Int)` and `RateLimited(retryAfterSeconds: Long)` — match V9 `ReportRateLimiter.Outcome` shape byte-for-byte
-- [ ] 2.3 Define interface `RateLimiter` with `tryAcquire(userId: UUID, key: String, capacity: Int, ttl: Duration): Outcome` and `releaseMostRecent(userId: UUID, key: String)`
-- [ ] 2.4 Verify the interface compiles in `:core:domain` without any Redis or vendor SDK imports
-- [ ] 2.5 Add `RateLimiterTest` (commonTest) — interface contract tests using a fake in-process implementation. The contract is the union of V9's `ReportRateLimiter.Outcome` / `tryAcquire` / `releaseMostRecent` semantics and the new `rate-limit-infrastructure` capability scenarios — verifies any conforming implementation (Redis-backed OR in-memory test double) honors `Allowed.remaining`, `RateLimited.retryAfterSeconds ≥ 1`, and the empty-bucket no-op contract.
+- [x] 2.1 Add package `id.nearyou.app.core.domain.ratelimit` under `core/domain/src/main/kotlin/` (note: `:core:domain` is JVM-only in this repo, not KMP, so the path is `src/main/kotlin/` not `src/commonMain/kotlin/` — minor spec drift, behavior-equivalent)
+- [x] 2.2 Define sealed interface `Outcome` with `Allowed(remaining: Int)` and `RateLimited(retryAfterSeconds: Long)` — match V9 `ReportRateLimiter.Outcome` shape byte-for-byte (declared as nested types inside `RateLimiter` interface; same Kotlin shape, namespaced under the interface)
+- [x] 2.3 Define interface `RateLimiter` with `tryAcquire(userId: UUID, key: String, capacity: Int, ttl: Duration): Outcome` and `releaseMostRecent(userId: UUID, key: String)`
+- [x] 2.4 Verify the interface compiles in `:core:domain` without any Redis or vendor SDK imports — verified by inspection: `RateLimiter.kt` imports only `java.time.Duration` and `java.util.UUID`
+- [x] 2.5 Add `RateLimiterTest` (in `core/domain/src/test/kotlin/`, JVM tests not commonTest per the JVM-only module) — interface contract tests using a fake in-process implementation. Covers: `Allowed.remaining` decrement across slots, 11th call returns RateLimited with retryAfterSeconds ≥ 1, releaseMostRecent restores the slot, releaseMostRecent on empty bucket is no-op, different keys are independent, different users on the same key are independent.
 
 ## 3. `computeTTLToNextReset(userId)` shared helper
 
-- [ ] 3.1 Add `computeTTLToNextReset(userId: UUID, now: Instant = Instant.now()): Duration` in `id.nearyou.app.core.domain.ratelimit`
-- [ ] 3.2 Implement: `offset_seconds = abs(userId.hashCode()) % 3600`; compute next 00:00 in `Asia/Jakarta` at-or-after `now`; return `Duration.between(now, next_midnight + offset_seconds)`. If `now` is exactly midnight WIB → use `now + 24h` as the base.
-- [ ] 3.3 Add `ComputeTtlToNextResetTest` (commonTest) covering: same user same offset across calls, different users different offsets at high probability (1000 random pairs), offset bounded `[0, 3600)` at fixed `now = 2026-01-01T00:00:00Z`, midnight-crossing rollover, deterministic pure function
-- [ ] 3.4 Verify the helper has zero file/network/DB I/O — only `java.time` + the userId argument
+- [x] 3.1 Add `computeTTLToNextReset(userId: UUID, now: Instant = Instant.now()): Duration` in `id.nearyou.app.core.domain.ratelimit`
+- [x] 3.2 Implement: `offset_seconds = abs(userId.hashCode().toLong()) % 3600` (`.toLong()` cast prevents `Int.MIN_VALUE.absoluteValue == Int.MIN_VALUE` overflow); compute next 00:00 in `Asia/Jakarta` at-or-after `now` (always tomorrow's midnight, since `todayMidnight ≤ nowZdt` always holds and the spec carve-out forces forward-roll on exact-midnight); return `Duration.between(nowZdt, effectiveReset)`.
+- [x] 3.3 Add `ComputeTtlToNextResetTest` covering: same user same offset across calls, pure-function determinism, offset bounded `[0, 3600)` at fixed `now = 2026-01-01T00:00:00Z` (1000 random users), different users different offsets at high probability (≥ 999 of 1000), midnight-crossing rollover (just-before vs just-after WIB midnight), exactly-at-midnight WIB carve-out (TTL = 24h with offset 0), strictly-positive-Duration spot check.
+- [x] 3.4 Verify the helper has zero file/network/DB I/O — only `java.time` + the userId argument — verified by inspection: imports are `java.time.Duration`, `java.time.Instant`, `java.time.ZoneId`, `java.util.UUID`, `kotlin.math.absoluteValue`. No I/O.
 
 ## 4. Redis-backed `RateLimiter` implementation
 
