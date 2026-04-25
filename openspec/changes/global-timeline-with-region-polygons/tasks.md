@@ -132,8 +132,8 @@ This change is intentionally split across **multiple sessions**. Before picking 
 
 - [x] 5.1 Add a KDoc paragraph to `BlockExclusionJoinRule.kt` explaining why `admin_regions` (and reference-data tables generally) is deliberately NOT a protected table per the `block-exclusion-lint` spec ADDED requirement.
 - [x] 5.2 Add test fixtures to `BlockExclusionJoinLintTest`: (a) Global-shaped positive-pass fixture with `FROM visible_posts` + both `user_blocks` subqueries, (b) Global-shaped negative-fail fixture missing the `blocked_id` subquery, (c) Global-shaped negative-fail fixture missing the `blocker_id` subquery, (d) `admin_regions` positive-pass fixture (`SELECT id FROM admin_regions WHERE level = 'kabupaten_kota'`) asserting the rule does NOT fire.
-- [ ] 5.3 Update the coordinate-jitter / spatial-lint rule's allowlist to include `V11__admin_regions.sql`; add a KDoc note explaining the trigger's DB-side sanctioned `actual_location` read.
-- [ ] 5.4 Add a test fixture asserting the spatial-lint rule fires on a hypothetical non-allowlisted migration that references `actual_location` outside the admin path (guard against drift).
+- [x] 5.3 Update the coordinate-jitter / spatial-lint rule's allowlist to include `V11__admin_regions.sql`; add a KDoc note explaining the trigger's DB-side sanctioned `actual_location` read.
+- [x] 5.4 Add a test fixture asserting the spatial-lint rule fires on a hypothetical non-allowlisted migration that references `actual_location` outside the admin path (guard against drift).
 - [x] 5.5 `./gradlew :lint:detekt-rules:test` green.
 - [x] 5.6 `./gradlew detekt` green against the full backend + migration directory (Global + Nearby + Following queries all pass). _0 code smells across 46 Kotlin files._
 
