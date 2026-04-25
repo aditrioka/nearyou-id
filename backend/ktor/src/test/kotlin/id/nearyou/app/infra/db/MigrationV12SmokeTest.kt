@@ -122,9 +122,10 @@ class MigrationV12SmokeTest : StringSpec({
                 st.executeQuery(
                     "SELECT level, COUNT(*) AS c FROM admin_regions GROUP BY level ORDER BY level",
                 ).use { rs ->
-                    val counts = buildMap<String, Int> {
-                        while (rs.next()) put(rs.getString("level"), rs.getInt("c"))
-                    }
+                    val counts =
+                        buildMap<String, Int> {
+                            while (rs.next()) put(rs.getString("level"), rs.getInt("c"))
+                        }
                     counts["province"]!! shouldBeGreaterThanOrEqualTo 36
                     counts["kabupaten_kota"]!! shouldBeGreaterThanOrEqualTo 500
                 }
@@ -146,14 +147,15 @@ class MigrationV12SmokeTest : StringSpec({
     }
 
     "All 6 DKI kotamadya present at kabupaten_kota level" {
-        val expected = setOf(
-            "Jakarta Pusat",
-            "Jakarta Utara",
-            "Jakarta Selatan",
-            "Jakarta Timur",
-            "Jakarta Barat",
-            "Kepulauan Seribu",
-        )
+        val expected =
+            setOf(
+                "Jakarta Pusat",
+                "Jakarta Utara",
+                "Jakarta Selatan",
+                "Jakarta Timur",
+                "Jakarta Barat",
+                "Kepulauan Seribu",
+            )
         DriverManager.getConnection(url, user, password).use { conn ->
             conn.createStatement().use { st ->
                 st.executeQuery(
@@ -235,12 +237,13 @@ class MigrationV12SmokeTest : StringSpec({
         try {
             // Insert a post at Jakarta Selatan coords but pass an explicit city_name.
             // Trigger MUST NOT overwrite.
-            val (city, matchType) = insertPostAt(
-                viewer,
-                lat = -6.2441,
-                lng = 106.7974,
-                explicitCity = "Bali (bulk import)",
-            )
+            val (city, matchType) =
+                insertPostAt(
+                    viewer,
+                    lat = -6.2441,
+                    lng = 106.7974,
+                    explicitCity = "Bali (bulk import)",
+                )
             city shouldBe "Bali (bulk import)"
             // city_match_type is NOT touched by the ladder when the caller provides
             // a city_name, so it stays at whatever INSERT set it to (NULL here).
