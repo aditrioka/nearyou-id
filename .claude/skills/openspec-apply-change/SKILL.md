@@ -165,4 +165,4 @@ After feat commits land:
 
 If the change has no open PR yet (e.g., the user invoked apply directly without going through `/next-change`), create the change branch from `main` (branch name = change name), commit the feat work, and open the unified-lifecycle PR — the proposal commits will follow on the same branch when the user returns to scaffold them. This is rare; the standard flow opens the PR at proposal time.
 
-Per `openspec/project.md` § Change Delivery Workflow ("Sequence per OpenSpec change — one PR carries the full lifecycle"). Pre-PR-#38 archives ran the OLD 3-PR shape; PR #38 (`like-rate-limit`) onwards is the new convention.
+Per `openspec/project.md` § Change Delivery Workflow ("Sequence per OpenSpec change — one PR carries the full lifecycle"). Pre-PR-#37 archives ran the OLD 3-PR shape; PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) (`like-rate-limit`) was the first change to ship under the new one-PR convention. PR [#38](https://github.com/aditrioka/nearyou-id/pull/38) is the docs PR that codified the convention after the fact.
