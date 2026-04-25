@@ -112,3 +112,11 @@ All artifacts complete. All tasks complete.
 - Show clear summary of what happened
 - If sync is requested, use openspec-sync-specs approach (agent-driven)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
+
+**Branching (nearyou-id project — one PR per change lifecycle)**
+
+Commit and push the archive commit to the **existing change branch** (the one `/next-change` opened, branch name = change name) — the same branch that already carries the proposal commits and the feat commits from `/opsx:apply`. Do NOT create a separate `openspec/archive-<change-name>` branch and do NOT open a separate archive PR. The archive commit is the LAST commit before squash-merge to `main`.
+
+Suggested commit shape: `chore(openspec): archive <change-name>` (or `docs(openspec): archive <change-name>` to match prior precedent), with a body summarizing capability spec changes (capabilities ADDED / MODIFIED / REMOVED). The archive commit lands BEFORE the unified PR's squash-merge — see `openspec/project.md` § Change Delivery Workflow → Archive timing for the gating sequence (CI green → archive commit pushed → CI green again → squash-merge → staging deploy green).
+
+After the archive commit lands, the next step is the user squash-merging the unified PR, NOT a separate archive PR. If you find yourself about to run `gh pr create` for an archive PR on this nearyou-id project, stop — that's the OLD 3-PR convention (V5–V11 archives). PR #38 (`like-rate-limit`) onwards is the new convention: one PR carries proposal + feat + archive through to a single squash-merge.
