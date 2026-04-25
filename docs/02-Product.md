@@ -176,6 +176,8 @@ Posts from all of Indonesia, chronological, no location filter. Each post shows 
 - Global is the entry point; Nearby and Following are home
 - Guests can view Global timeline only (read-only, no login required, capped at 10 posts/session soft + 30/hour hard)
 
+**Status (2026-04):** authenticated `GET /api/v1/timeline/global` shipped via the `global-timeline-with-region-polygons` change (V11 schema + trigger, V12 552-row OSM polygon seed). Guest read-only access + 10/session + 30/hour caps remain deferred — they require Redis-backed rate-limit infrastructure (Phase 1 item 24) and ship with that change. The authenticated endpoint already returns the chronological feed with per-post `city_name` labels populated by the `posts_set_city_tg` trigger.
+
 ### Polygon-Based Reverse Geocoding
 
 Reverse geocoding runs once when a post is created, and the result is stored as `city_name`.

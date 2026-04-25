@@ -84,7 +84,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
 12. Token version revocation (Redis cache + invalidation hooks + DB fallback)
 13. Post creation + PostGIS storage (dual column: `actual_location` NOT NULL + `display_location` NOT NULL with **HMAC-SHA256(JITTER_SECRET, post_id) jitter**)
 14. `renderDistance` implementation with fuzz-first / floor 5km / round-to-1km ordering in `:shared:distance`
-15. Nearby + Following + Global timeline spatial queries (using `display_location`) — **Nearby shipped** in `nearby-timeline-with-blocks` change (V5 + `GET /api/v1/timeline/nearby`); **Following shipped** in `following-timeline-with-follow-cascade` change (V6 + `GET /api/v1/timeline/following`); Global remains (needs `admin_regions` polygon reverse-geocoding)
+15. Nearby + Following + Global timeline spatial queries (using `display_location`) — **Nearby shipped** in `nearby-timeline-with-blocks` change (V5 + `GET /api/v1/timeline/nearby`); **Following shipped** in `following-timeline-with-follow-cascade` change (V6 + `GET /api/v1/timeline/following`); **Global shipped** in `global-timeline-with-region-polygons` change (V11 `admin_regions` schema + trigger + V12 552-row OSM polygon seed + `GET /api/v1/timeline/global`); timeline trio complete
 16. **Block user feature**: schema + endpoints + cascade follow removal + CI lint — **all shipped**: schema + endpoints + lint via `nearby-timeline-with-blocks` (V5 `user_blocks` + `POST/DELETE/GET /api/v1/blocks` + Detekt `BlockExclusionJoinRule`); follow-cascade via `following-timeline-with-follow-cascade` (transactional `user_blocks` INSERT + bidirectional `follows` DELETE in `BlockService.block()`)
 17. **Analytics consent schema** (`users.analytics_consent JSONB`) + consent-aware Amplitude wrapper (suppress if off)
 18. **FCM token registration endpoint** (`POST /api/v1/user/fcm-token`)
@@ -146,7 +146,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
 ### Phase 2: Social Features (Weeks 5-6)
 
 1. Follow/unfollow system (using `follows` schema)
-2. Following + Global timeline with polygon reverse geocoding (using `actual_location`)
+2. Following + Global timeline with polygon reverse geocoding (using `actual_location`) — **shipped in `global-timeline-with-region-polygons` change** (V11 `posts_set_city_tg` BEFORE INSERT trigger + 4-step fallback ladder strict→buffered_10m→fuzzy_match→NULL; V12 552-row OSM polygon seed including 6 DKI kotamadya + 12nm maritime buffer on 48 coastal kabupaten)
 3. Like + reply (20/day Free limit, 280 chars max, flat structure, block-aware) — **Likes shipped in V7 (`post-likes-v7`); reply shipped in V8 (`post-replies-v8`)** — rate limit + auto-hide trigger remain (deferred to rate-limit change + `reports` change)
 4. **Report feature**: `reports` insert endpoint, reason picker, auto-hide trigger at 3 unique reporters (accounts >7 days), `moderation_queue` row insert
 5. **In-app notifications API**: list endpoint, mark-read endpoint, unread count, FCM parallel dispatch, `notifications` table write-path
@@ -550,9 +550,9 @@ Target 600×600 + 100 modifiers. Multi-pass:
 
 Budget: 3-4 days.
 
-### 4. Kabupaten/Kota Polygon Dataset
+### 4. Kabupaten/Kota Polygon Dataset — ✅ Resolved
 
-~500 kabupaten/kota GeoJSON. BPS (public domain / CC-BY) primary or OpenStreetMap (ODbL, attribution required). Pre-Phase 1 decision.
+~500 kabupaten/kota GeoJSON. **Resolved: OpenStreetMap (`admin_level=5` for kabupaten/kota + `admin_level=4` for provinces, via Overpass API).** Shipped in `global-timeline-with-region-polygons` change (V12 552-row seed: 38 provinces + 514 kabupaten/kota including 6 DKI kotamadya). Attribution string: *"Administrative boundaries © OpenStreetMap contributors, available under the Open Database License (ODbL)"* — surfaced in V12 migration header + app legal section. BPS rejected during dataset acquisition: availability risk dominated (no reliable source for kabupaten/kota MULTIPOLYGON GeoJSON). ODbL share-alike doesn't cascade to this project's use (we project `city_name` strings, not derived polygon data). Reproducible import pipeline lives at `dev/scripts/import-admin-regions/`. Full rationale in archived `openspec/changes/archive/2026-04-25-global-timeline-with-region-polygons/design.md` Open Question 1.
 
 ### 5. Post-MVP Feature Expansion
 

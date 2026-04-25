@@ -1076,18 +1076,44 @@ ORDER BY p.created_at DESC, p.id DESC
 LIMIT 20;
 ```
 
-**Global**:
+**Global** (canonical — verbatim from `JdbcPostsGlobalRepository.kt`, shipped in `global-timeline-with-region-polygons` change):
 ```sql
-SELECT p.* FROM visible_posts p
-WHERE (p.created_at, p.id) < ($cursor_ts, $cursor_id)
-  AND p.is_auto_hidden = FALSE
-  AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
-  AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
-ORDER BY p.created_at DESC, p.id DESC
-LIMIT 20;
+SELECT p.id,
+       p.author_id,
+       p.content,
+       ST_Y(p.display_location::geometry) AS lat,
+       ST_X(p.display_location::geometry) AS lng,
+       p.city_name,
+       p.created_at,
+       (pl.user_id IS NOT NULL) AS liked_by_viewer,
+       c.n AS reply_count
+  FROM visible_posts p
+  LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = :viewer_id
+  LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS n
+        FROM post_replies pr
+        JOIN visible_users vu ON vu.id = pr.author_id
+       WHERE pr.post_id = p.id
+         AND pr.deleted_at IS NULL
+  ) c ON TRUE
+ WHERE p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
+   AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
+   AND (p.created_at, p.id) < (:cursor_ts, :cursor_id)
+ ORDER BY p.created_at DESC, p.id DESC
+ LIMIT 31;  -- page-size 30 + one probe row for next_cursor
 ```
 
-Guest Global timeline omits the `user_blocks` subqueries (no viewer identity).
+`p.city_name` is populated at INSERT time by the `posts_set_city_tg` BEFORE INSERT trigger (V11) running the 4-step fallback ladder against the `admin_regions` polygon set (V12 seed: 38 provinces + 514 kabupaten/kota). NULL `city_name` (legacy V4 row or polygon-coverage gap) serializes as `""` in the response. The Nearby + Following queries also project `p.city_name` since V11; their canonical shapes in `JdbcPostsTimelineRepository.kt` + `JdbcPostsFollowingRepository.kt` add the column to the SELECT list with no other change.
+
+Guest Global timeline omits the `user_blocks` subqueries (no viewer identity). Guest read-only access is deferred to the Redis-backed rate-limit change (Phase 1 item 24); the authenticated endpoint shipped first.
+
+### V11 + V12 Migration History (admin_regions + reverse-geocode trigger)
+
+`backend/ktor/src/main/resources/db/migration/`:
+- **V11__admin_regions.sql** — schema-only (table + 4 indexes + `posts_set_city_fn` PL/pgSQL function + `posts_set_city_tg` BEFORE INSERT trigger + idempotent `visible_posts` view refresh). No `ALTER TABLE posts` (target columns `city_name TEXT` + `city_match_type VARCHAR(16)` already exist from V4). First spatially-seeded reference table + first BEFORE INSERT trigger in the Flyway history.
+- **V12__admin_regions_seed.sql** — 552 INSERTs (38 provinces + 514 kabupaten/kota including all 6 DKI children). Coastal kabupaten (48 of 514) carry a 12 nautical mile (~22 km) maritime buffer baked into `geom` (applied at import via `ST_Buffer(geom::geometry, 0.198°)` on rows whose centroid is within 50 km of `ST_Boundary(ST_Union(provinces))`). Polygons simplified to ~5.5 m tolerance + 6-decimal `ST_AsText` precision (33 MB total). IDs = stable OSM relation IDs per design Decision 8. Trailing `ST_Multi(ST_CollectionExtract(ST_MakeValid(geom::geometry), 3))::geography` sweep cleans up 3 precision-truncation self-intersections (Karanganyar, Sukoharjo, Buton Selatan); idempotent.
+
+The schema/seed split (V11 schema in Session 1, V12 seed in Session 2) deviated from the original "single migration" design Decision 3; rationale documented in the archived `design.md` Decision 3 amendment. The `admin_regions` empty-table window between V11 deploy and V12 deploy was safe because the trigger's 4-step ladder + the timeline DTOs were both NULL-tolerant. Reproducible re-seed pipeline lives at `dev/scripts/import-admin-regions/`.
 
 ### Sliding Window Session Tracking (Server-Side via Redis)
 
