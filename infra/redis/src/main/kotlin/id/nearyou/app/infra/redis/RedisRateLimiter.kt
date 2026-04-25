@@ -5,6 +5,7 @@ import io.lettuce.core.RedisClient
 import io.lettuce.core.ScriptOutputType
 import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.api.sync.RedisCommands
+import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
 import java.util.UUID
@@ -37,9 +38,47 @@ import java.util.UUID
 class RedisRateLimiter(
     private val client: RedisClient,
     private val clock: Clock = Clock.systemUTC(),
+    private val retryBackoff: Duration = Duration.ofSeconds(30),
 ) : RateLimiter, AutoCloseable {
-    private val connection: StatefulRedisConnection<String, String> = client.connect()
-    private val sync: RedisCommands<String, String> = connection.sync()
+    // Connection is lazy + fail-soft: a Redis hiccup (DNS, TCP, auth) at boot or
+    // during a request MUST NOT crash the app. Earlier eager `client.connect()` in
+    // the constructor crashed Ktor module load when Lettuce's first connect attempt
+    // failed → unhandled exception in main → Cloud Run startup probe failed → revision
+    // rollback (observed on staging rev nearyou-backend-staging-00033-xj6, 2026-04-25).
+    // The proposal called this out as fail-soft intent; this brings the implementation
+    // in line.
+    @Volatile private var connection: StatefulRedisConnection<String, String>? = null
+
+    @Volatile private var nextAttemptAtMillis: Long = 0L
+    private val backoffMillis: Long = retryBackoff.toMillis()
+
+    /**
+     * Returns a live [RedisCommands] handle, or null if Redis is currently unreachable.
+     * Caller is responsible for fail-soft behavior on null. After a connect failure
+     * we suppress reattempts for [retryBackoff] to avoid hammering Redis on every
+     * request.
+     */
+    private fun sync(): RedisCommands<String, String>? {
+        connection?.let { existing -> if (existing.isOpen) return existing.sync() }
+        if (clock.millis() < nextAttemptAtMillis) return null
+        return synchronized(this) {
+            connection?.let { existing -> if (existing.isOpen) return@synchronized existing.sync() }
+            if (clock.millis() < nextAttemptAtMillis) return@synchronized null
+            try {
+                val fresh = client.connect()
+                connection = fresh
+                fresh.sync()
+            } catch (e: Exception) {
+                logger.warn(
+                    "event=redis_connect_failed reason={} message={} fail_soft=true",
+                    e.javaClass.simpleName,
+                    e.message,
+                )
+                nextAttemptAtMillis = clock.millis() + backoffMillis
+                null
+            }
+        }
+    }
 
     override fun tryAcquire(
         userId: UUID,
@@ -47,29 +86,41 @@ class RedisRateLimiter(
         capacity: Int,
         ttl: Duration,
     ): RateLimiter.Outcome {
+        val sync = sync() ?: return RateLimiter.Outcome.Allowed(remaining = capacity)
         val nowMs = clock.millis()
         val windowMs = ttl.toMillis()
         val ttlMs = ttl.toMillis()
         val jti = UUID.randomUUID().toString()
 
-        @Suppress("UNCHECKED_CAST")
-        val result =
-            sync.eval<List<Long>>(
-                LUA_TRY_ACQUIRE,
-                ScriptOutputType.MULTI,
-                arrayOf(key),
-                nowMs.toString(),
-                windowMs.toString(),
-                ttlMs.toString(),
-                capacity.toString(),
-                jti,
+        return try {
+            @Suppress("UNCHECKED_CAST")
+            val result =
+                sync.eval<List<Long>>(
+                    LUA_TRY_ACQUIRE,
+                    ScriptOutputType.MULTI,
+                    arrayOf(key),
+                    nowMs.toString(),
+                    windowMs.toString(),
+                    ttlMs.toString(),
+                    capacity.toString(),
+                    jti,
+                )
+            val flag = result[0]
+            val value = result[1]
+            if (flag == 1L) {
+                RateLimiter.Outcome.Allowed(remaining = value.toInt())
+            } else {
+                RateLimiter.Outcome.RateLimited(retryAfterSeconds = value)
+            }
+        } catch (e: Exception) {
+            logger.warn(
+                "event=redis_acquire_failed key={} reason={} message={} fail_soft=true",
+                key,
+                e.javaClass.simpleName,
+                e.message,
             )
-        val flag = result[0]
-        val value = result[1]
-        return if (flag == 1L) {
-            RateLimiter.Outcome.Allowed(remaining = value.toInt())
-        } else {
-            RateLimiter.Outcome.RateLimited(retryAfterSeconds = value)
+            invalidateOnRuntimeFailure()
+            RateLimiter.Outcome.Allowed(remaining = capacity)
         }
     }
 
@@ -77,21 +128,46 @@ class RedisRateLimiter(
         userId: UUID,
         key: String,
     ) {
-        // ZPOPMAX returns nil for an empty/missing key — the no-op contract holds
-        // automatically. Single-call atomic on the Redis side.
-        sync.zpopmax(key, 1)
+        val sync = sync() ?: return
+        try {
+            // ZPOPMAX returns nil for an empty/missing key — the no-op contract holds
+            // automatically. Single-call atomic on the Redis side.
+            sync.zpopmax(key, 1)
+        } catch (e: Exception) {
+            logger.warn(
+                "event=redis_release_failed key={} reason={} message={}",
+                key,
+                e.javaClass.simpleName,
+                e.message,
+            )
+            invalidateOnRuntimeFailure()
+        }
+    }
+
+    private fun invalidateOnRuntimeFailure() {
+        synchronized(this) {
+            connection?.runCatching { close() }
+            connection = null
+            nextAttemptAtMillis = clock.millis() + backoffMillis
+        }
     }
 
     /**
-     * Closes the underlying Lettuce connection. Safe to call multiple times. The
-     * underlying [RedisClient] is NOT shutdown here — the caller owns the client
-     * lifecycle (typically registered as a Koin singleton, shutdown at server stop).
+     * Closes the underlying Lettuce connection if one was opened. Safe to call
+     * multiple times. The underlying [RedisClient] is NOT shutdown here — the caller
+     * owns the client lifecycle (typically registered as a Koin singleton, shutdown
+     * at server stop).
      */
     override fun close() {
-        connection.close()
+        synchronized(this) {
+            connection?.close()
+            connection = null
+        }
     }
 
     companion object {
+        private val logger = LoggerFactory.getLogger(RedisRateLimiter::class.java)
+
         /**
          * Lua sliding-window admit-or-reject script.
          *
