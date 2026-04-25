@@ -82,13 +82,37 @@ Archive a completed change in the experimental workflow.
    mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
    ```
 
-6. **Display summary**
+6. **Update PR body to merge-ready state (one-PR-per-change convention).**
+
+   Per `openspec/project.md` § Change Delivery Workflow + § "PR title and body MUST stay current at every phase boundary," the archive commit lands on the SAME PR that `/next-change` opened. After `openspec archive` moves the change directory and syncs specs, push the archive commit to the PR's branch and refresh the PR body to a "merge-ready" shape.
+
+   ```bash
+   gh pr list --head "<change-name>" --state open --json number --jq '.[0].number'
+   gh pr edit <pr-number> --body "$(cat <<'EOF'
+   <updated body — merge-ready shape, see openspec/project.md for the prescription>
+   EOF
+   )"
+   ```
+
+   The merge-ready body should:
+   - Lead with **Status: ✅ Implementation + archive complete. Merge-ready.**
+   - Drop the in-progress framing.
+   - Include final test counts + capability deltas (ADDED/MODIFIED summary from `openspec archive` output).
+   - List any post-merge tasks (e.g., staging smoke test) explicitly as "ticks after squash-merge."
+   - Cite the `one-PR-per-change` convention so the reviewer understands why the PR has 10+ commits + the squash will produce ONE commit on `main`.
+
+   The title may need a final retitle if the dominant prefix changed during the lifecycle (use `gh pr edit <pr> --title '<new-title>'`). Usually `feat(<area>): <name>` from the first feat-commit transition still fits.
+
+   This step is required by `openspec/project.md` § "PR title and body MUST stay current at every phase boundary." Skipping it leaves the PR description in its in-progress / proposal shape after archive, which misleads reviewers at squash-merge time. Precedent: an earlier `/opsx:archive` run on PR #37 skipped this step and the user had to manually request the body refresh — that gap is closed by making this an explicit skill step.
+
+7. **Display summary**
 
    Show archive completion summary including:
    - Change name
    - Schema that was used
    - Archive location
    - Whether specs were synced (if applicable)
+   - PR body refresh confirmation (`gh pr edit <pr> --body` ran successfully)
    - Note about any warnings (incomplete artifacts/tasks)
 
 **Output On Success**

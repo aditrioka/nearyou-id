@@ -126,7 +126,18 @@ Direct push to `main` is hook-blocked — every change ships via feature branch 
 
 **Precedent transition.** The V5–V11 git log shows the OLD 3-PR shape (e.g., `global-timeline-with-region-polygons` shipped as PR #15 propose + PR #29/#31 feat + PR #35 archive — three separate squash-merges). That convention is **deprecated**. PR #37 (`like-rate-limit`) is the FIRST change slated to ship under the one-PR convention. Future contributors reading `git log` will see two regimes pre-#37 and post-#37.
 
-**Iteration rule applies to ALL phases.** Push new commits to the same branch through proposal-review, implementation, AND archive. Do NOT open new PRs per phase. Title evolves via `gh pr edit` as the PR's scope progresses (`docs(openspec): propose <name>` → `feat(<area>): <name>` → arguably `chore(openspec): ship <name>` if you want one final retitle before squash; but matching the latest meaningful commit prefix is also fine). PR number stays stable from `/next-change` opening it through final squash-merge. Body gets updated to reflect current state at each phase boundary.
+**Iteration rule applies to ALL phases.** Push new commits to the same branch through proposal-review, implementation, AND archive. Do NOT open new PRs per phase. PR number stays stable from `/next-change` opening it through final squash-merge.
+
+**PR title and body MUST stay current at every phase boundary** (this is a hard rule, not optional). The PR is the only artifact reviewers see at squash-merge time, so it has to describe the change as it stands NOW, not as it stood when `/next-change` first opened it. Phase boundaries to refresh at:
+
+- **At proposal review completion** (after the 2-iteration review-loop cap settles): refresh the body to summarize blocking-vs-non-blocking findings applied + a "ready to start implementation" note.
+- **At first feat commit** (when `/opsx:apply` lands its first implementation commit): retitle via `gh pr edit <pr> --title 'feat(<area>): <name>'` (or whichever conventional-commit prefix matches the dominant work — `feat(rate-limit)`, `feat(engagement)`, etc.), and update the body to a "in-progress implementation" shape that lists which sections are done.
+- **At every subsequent section / sub-agent dispatch** that lands a non-trivial commit: update the body's progress table — it costs 30 seconds and saves the next reviewer a `git log` archaeology session.
+- **At archive completion** (`/opsx:archive` finishes): update the body to a "merge-ready" shape — drop the in-progress framing, list final test counts + capability deltas + any post-merge tasks (e.g., staging smoke), and call out the convention (`one-PR-per-change`, `single squash-merge produces one commit on main`). The title may need a final retitle if the dominant prefix changed (e.g., archive-heavy `chore(openspec):` if appropriate, but `feat(<area>):` usually still fits).
+
+Use `gh pr edit <pr> --body "$(cat <<'EOF' ... EOF)"` to push body updates — the heredoc preserves formatting. Title updates use `gh pr edit <pr> --title '<new-title>'`. Both commands are idempotent — running them twice with the same content is a no-op on GitHub.
+
+Precedent: PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) (`like-rate-limit`) shipped under this convention with multiple title/body refreshes across the lifecycle. Skipping the archive-phase refresh once required the user to manually request the body update — codifying it here keeps that gap closed.
 
 **Review channels for the change PR.** Two complementary channels run in parallel (per `CLAUDE.md` § Reviewing a PR §7 + the `/next-change` skill Phase D):
 
