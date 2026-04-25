@@ -78,13 +78,37 @@ Archive a completed change in the experimental workflow.
    mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
    ```
 
-6. **Display summary**
+6. **Update PR body to merge-ready state (one-PR-per-change convention).**
+
+   Per `openspec/project.md` § Change Delivery Workflow + § "PR title and body MUST stay current at every phase boundary," the archive commit lands on the SAME PR that `/next-change` opened. After `openspec archive` moves the change directory and syncs specs, push the archive commit to the PR's branch and refresh the PR body to a "merge-ready" shape.
+
+   ```bash
+   gh pr list --head "<change-name>" --state open --json number --jq '.[0].number'
+   gh pr edit <pr-number> --body "$(cat <<'EOF'
+   <updated body — merge-ready shape, see openspec/project.md for the prescription>
+   EOF
+   )"
+   ```
+
+   The merge-ready body should:
+   - Lead with **Status: ✅ Implementation + archive complete. Merge-ready.**
+   - Drop the in-progress framing.
+   - Include final test counts + capability deltas (ADDED/MODIFIED summary from `openspec archive` output).
+   - List any post-merge tasks (e.g., staging smoke test) explicitly as "ticks after squash-merge."
+   - Cite the `one-PR-per-change` convention so the reviewer understands why the PR has 10+ commits + the squash will produce ONE commit on `main`.
+
+   The title may need a final retitle if the dominant prefix changed during the lifecycle (use `gh pr edit <pr> --title '<new-title>'`). Usually `feat(<area>): <name>` from the first feat-commit transition still fits.
+
+   This step is required by `openspec/project.md` § "PR title and body MUST stay current at every phase boundary." Skipping it leaves the PR description in its in-progress / proposal shape after archive, which misleads reviewers at squash-merge time. Precedent: an earlier `/opsx:archive` run on PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) skipped this step and the user had to manually request the body refresh — that gap is closed by making this an explicit command step.
+
+7. **Display summary**
 
    Show archive completion summary including:
    - Change name
    - Schema that was used
    - Archive location
    - Spec sync status (synced / sync skipped / no delta specs)
+   - PR body refresh confirmation (`gh pr edit <pr> --body` ran successfully)
    - Note about any warnings (incomplete artifacts/tasks)
 
 **Output On Success**
@@ -155,3 +179,14 @@ Target archive directory already exists.
 - Show clear summary of what happened
 - If sync is requested, use the Skill tool to invoke `openspec-sync-specs` (agent-driven)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
+
+**Branching (nearyou-id project — one PR per change lifecycle)**
+
+Commit and push the archive commit to the **existing change branch** (the one `/next-change` opened, branch name = change name) — the same branch that already carries the proposal commits and the feat commits from `/opsx:apply`. Do NOT create a separate `openspec/archive-<change-name>` branch and do NOT open a separate archive PR. The archive commit is the LAST commit before squash-merge to `main`.
+
+Suggested commit shape: `chore(openspec): archive <change-name>` (or `docs(openspec): archive <change-name>` to match prior precedent), with a body summarizing capability spec changes (capabilities ADDED / MODIFIED / REMOVED). The archive commit lands BEFORE the unified PR's squash-merge — see `openspec/project.md` § Change Delivery Workflow → Archive timing for the gating sequence (CI green → archive commit pushed → CI green again → squash-merge → staging deploy green).
+
+After the archive commit lands, the next step is the user squash-merging the unified PR, NOT a separate archive PR. If you find yourself about to run `gh pr create` for an archive PR on this nearyou-id project, stop — that's the OLD 3-PR convention (V5–V11 archives, e.g., PRs [#34](https://github.com/aditrioka/nearyou-id/pull/34) / [#35](https://github.com/aditrioka/nearyou-id/pull/35)). PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) (`like-rate-limit`) was the first change to ship under the new one-PR convention; PR [#38](https://github.com/aditrioka/nearyou-id/pull/38) codified the convention in docs.
+
+<!-- Mirror of .claude/skills/openspec-archive-change/SKILL.md § Branching — keep in sync. -->
+
