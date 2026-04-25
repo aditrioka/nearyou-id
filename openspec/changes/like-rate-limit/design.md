@@ -14,7 +14,7 @@ The first user-facing consumer of the new infra is the like cap. Reply 20/day, p
 - Ship `computeTTLToNextReset(userId): Duration` as the single canonical WIB-stagger helper, in `:core:domain` (no Redis import), implementing the formula in [`docs/05-Implementation.md:1751-1755`](../../../docs/05-Implementation.md): `offset_seconds = hash(user_id) % 3600`.
 - Apply daily 10/day Free + rolling 500/hour burst (both tiers) to `POST /api/v1/posts/{post_id}/like`, with 429 + `Retry-After` on limit hit, idempotent re-like releasing the slot, and `premium_like_cap_override` Remote Config flag honored server-side.
 - Add two Detekt rules (`RateLimitTtlRule`, `RedisHashTagRule`) so the conventions stick across future call sites (the four already-planned changes).
-- Port the V9 `ReportRateLimiter` from in-process to the new Redis-backed interface with **zero client-visible behavior change** — the V9 test suite is the regression gate.
+- Port the V9 `ReportRateLimiter` from in-process to the new Redis-backed interface with **zero client-visible behavior change**. V9's `ReportRateLimiterTest` cannot itself remain the canonical correctness gate (its `clock: () -> Instant` injection seam doesn't survive Lua's server-side `TIME` call) — instead, the V9 contract assertions are reproduced in `RedisRateLimiterIntegrationTest` against a real Redis container, and V9's existing test class is retained against an in-memory `RateLimiter` test double for plumbing-level checks. See Decision 7.
 
 **Non-Goals:**
 
@@ -108,15 +108,22 @@ Both rules MUST support detekt-test `lint(String)` synthetic-file harness via pa
 
 ### Decision 7 — V9 `ReportRateLimiter` port: behind-the-interface swap, no public API change
 
-**Choice.** Replace the body of `ReportRateLimiter.tryAcquire` / `releaseMostRecent` with calls to the new `RateLimiter` interface. The `Outcome` sealed interface, the `cap`/`window` constructor parameters, and the `keyFor(userId)` static helper all stay byte-identical. The V9 `ReportEndpointsTest` suite (database-tagged) MUST pass without modification — that's the regression gate.
+**Choice.** Replace the body of `ReportRateLimiter.tryAcquire` / `releaseMostRecent` with calls to the new `RateLimiter` interface. The `Outcome` sealed interface, the `cap`/`window` constructor parameters, and the `keyFor(userId)` static helper all stay byte-identical.
 
-The class itself is kept as a thin wrapper rather than deleted because callers reference its `Outcome` types and `keyFor` directly. Deletion would diff the V9 spec scenarios that were written against the wrapper (see `reports/spec.md` § "Redis key uses hash-tag format"). Wrapping is the minimum-diff port.
+**Test gate split.** The original framing — "V9 test suite is the regression gate" — was inaccurate at the test-class level. V9's `ReportRateLimiterTest` constructs the limiter with an injected `clock: () -> Instant` and exercises an in-process `ConcurrentHashMap`. The clock seam doesn't survive the port: Redis Lua calls `redis.call('TIME')`, which is server-side. So:
 
-**Why.** Minimizes spec drift on `reports`. The behavior contract V9 designed (sliding window, hash-tag key, 409 release) was specifically structured so this swap would be invisible — proving that out is the point of the port.
+- **Canonical correctness gate** moves to `RedisRateLimiterIntegrationTest` (in `:infra:redis`), running against a real `redis:7-alpine` CI container, which subsumes V9's contract assertions (10-succeed window, 11th-429, Retry-After-reflects-oldest, 409-release-on-empty).
+- **V9's existing `ReportRateLimiterTest`** is retained but re-pointed at an in-memory test double of the new `RateLimiter` interface — it now verifies moderation-route plumbing (correct cap/window wiring, 409-release call-site behavior) at unit speed, NOT Lua-level correctness.
+- **V9's `ReportEndpointsTest`** (database-tagged, end-to-end) runs against the same Redis container as `RedisRateLimiterIntegrationTest` and MUST pass without modification — those tests assert HTTP-level behavior, not internal limiter mechanics, and are unaffected by the clock-seam change.
+
+The wrapper class itself is kept as a thin pass-through rather than deleted because callers reference its `Outcome` types and `keyFor` directly. Deletion would diff the V9 spec scenarios that were written against the wrapper (see `reports/spec.md` § "Redis key uses hash-tag format"). Wrapping is the minimum-diff port. **Open follow-up (not in this change's scope):** if no caller outside the moderation module references the wrapper's `Outcome` types post-port, a future cleanup ticket can inline the route handler against the `RateLimiter` interface directly and delete the wrapper. Track via FOLLOW_UPS.md if discovered post-merge.
+
+**Why.** Minimizes spec drift on `reports`. The behavior contract V9 designed (sliding window, hash-tag key, 409 release) was specifically structured so this swap would be invisible at the moderation-route level — proving that out is the point of the port.
 
 **Alternatives considered.**
 
 - **Delete `ReportRateLimiter`, inline at the route**: bigger diff to V9 spec scenarios + tests. Defer to a future cleanup if it makes sense post-port.
+- **Refactor V9 tests to inject a Lua-compatible clock**: would require a custom Lua `TIME` shim or a Lettuce extension; not worth the complexity for a one-time port. Splitting the gate as above is cleaner.
 
 ## Risks / Trade-offs
 
@@ -127,6 +134,9 @@ The class itself is kept as a thin wrapper rather than deleted because callers r
 - **[Risk] V9 `ReportRateLimiter` test suite passes against the in-process impl but not against Redis** (e.g., test container missing). → Mitigation: the existing CI test job already runs PostgreSQL via `postgis/postgis` service container; add a `redis:7-alpine` service container alongside it (`docker-compose.yml` already declares one for dev), and have `KotestProjectConfig` boot it once per test JVM. The V9 test suite gets a one-line config change (Redis URL injected into the limiter constructor); no test code edits.
 - **[Trade-off] Two limiters per like request (daily + burst) means two Redis round-trips per `POST /like`.** → Acceptable: each is single-Lua, sub-millisecond on Upstash; benchmark target `<10ms` total for the limiter pair. The 1000 req/min/IP Layer 1 baseline already gates abuse upstream.
 - **[Trade-off] No DB-side counter for per-day usage.** → Intentional: Redis is authoritative for rate limits; the DB has no "likes today" column. If Redis goes down, the limiter fails-closed (return 503) — better than fail-open which would let the cap be bypassed.
+- **[Documented race] `releaseMostRecent` may pop a different concurrent slot than the one its caller acquired.** → When two requests R1 and R2 from the same user run concurrently, R1 calls `tryAcquire` (score `t1`), R2 calls `tryAcquire` (score `t2 > t1`), and R1 then hits the no-op release path, the `ZPOPMAX` pops R2's entry instead of R1's. **Correctness:** slots are fungible — the cap counts INSERT events, not specific events — so the visible-cap behavior is unchanged. R1 returns 204 (idempotent re-like) and R2's slot is the one freed. R2 still holds its outcome (Allowed/RateLimited) from its own `tryAcquire`. This is a fairness wash, NOT a bypass. Documented here so future reviewers don't mistake it for a bug.
+- **[Documented race] Premium → Free downgrade mid-request.** → If a RevenueCat webhook flips `users.subscription_status` from `premium_active` to `free` between the auth-time principal load and the limiter check, the request observed Premium and skipped the daily limiter — letting a now-Free user exceed the cap by AT MOST one like during the flip window. Bounded by the auth-time read (single read per request); the next request reads the fresh status. Acceptable: the abuse-window is one extra like in a multi-second flip, not an ongoing bypass. Documented so the test class doesn't try to assert otherwise.
+- **[Documented expectation] Lua atomicity under MAXMEMORY pressure.** → Redis Lua scripts are atomic by construction — eviction happens between commands, not mid-script. If MAXMEMORY pressure forces eviction during the script's execution, the script either completes (its keys not evicted because they're being touched) or Redis rejects with OOM at the script-call boundary. Either way, no partial state is visible. The Redis-backed `RateLimiter` impl propagates OOM as a 503 from the like handler (fail-closed) — there is no "partial admit, no expire" failure mode the spec needs to guard.
 
 ## Migration Plan
 

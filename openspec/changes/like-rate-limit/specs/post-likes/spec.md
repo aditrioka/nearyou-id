@@ -8,6 +8,8 @@ The TTL MUST be supplied via `computeTTLToNextReset(userId)` so the per-user off
 
 Tier gating reads `users.subscription_status` (V3 schema column, three-state enum). Both `premium_active` and `premium_billing_retry` (the 7-day grace state) MUST skip the daily limiter entirely. Only `free` (and any future state mapping to free) is subject to the cap.
 
+**Read-site constraint.** Tier MUST be read from the request-scope `viewer` principal populated by the auth-jwt plugin (which already loads `subscription_status` alongside the user identity for every authenticated request — see `auth-session` capability). The like handler MUST NOT issue a fresh `SELECT subscription_status FROM users WHERE id = :caller` before the limiter; doing so would violate the "limiter runs before any DB read" guarantee. If the auth principal does not carry `subscription_status`, that's a defect in the auth path and MUST be fixed there, not worked around by adding a DB read in this handler.
+
 The daily limiter MUST run BEFORE any DB read (specifically, before the `visible_posts` resolution SELECT and the `post_likes` INSERT). On `RateLimited`, the response is HTTP 429 with body `{ "error": { "code": "rate_limited" } }` and a `Retry-After` header set to the seconds returned by the limiter (≥ 1).
 
 The daily limiter MUST count INSERTs only — `DELETE /api/v1/posts/{post_id}/like` (unlike) MUST NOT consume a slot.
@@ -22,7 +24,7 @@ The daily limiter MUST count INSERTs only — `DELETE /api/v1/posts/{post_id}/li
 
 #### Scenario: Retry-After approximates seconds to next reset
 - **WHEN** the 11th request is rejected at WIB time `T`
-- **THEN** the `Retry-After` value is approximately the number of seconds from `T` to (next 00:00 WIB) + (`hash(A.id) % 3600` seconds), within ±2 seconds
+- **THEN** the `Retry-After` value is approximately the number of seconds from `T` to (next 00:00 WIB) + (`hash(A.id) % 3600` seconds), within ±5 seconds (tolerance widened from ±2s to absorb CI runner clock + Redis `TIME` skew)
 
 #### Scenario: Premium user not gated by daily cap
 - **WHEN** caller A has `users.subscription_status = 'premium_active'` AND attempts a 25th like in a single WIB day
@@ -78,7 +80,7 @@ The burst limiter MUST count INSERTs only — unlike (`DELETE`) MUST NOT consume
 
 #### Scenario: Burst Retry-After reflects oldest counted like
 - **WHEN** the 501st request is rejected
-- **THEN** the `Retry-After` value is approximately the number of seconds until the oldest counted like ages out of the 60-minute window, within ±2 seconds
+- **THEN** the `Retry-After` value is approximately the number of seconds until the oldest counted like ages out of the 60-minute window, within ±5 seconds (CI tolerance per the daily limiter's matching scenario above)
 
 #### Scenario: Burst applies to Free at the per-day cap intersection
 - **WHEN** Free caller A is at the 10/day daily cap
@@ -97,8 +99,8 @@ The flag is intended for ops-side adjustment per Decision 28 in [`docs/08-Roadma
 - **THEN** the response is HTTP 429 (daily cap = 10)
 
 #### Scenario: Flag = 20 raises the cap
-- **WHEN** `premium_like_cap_override = 20` AND Free caller A attempts a 21st like in a day
-- **THEN** the response is HTTP 429 AND a 20th like in the same day succeeded
+- **WHEN** `premium_like_cap_override = 20` AND Free caller A has 20 successful likes today AND attempts a 21st like
+- **THEN** the 20th like (within the override) returned HTTP 204 AND the 21st returns HTTP 429 with `error.code = "rate_limited"`
 
 #### Scenario: Flag = 5 lowers the cap mid-day
 - **WHEN** Free caller A has 7 successful likes today (under the original 10 cap) AND `premium_like_cap_override = 5` is set AND A attempts an 8th like
@@ -107,6 +109,14 @@ The flag is intended for ops-side adjustment per Decision 28 in [`docs/08-Roadma
 #### Scenario: Flag = 0 falls back to default
 - **WHEN** `premium_like_cap_override = 0` (invalid) AND Free caller A attempts an 11th like in a day
 - **THEN** the response is HTTP 429 (the cap remains 10, not 0)
+
+#### Scenario: Flag malformed (non-integer string) falls back to default
+- **WHEN** `premium_like_cap_override = "twenty"` (or any non-integer-parseable value returned by the Remote Config client) AND Free caller A attempts an 11th like in a day
+- **THEN** the response is HTTP 429 (the cap remains 10) AND a Sentry WARN is logged identifying the malformed value (so ops can detect the misconfiguration)
+
+#### Scenario: Remote Config network failure falls back to default
+- **WHEN** the Remote Config SDK throws an `IOException` (or any error) when the like handler attempts to read `premium_like_cap_override` AND Free caller A attempts an 11th like in a day
+- **THEN** the response is HTTP 429 (the cap defaults to 10) AND the request does NOT 5xx — Remote Config errors MUST NOT propagate into a user-facing 5xx since the safe default is conservative (the canonical 10/day cap)
 
 #### Scenario: Flag does NOT affect Premium
 - **WHEN** `premium_like_cap_override = 5` AND Premium caller A attempts an 8th like
@@ -129,9 +139,13 @@ The handler MUST NOT release on any other path:
 - 5xx server error → no release (operational risk; the slot is not the worst problem)
 - successful new like (1 row INSERT'd) → no release; the slot stays consumed
 
-#### Scenario: Re-like releases both limiter slots
+#### Scenario: Re-like releases both limiter slots (Free)
 - **WHEN** Free caller A has 5 successful likes today AND has already liked post P AND POSTs `/api/v1/posts/P/like` again
 - **THEN** the response is HTTP 204 AND the `{scope:rate_like_day}:{user:A}` bucket size is 5 (unchanged) AND the `{scope:rate_like_burst}:{user:A}` bucket size is 5 (unchanged)
+
+#### Scenario: Re-like releases burst slot only (Premium)
+- **WHEN** Premium caller A (status `premium_active`) has 5 successful likes today AND has already liked post P AND POSTs `/api/v1/posts/P/like` again
+- **THEN** the response is HTTP 204 AND the `{scope:rate_like_day}:{user:A}` bucket has never been written (size 0; the daily limiter was skipped per the Premium-tier-skip contract) AND the `{scope:rate_like_burst}:{user:A}` bucket size is 5 (unchanged — the burst slot was acquired and then released). The handler MUST call `releaseMostRecent` on the daily key as well; that call is a no-op on the empty bucket per the `RateLimiter` contract — verifying this scenario protects against a future regression where the handler skips the daily-release call for Premium and a non-empty daily bucket leaks slots.
 
 #### Scenario: 404 post_not_found does NOT release
 - **WHEN** Free caller A has 5 successful likes today AND POSTs `/like` on a non-existent post UUID
@@ -156,7 +170,7 @@ The like service SHALL run, in this exact order, on every `POST /api/v1/posts/{p
 5. `visible_posts` resolution SELECT with bidirectional `user_blocks` exclusion (existing — 404 `post_not_found` on miss). 404 path does NOT release the limiter slots.
 6. `INSERT ... ON CONFLICT DO NOTHING` into `post_likes`.
 7. **If the INSERT affected 0 rows (re-like)**: call `releaseMostRecent` on both limiter keys.
-8. Notification emit (V10 — only on transition from "not liked" to "liked").
+8. Notification emit (V10 — only on transition from "not liked" to "liked"). The notification emit MUST NOT block the 204 response: it runs inside the same DB transaction as the `post_likes` INSERT (per the V10 strict-coupling contract), but the transaction commit MUST happen synchronously and the 204 MUST be returned as soon as the commit completes — any FCM push or downstream side-effect MUST be enqueued as fire-and-forget on the IO dispatcher, NOT awaited inline. Slow-emit attacker patterns (e.g., a Cloud Run thread held open by a long-tail FCM round-trip) MUST NOT consume request capacity.
 9. Return 204.
 
 Steps 3–4 MUST run before any DB query. The 401, 400, and rate-limit branches MUST NOT execute a DB statement.
@@ -183,20 +197,25 @@ Steps 3–4 MUST run before any DB query. The 401, 400, and rate-limit branches 
 
 1. 10 likes in a day succeed for Free user.
 2. 11th like in the same day rate-limited; 429 + `Retry-After` + no row inserted.
-3. `Retry-After` value within ±2s of expected (relative to `now`).
+3. `Retry-After` value within ±5s of expected (relative to `now`).
 4. Premium user (status `premium_active`) skips the daily limiter — 25 likes in a day all succeed.
 5. Premium billing retry status (`premium_billing_retry`) also skips the daily limiter.
 6. 500/hour burst applies to Premium — 501st like rejected.
 7. 500/hour burst applies to Free at the same threshold (with override raised to 600 to isolate the burst limiter).
-8. `premium_like_cap_override` raises the cap to 20 for a Free user (21st rejected).
+8. `premium_like_cap_override` raises the cap to 20 for a Free user (21st rejected after a successful 20th).
 9. `premium_like_cap_override` lowers the cap mid-day; user previously at 7 is rejected at 8.
 10. `premium_like_cap_override = 0` falls back to default 10.
-11. Re-like (already-liked post) returns 204 AND does NOT consume a daily or burst slot.
-12. 404 `post_not_found` consumes a slot (does NOT release).
-13. Daily limit hit short-circuits before `visible_posts` SELECT (assert: hit a non-existent post UUID; expect 429 not 404).
-14. Hash-tag key shape verified: daily key = `{scope:rate_like_day}:{user:<uuid>}`, burst = `{scope:rate_like_burst}:{user:<uuid>}`.
-15. WIB rollover: at the per-user reset moment the cap restores.
-16. Unlike does NOT consume any limiter slot.
+11. `premium_like_cap_override = "twenty"` (malformed non-integer) falls back to default 10 + Sentry WARN.
+12. Remote Config network failure (SDK throws) falls back to default 10; no 5xx propagated.
+13. Free re-like (already-liked post) returns 204 AND does NOT consume a daily or burst slot.
+14. Premium re-like returns 204 AND the daily key remains empty (never written) AND the burst slot is released — protects against future regression where the handler skips the daily-release call for Premium.
+15. 404 `post_not_found` consumes a slot (does NOT release).
+16. Daily limit hit short-circuits before `visible_posts` SELECT (assert: hit a non-existent post UUID; expect 429 not 404).
+17. Hash-tag key shape verified: daily key = `{scope:rate_like_day}:{user:<uuid>}`, burst = `{scope:rate_like_burst}:{user:<uuid>}`.
+18. WIB rollover: at the per-user reset moment the cap restores.
+19. Unlike does NOT consume any limiter slot.
+20. Notification emit does not block the 204 response (assert: a like with a synthetically-slow downstream FCM stub still returns 204 within the request budget).
+21. Tier (`subscription_status`) is read from the auth-time `viewer` principal, not via a DB SELECT — assert via a query-counter / Postgres statement-log spy that the like handler issues zero `users` SELECTs before the limiter check.
 
 #### Scenario: Test class discoverable
 - **WHEN** running `./gradlew :backend:ktor:test --tests '*LikeRateLimitTest*'`

@@ -28,7 +28,7 @@ The infrastructure shipped here is also a hard prerequisite for at least four al
 
 ### Modified Capabilities
 
-- `post-likes`: adds the daily-cap, burst-cap, `premium_like_cap_override` Remote Config gate, 429-with-Retry-After contract, and idempotent-re-like-no-slot-consumed requirements to `POST /api/v1/posts/{post_id}/like`.
+- `post-likes`: adds the daily-cap, burst-cap, `premium_like_cap_override` Remote Config gate, 429-with-Retry-After contract, idempotent-re-like-no-slot-consumed, and limiter-ordering requirements to `POST /api/v1/posts/{post_id}/like`. The delta uses `## ADDED Requirements` exclusively (not `## MODIFIED`) because every new requirement is strictly additive: the existing V7 requirement "POST /like creates a like (idempotent)" continues to describe the un-rate-limited success path verbatim, and the new "Limiter ordering" requirement layers in front of it without altering its 204-on-success contract. Both coexist at archive — un-rate-limited callers still see the V7 contract; rate-limited callers see the new 429 contract. This mirrors the V10 in-app-notifications precedent, which also added emit-side-effect requirements without rewriting the underlying endpoint contracts.
 - `reports`: notes that the V9 in-process rate limiter has been ported to the shared `RateLimiter` infra. No client-visible behavior change. (The 10/hour cap, hash-tag key shape, and 409-release contract are preserved verbatim.)
 
 ## Impact

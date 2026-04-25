@@ -31,9 +31,17 @@ fun tryAcquire(userId: UUID, key: String, capacity: Int, ttl: Duration): Outcome
 fun releaseMostRecent(userId: UUID, key: String)
 ```
 
-`Outcome` MUST be a sealed interface with two data classes:
-- `Allowed(remaining: Int)` — `remaining` is the number of slots left in the window AFTER consumption.
-- `RateLimited(retryAfterSeconds: Long)` — `retryAfterSeconds` is the seconds until the oldest counted event ages out, suitable for a `Retry-After` HTTP header. MUST be coerced to at least 1.
+`Outcome` MUST be declared as a sealed interface in Kotlin with exactly two implementing data classes (mirroring V9 `ReportRateLimiter.Outcome` byte-for-byte — see `backend/ktor/src/main/kotlin/id/nearyou/app/moderation/ReportRateLimiter.kt:90-94`):
+
+```kotlin
+sealed interface Outcome {
+    data class Allowed(val remaining: Int) : Outcome
+    data class RateLimited(val retryAfterSeconds: Long) : Outcome
+}
+```
+
+- `Allowed.remaining` is the number of slots left in the window AFTER consumption.
+- `RateLimited.retryAfterSeconds` is the seconds until the oldest counted event ages out, suitable for a `Retry-After` HTTP header. MUST be coerced to at least 1.
 
 The `key` parameter is the full hash-tag-formatted Redis key constructed by the caller (the limiter does not synthesize it). The `ttl` parameter is the Redis key TTL — daily callers pass `computeTTLToNextReset(userId)`; hourly callers pass `Duration.ofHours(1)` directly.
 
@@ -50,8 +58,12 @@ The `key` parameter is the full hash-tag-formatted Redis key constructed by the 
 - **THEN** they match `id.nearyou.app.moderation.ReportRateLimiter.Outcome.Allowed.remaining` and `Outcome.RateLimited.retryAfterSeconds` from V9 byte-for-byte
 
 #### Scenario: Concurrent tryAcquire at capacity boundary
-- **WHEN** ten concurrent threads call `tryAcquire(userId, key, capacity = 10, ttl = ...)` against an empty bucket
+- **WHEN** ten concurrent calls (issued via `runBlocking { (1..10).map { async(Dispatchers.IO) { tryAcquire(userId, key, capacity = 10, ttl = ...) } }.awaitAll() }` — real parallel coroutines, NOT a sequential loop) execute against an empty bucket
 - **THEN** exactly ten observe `Allowed` AND any 11th concurrent call observes `RateLimited`
+
+#### Scenario: releaseMostRecent on empty bucket is a no-op
+- **WHEN** `releaseMostRecent(userId, key)` is called against a key that has never been written OR a key whose entries have all aged out and been pruned
+- **THEN** the call returns without error AND the bucket size remains 0 AND no Redis error is propagated to the caller (defensive contract — the only legitimate caller is the no-op-idempotent path which only invokes after a successful `tryAcquire`, but the implementation MUST still tolerate the empty-bucket case for future call sites)
 
 #### Scenario: releaseMostRecent reverses the most recent slot
 - **WHEN** a caller observes `Allowed` then calls `releaseMostRecent` immediately AND then `tryAcquire` is called again with the same `(userId, key)`
@@ -80,9 +92,17 @@ The unique-jti added to the sorted set MUST be a per-call random nonce (e.g., `U
 - **WHEN** the bucket has 10 entries all older than `window_ms` AND `tryAcquire` is called once
 - **THEN** the call returns `Allowed(remaining = 9)` AND the bucket size after the call is exactly 1
 
-#### Scenario: Hash-tag key format honored end-to-end
-- **WHEN** `tryAcquire(userId = U, key = "{scope:rate_like_day}:{user:U}", ...)` is called against an Upstash cluster instance
-- **THEN** the Lua script executes successfully (no `CROSSSLOT` error) AND both segments resolve to the same Redis Cluster slot
+#### Scenario: Two same-millisecond inserts both land via random JTI
+- **WHEN** two `tryAcquire` calls from the same `userId + key` execute via parallel coroutines such that both Lua scripts observe the same `now_ms` value
+- **THEN** both `ZADD` operations succeed AND the bucket size after both calls is exactly 2 (the random per-call JTI prevents the sorted-set member key from colliding even when the score is identical)
+
+#### Scenario: Bucket already over-capacity preserved on cap reduction
+- **WHEN** the bucket holds 7 entries within the window AND a subsequent `tryAcquire` is issued with `capacity = 5` (e.g., `premium_like_cap_override` was lowered mid-window)
+- **THEN** the call returns `RateLimited` (not `Allowed`) AND the bucket size after the call remains 7 (the script does NOT truncate excess entries — they age out naturally as the window rolls forward, and the user becomes admittable again only when the live count drops below the new capacity)
+
+#### Scenario: Hash-tag key format honored end-to-end (CRC16 math equivalent)
+- **WHEN** `tryAcquire(userId = U, key = "{scope:rate_like_day}:{user:U}", ...)` is called against the CI standalone `redis:7-alpine` test container
+- **THEN** the Lua script executes successfully AND a unit-level assertion verifies `getSlot("scope:rate_like_day")` equals `getSlot("user:U")` via Lettuce's CRC16 helper. NOTE: standalone Redis cannot raise `CROSSSLOT` at runtime — that error is only producible against an actual cluster; the test exercises the CRC16 math invariant that would prevent the runtime error in production, not the runtime rejection itself. Real-cluster `CROSSSLOT` rejection is exercised only via staging/prod traffic.
 
 #### Scenario: ZPOPMAX restores the slot for releaseMostRecent
 - **WHEN** the bucket holds three entries at scores `t1 < t2 < t3` AND `releaseMostRecent` is called
@@ -158,7 +178,7 @@ The rule MUST be registered in `NearYouRuleSetProvider` so `./gradlew detekt` pi
 
 Allowlist (rule does NOT fire even on a violating call site):
 1. **Test fixtures**: file path contains `/src/test/`.
-2. **Annotation bypass**: enclosing declaration (or any ancestor declaration) is annotated `@AllowDailyTtlOverride("<reason>")`. Short-name check only.
+2. **Annotation bypass**: enclosing declaration (or any ancestor declaration) is annotated `@AllowDailyTtlOverride(reason: String)`. Short-name check only. **The rule MUST fire if the annotation has no argument or its argument resolves to an empty string** — silent bypass via `@AllowDailyTtlOverride()` or `@AllowDailyTtlOverride("")` is forbidden. The annotation is declared with a non-nullable `String` parameter so that empty-string is the only possible silent-bypass shape, and that shape is rule-enforced.
 
 Both gates MUST support the detekt-test `lint(String)` synthetic-file harness via package-FQN fallback (mirror `BlockExclusionJoinRule.isAllowedPath`).
 
@@ -178,9 +198,17 @@ Both gates MUST support the detekt-test `lint(String)` synthetic-file harness vi
 - **WHEN** a file under `.../src/test/kotlin/.../*.kt` contains a daily-key call with hardcoded `Duration.ofDays(1)`
 - **THEN** the rule does NOT fire
 
-#### Scenario: @AllowDailyTtlOverride annotation passes
+#### Scenario: @AllowDailyTtlOverride annotation with non-empty reason passes
 - **WHEN** a function annotated `@AllowDailyTtlOverride("benchmark fixture")` contains a daily-key call with hardcoded `ttl`
 - **THEN** the rule does NOT fire on calls inside that function
+
+#### Scenario: @AllowDailyTtlOverride with empty-string reason still fires
+- **WHEN** a function annotated `@AllowDailyTtlOverride("")` contains a daily-key call with hardcoded `ttl`
+- **THEN** the rule reports a code smell on that call (empty-reason silent bypass is rejected)
+
+#### Scenario: Synthetic-file-harness via package-FQN fallback
+- **WHEN** the detekt-test `lint(String)` synthetic harness loads a fixture that has no `virtualFilePath` BUT whose package FQN is `id.nearyou.test.fixtures.<anything>` (recognized as a test fixture)
+- **THEN** the rule does NOT fire on calls in that fixture (mirroring the `BlockExclusionJoinRule.isAllowedPath` package-FQN-fallback precedent)
 
 #### Scenario: Rule registered via NearYouRuleSetProvider
 - **WHEN** reading `NearYouRuleSetProvider.instance(config)`
@@ -199,7 +227,7 @@ The rule MUST be registered in `NearYouRuleSetProvider`.
 
 Allowlist:
 1. **Test fixtures**: file path contains `/src/test/`.
-2. **Annotation bypass**: enclosing declaration (or any ancestor declaration) is annotated `@AllowRawRedisKey("<reason>")`. Short-name check only.
+2. **Annotation bypass**: enclosing declaration (or any ancestor declaration) is annotated `@AllowRawRedisKey(reason: String)`. Short-name check only. **The rule MUST fire if the annotation has no argument or its argument resolves to an empty string** — silent bypass via `@AllowRawRedisKey()` or `@AllowRawRedisKey("")` is forbidden. Same enforcement shape as `@AllowDailyTtlOverride` above.
 
 Both gates MUST support the detekt-test synthetic-file harness via package-FQN fallback.
 
@@ -223,9 +251,17 @@ Both gates MUST support the detekt-test synthetic-file harness via package-FQN f
 - **WHEN** a file under `.../src/test/kotlin/.../*.kt` contains `"rate:legacy"`
 - **THEN** the rule does NOT fire
 
-#### Scenario: @AllowRawRedisKey annotation passes
+#### Scenario: @AllowRawRedisKey annotation with non-empty reason passes
 - **WHEN** a function annotated `@AllowRawRedisKey("backfill cleanup")` contains `"rate:legacy:$x"`
 - **THEN** the rule does NOT fire on literals inside that function
+
+#### Scenario: @AllowRawRedisKey with empty-string reason still fires
+- **WHEN** a function annotated `@AllowRawRedisKey("")` contains `"rate:legacy:$x"`
+- **THEN** the rule reports a code smell on that literal (empty-reason silent bypass is rejected)
+
+#### Scenario: Synthetic-file-harness via package-FQN fallback
+- **WHEN** the detekt-test `lint(String)` synthetic harness loads a fixture whose package FQN starts with `id.nearyou.test.fixtures.`
+- **THEN** the rule does NOT fire on literals in that fixture (package-FQN-fallback precedent from `BlockExclusionJoinRule.isAllowedPath`)
 
 #### Scenario: Rule registered via NearYouRuleSetProvider
 - **WHEN** reading `NearYouRuleSetProvider.instance(config)`
@@ -233,14 +269,18 @@ Both gates MUST support the detekt-test synthetic-file harness via package-FQN f
 
 ### Requirement: Test coverage — Redis-backed RateLimiter integration test
 
-A test class `RedisRateLimiterIntegrationTest` (tagged `database`, runs against the CI `redis:7-alpine` service container) SHALL exist in `:infra:redis/src/test/kotlin/`. The test MUST cover, at minimum:
+A test class `RedisRateLimiterIntegrationTest` (tagged `database`, runs against the CI `redis:7-alpine` service container — note: standalone Redis, NOT cluster mode) SHALL exist in `:infra:redis/src/test/kotlin/`. The test MUST cover, at minimum:
 
 1. Empty-bucket admit-then-reject across the capacity boundary (capacity 10: 10 admit, 11th rate-limited).
-2. `Retry-After` math reflects oldest counted submission within ±2 seconds of expected.
+2. `Retry-After` math reflects oldest counted submission within ±5 seconds of expected (CI runner clock + Redis `TIME` skew can exceed 2s on shared infrastructure; the assertion tolerance is widened to absorb that without giving up the property check).
 3. `releaseMostRecent` returns the slot (admit again succeeds after release).
-4. Concurrent tryAcquire calls — 10 threads, capacity 10 against fresh bucket — exactly 10 admit and any 11th observes RateLimited.
-5. Old entries pruned: bucket pre-loaded with 10 expired scores, fresh `tryAcquire` returns `Allowed(remaining = 9)`.
-6. Hash-tag key format `{scope:test_scope}:{user:<uuid>}` accepted on a clustered Redis (or asserted equivalent: `getSlot(<segment1>) == getSlot(<segment2>)` via the Lettuce CRC16 helper for non-cluster local Redis).
+4. `releaseMostRecent` on an empty bucket is a no-op (no exception, no error propagated, bucket size remains 0).
+5. Concurrent tryAcquire calls — 10 actually-parallel coroutines via `runBlocking { (1..10).map { async(Dispatchers.IO) { ... } }.awaitAll() }`, capacity 10 against fresh bucket — exactly 10 admit and any 11th observes RateLimited.
+6. Old entries pruned: bucket pre-loaded with 10 expired scores, fresh `tryAcquire` returns `Allowed(remaining = 9)`.
+7. Hash-tag CRC16 equivalence: assert `Lettuce.crc16("scope:rate_test_day") == Lettuce.crc16("user:<uuid>")` for the test key shape `{scope:rate_test_day}:{user:<uuid>}` — verifies the math invariant that prevents `CROSSSLOT` in production cluster mode.
+8. Two same-`now_ms` inserts both land — issue two parallel `tryAcquire` calls and assert bucket size is 2 even when both Lua executions observe the same millisecond timestamp.
+9. Bucket already over-capacity preserved on cap reduction — pre-load 7 entries, call `tryAcquire(capacity = 5)`, assert RateLimited AND bucket size remains 7 (no silent truncation).
+10. **V9 contract subsumption** — the test MUST replicate the `ReportRateLimiter`-flavored assertions from V9's `ReportRateLimiterTest` against the Redis-backed implementation: 10-succeed-window, 11th-rate-limited, Retry-After-reflects-oldest, 409-style release on empty-bucket. This explicitly lives in `RedisRateLimiterIntegrationTest` (not in V9's existing test class) because Lua's `redis.call('TIME')` does not honor V9's injected `clock: () -> Instant` seam — the V9 test class cannot be repointed at Redis without a clock-injection refactor that this change explicitly does not undertake.
 
 A test class `ComputeTtlToNextResetTest` (`:core:domain/src/commonTest/`) SHALL exist and cover, at minimum:
 
