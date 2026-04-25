@@ -12,7 +12,13 @@
 # Output: the JWT on stdout, nothing else (gradle noise suppressed via -q).
 set -eu
 
-if [ -f "$(dirname "$0")/../.env" ]; then
+# Load dev/.env ONLY when the caller has not pre-set KTOR_RSA_PRIVATE_KEY. This
+# lets staging callers do
+#   KTOR_RSA_PRIVATE_KEY="$(gcloud secrets versions access ...)" mint-dev-jwt.sh <uuid>
+# without having to move dev/.env aside first. dev/.env's `set -a` semantics
+# would otherwise re-export the dev key over the staging one. The mint task
+# only consumes KTOR_RSA_PRIVATE_KEY, so guarding on that single var is enough.
+if [ -f "$(dirname "$0")/../.env" ] && [ -z "${KTOR_RSA_PRIVATE_KEY+x}" ]; then
     # shellcheck disable=SC1091
     set -a
     . "$(dirname "$0")/../.env"

@@ -123,6 +123,7 @@ Bisa signup berurutan dalam 1-2 sore. Gunakan email dedicated untuk admin NearYo
 - [ ] Create Redis database `nearyou-cache-prod` (region Singapore)
 - [ ] Create Redis database `nearyou-cache-staging`
 - [ ] Save REST URL + REST token untuk masing-masing
+- [ ] **TCP/RESP URL must use `rediss://` scheme (TLS), NOT `redis://`.** Upstash enables TLS on port 6379 by default, but the dashboard's quick-connect string is shown as `redis-cli --tls -u redis://...` which is misleading — the `--tls` flag is what's actually doing the work. Lettuce (`:infra:redis`) parses `redis://` as plain TCP and opens an unencrypted socket; Upstash drops the connection mid-handshake. Symptom is `RedisConnectionException: Connection closed prematurely` in Cloud Run logs and the rate limit silently no-ops via the fail-soft path. Solve at the secret value, not in code: store `rediss://default:<password>@<host>:6379` in `staging-redis-url` and `redis-url` (prod). Precedent: like-rate-limit task 9.7 smoke (2026-04-25) failed exactly this way; archive notes capture the full diagnostic trail.
 
 **Notes**:
 - Prod Redis REST URL: _________________
