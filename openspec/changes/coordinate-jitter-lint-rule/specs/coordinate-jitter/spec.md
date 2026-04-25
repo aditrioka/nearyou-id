@@ -63,7 +63,7 @@ The annotation class itself need not be defined in production code for the rule 
 4. Positive-pass: `JdbcPostRepository`-prefixed file exempt (via `writeKtFile` helper — same pattern as the `PostOwnContent` fixture in `BlockExclusionJoinLintTest`).
 5. Positive-pass: `@AllowActualLocationRead("reason")` on the function suppresses.
 6. Positive-pass: annotation on the enclosing class suppresses.
-7. Positive-pass: unrelated string mentioning `actual_location` in a non-SQL context does NOT fire (e.g., a user-facing message "actual_location has been hidden" should still fire since the rule is a simple regex — so this scenario is actually a **fail** case documenting the false-positive surface; the annotation is the escape hatch).
+7. Positive-fail (false-positive-by-design): the rule is a simple regex on `\bactual_location\b`, so a user-facing Kotlin string literal that mentions the column name in prose (e.g., `"The actual_location field is hidden from non-admin users"`) DOES fire. Test documents the tolerance + points at the `@AllowActualLocationRead` annotation as the escape hatch for legitimate non-SQL uses.
 8. Positive-pass: Kotlin migration smoke test (test file) that INSERTs into `posts (actual_location)` does NOT fire.
 9. Positive-fail: multi-line string concatenation spanning `actual_location` across two `+`-joined literals fires exactly once (leftmost literal reports, de-duplicated).
 10. Positive-fail: INSERT-only fixture outside the write-path allowlist fires (the rule doesn't distinguish read/write; path allowlist is the only sanctioned escape).
