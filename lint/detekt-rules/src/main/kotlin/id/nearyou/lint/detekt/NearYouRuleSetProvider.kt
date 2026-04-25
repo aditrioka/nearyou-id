@@ -17,6 +17,7 @@ class NearYouRuleSetProvider : RuleSetProvider {
             listOf(
                 RawFromPostsRule(config),
                 BlockExclusionJoinRule(config),
+                CoordinateJitterRule(config),
             ),
         )
 
