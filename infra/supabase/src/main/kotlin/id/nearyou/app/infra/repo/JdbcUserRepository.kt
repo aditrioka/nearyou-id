@@ -14,7 +14,7 @@ class JdbcUserRepository(
         SELECT id, username, display_name, email,
                google_id_hash, apple_id_hash, apple_relay_email,
                is_shadow_banned, is_banned, suspended_until,
-               token_version, deleted_at
+               token_version, deleted_at, subscription_status
           FROM users
         """.trimIndent()
 
@@ -137,5 +137,6 @@ class JdbcUserRepository(
             suspendedUntil = getTimestamp("suspended_until")?.toInstant(),
             tokenVersion = getInt("token_version"),
             deletedAt = getTimestamp("deleted_at")?.toInstant(),
+            subscriptionStatus = getString("subscription_status") ?: "free",
         )
 }

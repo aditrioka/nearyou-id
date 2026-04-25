@@ -25,7 +25,11 @@ import id.nearyou.app.auth.signup.signupRoutes
 import id.nearyou.app.block.BlockService
 import id.nearyou.app.block.blockRoutes
 import id.nearyou.app.config.EnvVarSecretResolver
+import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.config.SecretResolver
+import id.nearyou.app.config.StubRemoteConfig
+import id.nearyou.app.config.secretKey
+import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.engagement.LikeService
 import id.nearyou.app.engagement.ReplyService
 import id.nearyou.app.engagement.likeRoutes
@@ -40,6 +44,8 @@ import id.nearyou.app.guard.installContentLengthGuard
 import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
+import id.nearyou.app.infra.redis.NoOpRateLimiter
+import id.nearyou.app.infra.redis.redisRateLimiterFromUrl
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcPostAutoHideRepository
@@ -279,8 +285,55 @@ fun Application.module() {
     val followService =
         FollowService(dataSource, userFollowsRepository, notificationEmitter, notificationDispatcher)
     val postLikeRepository: PostLikeRepository = JdbcPostLikeRepository(dataSource)
+    val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
+    // Conditional Redis wiring (task 4.6 of like-rate-limit):
+    //  - In staging/production: fail-fast on missing `redis-url` slot — Redis is a
+    //    hard dependency for the like rate limiter (per the spec, missing the slot
+    //    is a deployment defect, not a runtime fallback).
+    //  - In dev/test (any non-staging/non-production env, including unset env var
+    //    defaulting to "production" but with an absent slot): if `secrets.resolve`
+    //    returns null, bind a NoOpRateLimiter that always admits. Local dev that
+    //    doesn't run Redis-via-compose still boots; tests that don't exercise the
+    //    limiter still pass. Tests that DO need Redis inject `REDIS_URL` via
+    //    `KotestProjectConfig.beforeProject()` (mirror of the Postgres bootstrap).
+    //
+    // Status note: the staging-redis-url + redis-url GCP Secret Manager slots are
+    // unverified at the time of this code (task 1.7 of like-rate-limit, blocked on
+    // user — needs `gcloud secrets list --filter="name~redis"` against the staging
+    // and prod projects to confirm). Until then, the staging deploy MUST set
+    // REDIS_URL via a hard-coded env var — see deploy-staging.yml line 68.
+    val redisUrl = secrets.resolve(secretKey(ktorEnv, "redis-url"))
+    val rateLimiter: RateLimiter =
+        if (redisUrl != null) {
+            // The factory in `:infra:redis` owns the Lettuce client lifecycle so
+            // `:backend:ktor` does not need to import `io.lettuce.core.*` (would
+            // violate the "no vendor SDK outside :infra:*" invariant). Process
+            // termination closes the underlying Netty event loop; explicit
+            // shutdown is not needed for the V1 rollout (matches V9
+            // ReportRateLimiter precedent).
+            redisRateLimiterFromUrl(redisUrl)
+        } else {
+            require(ktorEnv != "staging" && ktorEnv != "production") {
+                "Required secret '${secretKey(ktorEnv, "redis-url")}' is unset (env=$ktorEnv) — " +
+                    "Redis is a hard startup requirement in staging and production. " +
+                    "Verify the GCP Secret Manager slot exists and is populated."
+            }
+            org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").warn(
+                "event=ratelimiter_noop_fallback env={} reason=redis_url_unset",
+                ktorEnv,
+            )
+            NoOpRateLimiter()
+        }
+    val remoteConfig: RemoteConfig = StubRemoteConfig()
     val likeService =
-        LikeService(dataSource, postLikeRepository, notificationEmitter, notificationDispatcher)
+        LikeService(
+            dataSource = dataSource,
+            likes = postLikeRepository,
+            notifications = notificationEmitter,
+            dispatcher = notificationDispatcher,
+            rateLimiter = rateLimiter,
+            remoteConfig = remoteConfig,
+        )
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
     val replyService =
         ReplyService(dataSource, postReplyRepository, notificationEmitter, notificationDispatcher)
@@ -293,7 +346,12 @@ fun Application.module() {
     val reportRepository: ReportRepository = JdbcReportRepository()
     val moderationQueueRepository: ModerationQueueRepository = JdbcModerationQueueRepository()
     val postAutoHideRepository: PostAutoHideRepository = JdbcPostAutoHideRepository()
-    val reportRateLimiter = ReportRateLimiter()
+    // Wrap the shared `rateLimiter` (Redis or NoOp/InMemory fallback per the
+    // env-aware wiring above) so V9's ReportRateLimiter surface (cap / window /
+    // keyFor / Outcome) keeps working byte-for-byte. Section 7 of like-rate-limit:
+    // the in-process ConcurrentHashMap that V9 shipped is now the
+    // InMemoryRateLimiter test double; production routes through Redis.
+    val reportRateLimiter = ReportRateLimiter(rateLimiter = rateLimiter)
     val reportService =
         ReportService(
             dataSource = dataSource,
@@ -341,6 +399,8 @@ fun Application.module() {
                 single<UserFollowsRepository> { userFollowsRepository }
                 single { followService }
                 single<PostLikeRepository> { postLikeRepository }
+                single<RateLimiter> { rateLimiter }
+                single<RemoteConfig> { remoteConfig }
                 single { likeService }
                 single<PostReplyRepository> { postReplyRepository }
                 single { replyService }

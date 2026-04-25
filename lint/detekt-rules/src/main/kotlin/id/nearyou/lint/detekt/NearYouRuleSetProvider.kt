@@ -18,6 +18,8 @@ class NearYouRuleSetProvider : RuleSetProvider {
                 RawFromPostsRule(config),
                 BlockExclusionJoinRule(config),
                 CoordinateJitterRule(config),
+                RateLimitTtlRule(config),
+                RedisHashTagRule(config),
             ),
         )
 

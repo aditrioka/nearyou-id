@@ -37,10 +37,13 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    # Postgres service container — mirrors `dev/docker-compose.yml` exactly so the
-    # `DB_URL=jdbc:postgresql://localhost:5433/nearyou_dev` default that integration
-    # tests resolve to in local dev also works on GHA runners. PostGIS is required
-    # by V4's geography columns on `posts` (ST_MakePoint, ST_SetSRID, ST_Distance).
+    # Service containers — mirror `dev/docker-compose.yml` exactly so the defaults
+    # that integration tests resolve to in local dev also work on GHA runners:
+    #   - Postgres+PostGIS: required by V4's geography columns on `posts`
+    #     (ST_MakePoint, ST_SetSRID, ST_Distance).
+    #   - Redis: required by `:infra:redis` `RedisRateLimiterIntegrationTest`
+    #     (sliding-window Lua script + ZPOPMAX). Standalone mode; cluster
+    #     `CROSSSLOT` behavior is exercised only in staging/prod via real Upstash.
     services:
       postgres:
         image: postgis/postgis:16-3.4
@@ -55,6 +58,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -63,7 +75,7 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
       # Network-tagged tests (upstream JWKS flakes) still excluded. Database-tagged
-      # tests NOW run against the service-container Postgres above.
+      # tests NOW run against the service-container Postgres + Redis above.
       # Kotest 5.x tag expression grammar uses `&` (AND), `|` (OR), `!` (NOT) —
       # comma is NOT a valid separator.
       - run: ./gradlew test -Dkotest.tags='!network'
@@ -71,6 +83,7 @@ jobs:
           DB_URL: jdbc:postgresql://localhost:5433/nearyou_dev
           DB_USER: postgres
           DB_PASSWORD: postgres
+          REDIS_URL: redis://localhost:6379
 
   # Runs Flyway against a Postgres instance configured to mirror a fresh
   # Supabase project — PostGIS installed-but-not-enabled, realtime/auth

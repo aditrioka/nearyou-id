@@ -18,6 +18,15 @@ data class UserRow(
     val suspendedUntil: Instant?,
     val tokenVersion: Int,
     val deletedAt: Instant?,
+    /**
+     * V2 schema: VARCHAR(32) NOT NULL DEFAULT 'free' with CHECK constraint
+     * IN ('free', 'premium_active', 'premium_billing_retry'). Loaded at auth time
+     * so handlers (notably the like rate-limit gate) can read tier from the
+     * principal without issuing a fresh DB SELECT — see
+     * `openspec/changes/like-rate-limit/specs/post-likes/spec.md` § "Read-site
+     * constraint" for why this MUST be on the auth principal.
+     */
+    val subscriptionStatus: String = "free",
 )
 
 /**

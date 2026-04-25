@@ -2,6 +2,8 @@ package id.nearyou.app.notifications
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import id.nearyou.app.config.StubRemoteConfig
+import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.engagement.LikeService
 import id.nearyou.app.engagement.ReplyService
 import id.nearyou.app.follow.FollowService
@@ -23,6 +25,7 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldStartWith
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -281,7 +284,34 @@ class NotificationWritePathTest : StringSpec({
     val notificationsRepo: NotificationRepository = JdbcNotificationRepository(dataSource)
     val dispatcher = NoopNotificationDispatcher()
     val emitter = DbNotificationEmitter(notificationsRepo)
-    val likeService = LikeService(dataSource, JdbcPostLikeRepository(dataSource), emitter, dispatcher)
+    // The like rate-limiter and remote-config wires are stubs at this layer:
+    // these tests assert the V10 notification write-path, NOT rate-limit semantics.
+    // `LikeRateLimitTest` (section 8 of `like-rate-limit`) covers the limiter in
+    // isolation against the CI Redis container.
+    val noopLimiter =
+        object : RateLimiter {
+            override fun tryAcquire(
+                userId: UUID,
+                key: String,
+                capacity: Int,
+                ttl: java.time.Duration,
+            ): RateLimiter.Outcome = RateLimiter.Outcome.Allowed(remaining = capacity - 1)
+
+            override fun releaseMostRecent(
+                userId: UUID,
+                key: String,
+            ) = Unit
+        }
+    val noopRemoteConfig = StubRemoteConfig()
+    val likeService =
+        LikeService(
+            dataSource = dataSource,
+            likes = JdbcPostLikeRepository(dataSource),
+            notifications = emitter,
+            dispatcher = dispatcher,
+            rateLimiter = noopLimiter,
+            remoteConfig = noopRemoteConfig,
+        )
     val replyService = ReplyService(dataSource, JdbcPostReplyRepository(dataSource), emitter, dispatcher)
     val followService = FollowService(dataSource, JdbcUserFollowsRepository(dataSource), emitter, dispatcher)
     val contentGuard = ContentLengthGuard(mapOf("reply.content" to 280))
@@ -301,7 +331,7 @@ class NotificationWritePathTest : StringSpec({
         val bob = seedUser(dataSource, "bo")
         val p = seedPost(dataSource, alice, content = "Hello world from Alice")
         try {
-            likeService.like(p, bob)
+            runBlocking { likeService.like(p, bob, "free") }
             countNotifications(dataSource, alice, "post_liked") shouldBe 1
             val row = fetchNotification(dataSource, alice, "post_liked")
             row["actor_user_id"] shouldBe bob
@@ -318,7 +348,7 @@ class NotificationWritePathTest : StringSpec({
         val alice = seedUser(dataSource, "sl")
         val p = seedPost(dataSource, alice)
         try {
-            likeService.like(p, alice)
+            runBlocking { likeService.like(p, alice, "free") }
             countNotifications(dataSource, alice) shouldBe 0
         } finally {
             cleanupUsers(dataSource, alice)
@@ -331,9 +361,9 @@ class NotificationWritePathTest : StringSpec({
         val p = seedPost(dataSource, alice)
         insertBlock(dataSource, alice, bob)
         try {
-            // When Alice blocked Bob, `resolveVisiblePost` returns null → PostNotFoundException.
+            // When Alice blocked Bob, `resolveVisiblePost` returns null → Result.NotFound.
             // Block-suppression is enforced both at visibility-gate AND write-time emit level.
-            runCatching { likeService.like(p, bob) }
+            runBlocking { likeService.like(p, bob, "free") }
             countNotifications(dataSource, alice) shouldBe 0
         } finally {
             cleanupUsers(dataSource, alice, bob)
@@ -346,7 +376,7 @@ class NotificationWritePathTest : StringSpec({
         val p = seedPost(dataSource, alice)
         insertBlock(dataSource, bob, alice)
         try {
-            runCatching { likeService.like(p, bob) }
+            runBlocking { likeService.like(p, bob, "free") }
             countNotifications(dataSource, alice) shouldBe 0
         } finally {
             cleanupUsers(dataSource, alice, bob)
@@ -358,8 +388,10 @@ class NotificationWritePathTest : StringSpec({
         val bob = seedUser(dataSource, "rb")
         val p = seedPost(dataSource, alice)
         try {
-            likeService.like(p, bob)
-            likeService.like(p, bob)
+            runBlocking {
+                likeService.like(p, bob, "free")
+                likeService.like(p, bob, "free")
+            }
             countNotifications(dataSource, alice, "post_liked") shouldBe 1
         } finally {
             cleanupUsers(dataSource, alice, bob)
@@ -371,7 +403,7 @@ class NotificationWritePathTest : StringSpec({
         val bob = seedUser(dataSource, "ub")
         val p = seedPost(dataSource, alice)
         try {
-            likeService.like(p, bob)
+            runBlocking { likeService.like(p, bob, "free") }
             likeService.unlike(p, bob)
             countNotifications(dataSource, alice) shouldBe 1
             countNotifications(dataSource, alice, "post_liked") shouldBe 1
@@ -579,9 +611,17 @@ class NotificationWritePathTest : StringSpec({
                     throw RuntimeException("simulated emit failure")
                 }
             }
-        val failService = LikeService(dataSource, JdbcPostLikeRepository(dataSource), failing, dispatcher)
+        val failService =
+            LikeService(
+                dataSource = dataSource,
+                likes = JdbcPostLikeRepository(dataSource),
+                notifications = failing,
+                dispatcher = dispatcher,
+                rateLimiter = noopLimiter,
+                remoteConfig = noopRemoteConfig,
+            )
         try {
-            runCatching { failService.like(p, bob) }.isFailure shouldBe true
+            runCatching { runBlocking { failService.like(p, bob, "free") } }.isFailure shouldBe true
             // No like row should persist — the failed emit rolled back the whole TX.
             dataSource.connection.use { conn ->
                 conn.prepareStatement("SELECT COUNT(*) FROM post_likes WHERE post_id = ? AND user_id = ?").use { ps ->
