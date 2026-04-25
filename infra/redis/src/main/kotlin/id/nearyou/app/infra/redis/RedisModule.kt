@@ -35,3 +35,14 @@ fun redisKoinModule(
     }
 
 internal fun redisUrlSlot(env: String): String = if (env == "staging") "staging-redis-url" else "redis-url"
+
+/**
+ * Creates a [RedisRateLimiter] from a Redis URL string. Encapsulates the
+ * `RedisClient.create(url)` call so callers in `:backend:ktor` don't need to
+ * import the Lettuce SDK directly (preserves the "no vendor SDK outside
+ * `:infra:*`" invariant).
+ *
+ * The returned limiter owns its [RedisClient]. Callers SHOULD register it as a
+ * Koin singleton; the underlying connection is closed when the JVM exits.
+ */
+fun redisRateLimiterFromUrl(url: String): RedisRateLimiter = RedisRateLimiter(RedisClient.create(url))

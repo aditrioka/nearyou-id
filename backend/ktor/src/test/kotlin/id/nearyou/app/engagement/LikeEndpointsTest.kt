@@ -6,6 +6,8 @@ import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
+import id.nearyou.app.config.StubRemoteConfig
+import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcPostLikeRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
@@ -60,7 +62,33 @@ class LikeEndpointsTest : StringSpec({
     val notificationsRepo = JdbcNotificationRepository(dataSource)
     val dispatcher = NoopNotificationDispatcher()
     val notificationEmitter = DbNotificationEmitter(notificationsRepo)
-    val service = LikeService(dataSource, likes, notificationEmitter, dispatcher)
+    // The like rate-limiter and remote-config wires are stubs at this layer:
+    // these tests assert HTTP semantics on the existing endpoints (post/delete/count)
+    // pre-dating the rate-limit feature. `LikeRateLimitTest` (section 8 of
+    // `like-rate-limit`) covers the limiter against a real Redis container.
+    val noopLimiter =
+        object : RateLimiter {
+            override fun tryAcquire(
+                userId: UUID,
+                key: String,
+                capacity: Int,
+                ttl: java.time.Duration,
+            ): RateLimiter.Outcome = RateLimiter.Outcome.Allowed(remaining = capacity - 1)
+
+            override fun releaseMostRecent(
+                userId: UUID,
+                key: String,
+            ) = Unit
+        }
+    val service =
+        LikeService(
+            dataSource = dataSource,
+            likes = likes,
+            notifications = notificationEmitter,
+            dispatcher = dispatcher,
+            rateLimiter = noopLimiter,
+            remoteConfig = StubRemoteConfig(),
+        )
 
     fun seedUser(shadowBanned: Boolean = false): Pair<UUID, String> {
         val id = UUID.randomUUID()

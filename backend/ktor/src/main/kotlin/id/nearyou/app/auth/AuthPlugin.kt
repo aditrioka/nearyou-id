@@ -21,7 +21,17 @@ const val AUTH_PROVIDER_USER = "user-jwt"
 
 val AuthFailureKey = AttributeKey<String>("auth.failure_code")
 
-data class UserPrincipal(val userId: UUID, val tokenVersion: Int)
+/**
+ * Authenticated request principal populated by the auth-jwt plugin's `validate { ... }`
+ * block. Loaded once per request from a single `users` row read at auth time.
+ *
+ * [subscriptionStatus] is read once here — handlers (notably the like rate-limit gate
+ * in `POST /api/v1/posts/{post_id}/like`) MUST read tier from this principal rather
+ * than issuing a fresh `SELECT subscription_status FROM users WHERE id = :caller`,
+ * per `openspec/specs/post-likes/spec.md` § "Read-site constraint" (the rate limiter
+ * runs before any DB read; a fresh tier SELECT would violate that ordering).
+ */
+data class UserPrincipal(val userId: UUID, val tokenVersion: Int, val subscriptionStatus: String)
 
 fun Application.installAuth(
     keys: RsaKeyLoader,
@@ -72,7 +82,7 @@ internal fun AuthenticationConfig.configureUserJwt(
                     this.attributes.put(AuthFailureKey, "account_suspended")
                     null
                 }
-                else -> UserPrincipal(user.id, user.tokenVersion)
+                else -> UserPrincipal(user.id, user.tokenVersion, user.subscriptionStatus)
             }
         }
 
