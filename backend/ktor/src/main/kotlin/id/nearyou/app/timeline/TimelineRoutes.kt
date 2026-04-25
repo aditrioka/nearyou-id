@@ -23,6 +23,7 @@ data class NearbyPostDto(
     val latitude: Double,
     val longitude: Double,
     val distanceM: Double,
+    @SerialName("city_name") val cityName: String,
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
     @SerialName("reply_count") val replyCount: Int,
@@ -38,6 +39,7 @@ data class FollowingPostDto(
     val content: String,
     val latitude: Double,
     val longitude: Double,
+    @SerialName("city_name") val cityName: String,
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
     @SerialName("reply_count") val replyCount: Int,
@@ -45,6 +47,22 @@ data class FollowingPostDto(
 
 @Serializable
 data class FollowingResponse(val posts: List<FollowingPostDto>, val nextCursor: String? = null)
+
+@Serializable
+data class GlobalPostDto(
+    val id: String,
+    val authorUserId: String,
+    val content: String,
+    val latitude: Double,
+    val longitude: Double,
+    @SerialName("city_name") val cityName: String,
+    val createdAt: String,
+    @SerialName("liked_by_viewer") val likedByViewer: Boolean,
+    @SerialName("reply_count") val replyCount: Int,
+)
+
+@Serializable
+data class GlobalResponse(val posts: List<GlobalPostDto>, val nextCursor: String? = null)
 
 fun Application.followingTimelineRoutes(service: FollowingTimelineService) {
     routing {
@@ -73,6 +91,7 @@ fun Application.followingTimelineRoutes(service: FollowingTimelineService) {
                                     content = it.content,
                                     latitude = it.latitude,
                                     longitude = it.longitude,
+                                    cityName = it.cityName.orEmpty(),
                                     createdAt = it.createdAt.toString(),
                                     likedByViewer = it.likedByViewer,
                                     replyCount = it.replyCount,
@@ -142,6 +161,48 @@ fun Application.timelineRoutes(service: NearbyTimelineService) {
                                     latitude = it.latitude,
                                     longitude = it.longitude,
                                     distanceM = it.distanceMeters,
+                                    cityName = it.cityName.orEmpty(),
+                                    createdAt = it.createdAt.toString(),
+                                    likedByViewer = it.likedByViewer,
+                                    replyCount = it.replyCount,
+                                )
+                            },
+                        nextCursor = page.nextCursor?.let(::encodeCursor),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+fun Application.globalTimelineRoutes(service: GlobalTimelineService) {
+    routing {
+        authenticate(AUTH_PROVIDER_USER) {
+            get("/api/v1/timeline/global") {
+                val principal =
+                    call.principal<UserPrincipal>() ?: run {
+                        call.respond(HttpStatusCode.Unauthorized)
+                        return@get
+                    }
+                val cursor =
+                    try {
+                        call.parameters["cursor"]?.let { decodeCursor(it) }
+                    } catch (_: InvalidCursorException) {
+                        call.respondError(HttpStatusCode.BadRequest, "invalid_cursor", "Cursor is malformed.")
+                        return@get
+                    }
+                val page = service.global(viewerId = principal.userId, cursor = cursor)
+                call.respond(
+                    GlobalResponse(
+                        posts =
+                            page.rows.map {
+                                GlobalPostDto(
+                                    id = it.id.toString(),
+                                    authorUserId = it.authorId.toString(),
+                                    content = it.content,
+                                    latitude = it.latitude,
+                                    longitude = it.longitude,
+                                    cityName = it.cityName.orEmpty(),
                                     createdAt = it.createdAt.toString(),
                                     likedByViewer = it.likedByViewer,
                                     replyCount = it.replyCount,

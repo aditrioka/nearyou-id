@@ -13,6 +13,7 @@ data class TimelineRow(
     val createdAt: Instant,
     val likedByViewer: Boolean,
     val replyCount: Int,
+    val cityName: String? = null,
 )
 
 interface PostsTimelineRepository {

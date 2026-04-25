@@ -103,6 +103,31 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  * Decision 2 — soft-delete only, via UPDATE). The single legitimate hard-delete site is
  * the future tombstone/cascade worker, which lives in the admin module and is exempt via
  * the admin-path allowlist.
+ *
+ * ### Why `admin_regions` (and reference-data tables generally) is deliberately NOT protected
+ *
+ * V11 introduced `admin_regions` (kabupaten/kota + province polygons) and the same question
+ * arises: should the protected-table set grow to include it? It should not — `admin_regions`
+ * carries administrative boundary data, not user-visible content. Queries against it are
+ * reference-data lookups (e.g., reverse-geocode inside the `posts_set_city_tg` BEFORE INSERT
+ * trigger, admin-module polygon audits) that have no per-viewer surface and therefore no
+ * meaningful concept of "viewer-blocked author."
+ *
+ * Adding `admin_regions` to the protected set would force the V11 trigger function and every
+ * admin-module polygon SELECT to wrap in a nonsensical `user_blocks` bidirectional join —
+ * `admin_regions` has no `author_id`, no user-scoped columns, and no privacy-affecting
+ * contents. The rule is about preventing user-visible content from leaking through a block;
+ * administrative boundary geometry is neither content nor blockable.
+ *
+ * The broader principle: reference-data tables (`admin_regions`, `reserved_usernames`,
+ * `follows` — see above, etc.) stay outside the protected set. Content surfaces (`posts`,
+ * `visible_posts`, `users`, `chat_messages`, `post_replies`) stay inside. Future contributors
+ * adding spatial / reference tables should not add them to `PROTECTED_TABLE_PATTERN`; content
+ * surfaced THROUGH those tables is re-checked at the content surface.
+ *
+ * The `admin_regions_is_deliberately_not_protected_table` test fixture encodes this decision
+ * in code. See the `block-exclusion-lint` ADDED requirement "admin_regions is NOT a protected
+ * table" (global-timeline-with-region-polygons spec delta) and the `region-polygons` capability.
  */
 class BlockExclusionJoinRule(config: Config = Config.empty) : Rule(config) {
     override val issue: Issue =
