@@ -118,6 +118,14 @@ Direct push to `main` is hook-blocked — every change ships via feature branch 
 1. **Feature PR** — feat commit(s) on the change branch. Squash-merge after CI green.
 2. **Archive PR** — separate branch, run `openspec archive <change>` locally, docs-only PR, squash-merge. Produces the "one feat commit + one archive commit" pair on `main` visible in the V5–V8 git log precedent.
 
+**Stacked PRs — avoid by default.** GitHub does NOT auto-retarget a child PR when its parent (base branch) is squash-merged. The squash creates a new commit on `main` whose hash differs from the child's parent ref, so the child stays pointed at the now-orphaned parent branch. Symptoms: child PR's "merge" button merges it into the parent branch instead of `main`, and the child's code never lands on `main` even though both PRs show "Merged" green in the UI.
+
+**Two safe patterns:**
+1. **Sequence, don't stack** (preferred): merge the parent PR to `main` first, then open the child PR with `base: main`. One PR open at a time per logical chain.
+2. **If you must stack** (e.g., one is a low-priority docs PR you want pre-reviewed in parallel): the moment the parent PR merges, manually retarget the child via `gh pr edit <child> --base main` AND rebase the child branch onto `main` to drop the now-redundant parent commit (`git rebase main <child-branch>` — Git skips commits whose tree matches the squash-merged equivalent on `main`). Force-push with `--force-with-lease`.
+
+**Recovery if a child PR was already merged into the orphaned parent branch:** rebase the child branch onto current `origin/main` (drops the redundant parent commit), force-push with `--force-with-lease`, open a new PR with the rebased branch as head and `main` as base. The merged-but-orphaned PR can be left as-is (it's noise but not destructive). Precedent: `feat/global-timeline-session-1` recovered via PR #29 after #27 merged into the docs branch instead of `main`.
+
 **When NOT to use OpenSpec.** Infra / tooling / CI / docs-only changes go through regular PRs. OpenSpec is for spec-driven product changes — capability + behavior + WHEN/THEN scenarios. Detekt rules, CI config, `build-logic/`, ops docs, READMEs: regular PR.
 
 **Archive timing.** Right after the feat PR merges + CI green + the staging deploy triggered by that merge reports green (see `.github/workflows/deploy-staging.yml`). Not after prod ship. If staging fails post-merge, ship the hotfix first and archive only once staging is healthy — archiving against a broken staging locks a not-actually-working spec into `openspec/specs/` as the baseline the next proposal builds on. Deploy tasks (typically 8.x in the task list) stay unchecked until *prod* infra is provisioned — don't block archive on those.
