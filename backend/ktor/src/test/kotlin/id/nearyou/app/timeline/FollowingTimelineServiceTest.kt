@@ -830,7 +830,10 @@ class FollowingTimelineServiceTest : StringSpec({
         val (author, _) = seedUser()
         try {
             follow(viewer, author)
-            val p = seedPostWithCity(author, cityName = null)
+            // Deep Indian Ocean (>50km from any kabupaten even with 12nm maritime
+            // buffer applied). cityName=null + trigger step 4 ⇒ NULL underlying row.
+            // Coords inside post-creation envelope [-11, 6.5] × [94, 142].
+            val p = seedPostWithCity(author, cityName = null, lat = -10.5, lng = 105.0)
             withFollowing {
                 val resp =
                     createClient { install(ClientCN) { json() } }

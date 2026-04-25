@@ -3,11 +3,16 @@
 #
 # Outputs (into ./data/, gitignored):
 #   provinces.geojson       — admin_level=4 relations inside Indonesia
+#                             (~38 rows, one per provinsi including DKI Jakarta)
 #   kabupaten-kota.geojson  — admin_level=5 relations inside Indonesia
-#                             (EXCLUDES DKI Jakarta's level-5 — we use its
-#                              level-6 children instead; filtered in generate-seed.py)
-#   dki-kotamadya.geojson   — admin_level=6 relations inside DKI Jakarta
-#                             (Jakarta Pusat/Utara/Selatan/Timur/Barat + Kepulauan Seribu)
+#                             (~514 rows: kabupaten + kota + the 5 DKI kotamadya
+#                              + Kepulauan Seribu — no DKI special-case needed,
+#                              they all appear at level 5 uniformly)
+#
+# Original scaffold fetched a third DKI-kotamadya file at admin_level=6, but
+# that level is kecamatan (sub-district), not kotamadya — the DKI kotamadya
+# are already at level 5 like every other kabupaten/kota. Verified against
+# Overpass 2026-04 (Jakarta Pusat relation 7625977 has admin_level=5).
 #
 # Each file is GeoJSON FeatureCollection with one feature per OSM relation. The
 # feature's `id` field is the stable OSM relation ID used as admin_regions.id.
@@ -24,9 +29,11 @@ DATA_DIR="${SCRIPT_DIR}/data"
 mkdir -p "${DATA_DIR}"
 
 OVERPASS_URL="${OVERPASS_URL:-https://overpass-api.de/api/interpreter}"
-# Indonesia's OSM area ID: relation 304716 → area 3600304716 (OSM convention:
-# area = 3600000000 + relation_id for relations promoted to areas).
-INDONESIA_AREA="3600304716"
+# Indonesia's OSM area ID: relation 304751 → area 3600304751 (OSM convention:
+# area = 3600000000 + relation_id for relations promoted to areas). Verified
+# 2026-04 via `relation(304751);out tags;` → {name: Indonesia, ISO3166-1: ID}.
+# (The scaffold's original value 304716 pointed at an Indian relation; wrong country.)
+INDONESIA_AREA="3600304751"
 
 # Per-query timeout in seconds. Overpass default is 30s which is not enough for
 # Indonesia-wide level-5 queries; 600s matches typical community practice for
@@ -73,29 +80,16 @@ relation[admin_level=4][boundary=administrative][\"type\"=\"boundary\"](area:${I
 out geom;
 "
 
-# Level-5: kabupaten/kota. This is the primary dataset; ~510-520 rows expected.
-# Note: OSM's DKI Jakarta is ALSO at admin_level=5 (as a 'kabupaten-equivalent'
-# province), but generate-seed.py detects and skips it — we use the 5 kotamadya
-# + Kepulauan Seribu at level 6 instead, per the product spec's DKI special-case.
+# Level-5: kabupaten/kota. This is the primary dataset; ~514 rows expected
+# (includes the 5 DKI kotamadya + Kepulauan Seribu naturally — no DKI special-
+# case query needed, verified Jakarta Pusat is at admin_level=5 alongside
+# Kota Bandung / Kabupaten Bandung / etc.).
 fetch "kabupaten-kota" "
 [out:json][timeout:${TIMEOUT}];
 relation[admin_level=5][boundary=administrative][\"type\"=\"boundary\"](area:${INDONESIA_AREA});
 out geom;
 "
 
-# Level-6 inside DKI: 5 kotamadya + Kepulauan Seribu.
-# DKI area ID = 3600000000 + DKI's relation ID. To discover it without hardcoding,
-# we first locate DKI's relation by name then substitute the area ID in a
-# follow-up query. Overpass supports both in one multi-statement script.
-fetch "dki-kotamadya" "
-[out:json][timeout:${TIMEOUT}];
-// Pin DKI's area (via its relation name — avoids hardcoding a relation ID
-// that upstream might renumber).
-area[admin_level=4][\"name\"=\"Daerah Khusus Ibukota Jakarta\"]->.dki;
-relation[admin_level=6][boundary=administrative][\"type\"=\"boundary\"](area.dki);
-out geom;
-"
-
 echo ""
-echo "Fetched all three GeoJSONs into ${DATA_DIR}/"
-echo "Next: python3 generate-seed.py --out <path-to-V11-or-V12-seed.sql>"
+echo "Fetched two GeoJSONs into ${DATA_DIR}/"
+echo "Next: python3 generate-seed.py --out <path-to-V12-or-V11-seed.sql>"

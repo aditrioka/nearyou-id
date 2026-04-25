@@ -651,8 +651,11 @@ class GlobalTimelineServiceTest : StringSpec({
         val (viewer, vt) = seedUser()
         val (author, _) = seedUser()
         try {
-            // No cityNameOverride + empty admin_regions seed ⇒ trigger leaves NULL.
-            val p = seedPost(author)
+            // Deep Indian Ocean (>50km from any kabupaten even with 12nm maritime
+            // buffer applied). No cityNameOverride ⇒ trigger falls through to step
+            // 4 and leaves both city_name + city_match_type NULL. Coords chosen
+            // inside the post-creation envelope [-11, 6.5] × [94, 142].
+            val p = seedPost(author, lat = -10.5, lng = 105.0)
             withGlobal {
                 val resp =
                     createClient { install(ClientCN) { json() } }
