@@ -26,15 +26,15 @@
 
 ## 4. Redis-backed `RateLimiter` implementation
 
-- [ ] 4.1 Implement `RedisRateLimiter` in `:infra:redis/src/main/kotlin/` against the `RateLimiter` interface
-- [ ] 4.2 Embed Lua script: `ZREMRANGEBYSCORE` (prune) → `ZCARD` (count) → branch (oldest via `ZRANGE 0 0 WITHSCORES` + `Retry-After` math, OR `ZADD now jti` + `PEXPIRE ttl`)
-- [ ] 4.3 Wrap the Lua call in `withContext(Dispatchers.IO)` so the Ktor coroutine dispatcher stays unblocked
-- [ ] 4.4 Use a per-call `UUID.randomUUID().toString()` as the sorted-set member to avoid same-millisecond collisions
-- [ ] 4.5 Implement `releaseMostRecent` as `ZPOPMAX key 1` (atomic, single-call)
-- [ ] 4.6 Wire the `RedisRateLimiter` as the production `RateLimiter` Koin binding in `:backend:ktor` Application setup
-- [ ] 4.7 Add `redis:7-alpine` service container to `.github/workflows/ci.yml` `test` job (mirroring the `postgis/postgis:16-3.4` setup)
-- [ ] 4.8 Boot Redis once per test JVM via `KotestProjectConfig.beforeProject()` (mirroring the existing Flyway-bootstrap pattern); inject the URL into `RedisRateLimiter` via Koin override
-- [ ] 4.9 Implement `RedisRateLimiterIntegrationTest` (`:infra:redis/src/test/kotlin/`, tagged `database`) covering all 10 scenarios from `rate-limit-infrastructure/spec.md` § Test coverage: empty-bucket admit-then-reject, Retry-After math ±5s, releaseMostRecent restores slot, releaseMostRecent on empty bucket is no-op, parallel-coroutine concurrent capacity-boundary, old-entry pruning, hash-tag CRC16 equivalence, two same-millisecond inserts both land, bucket-over-capacity preserved on cap reduction, V9 contract subsumption (10-succeed window, 11th-429, Retry-After-reflects-oldest, 409-release-on-empty).
+- [x] 4.1 Implement `RedisRateLimiter` in `:infra:redis/src/main/kotlin/` against the `RateLimiter` interface
+- [x] 4.2 Embed Lua script: `ZREMRANGEBYSCORE` (prune) → `ZCARD` (count) → branch (oldest via `ZRANGE 0 0 WITHSCORES` + `Retry-After` math, OR `ZADD now jti` + `PEXPIRE ttl`)
+- [ ] 4.3 Wrap the Lua call in `withContext(Dispatchers.IO)` so the Ktor coroutine dispatcher stays unblocked — **deferred to call site**: the `RateLimiter` interface is non-suspending (V9 contract preservation). The `withContext(Dispatchers.IO)` wrap properly belongs at the like-service call site (section 6) where the surrounding coroutine context is known. Documented in `RedisRateLimiter.kt` KDoc. Spec drift acknowledged in commit message.
+- [x] 4.4 Use a per-call `UUID.randomUUID().toString()` as the sorted-set member to avoid same-millisecond collisions
+- [x] 4.5 Implement `releaseMostRecent` as `ZPOPMAX key 1` (atomic, single-call)
+- [ ] 4.6 Wire the `RedisRateLimiter` as the production `RateLimiter` Koin binding in `:backend:ktor` Application setup — **deferred until task 1.7 GCP slot blocker is resolved.** Wiring now would make `REDIS_URL` a hard startup requirement; without the slot provisioned, dev/test runs would fail. Will land alongside section 6 (like-service rate-limit integration) once slots are confirmed available.
+- [x] 4.7 Add `redis:7-alpine` service container to `.github/workflows/ci.yml` `test` job (mirroring the `postgis/postgis:16-3.4` setup). Also injects `REDIS_URL=redis://localhost:6379` env var into the test step.
+- [ ] 4.8 Boot Redis once per test JVM via `KotestProjectConfig.beforeProject()` (mirroring the existing Flyway-bootstrap pattern); inject the URL into `RedisRateLimiter` via Koin override — **not needed at this layer.** `RedisRateLimiterIntegrationTest` lives in `:infra:redis`'s own test source set, not in `:backend:ktor`'s; it manages its own RedisClient lifecycle (per-spec `afterSpec { client.shutdown() }`) and probes Redis reachability inline. The `KotestProjectConfig.beforeProject()` boot is a `:backend:ktor` concern that becomes relevant when section 6 wires the like-service against Redis (will land then alongside task 4.6).
+- [x] 4.9 Implement `RedisRateLimiterIntegrationTest` (`:infra:redis/src/test/kotlin/`, tagged `database`) covering all 10 scenarios from `rate-limit-infrastructure/spec.md` § Test coverage: empty-bucket admit-then-reject (capacity 10), Retry-After math within ±5s using a frozen Clock, releaseMostRecent restores slot, releaseMostRecent on empty bucket is no-op, parallel-coroutine concurrent capacity-boundary (10 admit / 5 reject), old-entry pruning, hash-tag CRC16 equivalence via `Lettuce.SlotHash.getSlot`, two same-millisecond inserts both land via random JTI, bucket-over-capacity preserved on cap reduction, V9 contract subsumption (10-succeed / 11th-429 / 409-release-on-no-op). 10/10 scenarios green.
 
 ## 5. Hash-tag key format Detekt rules
 
