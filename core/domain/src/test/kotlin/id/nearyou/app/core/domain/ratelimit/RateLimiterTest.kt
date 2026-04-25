@@ -4,12 +4,13 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import java.time.Duration
-import java.util.ArrayDeque
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Interface contract test for [RateLimiter] using an in-memory test double.
+ * Interface contract test for [RateLimiter] using the canonical [InMemoryRateLimiter]
+ * test double. The same in-memory implementation backs the V9 `ReportRateLimiter`
+ * default constructor — this test thus also functions as a regression gate for the
+ * shared sliding-window algorithm.
  *
  * The contract is the union of V9's `ReportRateLimiter.Outcome` semantics and the
  * `rate-limit-infrastructure` capability scenarios — verifies any conforming
@@ -98,40 +99,3 @@ class RateLimiterTest : StringSpec({
         outcome shouldBe RateLimiter.Outcome.Allowed(remaining = 2)
     }
 })
-
-/**
- * Reference in-memory implementation used purely for this contract test. NOT for
- * production use — the Redis-backed [RateLimiter] in `:infra:redis` is the
- * production binding. This double is structurally similar to V9's
- * `ReportRateLimiter` but generalized: scoped per-(userId, key) instead of
- * per-userId only, with TTL ignored (rolling-window semantics emulated by
- * pruning would require a clock seam this test doesn't need).
- */
-private class InMemoryRateLimiter : RateLimiter {
-    private val buckets: ConcurrentHashMap<Pair<UUID, String>, ArrayDeque<Long>> = ConcurrentHashMap()
-    private var nextSlotId: Long = 0
-
-    @Synchronized
-    override fun tryAcquire(
-        userId: UUID,
-        key: String,
-        capacity: Int,
-        ttl: Duration,
-    ): RateLimiter.Outcome {
-        val bucket = buckets.computeIfAbsent(userId to key) { ArrayDeque() }
-        if (bucket.size >= capacity) {
-            return RateLimiter.Outcome.RateLimited(retryAfterSeconds = ttl.seconds.coerceAtLeast(1))
-        }
-        bucket.addLast(nextSlotId++)
-        return RateLimiter.Outcome.Allowed(remaining = capacity - bucket.size)
-    }
-
-    @Synchronized
-    override fun releaseMostRecent(
-        userId: UUID,
-        key: String,
-    ) {
-        val bucket = buckets[userId to key] ?: return
-        bucket.pollLast()
-    }
-}

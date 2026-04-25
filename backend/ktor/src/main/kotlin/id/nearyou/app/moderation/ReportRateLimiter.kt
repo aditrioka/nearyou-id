@@ -1,42 +1,45 @@
 package id.nearyou.app.moderation
 
+import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
+import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import java.time.Duration
-import java.time.Instant
-import java.util.ArrayDeque
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Sliding-window rate limiter for `POST /api/v1/reports` — 10 submissions per
- * rolling 1-hour window per user.
+ * Wrapper that adapts the shared [RateLimiter] interface (introduced by the
+ * `rate-limit-infrastructure` capability — see `like-rate-limit` change) to the
+ * V9-era public surface that [ReportService] and `ReportEndpointsTest` consume.
  *
- * The key shape `{scope:rate_report}:{user:<uuid>}` is the Redis cluster hash-tag
- * format required by `docs/00-README.md § CI Lint Rules — Redis keys`. V9 runs
- * the counter entirely in-process — Redis is available in the dev compose but
- * no JVM client is on the classpath yet, so a production-ready Redis adapter
- * is deferred to a separate change (the interface below is the only seam that
- * needs changing). Behavior (counts, Retry-After math, hash-tag key) is
- * identical to the intended Redis implementation.
+ * **Public surface preserved byte-for-byte from V9:**
+ *  - `tryAcquire(userId): Outcome` — `Outcome.Allowed(remaining)` /
+ *    `Outcome.RateLimited(retryAfterSeconds)` shape unchanged.
+ *  - `releaseMostRecent(userId)` — same name, same semantics (used on the 409
+ *    duplicate path so a UNIQUE-violation does NOT consume a slot).
+ *  - `cap` and `window` constructor parameters — same defaults (10 / 1 hour).
+ *  - `keyFor(userId)` companion helper — same hash-tag form
+ *    `{scope:rate_report}:{user:<uuid>}`.
  *
- * Policy constants (`CAP`, `WINDOW`) are pulled from `reports` spec Requirement
- * "Rate limit 10 submissions per hour per user" + Decision 6 — not per-target,
- * not per-day, not per-minute.
+ * **What changed:**
+ *  - Internals delegate to a [RateLimiter] (the shared interface) instead of an
+ *    in-process `ConcurrentHashMap`. Production wiring binds the Redis-backed
+ *    `RedisRateLimiter` from `:infra:redis`; the default constructor uses
+ *    [InMemoryRateLimiter] (the V9 algorithm extracted into `:core:domain`),
+ *    which keeps every existing `ReportRateLimiter()` test call working without
+ *    modification.
+ *  - The "deferred to a separate change" comment is gone — the Redis adapter
+ *    landed in the `like-rate-limit` change (see `:infra:redis/RedisRateLimiter.kt`).
  *
- * Idempotent / fault-injection notes:
- *  - [tryAcquire] is atomic per-key under a dedicated lock stripe. Concurrent
- *    submissions from the same user cannot both observe slot 10 → both accept.
- *  - [releaseMostRecent] backs out the slot taken by [tryAcquire] when the
- *    submission ends up in a 409 duplicate — per spec Requirement "409
- *    duplicate does not consume a rate-limit slot". The HTTP layer calls
- *    [releaseMostRecent] before returning 409.
+ * **Test gate split (per `like-rate-limit` design.md Decision 7):** V9's
+ * `ReportEndpointsTest` is the byte-for-byte HTTP-level regression gate (assertions
+ * on rate-limited HTTP 429 responses, Retry-After headers, 409-release behavior).
+ * Lua-level correctness moves to `:infra:redis`'s `RedisRateLimiterIntegrationTest`
+ * — V9 had no separate `ReportRateLimiterTest` unit class to re-point.
  */
 class ReportRateLimiter(
-    private val clock: () -> Instant = Instant::now,
+    private val rateLimiter: RateLimiter = InMemoryRateLimiter(),
     val cap: Int = DEFAULT_CAP,
     val window: Duration = DEFAULT_WINDOW,
 ) {
-    private val buckets: ConcurrentHashMap<String, ArrayDeque<Instant>> = ConcurrentHashMap()
-
     /**
      * Attempt to claim one slot for [userId].
      *
@@ -44,22 +47,17 @@ class ReportRateLimiter(
      * [Outcome.RateLimited] (with the seconds until the oldest counted
      * submission ages out — suitable for a `Retry-After` header).
      *
-     * The key used is exposed via [keyFor]; tests can assert the hash-tag shape.
+     * Synthesizes the key via [keyFor] and delegates to the injected
+     * [RateLimiter]. The `ttl` argument equals the sliding window — matches the
+     * V9 contract where each submission's slot is occupied for exactly `window`
+     * before pruning.
      */
     fun tryAcquire(userId: UUID): Outcome {
         val key = keyFor(userId)
-        val now = clock()
-        val bucket = buckets.computeIfAbsent(key) { ArrayDeque() }
-        synchronized(bucket) {
-            pruneOlderThan(bucket, now.minus(window))
-            if (bucket.size >= cap) {
-                val oldest = bucket.peekFirst() ?: now
-                val retryAfter = Duration.between(now, oldest.plus(window))
-                val seconds = retryAfter.seconds.coerceAtLeast(1L)
-                return Outcome.RateLimited(retryAfterSeconds = seconds)
-            }
-            bucket.addLast(now)
-            return Outcome.Allowed(remaining = cap - bucket.size)
+        return when (val outcome = rateLimiter.tryAcquire(userId, key, cap, window)) {
+            is RateLimiter.Outcome.Allowed -> Outcome.Allowed(remaining = outcome.remaining)
+            is RateLimiter.Outcome.RateLimited ->
+                Outcome.RateLimited(retryAfterSeconds = outcome.retryAfterSeconds)
         }
     }
 
@@ -72,19 +70,7 @@ class ReportRateLimiter(
      * path, which only runs after a successful [tryAcquire]).
      */
     fun releaseMostRecent(userId: UUID) {
-        val bucket = buckets[keyFor(userId)] ?: return
-        synchronized(bucket) {
-            bucket.pollLast()
-        }
-    }
-
-    private fun pruneOlderThan(
-        bucket: ArrayDeque<Instant>,
-        threshold: Instant,
-    ) {
-        while (bucket.isNotEmpty() && !bucket.peekFirst().isAfter(threshold)) {
-            bucket.pollFirst()
-        }
+        rateLimiter.releaseMostRecent(userId, keyFor(userId))
     }
 
     sealed interface Outcome {

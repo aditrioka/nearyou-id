@@ -346,7 +346,12 @@ fun Application.module() {
     val reportRepository: ReportRepository = JdbcReportRepository()
     val moderationQueueRepository: ModerationQueueRepository = JdbcModerationQueueRepository()
     val postAutoHideRepository: PostAutoHideRepository = JdbcPostAutoHideRepository()
-    val reportRateLimiter = ReportRateLimiter()
+    // Wrap the shared `rateLimiter` (Redis or NoOp/InMemory fallback per the
+    // env-aware wiring above) so V9's ReportRateLimiter surface (cap / window /
+    // keyFor / Outcome) keeps working byte-for-byte. Section 7 of like-rate-limit:
+    // the in-process ConcurrentHashMap that V9 shipped is now the
+    // InMemoryRateLimiter test double; production routes through Redis.
+    val reportRateLimiter = ReportRateLimiter(rateLimiter = rateLimiter)
     val reportService =
         ReportService(
             dataSource = dataSource,
