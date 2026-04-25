@@ -28,7 +28,6 @@ import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.config.StubRemoteConfig
-import id.nearyou.app.config.secretKey
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.engagement.LikeService
 import id.nearyou.app.engagement.ReplyService
@@ -287,22 +286,26 @@ fun Application.module() {
     val postLikeRepository: PostLikeRepository = JdbcPostLikeRepository(dataSource)
     val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
     // Conditional Redis wiring (task 4.6 of like-rate-limit):
-    //  - In staging/production: fail-fast on missing `redis-url` slot — Redis is a
-    //    hard dependency for the like rate limiter (per the spec, missing the slot
-    //    is a deployment defect, not a runtime fallback).
-    //  - In dev/test (any non-staging/non-production env, including unset env var
-    //    defaulting to "production" but with an absent slot): if `secrets.resolve`
-    //    returns null, bind a NoOpRateLimiter that always admits. Local dev that
-    //    doesn't run Redis-via-compose still boots; tests that don't exercise the
-    //    limiter still pass. Tests that DO need Redis inject `REDIS_URL` via
-    //    `KotestProjectConfig.beforeProject()` (mirror of the Postgres bootstrap).
+    //  - In staging/production: fail-fast on missing `REDIS_URL` env var — Redis is
+    //    a hard dependency for the like rate limiter (per the spec, missing it is a
+    //    deployment defect, not a runtime fallback).
+    //  - In dev/test: if `secrets.resolve` returns null, bind a NoOpRateLimiter
+    //    that always admits. Local dev that doesn't run Redis-via-compose still
+    //    boots; tests that don't exercise the limiter still pass. Tests that DO
+    //    need Redis inject `REDIS_URL` via `KotestProjectConfig.beforeProject()`
+    //    (mirror of the Postgres bootstrap).
     //
-    // Status note: the staging-redis-url + redis-url GCP Secret Manager slots are
-    // unverified at the time of this code (task 1.7 of like-rate-limit, blocked on
-    // user — needs `gcloud secrets list --filter="name~redis"` against the staging
-    // and prod projects to confirm). Until then, the staging deploy MUST set
-    // REDIS_URL via a hard-coded env var — see deploy-staging.yml line 68.
-    val redisUrl = secrets.resolve(secretKey(ktorEnv, "redis-url"))
+    // Resolution: `secrets.resolve("redis-url")` reads env var `REDIS_URL` (per
+    // EnvVarSecretResolver's name.uppercase().replace('-','_') convention).
+    // Cloud Run injects the env var as `REDIS_URL=staging-redis-url:latest` per
+    // deploy-staging.yml — the staging slot value is bound to the prod-style env
+    // var name, matching how every other staging secret in this app resolves
+    // (KTOR_RSA_PRIVATE_KEY, JITTER_SECRET, INVITE_CODE_SECRET, etc.). Earlier
+    // versions used `secretKey(ktorEnv, "redis-url")` to compose the slot name
+    // `staging-redis-url`, but that produced env var lookup `STAGING_REDIS_URL`
+    // which Cloud Run never sets — first staging deploy of the like-rate-limit
+    // change failed at startup with that exact mismatch.
+    val redisUrl = secrets.resolve("redis-url")
     val rateLimiter: RateLimiter =
         if (redisUrl != null) {
             // The factory in `:infra:redis` owns the Lettuce client lifecycle so
@@ -314,9 +317,11 @@ fun Application.module() {
             redisRateLimiterFromUrl(redisUrl)
         } else {
             require(ktorEnv != "staging" && ktorEnv != "production") {
-                "Required secret '${secretKey(ktorEnv, "redis-url")}' is unset (env=$ktorEnv) — " +
+                "Required env var 'REDIS_URL' is unset (env=$ktorEnv) — " +
                     "Redis is a hard startup requirement in staging and production. " +
-                    "Verify the GCP Secret Manager slot exists and is populated."
+                    "Verify deploy-staging.yml binds REDIS_URL=staging-redis-url:latest " +
+                    "(or the prod equivalent) and that the GCP Secret Manager slot " +
+                    "exists and is populated."
             }
             org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").warn(
                 "event=ratelimiter_noop_fallback env={} reason=redis_url_unset",
