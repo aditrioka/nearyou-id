@@ -12,15 +12,15 @@ For reference, Session 1 implements these tasks: **2.2, 2.3, 2.5, 2.6, 2.7, 3.1�
 
 ### Cluster A — Dataset acquisition (tasks 1.1 – 1.5)
 
-| Task | Blocker | Unblock trigger |
-|------|---------|-----------------|
-| 1.1 Decide BPS vs OSM | User decision (license + practical access). Can't auto-pick without Oka's input on attribution commitments. | Oka says "use BPS" or "use OSM." |
-| 1.2 Download source GeoJSON | External fetch; 15–25 MB. BPS may require account; OSM Overpass query can time out. Handling bulk binary data through a chat session wastes context. | Oka downloads the chosen source offline and commits the raw file (e.g., under `dev/polygon-source/` or via an ignored local path referenced in the convert script). |
-| 1.3 Hand-curate DKI 5 kotamadya + Kepulauan Seribu | Depends on 1.2 being loaded; needs identifying DKI's polygon and splitting per kotamadya. | 1.2 done. |
-| 1.4 Convert GeoJSON → SQL `ST_GeomFromGeoJSON` | Depends on 1.2; output is a 15–25 MB SQL literal — impractical to produce inline. | 1.2 done. A one-shot conversion script lands under `dev/scripts/` and is run locally. |
-| 1.5 Validate `ST_IsValid(geom)` per row | Depends on 1.4 + a live Postgres. | 1.4 done; run `./gradlew :backend:ktor:flywayMigrate` locally. |
+| Task | Status / Blocker | Unblock trigger |
+|------|------------------|-----------------|
+| 1.1 Decide BPS vs OSM | ✅ **Resolved — OSM.** Rationale + attribution string locked in `design.md` Open Question 1. | Done. |
+| 1.2 Download source GeoJSON | Unblocked by 1.1. Reproducible via the Overpass pipeline in [`dev/scripts/import-admin-regions/`](../../../dev/scripts/import-admin-regions/) — no account/auth required. Output ~15–25 MB, fetched in ~5–10 min. | Run the scaffold's `fetch-overpass.sh`; commit the generated SQL into V11. |
+| 1.3 Hand-curate DKI 5 kotamadya + Kepulauan Seribu | Automated in the scaffold via a second Overpass query at `admin_level = 6` inside DKI's polygon (no manual polygon-splitting needed — OSM has them as distinct relations). | 1.2 done. |
+| 1.4 Convert GeoJSON → SQL `ST_GeomFromGeoJSON` | Covered by `generate-seed.py` in the scaffold: stages to local Postgres, applies `ST_MakeValid`, applies 12nm buffer to coastal kabupaten, emits sorted `INSERT` block (provinces first for FK order). | 1.2 done. |
+| 1.5 Validate `ST_IsValid(geom)` per row | Done by the scaffold during staging (invalid → `ST_MakeValid` fixup; fixups logged inline in the generated SQL comment block). Final `SELECT COUNT(*) FROM admin_regions WHERE NOT ST_IsValid(geom::geometry)` asserted = 0 before emitting SQL. | 1.4 done. |
 
-**When to revisit:** dedicated "dataset prep" session (Session 2) after Oka pulls the raw dataset.
+**When to revisit:** Session 2 — run the scaffold end-to-end, commit generated SQL into V11 (or V12 if V11 already merged without seed).
 
 ---
 
