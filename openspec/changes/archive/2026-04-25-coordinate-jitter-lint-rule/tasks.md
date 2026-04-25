@@ -25,4 +25,4 @@
 
 ## 5. Archive (separate PR per workflow)
 
-- [ ] 5.1 `openspec archive coordinate-jitter-lint-rule` — lands the spec delta into `openspec/specs/coordinate-jitter/spec.md` as a permanent requirement and records the archive under `openspec/changes/archive/`.
+- [x] 5.1 `openspec archive coordinate-jitter-lint-rule` — lands the spec delta into `openspec/specs/coordinate-jitter/spec.md` as a permanent requirement and records the archive under `openspec/changes/archive/`.
