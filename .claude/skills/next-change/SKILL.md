@@ -119,7 +119,10 @@ Two review channels run in parallel and are treated as **complementary**, not co
 (The previous auto-Claude-review GitHub Action was retired in PR #36 — its OAuth/quota failure rate climbed to ~89% in the global-timeline ship cycle, so the signal stopped being trustworthy. Sub-agent review in-session is faster, more reliable, and lets the skill author own severity calls directly.)
 
 11. **Spawn sub-agent review + wait for qodo.** In parallel:
-    - **Sub-agent dispatch** (immediate): invoke the `general-purpose` agent with a self-contained prompt — include the PR URL, the change name, "read CLAUDE.md § Reviewing a PR before reviewing," and ask for a structured report under 600 words grouped by severity (bug / invariant / suggestion / question). Return findings to this skill's context as the agent's tool result.
+    - **Sub-agent dispatch** (immediate): invoke `general-purpose` agent(s) with self-contained prompt(s) — include the PR URL, the change name, "read CLAUDE.md § Reviewing a PR before reviewing," and ask for a structured report under 600 words grouped by severity (bug / invariant / suggestion / question). Return findings to this skill's context as each agent's tool result.
+      - **Trivial proposal** (one-requirement spec tweak, single doc fix, etc.): one general-lens agent is sufficient.
+      - **Non-trivial proposal** (new capability + schema + algorithm changes): SHOULD dispatch **multiple lenses in parallel** — typically four: **general** / **security-and-invariant** (CLAUDE.md critical-invariants list, allowlist gaps, RLS, rate-limit math, secret reads, block/shadow-ban joins) / **OpenSpec format-and-correctness** (`### Requirement:` headers, ADDED/MODIFIED/REMOVED deltas, `#### Scenario:` WHEN/THEN coverage, `tasks.md` checkbox format, `--strict` validation) / **test-coverage** (missing scenarios, untested edge cases, integration-test surface). Each lens catches findings the others miss; PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) round 1 confirmed: security caught 5 hardening items the general lens didn't; test-coverage caught 3 missing-scenario bugs the security lens didn't.
+      - **Round 2 regression scan** (optional, after round-1 fixes are pushed): dispatch ONE sub-agent with the explicit prompt "did the round-1 fixes introduce orphan refs or break previously-correct scenarios?" PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) round 2 surfaced 6 stale references the round-1 sweep missed.
     - **qodo polling** (deferred): schedule a `ScheduleWakeup` with `delaySeconds: 120` to give qodo its 2-min window. On wake-up, poll:
       ```bash
       gh pr view <pr-number> --json comments,reviews \
@@ -150,15 +153,17 @@ Two review channels run in parallel and are treated as **complementary**, not co
     - **Ignore the review and hand off to `/opsx:apply`** — skip fixes, proceed to implementation. Record the skipped findings in the PR description so they're visible later.
     - **Pause — I'll review the PR myself** — stop here; user will re-invoke `/opsx:apply` or `/next-change` when ready.
 
-14. **On "apply" options: edit → validate → commit → push → loop.** If the user selected an apply option, make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply review feedback to <change-name>` (list the fixes in the commit body), and push. After the push re-triggers qodo, loop back to step 11.
+14. **On "apply" options: edit → validate → commit → push → loop.** If the user selected an apply option, make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply review feedback to <change-name>` (list the fixes in the commit body), and push to the **same** change branch. After the push re-triggers qodo, loop back to step 11.
 
-    Cap the loop at **2 iterations total**. If new blocking findings keep surfacing after round 2, stop and ask the user to triage — recurring findings usually signal scope confusion that the skill can't resolve autonomously.
+    **Same-PR iteration rule (full lifecycle).** New commits land on the existing change PR — do NOT open a new PR per review round, per phase, or for any reason short of a genuine new change. The PR opened by `/next-change` carries through proposal-review, implementation (`/opsx:apply`), and archive (`/opsx:archive`); it squash-merges ONCE at end-of-lifecycle. PR title evolves via `gh pr edit` as scope progresses (`docs(openspec): propose <name>` → `feat(<area>): <name>` when implementation begins → optionally one final retitle before squash). Body gets updated to reflect current state at each phase boundary. Precedent: PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) (`like-rate-limit`) carried 3 commits during the proposal-review phase (initial proposal + round-1 review feedback + round-2 sweep) without title/body change; subsequent `/opsx:apply` and `/opsx:archive` invocations push to the SAME branch.
+
+    Cap the proposal-review loop at **2 iterations total**. If new blocking findings keep surfacing after round 2, stop and ask the user to triage — recurring findings usually signal scope confusion that the skill can't resolve autonomously.
 
 ### Phase E — Hand off
 
 15. **After the review loop settles (no new blocking findings, or user chose to stop iterating):**
-    - If the user chose to proceed: remind them to run `/opsx:apply` (or ask whether to invoke it now via `AskUserQuestion`).
-    - If the user chose to pause: report the PR URL, list any non-blocking findings still unaddressed, and stop.
+    - If the user chose to proceed: remind them to run `/opsx:apply` (or ask whether to invoke it now via `AskUserQuestion`). **CRITICAL: `/opsx:apply` lands feat commits on the SAME branch, not a new one.** Do NOT merge the proposal PR before implementation — under the one-PR-per-change convention the PR stays open through proposal-review, implementation, AND archive, and squash-merges once at end-of-lifecycle. The PR title gets retitled (typically via `gh pr edit <pr> --title 'feat(<area>): <name>'`) when implementation begins.
+    - If the user chose to pause: report the PR URL, list any non-blocking findings still unaddressed, and stop. The PR stays open at the current commit; future `/opsx:apply` / `/opsx:archive` invocations will push to this branch.
 
 ## Notes
 
