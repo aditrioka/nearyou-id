@@ -16,13 +16,14 @@ private fun writeKtFile(
     val root = Files.createTempDirectory("detekt-coord-")
     // Some rule allowlists match on `/src/test/` substring in the physical path.
     // Simulate that here when the test needs to exercise the test-path gate.
-    val dir = if (underTest) {
-        val nested = root.resolve("src").resolve("test").resolve("kotlin")
-        Files.createDirectories(nested)
-        nested
-    } else {
-        root
-    }
+    val dir =
+        if (underTest) {
+            val nested = root.resolve("src").resolve("test").resolve("kotlin")
+            Files.createDirectories(nested)
+            nested
+        } else {
+            root
+        }
     val path = dir.resolve(fileName)
     path.writeText(code)
     return path
