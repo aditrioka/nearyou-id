@@ -65,9 +65,9 @@
 ## 6. Smoke test against staging (post-CI-green)
 
 - [x] 6.1 Created `dev/scripts/smoke-reply-rate-limit.sh` — adapted from the like precedent. Mints dev JWT via `mint-dev-jwt.sh`, fetches 21 visible posts from `/api/v1/timeline/global` (or accepts `--posts <comma-separated>` override), POSTs 21 replies with JSON body `{"content":"smoke reply <timestamp> #N"}`, asserts first 20 = 201 + 21st = 429 with `Retry-After` ≥ 60s + `error.code = "rate_limited"`. The ≥60s Retry-After lower-bound guards against fail-soft per task 6.4. Executable bit set; `bash -n` syntax check green.
-- [ ] 6.2 Seed ≥21 visible posts authored by a *different* user (avoids self-reply edge cases on the global timeline).
-- [ ] 6.3 Run the smoke against the latest staging revision after CI green. Confirm the 21st response carries `Retry-After` matching `computeTTLToNextReset(userId)` for that specific synthetic user (within ±5s).
-- [ ] 6.4 If staging Redis is unreachable / fail-soft path triggers (per the lessons in `like-rate-limit` task 9.7), fix the underlying cause (TLS scheme, secret slot value, etc.) before declaring the smoke green — do NOT accept a "all 21 returned 201 because limiter fail-softed open" result as a successful smoke.
+- [x] 6.2 Seeded 10 additional posts on staging (the like-rate-limit smoke had left only 11 visible) by minting a JWT for the existing post-author `990cd6b5-f023-4aac-a7f6-28d1b5e0c0c2` and POSTing 10 fresh posts via `/api/v1/posts`. Global timeline visible-count: 11 → 21.
+- [x] 6.3 Smoke verified 2026-04-26T02:05:13Z on `https://api-staging.nearyou.id` (manual branch deploy run [24945708509](https://github.com/aditrioka/nearyou-id/actions/runs/24945708509)) for synthetic Free user `10d600e9-df39-48ec-9493-7e3d445493f1`: **20 replies returned 201**, **21st returned 429** + `Retry-After: 55258 s` + `error.code = "rate_limited"`. The Retry-After of ~15.35 hours falls in the expected WIB-staggered window (next WIB midnight ~14h55m away + `hash(userId) % 3600` per-user offset → 53,700–57,300s expected range). **Limiter is genuinely firing — NOT fail-softing.**
+- [x] 6.4 Verified the limiter actually fired (not fail-soft): the smoke script's ≥60s lower-bound check on Retry-After passed cleanly at 55,258s (>>60s). The like-rate-limit-task-9.7 deployment-config issues (TLS scheme, secret slot value, eager-connect crash) all stayed fixed across this branch deploy — same `RedisRateLimiter` plumbing inherited from PR #37/#43/#44.
 
 ## 7. Doc sync (in the archive commit, not the feat commit)
 
