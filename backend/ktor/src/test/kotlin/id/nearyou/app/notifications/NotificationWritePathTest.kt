@@ -312,7 +312,15 @@ class NotificationWritePathTest : StringSpec({
             rateLimiter = noopLimiter,
             remoteConfig = noopRemoteConfig,
         )
-    val replyService = ReplyService(dataSource, JdbcPostReplyRepository(dataSource), emitter, dispatcher)
+    val replyService =
+        ReplyService(
+            dataSource = dataSource,
+            replies = JdbcPostReplyRepository(dataSource),
+            notifications = emitter,
+            dispatcher = dispatcher,
+            rateLimiter = noopLimiter,
+            remoteConfig = noopRemoteConfig,
+        )
     val followService = FollowService(dataSource, JdbcUserFollowsRepository(dataSource), emitter, dispatcher)
     val contentGuard = ContentLengthGuard(mapOf("reply.content" to 280))
     val reportService =
@@ -656,7 +664,15 @@ class NotificationWritePathTest : StringSpec({
                     throw RuntimeException("simulated emit failure")
                 }
             }
-        val failReply = ReplyService(dataSource, JdbcPostReplyRepository(dataSource), failing, dispatcher)
+        val failReply =
+            ReplyService(
+                dataSource = dataSource,
+                replies = JdbcPostReplyRepository(dataSource),
+                notifications = failing,
+                dispatcher = dispatcher,
+                rateLimiter = noopLimiter,
+                remoteConfig = noopRemoteConfig,
+            )
         try {
             runCatching { failReply.post(p, bob, "text") }.isFailure shouldBe true
             dataSource.connection.use { conn ->

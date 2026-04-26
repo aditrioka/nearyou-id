@@ -6,9 +6,11 @@ import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
+import id.nearyou.app.config.StubRemoteConfig
 import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.guard.ContentTooLongException
+import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcPostReplyRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
@@ -74,7 +76,15 @@ class ReplyEndpointsTest : StringSpec({
     val notificationsRepo = JdbcNotificationRepository(dataSource)
     val dispatcher = NoopNotificationDispatcher()
     val notificationEmitter = DbNotificationEmitter(notificationsRepo)
-    val service = ReplyService(dataSource, repo, notificationEmitter, dispatcher)
+    val service =
+        ReplyService(
+            dataSource = dataSource,
+            replies = repo,
+            notifications = notificationEmitter,
+            dispatcher = dispatcher,
+            rateLimiter = NoOpRateLimiter(),
+            remoteConfig = StubRemoteConfig(),
+        )
     val contentGuard = ContentLengthGuard(mapOf(REPLY_CONTENT_KEY to 280))
 
     fun seedUser(shadowBanned: Boolean = false): Pair<UUID, String> {

@@ -341,7 +341,14 @@ fun Application.module() {
         )
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
     val replyService =
-        ReplyService(dataSource, postReplyRepository, notificationEmitter, notificationDispatcher)
+        ReplyService(
+            dataSource = dataSource,
+            replies = postReplyRepository,
+            notifications = notificationEmitter,
+            dispatcher = notificationDispatcher,
+            rateLimiter = rateLimiter,
+            remoteConfig = remoteConfig,
+        )
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
     val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)

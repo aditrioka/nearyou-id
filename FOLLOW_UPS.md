@@ -51,7 +51,7 @@ Format per entry:
 **Action items:**
 - [ ] File a docs-only OpenSpec change `auth-jwt-principal-subscription-status` with one ADDED Requirement to `auth-jwt` spec describing the field.
 - [ ] In the same change, optionally amend `auth-session` spec to cross-reference the principal field for capability-spanning clarity.
-- [ ] Verify the RevenueCat downgrade webhook bumps `token_version` so JWT re-issuance picks up the new tier (currently unverified — file a separate follow-up if it doesn't).
+- [ ] When the Phase 4 RevenueCat webhook handler lands, ensure `EXPIRATION` / cancellation events bump `users.token_version` so JWT re-issuance picks up the new tier (closes the JWT-TTL window risk documented in `reply-rate-limit/design.md` § Premium → Free downgrade window). Confirmed during `reply-rate-limit` apply (task 1.5): the RevenueCat webhook handler **does not yet exist in the backend** — the verification is moot until Phase 4 lands the handler, but should be the first item on the handler's spec checklist.
 
 ---
 
