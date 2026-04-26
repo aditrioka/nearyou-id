@@ -37,6 +37,13 @@ class HealthRoutesTest : StringSpec({
             "db.maxPoolSize" to "1",
             "auth.rsaPrivateKey" to TestKeys.freshEncodedPemPrivateKey(),
             "auth.supabaseJwtSecret" to "test-supabase-secret-32-bytes-long!!",
+            // auth.supabaseUrl is required at boot per the health-check-endpoints
+            // change. The test value is a non-resolving host — the inline no-op
+            // RedisProbe (dev/test fallback when REDIS_URL is unset) returns ok=true,
+            // and the Supabase probe will fail (DNS) but its failure is the test's
+            // expected behavior in the "Postgres unreachable" scenario where we
+            // assert 503.
+            "auth.supabaseUrl" to "http://supabase.test.invalid",
         )
 
     "GET /health/live always returns 200" {

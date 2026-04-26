@@ -24,10 +24,15 @@ import id.nearyou.app.auth.signup.WordPairResource
 import id.nearyou.app.auth.signup.signupRoutes
 import id.nearyou.app.block.BlockService
 import id.nearyou.app.block.blockRoutes
+import id.nearyou.app.common.ClientIpExtractorPlugin
 import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.config.StubRemoteConfig
+import id.nearyou.app.core.domain.health.PostgresProbe
+import id.nearyou.app.core.domain.health.ProbeResult
+import id.nearyou.app.core.domain.health.RedisProbe
+import id.nearyou.app.core.domain.health.SupabaseRealtimeProbe
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.engagement.LikeService
 import id.nearyou.app.engagement.ReplyService
@@ -40,10 +45,13 @@ import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.guard.ContentTooLongException
 import id.nearyou.app.guard.installContentLengthGuard
+import id.nearyou.app.health.JdbcPostgresProbe
+import id.nearyou.app.health.KtorSupabaseRealtimeProbe
 import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
 import id.nearyou.app.infra.redis.NoOpRateLimiter
+import id.nearyou.app.infra.redis.lettuceRedisProbeFromUrl
 import id.nearyou.app.infra.redis.redisRateLimiterFromUrl
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
@@ -124,6 +132,12 @@ fun main(args: Array<String>) {
 }
 
 fun Application.module() {
+    // ClientIpExtractor MUST run before auth, rate-limit, and any business handler.
+    // It populates `call.clientIp` via the canonical CF-Connecting-IP →
+    // XFF-first → remoteHost ladder. Direct `X-Forwarded-For` reads outside
+    // ClientIpExtractor.kt are forbidden by the `RawXForwardedForRule` Detekt rule.
+    install(ClientIpExtractorPlugin)
+
     install(ContentNegotiation) {
         json(
             Json {
@@ -246,6 +260,10 @@ fun Application.module() {
             ?: error("Missing required config auth.supabaseJwtSecret (set SUPABASE_JWT_SECRET)")
     val realtimeIssuer = RealtimeTokenIssuer(supabaseSecret)
 
+    val supabaseUrl =
+        environment.config.propertyOrNull("auth.supabaseUrl")?.getString()?.takeIf { it.isNotBlank() }
+            ?: error("Missing required config auth.supabaseUrl (set SUPABASE_URL)")
+
     val reservedUsernames: ReservedUsernameRepository = JdbcReservedUsernameRepository(dataSource)
     val rejectedIdentifiers: RejectedIdentifierRepository = JdbcRejectedIdentifierRepository(dataSource)
     val wordPairs = WordPairResource.loadFromClasspath()
@@ -334,6 +352,24 @@ fun Application.module() {
             )
             NoOpRateLimiter()
         }
+
+    // Health probes. RedisProbe is Redis-backed when REDIS_URL is present
+    // (staging/prod always-on); a no-op probe reports ok=true in dev/test mode
+    // when the rate-limiter falls back to NoOpRateLimiter — same always-admit
+    // semantics, intentionally lying that Redis is healthy in dev so Application
+    // boot succeeds without a running Redis container. Production paths require
+    // REDIS_URL → Redis-backed probe by construction.
+    val redisProbe: RedisProbe =
+        if (redisUrl != null) {
+            lettuceRedisProbeFromUrl(redisUrl)
+        } else {
+            object : RedisProbe {
+                override suspend fun ping(timeout: java.time.Duration): ProbeResult = ProbeResult(ok = true, latencyMs = 0L, error = null)
+            }
+        }
+    val supabaseProbe: SupabaseRealtimeProbe = KtorSupabaseRealtimeProbe(httpClient, supabaseUrl)
+    val postgresProbe: PostgresProbe = JdbcPostgresProbe(dataSource)
+
     val remoteConfig: RemoteConfig = StubRemoteConfig()
     val likeService =
         LikeService(
@@ -425,6 +461,9 @@ fun Application.module() {
                 single { followService }
                 single<PostLikeRepository> { postLikeRepository }
                 single<RateLimiter> { rateLimiter }
+                single<PostgresProbe> { postgresProbe }
+                single<RedisProbe> { redisProbe }
+                single<SupabaseRealtimeProbe> { supabaseProbe }
                 single<RemoteConfig> { remoteConfig }
                 single { likeService }
                 single<PostReplyRepository> { postReplyRepository }

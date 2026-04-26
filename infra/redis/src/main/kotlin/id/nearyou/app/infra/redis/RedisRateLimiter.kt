@@ -122,18 +122,15 @@ class RedisRateLimiter(
         val jti = UUID.randomUUID().toString()
 
         return try {
-            val result =
-                evalShaWithFallback(
-                    sync = sync,
-                    keys = arrayOf(key),
-                    args = arrayOf(
-                        nowMs.toString(),
-                        windowMs.toString(),
-                        ttlMs.toString(),
-                        capacity.toString(),
-                        jti,
-                    ),
+            val args =
+                arrayOf(
+                    nowMs.toString(),
+                    windowMs.toString(),
+                    ttlMs.toString(),
+                    capacity.toString(),
+                    jti,
                 )
+            val result = evalShaWithFallback(sync = sync, keys = arrayOf(key), args = args)
             val flag = result[0]
             val value = result[1]
             if (flag == 1L) {

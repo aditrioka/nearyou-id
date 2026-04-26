@@ -71,6 +71,7 @@ class RawXForwardedForRule(config: Config = Config.empty) : Rule(config) {
     companion object {
         const val RULE_ID: String = "RawXForwardedForRule"
         const val EXTRACTOR_FILE_NAME: String = "ClientIpExtractor.kt"
+
         // Case-insensitive — header names are case-insensitive per HTTP RFC, and
         // both `X-Forwarded-For` and `x-forwarded-for` appear in the wild.
         private val XFF_PATTERN: Regex = Regex("""X-Forwarded-For""", RegexOption.IGNORE_CASE)

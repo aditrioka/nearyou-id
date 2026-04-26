@@ -297,6 +297,12 @@ class NotificationWritePathTest : StringSpec({
                 ttl: java.time.Duration,
             ): RateLimiter.Outcome = RateLimiter.Outcome.Allowed(remaining = capacity - 1)
 
+            override fun tryAcquireByKey(
+                key: String,
+                capacity: Int,
+                ttl: java.time.Duration,
+            ): RateLimiter.Outcome = RateLimiter.Outcome.Allowed(remaining = capacity - 1)
+
             override fun releaseMostRecent(
                 userId: UUID,
                 key: String,

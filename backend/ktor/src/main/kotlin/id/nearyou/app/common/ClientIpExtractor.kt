@@ -66,9 +66,10 @@ val ClientIpExtractorPlugin =
  * happen in practice when the plugin is installed at the application level).
  */
 val ApplicationCall.clientIp: String
-    get() = attributes.getOrNull(ClientIpAttributeKey) ?: resolveClientIp(this).also {
-        attributes.put(ClientIpAttributeKey, it)
-    }
+    get() =
+        attributes.getOrNull(ClientIpAttributeKey) ?: resolveClientIp(this).also {
+            attributes.put(ClientIpAttributeKey, it)
+        }
 
 internal fun resolveClientIp(call: ApplicationCall): String {
     // 1. CF-Connecting-IP — canonical when present.

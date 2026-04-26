@@ -69,6 +69,18 @@ jobs:
       # max-instances=1 while RUN_FLYWAY_ON_STARTUP=true — prevents racing on the
       # flyway_schema_history_lock during scale-out. Lift this cap once migrations
       # move to a dedicated Cloud Run Job (planned for the prod split).
+      #
+      # Cloud Run probes (per the health-check-endpoints capability):
+      #  - Startup probe → /health/ready (gates traffic during boot; the K8s
+      #    "readiness" analog — Cloud Run does not have a separate readiness probe).
+      #  - Liveness probe → /health/live (continuous keepalive after startup).
+      # Probe traffic carries `User-Agent: GoogleHC/...` and bypasses the
+      # /health/* per-IP rate limit (HealthRoutes.kt detects the regex
+      # `^(GoogleHC|kube-probe)/`).
+      #
+      # SUPABASE_URL is wired via --set-env-vars (not --set-secrets) — the URL
+      # is configuration that varies per environment, not a secret. Required at
+      # boot (Application.kt fail-fast).
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${SERVICE}" \
@@ -82,8 +94,10 @@ jobs:
             --cpu=1 \
             --concurrency=80 \
             --timeout=60 \
-            --set-env-vars=KTOR_ENV=staging,RUN_FLYWAY_ON_STARTUP=true \
+            --set-env-vars="KTOR_ENV=staging,RUN_FLYWAY_ON_STARTUP=true,SUPABASE_URL=${{ secrets.SUPABASE_URL_STAGING }}" \
             --set-secrets="DB_URL=staging-db-url:latest,DB_USER=staging-db-user:latest,DB_PASSWORD=staging-db-password:latest,KTOR_RSA_PRIVATE_KEY=staging-ktor-rsa-private-key:latest,JITTER_SECRET=staging-jitter-secret:latest,INVITE_CODE_SECRET=staging-invite-code-secret:latest,SUPABASE_JWT_SECRET=staging-supabase-jwt-secret:latest,REDIS_URL=staging-redis-url:latest" \
+            --startup-probe="httpGet.path=/health/ready,initialDelaySeconds=5,periodSeconds=10,timeoutSeconds=3,failureThreshold=3" \
+            --liveness-probe="httpGet.path=/health/live,initialDelaySeconds=30,periodSeconds=30,timeoutSeconds=2,failureThreshold=3" \
             --quiet
 
       - name: Show service URL
