@@ -23,6 +23,10 @@ The migration MUST be idempotent against pre-existing `pg_trgm` (the `IF NOT EXI
 - **WHEN** a new row is INSERTed via the existing `POST /api/v1/posts` flow without supplying `content_tsv`
 - **THEN** the inserted row's `content_tsv` equals `to_tsvector('simple', content)` (Postgres computes it as part of the GENERATED ALWAYS contract)
 
+#### Scenario: content_tsv auto-regenerates on UPDATE of content
+- **WHEN** an existing `posts` row's `content` is UPDATEd (e.g., by a future post-edit feature)
+- **THEN** the row's `content_tsv` automatically regenerates to `to_tsvector('simple', new_content)` per the GENERATED ALWAYS STORED contract — no application-side recomputation is needed AND no separate trigger is required
+
 #### Scenario: Direct INSERT to content_tsv rejected
 - **WHEN** any INSERT or UPDATE attempts to write `content_tsv` directly
 - **THEN** Postgres rejects the write with the `cannot insert into column "content_tsv"` error per the GENERATED ALWAYS semantics

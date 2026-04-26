@@ -23,10 +23,12 @@ Plus: the endpoint + service + repository + rate-limit wiring; tests; smoke scri
 
 - Premium-only `GET /api/v1/search?q=&offset=` endpoint returning ranked post results with author profile, joined via `visible_posts` + `visible_users`, with bidirectional block exclusion + auto-hide filter + Premium-private-profile gate
 - Free users receive `403 { error: "premium_required", upsell: true }`; guests receive `401`
-- Hourly rate limit (60/hour Premium) via the shared `RateLimiter` interface, sliding-window TTL 3600s
-- `search_enabled` Remote Config kill switch returning `503` when `FALSE`
-- Query length guard `1 ≤ q.length ≤ 100`; `400` outside that range
-- V13 Flyway migration adding `users_username_trgm_idx` GIN trigram index
+- Hourly rate limit (60/hour Premium) via the shared `RateLimiter` interface, sliding-window TTL 3600s; canonical key form `{scope:rate_search}:{user:<uuid>}` matching the `ReportRateLimiter.keyFor` precedent
+- `search_enabled` Remote Config kill switch returning `503` when `FALSE`, short-circuited before the rate-limit gate so probe-polling does not burn user quota during incidents
+- Query length guard `2 ≤ q.length ≤ 100` (post-NFKC-trim Unicode code points); the `2`-char lower bound defends against `pg_trgm` near-full-table scans on single-char queries given the default `similarity_threshold = 0.3`
+- Bounded `offset ≤ 10000` to defend against deep-OFFSET DoS (each query is expensive even within the 60/hour cap)
+- `pg_trgm.similarity_threshold` pinned to the canonical `0.3` per session OR via integration-test assertion (silent-drift protection)
+- V13 Flyway migration ships the FTS infrastructure that V4 explicitly deferred: `pg_trgm` extension + `posts.content_tsv` GENERATED column + `posts_content_tsv_idx` GIN + `posts_content_trgm_idx` GIN + `users_username_trgm_idx` GIN
 - Pre-archive smoke script `dev/scripts/smoke-premium-search.sh` per `openspec/project.md` § Staging deploy timing
 
 **Non-Goals:**
@@ -123,15 +125,22 @@ Even though Search is Premium-gated (and Premium requires an account anyway), th
 
 - **Trade-off: No Redis search-result cache means every query hits Postgres.** → Acceptable at MVP scale (hundreds to low thousands of Premium users); cache add is a clean retrofit if p95 ever approaches the timeline target (200ms per `docs/08-Roadmap-Risk.md` Phase 2 benchmark).
 
-- **Trade-off: No re-index hooks on shadow-ban / block events.** → Acceptable because the view + GIN combination always reflects current truth; the only thing missing is a cache layer that doesn't yet exist.
+- **Trade-off: No re-index hooks on shadow-ban / block events.** → Acceptable because the view + GIN combination always reflects current truth; the only thing missing is a cache layer that doesn't yet exist. **Note**: `docs/02-Product.md:282` declares "Re-index trigger: async job on every shadow ban / block / unban applied" as live infrastructure — this is documentation drift (the trigger has never existed, and the `view + GIN` approach makes it unnecessary until the Redis cache lands). Logged in `FOLLOW_UPS.md` § `premium-search-reindex-trigger-doc-divergence` for tracked resolution; this proposal does NOT amend `docs/02-Product.md` in-line per the skill convention (out-of-scope finding goes to FOLLOW_UPS, not silent doc edit).
+
+- **Risk: GENERATED column ALTER TABLE rewrite cost on production-scale tables.** → V13 `ALTER TABLE posts ADD COLUMN content_tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED;` is a non-trivial DDL that rewrites every existing `posts` row to populate the new column. On staging (synthetic data, ~hundreds to low-thousands of rows) the lock is sub-second and acceptable. On production at MVP scale (single-digit thousands of rows pre-launch) the rewrite is also acceptable. **Mitigation for future scale**: at >100k rows, the recommended pattern shifts to (a) add the column NULLABLE first, (b) backfill in batches, (c) add the GENERATED constraint last — but the MVP simplification of one-shot ADD COLUMN is correct for the launch window. Pre-launch this is a non-issue. Document re-evaluation as a follow-up if production volume exceeds 100k posts before any other migration touches `posts`.
 
 ## Migration Plan
 
-1. Land V13 Flyway migration adding `users_username_trgm_idx` (additive; reversible by `DROP INDEX`)
+1. Land V13 Flyway migration `V13__premium_search_fts.sql` shipping the full FTS schema V4 deferred:
+   - `CREATE EXTENSION IF NOT EXISTS pg_trgm` (idempotent guard)
+   - `ALTER TABLE posts ADD COLUMN content_tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED` — rewrites existing rows to populate; cost bounded at MVP scale (see Risks above)
+   - `CREATE INDEX posts_content_tsv_idx ON posts USING GIN(content_tsv)`
+   - `CREATE INDEX posts_content_trgm_idx ON posts USING GIN(content gin_trgm_ops)`
+   - `CREATE INDEX users_username_trgm_idx ON users USING GIN(username gin_trgm_ops)`
 2. Deploy `SearchService` + `SearchRoute` behind the `search_enabled` flag (default TRUE per existing Remote Config declaration — no flag flip required)
 3. Pre-archive: `gh workflow run deploy-staging.yml --ref premium-search` → smoke against branch deploy → tick task list
 4. Squash-merge → main-staging auto-deploys
-5. **Rollback path**: if abuse / load surfaces, flip `search_enabled = FALSE` via Remote Config (5-min cache TTL) — instant kill-switch; no code revert required. Index is left in place (no harm).
+5. **Rollback path**: if abuse / load surfaces, flip `search_enabled = FALSE` via Remote Config (5-min cache TTL) — instant kill-switch; no code revert required. Indexes + extension + GENERATED column left in place (no harm; reversible by future `DROP INDEX` / `DROP EXTENSION` / `ALTER TABLE DROP COLUMN` migrations if ever needed).
 
 ## Open Questions
 
