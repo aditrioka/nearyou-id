@@ -80,20 +80,24 @@ The Postgres probe stays inline with `dataSource.connection.use { ... }` because
 
 The hash-tag standard (`{scope:<value>}:{<axis>:<value>}`) is enforced by `RedisHashTagRule` Detekt lint per [`openspec/specs/rate-limit-infrastructure/spec.md`](openspec/specs/rate-limit-infrastructure/spec.md).
 
-**Cloud Run probe traffic** hits `127.0.0.1` (loopback) when the native probe runs inside the container, so the probe's `clientIp` resolves to the container address and uses a different bucket than real client traffic. No explicit bypass logic is needed.
+**Cloud Run probe traffic bypass** is handled via D10 (`User-Agent: ^(GoogleHC|kube-probe)/` regex match → skip rate-limit). The earlier "127.0.0.1 loopback isolation" assumption was wrong (Cloud Run probes do NOT see loopback as the source IP — see D10 rationale); the User-Agent bypass replaces it as the canonical mechanism.
 
 **Alternatives considered**:
 - Separate buckets for `/live` and `/ready` — rejected as unnecessary (anti-scrape intent is the same).
 - Skip rate-limit when `RateLimiter` is `NoOpRateLimiter` (dev/test) — already implicit: `NoOpRateLimiter` always admits, so dev/test traffic is naturally unlimited.
 
-### D6: Fixed error vocabulary `"timeout" | "connection_refused" | "unknown"`
+### D6: Fixed error vocabulary `"timeout" | "connection_refused" | "dns_failure" | "tls_failure" | "unknown"`
 
-**Decision**: When a probe fails, the `error` field in the response is exactly one of: `"timeout"`, `"connection_refused"`, or `"unknown"`. No other values, no exception messages, no stack traces.
+**Decision**: When a probe fails, the `error` field in the response is exactly one of: `"timeout"`, `"connection_refused"`, `"dns_failure"`, `"tls_failure"`, or `"unknown"`. No other values, no exception messages, no stack traces.
 
-**Rationale**: Anti-info-leak — exception messages can contain internal hostnames, file paths, or stack traces that reveal infrastructure topology to an unauthenticated caller. Three-state classification is sufficient for ops triage:
-- `"timeout"` — the dep is reachable but slow (latency / load issue).
-- `"connection_refused"` — the dep is unreachable (DNS / firewall / down).
+**Rationale**: Anti-info-leak — exception messages can contain internal hostnames, file paths, or stack traces that reveal infrastructure topology to an unauthenticated caller. Five-state classification is sufficient for ops triage:
+- `"timeout"` — the dep is reachable but slow (latency / load issue / HikariCP pool exhaustion).
+- `"connection_refused"` — the dep is reachable at the network layer but the TCP connection is refused (port closed, firewall, service down).
+- `"dns_failure"` — the dep hostname cannot be resolved (misconfiguration, DNS outage).
+- `"tls_failure"` — TLS handshake failure (cert expiry, cert pinning mismatch, TLS version incompatibility).
 - `"unknown"` — anything else, escape hatch.
+
+Round-1 review surfaced that DNS and TLS failures are operationally distinct from "connection_refused" / "unknown" — collapsing them masks two distinct misconfigurations that ops dashboards need to surface separately. The vocabulary expanded from 3 to 5 values accordingly.
 
 The original exception MUST be logged at WARN with full context for operator debugging — only the response is sanitized.
 
@@ -145,7 +149,7 @@ Production deployment is a separate change cycle (no `deploy-prod.yml` exists ye
 
 Reconciliation against canonical docs surfaced two minor terminology divergences resolved in this proposal:
 
-1. **`status` field**: [`docs/05-Implementation.md:1974`](docs/05-Implementation.md) uses `"status": "ready"` for the green case (matching the endpoint name `/health/ready`); the existing partial implementation at [`HealthRoutes.kt:29`](backend/ktor/src/main/kotlin/id/nearyou/app/health/HealthRoutes.kt) uses `"status": "ok"`. This proposal aligns with canonical docs (`"ready"`); the implementation will be updated as part of section 4 of `tasks.md`.
+1. **`status` field**: [`docs/05-Implementation.md:1974`](docs/05-Implementation.md) uses `"status": "ready"` for the green case (matching the endpoint name `/health/ready`); the existing partial implementation at [`HealthRoutes.kt:29`](backend/ktor/src/main/kotlin/id/nearyou/app/health/HealthRoutes.kt) uses `"status": "ok"`. This proposal aligns with canonical docs (`"ready"`); the implementation will be updated as part of section 6 of `tasks.md` (specifically task 6.7, the `HealthReadyResponse` data class).
 
 2. **Cloud Run probe vocabulary**: [`docs/04-Architecture.md:166`](docs/04-Architecture.md) uses Kubernetes "readiness probe" terminology, but Cloud Run does not implement a readiness probe — its `--startup-probe` flag gates traffic during boot in the same role. This proposal uses Cloud Run-native terminology (`startup-probe` + `liveness-probe`) in the spec and tasks while explicitly noting the docs use K8s vocabulary. A docs cleanup follow-up entry is added to `FOLLOW_UPS.md` to amend [`docs/04-Architecture.md:166`](docs/04-Architecture.md) once this change ships.
 

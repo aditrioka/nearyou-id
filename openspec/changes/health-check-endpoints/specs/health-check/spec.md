@@ -29,7 +29,7 @@ Per-probe timeouts:
 
 The whole `/health/ready` handler MUST respect a 2-second outer cap regardless of per-probe timeouts (defense-in-depth against a probe that hangs past its individual timeout). When the outer cap fires, any unfinished probe is recorded as `ok=false` with `error="timeout"` in the response.
 
-A probe is `ok=true` when the underlying call returns successfully within its timeout. Any exception, timeout, or non-completion within the per-probe budget MUST be recorded as `ok=false`. Stack traces and full exception messages MUST NOT be included in the response — only a short, fixed-vocabulary `error` string (e.g., `"timeout"`, `"connection_refused"`, `"unknown"`).
+A probe is `ok=true` when the underlying call returns successfully within its timeout. Any exception, timeout, or non-completion within the per-probe budget MUST be recorded as `ok=false`. Stack traces and full exception messages MUST NOT be included in the response — only a short, fixed-vocabulary `error` string (e.g., `"timeout"`, `"connection_refused"`, `"dns_failure"`, `"tls_failure"`, `"unknown"`). Full vocabulary is defined in the `/health/ready` response shape requirement below.
 
 The endpoint MUST be exempt from authentication middleware.
 
@@ -169,7 +169,7 @@ suspend fun ping(timeout: Duration): ProbeResult
 data class ProbeResult(val ok: Boolean, val latencyMs: Long, val error: String? = null)
 ```
 
-`error` is non-null only when `ok == false`, and its value MUST be one of `"timeout"`, `"connection_refused"`, or `"unknown"`.
+`error` is non-null only when `ok == false`, and its value MUST be one of `"timeout"`, `"connection_refused"`, `"dns_failure"`, `"tls_failure"`, or `"unknown"` (matching the response-shape vocabulary defined in the `/health/ready` response shape requirement).
 
 The `RedisProbe` interface enables `:backend:ktor` to consume Redis liveness without importing `io.lettuce.core.*`, preserving the "no vendor SDK outside `:infra:*`" critical invariant from [`openspec/project.md`](openspec/project.md).
 
@@ -185,7 +185,12 @@ The `RedisProbe` interface enables `:backend:ktor` to consume Redis liveness wit
 
 The `:infra:redis` module SHALL provide a `LettuceRedisProbe` class implementing `RedisProbe`. The implementation MUST use the existing Lettuce `RedisClient` Koin singleton (no new connection per probe) and issue `PING` via the sync command surface with the supplied timeout enforced through `withTimeoutOrNull(timeout)` (Kotlin coroutine timeout) wrapping the Lettuce call dispatched on `Dispatchers.IO`.
 
-On timeout, the result MUST be `ProbeResult(ok = false, latencyMs = elapsedMs, error = "timeout")`. On `RedisException` or `RedisConnectionException`, the result MUST be `ProbeResult(ok = false, latencyMs = elapsedMs, error = "connection_refused")`. On any other throwable, `error = "unknown"`.
+Error vocabulary mapping:
+- `withTimeoutOrNull` returns null → `ProbeResult(ok = false, latencyMs = elapsedMs, error = "timeout")`.
+- `RedisException` / `RedisConnectionException` → `error = "connection_refused"`.
+- `UnknownHostException` (e.g., misconfigured Redis URL hostname) → `error = "dns_failure"`.
+- `SSLHandshakeException` / `SSLException` (e.g., Upstash TLS misconfiguration) → `error = "tls_failure"`.
+- Any other throwable → `error = "unknown"` (the original exception is logged at WARN with full context for operator debugging).
 
 The probe MUST NOT eagerly create a new connection — it reuses the connection lazily established by the existing Koin module (per the lazy-connect fix shipped in PR [#44](https://github.com/aditrioka/nearyou-id/pull/44)).
 
@@ -245,7 +250,7 @@ The staging Cloud Run deploy workflow ([`.github/workflows/deploy-staging.yml`](
 
 (Note: Cloud Run does not implement a "readiness probe" in the Kubernetes sense. The startup probe fills the same role — gating traffic to a new revision until the application is healthy. [`docs/04-Architecture.md:166`](docs/04-Architecture.md) uses Kubernetes "readiness probe" vocabulary; the Cloud Run-native equivalent is the startup probe targeting the same endpoint.)
 
-The probe traffic targets the container's loopback address (Cloud Run's native probe behavior), which is naturally isolated from the per-IP rate-limit bucket (see the rate-limit requirement above).
+Probe traffic is exempted from the per-IP rate-limit bucket via the `User-Agent` regex bypass (see the `/health/*` rate-limit requirement above) — Cloud Run native probes carry `User-Agent: GoogleHC/...`, which the rate-limit gate detects and skips.
 
 Production deploy workflow wiring is OUT OF SCOPE for this change (no production deploy workflow exists yet at the time of this change).
 
