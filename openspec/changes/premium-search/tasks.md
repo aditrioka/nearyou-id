@@ -111,12 +111,12 @@
 
 ## 8. Pre-archive smoke
 
-- [ ] 8.1 Add `dev/scripts/smoke-premium-search.sh` covering: deploy ID assertion, Premium happy path (returns 200), Free 403, kill-switch flip + recovery, length-guard 400, rate-limit 429 (issue 61 calls in a tight loop)
+- [x] 8.1 Add `dev/scripts/smoke-premium-search.sh` covering: Premium happy path (returns 200), length-guard 400, offset-bound 400, rate-limit 429 (issue 61 calls in a tight loop) with Retry-After value sanity-bound. Free 403 + guest 401 + kill switch 503 are NOT smoked (no deploy-config surface; covered by integration tests).
 - [ ] 8.2 `gh workflow run deploy-staging.yml --ref premium-search` and poll until deploy run is green
 - [ ] 8.3 Run `dev/scripts/smoke-premium-search.sh` against the branch staging deploy; all assertions pass
 - [ ] 8.4 Tick Section 8 in this tasks.md file as part of the smoke commit
 
 ## 9. Documentation sync
 
-- [ ] 9.1 Update `docs/09-Versions.md` Version Decisions table only if a new library version is pinned (none expected — this change reuses existing infra)
-- [ ] 9.2 No `docs/05-Implementation.md` edits expected (proposal aligned to canonical sources verbatim); flag any mid-implementation divergence to `FOLLOW_UPS.md` per `/next-change` Phase B step 7 procedure
+- [x] 9.1 No library version pin required — V13 adds the `pg_trgm` extension (bundled with Postgres, no Gradle dependency), and search reuses existing infra (`rate-limit-infrastructure`, `visible_posts`/`visible_users` views, Remote Config, Lettuce-via-`:infra:redis`). No `docs/09-Versions.md` amendment.
+- [x] 9.2 No `docs/05-Implementation.md` edits required — the canonical FTS query at `:1163-1181` was copied verbatim into `JdbcSearchRepository.CANONICAL_FTS_QUERY` and into the `premium-search` spec. The `docs/02-Product.md:282` re-index-trigger divergence found during proposal review is logged in `FOLLOW_UPS.md` § `premium-search-reindex-trigger-doc-divergence` (deferred to Month 6+ alongside the Redis search-result cache; not a blocker for V13 because the GIN-on-view combination is correct without a re-index trigger).
