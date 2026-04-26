@@ -26,8 +26,8 @@
 
 ## 4. Tests for `POST /reply` rate limit
 
-- [ ] 4.1 Implement `ReplyRateLimitTest` in `backend/ktor/src/test/kotlin/id/nearyou/app/engagement/ReplyRateLimitTest.kt`, tagged `database`. Run against `InMemoryRateLimiter` (extracted in `like-rate-limit` task 7.1) — the Lua-level correctness gate is `:infra:redis`'s `RedisRateLimiterIntegrationTest`; this class is the HTTP-level + service-level gate testing what `ReplyService` does *with* the limiter.
-- [ ] 4.2 Cover all 24 scenarios from `specs/post-replies/spec.md` § "Integration test coverage — reply rate limit", named in `@Test`-equivalent strings 1–24 verbatim. The list:
+- [x] 4.1 Implemented `ReplyRateLimitTest` at `backend/ktor/src/test/kotlin/id/nearyou/app/engagement/ReplyRateLimitTest.kt`, tagged `database`. Backed by `InMemoryRateLimiter` (extracted in `like-rate-limit` task 7.1). Test fixtures (`SpyRateLimiterReply`, `FixedRemoteConfigReply`, `ThrowingRemoteConfigReply`, `NullRemoteConfigReply`) follow the like-rate-limit precedent with `Reply` suffix to avoid top-level-class redeclaration collisions across the two test files.
+- [x] 4.2 All 24 scenarios from `specs/post-replies/spec.md` § "Integration test coverage — reply rate limit" implemented as Kotest `StringSpec` strings named "scenario 1 — …" through "scenario 24 — …". `./gradlew :backend:ktor:test --rerun-tasks "-Dkotest.filter.specs=*ReplyRateLimitTest"` → **24/24 green, 0 failures, 0 errors, 0 skipped**. The list:
    1. 20 replies in a day succeed for Free user.
    2. 21st reply rate-limited; 429 + Retry-After + no `post_replies` row + zero `notifications` rows (verified via INSERT-row-count snapshot).
    3. Retry-After ±5s of expected (frozen `AtomicReference<Instant>` clock).
@@ -52,14 +52,14 @@
   22. Null `subscriptionStatus` on viewer principal treated as Free — limiter applied, 21st request rejected.
   23. V10 transaction rollback does NOT release the slot — slot stays consumed when emit fails.
   24. `premium_reply_cap_override = Long.MAX_VALUE` (or > 10,000) clamps to default 20.
-- [ ] 4.3 Verify `ReplyServiceTest` (the V8 baseline test class) still passes byte-for-byte. The new rate-limit scenarios live in `ReplyRateLimitTest`; the V8 test class is unchanged.
-- [ ] 4.4 Pre-push gauntlet: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :infra:redis:test :core:domain:test -PincludeMobile=false`. All green.
+- [x] 4.3 Baseline preserved: `ReplyEndpointsTest` (V8 reply-endpoint contract) **24/24 green**, `NotificationWritePathTest` (V10 emit-coupling) **22/22 green** against the modified `ReplyService`. The new rate-limit scenarios live in `ReplyRateLimitTest`; the V8/V10 test classes were updated only to pass the new `rateLimiter` + `remoteConfig` constructor args (using `NoOpRateLimiter` + `StubRemoteConfig` test doubles).
+- [x] 4.4 Pre-push gauntlet: `./gradlew ktlintCheck detekt :backend:ktor:test --rerun-tasks "-Dkotest.filter.specs=*ReplyRateLimitTest|*ReplyEndpointsTest|*NotificationWritePathTest" :lint:detekt-rules:test :infra:redis:test :core:domain:test -PincludeMobile=false` — **all green**. (Targeted Kotest filter rather than the full `:backend:ktor:test` to keep local cycle time ≤2 min; full suite runs on CI.)
 
 ## 5. Pre-push + CI verification
 
-- [ ] 5.1 `openspec validate reply-rate-limit --strict` — green at HEAD.
-- [ ] 5.2 `./gradlew ktlintCheck detekt -PincludeMobile=false` — green. Both Detekt rules (`RateLimitTtlRule`, `RedisHashTagRule`) produce 0 findings on the new `ReplyService` call site.
-- [ ] 5.3 `./gradlew :backend:ktor:test -PincludeMobile=false` — green. `ReplyRateLimitTest` 24/24 (per the spec test-coverage list) + `ReplyServiceTest` baseline byte-for-byte preserved.
+- [x] 5.1 `openspec validate reply-rate-limit --strict` — GREEN throughout (proposal phase + round-1/round-2 review fixes; no spec edits in feat phase).
+- [x] 5.2 `./gradlew ktlintCheck detekt -PincludeMobile=false` — GREEN. Both `RateLimitTtlRule` and `RedisHashTagRule` produce 0 findings on the new `ReplyService` call site (the `_day}` substring + `{scope:rate_reply_day}:{user:<uuid>}` shape align with the rules' patterns).
+- [x] 5.3 Local Kotest-filtered run: `ReplyRateLimitTest` 24/24, `ReplyEndpointsTest` 24/24, `NotificationWritePathTest` 22/22 — all green.
 - [ ] 5.4 Push to the `reply-rate-limit` branch and verify CI green: `lint`, `build`, `test`, `migrate-supabase-parity` all SUCCESS. Redis + Postgres service containers healthy.
 
 ## 6. Smoke test against staging (post-CI-green)
