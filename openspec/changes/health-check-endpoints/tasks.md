@@ -72,7 +72,7 @@
 
 - [ ] 8.1 Extend `HealthRoutesTest.kt`: configure all three probes via test doubles
 - [ ] 8.2 `GET /health/live` returns `200` regardless of probe state (already covered; verify it stays green after refactor)
-- [ ] 8.3 `GET /health/ready` returns `200` with `status: "ok"` and three `ok=true` checks when all probes succeed
+- [ ] 8.3 `GET /health/ready` returns `200` with `status: "ready"` and three `ok=true` checks when all probes succeed
 - [ ] 8.4 `GET /health/ready` returns `503` with `status: "degraded"` when Postgres unreachable; check ordering remains `postgres, redis, supabase_realtime`
 - [ ] 8.5 `GET /health/ready` returns `503` when Redis probe times out at 200ms (use a `RedisProbe` test double that delays past timeout)
 - [ ] 8.6 `GET /health/ready` returns `503` when Supabase probe times out at 500ms
@@ -88,7 +88,7 @@
 - [ ] 9.1 Push the change branch; trigger `gh workflow run deploy-staging.yml --ref <branch>`
 - [ ] 9.2 Verify Cloud Run deploys the new revision; confirm in Cloud Run Console that the readiness + liveness probes appear with the configured timing
 - [ ] 9.3 `curl -i https://api-staging.nearyou.id/health/live` → `200`
-- [ ] 9.4 `curl -s https://api-staging.nearyou.id/health/ready | jq` → `status: "ok"`, three checks with `ok: true`
+- [ ] 9.4 `curl -s https://api-staging.nearyou.id/health/ready | jq` → `status: "ready"`, three checks with `ok: true`
 - [ ] 9.5 Negative test: temporarily scramble `REDIS_URL` in staging (or pause the Upstash database), redeploy, and verify `/health/ready` returns `503` with `redis.ok=false` and the new revision does NOT take traffic (previous revision keeps serving)
 - [ ] 9.6 Restore Redis URL, redeploy, confirm green again
 - [ ] 9.7 Document the smoke results in this `tasks.md` (latency observations, any surprises) before archive

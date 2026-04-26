@@ -68,7 +68,7 @@ The convention for IP-keyed callers (the first such call site is the `health-che
 
 The `:infra:redis` module SHALL provide a Redis-backed implementation of `RateLimiter` that uses a single Lua script (atomic on the Redis side) to:
 
-1. `ZREMRANGEBYSCORE key 0 (now_ms - window_ms)` — prune entries older than the window. `window_ms` is derived from the supplied `ttl` (daily) or fixed at 3600000 (hourly).
+1. `ZREMRANGEBYSCORE key 0 (now_ms - window_ms)` — prune entries older than the window. `window_ms` is always `ttl_ms` (the caller-supplied `ttl` converted to milliseconds): daily callers pass `computeTTLToNextReset(userId)`; hourly callers pass `Duration.ofHours(1)` directly; sub-hourly anti-scrape callers pass the window duration directly (e.g., the `/health` 60-second window passes `Duration.ofSeconds(60)`). There is no hardcoded `window_ms` in the script — it is always an `ARGV` value derived from the caller's `ttl`.
 2. `ZCARD key` — count remaining entries.
 3. If count `>= capacity`: read the oldest score via `ZRANGE key 0 0 WITHSCORES`, compute `retry_after_seconds = ceil((oldest_ms + window_ms - now_ms) / 1000)` coerced to `>= 1`, return `RateLimited(retry_after_seconds)`. Do NOT add an entry.
 4. Else: `ZADD key now_ms <unique-jti>`, `PEXPIRE key ttl_ms`, return `Allowed(capacity - count - 1)`.
