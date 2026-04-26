@@ -33,8 +33,8 @@ The daily limiter MUST count successful slot acquisitions (i.e., requests that p
 - **THEN** the response is HTTP 201 AND no daily-limiter check increments a counter for A (the daily limiter MUST be skipped, not consulted-and-overridden)
 
 #### Scenario: Premium billing retry still treated as Premium
-- **WHEN** caller A has `users.subscription_status = 'premium_billing_retry'` AND attempts a 30th reply in a single WIB day
-- **THEN** the response is HTTP 201 AND the daily limiter is skipped
+- **WHEN** caller A has `users.subscription_status = 'premium_billing_retry'` AND attempts a 40th reply in a single WIB day
+- **THEN** the response is HTTP 201 AND the daily limiter is skipped (40 chosen distinct from the 30 used in override scenarios and the 50 used in `premium_active`, so test fixtures don't accidentally exercise multiple code paths together)
 
 #### Scenario: Daily key uses hash-tag format
 - **WHEN** the daily limiter check runs against Redis for caller `A` (uuid `U`)
@@ -46,7 +46,7 @@ The daily limiter MUST count successful slot acquisitions (i.e., requests that p
 
 #### Scenario: Null subscriptionStatus on viewer principal treated as Free (defensive)
 - **WHEN** the auth-jwt plugin populates `viewer` with `subscriptionStatus = null` (auth-path defect) AND Free-equivalent caller A attempts a 21st reply in a day
-- **THEN** the response is HTTP 429 (the handler MUST fall through to the Free-tier path, NOT skip the limiter) AND a slf4j WARN is logged identifying the defect (so the auth-path bug surfaces)
+- **THEN** the response is HTTP 429 (the handler MUST fall through to the Free-tier path, NOT skip the limiter). The implementation MUST also slf4j-WARN-log the defect (so the auth-path bug surfaces in monitoring), but the integration-test assertion is response status only — logging behavior is implementation-tested via service-level unit tests (mirrors the malformed-flag scenario hedge).
 
 #### Scenario: Daily limiter runs before visible_posts resolution
 - **WHEN** Free-tier caller A is at slot 21 AND attempts `POST /replies` on a post that ALSO does not exist in `visible_posts`
@@ -88,7 +88,7 @@ When the flag is unset, malformed, ≤ 0, or unavailable due to Remote Config er
 
 #### Scenario: Flag oversized integer (above any sane cap) falls back to default
 - **WHEN** `premium_reply_cap_override = Long.MAX_VALUE` or any positive value above 10,000 (clearly absurd) AND Free caller A attempts a 21st reply
-- **THEN** the response is HTTP 429 (the cap is clamped to default 20). The upper-bound clamp prevents accidental cap removal via a typo (e.g., `2000000000` instead of `20`). Implementations MAY pick any specific clamp threshold ≥ 1000 (no abuse signal supports a Free user posting >1000 replies/day); the WARN-log MUST identify the clamped value
+- **THEN** the response is HTTP 429 (the cap is clamped to default 20). The upper-bound clamp prevents accidental cap removal via a typo (e.g., `2000000000` instead of `20`). Implementations MAY pick any specific clamp threshold ≥ 1000 (no abuse signal supports a Free user posting >1000 replies/day). The implementation MUST also slf4j-WARN-log the clamped value, but the integration-test assertion is response status only (mirrors the malformed-flag scenario hedge).
 
 #### Scenario: Remote Config network failure falls back to default
 - **WHEN** the Remote Config SDK throws an `IOException` (or any error) when the reply handler attempts to read `premium_reply_cap_override` AND Free caller A attempts a 21st reply in a day

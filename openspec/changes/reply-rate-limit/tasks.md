@@ -59,7 +59,7 @@
 
 - [ ] 5.1 `openspec validate reply-rate-limit --strict` — green at HEAD.
 - [ ] 5.2 `./gradlew ktlintCheck detekt -PincludeMobile=false` — green. Both Detekt rules (`RateLimitTtlRule`, `RedisHashTagRule`) produce 0 findings on the new `ReplyService` call site.
-- [ ] 5.3 `./gradlew :backend:ktor:test -PincludeMobile=false` — green. `ReplyRateLimitTest` 21/21 + `ReplyServiceTest` baseline byte-for-byte preserved.
+- [ ] 5.3 `./gradlew :backend:ktor:test -PincludeMobile=false` — green. `ReplyRateLimitTest` 24/24 (per the spec test-coverage list) + `ReplyServiceTest` baseline byte-for-byte preserved.
 - [ ] 5.4 Push to the `reply-rate-limit` branch and verify CI green: `lint`, `build`, `test`, `migrate-supabase-parity` all SUCCESS. Redis + Postgres service containers healthy.
 
 ## 6. Smoke test against staging (post-CI-green)
