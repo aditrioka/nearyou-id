@@ -87,15 +87,58 @@ class RateLimiterTest : StringSpec({
         outcome shouldBe RateLimiter.Outcome.Allowed(remaining = 2)
     }
 
-    "Different users on the same key are independent" {
+    "Different users using distinct interpolated keys are independent" {
         val limiter = InMemoryRateLimiter()
         val u1 = UUID.randomUUID()
         val u2 = UUID.randomUUID()
-        // Same key string for both users (note: real production keys interpolate the
-        // user UUID, but the contract MUST scope by (userId, key) tuple regardless).
-        val key = "{scope:test}:{user:shared}"
-        repeat(3) { limiter.tryAcquire(u1, key, capacity = 3, ttl = Duration.ofHours(1)) }
-        val outcome = limiter.tryAcquire(u2, key, capacity = 3, ttl = Duration.ofHours(1))
+        // Production callers ALWAYS interpolate the user UUID into the key
+        // (`{scope:rate_like_day}:{user:<uuid>}`), so different users get
+        // different keys and therefore independent buckets. The Redis-backed
+        // limiter only sees the `key` parameter; `userId` is telemetry-only.
+        // The in-memory test double matches this byte-for-byte (key-only bucket
+        // map). See `rate-limit-infrastructure` MODIFIED scenario "tryAcquireByKey
+        // shares Lua script with tryAcquire" — same Lua script, same bucket
+        // semantics regardless of which entry point is used.
+        val keyU1 = "{scope:test}:{user:$u1}"
+        val keyU2 = "{scope:test}:{user:$u2}"
+        repeat(3) { limiter.tryAcquire(u1, keyU1, capacity = 3, ttl = Duration.ofHours(1)) }
+        val outcome = limiter.tryAcquire(u2, keyU2, capacity = 3, ttl = Duration.ofHours(1))
         outcome shouldBe RateLimiter.Outcome.Allowed(remaining = 2)
+    }
+
+    "tryAcquireByKey and tryAcquire share the same bucket when the key matches" {
+        // Spec contract: rate-limit-infrastructure MODIFIED — "tryAcquireByKey
+        // shares Lua script with tryAcquire". Same Lua script in production →
+        // same bucket. This guards against future maintainers re-introducing a
+        // sentinel-UUID workaround (calling tryAcquire with ZERO_UUID) and
+        // expecting it to land in a different bucket than tryAcquireByKey.
+        val limiter = InMemoryRateLimiter()
+        val key = "{scope:health}:{ip:1.2.3.4}"
+        // Fill 60 slots via tryAcquireByKey (the canonical IP-axis call site).
+        repeat(60) {
+            val outcome = limiter.tryAcquireByKey(key, capacity = 60, ttl = Duration.ofSeconds(60))
+            outcome.shouldBeInstanceOf<RateLimiter.Outcome.Allowed>()
+        }
+        // 61st call via tryAcquire(ZERO_UUID, ...) MUST land in the same
+        // bucket and observe RateLimited — NOT a fresh empty bucket.
+        val zeroUuid = UUID(0, 0)
+        val rejected = limiter.tryAcquire(zeroUuid, key, capacity = 60, ttl = Duration.ofSeconds(60))
+        rejected.shouldBeInstanceOf<RateLimiter.Outcome.RateLimited>()
+    }
+
+    "60 sequential tryAcquireByKey calls admit; 61st rejects" {
+        // rate-limit-infrastructure MODIFIED scenario "Concurrent tryAcquireByKey
+        // at capacity boundary" — the in-memory test double validates the
+        // capacity-boundary contract sequentially. The real-parallel-coroutines
+        // assertion lives in the :infra:redis integration test against a
+        // redis:7-alpine container (see RedisRateLimiterIntegrationTest).
+        val limiter = InMemoryRateLimiter()
+        val key = "{scope:health}:{ip:1.2.3.4}"
+        repeat(60) {
+            val outcome = limiter.tryAcquireByKey(key, capacity = 60, ttl = Duration.ofSeconds(60))
+            outcome.shouldBeInstanceOf<RateLimiter.Outcome.Allowed>()
+        }
+        val rejected = limiter.tryAcquireByKey(key, capacity = 60, ttl = Duration.ofSeconds(60))
+        rejected.shouldBeInstanceOf<RateLimiter.Outcome.RateLimited>()
     }
 })

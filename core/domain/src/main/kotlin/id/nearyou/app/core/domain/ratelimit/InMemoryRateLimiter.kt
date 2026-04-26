@@ -40,16 +40,37 @@ import java.util.concurrent.ConcurrentHashMap
 class InMemoryRateLimiter(
     private val clock: () -> Instant = Instant::now,
 ) : RateLimiter {
-    private val buckets: ConcurrentHashMap<Pair<UUID, String>, ArrayDeque<Instant>> = ConcurrentHashMap()
+    // Both methods share the same bucket map keyed by full Redis-style key string.
+    // For the user-keyed `tryAcquire`, the caller's `userId + key` uniqueness is
+    // preserved by encoding `userId` into the `key` (callers consistently pass
+    // `{scope:<role>}:{user:<uuid>}` per the hash-tag convention). For
+    // `tryAcquireByKey`, the caller's IP / geocell / etc. is in `key` directly.
+    // Sharing the bucket map guarantees that a user-keyed and key-axis call against
+    // the same physical key map to the same sliding-window bucket — matching the
+    // production Redis impl's behavior and the rate-limit-infrastructure spec
+    // scenario "tryAcquireByKey shares Lua script with tryAcquire".
+    private val buckets: ConcurrentHashMap<String, ArrayDeque<Instant>> = ConcurrentHashMap()
 
     override fun tryAcquire(
         userId: UUID,
         key: String,
         capacity: Int,
         ttl: Duration,
+    ): RateLimiter.Outcome = admit(key, capacity, ttl)
+
+    override fun tryAcquireByKey(
+        key: String,
+        capacity: Int,
+        ttl: Duration,
+    ): RateLimiter.Outcome = admit(key, capacity, ttl)
+
+    private fun admit(
+        key: String,
+        capacity: Int,
+        ttl: Duration,
     ): RateLimiter.Outcome {
         val now = clock()
-        val bucket = buckets.computeIfAbsent(userId to key) { ArrayDeque() }
+        val bucket = buckets.computeIfAbsent(key) { ArrayDeque() }
         synchronized(bucket) {
             pruneOlderThan(bucket, now.minus(ttl))
             if (bucket.size >= capacity) {
@@ -67,7 +88,7 @@ class InMemoryRateLimiter(
         userId: UUID,
         key: String,
     ) {
-        val bucket = buckets[userId to key] ?: return
+        val bucket = buckets[key] ?: return
         synchronized(bucket) {
             bucket.pollLast()
         }

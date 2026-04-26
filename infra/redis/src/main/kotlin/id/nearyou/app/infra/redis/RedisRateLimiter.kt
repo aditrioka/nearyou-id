@@ -2,10 +2,12 @@ package id.nearyou.app.infra.redis
 
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import io.lettuce.core.RedisClient
+import io.lettuce.core.RedisNoScriptException
 import io.lettuce.core.ScriptOutputType
 import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.api.sync.RedisCommands
 import org.slf4j.LoggerFactory
+import java.security.MessageDigest
 import java.time.Clock
 import java.time.Duration
 import java.util.UUID
@@ -52,6 +54,14 @@ class RedisRateLimiter(
     @Volatile private var nextAttemptAtMillis: Long = 0L
     private val backoffMillis: Long = retryBackoff.toMillis()
 
+    // SHA1 of LUA_TRY_ACQUIRE — precomputed once at class construction so both
+    // `tryAcquire` and `tryAcquireByKey` invoke the same EVALSHA cache slot. The
+    // rate-limit-infrastructure MODIFIED spec scenario "tryAcquireByKey delegates
+    // to the same Lua script as tryAcquire" mandates SHA1 equality across methods;
+    // sharing this single field is the structural enforcement.
+    @Suppress("MemberVisibilityCanBePrivate")
+    internal val scriptSha: String = sha1Hex(LUA_TRY_ACQUIRE)
+
     /**
      * Returns a live [RedisCommands] handle, or null if Redis is currently unreachable.
      * Caller is responsible for fail-soft behavior on null. After a connect failure
@@ -85,6 +95,25 @@ class RedisRateLimiter(
         key: String,
         capacity: Int,
         ttl: Duration,
+    ): RateLimiter.Outcome = admit(key = key, capacity = capacity, ttl = ttl, telemetryUserId = userId)
+
+    override fun tryAcquireByKey(
+        key: String,
+        capacity: Int,
+        ttl: Duration,
+    ): RateLimiter.Outcome = admit(key = key, capacity = capacity, ttl = ttl, telemetryUserId = null)
+
+    /**
+     * Shared admit-or-reject path for both [tryAcquire] (user-axis) and
+     * [tryAcquireByKey] (axis-agnostic). Identical Lua-script invocation; only
+     * the telemetry tag differs — `userId` field is logged when present, absent
+     * for key-axis calls.
+     */
+    private fun admit(
+        key: String,
+        capacity: Int,
+        ttl: Duration,
+        telemetryUserId: UUID?,
     ): RateLimiter.Outcome {
         val sync = sync() ?: return RateLimiter.Outcome.Allowed(remaining = capacity)
         val nowMs = clock.millis()
@@ -93,17 +122,17 @@ class RedisRateLimiter(
         val jti = UUID.randomUUID().toString()
 
         return try {
-            @Suppress("UNCHECKED_CAST")
             val result =
-                sync.eval<List<Long>>(
-                    LUA_TRY_ACQUIRE,
-                    ScriptOutputType.MULTI,
-                    arrayOf(key),
-                    nowMs.toString(),
-                    windowMs.toString(),
-                    ttlMs.toString(),
-                    capacity.toString(),
-                    jti,
+                evalShaWithFallback(
+                    sync = sync,
+                    keys = arrayOf(key),
+                    args = arrayOf(
+                        nowMs.toString(),
+                        windowMs.toString(),
+                        ttlMs.toString(),
+                        capacity.toString(),
+                        jti,
+                    ),
                 )
             val flag = result[0]
             val value = result[1]
@@ -113,16 +142,49 @@ class RedisRateLimiter(
                 RateLimiter.Outcome.RateLimited(retryAfterSeconds = value)
             }
         } catch (e: Exception) {
-            logger.warn(
-                "event=redis_acquire_failed key={} reason={} message={} fail_soft=true",
-                key,
-                e.javaClass.simpleName,
-                e.message,
-            )
+            // Telemetry: emit `user_id=...` only for user-axis calls; key-axis
+            // calls log `key=...` only (per the rate-limit-infrastructure
+            // MODIFIED scenario "tryAcquireByKey omits userId from telemetry").
+            if (telemetryUserId != null) {
+                logger.warn(
+                    "event=redis_acquire_failed user_id={} key={} reason={} message={} fail_soft=true",
+                    telemetryUserId,
+                    key,
+                    e.javaClass.simpleName,
+                    e.message,
+                )
+            } else {
+                logger.warn(
+                    "event=redis_acquire_failed key={} reason={} message={} fail_soft=true",
+                    key,
+                    e.javaClass.simpleName,
+                    e.message,
+                )
+            }
             invalidateOnRuntimeFailure()
             RateLimiter.Outcome.Allowed(remaining = capacity)
         }
     }
+
+    /**
+     * Try `EVALSHA scriptSha` first (cache-hit on the Redis side). If Redis
+     * raises `NOSCRIPT` (script flushed, fresh server, etc.), fall back to
+     * `EVAL` which uploads the script and executes in one round-trip; subsequent
+     * calls hit the cache again. This is the canonical Lettuce pattern.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun evalShaWithFallback(
+        sync: RedisCommands<String, String>,
+        keys: Array<String>,
+        args: Array<String>,
+    ): List<Long> =
+        try {
+            sync.evalsha<List<Long>>(scriptSha, ScriptOutputType.MULTI, keys, *args)
+        } catch (e: RedisNoScriptException) {
+            // Cache miss on the Redis side; reload via EVAL. No need to manually
+            // call SCRIPT LOAD — EVAL implicitly caches the script.
+            sync.eval<List<Long>>(LUA_TRY_ACQUIRE, ScriptOutputType.MULTI, keys, *args)
+        }
 
     override fun releaseMostRecent(
         userId: UUID,
@@ -211,5 +273,10 @@ class RedisRateLimiter(
             local remaining = capacity - count - 1
             return {1, remaining}
             """.trimIndent()
+
+        private fun sha1Hex(s: String): String {
+            val digest = MessageDigest.getInstance("SHA-1").digest(s.toByteArray(Charsets.UTF_8))
+            return digest.joinToString("") { "%02x".format(it) }
+        }
     }
 }
