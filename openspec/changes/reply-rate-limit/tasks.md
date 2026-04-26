@@ -64,7 +64,7 @@
 
 ## 6. Smoke test against staging (post-CI-green)
 
-- [ ] 6.1 Adapt `dev/scripts/smoke-9.7-like-rate-limit.sh` to a new `dev/scripts/smoke-reply-rate-limit.sh` — same shape (mint dev JWT, hit endpoint 21 times, assert first 20 = 201, 21st = 429 with `Retry-After` and `error.code = "rate_limited"`). Reuse the same Cloud-Run-job-seeded synthetic Free user pattern.
+- [x] 6.1 Created `dev/scripts/smoke-reply-rate-limit.sh` — adapted from the like precedent. Mints dev JWT via `mint-dev-jwt.sh`, fetches 21 visible posts from `/api/v1/timeline/global` (or accepts `--posts <comma-separated>` override), POSTs 21 replies with JSON body `{"content":"smoke reply <timestamp> #N"}`, asserts first 20 = 201 + 21st = 429 with `Retry-After` ≥ 60s + `error.code = "rate_limited"`. The ≥60s Retry-After lower-bound guards against fail-soft per task 6.4. Executable bit set; `bash -n` syntax check green.
 - [ ] 6.2 Seed ≥21 visible posts authored by a *different* user (avoids self-reply edge cases on the global timeline).
 - [ ] 6.3 Run the smoke against the latest staging revision after CI green. Confirm the 21st response carries `Retry-After` matching `computeTTLToNextReset(userId)` for that specific synthetic user (within ±5s).
 - [ ] 6.4 If staging Redis is unreachable / fail-soft path triggers (per the lessons in `like-rate-limit` task 9.7), fix the underlying cause (TLS scheme, secret slot value, etc.) before declaring the smoke green — do NOT accept a "all 21 returned 201 because limiter fail-softed open" result as a successful smoke.
