@@ -17,9 +17,10 @@ The system SHALL expose `GET /api/v1/search?q=<query>&offset=<n>` that returns r
 - **THEN** the response is `401` with the standard auth-error envelope from the `rest` authenticator
 
 #### Scenario: Premium-to-Free mid-session downgrade
-- **WHEN** a viewer's request carries a JWT whose claims indicate Premium AND the server's authoritative `users.subscription_status` for that user has been updated to `'free'` by an out-of-band webhook (e.g., RevenueCat `EXPIRATION` past grace)
-- **THEN** the handler reads the authoritative `users.subscription_status` value (NOT the JWT claim cache) AND rejects with `403 premium_required`
-- **AND** the JWT is rotated by the `users.token_version` bump that the webhook handler MUST emit (per `auth-jwt` capability), so the next sign-in cycle returns a JWT consistent with the new status
+- **WHEN** a viewer was Premium AND the server's authoritative `users.subscription_status` for that user has just been updated to `'free'` by an out-of-band webhook (e.g., RevenueCat `EXPIRATION` past grace) AND the viewer's existing JWT has not yet expired
+- **THEN** the very next request to the search endpoint MUST return `403 premium_required` — the auth-jwt plugin issues a fresh `users.findById(userId)` read at every authenticated request (see `backend/ktor/src/main/kotlin/id/nearyou/app/auth/AuthPlugin.kt:67` and the `UserPrincipal` kdoc at line 27), so `principal.subscriptionStatus` reflects the authoritative DB state at request time, NOT a stale JWT-claim snapshot
+- **AND** the search handler trusts the principal's `subscription_status` (consistent with project convention — see `LikeService.like` precedent at `backend/ktor/src/main/kotlin/id/nearyou/app/engagement/LikeService.kt:88`), so no second DB read is needed in the search hot path
+- **AND** if the webhook handler ALSO bumps `users.token_version` (per `FOLLOW_UPS.md` § `auth-jwt-spec-debt-userprincipal-subscription-status` action item 3), the existing JWT additionally fails token-version validation at the auth plugin and returns `401 token_revoked`, forcing a fresh sign-in cycle — but the subscription_status downgrade is already enforced even WITHOUT the token-version bump because of the per-request `findById` read
 
 ### Requirement: Canonical FTS query reads visible_posts joined with visible_users
 

@@ -58,6 +58,7 @@ import id.nearyou.app.infra.repo.JdbcRefreshTokenRepository
 import id.nearyou.app.infra.repo.JdbcRejectedIdentifierRepository
 import id.nearyou.app.infra.repo.JdbcReportRepository
 import id.nearyou.app.infra.repo.JdbcReservedUsernameRepository
+import id.nearyou.app.infra.repo.JdbcSearchRepository
 import id.nearyou.app.infra.repo.JdbcUserBlockRepository
 import id.nearyou.app.infra.repo.JdbcUserFollowsRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
@@ -81,6 +82,9 @@ import id.nearyou.app.notifications.notificationRoutes
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.LocationOutOfBoundsException
 import id.nearyou.app.post.postRoutes
+import id.nearyou.app.search.SearchRateLimiter
+import id.nearyou.app.search.SearchService
+import id.nearyou.app.search.searchRoutes
 import id.nearyou.app.timeline.FollowingTimelineService
 import id.nearyou.app.timeline.GlobalTimelineService
 import id.nearyou.app.timeline.NearbyTimelineService
@@ -94,6 +98,7 @@ import id.nearyou.data.repository.PostAutoHideRepository
 import id.nearyou.data.repository.PostLikeRepository
 import id.nearyou.data.repository.PostReplyRepository
 import id.nearyou.data.repository.ReportRepository
+import id.nearyou.data.repository.SearchRepository
 import id.nearyou.data.repository.UserFollowsRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -364,6 +369,14 @@ fun Application.module() {
     // the in-process ConcurrentHashMap that V9 shipped is now the
     // InMemoryRateLimiter test double; production routes through Redis.
     val reportRateLimiter = ReportRateLimiter(rateLimiter = rateLimiter)
+    val searchRateLimiter = SearchRateLimiter(rateLimiter = rateLimiter)
+    val searchRepository: SearchRepository = JdbcSearchRepository(dataSource)
+    val searchService =
+        SearchService(
+            repository = searchRepository,
+            rateLimiter = searchRateLimiter,
+            remoteConfig = remoteConfig,
+        )
     val reportService =
         ReportService(
             dataSource = dataSource,
@@ -427,6 +440,9 @@ fun Application.module() {
                 single<PostAutoHideRepository> { postAutoHideRepository }
                 single { reportRateLimiter }
                 single { reportService }
+                single<SearchRepository> { searchRepository }
+                single { searchRateLimiter }
+                single { searchService }
                 single<NotificationRepository> { notificationRepository }
                 single<NotificationDispatcher> { notificationDispatcher }
                 single<NotificationEmitter> { notificationEmitter }
@@ -453,6 +469,7 @@ fun Application.module() {
     followingTimelineRoutes(followingTimelineService)
     globalTimelineRoutes(globalTimelineService)
     reportRoutes(reportService)
+    searchRoutes(searchService)
     notificationRoutes(notificationService)
 }
 
