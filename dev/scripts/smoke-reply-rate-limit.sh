@@ -113,7 +113,11 @@ else
     GLOBAL_RESPONSE="$(curl -fsS \
         -H "Authorization: Bearer $JWT" \
         "$API_BASE/api/v1/timeline/global?limit=30")"
-    mapfile -t POST_UUIDS < <(echo "$GLOBAL_RESPONSE" | jq -r '.posts[].id' | head -21)
+    # bash 3.2-compatible array population (mapfile is bash 4+; macOS ships 3.2).
+    POST_UUIDS=()
+    while IFS= read -r _line; do
+        POST_UUIDS+=("$_line")
+    done < <(echo "$GLOBAL_RESPONSE" | jq -r '.posts[].id' | head -21)
     if [[ "${#POST_UUIDS[@]}" -lt 21 ]]; then
         echo "ERROR: only ${#POST_UUIDS[@]} posts visible; need >= 21. Seed more or pass --posts." >&2
         exit 2
