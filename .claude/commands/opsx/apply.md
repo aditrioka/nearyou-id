@@ -75,7 +75,46 @@ Implement tasks from an OpenSpec change.
    - Error or blocker encountered → report and wait for guidance
    - User interrupts
 
-7. **On completion or pause, show status**
+7. **Pre-archive staging deploy + smoke (nearyou-id, when the change has runtime impact)**
+
+   The squash-merge is a one-way door that auto-deploys from `main`. To catch deploy-config bugs (secret-slot drift, env-var renames, TLS scheme, eager-connect crashes — all the lessons from `like-rate-limit/tasks.md` 9.7) BEFORE they ship, run a manual branch deploy + smoke pre-archive. Mandatory when the change has runtime impact and a smoke script exists; skip for docs-only / refactor-only changes.
+
+   **Detection.** Run the smoke step when ALL apply:
+   - `tasks.md` has a Section 6 (or equivalent) with smoke-script references, AND
+   - `dev/scripts/smoke-<change-name>.sh` exists (or equivalent), AND
+   - The change touches runtime behavior (production code in `backend/`, schema migrations, etc.) — pure docs/spec changes skip.
+
+   **Sequence.**
+   ```bash
+   # 1. Trigger the staging deploy on the change branch.
+   gh workflow run deploy-staging.yml --ref <change-name>
+   gh run list --workflow=deploy-staging.yml --branch=<change-name> --limit=1 --json databaseId
+   # → capture run ID
+
+   # 2. Poll until completion (5-8 min wall-clock typical). Use ScheduleWakeup,
+   #    not tight-loop polling. Budget 600s total.
+   gh run view <id> --json status,conclusion
+
+   # 3. On SUCCESS, run the smoke. Most smokes need the staging RSA key:
+   KTOR_RSA_PRIVATE_KEY="$(gcloud secrets versions access latest \
+     --secret=staging-ktor-rsa-private-key --project=nearyou-staging)" \
+     dev/scripts/smoke-<change-name>.sh <user-uuid>
+
+   # 4. On smoke green, tick Section 6 tasks in tasks.md, commit, push.
+   #    Then proceed to /opsx:archive.
+
+   # 5. On deploy or smoke FAILED, fetch logs (gh run view --log-failed),
+   #    surface to user, propose a fix. Do NOT archive until green.
+   ```
+
+   **Common failure modes** (from `like-rate-limit/tasks.md` 9.7 + `reply-rate-limit` cycle):
+   - Smoke 21st request returns 201 (cap not firing) → limiter likely fail-softed; check `RedisRateLimiter` connect logs for `event=redis_connect_failed fail_soft=true`. Most likely cause: secret-slot value uses `redis://` but Upstash needs `rediss://` (TLS).
+   - Smoke `Retry-After` value suspiciously low (< 60s for daily-cap window) → same as above; smoke scripts SHOULD include a lower-bound guard.
+   - Test fixtures insufficient (e.g., need 21 visible posts but only 11 exist) → seed via public API (`POST /api/v1/posts` with a JWT minted for the existing test author), don't bypass via psql to staging Postgres (Supabase is IPv6-only; only Cloud Run has both stacks).
+
+   **Skip cleanly when not applicable.** If the change has no runtime impact (docs-only, refactor-only), mark Section 6 as N/A with a one-line rationale in the archive commit. Don't trigger a deploy that will silently no-op.
+
+8. **On completion or pause, show status**
 
    Display:
    - Tasks completed this session
