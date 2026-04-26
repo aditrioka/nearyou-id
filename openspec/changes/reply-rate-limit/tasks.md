@@ -60,7 +60,7 @@
 - [x] 5.1 `openspec validate reply-rate-limit --strict` — GREEN throughout (proposal phase + round-1/round-2 review fixes; no spec edits in feat phase).
 - [x] 5.2 `./gradlew ktlintCheck detekt -PincludeMobile=false` — GREEN. Both `RateLimitTtlRule` and `RedisHashTagRule` produce 0 findings on the new `ReplyService` call site (the `_day}` substring + `{scope:rate_reply_day}:{user:<uuid>}` shape align with the rules' patterns).
 - [x] 5.3 Local Kotest-filtered run: `ReplyRateLimitTest` 24/24, `ReplyEndpointsTest` 24/24, `NotificationWritePathTest` 22/22 — all green.
-- [ ] 5.4 Push to the `reply-rate-limit` branch and verify CI green: `lint`, `build`, `test`, `migrate-supabase-parity` all SUCCESS. Redis + Postgres service containers healthy.
+- [x] 5.4 CI green on HEAD `247fea0`: `lint` SUCCESS, `test` SUCCESS (24 new ReplyRateLimitTest scenarios + V8/V10 baselines all passing against the CI Postgres + Redis service containers), `migrate-supabase-parity` SUCCESS. (No `build` job — that was retired in PR #45 / commit `978acd1`; the build is now folded into the lint+test jobs.)
 
 ## 6. Smoke test against staging (post-CI-green)
 
