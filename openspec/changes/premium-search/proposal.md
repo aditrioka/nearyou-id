@@ -32,7 +32,7 @@ Phase 2 social features are otherwise complete (timelines, likes, replies, repor
 ## Impact
 
 - **Affected code**: new module `:backend:ktor` paths under `app/search/` (`SearchRepository`, `SearchService`, `SearchRateLimiter`, `SearchRoute`); new DTOs in `:core:data`; new use case in `:core:domain`
-- **Affected schema**: `V13__premium_search_fts.sql` creates `pg_trgm` extension, adds `posts.content_tsv` GENERATED column, creates 3 GIN indexes (2 on `posts`, 1 on `users`). No column drops, no triggers, no seed data
+- **Affected schema**: `V13__premium_search_fts.sql` creates `pg_trgm` extension, adds `posts.content_tsv` GENERATED column, creates 3 GIN indexes (2 on `posts`, 1 on `users`). No column drops, no triggers, no seed data — the absent-trigger choice is deliberate per `design.md` § Risks (the view + GIN combination handles correctness without a re-index trigger; the trigger only becomes necessary once a Redis search-result cache lands at Month 6+ scale, tracked in `FOLLOW_UPS.md` § `premium-search-reindex-trigger-doc-divergence`)
 - **Affected APIs**: new `GET /api/v1/search` endpoint under existing `/api/v1` versioned route tree
 - **Dependencies**: reuses `RedisRateLimiter` from `rate-limit-infrastructure`, `visible_posts`/`visible_users` from `visible-posts-view`, `subscription_status` field from `users-schema`, Remote Config client (already wired for `search_enabled` flag declaration)
 - **Out of scope** (explicit defer, documented in `design.md`): Redis search-result cache, re-index trigger plumbing, Indonesian dictionary upgrade, location-filtered search, hashtag/mention indexing

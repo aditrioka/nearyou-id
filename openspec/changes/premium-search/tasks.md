@@ -53,7 +53,7 @@
 ## 7. Tests — integration + unit
 
 ### Auth + Premium gate
-- [ ] 7.1 Integration test: Premium user happy path — seed 25 matching posts, query, assert 20 returned + `next_offset = 20`, second page with `offset=20` returns 5 + `next_offset = null`
+- [ ] 7.1 Integration test: Premium user happy path — seed 21 matching posts (one over the page-size threshold to align with the spec's "matches at least 21 posts" full-page wording, distinct from the exactly-20 boundary case in 7.15); query, assert 20 returned + `next_offset = 20`; second page with `offset=20` returns 1 + `next_offset = null`
 - [ ] 7.2 Integration test: Free user rejected with `403 premium_required` (no DB query issued — verify via mocked repository spy or absence of `pg_stat_statements` entry); also assert no rate-limit slot consumed
 - [ ] 7.3 Integration test: guest (no JWT) rejected with `401`
 - [ ] 7.4 Integration test: Premium-to-Free mid-session — server-side `users.subscription_status` flipped to `free` while JWT still claims Premium → handler reads authoritative DB value AND rejects with `403 premium_required`
