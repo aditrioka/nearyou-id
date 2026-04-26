@@ -113,22 +113,30 @@ The new env var convention: `SUPABASE_URL` (resolved through `EnvVarSecretResolv
 
 | Risk | Mitigation |
 |------|------------|
-| Cloud Run probe misconfiguration causes the new revision to fail readiness, blocking traffic | Sane defaults baked into deploy workflow: `failure-threshold = 3`, `period = 10s`, so brief startup blips don't block. Tested in staging before any prod analog ships. |
+| Cloud Run probe misconfiguration causes the new revision to fail readiness, blocking traffic | Sane defaults baked into deploy workflow: `failureThreshold = 3`, `periodSeconds = 10`, so brief startup blips don't block. Tested in staging before any prod analog ships. |
 | Outer 2-second cap masks a slow-but-recovering probe (probe responds at 1.9s but is reported `ok=false`) | Per-probe timeouts (200/500/500ms) bound the visible latency; the outer cap only fires if a probe ignores its individual timeout (e.g., JDBC blocking call). Acceptable trade — a probe that misses its 500ms budget is already a problem. |
-| Rate limit at 60 req/min/IP could throttle a noisy uptime monitor | External monitors (UptimeRobot / Cloudflare Health Checks) typically poll at 1-min intervals → 1 req/min, well under the cap. If a future monitor needs sub-minute granularity, a separate `/internal/health/ready` with OIDC auth + no rate-limit can be added. |
+| **HikariCP pool exhaustion during a saturation incident** — Postgres probe holds a connection slot that real traffic needs | The Postgres probe uses `dataSource.connection.use { ... }` so the connection is returned even if the timeout fires after acquire. If the pool is fully exhausted, `getConnection()` blocks; `withTimeoutOrNull(500ms)` catches this, but the underlying `getConnection()` is not always cancellable (HikariCP queues). The outer 2-second cap (D4) is the second line of defense. **Documented expected behavior**: pool exhaustion shows up as `/health/ready` returning `503` with `postgres.error="timeout"` — which is the correct signal (the dependency IS unhealthy from the application's perspective). |
+| **`/health/live` rate-limit could trigger restart loop in pathological scenarios** | If a hot scraper IP collides with the Cloud Run probe's apparent source IP (mitigated by D10 `User-Agent` bypass — but if bypass is misconfigured) the liveness probe could get 429 → restart. Mitigations: (a) D10 `User-Agent` bypass, (b) Cloud Run liveness `failureThreshold=3` so a single 429 doesn't restart, (c) `NoOpRateLimiter` fallback in dev/test means the limiter never returns `RateLimited`. |
+| **Rate-limit during real dependency outage**: external monitors + real users from the same IP could exhaust the 60/min cap | Documented trade-off in D11. Cloud Run probes bypass via `User-Agent` (D10). External monitors at typical 1-min cadence consume 1 req/min — far under cap. NAT-shared IPs during incident: degraded operator UX, not availability impact. |
 | `NoOpRateLimiter` in dev/test means the rate-limit cannot be exercised in unit tests | Tests use `InMemoryRateLimiter` (already exists per `like-rate-limit` precedent) for the rate-limit scenarios. The `NoOpRateLimiter` path is exercised in production-like integration tests and the staging smoke. |
+| **`ClientIpExtractor` plugin crashes the request pipeline** (new risk from co-shipping `client-ip-extraction`) | Plugin defensive: extraction failure returns the literal string `"unknown"`, never throws. Unit-tested across the precedence ladder (CF header / XFF first / remoteHost / fallback / whitespace) before any other plugin install order. |
+| **Sentinel-UUID-via-IP-derivation regression** — a future maintainer could pass `UUID.nameUUIDFromBytes(ip.toByteArray())` to `tryAcquire` to bypass `tryAcquireByKey` | Spec scenario "tryAcquireByKey omits userId from telemetry" forbids the literal sentinel UUID. A future Detekt rule (logged in `FOLLOW_UPS.md`) firing on `tryAcquire(*, "{*ip:*}", ...)` would lock this in at lint time. Out of scope for this proposal. |
 | Probe load on Postgres / Redis at 6 req/min (Cloud Run readiness period 10s) for the lifetime of a revision | `SELECT 1` and `PING` are sub-millisecond; aggregate cost negligible. Negative case verified by Phase 2 benchmark (target p95 <200ms timeline). |
 | Supabase probe at 6 req/min adds outbound HTTP traffic to a tier-limited service | Free Supabase tier limits API requests at thousands/day; 6 req/min × 1440 min = 8640 req/day, well below tier limits. |
-| Probe traffic counted against Cloudflare per-IP rate-limit when probe goes through the edge (e.g., external uptime monitor probing `api-staging.nearyou.id/health/ready`) | External probes are by design real client IPs; the 60 req/min cap is intentional. A high-frequency external probe is itself an anti-scrape concern, not a "must let everything through" case. |
+| **`status` field response-shape break**: existing partial impl returns `{"status":"ok"}`; this change canonicalizes to `{"status":"ready"}` per docs | Pre-launch — no production consumers. Documented explicitly in proposal so any external monitor wiring assumes the post-change shape. |
+| **Lettuce sync vs async surface**: `LettuceRedisProbe` uses `connection.sync().ping()` dispatched on `Dispatchers.IO` rather than `RedisAsyncCommands.ping().await()` | Sync surface is simpler and matches the V11 `RedisRateLimiter` precedent. The blocking call is bounded by `withTimeoutOrNull` cooperatively + the outer 2-second cap as defense-in-depth (D4). Worth revisiting if benchmarks show probe latency variance — async would respect coroutine cancellation natively. |
 
 ## Migration Plan
 
-This is an additive change (new capability, new endpoint behavior on an existing partial implementation). No data migration. No breaking API change. Rollback is `git revert` of the single squash-merge commit; the previous partial probe continues working.
+This is an additive change (two new capabilities, modified behavior on an existing partial implementation). No data migration. **One non-breaking response-shape change**: `GET /health/ready` green response transitions from `{"status":"ok"}` (existing partial impl) to `{"status":"ready"}` (canonical per docs). Pre-launch, with no production consumers, this is acceptable; documenting explicitly so any new external monitor wiring assumes the post-change shape. Rollback is `git revert` of the single squash-merge commit; the previous partial probe (Postgres-only) continues working.
 
 Deployment sequence:
-1. Land the implementation + tests (CI green).
+1. Land the implementation + tests (CI green: ktlint + Detekt including the new `RawXForwardedForRule` + JVM tests).
 2. Deploy to staging via the updated `deploy-staging.yml` (Cloud Run probes wired in the same change).
-3. Smoke test: `curl https://api-staging.nearyou.id/health/ready` returns `200` with all three checks `ok=true`. Manually flip Redis off (e.g., scramble the URL) and confirm `503` + `redis.ok=false`.
+3. Smoke test:
+   - `curl -i https://api-staging.nearyou.id/health/live` → `200`
+   - `curl -s https://api-staging.nearyou.id/health/ready | jq` → `status: "ready"`, three checks with `ok: true`
+   - Negative test: pause the staging Upstash database via the console (NOT scramble the env var, which would prevent boot per `Application.kt` fail-fast on `REDIS_URL`); redeploy is unnecessary — observed `/health/ready` returns `503` with `redis.ok=false`. Resume Upstash, confirm green again.
 4. Archive change.
 
 Production deployment is a separate change cycle (no `deploy-prod.yml` exists yet).
@@ -142,6 +150,52 @@ Reconciliation against canonical docs surfaced two minor terminology divergences
 2. **Cloud Run probe vocabulary**: [`docs/04-Architecture.md:166`](docs/04-Architecture.md) uses Kubernetes "readiness probe" terminology, but Cloud Run does not implement a readiness probe — its `--startup-probe` flag gates traffic during boot in the same role. This proposal uses Cloud Run-native terminology (`startup-probe` + `liveness-probe`) in the spec and tasks while explicitly noting the docs use K8s vocabulary. A docs cleanup follow-up entry is added to `FOLLOW_UPS.md` to amend [`docs/04-Architecture.md:166`](docs/04-Architecture.md) once this change ships.
 
 3. **Rate-limit framing**: this endpoint is a per-IP cap (Layer-1-style usage of an unauthenticated public endpoint) implemented over the Layer-2 `RateLimiter` infrastructure originally introduced for per-user limits in `like-rate-limit`. The infrastructure is reused unchanged; only the call-site convention is novel. See decision **D8** below for the open question on whether to amend `rate-limit-infrastructure` spec to formalize the IP-keyed convention.
+
+### D9: `client-ip-extraction` capability added in this change
+
+**Decision**: Add `client-ip-extraction` as a NEW capability in this change rather than gating health-check on a precursor change.
+
+**Rationale**: Round-1 review surfaced that the project's CLAUDE.md critical-invariant ("Client IP: read via the `clientIp` request-context value populated from `CF-Connecting-IP`. Direct `X-Forwarded-For` reads are forbidden") references infrastructure that **does not exist in the codebase yet**. A `grep -rn "clientIp\|CF-Connecting" backend/ core/` returns zero matches. The canonical contract lives in [`docs/05-Implementation.md`](docs/05-Implementation.md) § Cloudflare-Fronted IP Extraction with the precedence ladder fully specified, but the Ktor intercept that implements it has never been built. Health-check is the first call-site that requires it.
+
+Three options were considered:
+- **(A) Hand-roll a clientIp helper inline in the health module.** Solves health-check's needs but doesn't address the CLAUDE.md invariant for future call-sites (Phase 1 task #25 guest pre-issuance, Layer 4 per-area rate limits, audit logging in `admin_sessions.ip` / `admin_actions_log.ip`). Tech debt across 4+ future changes.
+- **(B) Block this change on a precursor `client-ip-extraction` change.** Clean, but ships nothing now and forces a context-switch.
+- **(C) Add `client-ip-extraction` as a co-shipped new capability in this change.**
+
+**Decision: (C).** The middleware is small (a `RouteScopedPlugin` with a 3-step ladder + a `RawXForwardedForRule` Detekt rule). Co-shipping with health-check produces a coherent slice (clientIp middleware → clientIp consumer in the same PR) without dragging in unrelated callsites. Future changes that need `clientIp` (Phase 1 task #25, etc.) consume the capability without re-implementing.
+
+The scope expansion is explicit and acknowledged in the proposal Capabilities section. Round-1 review feedback drove this decision; the alternative (hand-roll inline) was actively rejected as tech debt.
+
+### D10: Cloud Run probe rate-limit bypass via `User-Agent`
+
+**Decision**: Requests whose `User-Agent` header matches `^(GoogleHC|kube-probe)/` bypass the `/health/*` rate-limit check entirely.
+
+**Rationale**: Round-1 review revealed that the earlier "Cloud Run loopback isolation" claim was wrong-as-stated. Cloud Run native HTTP probes do NOT see `127.0.0.1` as the request source — the container observes a Google-internal proxy address that is not a stable constant and that COULD collide with real client buckets. Without a deterministic bypass, a misconfiguration aligning the probe's apparent source IP with a hot scraper could produce a 429 → liveness-probe failure → unintended container restart loop.
+
+`User-Agent` matching is the canonical bypass mechanism documented by Cloud Run / Kubernetes ([GoogleHC](https://cloud.google.com/load-balancing/docs/health-check-concepts#user-agent) / [kube-probe](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/)) and is forgeable from outside, but the cost-of-forgery is exactly the rate-limit cap (60 req/min) — the same outcome a scraper achieves by IP rotation. For an unauthenticated public health endpoint, this trade-off is acceptable.
+
+`kube-probe` is included for forward-compat: if the deployment ever migrates to GKE or self-hosted Kubernetes, no spec amendment is needed.
+
+**Alternatives considered**:
+- **Loopback IP isolation** (the round-0 design) — rejected: Cloud Run probes don't preserve `127.0.0.1`.
+- **Internal `/health/internal/*` path with OIDC auth** — rejected: probes can't bring OIDC; would require platform-specific service-account token mounting that doesn't fit Cloud Run's probe model.
+- **Header-based shared secret** — rejected: secrets in probe configs are awkward to rotate.
+
+### D11: Rate-limit during dependency outage — accept the bucket-counts-everything trade-off
+
+**Decision**: The 60 req/min/IP cap counts every request that reaches the rate-limit gate, regardless of whether the underlying probe ultimately returns `200` or `503`. No special-case logic for 5xx responses.
+
+**Rationale**: Round-1 review flagged the risk that during a real outage, an external uptime monitor + real users hitting `/health/*` from the same IP could exhaust the bucket and get `429` instead of `503` — exactly the moment ops needs the diagnostic. Three options:
+- **(A) Skip rate-limit on 5xx** — limiter is invoked BEFORE the response is computed, so this requires a `releaseOnFailure` pattern. `tryAcquireByKey` doesn't have a `releaseMostRecentByKey` counterpart (deliberately omitted in the rate-limit-infrastructure MODIFIED delta).
+- **(B) Bump cap to 180/min or higher** — partial mitigation but doesn't address the root cause.
+- **(C) Accept the trade-off; rely on the User-Agent bypass for probe traffic and document the math for external monitors.**
+
+**Decision: (C).** The math validates the choice:
+- Cloud Run native probes bypass via `User-Agent` (D10) — zero bucket consumption.
+- External uptime monitors typically poll at 30-second to 1-minute intervals (1–2 req/min/IP). The cap is 60/min; even a hyper-aggressive 1-second polling rate hits the cap exactly with zero headroom, but no production monitoring pattern operates at 1-second granularity.
+- NAT-shared IPs (corporate offices, mobile carriers) where dozens of users hit `/health/*` from a single IP during an outage: the 60/min cap may be tight, but this is degraded-operator-experience (refresh the dashboard 60×/min), not service-availability impact.
+
+The trade-off is documented in the spec and surfaced via observability (Grafana dashboard on 429 rate against `/health/*` is recommended in `docs/07-Operations.md` follow-up).
 
 ### D8: IP-keyed rate-limit convention — RESOLVED to (B)
 
