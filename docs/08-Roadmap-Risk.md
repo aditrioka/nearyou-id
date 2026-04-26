@@ -586,9 +586,9 @@ Lock now or re-evaluate with Month 12 data. Default: plan Month 14, re-confirm i
 
 Grafana Cloud (recommended default) vs Honeycomb vs Cloud Trace. Pre-Phase 1 decision.
 
-### 13. IAP vs Cloud Armor Admin Panel
+### 13. IAP vs Cloud Armor Admin Panel — ✅ Resolved
 
-IAP preferred (free, Google-managed), can allowlist individual Gmail accounts without requiring a Workspace domain. Cloud Armor + VPN fallback if the workflow doesn't fit. Pre-Phase 1 decision.
+**Resolved 2026-04-26: Identity-Aware Proxy (IAP)** for both staging and production admin panel access. Allowlist scoped to individual Gmail account `nearyouid.founder@gmail.com`; expandable when secondary admin is hired (Open Decision #9). Rationale: solo-operator MVP context — IAP is free, ~15-min setup, Google-managed auth (MFA/hardware key inherited from Google account), no daily VPN-connect friction, mobile-friendly across changing networks (Indonesia mobile-first lifestyle). Cloud Armor + VPN rejected as **overkill for current scope**: $5+/mo Cloud Armor minimum, 2-4hr setup, IP allowlist fragile against changing mobile/cafe networks, requires VPN client on every device. Defense-in-depth path open: Cloud Armor + IAP can be layered later if compliance regime (SOC2 / ISO27001) ever demands network isolation. Audit log free via Cloud Logging. **Trigger to revisit**: secondary admin hire OR formal compliance audit OR confirmed Google-account compromise vector.
 
 ### 14. Chat Snapshot Compression Threshold
 
@@ -671,3 +671,11 @@ Tradeoff:
 Trigger for re-evaluation: (a) Amplitude monthly bill projected to cross Rp300k, OR (b) product team requests session replay / feature flag A/B testing beyond Firebase Remote Config capability. Whichever fires first.
 
 Re-evaluate in Month 12. If swapping: do it BEFORE the paid graduation moment so historical event continuity is preserved in one tool. A mid-paid-tier swap wastes the Amplitude tail month.
+
+### 32. CF Images URL Pattern — ✅ Resolved
+
+**Resolved 2026-04-26: custom subdomain `img.nearyou.id` (production) + `img-staging.nearyou.id` (staging)**, both routed via Cloudflare DNS as CNAME to CF Images delivery edge. Standard `imagedelivery.net/<account-hash>/<image-id>/<variant>` rejected as the canonical path because: (a) third-party domain weakens user trust + Privacy Policy clarity (UU PDP disclosure surface), (b) account hash leaks in URL, (c) URLs stored in DB — locking into vendor-specific hostname creates painful migration if we ever swap image providers (Imgix / Cloudinary / self-host). Custom subdomain costs +1 DNS record per env (~30 sec) + initial TLS provisioning (~15-60 min via Cloudflare DNS automation). Branding consistency with `api.nearyou.id` / `admin.nearyou.id`. Standard `imagedelivery.net` retained as **emergency fallback** if custom subdomain provisioning breaks at launch (per Risk Register row "CF Images custom subdomain URL structure unverified"). Verified per architecture doc `04-Architecture.md:22` which already pre-commits to the subdomain approach. Pre-Phase 1 gate: smoke-test upload + CSAM scan reaches scope via custom subdomain (`08-Roadmap-Risk.md` Pre-Phase 1 step 2).
+
+### 33. CSAM Trigger Path — ✅ Resolved
+
+**Resolved 2026-04-26: MVP = admin-triggered manual via Admin Panel; Phase 2+ = Cloudflare Worker auto-forward.** Cloudflare CSAM Scanning Tool emits no webhooks (only HTTP 451 + daily email) — bridging gap from CF detection → backend `/internal/csam-webhook` enforcement requires explicit trigger path. MVP path: admin reads CF email → pastes URL/`image_id` into Admin Panel CSAM viewer → Admin Panel calls handler with session-bound CSRF token (per `06-Security-Privacy.md:443`). Phase 2+ path: CF Worker watches `img.nearyou.id` route for `451`, POSTs signed payload (Bearer + HMAC-SHA256, secret `cf-worker-csam-secret` in GCP Secret Manager) — same endpoint, different auth path. IMAP / email-poller alternative rejected: worst latency (24h) + worst fragility (CF email format breaks). Manual MVP is right for current scope: expected detection rate ~0/month given attestation enforcement + 18+ gating + Vision Safe Search upfront filter; building Worker upfront optimizes a problem that doesn't yet exist. `csam_detection_archive.source` column (`admin_manual` | `cf_worker` | `email_poll`) already in schema (`08-Roadmap-Risk.md:117`) — both paths converge to the same archive row, dedup via UNIQUE on `image_hash` + partial UNIQUE on `cf_match_id`. **Triggers to migrate to Phase 2+ Worker**: detection frequency ≥1/week, OR documented founder absence ≥48h regularly, OR compliance audit requires real-time enforcement, OR Phase 4+ scale traffic. Until any trigger fires, MVP path stays canonical and Worker is documented-not-built.
