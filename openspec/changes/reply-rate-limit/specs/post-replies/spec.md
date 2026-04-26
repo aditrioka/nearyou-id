@@ -8,7 +8,9 @@ The TTL MUST be supplied via `computeTTLToNextReset(userId)` so the per-user off
 
 Tier gating reads `users.subscription_status` (V3 schema column, three-state enum). Both `premium_active` and `premium_billing_retry` (the 7-day grace state) MUST skip the daily limiter entirely. Only `free` (and any future state mapping to free) is subject to the cap.
 
-**Read-site constraint.** Tier MUST be read from the request-scope `viewer` principal populated by the auth-jwt plugin (which already loads `subscription_status` alongside the user identity for every authenticated request — see `auth-session` capability). The reply handler MUST NOT issue a fresh `SELECT subscription_status FROM users WHERE id = :caller` before the limiter; doing so would violate the "limiter runs before any DB read" guarantee. If the auth principal does not carry `subscription_status`, that's a defect in the auth path and MUST be fixed there, not worked around by adding a DB read in this handler.
+**Read-site constraint.** Tier MUST be read from the request-scope `viewer` principal populated by the auth-jwt plugin (which loads `subscription_status` alongside the user identity for every authenticated request — added by `like-rate-limit` task 6.1.1; tracked as `auth-jwt` spec debt in `FOLLOW_UPS.md` since the field is not yet documented in any spec). The reply handler MUST NOT issue a fresh `SELECT subscription_status FROM users WHERE id = :caller` before the limiter; doing so would violate the "limiter runs before any DB read" guarantee. If the auth principal does not carry `subscription_status`, that's a defect in the auth path and MUST be fixed there, not worked around by adding a DB read in this handler.
+
+**Defect-mode behavior.** If `viewer.subscriptionStatus` is unexpectedly null, the handler MUST treat the caller as Free (fail-closed against accidental Premium-tier escalation) and apply the cap. This is a defensive guardrail; the underlying defect MUST still be fixed in the auth-jwt path.
 
 The daily limiter MUST run BEFORE any DB read (specifically, before the V8 `visible_posts` resolution SELECT and the `post_replies` INSERT) AND BEFORE the V8 content-length guard (so a Free attacker spamming oversized payloads still consumes slots and hits 429 at the cap, rather than burning unlimited "invalid_request" responses). On `RateLimited`, the response is HTTP 429 with body `{ "error": { "code": "rate_limited" } }` and a `Retry-After` header set to the seconds returned by the limiter (≥ 1).
 
@@ -39,8 +41,12 @@ The daily limiter MUST count successful slot acquisitions (i.e., requests that p
 - **THEN** the key used is exactly `"{scope:rate_reply_day}:{user:U}"`
 
 #### Scenario: Soft-delete does not release a daily slot
-- **WHEN** Free-tier caller A POSTs 5 successful replies AND then DELETEs one of them via `DELETE /api/v1/posts/{post_id}/replies/{reply_id}` (which returns HTTP 204 idempotent) AND then POSTs a 21st reply over the course of the same WIB day
-- **THEN** the cumulative post count consumed exactly 21 slots (20 from the first-batch + 5th-replaced + 1 from the 21st-attempt) AND the 21st response is HTTP 429 — soft-deleting a reply DOES NOT release the slot it consumed
+- **WHEN** within the same WIB day Free-tier caller A executes this sequence: (1) POSTs 5 successful replies (bucket grows 0 → 5), (2) DELETEs one of those replies via `DELETE /api/v1/posts/{post_id}/replies/{reply_id}` (HTTP 204, idempotent; bucket stays at 5 — DELETE does NOT release), (3) POSTs 15 more successful replies (bucket grows 5 → 20), (4) POSTs a 21st reply attempt
+- **THEN** the 21st POST is rejected with HTTP 429 `error.code = "rate_limited"` AND the daily bucket size remains at 20 (the 21st acquisition was rejected, so no slot was added) AND the soft-deleted reply's slot was never released — proving DELETE does not refund the cap and a user cannot "make room" by deleting old replies
+
+#### Scenario: Null subscriptionStatus on viewer principal treated as Free (defensive)
+- **WHEN** the auth-jwt plugin populates `viewer` with `subscriptionStatus = null` (auth-path defect) AND Free-equivalent caller A attempts a 21st reply in a day
+- **THEN** the response is HTTP 429 (the handler MUST fall through to the Free-tier path, NOT skip the limiter) AND a slf4j WARN is logged identifying the defect (so the auth-path bug surfaces)
 
 #### Scenario: Daily limiter runs before visible_posts resolution
 - **WHEN** Free-tier caller A is at slot 21 AND attempts `POST /replies` on a post that ALSO does not exist in `visible_posts`
@@ -78,7 +84,11 @@ When the flag is unset, malformed, ≤ 0, or unavailable due to Remote Config er
 
 #### Scenario: Flag malformed (non-integer string) falls back to default
 - **WHEN** `premium_reply_cap_override = "thirty"` (or any non-integer-parseable value returned by the Remote Config client) AND Free caller A attempts a 21st reply in a day
-- **THEN** the response is HTTP 429 (the cap remains 20) AND a Sentry WARN is logged identifying the malformed value (so ops can detect the misconfiguration)
+- **THEN** the response is HTTP 429 (the cap remains 20). The implementation MUST also slf4j-WARN-log the malformed value so ops can detect the misconfiguration, but the integration-test assertion is the response status only (logging behavior is implementation-tested via service-level unit tests, not via a `ListAppender` in the HTTP-level test class)
+
+#### Scenario: Flag oversized integer (above any sane cap) falls back to default
+- **WHEN** `premium_reply_cap_override = Long.MAX_VALUE` or any positive value above 10,000 (clearly absurd) AND Free caller A attempts a 21st reply
+- **THEN** the response is HTTP 429 (the cap is clamped to default 20). The upper-bound clamp prevents accidental cap removal via a typo (e.g., `2000000000` instead of `20`). Implementations MAY pick any specific clamp threshold ≥ 1000 (no abuse signal supports a Free user posting >1000 replies/day); the WARN-log MUST identify the clamped value
 
 #### Scenario: Remote Config network failure falls back to default
 - **WHEN** the Remote Config SDK throws an `IOException` (or any error) when the reply handler attempts to read `premium_reply_cap_override` AND Free caller A attempts a 21st reply in a day
@@ -102,6 +112,8 @@ The reply service SHALL run, in this exact order, on every `POST /api/v1/posts/{
 
 Steps 1–3 MUST run before any DB query. Steps 1–3 MUST NOT execute a DB statement. The reply handler MUST NOT call `RateLimiter.releaseMostRecent` on any path — every successful slot acquisition is permanent (there is no idempotent re-action path on `post_replies` analogous to the `INSERT ... ON CONFLICT DO NOTHING` no-op on `post_likes`).
 
+_Note: the "limiter runs before visible_posts SELECT" and "limiter runs before content-length guard" assertions live in the Daily rate limit requirement above — its dedicated short-circuit scenarios cover both orderings. This requirement focuses on auth/UUID short-circuits BEFORE the limiter and slot-consumption rules AFTER the limiter._
+
 #### Scenario: Auth failure short-circuits before limiter
 - **WHEN** the request lacks a valid JWT
 - **THEN** the response is HTTP 401 AND no limiter check runs (no Redis round-trip for auth-rejected requests)
@@ -109,14 +121,6 @@ Steps 1–3 MUST run before any DB query. Steps 1–3 MUST NOT execute a DB stat
 #### Scenario: Invalid UUID short-circuits before limiter
 - **WHEN** the request path is `POST /api/v1/posts/not-a-uuid/replies`
 - **THEN** the response is HTTP 400 with `error.code = "invalid_uuid"` AND no limiter check runs
-
-#### Scenario: Daily limit hit before content-length guard
-- **WHEN** Free caller A is at slot 21 AND POSTs a reply with 281-character content
-- **THEN** the response is HTTP 429 (NOT 400 `invalid_request`) AND no JSON parsing of the body occurred
-
-#### Scenario: Daily limit hit before visible_posts query
-- **WHEN** Free caller A is at slot 21 AND POSTs to a non-existent post UUID
-- **THEN** the response is HTTP 429 AND no `visible_posts` SELECT was executed
 
 #### Scenario: 404 post_not_found consumes a slot
 - **WHEN** Free caller A has 5 successful replies today AND POSTs `/replies` on a non-existent post UUID with valid content
@@ -129,6 +133,14 @@ Steps 1–3 MUST run before any DB query. Steps 1–3 MUST NOT execute a DB stat
 #### Scenario: Successful new reply consumes a slot
 - **WHEN** Free caller A has 5 successful replies today AND POSTs a fresh reply on a visible post with valid content
 - **THEN** the response is HTTP 201 AND the daily bucket size is 6
+
+#### Scenario: V10 emit suppression on rate-limited request
+- **WHEN** Free caller A is at slot 21 AND POSTs a valid reply on a post authored by a third party (parent author B)
+- **THEN** the response is HTTP 429 AND zero `notifications` rows are inserted for B (the limiter rejects the request before the V10 emit pipeline runs); a test asserts this via INSERT-row-count snapshot on the `notifications` table around the request
+
+#### Scenario: Transaction rollback (V10 emit failure) does NOT release the slot
+- **WHEN** Free caller A is at slot 5 AND POSTs a valid reply AND the V10 notification emit fails (e.g., parent post author hard-deleted between visibility-resolution and emit) AND the encompassing DB transaction rolls back
+- **THEN** zero `post_replies` rows persist (V8 transaction-rollback contract per `post-replies/spec.md` § "Notification INSERT failure rolls back the reply") AND the daily bucket size is 6 (the slot remains consumed; `releaseMostRecent` MUST NOT be called on the rollback path) AND the limiter response was `Allowed`, so a regression that adds a release on rollback would be caught by this scenario
 
 ### Requirement: DELETE /api/v1/posts/{post_id}/replies/{reply_id} is NOT rate-limited
 
@@ -154,29 +166,32 @@ The V8 GET reply-list endpoint (see `post-replies` § "GET /api/v1/posts/{post_i
 
 ### Requirement: Integration test coverage — reply rate limit
 
-`ReplyRateLimitTest` (tagged `database`, depending on the CI Redis service container introduced by `like-rate-limit`) SHALL exist alongside the existing `ReplyServiceTest` and cover, at minimum:
+`ReplyRateLimitTest` (tagged `database`, backed by `InMemoryRateLimiter` extracted in `like-rate-limit` task 7.1 — Lua-level correctness is exercised separately by `:infra:redis`'s `RedisRateLimiterIntegrationTest`) SHALL exist alongside the existing `ReplyServiceTest` and cover, at minimum:
 
 1. 20 replies in a day succeed for Free user.
-2. 21st reply in the same day rate-limited; 429 + `Retry-After` + no `post_replies` row inserted + no `notifications` row inserted.
-3. `Retry-After` value within ±5s of expected (relative to `now`).
-4. Premium user (status `premium_active`) skips the daily limiter — 30 replies in a day all succeed.
+2. 21st reply in the same day rate-limited; 429 + `Retry-After` + no `post_replies` row inserted AND zero `notifications` rows inserted (verified via INSERT-row-count snapshot before/after the request).
+3. `Retry-After` value within ±5s of expected (`now` frozen via `AtomicReference<Instant>` clock injected into `InMemoryRateLimiter`).
+4. Premium user (status `premium_active`) skips the daily limiter — 50 replies in a day all succeed (chosen distinct from the 30 used in scenario 6 to avoid test-data ambiguity).
 5. Premium billing retry status (`premium_billing_retry`) also skips the daily limiter.
 6. `premium_reply_cap_override` raises the cap to 30 for a Free user (31st rejected after a successful 30th).
 7. `premium_reply_cap_override` lowers the cap mid-day; user previously at 7 is rejected at 8.
 8. `premium_reply_cap_override = 0` falls back to default 20.
-9. `premium_reply_cap_override = "thirty"` (malformed non-integer) falls back to default 20 + Sentry WARN.
+9. `premium_reply_cap_override = "thirty"` (malformed non-integer) falls back to default 20. The slf4j WARN log is implementation-detail; the integration test asserts response status only.
 10. Remote Config network failure (SDK throws) falls back to default 20; no 5xx propagated.
 11. 404 `post_not_found` consumes a slot (does NOT release): a request to a non-existent post UUID at slot 5 leaves the daily bucket at size 6.
 12. 400 `invalid_request` on empty / whitespace / 281-char content consumes a slot when caller passed auth + UUID validation: leaves the daily bucket at size 6.
-13. Daily limit hit short-circuits before the V8 content-length guard (assert: hit a non-existent post UUID with 281-char content; expect 429 not 400 not 404).
-14. Daily limit hit short-circuits before `visible_posts` SELECT (assert via a query-counter / Postgres statement-log spy that zero `visible_posts` SELECTs ran on the 21st request).
-15. Hash-tag key shape verified: daily key = `{scope:rate_reply_day}:{user:<uuid>}`.
-16. WIB rollover: at the per-user reset moment the cap restores.
-17. Soft-delete does NOT release a daily slot (POST 5 → DELETE 1 → POST 16 more; bucket size after the 21st POST = 21, response HTTP 429).
+13. Daily limit hit short-circuits before the V8 content-length guard: at slot 21, POSTing 281-char content returns HTTP 429 (NOT HTTP 400) — behavioral proof that the limiter ran before content validation.
+14. Daily limit hit short-circuits before `visible_posts` SELECT: at slot 21, POSTing to a non-existent post UUID returns HTTP 429 (NOT HTTP 404) — behavioral proof that the limiter ran before visibility resolution. (No DB-statement spy required; the 429-vs-404 dichotomy is the assertion.)
+15. Hash-tag key shape verified: daily key = `{scope:rate_reply_day}:{user:<uuid>}` (via a `SpyRateLimiter` test double that captures `tryAcquire` keys).
+16. WIB rollover: at the per-user reset moment the cap restores (frozen `AtomicReference<Instant>` clock advanced past `computeTTLToNextReset(userId)` + 1s).
+17. Soft-delete does NOT release a daily slot: POST 5 successful replies → DELETE 1 (bucket stays at 5) → POST 15 more (bucket reaches 20) → 21st POST attempt rejected with HTTP 429 → bucket stays at 20.
 18. DELETE works when caller is at the daily cap (20/20 cap, DELETE returns 204, no limiter consulted, bucket unchanged).
 19. GET unaffected by the daily cap (caller at 21/20 still gets HTTP 200 from the V8 GET endpoint).
-20. Tier (`subscription_status`) is read from the auth-time `viewer` principal, not via a DB SELECT — assert via a query-counter / Postgres statement-log spy that the reply handler issues zero `users` SELECTs before the limiter check.
-21. The reply handler MUST NOT call `RateLimiter.releaseMostRecent` on any code path — assert via a `RateLimiter` test double that no `releaseMostRecent` invocation occurs across the full scenario set above.
+20. Tier (`subscription_status`) is read from the auth-time `viewer` principal: a `SpyRateLimiter` confirms `tryAcquire` was invoked AND the response is HTTP 201 — combined with scenario 14 (limiter-before-visible_posts), this proves no DB read sits between auth and limiter.
+21. The reply handler MUST NOT call `RateLimiter.releaseMostRecent` on any code path — assert via `SpyRateLimiter` that no `releaseMostRecent` invocation occurs across the full scenario set above.
+22. Null `subscriptionStatus` on the viewer principal is treated as Free (defensive guardrail) — limiter applied, 21st request rejected with HTTP 429.
+23. V10 transaction rollback does NOT release the slot: simulate the parent-post-hard-deleted-between-visibility-and-emit edge case, verify zero `post_replies` rows persisted AND the daily bucket size still grew by 1 (no `releaseMostRecent` was called).
+24. `premium_reply_cap_override = Long.MAX_VALUE` (or any value > 10,000) clamps to default 20.
 
 #### Scenario: Test class discoverable
 - **WHEN** running `./gradlew :backend:ktor:test --tests '*ReplyRateLimitTest*'`

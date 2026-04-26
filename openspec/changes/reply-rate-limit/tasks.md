@@ -4,7 +4,8 @@
 - [ ] 1.2 Re-read [`openspec/specs/rate-limit-infrastructure/spec.md`](../../../openspec/specs/rate-limit-infrastructure/spec.md) (shipped in `like-rate-limit`) to confirm the `RateLimiter` interface contract is exactly what this change consumes — `tryAcquire(userId, key, capacity, ttl): Outcome` and `releaseMostRecent(userId, key)` — and that the WIB-stagger helper `computeTTLToNextReset(userId)` lives in `id.nearyou.app.core.domain.ratelimit`.
 - [ ] 1.3 Re-read [`openspec/specs/post-replies/spec.md`](../../../openspec/specs/post-replies/spec.md) (V8 baseline + V9 auto-hide + V10 `post_replied` emit) to confirm the V8 ordering invariants this change layers in front of: auth → UUID validation → JSON body parse + content-length guard → `visible_posts` resolution → INSERT + V10 emit in one transaction → 201.
 - [ ] 1.4 Verify `:infra:redis` and the CI Redis service container are already on the test job (PR #37 / `like-rate-limit`) — no new infra setup needed for this change. Spot-check `.github/workflows/ci.yml` for `redis:7-alpine` service and `KotestProjectConfig.bootstrapRedis()` in `:backend:ktor` test setup.
-- [ ] 1.5 Verify the `auth-jwt` plugin's `UserPrincipal` carries `subscriptionStatus: String` (added by `like-rate-limit` task 6.1.1). If absent or named differently, this is a defect in the auth path that MUST be fixed there first — do NOT add a fresh DB SELECT in the reply handler as a workaround.
+- [ ] 1.5 Verify the `auth-jwt` plugin's `UserPrincipal` carries `subscriptionStatus: String` (added by `like-rate-limit` task 6.1.1). If absent or named differently, this is a defect in the auth path that MUST be fixed there first — do NOT add a fresh DB SELECT in the reply handler as a workaround. **Also confirm RevenueCat downgrade webhook bumps `token_version` on `EXPIRATION` / cancellation events**; if it does not, the Premium→Free abuse window is bounded by JWT TTL (15 min) rather than next-request semantics — file a `FOLLOW_UPS.md` entry and proceed (this change does NOT widen scope to fix it).
+- [ ] 1.6 Verify the mobile reply-button surface in the current Android + iOS builds correctly handles HTTP 429 from `POST /replies` (does not crash, does not 5xx-translate). The like-button surface from PR #37 is the precedent. If the reply button doesn't handle 429, file a follow-up mobile-side fix ticket but do NOT block this change — the backend 429 contract is correct regardless of mobile-side handling, and the generic timeline rate-limit screen catches uncaught 429s.
 
 ## 2. `premium_reply_cap_override` Remote Config flag plumbing
 
@@ -26,28 +27,31 @@
 ## 4. Tests for `POST /reply` rate limit
 
 - [ ] 4.1 Implement `ReplyRateLimitTest` in `backend/ktor/src/test/kotlin/id/nearyou/app/engagement/ReplyRateLimitTest.kt`, tagged `database`. Run against `InMemoryRateLimiter` (extracted in `like-rate-limit` task 7.1) — the Lua-level correctness gate is `:infra:redis`'s `RedisRateLimiterIntegrationTest`; this class is the HTTP-level + service-level gate testing what `ReplyService` does *with* the limiter.
-- [ ] 4.2 Cover all 21 scenarios from `specs/post-replies/spec.md` § "Integration test coverage — reply rate limit", named in `@Test`-equivalent strings 1–21 verbatim. The list:
+- [ ] 4.2 Cover all 24 scenarios from `specs/post-replies/spec.md` § "Integration test coverage — reply rate limit", named in `@Test`-equivalent strings 1–24 verbatim. The list:
    1. 20 replies in a day succeed for Free user.
-   2. 21st reply rate-limited; 429 + Retry-After + no `post_replies` row + no `notifications` row.
-   3. Retry-After ±5s of expected.
-   4. Premium (`premium_active`) skips the daily limiter — 30 replies succeed.
+   2. 21st reply rate-limited; 429 + Retry-After + no `post_replies` row + zero `notifications` rows (verified via INSERT-row-count snapshot).
+   3. Retry-After ±5s of expected (frozen `AtomicReference<Instant>` clock).
+   4. Premium (`premium_active`) skips the daily limiter — 50 replies succeed (50 chosen distinct from override-30 in scenario 6).
    5. Premium billing retry (`premium_billing_retry`) skips the daily limiter.
    6. `premium_reply_cap_override = 30` raises the cap; 31st rejected after a successful 30th.
    7. `premium_reply_cap_override = 5` lowers the cap mid-day; user previously at 7 is rejected at 8.
    8. `premium_reply_cap_override = 0` falls back to default 20.
-   9. `premium_reply_cap_override = "thirty"` falls back to default 20 + WARN log.
+   9. `premium_reply_cap_override = "thirty"` falls back to default 20 (assert response status only; WARN log is implementation-detail).
   10. Remote Config network failure (SDK throws) falls back to default 20; no 5xx propagated.
   11. 404 `post_not_found` consumes a slot (does NOT release).
   12. 400 `invalid_request` post-limiter consumes a slot.
-  13. Daily limit hit short-circuits before content-length guard (assert: 281-char content + at-cap → 429, not 400).
-  14. Daily limit hit short-circuits before `visible_posts` SELECT (assert: zero `visible_posts` SELECTs on the 21st request via query-counter spy).
+  13. Daily limit hit short-circuits before content-length guard (281-char content at slot 21 → 429, NOT 400 — behavioral proof).
+  14. Daily limit hit short-circuits before `visible_posts` SELECT (non-existent post UUID at slot 21 → 429, NOT 404 — behavioral proof; no DB-statement spy required).
   15. Hash-tag key shape: daily key = `{scope:rate_reply_day}:{user:<uuid>}` via a `SpyRateLimiter`.
-  16. WIB rollover: at the per-user reset moment the cap restores (frozen `AtomicReference<Instant>` clock).
-  17. Soft-delete does NOT release a daily slot (POST 5 → DELETE 1 → POST 16 → 21st = 429).
+  16. WIB rollover: at the per-user reset moment the cap restores (frozen `AtomicReference<Instant>` clock advanced past `computeTTLToNextReset(userId)` + 1s).
+  17. Soft-delete does NOT release a daily slot: POST 5 → DELETE 1 (bucket stays at 5) → POST 15 more (bucket reaches 20) → 21st rejected with 429 → bucket stays at 20.
   18. DELETE works at the daily cap (20/20, DELETE returns 204, no limiter consulted).
   19. GET unaffected by the daily cap (caller at 21/20 still gets V8 200).
-  20. Tier read from `viewer` principal, NOT a DB SELECT — assert via query-counter spy that zero `users` SELECTs run before the limiter.
-  21. The reply handler MUST NOT call `releaseMostRecent` — assert via `SpyRateLimiter` that `releaseMostRecent` is never invoked across all 21 scenarios.
+  20. Tier read from `viewer` principal: `SpyRateLimiter` confirms `tryAcquire` invoked AND HTTP 201 returned. Combined with scenario 14, proves no DB read between auth and limiter.
+  21. The reply handler MUST NOT call `releaseMostRecent` — assert via `SpyRateLimiter` that `releaseMostRecent` is never invoked across all 24 scenarios.
+  22. Null `subscriptionStatus` on viewer principal treated as Free — limiter applied, 21st request rejected.
+  23. V10 transaction rollback does NOT release the slot — slot stays consumed when emit fails.
+  24. `premium_reply_cap_override = Long.MAX_VALUE` (or > 10,000) clamps to default 20.
 - [ ] 4.3 Verify `ReplyServiceTest` (the V8 baseline test class) still passes byte-for-byte. The new rate-limit scenarios live in `ReplyRateLimitTest`; the V8 test class is unchanged.
 - [ ] 4.4 Pre-push gauntlet: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :infra:redis:test :core:domain:test -PincludeMobile=false`. All green.
 
