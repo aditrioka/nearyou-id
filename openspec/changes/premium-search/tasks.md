@@ -112,8 +112,8 @@
 ## 8. Pre-archive smoke
 
 - [x] 8.1 Add `dev/scripts/smoke-premium-search.sh` covering: Premium happy path (returns 200), length-guard 400, offset-bound 400, rate-limit 429 (issue 61 calls in a tight loop) with Retry-After value sanity-bound. Free 403 + guest 401 + kill switch 503 are NOT smoked (no deploy-config surface; covered by integration tests).
-- [ ] 8.2 `gh workflow run deploy-staging.yml --ref premium-search` and poll until deploy run is green
-- [ ] 8.3 Run `dev/scripts/smoke-premium-search.sh` against the branch staging deploy; all assertions pass
+- [x] 8.2 `gh workflow run deploy-staging.yml --ref premium-search` triggered + run `24950917542` green at 2026-04-26T07:18:50Z (5m 39s wall-clock). No-auth probe `GET /api/v1/search?q=test` returns `401 token_revoked` from the deployed instance — endpoint reachable + auth plugin wired correctly.
+- [ ] 8.3 Run `dev/scripts/smoke-premium-search.sh` against the branch staging deploy; all assertions pass. **PENDING USER ACTION**: requires a Premium test user UUID in staging. Documented Free users from prior smokes are `10d600e9-df39-48ec-9493-7e3d445493f1` (reply-rate-limit smoke) and `990cd6b5-f023-4aac-a7f6-28d1b5e0c0c2` (post author). Promoting one to Premium requires DB access — the staging Supabase instance is IPv6-only per the canonical comment in `dev/scripts/smoke-premium-search.sh`, and Cloud Run does not support `exec`. User must run the promotion from a Cloud-Run-equivalent IPv6 host (Supabase Studio web UI / Cloud Shell / a temporary Cloud Run Job). Smoke command: `KTOR_RSA_PRIVATE_KEY="$(gcloud secrets versions access latest --secret=staging-ktor-rsa-private-key --project=nearyou-staging)" dev/scripts/smoke-premium-search.sh <premium-user-uuid>`
 - [ ] 8.4 Tick Section 8 in this tasks.md file as part of the smoke commit
 
 ## 9. Documentation sync
