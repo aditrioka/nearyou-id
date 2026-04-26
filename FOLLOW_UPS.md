@@ -36,7 +36,7 @@ Format per entry:
 ## staging-smoke-before-archive-skill-codification
 
 **Discovered during:** `reply-rate-limit` `/opsx:apply` Section 6 (the staging smoke step) — surfaced the gap that the prior `like-rate-limit` cycle ran the smoke AFTER squash-merge (auto-deploy from main), which means a deploy-config bug would have already shipped to staging-from-main before being caught.
-**Status:** open
+**Status:** triaged — 3 of 4 action items shipped in PR [#50](https://github.com/aditrioka/nearyou-id/pull/50); item 4 deferred (rescoped below).
 
 **Finding:** The current skill docs do NOT codify a staging deploy + smoke step before `/opsx:archive`. The `like-rate-limit` precedent ran the smoke as task 9.7 AFTER the archive (post-merge auto-deploy from main), and `tasks.md` 9.7's three follow-up fixes (PR #43 secret-name, PR #44 lazy-connect, GCP slot TLS scheme) all landed AFTER the change had already shipped to staging-from-main. A pre-archive smoke against a manual branch deploy gives us a chance to fix deploy-config bugs BEFORE the one-way-door of squash-merge.
 
@@ -50,20 +50,20 @@ The proposed canonical workflow:
 **Specs at fault:** None.
 **Code at fault:** None.
 **Docs at fault:**
-- `.claude/skills/openspec-apply-change/SKILL.md` (canonical apply skill)
-- `.claude/commands/opsx/apply.md` (mirror of the apply skill)
-- `openspec/project.md` § Change Delivery Workflow (codifies the lifecycle)
-- Optional: a brief mention in `CLAUDE.md` § Delivery workflow.
+- `.claude/skills/openspec-apply-change/SKILL.md` (canonical apply skill) ✅ updated in PR #50.
+- `.claude/commands/opsx/apply.md` (mirror) ✅ updated in PR #50.
+- `openspec/project.md` § Change Delivery Workflow + § Staging deploy timing ✅ updated in PR #50.
+- Optional: brief mention in `CLAUDE.md` § Delivery workflow — not done; low value (the canonical lifecycle doc already has it).
 
-**Impact (if shipped):** Low. The `reply-rate-limit` cycle already exercises this pattern correctly (deploy + smoke happening pre-archive). The risk is that without codification, the next change cycle reverts to post-archive smoke and re-discovers deploy-config bugs in staging-from-main.
+**Impact (if shipped):** Low. The `reply-rate-limit` cycle already exercises this pattern correctly. PR #50 codified it for future cycles.
 
-**Ambiguity to resolve first:** None. The pattern is clear; needs codification only.
+**Ambiguity to resolve first (item 4 only):** Should `openspec-propose` / `next-change` skill templates default-include a Section 6 smoke-script stub for runtime-impact changes? Tradeoff: pro = the skill author can't forget it; con = bakes a specific tasks.md shape into the template that may not fit every change. Current state: per-change discretion (the skill author writing the propose-time task list decides). The `reply-rate-limit` cycle worked because the user explicitly asked for a Section 6 in the `/next-change` instructions.
 
 **Action items:**
-- [ ] Spin up a `chore(skills): codify staging-deploy-before-archive in /opsx:apply` PR after `reply-rate-limit` squash-merges.
-- [ ] In that PR: add a Section 6-equivalent step to `.claude/skills/openspec-apply-change/SKILL.md` ("After CI green: trigger `gh workflow run deploy-staging.yml --ref <branch>` and run the change's smoke script"). Mirror to `.claude/commands/opsx/apply.md`.
-- [ ] Update `openspec/project.md` § Change Delivery Workflow to reflect the new step in the lifecycle table.
-- [ ] Confirm `tasks.md` templates / skills include a Section 6 smoke-script step by default (check `openspec-propose` / `next-change` skill templates).
+- [x] Spin up a `chore(skills): codify staging-deploy-before-archive in /opsx:apply` PR after `reply-rate-limit` squash-merges. → PR [#50](https://github.com/aditrioka/nearyou-id/pull/50) merged 2026-04-26T02:26:48Z.
+- [x] In that PR: add a Section 6-equivalent step to `.claude/skills/openspec-apply-change/SKILL.md`. Mirror to `.claude/commands/opsx/apply.md`. → done in #50.
+- [x] Update `openspec/project.md` § Change Delivery Workflow to reflect the new step in the lifecycle table. → done in #50 (§ Staging deploy timing + § Archive timing both updated).
+- [ ] (Deferred — separate follow-up) Decide whether `openspec-propose` / `next-change` templates default-include a Section 6 smoke-script stub for runtime-impact changes. See "Ambiguity to resolve first" above. Spin off as `openspec-propose-default-section-6-smoke` if/when triaged.
 
 ---
 
