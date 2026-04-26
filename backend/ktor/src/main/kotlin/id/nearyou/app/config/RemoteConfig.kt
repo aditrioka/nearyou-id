@@ -32,6 +32,19 @@ interface RemoteConfig {
      *    is a worse failure mode than falling back to the conservative default.
      */
     fun getLong(key: String): Long?
+
+    /**
+     * Returns the boolean value of [key], or `null` if:
+     *  - the flag is unset;
+     *  - the flag is set but does not parse as a `Boolean` (malformed string);
+     *  - the SDK throws — same null-fallback rule as [getLong].
+     *
+     * Used for kill-switch flags like `search_enabled` (default TRUE), where
+     * a `false` value flips the feature OFF without a code deploy. Call sites
+     * MUST coerce `null` to the documented default — never to the safe-mode
+     * value, since the unset case is the steady-state norm.
+     */
+    fun getBoolean(key: String): Boolean?
 }
 
 /**
@@ -45,4 +58,6 @@ interface RemoteConfig {
  */
 class StubRemoteConfig : RemoteConfig {
     override fun getLong(key: String): Long? = null
+
+    override fun getBoolean(key: String): Boolean? = null
 }

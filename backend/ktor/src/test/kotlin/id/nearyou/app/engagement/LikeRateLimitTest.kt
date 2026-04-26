@@ -883,16 +883,22 @@ private fun hikari(): HikariDataSource {
 /** RemoteConfig that always returns null (default fallback). */
 private object NullRemoteConfig : RemoteConfig {
     override fun getLong(key: String): Long? = null
+
+    override fun getBoolean(key: String): Boolean? = null
 }
 
 /** RemoteConfig with a fixed key→value map. Other keys return null. */
 private class FixedRemoteConfig(private val values: Map<String, Long>) : RemoteConfig {
     override fun getLong(key: String): Long? = values[key]
+
+    override fun getBoolean(key: String): Boolean? = null
 }
 
 /** RemoteConfig that throws on every call (to verify the LikeService swallows errors). */
 private class ThrowingRemoteConfig(private val error: Throwable) : RemoteConfig {
     override fun getLong(key: String): Long? = throw error
+
+    override fun getBoolean(key: String): Boolean? = throw error
 }
 
 /**

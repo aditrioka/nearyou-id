@@ -63,23 +63,12 @@ class MigrationV4SmokeTest : StringSpec({
         }
     }
 
-    "content_tsv column NOT present (FTS deferred to Search change)" {
-        DriverManager.getConnection(url, user, password).use { conn ->
-            conn.createStatement().use { st ->
-                st.executeQuery(
-                    """
-                    SELECT COUNT(*) FROM information_schema.columns
-                    WHERE table_name = 'posts' AND column_name = 'content_tsv'
-                    """.trimIndent(),
-                ).use { rs ->
-                    rs.next() shouldBe true
-                    rs.getInt(1) shouldBe 0
-                }
-            }
-        }
-    }
+    // FTS infrastructure (content_tsv column + GIN indexes + pg_trgm extension)
+    // shipped in V13 (`premium-search` change); see MigrationV13SmokeTest.
+    // The V4 smoke test no longer asserts content_tsv is absent — V13 adds it,
+    // and Flyway runs both migrations during the test JVM bootstrap.
 
-    "all four indexes exist and the geography pair uses gist" {
+    "all four V4 indexes exist and the geography pair uses gist" {
         DriverManager.getConnection(url, user, password).use { conn ->
             conn.createStatement().use { st ->
                 st.executeQuery(
