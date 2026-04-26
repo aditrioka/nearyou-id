@@ -33,6 +33,62 @@ Format per entry:
 
 ---
 
+## staging-smoke-before-archive-skill-codification
+
+**Discovered during:** `reply-rate-limit` `/opsx:apply` Section 6 (the staging smoke step) — surfaced the gap that the prior `like-rate-limit` cycle ran the smoke AFTER squash-merge (auto-deploy from main), which means a deploy-config bug would have already shipped to staging-from-main before being caught.
+**Status:** open
+
+**Finding:** The current skill docs do NOT codify a staging deploy + smoke step before `/opsx:archive`. The `like-rate-limit` precedent ran the smoke as task 9.7 AFTER the archive (post-merge auto-deploy from main), and `tasks.md` 9.7's three follow-up fixes (PR #43 secret-name, PR #44 lazy-connect, GCP slot TLS scheme) all landed AFTER the change had already shipped to staging-from-main. A pre-archive smoke against a manual branch deploy gives us a chance to fix deploy-config bugs BEFORE the one-way-door of squash-merge.
+
+The proposed canonical workflow:
+1. `/next-change` opens the proposal PR (no code → no deploy/smoke).
+2. `/opsx:apply` implements + tests + CI green (as today).
+3. **NEW:** `/opsx:apply` triggers `gh workflow run deploy-staging.yml --ref <branch>` before smoke.
+4. **NEW:** `/opsx:apply` runs the smoke against staging (script lives in the change's tasks.md section 6).
+5. `/opsx:archive` lands doc sync + archive after smoke green.
+
+**Specs at fault:** None.
+**Code at fault:** None.
+**Docs at fault:**
+- `.claude/skills/openspec-apply-change/SKILL.md` (canonical apply skill)
+- `.claude/commands/opsx/apply.md` (mirror of the apply skill)
+- `openspec/project.md` § Change Delivery Workflow (codifies the lifecycle)
+- Optional: a brief mention in `CLAUDE.md` § Delivery workflow.
+
+**Impact (if shipped):** Low. The `reply-rate-limit` cycle already exercises this pattern correctly (deploy + smoke happening pre-archive). The risk is that without codification, the next change cycle reverts to post-archive smoke and re-discovers deploy-config bugs in staging-from-main.
+
+**Ambiguity to resolve first:** None. The pattern is clear; needs codification only.
+
+**Action items:**
+- [ ] Spin up a `chore(skills): codify staging-deploy-before-archive in /opsx:apply` PR after `reply-rate-limit` squash-merges.
+- [ ] In that PR: add a Section 6-equivalent step to `.claude/skills/openspec-apply-change/SKILL.md` ("After CI green: trigger `gh workflow run deploy-staging.yml --ref <branch>` and run the change's smoke script"). Mirror to `.claude/commands/opsx/apply.md`.
+- [ ] Update `openspec/project.md` § Change Delivery Workflow to reflect the new step in the lifecycle table.
+- [ ] Confirm `tasks.md` templates / skills include a Section 6 smoke-script step by default (check `openspec-propose` / `next-change` skill templates).
+
+---
+
+## auth-jwt-spec-debt-userprincipal-subscription-status
+
+**Discovered during:** `reply-rate-limit` proposal review (Phase D round 1 — the on-demand `claude.yml` review pass at PR #49 flagged that the reply spec depends on `UserPrincipal.subscriptionStatus` being populated by the auth-jwt plugin, but no spec documents the field).
+**Status:** open
+
+**Finding:** [`like-rate-limit` task 6.1.1](openspec/changes/archive/2026-04-25-like-rate-limit/tasks.md) added `subscriptionStatus: String` to `UserPrincipal` (populated from `users.subscription_status` by `AuthPlugin.configureUserJwt`) as a **code change with no corresponding spec amendment**. Neither [`openspec/specs/auth-jwt/spec.md`](openspec/specs/auth-jwt/spec.md) nor [`openspec/specs/auth-session/spec.md`](openspec/specs/auth-session/spec.md) documents this field. The `like-rate-limit/specs/post-likes/spec.md` § "Daily rate limit" requirement and now `reply-rate-limit/specs/post-replies/spec.md` § "Daily rate limit" both rely on the field being populated; a future maintainer reading the canonical auth-jwt spec will find no `subscriptionStatus` on the principal and may assume the rate-limit handlers are buggy.
+
+**Specs at fault:** `openspec/specs/auth-jwt/spec.md`, `openspec/specs/auth-session/spec.md`
+**Code at fault:** None — the field is correctly populated; the spec is the gap.
+**Docs at fault:** None — `docs/05-Implementation.md` § Auth Session does describe principal contents abstractly but doesn't go field-by-field.
+
+**Impact (if shipped):** Low. Code is correct. Risk is to future-maintainer cognitive load: rate-limit handlers reference an undocumented principal field; a refactor that adds new fields to `UserPrincipal` may forget `subscriptionStatus` because no spec lists it. Also: the same gap will accumulate as future rate-limit changes (post-rate-limit, search-rate-limit, etc.) all consume the field.
+
+**Ambiguity to resolve first:** None. The fix shape is clear: a docs-only OpenSpec change `auth-jwt-principal-subscription-status` that adds a Requirement to `auth-jwt` spec documenting `UserPrincipal.subscriptionStatus: String` (loaded from `users.subscription_status`, three-state enum, populated at JWT issuance). No code change needed. Could be batched with similar principal-field documentation tasks if more land later.
+
+**Action items:**
+- [ ] File a docs-only OpenSpec change `auth-jwt-principal-subscription-status` with one ADDED Requirement to `auth-jwt` spec describing the field.
+- [ ] In the same change, optionally amend `auth-session` spec to cross-reference the principal field for capability-spanning clarity.
+- [ ] When the Phase 4 RevenueCat webhook handler lands, ensure `EXPIRATION` / cancellation events bump `users.token_version` so JWT re-issuance picks up the new tier (closes the JWT-TTL window risk documented in `reply-rate-limit/design.md` § Premium → Free downgrade window). Confirmed during `reply-rate-limit` apply (task 1.5): the RevenueCat webhook handler **does not yet exist in the backend** — the verification is moot until Phase 4 lands the handler, but should be the first item on the handler's spec checklist.
+
+---
+
 ## reports-rate-limit-cap-doc-vs-spec-drift
 
 **Discovered during:** `like-rate-limit` proposal scoping (Phase B step 7 reconciliation pass — checking the V9 in-process limiter port for any drift before reusing its hash-tag key shape as a precedent).

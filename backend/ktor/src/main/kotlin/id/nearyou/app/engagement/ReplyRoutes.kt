@@ -11,11 +11,13 @@ import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.guard.ContentTooLongException
 import id.nearyou.data.repository.PostReplyRow
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.delete
@@ -29,16 +31,27 @@ import java.util.UUID
 /**
  * `POST/GET /api/v1/posts/{post_id}/replies` + `DELETE /api/v1/posts/{post_id}/replies/{reply_id}`.
  *
- * Error mapping (post-replies-v8 spec):
- *  - `400 invalid_uuid` for non-UUID `{post_id}` / `{reply_id}` — runs BEFORE any repo call.
- *  - `400 invalid_request` for missing / empty / >280-cp content (mapped by StatusPages via
- *    the shared ContentLengthGuard exceptions — consistent with post creation).
- *  - `400 invalid_cursor` for a malformed `cursor` on GET.
+ * Error mapping (post-replies-v8 + reply-rate-limit specs):
+ *  - `400 invalid_uuid` for non-UUID `{post_id}` / `{reply_id}` — runs BEFORE any repo call
+ *    AND BEFORE the rate limiter (so a malformed-UUID attacker doesn't burn slots).
+ *  - `429 rate_limited` from [ReplyService.RateLimitOutcome.RateLimited] on POST. Carries a
+ *    `Retry-After` header set to the seconds returned by the limiter (≥ 1 per the
+ *    `RateLimiter` contract). Runs BETWEEN UUID validation and JSON body parse so a Free
+ *    attacker spamming oversized payloads still consumes slots and hits 429 at the cap
+ *    rather than burning unlimited "invalid_request" responses.
+ *  - `400 invalid_request` for missing / empty / >280-cp content. Slot already consumed
+ *    by the limiter pass — anti-abuse-positive (matches the 404-consumes-slot rule).
+ *  - `400 invalid_cursor` for a malformed `cursor` on GET. (GET is NOT rate-limited.)
  *  - `404 post_not_found` from [PostNotFoundException] on POST/GET. Body is the byte-identical
  *    constant `{"error":{"code":"post_not_found"}}` with no direction hint / no case split
  *    across missing / soft-deleted / auto-hidden / caller-blocked / author-blocked.
  *  - `DELETE` NEVER returns 403 or 404 — always `204` regardless of not-yours /
- *    already-tombstoned / never-existed. The repository guard scopes the UPDATE.
+ *    already-tombstoned / never-existed. DELETE is NOT rate-limited.
+ *
+ * Ordering per `openspec/changes/reply-rate-limit/specs/post-replies/spec.md` § "Limiter
+ * ordering and pre-DB execution": auth → UUID validation → daily limiter (Free only) →
+ * JSON body parse → content-length guard → `visible_posts` resolution → INSERT + V10
+ * emit → 201. The limiter MUST run before JSON parsing AND before the content guard.
  */
 fun Application.replyRoutes(
     service: ReplyService,
@@ -57,6 +70,21 @@ fun Application.replyRoutes(
                         call.respondInvalidUuid("post_id must be a UUID.")
                         return@post
                     }
+                // Rate-limit gate runs BEFORE JSON body parse + content guard so malformed /
+                // oversized requests at the cap return 429 (not 400). Premium tiers skip the
+                // limiter entirely inside service.tryRateLimit.
+                when (val rl = service.tryRateLimit(principal.userId, principal.subscriptionStatus)) {
+                    is ReplyService.RateLimitOutcome.RateLimited -> {
+                        call.response.header(HttpHeaders.RetryAfter, rl.retryAfterSeconds.toString())
+                        call.respondText(
+                            text = RATE_LIMITED_BODY,
+                            contentType = ContentType.Application.Json,
+                            status = HttpStatusCode.TooManyRequests,
+                        )
+                        return@post
+                    }
+                    ReplyService.RateLimitOutcome.Allowed -> Unit
+                }
                 val body =
                     try {
                         call.receive<ReplyCreateRequest>()
@@ -193,6 +221,7 @@ private fun PostReplyRow.toDto(): ReplyDto =
     )
 
 private const val POST_NOT_FOUND_BODY = """{"error":{"code":"post_not_found"}}"""
+private const val RATE_LIMITED_BODY = """{"error":{"code":"rate_limited"}}"""
 
 private fun parseUuid(raw: String?): UUID? = raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
