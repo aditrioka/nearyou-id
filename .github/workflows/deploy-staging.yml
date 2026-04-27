@@ -78,9 +78,12 @@ jobs:
       # /health/* per-IP rate limit (HealthRoutes.kt detects the regex
       # `^(GoogleHC|kube-probe)/`).
       #
-      # SUPABASE_URL is wired via --set-env-vars (not --set-secrets) — the URL
-      # is configuration that varies per environment, not a secret. Required at
-      # boot (Application.kt fail-fast).
+      # SUPABASE_URL is sourced from the GCP Secret Manager `staging-supabase-url`
+      # slot, consistent with every other staging value in this app. Although the
+      # URL itself isn't cryptographically secret (it's embedded in mobile apps
+      # anyway), Secret Manager is the centralized env-var store for staging —
+      # single source of truth, audit trail via Cloud Audit Logs, prod cutover
+      # establishes the same `prod-supabase-url` pattern.
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${SERVICE}" \
@@ -94,8 +97,8 @@ jobs:
             --cpu=1 \
             --concurrency=80 \
             --timeout=60 \
-            --set-env-vars="KTOR_ENV=staging,RUN_FLYWAY_ON_STARTUP=true,SUPABASE_URL=${{ secrets.SUPABASE_URL_STAGING }}" \
-            --set-secrets="DB_URL=staging-db-url:latest,DB_USER=staging-db-user:latest,DB_PASSWORD=staging-db-password:latest,KTOR_RSA_PRIVATE_KEY=staging-ktor-rsa-private-key:latest,JITTER_SECRET=staging-jitter-secret:latest,INVITE_CODE_SECRET=staging-invite-code-secret:latest,SUPABASE_JWT_SECRET=staging-supabase-jwt-secret:latest,REDIS_URL=staging-redis-url:latest" \
+            --set-env-vars="KTOR_ENV=staging,RUN_FLYWAY_ON_STARTUP=true" \
+            --set-secrets="DB_URL=staging-db-url:latest,DB_USER=staging-db-user:latest,DB_PASSWORD=staging-db-password:latest,KTOR_RSA_PRIVATE_KEY=staging-ktor-rsa-private-key:latest,JITTER_SECRET=staging-jitter-secret:latest,INVITE_CODE_SECRET=staging-invite-code-secret:latest,SUPABASE_JWT_SECRET=staging-supabase-jwt-secret:latest,SUPABASE_URL=staging-supabase-url:latest,REDIS_URL=staging-redis-url:latest" \
             --startup-probe="httpGet.path=/health/ready,initialDelaySeconds=5,periodSeconds=10,timeoutSeconds=3,failureThreshold=3" \
             --liveness-probe="httpGet.path=/health/live,initialDelaySeconds=30,periodSeconds=30,timeoutSeconds=2,failureThreshold=3" \
             --quiet
