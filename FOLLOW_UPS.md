@@ -33,6 +33,33 @@ Format per entry:
 
 ---
 
+## suspension-unban-worker-audit-log-after-phase-3.5
+
+**Discovered during:** `suspension-unban-worker` `/next-change` Phase B step 7 reconciliation pass — verifying the canonical "Audit log inserted per unban" line at [`docs/05-Implementation.md:363`](docs/05-Implementation.md) against the current Flyway migration set.
+**Status:** open
+
+**Finding:** [`docs/05-Implementation.md:363`](docs/05-Implementation.md) prescribes an audit row per unban against `admin_actions_log`, but **the `admin_actions_log` and `admin_users` tables have not shipped yet**. They are deferred to the Phase 3.5 admin-panel build per the explicit comments in [`backend/ktor/src/main/resources/db/migration/V9__reports_moderation.sql:20,73,111`](backend/ktor/src/main/resources/db/migration/V9__reports_moderation.sql) (analogous columns `reports.reviewed_by` and `moderation_queue.reviewed_by` carry the marker *"FK to admin_users(id) ON DELETE SET NULL — deferred to the Phase 3.5 admin-users migration"*). The `suspension-unban-worker` change ships the worker + structured INFO logs in the interim and explicitly defers audit-row writes to a follow-up after Phase 3.5 lands the schema. See `suspension-unban-worker/design.md` § D3 for the full rationale.
+
+**Specs at fault:** None — `openspec/specs/suspension-unban-worker/spec.md` (post-archive) will correctly require structured INFO logs and explicitly note the audit-row deferral.
+**Code at fault:** None — the worker code is correct for Phase 1.
+**Docs at fault:** None — [`docs/05-Implementation.md:363`](docs/05-Implementation.md) describes the eventual end-state. The doc does not need to be amended; it just isn't observed yet.
+
+**Impact (if shipped):** Low. Cloud Logging carries the operational trail (default GCP retention, typically 30 days). The audit gap matters only if a dispute arises about an unban that happened outside the Cloud Logging window AND before Phase 3.5 ships — narrow combination given Phase 3.5 is on the near-term roadmap (Weeks 11–13 per `docs/08-Roadmap-Risk.md`). No back-fill of historical events is required when audit-row writes land — Cloud Logging holds the pre-Phase-3.5 record.
+
+**Ambiguity to resolve first:** None. The migration is straightforward once `admin_users` + `admin_actions_log` exist:
+- Seed a sentinel `system` row in `admin_users` (deterministic UUID derived from `UUID.nameUUIDFromBytes("system".toByteArray())`), no `password_hash`, no `totp_secret`, no role grant
+- Add audit-row INSERT in `SuspensionUnbanWorker.execute()` with `admin_id = system_uuid`, `action_type = 'system_unban_applied'`, `target_type = 'user'`, `target_id = <user_id>`, `reason = 'suspension_elapsed'`, `before_state = {"is_banned": true, "suspended_until": "<ISO-8601>"}`, `after_state = {"is_banned": false, "suspended_until": null}`
+- Wrap in the same transaction as the UPDATE (atomicity)
+- Apply the same pattern to every other `/internal/*` worker that has shipped between this entry's creation and Phase 3.5 (privacy-flip, hard-delete cleanup, refresh-token cleanup, etc.)
+
+**Action items:**
+- [ ] When Phase 3.5 lands `admin_users` + `admin_actions_log` schema, file an OpenSpec change `system-actor-and-worker-audit-rows` that (a) seeds the `system` sentinel admin user and (b) adds audit-row writes to all `/internal/*` workers shipped to date — `suspension-unban-worker` plus whatever else has accumulated. The change MODIFIES the `suspension-unban-worker` capability spec to add the audit-row requirement (deleting or revising the structured-INFO-only requirement), and adds analogous requirements to each peer worker capability spec.
+- [ ] In the same change: amend the `:backend:ktor` worker code to write audit rows in the same transaction as the user UPDATE.
+- [ ] Add a regression test: failed audit INSERT rolls back the user UPDATE (atomicity).
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
+
+---
+
 ## fcm-tokens-schema-check-doc-amendment
 
 **Discovered during:** `fcm-token-registration` `/next-change` Phase D round 1 (security-and-invariant sub-agent flagged that the canonical schema lacks DB-level CHECKs on `token` and `app_version` length, recommending defense-in-depth additions).
