@@ -344,3 +344,73 @@ Then `promote-staging-user.sh` becomes a thin wrapper that pipes its UPDATE + ve
 - [ ] Either with the extraction OR as a tiny standalone PR before then: expand the inline comment in `dev/scripts/promote-staging-user.sh` (around lines 109-112) to recommend `^|^` custom delimiter for any new caller of the same pattern, with a one-line example. ~5-line edit, immediately useful at moment-of-need even before extraction lands.
 - [ ] When extracting: refactor `dev/scripts/promote-staging-user.sh` to use the new helper (validates that the helper shape covers the existing call site).
 
+## ci-paths-filter-switch-to-dorny
+
+**Discovered during:** `ci/per-push-docs-skip` (PR #56) — design conversation about whether the hand-rolled `git diff + grep` filter is the right long-term shape.
+
+**Status:** open
+
+**Finding:** `.github/workflows/ci.yml` currently uses a hand-rolled `changes` job that runs `git diff --name-only "$BEFORE" "$AFTER"` and greps against a docs-only allowlist (`docs/`, `**/*.md`, `.gitignore`, `LICENSE`). This works fine for the single "is this push docs-only?" axis. But it does NOT scale gracefully if we ever need multiple filter axes — e.g.:
+
+- "Skip Android tests when only backend changed" once a `:android:app` test lane lands (Phase 3 mobile work).
+- "Skip backend tests when only mobile changed."
+- "Skip migrate-supabase-parity when no Flyway migration changed" (only `backend/ktor/src/main/resources/db/migration/**`).
+- "Run a separate iOS lane only when iOS-specific code changed" once iOS work begins.
+
+For multi-axis filtering, [`dorny/paths-filter@v3`](https://github.com/dorny/paths-filter) is the ecosystem-standard. Declarative YAML filter rules, battle-tested across 100k+ repos, edge cases (synchronize / push / first-push / merge-commits) handled out of the box.
+
+**Specs at fault:** None.
+**Code at fault:** `.github/workflows/ci.yml` — `changes` job's hand-rolled bash filter. Adequate for single-axis docs-only skip; not adequate for multi-axis.
+**Docs at fault:** None.
+
+**Impact (if shipped):** None today. The hand-rolled filter handles the docs-only case correctly. The risk is that as the build matrix grows (Android + iOS + backend), adding more axes to the bash grep gets brittle, and someone may end up running android tests on a backend-only push (or vice versa) — wasted runner time, slower PR feedback.
+
+**Trigger to act:** any of the following events makes this entry active:
+- Adding a second filter axis to the `changes` job (e.g., a third allowlist for android-only paths).
+- Adding a second `needs: changes` heavy lane that has a meaningfully different relevant-paths set than the existing lint/test/migrate trio.
+- The `changes` step bash exceeds ~30 lines or starts needing nested logic.
+
+**Migration sketch:** when triggered, replace the inline bash filter step with:
+
+```yaml
+changes:
+  runs-on: ubuntu-latest
+  outputs:
+    backend: ${{ steps.filter.outputs.backend }}
+    mobile: ${{ steps.filter.outputs.mobile }}
+    migration: ${{ steps.filter.outputs.migration }}
+    docs-only: ${{ steps.filter.outputs.docs-only }}
+  steps:
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          backend:
+            - 'backend/**'
+            - 'core/**'
+            - 'shared/**'
+            - 'infra/**'
+            - 'lint/**'
+            - 'gradle/**'
+            - '*.gradle.kts'
+            - 'build-logic/**'
+          mobile:
+            - 'mobile/**'
+            - 'shared/**'
+          migration:
+            - 'backend/ktor/src/main/resources/db/migration/**'
+            - 'dev/supabase-parity-init.sql'
+          docs-only:
+            - 'docs/**'
+            - '**/*.md'
+            - '.gitignore'
+            - 'LICENSE'
+```
+
+Then heavy jobs reference `needs.changes.outputs.backend == 'true'` etc. The current docs-only axis maps cleanly to `docs-only != 'true'` for "should run heavy jobs."
+
+**Action items:**
+- [ ] Wait for one of the trigger events above. Don't migrate preemptively — the hand-rolled filter is fine for single-axis docs-only.
+- [ ] When migrating: pin to a specific dorny/paths-filter SHA (not `@v3` floating tag) for supply-chain hygiene.
+- [ ] When migrating: keep the inline workflow-level `paths-ignore` as the outermost gate — it still saves the `changes` job runner cost on all-docs PRs.

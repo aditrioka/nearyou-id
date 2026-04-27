@@ -37,6 +37,14 @@ jobs:
   # Falls back to the cumulative PR diff when `before` is the zero-SHA
   # (first push to a freshly-opened PR) — the heavy lane runs at least once
   # for any code-touching PR.
+  #
+  # NOTE: this is a hand-rolled `git diff + grep` filter. If we ever need
+  # MULTIPLE filter axes (e.g. "skip android tests when only backend changed"
+  # / "skip backend tests when only mobile changed"), switch to
+  # `dorny/paths-filter@v3` — battle-tested third-party action with
+  # declarative YAML filter rules. See `FOLLOW_UPS.md` entry
+  # `ci-paths-filter-switch-to-dorny` for the trigger conditions and
+  # migration sketch.
   changes:
     runs-on: ubuntu-latest
     outputs:
