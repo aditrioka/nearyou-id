@@ -92,15 +92,19 @@ echo
 
 post_fcm() {
     local body="$1"
-    local extra_headers=()
-    if [[ "${2:-with-jwt}" == "with-jwt" ]]; then
-        extra_headers=(-H "Authorization: Bearer $JWT")
+    local mode="${2:-with-jwt}"
+    if [[ "$mode" == "with-jwt" ]]; then
+        curl -sS -o /tmp/smoke-fcm-body.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $JWT" \
+            -H "Content-Type: application/json" \
+            --data-raw "$body" \
+            "$API_BASE/api/v1/user/fcm-token"
+    else
+        curl -sS -o /tmp/smoke-fcm-body.json -w "%{http_code}" -X POST \
+            -H "Content-Type: application/json" \
+            --data-raw "$body" \
+            "$API_BASE/api/v1/user/fcm-token"
     fi
-    curl -sS -o /tmp/smoke-fcm-body.json -w "%{http_code}" -X POST \
-        "${extra_headers[@]}" \
-        -H "Content-Type: application/json" \
-        --data-raw "$body" \
-        "$API_BASE/api/v1/user/fcm-token"
 }
 
 # ----------------------------------------------------------------------------
