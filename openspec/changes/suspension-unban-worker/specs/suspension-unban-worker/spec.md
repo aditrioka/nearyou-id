@@ -19,9 +19,9 @@ RETURNING id;
 
 (Verbatim from [`docs/05-Implementation.md:353-361`](docs/05-Implementation.md), with `RETURNING id` added so the worker can write per-user audit log rows.)
 
-Each of the four `WHERE` conjuncts is required and MUST NOT be relaxed:
-- `is_banned = TRUE` — defensive filter; without it, a future schema change reusing `suspended_until` for non-ban semantics could cause unintended writes.
-- `suspended_until IS NOT NULL` — excludes permanent bans, which MUST never be auto-flipped.
+Each of the four `WHERE` conjuncts is required and MUST NOT be relaxed even though the `users_suspended_idx ON users(suspended_until) WHERE suspended_until IS NOT NULL` partial index already implies the second conjunct. An implementer MUST NOT consolidate or omit any of:
+- `is_banned = TRUE` — defensive filter that pins the eligibility predicate to the ban semantic; without it, a future schema change repurposing `suspended_until` for a non-ban use (e.g., a temporary throttle) would silently extend the worker's reach. The predicate makes the intent explicit at the SQL level.
+- `suspended_until IS NOT NULL` — excludes permanent bans, which MUST never be auto-flipped. Redundant with the partial index but kept in the WHERE for defense-in-depth and so the SQL reads correctly even if the index is ever dropped or reshaped.
 - `suspended_until <= NOW()` — the actual elapse trigger.
 - `deleted_at IS NULL` — soft-deleted users MUST NOT be unbanned (their account is tombstoned).
 
@@ -49,7 +49,12 @@ Each of the four `WHERE` conjuncts is required and MUST NOT be relaxed:
 
 On successful execution (the SQL statement completes without error), the endpoint SHALL return HTTP `200 OK` with a JSON body containing exactly one field `unbanned_count` whose value is the integer count of rows actually flipped (the size of the `RETURNING id` result set). The count MUST be reported even when zero — operators rely on the response to confirm the cron fired even on no-op runs.
 
-The response body MUST NOT include the affected user IDs, raw exception messages, stack traces, or any other field. Sanitized error responses (HTTP `500`) follow the same fixed-vocabulary pattern as [`health-check`](openspec/specs/health-check/spec.md): body is `{"error": "<classification>"}` with classification ∈ `"timeout"`, `"connection_refused"`, `"unknown"`.
+The response body MUST NOT include the affected user IDs, raw exception messages, stack traces, or any other field. Sanitized error responses (HTTP `500`) use the body shape `{"error": "<classification>"}` with classification drawn from a fixed vocabulary tailored to handler-level failures (distinct from the probe-level vocabulary in `health-check` — handler errors map to JDBC failures, not external-service liveness):
+- `"timeout"` — the JDBC query / transaction exceeded its configured budget.
+- `"connection_refused"` — the DataSource could not acquire a connection (pool exhaustion, downstream Postgres unreachable).
+- `"unknown"` — escape-hatch catch-all; the original exception is logged at WARN with full context for operator debugging but never appears in the response.
+
+The original exception's message and stack trace MUST NOT appear in the response.
 
 #### Scenario: Success with zero eligible rows
 - **WHEN** there are no users meeting the eligibility predicate AND `POST /internal/unban-worker` is invoked with a valid OIDC token
@@ -94,21 +99,21 @@ This logging is the operational trail until [`docs/05-Implementation.md:363`](do
 
 ### Requirement: Endpoint is idempotent
 
-The `POST /internal/unban-worker` endpoint SHALL be idempotent: invoking it twice in succession with no intervening state change MUST produce identical observable outcomes on the second call (zero rows flipped, zero audit rows written, `unbanned_count: 0` response). Idempotency arises naturally from the `WHERE` predicate — after the first run, no row satisfies the predicate, so the second run flips nothing.
+The `POST /internal/unban-worker` endpoint SHALL be idempotent: invoking it twice in succession with no intervening state change MUST produce identical observable outcomes on the second call (zero rows flipped, `unbanned_count: 0` response). Idempotency arises naturally from the `WHERE` predicate — after the first run, no row satisfies the predicate, so the second run flips nothing.
 
-This guarantee enables Cloud Scheduler retry policies to safely re-invoke the endpoint after transient failures without risking duplicate audit rows.
+This guarantee enables Cloud Scheduler retry policies to safely re-invoke the endpoint after transient failures without risking double-flips. Once `admin_actions_log` ships in Phase 3.5 and the audit-row write is wired through this worker (per `FOLLOW_UPS.md` § `suspension-unban-worker-audit-log-after-phase-3.5`), the same idempotency guarantee will mean no duplicate audit rows are written on retry; until then, the structured INFO log is the trail and a duplicate INFO event with `unbanned_count=0` on retry is the correct, expected shape.
 
 #### Scenario: Two consecutive invocations produce one effective unban
 - **WHEN** a user is flipped by a first `POST /internal/unban-worker` AND a second invocation runs immediately after
-- **THEN** the first invocation returns `{"unbanned_count": 1}` AND the second returns `{"unbanned_count": 0}` AND exactly one audit row exists for that user
+- **THEN** the first invocation returns `{"unbanned_count": 1}` AND the second returns `{"unbanned_count": 0}` AND exactly one INFO event with `event="suspension_unban_applied"` AND `unbanned_count=1` containing that user's UUID was emitted by the first call AND a second INFO event with `unbanned_count=0` was emitted by the second call
 
 #### Scenario: Retry after network blip is safe
 - **WHEN** Cloud Scheduler invokes the endpoint, receives the response, but the response is lost in transit AND Cloud Scheduler retries the invocation
-- **THEN** the retry's UPDATE flips zero additional rows AND no duplicate audit rows are written
+- **THEN** the retry's UPDATE flips zero additional rows AND the user row is NOT modified again AND the response body is `{"unbanned_count": 0}`
 
 ### Requirement: Schedule is daily at 04:00 WIB
 
-The endpoint SHALL be invoked exactly once per day at `04:00` Asia/Jakarta time (WIB, UTC+7) via Cloud Scheduler. The cron schedule expressed in UTC is `0 21 * * *` (the prior calendar day in UTC). Cloud Scheduler job configuration MUST be tracked in version-controlled deploy artifacts (one job per environment: `nearyou-unban-worker-staging`, `nearyou-unban-worker-prod`) so staging and production remain reproducible.
+The endpoint SHALL be invoked exactly once per day at `04:00` Asia/Jakarta time (WIB, UTC+7) via Cloud Scheduler. The cron schedule expressed in UTC is `0 21 * * *` (the prior calendar day in UTC). Cloud Scheduler job configuration MUST be reproducible per environment (one job per environment: `nearyou-unban-worker-staging`, `nearyou-unban-worker-prod`) — initial setup is via the `gcloud` commands documented in `tasks.md` § 11; long-term, this codebase intends to move infrastructure-state to declarative configuration as the project grows, but that's out of scope for this change.
 
 The Cloud Scheduler retry policy MUST permit at least 3 attempts with exponential backoff (min 30s, max 5min) — the endpoint's idempotency guarantee makes retries safe.
 
@@ -117,8 +122,8 @@ The Cloud Scheduler retry policy MUST permit at least 3 attempts with exponentia
 - **THEN** its cron schedule is `0 21 * * *` in UTC, equivalent to `0 4 * * *` in Asia/Jakarta time
 
 #### Scenario: Job exists per environment
-- **WHEN** the staging deploy artifacts and production deploy artifacts are inspected
-- **THEN** each environment has exactly one Cloud Scheduler job named `nearyou-unban-worker-<env>` that targets the deployed service URL `${SERVICE_URL}/internal/unban-worker` with method `POST` and an OIDC token bound to a dedicated service account
+- **WHEN** the staging Cloud Scheduler jobs are inspected via `gcloud scheduler jobs list --project=nearyou-staging`
+- **THEN** exactly one job named `nearyou-unban-worker-staging` exists that targets the deployed service URL `${SERVICE_URL}/internal/unban-worker` with method `POST` and an OIDC token bound to a dedicated service account (and the analogous job exists in production once the production Cloud Run + Scheduler deployment is wired in a subsequent change)
 
 ### Requirement: No notification on unban
 

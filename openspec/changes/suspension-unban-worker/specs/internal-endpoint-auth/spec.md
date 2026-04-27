@@ -12,7 +12,7 @@ The plugin MUST verify three properties on every request:
 
 Verification failure on any of the three properties MUST short-circuit with HTTP `401 Unauthorized`. The response body MUST NOT echo the offending token, JWT claims, signature failure detail, or any verifier exception message — only a short fixed vocabulary `error` field as documented in the response-shape requirement below.
 
-The full original exception MUST be logged at WARN with token-id (the JWT `jti` claim if present, otherwise a SHA-256 hash of the raw token bytes truncated to 16 hex chars) so operators can correlate failures with Cloud Scheduler invocation logs.
+The full original verifier exception MUST be logged at WARN with a token correlation id derived as the first 16 hex chars of `SHA-256(raw token bytes)` so operators can correlate failures with Cloud Scheduler invocation logs without ever logging JWT claims or the raw token. The `jti` claim is intentionally NOT used (logging any claim would conflict with the no-claims rule below); the truncated SHA-256 form is unconditional.
 
 #### Scenario: Missing Authorization header is rejected
 - **WHEN** a request to `POST /internal/unban-worker` is sent without any `Authorization` header
@@ -42,9 +42,13 @@ The full original exception MUST be logged at WARN with token-id (the JWT `jti` 
 - **WHEN** a request presents a Google-signed JWT whose signature validates, whose `aud` matches the configured audience, AND whose `exp` is in the future
 - **THEN** the plugin admits the request to the route handler
 
-#### Scenario: JWKS rotation forces one refresh before rejection
-- **WHEN** a request presents a JWT whose `kid` header references a key not in the JWKS cache
-- **THEN** the verifier forces one JWKS refresh AND retries the signature verification once before returning `401`
+#### Scenario: JWKS rotation refresh resolves the new key
+- **WHEN** a request presents a JWT whose `kid` header references a key not in the JWKS cache AND that key IS present in the live Google JWKS endpoint (post-rotation)
+- **THEN** the verifier forces one JWKS refresh, the cache is updated, signature verification succeeds against the refreshed key, AND the request is admitted to the route handler
+
+#### Scenario: JWKS rotation refresh still does not resolve the kid
+- **WHEN** a request presents a JWT whose `kid` header references a key not in the JWKS cache AND that key is also absent from the live Google JWKS endpoint after the forced refresh
+- **THEN** the verifier returns `401` with body `{"error": "invalid_token"}` (no further refresh attempts; no infinite loop)
 
 ### Requirement: Plugin is mounted on the `/internal/*` subtree, with vendor-webhook opt-out
 
@@ -55,7 +59,7 @@ The opt-out mechanism is implementation-flexible (separate sibling route block, 
 - A route mounted with vendor-specific auth MUST NOT inherit OIDC verification (so a valid OIDC token alone does not bypass vendor HMAC).
 
 #### Scenario: New `/internal/*` route inherits OIDC by default
-- **WHEN** a future change adds `POST /internal/privacy-flip-worker` under the OIDC-protected subtree without explicitly disabling the plugin AND a request reaches that route without a valid OIDC token
+- **WHEN** a future change adds any new `/internal/<route>` under the OIDC-protected subtree without explicitly disabling the plugin AND a request reaches that route without a valid OIDC token
 - **THEN** the response status is `401 Unauthorized`
 
 #### Scenario: Vendor-webhook route does NOT inherit OIDC
@@ -64,17 +68,23 @@ The opt-out mechanism is implementation-flexible (separate sibling route block, 
 
 ### Requirement: Configured audience is required at boot
 
-Application startup SHALL read the `internal-oidc-audience` configuration value via the project's `secretKey(env, name)` helper. If the value is missing, blank, or not a syntactically valid URL, application boot MUST fail fast with a descriptive error before the HTTP server begins accepting connections.
+Application startup SHALL read the OIDC audience configuration value from Ktor application config (e.g., `oidc.internalAudience` resolved from the `INTERNAL_OIDC_AUDIENCE` environment variable). The audience is the deployed Cloud Run service URL (a public, non-secret value) and therefore is read via plain Ktor config rather than the `secretKey(env, name)` helper, which is reserved for actual secret material.
+
+If the value is missing, blank, or not a syntactically valid URL, application boot MUST fail fast with a descriptive error before the HTTP server begins accepting connections, AND the JVM process MUST exit with a non-zero exit code so the Cloud Run startup probe fails and traffic is not flipped to the new revision.
 
 This matches the fail-fast pattern established by `auth.supabaseUrl` and `auth.supabaseJwtSecret` ([`Application.kt`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) — established in `health-check-endpoints`).
 
 #### Scenario: Boot fails on missing audience config
-- **WHEN** the `internal-oidc-audience` config value is absent from the environment AND the Ktor application is started
-- **THEN** application boot fails with an error message naming the missing config key AND the HTTP server does not begin accepting connections
+- **WHEN** the `oidc.internalAudience` config value is absent from the environment AND the Ktor application is started
+- **THEN** application boot fails with an error message naming the missing config key AND the HTTP server does not begin accepting connections AND the JVM process exits non-zero
 
 #### Scenario: Boot fails on blank audience config
-- **WHEN** the `internal-oidc-audience` config value is the empty string
-- **THEN** application boot fails fast with a descriptive error
+- **WHEN** the `oidc.internalAudience` config value is the empty string
+- **THEN** application boot fails fast with a descriptive error AND the JVM process exits non-zero
+
+#### Scenario: Boot fails when OIDC verifier cannot be constructed
+- **WHEN** the `OidcTokenVerifier` cannot be constructed at boot (e.g., the JWKS lib's initial fetch fails, or any other dependency wiring throws) AND the Ktor application is started
+- **THEN** application boot fails fast with a descriptive error AND the `/internal/*` route subtree is NOT registered AND the JVM process exits non-zero. The route MUST NOT mount with a degraded or null verifier.
 
 ### Requirement: 401 response body uses a sanitized error vocabulary
 

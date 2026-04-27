@@ -27,7 +27,7 @@ It also pioneers the **`/internal/*` route prefix + Cloud Scheduler OIDC middlew
 
 - **Code**: new `:infra:oidc` module with `GoogleOidcTokenVerifier`. `:core:domain` gains an `OidcTokenVerifier` interface. `:backend:ktor` adds the `InternalEndpointAuth` Ktor plugin, the `SuspensionUnbanWorker` service, and the `UnbanWorkerRoute`. ~300–400 LOC + tests.
 - **Schema**: none. No Flyway migration in this change. The required columns shipped in V2 (`auth-foundation`).
-- **Secrets**: new `internal-oidc-audience` secret name (per the project's `secretKey(env, name)` lint rule) — values populated separately for staging vs prod. The audience equals the deployed service URL per Cloud Scheduler convention.
+- **Configuration**: new `INTERNAL_OIDC_AUDIENCE` env var on Cloud Run, bound via plain `--set-env-vars=` (NOT `--update-secrets=`). The audience is the deployed service URL — a public, non-secret value — and therefore is NOT routed through GCP Secret Manager or the project's `secretKey(env, name)` helper, which is reserved for genuine secret material.
 - **Deployment**: Cloud Scheduler cron job + service-account OIDC binding documented for staging first, prod second.
 - **APIs**: one new internal route. No public API surface.
 - **CI**: existing `:backend:ktor:test` + lint pipeline. No new lint rules.

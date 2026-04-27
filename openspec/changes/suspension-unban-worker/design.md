@@ -79,6 +79,8 @@ The partial index `users_suspended_idx` makes this an index scan, not a full tab
 - Two-step: SELECT eligible IDs, then UPDATE per-ID — rejected (more code, more round-trips, no benefit).
 - Add a `LIMIT 1000` to bound batch size — rejected for MVP (suspension volume is administrator-driven, not user-driven; expected throughput is < 100 unbans/day even at peak).
 
+**Sub-decision: `users.token_version` is NOT bumped on unban.** [`docs/05-Implementation.md:199`](docs/05-Implementation.md) prescribes that the suspend write path increments `token_version` AND deletes refresh tokens. By the time the worker fires, the suspended user has zero live tokens (already deleted at suspend time) and `token_version` is already at its post-suspend value. When the user signs back in after their suspension elapses, they obtain a brand-new JWT with the current `token_version` and the auth middleware reads `users.is_banned = FALSE` from the now-flipped row. There is no residual cached principal state to invalidate. The canonical SQL in [`docs/05-Implementation.md:353-361`](docs/05-Implementation.md) deliberately omits `token_version` from the UPDATE; this design follows. (Adding the bump anyway is harmless but pointless; keeping it out matches canonical docs and saves an `UPDATE users` write.)
+
 ### D2: OIDC verification via Google JWKS — interface in `:core:domain`, impl in `:infra:oidc`
 
 **Decision**: Introduce `OidcTokenVerifier` interface in `:core:domain` (or the closest existing equivalent module, see Open Questions Q1) with one method:
@@ -173,9 +175,55 @@ The retry policy is appropriate for an idempotent operation — re-running the s
 
 The Cloud Scheduler retry policy (D4) explicitly relies on this — a retry after a network blip re-runs the SQL safely.
 
+**Concurrent dual-writer race (admin manual unban + worker fires simultaneously).** The Phase 3.5 Admin Panel will eventually expose a manual unban path. Two cases under concurrent execution:
+- **Admin commits first.** The worker's WHERE-clause includes `is_banned = TRUE`; the admin's commit set `is_banned = FALSE`, so the worker's predicate filters that row out. No double-flip.
+- **Worker commits first.** Admin's UPDATE on the same row finds `is_banned` already `FALSE` and `suspended_until` already `NULL`. If the admin's UPDATE is shaped as a no-op-on-already-clear-state, no harm. If admin additionally bumps `token_version` (likely), the bump is benign and applied once.
+
+In neither case does the row end up double-flipped or in an inconsistent state. The Phase 3.5 admin path's exact SQL shape will be its own design concern; this design ensures the worker side is safe regardless.
+
+**Soft-delete-mid-elapse race.** Theoretical: a user is hard-deleted (admin path) at the exact moment the worker reads them from the WHERE-scan but before the UPDATE writes. Postgres MVCC + the row-lock serialization make this safe — the worker's UPDATE either commits before the delete (no harm; row-then-deleted) or finds the row gone and skips (no harm; predicate-fails). Not separately tested because the safety is a Postgres invariant, not application logic.
+
 **Alternatives considered**:
 - Acquire a `pg_advisory_lock` for the duration of the worker — rejected: at most one Cloud Scheduler invocation runs at a time per cron job, and even hypothetical overlap is safe due to row-level locking. Adding the advisory lock is solving a non-problem.
 - Track runs in a `worker_runs` table — rejected: telemetry concern, not correctness. OTel + Cloud Logging cover this.
+
+### D8: Replay protection within `exp` window relies on GCP-IAM ingress, not on the OIDC plugin
+
+**Decision**: The OIDC plugin does NOT track `jti` claims and does NOT detect token replay within the token's `exp` window (Google OIDC tokens typically have a ~1-hour `exp`). An attacker who somehow captured a valid OIDC token (e.g., through an egress-log compromise of the staging Cloud Scheduler invocation logs) could in principle replay it for the lifetime of `exp`.
+
+The defense-in-depth layer for replay protection is the **GCP IAM Cloud-Scheduler-only-invoke** binding ([`docs/06-Security-Privacy.md:451`](docs/06-Security-Privacy.md): *"Defense in depth: network-level (GCP IAM Cloud Scheduler-only invoke) + token-level (OIDC verify origin)."*). The Cloud Run service is bound to allow only the dedicated Cloud Scheduler service account to invoke it, so a stolen-token replay from outside that service account never reaches the OIDC plugin in the first place.
+
+**Rationale**: `jti` tracking would require persistent state (Redis or DB) for every successful invocation across `exp` window, plus a cleanup worker — significant ongoing cost for a marginal defense in a system already protected by GCP IAM. The token-level layer is intentionally focused on origin verification, not replay prevention.
+
+This is documented as an **explicit non-goal** so a future maintainer doesn't add `jti` tracking under the false premise that it's a missing requirement.
+
+### D9: Per-endpoint authorization is NOT enforced beyond `aud` matching
+
+**Decision**: The OIDC plugin verifies `aud` (the deployed Cloud Run service URL) but does NOT verify a per-endpoint scope claim. Once Phase 3.5 / Phase 4 surface multiple `/internal/*` workers (privacy-flip, hard-delete, etc.), they all share the same audience by Cloud Scheduler convention. A misconfigured Cloud Scheduler job for the `/internal/privacy-flip-worker` calling `/internal/unban-worker` with a valid OIDC token whose `aud` matches the Cloud Run service URL would pass OIDC verification.
+
+**Rationale**: The handler at each `/internal/*` route is responsible for being safe-to-call by any legitimate Cloud Scheduler peer. Per-endpoint scope claims would require either (a) custom JWT minting (Cloud Scheduler doesn't natively support it) or (b) a service-account-per-endpoint pattern (operational complexity). For Phase 1, OIDC origin verification at the audience level is the proportionate trust model.
+
+**Consequence for spec authors**: future workers MUST be designed such that an accidental cross-endpoint invocation is at worst a no-op or an audited mis-fire, never a privilege escalation. The unban worker satisfies this trivially (its only effect is flipping suspensions, which a misconfigured Cloud Scheduler peer wouldn't trigger because the WHERE-clause is bounded).
+
+### D10: New `:infra:oidc` module + JWKS lib choice (promoted from earlier Open Question Q1)
+
+**Decision**: Create a new `:infra:oidc` module to host `GoogleOidcTokenVerifier`. None of the existing `:infra:*` modules (`:infra:redis`, `:infra:resend`, `:infra:sentry`, `:infra:amplitude`, `:infra:remote-config`, `:infra:postgres-neon`, `:infra:attestation`, `:infra:otel`) is a natural home; folding the verifier into one of them would bloat its surface and confuse the per-vendor-concern module pattern.
+
+For the JWKS / JWT library, choose `com.auth0:jwks-rsa` + `com.auth0:java-jwt`. Rationale:
+- Both libs are mainstream, MIT-licensed, well-maintained.
+- `JwkProvider` builder pattern (`cached(rateLimited(jwkProviderFor(googleJwksUrl)))`) gives rotation-aware refresh out of the box, matching the spec's requirement.
+- Mocking `JwkProvider` in unit tests is straightforward (one interface, one method).
+- `nimbus-jose-jwt` is a viable alternative but its `JWKSource` abstraction is heavier; preferred only if the project's auth-jwt module already depends on it (verify during implementation; if so, switch).
+
+Pin the chosen versions in [`gradle/libs.versions.toml`](gradle/libs.versions.toml) per [`docs/09-Versions.md`](docs/09-Versions.md) policy and document the choice in that file.
+
+### D11: Plugin mount = `/internal/*` subtree, vendor webhooks under sibling auth (promoted from earlier Open Question Q2)
+
+**Decision**: Mount `InternalEndpointAuth` at the route-subtree level: `route("/internal") { install(InternalEndpointAuth) { ... }; ... }`. Vendor-webhook endpoints (`/internal/revenuecat-webhook` Bearer + HMAC; `/internal/csam-webhook` admin-triggered + HMAC) live under a parallel `route(...)` block that does NOT install the OIDC plugin and instead installs its own vendor-specific auth.
+
+**Rationale**: Default-secure shape — every new `/internal/*` route added in a future change inherits OIDC verification automatically. Forgetting to install auth on a new endpoint would be impossible because the endpoint inherits the subtree's auth installation. Per-route plugin installation (the rejected alternative) is more explicit but creates a forgetting-failure surface that defeats the purpose.
+
+Vendor webhooks are spelled out in the spec scenario "Vendor-webhook route does NOT inherit OIDC" so the implementation can choose the cleanest opt-out shape (separate sibling block under `/internal/`, distinct path under `/internal-vendor/`, etc.) as long as the contract holds.
 
 ## Risks / Trade-offs
 
@@ -189,6 +237,7 @@ The Cloud Scheduler retry policy (D4) explicitly relies on this — a retry afte
 | **Worker runtime unbounded if pathological data**: if a misconfiguration ever set `suspended_until = '1970-01-01'` for thousands of users, the worker would unban them all in one transaction | The transaction takes a row-level lock per affected row plus the UPDATE write — at 1000 rows the latency is < 100ms on a healthy Postgres. At 100k rows the transaction would still be sub-second. Cloud Scheduler request timeout is 30 minutes; well-bounded. If volume ever justified batching, add `LIMIT` + repeat-until-zero in a follow-up. |
 | **Hidden coupling to the `users.deleted_at` semantic**: if the soft-delete tombstone process ever changes (e.g., `deleted_at` becomes a status enum), the WHERE clause silently breaks | The canonical SQL is documented in `docs/05-Implementation.md` and tracked under the same authority as the `users` schema. A future schema change touching `deleted_at` semantics would require updating both that doc section and this worker's spec — caught at code-review time. |
 | **OIDC verifier dep introduces new transitive deps** (Auth0 `jwks-rsa` or nimbus-jose-jwt) on the JVM classpath | Both libs are mainstream, MIT/Apache licensed, well-maintained. Pin in `gradle/libs.versions.toml` per the version-pinning policy in `docs/09-Versions.md`; document the choice. |
+| **Retry-after-success log loss**: a worker run commits the UPDATE successfully and emits the structured INFO event, but the response is lost in transit; Cloud Scheduler retries; the second invocation finds zero eligible rows and emits `unbanned_count=0`. If the FIRST invocation's INFO event was also lost (extremely unlikely, but possible during a transient Cloud Logging ingestion blip), the audit trail for the actually-flipped users is gone — only the Cloud Run access log retains the request itself. | Acceptable for Phase 1. (a) Cloud Logging ingestion is durable enough that compound-failure (log lost AND response lost on the same run) is very rare. (b) Cloud Run access logs separately record the request URL + status code + latency, providing a fallback signal. (c) The Phase 3.5 audit-row backfill (per `FOLLOW_UPS.md`) closes this hole by writing audit rows in the same transaction as the UPDATE, where the audit row commits or doesn't commit alongside the row flip — at which point Cloud Logging is no longer the sole record. |
 
 ## Migration Plan
 
@@ -222,17 +271,4 @@ Reconciliation against canonical docs surfaced one critical scope finding (resol
 
 ## Open Questions
 
-**Q1: Should `:infra:oidc` be a new module, or fold the impl into an existing `:infra:*`?**
-
-Existing `:infra:*` modules (per `module-structure` capability spec): `:infra:redis`, `:infra:resend`, `:infra:sentry`, `:infra:amplitude`, `:infra:remote-config`, `:infra:postgres-neon`, `:infra:attestation`, `:infra:otel`. None of these is a natural home for OIDC token verification. New module `:infra:oidc` is the cleanest option, matches the module-per-vendor-concern pattern, and does not bloat any existing module's surface.
-
-**Recommendation: new `:infra:oidc` module.** Confirm during implementation; minor decision, no spec impact. If review prefers folding into an existing module (e.g., `:infra:auth` if introduced later), the Ktor plugin and the verifier interface are both small enough to relocate without touching specs.
-
-**Q2: Should the OIDC plugin be applied at the route-subtree level or per-route?**
-
-Two viable shapes:
-
-- **Subtree**: `route("/internal") { install(InternalEndpointAuth) { ... }; ... }`. Future endpoints inherit auth automatically. Vendor-webhook endpoints (`/internal/revenuecat-webhook`, `/internal/csam-webhook`) live OUTSIDE this subtree under their own auth: `route("/internal-vendor") { ... }` or by explicit per-route opt-out.
-- **Per-route**: each `/internal/*` route explicitly installs the plugin. Forces every author to think about auth; harder to forget; more boilerplate.
-
-**Recommendation: subtree, with vendor webhooks under a sibling `route("/internal")` block that explicitly removes the plugin or under a different parent.** The default-secure shape matches Ktor idiomatic plugin scoping. The spec scenarios pin "every route under `/internal/*` MUST verify a valid OIDC token unless explicitly mounted with vendor-specific auth" — the wording leaves room for either implementation shape but mandates the outcome.
+None. The two questions in the initial draft (`:infra:oidc` module placement, subtree-vs-per-route plugin mount) have been promoted to **D10** and **D11** above respectively, since both had a clear recommendation and no genuine ambiguity that required pre-implementation user buy-in.
