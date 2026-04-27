@@ -2,9 +2,17 @@
 
 - [ ] 1.1 Create `infra/oidc/build.gradle.kts` mirroring the shape of `infra/redis/build.gradle.kts` (Kotlin JVM library, depends on `:core:domain`). Confirm by `diff` that nothing irrelevant from the redis build leaks (no Lettuce / Redis deps).
 - [ ] 1.2 Register the new module in `settings.gradle.kts` (add `include(":infra:oidc")` in alphabetical order alongside the other `:infra:*` entries).
-- [ ] 1.3 Add `com.auth0:jwks-rsa` + `com.auth0:java-jwt` to `gradle/libs.versions.toml` with current stable versions (per `design.md` D10 — committed default; the lib commitment was made because the round-1 review consolidated this from a candidate set). Document the chosen versions in `docs/09-Versions.md` per the version-pinning policy. (If during implementation a strong reason emerges to switch — e.g., the existing Supabase HS256 verifier already depends on `com.nimbusds:nimbus-jose-jwt` and the project would prefer one JWT lib across the codebase — surface as an amend-design decision before adopting; do NOT silently swap. Verify the existing dep set first via `grep -r "nimbusds\|auth0" gradle/ build-logic/ **/build.gradle.kts`.)
+- [ ] 1.3 Add `com.auth0:jwks-rsa` + `com.auth0:java-jwt` as direct dependencies in `gradle/libs.versions.toml` with current stable versions (per `design.md` D10). These libs are ALREADY in tree transitively — Ktor's `io.ktor:ktor-server-auth-jwt-jvm` ([`gradle/libs.versions.toml:58`](gradle/libs.versions.toml)) uses Auth0 internally for its `jwt()` Auth feature. This task promotes them from transitive to direct so `:infra:oidc` has stable, version-pinned access. Verify the transitive presence first via `./gradlew :backend:ktor:dependencies | grep -E 'auth0|jwks-rsa|java-jwt'` — confirm; if grep unexpectedly shows `nimbusds` instead (e.g., a future Ktor release switched its underlying lib), surface as an amend-design and do not silently swap. Document the chosen versions in `docs/09-Versions.md` per the version-pinning policy.
 - [ ] 1.4 Add the chosen lib(s) as `implementation(libs.<chosen>)` in `infra/oidc/build.gradle.kts`. Add `kotlinx-coroutines-core` for the `suspend fun` interface.
 - [ ] 1.5 Create the package directory `infra/oidc/src/main/kotlin/id/nearyou/app/infra/oidc/` (use whichever package root matches the existing `:infra:*` convention — grep `infra/redis/src/main/kotlin/` for the precedent).
+- [ ] 1.6 Add `implementation(projects.infra.oidc)` to [`backend/ktor/build.gradle.kts`](backend/ktor/build.gradle.kts) (alongside lines 20–21 where `:infra:supabase` and `:infra:redis` are wired). Without this, `Application.kt` cannot import `GoogleOidcTokenVerifier` and section 8 will fail to compile.
+- [ ] 1.7 Add the OIDC config block to [`backend/ktor/src/main/resources/application.conf`](backend/ktor/src/main/resources/application.conf), mirroring the existing `auth { supabaseUrl = ${?SUPABASE_URL} }` shape at line 23:
+   ```
+   oidc {
+       internalAudience = ${?INTERNAL_OIDC_AUDIENCE}
+   }
+   ```
+   Without this block, `environment.config.property("oidc.internalAudience").getString()` throws `ConfigurationException` regardless of whether the env var is set, and the boot-fail tests 9.25 / 9.26 cannot distinguish "missing env var" from "missing config key".
 
 ## 2. `OidcTokenVerifier` interface in `:core:domain`
 
@@ -38,7 +46,14 @@
    - Expired `exp` → throws `ExpiredToken`.
    - Bad signature → throws `InvalidToken`.
    - Token with `kid` not in cache → forces one JWKS refresh, then either passes (refresh-after-rotation) or throws (kid still unknown).
-   Use a test JWKS (generate an RSA keypair in test setup; serve via a stubbed JWKS endpoint or a mock `JwkProvider`). Do NOT hit Google's real JWKS in unit tests.
+
+   **Test fixture pattern**: there is no JWKS fixture precedent in the existing test suite, so this task introduces one. Use this approach:
+   1. In test setup, generate an RSA-2048 keypair with `java.security.KeyPairGenerator.getInstance("RSA")` (JDK builtin; no extra deps).
+   2. Construct test JWTs using `com.auth0:java-jwt` (the same lib `:infra:oidc` uses): `JWT.create().withKeyId("test-kid").withAudience(...).withExpiresAt(...).sign(Algorithm.RSA256(publicKey, privateKey))`.
+   3. Stub the `JwkProvider` interface from `com.auth0:jwks-rsa` directly — implement a tiny in-test `JwkProvider` that returns a single `Jwk` constructed from the test public key when asked for `test-kid`, and throws `JwkException` otherwise. No HTTP server, no MockWebServer required for these unit tests.
+   4. For the JWKS-rotation scenario, the in-test `JwkProvider` toggles its behavior between calls (initial call: `kid` absent → throws → triggers refresh → second call: `kid` present → returns Jwk).
+
+   Do NOT hit Google's real JWKS in unit tests. Do NOT introduce MockWebServer if the in-process `JwkProvider` stub can carry the test surface.
 
 ## 4. `InternalEndpointAuth` Ktor plugin in `:backend:ktor`
 
@@ -88,7 +103,7 @@
    - Call `worker.execute()` and capture the `UnbanResult`.
    - Log one structured INFO event with EXACTLY these fields and NO others: `event="suspension_unban_applied"`, `unbanned_count`, `unbanned_user_ids` (capped at first 50; if cap hit, also include `unbanned_user_ids_truncated=true`), `duration_ms`. Match the structured-logging style established by `health-check-endpoints` and `fcm-token-registration` (use the SLF4J MDC pattern that those rooms use; grep for the precedent).
    - Respond `200 OK` with body `{"unbanned_count": N}` (use kotlinx-serialization).
-- [ ] 7.3 Wrap the handler in a top-level `try/catch (e: Exception)` that maps any thrown exception to a sanitized 500: WARN-log the exception with full context (NOT included in the response body), and respond with `500 {"error": "<classification>"}` where classification is one of `"timeout"`, `"connection_refused"`, `"unknown"` matching the `health-check` D6 vocabulary. Use the same sanitization-helper extension function if one was extracted in `health-check-endpoints`; if not, inline the small classifier and log a follow-up `extract-probe-error-classifier` if the third call site appears.
+- [ ] 7.3 Wrap the handler in a top-level `try/catch (e: Exception)` that maps any thrown exception to a sanitized 500: WARN-log the exception with full context (NOT included in the response body), and respond with `500 {"error": "<classification>"}` where classification is one of `"timeout"`, `"connection_refused"`, `"unknown"` (the handler-level vocabulary documented in `specs/suspension-unban-worker/spec.md` § "Response shape"). **Note**: `health-check-endpoints` (PR #54) did NOT extract a reusable sanitization-helper (verified via grep — no `classify*` / `sanitize*` extension exists in `backend/ktor/src/main/kotlin/`); inline the small classifier here. After this is the second call site, log a `FOLLOW_UPS.md` entry `extract-probe-error-classifier` so the third call site triggers extraction (rule of three).
 
 ## 8. Wire Koin + register the route
 
@@ -139,6 +154,8 @@
 - [ ] 10.3 Confirm no Detekt rule warnings introduced. The current rule set per [`lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/) is `BlockExclusionJoinRule`, `CoordinateJitterRule`, `RateLimitTtlRule`, `RawFromPostsRule`, `RawXForwardedForRule`, `RedisHashTagRule`. None should fire on this change — the worker touches `users` only by `id` (not in a viewer-block context, so `BlockExclusionJoinRule` doesn't apply), uses no Redis (no `RedisHashTagRule`), uses no `actual_location` (no `CoordinateJitterRule`), uses no `X-Forwarded-For` (no `RawXForwardedForRule`), uses no rate-limit (no `RateLimitTtlRule`), and the worker's `UPDATE users SET is_banned = ..., suspended_until = ...` does NOT match the `RawFromPostsRule` regex (which targets raw `FROM posts/users/post_replies` reads).
 
 ## 11. Pre-deploy: env-var + Cloud Scheduler setup (staging)
+
+**Ordering**: section 11 lands BEFORE the code merges to staging. The env-var and the Cloud Scheduler job are inert without the code (the env-var is read by code that doesn't exist yet; the Scheduler job hits a 404 / 401 until the route mounts), so they are safe to wire up first. If the code merges first without the env-var bound, boot fails-fast on the missing `oidc.internalAudience` config (per spec scenario "Boot fails on blank audience config") and Cloud Run rolls back to the prior revision — recoverable but noisy. Land the env-var binding via `deploy-staging.yml` workflow change BEFORE pushing the route.
 
 - [ ] 11.1 Add the `INTERNAL_OIDC_AUDIENCE` env-var binding to `deploy-staging.yml` (or the appropriate Cloud Run config layer). The value is the staging Cloud Run service URL (confirm via `gcloud run services describe nearyou-backend-staging --region=asia-southeast2 --format='value(status.url)'` — typically `https://api-staging.nearyou.id`). Use plain env-var binding (`--set-env-vars=INTERNAL_OIDC_AUDIENCE=https://api-staging.nearyou.id`), NOT a `--update-secrets=` binding — the audience is a public service URL, not secret material. No GCP Secret Manager slot needed.
 - [ ] 11.2 Create a dedicated Cloud Scheduler service account for the staging job: `gcloud iam service-accounts create nearyou-unban-worker-scheduler-staging --project=nearyou-staging --display-name="Suspension Unban Worker Scheduler (staging)"`. Grant it `roles/run.invoker` on the staging Cloud Run service.
