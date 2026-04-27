@@ -72,8 +72,8 @@
 
 ## 8. Staging deploy + smoke
 
-- [ ] 8.1 Push the branch and let CI run; confirm green.
-- [ ] 8.2 Trigger the staging deploy: `gh workflow run deploy-staging.yml --ref fcm-token-registration` (the deploy workflow runs the Flyway migration job pre-app-deploy per [`openspec/project.md`](openspec/project.md) § Change Delivery Workflow).
+- [x] 8.1 Push the branch and let CI run; confirm green.
+- [x] 8.2 Trigger the staging deploy: `gh workflow run deploy-staging.yml --ref fcm-token-registration` (the deploy workflow runs the Flyway migration job pre-app-deploy per [`openspec/project.md`](openspec/project.md) § Change Delivery Workflow).
 - [ ] 8.3 After deploy completes (monitor via `gh run list --workflow=deploy-staging.yml --limit=3`), capture the Cloud Run revision name for reference.
 - [ ] 8.4 Mint a staging JWT for a test user via the existing `mint-staging-jwt.sh` (or equivalent) script. If no such script exists, document the manual mint procedure and consider it a follow-up — but for THIS smoke, use any working JWT path (existing endpoints' tests likely have a documented mint flow).
 - [ ] 8.5 Smoke positive 1 (new registration): `curl -i -X POST https://api-staging.nearyou.id/api/v1/user/fcm-token -H "Authorization: Bearer $STAGING_JWT" -H "Content-Type: application/json" -d '{"token":"smoke-test-android-001","platform":"android","app_version":"0.1.0-staging-smoke"}'` → expect `204`.
@@ -81,9 +81,9 @@
 - [ ] 8.7 Smoke positive 3 (multi-platform same user): `curl -X POST ... -d '{"token":"smoke-test-ios-001","platform":"ios","app_version":"0.1.0-staging-smoke"}'` (same JWT) → expect `204`. SQL-verify: `SELECT COUNT(*) FROM user_fcm_tokens WHERE user_id = '<test-user-uuid>'` returns 2.
 - [ ] 8.8 Smoke negative 1 (invalid platform): `curl -i -X POST ... -d '{"token":"x","platform":"web"}'` → expect `400 {"error": "invalid_platform"}`.
 - [ ] 8.9 Smoke negative 2 (empty token): `curl -i -X POST ... -d '{"token":"","platform":"android"}'` → expect `400 {"error": "empty_token"}`.
-- [ ] 8.10 Smoke negative 3 (no JWT): `curl -i -X POST https://api-staging.nearyou.id/api/v1/user/fcm-token -H "Content-Type: application/json" -d '{"token":"x","platform":"android"}'` → expect `401`.
-- [ ] 8.11 Cleanup: `DELETE FROM user_fcm_tokens WHERE token IN ('smoke-test-android-001','smoke-test-ios-001')` against staging.
-- [ ] 8.12 If any smoke step fails, fix and push to the same branch (do NOT open a new PR — the same-PR-iteration rule per [`CLAUDE.md`](CLAUDE.md) § Delivery workflow). Re-run section 7 + 8.
+- [x] 8.10 Smoke negative 3 (no JWT): `curl -i -X POST https://api-staging.nearyou.id/api/v1/user/fcm-token -H "Content-Type: application/json" -d '{"token":"x","platform":"android"}'` → expect `401`.
+- [x] 8.11 Cleanup: `DELETE FROM user_fcm_tokens WHERE token IN ('smoke-test-android-001','smoke-test-ios-001')` against staging.
+- [x] 8.12 If any smoke step fails, fix and push to the same branch (do NOT open a new PR — the same-PR-iteration rule per [`CLAUDE.md`](CLAUDE.md) § Delivery workflow). Re-run section 7 + 8.
 
 ## 9. PR title + body refresh at phase boundaries
 
