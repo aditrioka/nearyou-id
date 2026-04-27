@@ -44,6 +44,11 @@ class HealthRoutesTest : StringSpec({
             // expected behavior in the "Postgres unreachable" scenario where we
             // assert 503.
             "auth.supabaseUrl" to "http://supabase.test.invalid",
+            // oidc.internalAudience is required at boot for the /internal/* route
+            // subtree gated by InternalEndpointAuth (suspension-unban-worker change).
+            // The audience itself is unused on the /health/* path under test; only
+            // its presence + URL shape are validated at module() boot.
+            "oidc.internalAudience" to "https://api-test.nearyou.id",
         )
 
     "GET /health/live always returns 200" {

@@ -17,8 +17,9 @@ dependencies {
     implementation(projects.shared.distance)
     implementation(projects.core.domain)
     implementation(projects.core.data)
-    implementation(projects.infra.supabase)
+    implementation(projects.infra.oidc)
     implementation(projects.infra.redis)
+    implementation(projects.infra.supabase)
 
     implementation(libs.logback)
     implementation(libs.ktor.serverCore)

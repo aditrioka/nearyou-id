@@ -1,5 +1,7 @@
 [versions]
 agp = "8.11.2"
+auth0-jwksRsa = "0.23.0"
+auth0-javaJwt = "4.5.0"
 android-compileSdk = "36"
 android-minSdk = "24"
 android-targetSdk = "36"
@@ -80,6 +82,9 @@ kotest-runnerJunit5 = { module = "io.kotest:kotest-runner-junit5", version.ref =
 kotest-assertionsCore = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
 
 lettuce-core = { module = "io.lettuce:lettuce-core", version.ref = "lettuce" }
+
+auth0-javaJwt = { module = "com.auth0:java-jwt", version.ref = "auth0-javaJwt" }
+auth0-jwksRsa = { module = "com.auth0:jwks-rsa", version.ref = "auth0-jwksRsa" }
 
 # Build-logic plugin coordinates (used by precompiled script plugins via raw module strings)
 gradlePlugin-kotlin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }

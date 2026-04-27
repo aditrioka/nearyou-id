@@ -84,6 +84,17 @@ jobs:
       # anyway), Secret Manager is the centralized env-var store for staging —
       # single source of truth, audit trail via Cloud Audit Logs, prod cutover
       # establishes the same `prod-supabase-url` pattern.
+      #
+      # INTERNAL_OIDC_AUDIENCE is the deployed Cloud Run service URL —
+      # `https://api-staging.nearyou.id` for staging. Bound via plain
+      # `--set-env-vars=` rather than `--set-secrets=`: the audience is a public
+      # service URL (Cloud Scheduler also passes it as `--oidc-token-audience`
+      # in the clear), NOT secret material. Routing it through Secret Manager
+      # would muddle the project's `secretKey()` helper contract per
+      # `openspec/specs/internal-endpoint-auth/spec.md`. Validated at boot by
+      # `Application.module()`'s `resolveInternalOidcAudience` — missing /
+      # blank / non-URL fails-fast before the HTTP server starts so the new
+      # revision's startup probe rejects.
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${SERVICE}" \
@@ -97,7 +108,7 @@ jobs:
             --cpu=1 \
             --concurrency=80 \
             --timeout=60 \
-            --set-env-vars="KTOR_ENV=staging,RUN_FLYWAY_ON_STARTUP=true" \
+            --set-env-vars="KTOR_ENV=staging,RUN_FLYWAY_ON_STARTUP=true,INTERNAL_OIDC_AUDIENCE=https://api-staging.nearyou.id" \
             --set-secrets="DB_URL=staging-db-url:latest,DB_USER=staging-db-user:latest,DB_PASSWORD=staging-db-password:latest,KTOR_RSA_PRIVATE_KEY=staging-ktor-rsa-private-key:latest,JITTER_SECRET=staging-jitter-secret:latest,INVITE_CODE_SECRET=staging-invite-code-secret:latest,SUPABASE_JWT_SECRET=staging-supabase-jwt-secret:latest,SUPABASE_URL=staging-supabase-url:latest,REDIS_URL=staging-redis-url:latest" \
             --startup-probe="httpGet.path=/health/ready,initialDelaySeconds=5,periodSeconds=10,timeoutSeconds=3,failureThreshold=3" \
             --liveness-probe="httpGet.path=/health/live,initialDelaySeconds=30,periodSeconds=30,timeoutSeconds=2,failureThreshold=3" \

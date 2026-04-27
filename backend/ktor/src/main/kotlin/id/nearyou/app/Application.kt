@@ -1,5 +1,7 @@
 package id.nearyou.app
 
+import id.nearyou.app.admin.SuspensionUnbanWorker
+import id.nearyou.app.admin.unbanWorkerRoute
 import id.nearyou.app.auth.installAuth
 import id.nearyou.app.auth.jwks.jwksRoutes
 import id.nearyou.app.auth.jwt.JwtIssuer
@@ -33,6 +35,7 @@ import id.nearyou.app.core.domain.health.PostgresProbe
 import id.nearyou.app.core.domain.health.ProbeResult
 import id.nearyou.app.core.domain.health.RedisProbe
 import id.nearyou.app.core.domain.health.SupabaseRealtimeProbe
+import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.engagement.LikeService
 import id.nearyou.app.engagement.ReplyService
@@ -50,6 +53,8 @@ import id.nearyou.app.health.KtorSupabaseRealtimeProbe
 import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
+import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
+import id.nearyou.app.infra.oidc.googleJwkProvider
 import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.redis.lettuceRedisProbeFromUrl
 import id.nearyou.app.infra.redis.redisRateLimiterFromUrl
@@ -79,6 +84,7 @@ import id.nearyou.app.infra.repo.RejectedIdentifierRepository
 import id.nearyou.app.infra.repo.ReservedUsernameRepository
 import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
+import id.nearyou.app.internal.InternalEndpointAuth
 import id.nearyou.app.moderation.ReportRateLimiter
 import id.nearyou.app.moderation.ReportService
 import id.nearyou.app.moderation.reportRoutes
@@ -121,6 +127,8 @@ import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
+import io.ktor.server.routing.route
+import io.ktor.server.routing.routing
 import kotlinx.serialization.json.Json
 import org.flywaydb.core.Flyway
 import org.koin.dsl.module
@@ -265,6 +273,16 @@ fun Application.module() {
     val supabaseUrl =
         environment.config.propertyOrNull("auth.supabaseUrl")?.getString()?.takeIf { it.isNotBlank() }
             ?: error("Missing required config auth.supabaseUrl (set SUPABASE_URL)")
+
+    // Boot-time validation for the OIDC audience binding used by /internal/* (5.3).
+    // Missing / blank / non-URL → IllegalStateException before the HTTP server starts,
+    // so Cloud Run's startup probe fails and traffic doesn't flip to a degraded revision.
+    val internalOidcAudience = resolveInternalOidcAudience(environment.config)
+    // Construct the OIDC verifier eagerly so any wiring failure surfaces at boot
+    // before the route("/internal") subtree is mounted (5.4).
+    val oidcTokenVerifier: OidcTokenVerifier =
+        GoogleOidcTokenVerifier(audience = internalOidcAudience, jwkProvider = googleJwkProvider())
+    val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource)
 
     val reservedUsernames: ReservedUsernameRepository = JdbcReservedUsernameRepository(dataSource)
     val rejectedIdentifiers: RejectedIdentifierRepository = JdbcRejectedIdentifierRepository(dataSource)
@@ -490,6 +508,8 @@ fun Application.module() {
                 single<NotificationEmitter> { notificationEmitter }
                 single { notificationService }
                 single { fcmTokenRepository }
+                single<OidcTokenVerifier> { oidcTokenVerifier }
+                single { suspensionUnbanWorker }
             },
         )
     }
@@ -515,7 +535,52 @@ fun Application.module() {
     searchRoutes(searchService)
     notificationRoutes(notificationService)
     fcmTokenRoutes(fcmTokenRepository)
+
+    // /internal/* — Cloud-Scheduler-invoked endpoints. The OIDC plugin is mounted
+    // here exactly once on the route subtree, so every nested route inherits OIDC
+    // verification by default. Vendor-webhook endpoints (revenuecat-webhook,
+    // csam-webhook) MUST live in a sibling route block that does NOT install
+    // InternalEndpointAuth — see the internal-endpoint-auth capability spec.
+    routing {
+        route("/internal") {
+            install(InternalEndpointAuth) { verifier = oidcTokenVerifier }
+            unbanWorkerRoute(suspensionUnbanWorker)
+        }
+    }
 }
+
+/**
+ * Reads `oidc.internalAudience` from the Ktor application config and validates
+ * the value. Throws `IllegalStateException` (via `error(...)`) if the property
+ * is absent or blank, and `IllegalArgumentException` (via `require(...)`) if
+ * the value is not a syntactically valid URL. Both cause boot to fail-fast
+ * before the HTTP server starts so Cloud Run's startup probe rejects the new
+ * revision (5.3 / spec § "Configured audience is required at boot").
+ *
+ * Exposed as `internal` so tests can exercise the validation rules directly
+ * without booting the full application graph.
+ */
+internal fun resolveInternalOidcAudience(config: io.ktor.server.config.ApplicationConfig): String {
+    val raw =
+        config.propertyOrNull("oidc.internalAudience")?.getString()?.takeIf { it.isNotBlank() }
+            ?: error("Missing required config oidc.internalAudience (set INTERNAL_OIDC_AUDIENCE)")
+    require(isLikelyUrl(raw)) {
+        "Config oidc.internalAudience must be a syntactically valid URL (was '$raw')"
+    }
+    return raw
+}
+
+/**
+ * Loose syntactic URL check used by the boot-time fail-fast guard for
+ * `oidc.internalAudience`. We don't validate the value resolves DNS — that's a
+ * runtime concern and would couple boot to network availability. Just confirm
+ * it's a parseable URL with a non-empty scheme + host.
+ */
+private fun isLikelyUrl(value: String): Boolean =
+    runCatching {
+        val parsed = java.net.URI(value)
+        !parsed.scheme.isNullOrBlank() && !parsed.host.isNullOrBlank()
+    }.getOrElse { false }
 
 private fun Application.csvAudiences(key: String): Set<String> =
     environment.config.propertyOrNull(key)?.getString()?.takeIf { it.isNotBlank() }
