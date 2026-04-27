@@ -133,6 +133,47 @@ The proposed canonical workflow:
 
 ---
 
+## health-check-staging-negative-smoke-deferred
+
+**Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 staging smoke (task 11.5/11.6).
+**Status:** open
+
+**Finding:** The staging-smoke negative test (pause staging Upstash via console → observe `/health/ready` returns `503` with `redis.ok=false` → resume → observe `200` again within 1 minute) was deferred during the initial smoke run. Reason: pausing the staging Upstash database disrupts the Like / Reply rate-limit infrastructure for any concurrent QA traffic. The implementation behavior is well-covered by the `HealthRoutesScenariosTest.kt` "503 + status:degraded" scenario (probe-stub-driven, deterministic), but a real-network end-to-end verification is the canonical confidence signal for the Cloud Run startup-probe revision-promotion gate.
+
+**Specs at fault:** None.
+**Code at fault:** None.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low. Positive-path smoke (all three probes green at deploy time) was verified end-to-end and passed. Negative-path is unit-tested. Risk is operator confidence: until we've actually seen the real Cloud Run startup probe fail and gate revision promotion, the contract is documented but not field-verified.
+
+**Action items:**
+- [ ] During a quiet weekend window (low staging QA traffic), pause the staging Upstash database via the Upstash console. Observe `curl https://api-staging.nearyou.id/health/ready` returns `503` with `redis.ok=false, redis.error="connection_refused"` (or `"timeout"` depending on Upstash pause behavior). Trigger a fresh Cloud Run deploy during the pause window and verify the new revision does NOT take traffic (Cloud Run Console shows the previous revision still serving).
+- [ ] Resume Upstash and observe `/health/ready` returns `200` again within 1 minute.
+- [ ] Document the negative-smoke results inline in this entry, then resolve.
+
+---
+
+## gcp-secret-manager-iam-grant-on-new-slot
+
+**Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 first deploy attempt (task 11.1) — Cloud Run revision creation failed with `Permission denied on secret: projects/.../secrets/staging-supabase-url/versions/latest for Revision service account 27815942904-compute@developer.gserviceaccount.com`.
+**Status:** open
+
+**Finding:** When a new slot is added to GCP Secret Manager (e.g., `staging-supabase-url` in this change), the Cloud Run runtime service account does NOT automatically inherit the IAM bindings of sibling slots. The new slot requires an explicit `roles/secretmanager.secretAccessor` grant — `gcloud secrets add-iam-policy-binding <slot> --member=serviceAccount:<sa> --role=roles/secretmanager.secretAccessor`. This is `gcloud`'s default least-privilege model and is correct security posture, but it's a process gap that surfaces as a confusing "first deploy fails, second works" pattern.
+
+The existing staging runbook in `docs/07-Operations.md` covers secret VALUE rotation (`gcloud secrets versions add ...`) but does NOT cover NEW slot creation IAM. This is the second time the gap surfaced (first was during the original staging environment buildout — slots were bound manually one-off; the runbook was never updated).
+
+**Specs at fault:** None.
+**Code at fault:** None.
+**Docs at fault:** `docs/07-Operations.md` § Secret rotation runbook — missing "new slot creation" subsection.
+
+**Impact (if shipped):** Low. Per-deploy-attempt time cost is small (one extra failed run + IAM grant + retry = ~10 min). Risk is mostly: future engineer adds a new slot, deploy fails, has to context-switch to figure out the IAM model.
+
+**Action items:**
+- [ ] Amend `docs/07-Operations.md` § Secret rotation runbook with a new subsection "Creating a new staging/prod secret slot": cite the `gcloud secrets create <slot>` + the mandatory `gcloud secrets add-iam-policy-binding <slot> --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor` step, with the runtime SA name documented per environment.
+- [ ] Optionally: Terraform-wrap the secret-creation pattern so the IAM grant is declarative + can't drift. Out of scope for the runbook fix; flag as a Terraform-introduction follow-up if the project ever grows a Terraform module.
+
+---
+
 ## tryacquirebykey-ip-derived-uuid-detekt-rule
 
 **Discovered during:** `health-check-endpoints` `/next-change` Phase D round 1 review (security-and-invariant sub-agent lens).
