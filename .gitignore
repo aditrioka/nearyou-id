@@ -19,3 +19,8 @@ captures
 node_modules/
 dev/.env
 
+# Claude Code session-local scratch (worktrees from /opsx skill invocations,
+# scheduled-task lockfiles, etc). Ephemeral; never commit.
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+
