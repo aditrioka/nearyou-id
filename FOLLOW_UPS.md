@@ -33,6 +33,26 @@ Format per entry:
 
 ---
 
+## fcm-tokens-schema-check-doc-amendment
+
+**Discovered during:** `fcm-token-registration` `/next-change` Phase D round 1 (security-and-invariant sub-agent flagged that the canonical schema lacks DB-level CHECKs on `token` and `app_version` length, recommending defense-in-depth additions).
+**Status:** open
+
+**Finding:** The `fcm-token-registration` change ships with two additive DB-level CHECK constraints (`CHECK (char_length(token) BETWEEN 1 AND 4096)` and `CHECK (app_version IS NULL OR char_length(app_version) <= 64)`) on `user_fcm_tokens` per design D9. These constraints are NOT in the canonical schema at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md). The canonical docs are not wrong — they specify the minimum schema; this change adds belt-and-suspenders that the security review rated as worth-having now while we're touching the schema. The deviation is documented in proposal § What Changes (marked "additive"), spec § Schema (with the deviation note), and design § Reconciliation notes (item 2). The doc still needs to be updated to match the as-shipped schema so a future maintainer reading [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) doesn't conclude the CHECKs are an undocumented production deviation.
+
+**Specs at fault:** None — `openspec/specs/fcm-token-registration/spec.md` (post-archive) will correctly carry the CHECKs.
+**Code at fault:** None — V14 migration carries the CHECKs.
+**Docs at fault:** [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) (FCM Token Registration § Schema block — needs the two CHECKs added).
+
+**Impact (if shipped):** Low. The DB CHECKs work correctly as shipped; risk is to a future maintainer reading the canonical docs and finding the CHECKs missing → spending time looking for them or assuming the production schema diverges. Same-shape fix as the v10 notifications `body_data` doc amendment in PR #24.
+
+**Ambiguity to resolve first:** None. The fix shape is clear: insert two CHECK clauses inside the canonical `CREATE TABLE user_fcm_tokens (...)` block at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md), and add a one-sentence note explaining the defense-in-depth rationale (mirror the spec's framing).
+
+**Action items:**
+- [ ] After `fcm-token-registration` ships, file a docs-only amendment to [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) adding the two CHECK constraints to the canonical schema block. Standalone docs PR or batched with the next OpenSpec change that touches the FCM section.
+
+---
+
 ## premium-search-reindex-trigger-doc-divergence
 
 **Discovered during:** `premium-search` `/next-change` Phase D round 1 (general-lens sub-agent flagged that `proposal.md` defers re-index trigger plumbing, but `docs/02-Product.md:282` declares the trigger as live infrastructure).
@@ -254,3 +274,73 @@ For the canonical "10 per ~24h" use case with normal-cadence usage, the two sema
 - [ ] If β (recommended): amend `openspec/specs/rate-limit-infrastructure/spec.md` + `openspec/specs/post-likes/spec.md` daily-cap requirement language from "WIB day rollover restores the cap" to "10 successful likes within any rolling ~24h window, with the per-user reset moment defining when an idle bucket is GC'd by Redis." Also amend `docs/05-Implementation.md` § Layer 2 wording. New OpenSpec change `rate-limit-spec-language-realignment` (docs-only).
 - [ ] If α: implement true per-day bucket keys. Bigger change — new `rate-limit-fixed-window-per-day` change with a Lua-script revision + key-format change.
 - [ ] In either direction: also clarify the `RateLimiter` interface contract — whether `ttl` is "key-expiry only" or "window-and-key-expiry". Currently it's both, which conflates two concepts.
+
+## extract-staging-psql-helper-script
+
+**Discovered during:** `fcm-token-registration` `/opsx:apply` Section 8 (8.6/8.7/8.11 SQL verify + cleanup) — surfaced two related gotchas in `gcloud run jobs create --args` parsing that took 4 iterations to land cleanly, even though the same script-shape already exists in `dev/scripts/promote-staging-user.sh`.
+
+**Status:** open
+
+**Finding:** `gcloud run jobs create --args=VALUE` parses VALUE as a comma-separated list by default. For a Postgres psql job that needs to pass:
+
+1. **A multi-statement SQL string** containing commas (column lists, `IN (...)` lists), AND
+2. **A Postgres DSN** of the form `postgresql://user@host:port/db?sslmode=require` (which has `@`),
+
+…the default comma parser splits the SQL on every column-list comma, and the natural escape-via-custom-delimiter approach `--args=^@^VALUE` collides with the `@` inside the DSN (between user and host).
+
+The fix is the gcloud custom-delimiter syntax: `--args=^X^VALUE` declares `X` as the delimiter for THIS specific arg. The chosen delimiter must NOT appear in any of the values. For SQL + DSN, `|` (pipe) is safe — it doesn't appear in column lists, identifiers, or the URL form. So:
+
+```bash
+gcloud run jobs create "$JOB" --project="$PROJECT" \
+    --region="$REGION" \
+    --image=postgres:16-alpine \
+    --command=psql \
+    --args="^|^$DSN" \
+    --args="^|^-X" \
+    --args="^|^-c" \
+    --args="^|^$SQL" \
+    --set-secrets="PGPASSWORD=staging-db-password:latest" \
+    ...
+```
+
+This pattern repeats across `dev/scripts/promote-staging-user.sh` (existing, but only warns about commas — not about the `@` collision), and the in-conversation Cloud Run psql job for `fcm-token-registration` smoke verify + cleanup. A third call site is statistically likely as more OpenSpec changes need staging Supabase access for verify/cleanup steps.
+
+**Specs at fault:** None.
+**Code at fault:** None today — both call sites work. The risk is the 4-iteration debugging loop being repeated by the next operator who writes a Cloud Run psql job from scratch.
+**Docs at fault:** `dev/scripts/promote-staging-user.sh` lines 109-112 inline comment warns about the comma issue but does NOT recommend the `^|^` custom-delimiter fix — readers who hit the issue will discover the fix on their own (as I did, ~30min of debugging).
+
+**Impact (if shipped):** Zero today. Pure tech-debt entry. If left unaddressed, the third operator hitting this footgun will spend the same ~30min debugging that has already been spent twice. By the third occurrence, extracting a `dev/scripts/run-staging-psql.sh` helper has positive ROI.
+
+**Trigger to act:** any of the following events makes this entry active:
+- A third Cloud Run psql job appears in this codebase (rule of three).
+- The next operator hits the `--args` comma or `@`-delimiter footgun in any new script.
+- A smoke step for a future OpenSpec change needs staging Supabase access for verify/cleanup that doesn't fit the existing `promote-staging-user.sh` shape.
+
+**Migration sketch when triggered:** extract `dev/scripts/run-staging-psql.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Run a one-shot psql command against the staging Supabase database via a
+# Cloud Run Job. Handles secret resolution, DSN construction, the
+# gcloud --args ^|^ delimiter dance, execution, log retrieval, and cleanup.
+#
+# Usage:
+#   echo "SELECT 1" | dev/scripts/run-staging-psql.sh [--keep-job]
+#   dev/scripts/run-staging-psql.sh --sql-file path/to/queries.sql
+#
+# Output: psql stdout (clean, no Cloud Run wrapper noise) on stdout;
+# diagnostics on stderr.
+set -euo pipefail
+PROJECT=nearyou-staging
+REGION=asia-southeast2
+JOB="staging-psql-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+# ... resolve DSN, ^|^ args, create + execute + tail logs + delete job ...
+```
+
+Then `promote-staging-user.sh` becomes a thin wrapper that pipes its UPDATE + verifier SELECT into this helper. Future smoke scripts that need SQL access just `echo "$SQL" | dev/scripts/run-staging-psql.sh`.
+
+**Action items:**
+- [ ] When the trigger fires: extract `dev/scripts/run-staging-psql.sh` per the sketch above.
+- [ ] Either with the extraction OR as a tiny standalone PR before then: expand the inline comment in `dev/scripts/promote-staging-user.sh` (around lines 109-112) to recommend `^|^` custom delimiter for any new caller of the same pattern, with a one-line example. ~5-line edit, immediately useful at moment-of-need even before extraction lands.
+- [ ] When extracting: refactor `dev/scripts/promote-staging-user.sh` to use the new helper (validates that the helper shape covers the existing call site).
+

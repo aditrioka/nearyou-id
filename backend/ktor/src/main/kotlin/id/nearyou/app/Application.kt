@@ -99,6 +99,8 @@ import id.nearyou.app.timeline.NearbyTimelineService
 import id.nearyou.app.timeline.followingTimelineRoutes
 import id.nearyou.app.timeline.globalTimelineRoutes
 import id.nearyou.app.timeline.timelineRoutes
+import id.nearyou.app.user.FcmTokenRepository
+import id.nearyou.app.user.fcmTokenRoutes
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationRepository
@@ -423,6 +425,7 @@ fun Application.module() {
             notifications = notificationEmitter,
             dispatcher = notificationDispatcher,
         )
+    val fcmTokenRepository = FcmTokenRepository(dataSource)
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -486,6 +489,7 @@ fun Application.module() {
                 single<NotificationDispatcher> { notificationDispatcher }
                 single<NotificationEmitter> { notificationEmitter }
                 single { notificationService }
+                single { fcmTokenRepository }
             },
         )
     }
@@ -510,6 +514,7 @@ fun Application.module() {
     reportRoutes(reportService)
     searchRoutes(searchService)
     notificationRoutes(notificationService)
+    fcmTokenRoutes(fcmTokenRepository)
 }
 
 private fun Application.csvAudiences(key: String): Set<String> =
