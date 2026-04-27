@@ -9,8 +9,8 @@ CREATE TABLE user_fcm_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     platform VARCHAR(8) NOT NULL CHECK (platform IN ('android', 'ios')),
-    token TEXT NOT NULL,
-    app_version TEXT,
+    token TEXT NOT NULL CHECK (char_length(token) BETWEEN 1 AND 4096),
+    app_version TEXT CHECK (app_version IS NULL OR char_length(app_version) <= 64),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (user_id, platform, token)
@@ -19,6 +19,8 @@ CREATE TABLE user_fcm_tokens (
 CREATE INDEX user_fcm_tokens_user_idx ON user_fcm_tokens(user_id);
 CREATE INDEX user_fcm_tokens_last_seen_idx ON user_fcm_tokens(last_seen_at);
 ```
+
+**Schema deviation from canonical docs (additive, defense-in-depth):** the `token` and `app_version` CHECK constraints above are NOT in the canonical schema at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md). They mirror the application-side caps (4 KB body / 64-char `app_version` per the validation requirement below) at the DB layer so a non-route write path (operator `psql`, future migration backfill) cannot bypass the bound. Same posture as the existing `platform` CHECK. See `design.md` D9.
 
 The UNIQUE constraint MUST be `(user_id, platform, token)` — NOT `(token)` alone. A single FCM token MAY appear in multiple rows when owned by different `user_id`s (family-shared device, account-switching). See `design.md` D1 for rationale.
 
@@ -46,6 +48,14 @@ The `last_seen_at` column SHALL be the authoritative freshness signal consumed b
 - **WHEN** `INSERT INTO user_fcm_tokens (user_id, platform, token) VALUES (:u, 'android', :t)` is executed twice without ON CONFLICT handling
 - **THEN** the second insert fails with a Postgres unique-constraint violation on `user_fcm_tokens_user_id_platform_token_key`
 
+#### Scenario: Token longer than 4096 chars is rejected by the DB CHECK
+- **WHEN** an `INSERT INTO user_fcm_tokens (user_id, platform, token) VALUES (..., 'android', <4097-char string>)` is attempted directly against the database
+- **THEN** the insert fails with a Postgres CHECK constraint violation on `token`
+
+#### Scenario: app_version longer than 64 chars is rejected by the DB CHECK
+- **WHEN** an `INSERT INTO user_fcm_tokens (user_id, platform, token, app_version) VALUES (..., 'android', 'tok', <65-char string>)` is attempted directly against the database
+- **THEN** the insert fails with a Postgres CHECK constraint violation on `app_version`
+
 ### Requirement: `POST /api/v1/user/fcm-token` SHALL upsert idempotently and refresh `last_seen_at` on every call
 
 The Ktor backend SHALL expose `POST /api/v1/user/fcm-token` as a JWT-authenticated endpoint accepting a JSON body with three fields: `token` (string, required, non-empty), `platform` (string, required, one of `"android"` or `"ios"`), and `app_version` (string, optional, max 64 chars).
@@ -56,7 +66,7 @@ On success, the handler MUST return `204 No Content` with no response body (see 
 
 The handler MUST log a single INFO-level structured event per successful registration with fields `event="fcm_token_registered"`, `user_id`, `platform`, and `created` (boolean — `true` if the upsert produced a new row, `false` if it refreshed an existing one). The `created` distinction MAY be derived via the `xmax = 0` Postgres trick on a `RETURNING xmax` clause OR via a separate `SELECT 1 FROM user_fcm_tokens WHERE ... ` pre-check; implementer's choice.
 
-The request body size MUST be capped at 4 KB. Larger bodies MUST be rejected with `413 Payload Too Large`.
+The request body size MUST be capped at 4 KB at the **transport layer** — distinct from the field-level [`ContentLengthGuard`](backend/ktor/src/main/kotlin/id/nearyou/app/guard/ContentLengthGuard.kt) (which counts Unicode codepoints of authored-text fields like post / reply / chat content). The cap MUST be enforced via the Ktor `RequestBodyLimit` plugin OR a defensive top-of-handler `call.request.contentLength()?.let { if (it > 4096) return@post call.respond(HttpStatusCode.PayloadTooLarge) }` check — implementer's choice based on the Ktor version's plugin surface (see `design.md` D10). Larger bodies MUST be rejected with `413 Payload Too Large`. The cap is informational about transport size only; actual field validation (token / app_version length) lives in the validation requirement below AND in the DB CHECK constraints from the schema requirement above (defense-in-depth across three layers: handler, app-level DTO validation, DB CHECK).
 
 #### Scenario: New token registration inserts a row and returns 204
 - **WHEN** an authenticated user calls `POST /api/v1/user/fcm-token` with body `{"token": "abc123", "platform": "android", "app_version": "0.1.0"}` AND no row exists with that `(user_id, platform, token)` triple
@@ -80,16 +90,20 @@ The request body size MUST be capped at 4 KB. Larger bodies MUST be rejected wit
 
 ### Requirement: Validation errors MUST use a closed vocabulary
 
+The request DTO MUST declare `token: String` and `platform: String` as **non-nullable** fields. A missing `token` or `platform` therefore fails Kotlinx-serialization at deserialization time and surfaces as `malformed_body` (NOT as `empty_token` / `invalid_platform`). The closed-vocabulary `empty_token` / `invalid_platform` codes apply only to deserialization-success-but-content-invalid cases (empty/whitespace token, or platform outside `{android, ios}`).
+
 The handler SHALL validate request body fields and reject invalid input with HTTP `400 Bad Request` and a JSON body of shape `{"error": "<code>"}` where `<code>` is exactly one of:
 
-- `"invalid_platform"` — `platform` field is missing, empty, or not one of `"android"` / `"ios"` (case-sensitive lowercase only)
-- `"empty_token"` — `token` field is missing or empty after trimming whitespace
+- `"invalid_platform"` — `platform` field deserialized successfully but is empty after trimming OR is not one of `"android"` / `"ios"` (case-sensitive lowercase only)
+- `"empty_token"` — `token` field deserialized successfully but is empty after trimming whitespace
 - `"app_version_too_long"` — `app_version` field is present and exceeds 64 characters
-- `"malformed_body"` — request body is not valid JSON, is missing the required content-type header `application/json`, or fails to deserialize into the expected DTO shape
+- `"malformed_body"` — request body is not valid JSON, is missing the required content-type header `application/json`, fails to deserialize into the expected DTO shape, OR is missing a non-nullable required field (`token` or `platform`)
 
 Other failure modes MAY use HTTP-standard responses without a body-level `error` field: `401 Unauthorized` (missing/invalid JWT), `413 Payload Too Large` (body > 4 KB), `415 Unsupported Media Type` (request body declared as a non-JSON content-type), `500 Internal Server Error` (database connection failure or other unexpected exception).
 
 The original exception (when one exists) MUST be logged at WARN level with full context for operator debugging; the response body MUST NOT contain stack traces, exception messages, or any information beyond the closed-vocabulary `error` code.
+
+**Token confidentiality**: the WARN log MUST NOT include the raw `token` field value in any form (plaintext, stringified DTO, exception `.toString()`, request-body capture). FCM tokens are device-addressed credentials — anyone holding a token plus the FCM project's server key can push to that device, so leaking a token to operator logs creates an exfiltration surface comparable to leaking a session-id. If token-presence telemetry is needed for debugging (e.g., "did the request body have a non-empty token?"), the log MAY include a derived signal such as `token_present=true` or `token_length=163` but NEVER the value itself. Same posture applies to the `Authorization: Bearer <jwt>` header — never logged. See `design.md` D11.
 
 #### Scenario: `platform: "web"` is rejected with `invalid_platform`
 - **WHEN** an authenticated user posts `{"token": "abc", "platform": "web"}`
@@ -103,9 +117,13 @@ The original exception (when one exists) MUST be logged at WARN level with full 
 - **WHEN** an authenticated user posts `{"token": "", "platform": "android"}` OR `{"token": "   ", "platform": "android"}` (whitespace-only)
 - **THEN** the response status is `400 Bad Request` AND the response body is `{"error": "empty_token"}` AND no row is inserted
 
-#### Scenario: Missing `token` field is rejected with `empty_token`
+#### Scenario: Missing `token` field is rejected with `malformed_body`
 - **WHEN** an authenticated user posts `{"platform": "android"}` (no `token` field)
-- **THEN** the response status is `400 Bad Request` AND the response body is `{"error": "empty_token"}` AND no row is inserted
+- **THEN** the response status is `400 Bad Request` AND the response body is `{"error": "malformed_body"}` AND no row is inserted (token is non-nullable in the DTO; deserialization fails before validation runs)
+
+#### Scenario: Missing `platform` field is rejected with `malformed_body`
+- **WHEN** an authenticated user posts `{"token": "abc"}` (no `platform` field)
+- **THEN** the response status is `400 Bad Request` AND the response body is `{"error": "malformed_body"}` AND no row is inserted (platform is non-nullable in the DTO; deserialization fails before validation runs)
 
 #### Scenario: `app_version` longer than 64 chars is rejected with `app_version_too_long`
 - **WHEN** an authenticated user posts a body whose `app_version` field is 65 chars or longer
@@ -118,6 +136,10 @@ The original exception (when one exists) MUST be logged at WARN level with full 
 #### Scenario: Validation errors do not leak exception messages
 - **WHEN** any of the above 4xx scenarios fires
 - **THEN** the response body field `error` is exactly one of the closed-vocabulary codes AND the response body has no other fields (no `message`, no `stack`, no `cause`)
+
+#### Scenario: WARN logs do NOT include the raw token value
+- **WHEN** any 4xx OR 5xx failure path fires AND the handler emits a WARN-level log line for operator debugging
+- **THEN** the captured log output does NOT contain the raw `token` field value (verified by asserting the well-known test-input token string is absent from the captured log appender's output)
 
 ### Requirement: Endpoint MUST require a valid JWT
 

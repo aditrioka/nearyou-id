@@ -15,9 +15,9 @@ Stakeholders:
 - **Solo operator** — debugs "why isn't user X getting pushes?" by querying `user_fcm_tokens` directly.
 
 Constraints:
-- **JWT-required**: `userId` comes from the authenticated `UserPrincipal` ([`auth-jwt`](openspec/specs/auth-jwt/spec.md) precedent — same pattern as every other `/api/v1/user/*` endpoint).
-- **Content-length guard**: per the project critical-invariant in [`CLAUDE.md`](CLAUDE.md), input endpoints must validate request body size. FCM tokens are typically ~163 chars (FCM v1) so a 4 KB body cap is generous.
-- **Module boundary**: the User module (per [`docs/04-Architecture.md:129`](docs/04-Architecture.md)) owns FCM token registration. Endpoint code lives in `backend/ktor/.../user/`.
+- **JWT-required**: `userId` comes from the authenticated `UserPrincipal` ([`auth-jwt`](openspec/specs/auth-jwt/spec.md) precedent — same pattern as every other JWT-gated user-facing route in the project, e.g., [`engagement/LikeRoutes.kt:42-44`](backend/ktor/src/main/kotlin/id/nearyou/app/engagement/LikeRoutes.kt:42), [`engagement/ReplyRoutes.kt`](backend/ktor/src/main/kotlin/id/nearyou/app/engagement/ReplyRoutes.kt), [`follow/FollowRoutes.kt`](backend/ktor/src/main/kotlin/id/nearyou/app/follow/FollowRoutes.kt) — each route file installs its own `authenticate(AUTH_PROVIDER_USER) { ... }` block. There is **no shared `route("/api/v1/user")` block** today; this endpoint follows the per-route precedent.
+- **Body-size cap**: per the project critical-invariant in [`CLAUDE.md`](CLAUDE.md) § "Content length guards", input endpoints must validate input size. This endpoint applies a 4 KB body cap at the transport layer (D10) AND DB-level CHECKs on `token` (≤4096 chars) and `app_version` (≤64 chars) (D9) — three layers of enforcement. The field-level [`ContentLengthGuard`](backend/ktor/src/main/kotlin/id/nearyou/app/guard/ContentLengthGuard.kt) (Unicode-codepoint-based, used for authored text content like post / reply / chat) is NOT registered for this endpoint's fields, because token + app_version are not authored-text fields with a codepoint-based product limit.
+- **Module boundary**: the User module (per [`docs/04-Architecture.md:129`](docs/04-Architecture.md)) owns FCM token registration. **A `user/` package does not yet exist** in [`backend/ktor/src/main/kotlin/id/nearyou/app/`](backend/ktor/src/main/kotlin/id/nearyou/app/) (existing packages: `auth/`, `block/`, `common/`, `config/`, `dev/`, `engagement/`, `follow/`, `guard/`, `health/`, `lint/`, `moderation/`, `notifications/`, `post/`, `search/`, `timeline/`). This change creates the `user/` package as a new sibling of `auth/`. Rationale for `user/` over folding into `auth/`: signup + JWT issuance are the auth lifecycle (`auth/`); FCM token registration is user-profile state (NOT authentication). The split mirrors the doc-level module taxonomy at [`docs/04-Architecture.md:129`](docs/04-Architecture.md) which lists "FCM token registration" alongside "user profile, subscription status, analytics consent, suspension unban worker" — i.e., the User module, not the Auth module. Future user-profile endpoints (analytics consent toggle, FCM token list, etc.) will land in the same `user/` package.
 - **No vendor SDK in `:backend:ktor` or `:core:domain`**: this change does NOT import the FCM Admin SDK (the SDK lives in the Phase 2 send-path module, when it ships). Registration is pure JDBC + Ktor.
 - **Hash-tag Redis keys**: not applicable here — this change has no Redis dependency.
 
@@ -61,17 +61,20 @@ The downside: when the same physical device rotates its token (FCM rotates perio
 - Hard cap N=10 per user with LRU eviction: rejected as premature complexity. Deferred to a future change if Phase 2 push-send observes pathological row counts.
 - Soft warn at N=10 (log only): rejected as no-value telemetry without a corresponding response action.
 
-### D3: No new rate-limit category — rely on existing per-user authenticated write rate-limits
+### D3: No new rate-limit category — rely on existing per-user authenticated write rate-limits, with an observable tripwire
 
-**Decision**: This endpoint does NOT introduce a new `tryAcquire` call. It relies on whatever default per-user authenticated-write rate-limit is in place (currently none specific to this surface; the project's Phase 1 rate-limit infrastructure exists but no global per-user write cap has been wired).
+**Decision**: This endpoint does NOT introduce a new `tryAcquire` call. It relies on whatever default per-user authenticated-write rate-limit is in place (currently none specific to this surface; the project's Phase 1 rate-limit infrastructure exists but no global per-user write cap has been wired). The handler MUST emit per-call structured-log fields that make per-user registration frequency derivable from log aggregation, so the "wire `tryAcquire` later if abuse surfaces" promise has an observable trigger and is not silently unobservable.
 
-**Rationale**: The endpoint is JWT-gated (no unauthenticated abuse surface), idempotent (a malicious flood of `INSERT ... ON CONFLICT DO UPDATE` produces zero net rows after the first), and small in body size (4 KB cap). The cost-of-abuse is bounded — a stolen JWT spamming the endpoint at 10k req/sec wastes JDBC connections but cannot exhaust storage (idempotent upsert) or leak information. If pathological abuse surfaces later, a dedicated rate-limit (e.g., 60 registrations per user per hour) can be wired via the existing `tryAcquire` infrastructure in a follow-up — that's a one-line addition.
+**Rationale**: The endpoint is JWT-gated (no unauthenticated abuse surface), idempotent (a malicious flood of `INSERT ... ON CONFLICT DO UPDATE` produces zero net rows after the first), and small in body size (4 KB cap per D10). The cost-of-abuse is bounded — a stolen JWT spamming the endpoint at 10k req/sec wastes JDBC connections but cannot exhaust storage (idempotent upsert) or leak information. If pathological abuse surfaces later, a dedicated rate-limit (e.g., 60 registrations per user per hour) can be wired via the existing `tryAcquire` infrastructure in a follow-up — that's a one-line addition.
 
 The deferred Phase 2 send-side 404/410 path naturally GC's the row inventory; the deferred Phase 3.5 stale-cleanup worker is the second line. So even an attacker who succeeds at row growth has bounded blast radius.
+
+**Tripwire**: per-call INFO log already includes `user_id` and `platform` (per `tasks.md` § 4.8). A Grafana / log-aggregation panel `count(event="fcm_token_registered") by user_id, time_bucket(1h)` answers "any user registering >N times per hour?" without new code. If a panel surfaces a user with >60/hour, the cap-N tripwire is concretely actionable: file a follow-up `fcm-token-registration-rate-limit` change with `tryAcquire(userId, "{scope:fcm_register}:{user:U}", 60, Duration.ofHours(1))`. The threshold (60/hour) is chosen as 1-per-minute average, which is well above any legitimate FCM SDK token-refresh cadence (hourly at most per [`docs/04-Architecture.md:521`](docs/04-Architecture.md)). This is documented in `FOLLOW_UPS.md` as a triage trigger, NOT a scheduled change — it fires only if the panel surfaces abuse.
 
 **Alternatives considered**:
 - Wire `tryAcquire` with cap=60/hour now: rejected as premature optimization. The Phase 1 like-rate-limit cycle established the pattern; introducing it here without a concrete abuse-pressure observation would just bloat the change.
 - Rely on a future global per-user write cap: that cap doesn't exist yet; documenting "we'll wait for it" is a clearer scope statement than "we'll add a half-measure now."
+- Compute per-call `user_token_count` via `RETURNING (SELECT COUNT(*) FROM user_fcm_tokens WHERE user_id = $1)` so the log line directly carries the per-user registration count: viable + cheap (single index scan against the small `user_fcm_tokens_user_idx`), but would require coupling the count computation to the upsert RETURNING clause. Folded into `tasks.md` § 4.8 as the implementation pattern — the log line emits both `created` (insert vs update) and `user_token_count` (current row count for the user).
 
 ### D4: Validation error vocabulary as a closed set
 
@@ -98,9 +101,11 @@ The original exception (if any) MUST be logged at WARN with full context for ope
 
 ### D6: `INSERT ... ON CONFLICT DO UPDATE` — single atomic upsert, not "SELECT-then-INSERT-or-UPDATE"
 
-**Decision**: The repository uses one Postgres statement: `INSERT INTO user_fcm_tokens (user_id, platform, token, app_version, last_seen_at) VALUES (?, ?, ?, ?, NOW()) ON CONFLICT (user_id, platform, token) DO UPDATE SET last_seen_at = NOW(), app_version = EXCLUDED.app_version`.
+**Decision**: The repository uses one Postgres statement: `INSERT INTO user_fcm_tokens (user_id, platform, token, app_version, last_seen_at) VALUES (?, ?, ?, ?, NOW()) ON CONFLICT (user_id, platform, token) DO UPDATE SET last_seen_at = NOW(), app_version = EXCLUDED.app_version RETURNING xmax = 0 AS created`.
 
 **Rationale**: Atomic, race-safe, single round-trip. Two clients racing to register the same `(user_id, platform, token)` triple produce a single row with the latest `last_seen_at` and `app_version` — no `unique_violation` exceptions to catch, no `SELECT FOR UPDATE` advisory-lock plumbing. The `EXCLUDED.app_version` semantics mean the most recent registration wins on `app_version` (clients on different builds racing — last write wins, which matches the freshness intent).
+
+**`xmax = 0` insert-vs-update distinction**: the `RETURNING xmax = 0 AS created` clause distinguishes a fresh INSERT (xmax is always 0 for newly-inserted rows by definition — no concurrent updater has touched the new tuple) from an `ON CONFLICT DO UPDATE` (xmax is set to the current transaction id, which is non-zero). This idiom is reliable for plain `INSERT ... ON CONFLICT DO UPDATE` against a non-partitioned table on PostgreSQL 9.5+ (when `ON CONFLICT` shipped). The trick does NOT generalize to `MERGE` (PG 15+) and would need re-validation if `user_fcm_tokens` is ever partitioned (rows routed through partitions can have non-zero xmax even on insert). Neither is a current concern: this change uses plain `INSERT ... ON CONFLICT`, the table is not partitioned, and partitioning would require a separate change cycle that should re-derive `created` at that point.
 
 **Alternatives considered**:
 - `SELECT 1 ... THEN INSERT ELSE UPDATE`: rejected — race window between SELECT and INSERT/UPDATE produces `unique_violation` under load.
@@ -124,6 +129,46 @@ The 64-char cap is a sanity bound (a SemVer like `1.2.3-beta.1+build.123.abcdef`
 **Decision**: The Flyway migration file is `V14__user_fcm_tokens.sql`. Latest in the tree is `V13__premium_search_fts.sql`.
 
 **Rationale**: Sequential V-numbering is the project convention (see [`backend/ktor/src/main/resources/db/migration/`](backend/ktor/src/main/resources/db/migration/)). No conflict possible — the proposal PR opens before any other migration-introducing change, so V14 is reserved for this change. If a parallel change races to V14 between this PR opening and merging, the rebase trivially renames to V15.
+
+### D9: DB-level CHECKs on `token` length and `app_version` length (defense in depth)
+
+**Decision**: The migration adds two CHECKs not in the canonical schema at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md): `CHECK (char_length(token) BETWEEN 1 AND 4096)` on `token` and `CHECK (app_version IS NULL OR char_length(app_version) <= 64)` on `app_version`. Same posture as the canonical CHECK on `platform`.
+
+**Rationale**: The application-side caps (4 KB body limit per D10, 64-char `app_version` per D7) are the first line of defense; the DB CHECKs are the second. A non-route write path — operator `psql` session, a future migration backfill, a misbehaving repository write that bypasses validation — cannot exceed the bound without the CHECK throwing at insert time. Same reasoning the canonical schema applies to `platform` (CHECK ∈ `{android, ios}`): the route validator is first, but the DB enforces the contract at the storage layer.
+
+The CHECKs are **additive deviations from canonical docs**, surfaced explicitly in the spec § Schema requirement and in the `## Reconciliation notes` section below. The canonical docs are not wrong — they specify the minimum schema; this change adds belt-and-suspenders. A docs follow-up will amend [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) once this change ships, propagating the CHECKs to the canonical reference (added to `FOLLOW_UPS.md` at section R1).
+
+**Token bound rationale (4096 chars)**: matches the body-cap (D10). FCM v1 tokens are ~163 chars in practice; legacy registration IDs were longer but still well under 1 KB. 4096 is generous headroom while preventing pathological multi-MB writes.
+
+**Alternatives considered**:
+- No DB CHECKs (canonical-only): rejected per the defense-in-depth argument and the security review's S1+S2 findings.
+- Length CHECKs only at the app layer: rejected — operator/migration write paths bypass the app.
+
+### D10: Body-cap mechanism — Ktor `RequestBodyLimit` plugin OR defensive `contentLength()` check
+
+**Decision**: The 4 KB body cap is enforced via Ktor's `RequestBodyLimit` plugin if available in the project's Ktor version, OR via a defensive top-of-handler check `call.request.contentLength()?.let { if (it > 4096) return@post call.respond(HttpStatusCode.PayloadTooLarge) }` if the plugin's name/surface in the project's Ktor version is unclear. Implementer's choice; the spec's `413` scenario binds the contract regardless of mechanism.
+
+**Rationale**: This cap is a **transport-layer body-size limit** — distinct from the field-level [`ContentLengthGuard`](backend/ktor/src/main/kotlin/id/nearyou/app/guard/ContentLengthGuard.kt) (which counts Unicode codepoints of authored-text fields like post / reply / chat content per the existing Phase 1 invariant). The two mechanisms answer different questions: ContentLengthGuard answers "is the **content of this field** within the per-field cap?" and the body-cap answers "is the **transport request body** small enough that it can't OOM the JSON parser or burn JDBC time on a malformed multi-MB payload?". This change does NOT register `token` or `app_version` keys in `ContentLengthGuard` because they are not authored-text fields with a codepoint-based product limit (an FCM token's "characters" are opaque base64-ish payload, not human-authored content) — instead the validation lives at three layers: (a) DTO deserialization (non-nullable required fields), (b) handler validators (`empty_token` / `app_version_too_long`), (c) DB CHECKs (D9).
+
+**Chunked-transfer attacker concern**: a hostile client using `Transfer-Encoding: chunked` may not send a `Content-Length` header, so the defensive `contentLength()` check returns null → bypass. Mitigations: (i) the upstream Cloudflare edge enforces a request-body limit (typically 100 MB for the default tier; configurable lower via WAF rules); (ii) the Ktor JSON deserializer has its own internal buffer caps that throw on a runaway parse; (iii) when the project moves to Cloud Run with the body-cap deploy flag, Cloud Run enforces a 32 MB request limit by default. None of these are 4 KB-tight, but all bound the attacker's blast radius to a few MB-scale parse-and-reject. The `RequestBodyLimit` plugin (if available) is preferred precisely because it intercepts the streaming read and throws before the JSON parser sees the full payload — which is the strongest defense. Worth verifying the plugin exists in the Ktor version used by `:backend:ktor` during section 5 of `tasks.md`; if it doesn't, fall back to the defensive check + acknowledge the chunked-attacker gap explicitly in the spec scenario's failure-mode comment.
+
+**Alternatives considered**:
+- Reject `Transfer-Encoding: chunked` entirely on this endpoint: rejected — adds policy without meaningful gain (legitimate clients don't use chunked for a 200-byte JSON body, but rejecting it is brittle if a future HTTP client implementation changes defaults).
+- 1 KB cap instead of 4 KB: tighter but no real-world FCM token approaches the limit; 4 KB leaves headroom for legacy or future token-format extensions.
+
+### D11: Token confidentiality — never log raw tokens or JWTs
+
+**Decision**: The handler MUST NOT log the raw `token` field value in WARN logs, exception messages, request-body captures, or stringified DTOs. Same posture for the `Authorization: Bearer <jwt>` header. Token-presence telemetry MAY use derived signals like `token_present=true` or `token_length=163`.
+
+**Rationale**: An FCM device-addressed token is a credential — anyone holding the token plus the FCM project's server key can push to that device. Leaking a token to operator logs creates an exfiltration surface comparable to leaking a session-id (operator log access ⊇ push-this-device capability). The same logic applies to JWTs: presence in logs would let an operator with log access impersonate the user.
+
+The log-redaction posture is a single contract per `spec.md` § Validation errors. Implementation MUST verify by capturing the SLF4J appender output during a test that exercises a 4xx WARN path with a known test-input token, and asserting the captured log output does NOT contain the test-input token string (test scenario in `spec.md` § Validation errors § "WARN logs do NOT include the raw token value" + corresponding task in `tasks.md` § 6.20).
+
+The "full context" phrase in `tasks.md` § 4.10 is therefore intentionally restricted: full context for operator debugging means user_id + platform + error_class + error_message_sanitized — NOT raw request body, NOT token, NOT JWT.
+
+**Alternatives considered**:
+- Log a SHA256 of the token (so operator can correlate logs with reported user issues without seeing the raw token): rejected as premature complexity. If correlation telemetry becomes needed later, this is a small additive change.
+- Log the token's first/last 4 chars (e.g., `token=abc1...xyz9`): rejected — partial logs are still leak-shaped (an attacker who can guess the middle bits via offline FCM enumeration could reconstruct).
 
 ## Risks / Trade-offs
 
@@ -156,21 +201,24 @@ Production deployment is a separate change cycle (no `deploy-prod.yml` exists ye
 
 ## Reconciliation notes
 
-Reconciliation against canonical docs surfaced one minor terminology divergence resolved in this proposal, and zero substantive deviations:
+Reconciliation against canonical docs surfaced one minor silence-resolution and one additive deviation, and zero substantive divergences:
 
-1. **`success status code`**: [`docs/05-Implementation.md:1392-1400`](docs/05-Implementation.md) does not explicitly specify the success status code (the section describes the upsert semantics + `last_seen_at` refresh but stops short of "returns 204"). [`docs/04-Architecture.md:517`](docs/04-Architecture.md) is similarly silent. This proposal canonicalizes `204 No Content` per D5 — a reasonable default for an idempotent state-change endpoint with no body. If the user disagrees, the alternative is `200 OK` with empty body; the spec scenario is one-line easy to flip.
+1. **`success status code`** (silence-resolution): [`docs/05-Implementation.md:1392-1400`](docs/05-Implementation.md) does not explicitly specify the success status code (the section describes the upsert semantics + `last_seen_at` refresh but stops short of "returns 204"). [`docs/04-Architecture.md:517`](docs/04-Architecture.md) is similarly silent. This proposal canonicalizes `204 No Content` per D5 — REST-idiomatic for an idempotent state-change endpoint with no body. **Resolved** (no longer an open question — see § Open Questions below).
 
-2. **All other claims align verbatim** with canonical docs:
-   - Schema: [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) ↔ proposal § What Changes (verbatim copy).
-   - Endpoint path + method: [`docs/05-Implementation.md:1394`](docs/05-Implementation.md) `POST /api/v1/user/fcm-token` ↔ proposal.
-   - Body shape: [`docs/05-Implementation.md:1394`](docs/05-Implementation.md) `{ token, platform, app_version }` ↔ proposal.
+2. **DB-level CHECKs on `token` and `app_version` length** (additive deviation): the canonical schema at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) does NOT include length CHECKs on these columns. This change adds them per D9 as defense in depth (mirroring the canonical CHECK on `platform`). The canonical docs are not wrong — they specify the minimum schema; this change adds belt-and-suspenders that the security review rated as worth-having now while we're touching the schema. **Follow-up**: amend [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) once this change ships, propagating the CHECKs to the canonical reference. Logged in `FOLLOW_UPS.md` as `fcm-tokens-schema-check-doc-amendment` (entry to be added in the same commit as the next applicable doc-touching change OR as a standalone docs-only PR).
+
+3. **All other claims align verbatim** with canonical docs:
+   - Schema (column set, types, indexes, ON DELETE CASCADE, UNIQUE constraint): [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) ↔ spec § Schema (verbatim copy + the additive CHECKs from D9).
+   - Endpoint path + method: [`docs/05-Implementation.md:1394`](docs/05-Implementation.md) `POST /api/v1/user/fcm-token` ↔ proposal + spec.
+   - Body shape: [`docs/05-Implementation.md:1394`](docs/05-Implementation.md) `{ token, platform, app_version }` ↔ proposal + spec.
    - Upsert key: [`docs/05-Implementation.md:1394`](docs/05-Implementation.md) `(user_id, platform, token) unique` ↔ proposal D1.
    - Freshness signal: [`docs/05-Implementation.md:1394`](docs/05-Implementation.md) `update last_seen_at = NOW() on every call` ↔ proposal § What Changes + spec scenarios.
-   - Cleanup matrix: [`docs/05-Implementation.md:1397-1400`](docs/05-Implementation.md) (404/410 immediate + weekly stale) ↔ proposal § Out of scope (deferred to Phase 2 + Phase 3.5).
-   - Module ownership: [`docs/04-Architecture.md:129`](docs/04-Architecture.md) "User module owns FCM token registration" ↔ proposal § Impact.
+   - Cleanup matrix: [`docs/05-Implementation.md:1397-1400`](docs/05-Implementation.md) (404/410 immediate + weekly stale) ↔ proposal § Out of scope (deferred to Phase 2 + Phase 3.5) + spec § Schema MUST support deferred GC contracts.
+   - Module ownership: [`docs/04-Architecture.md:129`](docs/04-Architecture.md) "User module owns FCM token registration" ↔ proposal § Impact + design § Constraints (with the explicit "creates new `user/` package" note).
    - Phase 1 placement: [`docs/08-Roadmap-Risk.md:90`](docs/08-Roadmap-Risk.md) Phase 1 item 18 ↔ proposal § Why.
 
 ## Open Questions
 
-1. **Success status code**: confirm `204 No Content` per D5, or override to `200 OK`. Default proceeding with `204` (REST idiomatic for idempotent state-change without response body); if reviewer prefers `200`, one-line spec scenario flip.
-2. **Per-user token cap**: deferred per D2. If Phase 2 push-send observes pathological row counts, file a follow-up `fcm-token-per-user-cap` change.
+1. **Per-user token cap**: deferred per D2. If Phase 2 push-send (or the D3 tripwire log-aggregation panel) observes pathological row counts, file a follow-up `fcm-token-registration-rate-limit` change.
+
+(The earlier "204 vs 200" question is closed — D5 resolves it as `204 No Content` per REST convention for idempotent state-change without response body.)

@@ -33,6 +33,26 @@ Format per entry:
 
 ---
 
+## fcm-tokens-schema-check-doc-amendment
+
+**Discovered during:** `fcm-token-registration` `/next-change` Phase D round 1 (security-and-invariant sub-agent flagged that the canonical schema lacks DB-level CHECKs on `token` and `app_version` length, recommending defense-in-depth additions).
+**Status:** open
+
+**Finding:** The `fcm-token-registration` change ships with two additive DB-level CHECK constraints (`CHECK (char_length(token) BETWEEN 1 AND 4096)` and `CHECK (app_version IS NULL OR char_length(app_version) <= 64)`) on `user_fcm_tokens` per design D9. These constraints are NOT in the canonical schema at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md). The canonical docs are not wrong — they specify the minimum schema; this change adds belt-and-suspenders that the security review rated as worth-having now while we're touching the schema. The deviation is documented in proposal § What Changes (marked "additive"), spec § Schema (with the deviation note), and design § Reconciliation notes (item 2). The doc still needs to be updated to match the as-shipped schema so a future maintainer reading [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) doesn't conclude the CHECKs are an undocumented production deviation.
+
+**Specs at fault:** None — `openspec/specs/fcm-token-registration/spec.md` (post-archive) will correctly carry the CHECKs.
+**Code at fault:** None — V14 migration carries the CHECKs.
+**Docs at fault:** [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) (FCM Token Registration § Schema block — needs the two CHECKs added).
+
+**Impact (if shipped):** Low. The DB CHECKs work correctly as shipped; risk is to a future maintainer reading the canonical docs and finding the CHECKs missing → spending time looking for them or assuming the production schema diverges. Same-shape fix as the v10 notifications `body_data` doc amendment in PR #24.
+
+**Ambiguity to resolve first:** None. The fix shape is clear: insert two CHECK clauses inside the canonical `CREATE TABLE user_fcm_tokens (...)` block at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md), and add a one-sentence note explaining the defense-in-depth rationale (mirror the spec's framing).
+
+**Action items:**
+- [ ] After `fcm-token-registration` ships, file a docs-only amendment to [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) adding the two CHECK constraints to the canonical schema block. Standalone docs PR or batched with the next OpenSpec change that touches the FCM section.
+
+---
+
 ## premium-search-reindex-trigger-doc-divergence
 
 **Discovered during:** `premium-search` `/next-change` Phase D round 1 (general-lens sub-agent flagged that `proposal.md` defers re-index trigger plumbing, but `docs/02-Product.md:282` declares the trigger as live infrastructure).
