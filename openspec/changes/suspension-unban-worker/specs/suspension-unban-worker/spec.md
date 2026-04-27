@@ -2,7 +2,7 @@
 
 ### Requirement: `POST /internal/unban-worker` flips elapsed time-bound suspensions
 
-The Ktor backend SHALL expose `POST /internal/unban-worker` as a Cloud-Scheduler-invoked endpoint that flips `is_banned = FALSE` and nulls `suspended_until` for users whose time-bound suspension window has elapsed. The endpoint MUST be mounted under `/internal/*` and is gated by the `internal-endpoint-auth` capability — every request requires a valid Google OIDC bearer token whose audience matches the configured `internal-oidc-audience`.
+The Ktor backend SHALL expose `POST /internal/unban-worker` as a Cloud-Scheduler-invoked endpoint that flips `is_banned = FALSE` and nulls `suspended_until` for users whose time-bound suspension window has elapsed. The endpoint MUST be mounted under `/internal/*` and is gated by the `internal-endpoint-auth` capability — every request requires a valid Google OIDC bearer token whose audience matches the configured `oidc.internalAudience` Ktor config value (resolved from the `INTERNAL_OIDC_AUDIENCE` environment variable; the audience is the deployed Cloud Run service URL, a public non-secret value).
 
 The handler SHALL execute exactly one SQL statement, in a single transaction, matching this canonical predicate verbatim:
 
@@ -17,7 +17,7 @@ WHERE is_banned = TRUE
 RETURNING id;
 ```
 
-(Verbatim from [`docs/05-Implementation.md:353-361`](docs/05-Implementation.md), with `RETURNING id` added so the worker can write per-user audit log rows.)
+(Verbatim from [`docs/05-Implementation.md:353-361`](docs/05-Implementation.md), with `RETURNING id` added so the worker can populate the structured INFO log's `unbanned_user_ids` field. Once Phase 3.5 ships `admin_actions_log`, the same `RETURNING id` will additionally feed per-user audit rows in the same transaction — see `FOLLOW_UPS.md § suspension-unban-worker-audit-log-after-phase-3.5`.)
 
 Each of the four `WHERE` conjuncts is required and MUST NOT be relaxed even though the `users_suspended_idx ON users(suspended_until) WHERE suspended_until IS NOT NULL` partial index already implies the second conjunct. An implementer MUST NOT consolidate or omit any of:
 - `is_banned = TRUE` — defensive filter that pins the eligibility predicate to the ban semantic; without it, a future schema change repurposing `suspended_until` for a non-ban use (e.g., a temporary throttle) would silently extend the worker's reach. The predicate makes the intent explicit at the SQL level.

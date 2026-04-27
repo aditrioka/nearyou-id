@@ -7,7 +7,7 @@ The Ktor backend SHALL gate every route mounted under the `/internal/*` route su
 The plugin MUST verify three properties on every request:
 
 1. **Signature**: the JWT signature MUST validate against Google's published JWKS at `https://www.googleapis.com/oauth2/v3/certs`. JWKS responses MUST be cached with rotation-aware refresh — when a token's `kid` header references a key not present in cache, the verifier MUST force one JWKS refresh before rejecting.
-2. **Audience**: the JWT `aud` claim MUST equal the configured audience value, supplied via Ktor environment config and resolved through the `secretKey(env, name)` helper convention. The audience name is `internal-oidc-audience` (per [`openspec/project.md`](openspec/project.md) secret-name convention). The audience value in production / staging equals the deployed Cloud Run service URL by Cloud Scheduler convention.
+2. **Audience**: the JWT `aud` claim MUST equal the configured audience value, supplied via plain Ktor `application.conf` config (key `oidc.internalAudience`, resolved from the `INTERNAL_OIDC_AUDIENCE` environment variable). The audience is the deployed Cloud Run service URL — a public, non-secret value — and therefore is read via plain Ktor config rather than the project's `secretKey(env, name)` helper, which is reserved for genuine secret material. See the "Configured audience is required at boot" requirement below for boot-time validation.
 3. **Expiry**: the JWT `exp` claim MUST be in the future relative to the verification clock. The `iat` claim, when present, MUST NOT be in the future (with a 60-second skew tolerance to absorb clock drift).
 
 Verification failure on any of the three properties MUST short-circuit with HTTP `401 Unauthorized`. The response body MUST NOT echo the offending token, JWT claims, signature failure detail, or any verifier exception message — only a short fixed vocabulary `error` field as documented in the response-shape requirement below.
@@ -31,7 +31,7 @@ The full original verifier exception MUST be logged at WARN with a token correla
 - **THEN** the response status is `401 Unauthorized` AND the response body MUST NOT contain the offending token or the verifier's exception message
 
 #### Scenario: Audience mismatch is rejected
-- **WHEN** a request presents a Google-signed JWT whose `aud` claim is `https://example.com/other-service` and the configured `internal-oidc-audience` is `https://api-staging.nearyou.id`
+- **WHEN** a request presents a Google-signed JWT whose `aud` claim is `https://example.com/other-service` and the configured `oidc.internalAudience` is `https://api-staging.nearyou.id`
 - **THEN** the response status is `401 Unauthorized`
 
 #### Scenario: Expired token is rejected

@@ -23,8 +23,8 @@ Stakeholders:
 - Admin Panel (Phase 3.5) — will read the same `admin_actions_log` rows from the Moderation Actions Log UI
 
 Constraints:
-- "No vendor SDK outside `:infra:*`": the OIDC verifier (Auth0 `JwkProvider` + `nimbus-jose-jwt` or equivalent) must be encapsulated behind a `:core:domain` interface.
-- `secretKey(env, name)` helper required for any GCP Secret Manager / env-var reads (lint rule per [`openspec/project.md`](openspec/project.md)).
+- "No vendor SDK outside `:infra:*`": the OIDC verifier (Auth0 `jwks-rsa` + `java-jwt` per D10) must be encapsulated behind a `:core:domain` interface.
+- `secretKey(env, name)` helper required for any GCP Secret Manager reads (lint rule per [`openspec/project.md`](openspec/project.md)). Note: `INTERNAL_OIDC_AUDIENCE` is a public Cloud Run service URL, NOT secret material, so it is read via plain Ktor config rather than `secretKey()` — see D10 + spec scenarios.
 - Direct `UPDATE users SET ...` is allowed in this surface (worker writes `is_banned` + `suspended_until`, not `username` or `private_profile_opt_in`, so neither lint rule fires).
 - WIB-stagger / hash-tag conventions do not apply here — this is not a rate-limited endpoint.
 
@@ -241,11 +241,11 @@ Vendor webhooks are spelled out in the spec scenario "Vendor-webhook route does 
 
 ## Migration Plan
 
-Additive change (two new capabilities, no schema). Code-only — `git revert` of the squash-merge cleanly removes the route + plugin + verifier interface and impl. The Cloud Scheduler job + secret are operational state and can be deleted manually if the change is reverted.
+Additive change (two new capabilities, no schema). Code-only — `git revert` of the squash-merge cleanly removes the route + plugin + verifier interface and impl. The Cloud Scheduler job is operational state and can be deleted manually if the change is reverted.
 
 Deployment sequence:
 1. Land the implementation + tests on this PR (CI green: ktlint + Detekt + JVM tests).
-2. Create the `internal-oidc-audience` secret slot in GCP Secret Manager (staging first) and grant the runtime service account `roles/secretmanager.secretAccessor` (per the gotcha pattern documented in `FOLLOW_UPS.md` § `gcp-secret-manager-iam-grant-on-new-slot`).
+2. Bind the `INTERNAL_OIDC_AUDIENCE` env var (value = the deployed Cloud Run service URL, e.g., `https://api-staging.nearyou.id`) on staging Cloud Run via plain `--set-env-vars=` — NOT `--update-secrets=`, since the audience is a public Cloud Run URL and not secret material. No GCP Secret Manager slot required.
 3. Create the staging Cloud Scheduler job (`nearyou-unban-worker-staging`) before merging — it can target the staging URL but get 401 until the code ships, harmless.
 4. Deploy to staging via existing `deploy-staging.yml`.
 5. Smoke test:
