@@ -163,18 +163,18 @@
 
 ## 12. Staging deploy + smoke
 
-- [ ] 12.1 Push the branch and let CI run; confirm green (the section 10 commands all pass on the runner).
-- [ ] 12.2 Trigger the staging deploy: `gh workflow run deploy-staging.yml --ref suspension-unban-worker`.
-- [ ] 12.3 After deploy completes (`gh run list --workflow=deploy-staging.yml --limit=3`), capture the Cloud Run revision name. Verify boot succeeded by `curl -s https://api-staging.nearyou.id/health/ready` returns `200` (this also verifies the new `INTERNAL_OIDC_AUDIENCE` env config didn't break startup).
-- [ ] 12.4 Insert a synthetic test user via the staging-psql Cloud Run job pattern (see `FOLLOW_UPS.md` § `extract-staging-psql-helper-script` for the `^|^` delimiter trick). The user MUST have `is_banned=TRUE`, `suspended_until=NOW() - INTERVAL '1 hour'`, `deleted_at IS NULL`. Capture the inserted user's UUID for verification.
-- [ ] 12.5 Smoke negative 1 (no token): `curl -i -X POST https://api-staging.nearyou.id/internal/unban-worker` → expect `401 {"error": "missing_authorization"}`.
-- [ ] 12.6 Smoke negative 2 (bad token): `curl -i -X POST https://api-staging.nearyou.id/internal/unban-worker -H "Authorization: Bearer not.a.jwt"` → expect `401 {"error": "invalid_token"}`.
-- [ ] 12.7 Smoke positive 1 (manual scheduler trigger): force the staging Cloud Scheduler job to run now: `gcloud scheduler jobs run nearyou-unban-worker-staging --location=asia-southeast2 --project=nearyou-staging`. Wait ~5 seconds. Verify via Cloud Logging: filter for the staging Cloud Run service + `event="suspension_unban_applied"`. Expect one INFO event with `unbanned_count=1` and `unbanned_user_ids=[<test-user-uuid>]`.
-- [ ] 12.8 SQL-verify via the staging-psql Cloud Run job: `SELECT id, is_banned, suspended_until FROM users WHERE id = '<test-user-uuid>'`. Expect `is_banned=FALSE`, `suspended_until=NULL`.
-- [ ] 12.9 Smoke positive 2 (idempotency): trigger the scheduler job again. Wait 5s. Cloud Logging: expect a second INFO event with `unbanned_count=0`. SQL: row from 12.8 unchanged.
-- [ ] 12.10 Smoke negative 3 (future window): insert a synthetic user with `suspended_until=NOW() + INTERVAL '1 hour'`. Trigger the scheduler. Verify the user's row is UNCHANGED. (Cloud Logging will show `unbanned_count=0` if no other eligible rows exist — that's the success signal.)
-- [ ] 12.11 Cleanup: `DELETE FROM users WHERE id IN ('<test-user-uuid-1>', '<test-user-uuid-2>')` via the staging-psql Cloud Run job.
-- [ ] 12.12 If any smoke step fails, fix and push to the same branch (do NOT open a new PR — the same-PR-iteration rule per [`CLAUDE.md`](CLAUDE.md) § Delivery workflow). Re-run sections 10 + 12.
+- [x] 12.1 Push the branch and let CI run; confirm green (the section 10 commands all pass on the runner).
+- [x] 12.2 Trigger the staging deploy: `gh workflow run deploy-staging.yml --ref suspension-unban-worker`.
+- [x] 12.3 After deploy completes (`gh run list --workflow=deploy-staging.yml --limit=3`), capture the Cloud Run revision name. Verify boot succeeded by `curl -s https://api-staging.nearyou.id/health/ready` returns `200` (this also verifies the new `INTERNAL_OIDC_AUDIENCE` env config didn't break startup).
+- [x] 12.4 Insert a synthetic test user via the staging-psql Cloud Run job pattern (see `FOLLOW_UPS.md` § `extract-staging-psql-helper-script` for the `^|^` delimiter trick). The user MUST have `is_banned=TRUE`, `suspended_until=NOW() - INTERVAL '1 hour'`, `deleted_at IS NULL`. Capture the inserted user's UUID for verification.
+- [x] 12.5 Smoke negative 1 (no token): `curl -i -X POST https://api-staging.nearyou.id/internal/unban-worker` → expect `401 {"error": "missing_authorization"}`.
+- [x] 12.6 Smoke negative 2 (bad token): `curl -i -X POST https://api-staging.nearyou.id/internal/unban-worker -H "Authorization: Bearer not.a.jwt"` → expect `401 {"error": "invalid_token"}`.
+- [x] 12.7 Smoke positive 1 (manual scheduler trigger): force the staging Cloud Scheduler job to run now: `gcloud scheduler jobs run nearyou-unban-worker-staging --location=asia-southeast2 --project=nearyou-staging`. Wait ~5 seconds. Verify via Cloud Logging: filter for the staging Cloud Run service + `event="suspension_unban_applied"`. Expect one INFO event with `unbanned_count=1` and `unbanned_user_ids=[<test-user-uuid>]`.
+- [x] 12.8 SQL-verify via the staging-psql Cloud Run job: `SELECT id, is_banned, suspended_until FROM users WHERE id = '<test-user-uuid>'`. Expect `is_banned=FALSE`, `suspended_until=NULL`.
+- [x] 12.9 Smoke positive 2 (idempotency): trigger the scheduler job again. Wait 5s. Cloud Logging: expect a second INFO event with `unbanned_count=0`. SQL: row from 12.8 unchanged.
+- [x] 12.10 Smoke negative 3 (future window): insert a synthetic user with `suspended_until=NOW() + INTERVAL '1 hour'`. Trigger the scheduler. Verify the user's row is UNCHANGED. (Cloud Logging will show `unbanned_count=0` if no other eligible rows exist — that's the success signal.)
+- [x] 12.11 Cleanup: `DELETE FROM users WHERE id IN ('<test-user-uuid-1>', '<test-user-uuid-2>')` via the staging-psql Cloud Run job.
+- [x] 12.12 If any smoke step fails, fix and push to the same branch (do NOT open a new PR — the same-PR-iteration rule per [`CLAUDE.md`](CLAUDE.md) § Delivery workflow). Re-run sections 10 + 12.
 
 <!--
 PR title + body refresh at phase boundaries — process work, owned by /opsx:apply and /opsx:archive per openspec/project.md § "PR title and body MUST stay current at every phase boundary". Not tracked as implementation tasks here. The apply / archive skills enforce:
