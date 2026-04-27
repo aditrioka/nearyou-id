@@ -87,6 +87,6 @@
 
 ## 9. PR title + body refresh at phase boundaries
 
-- [ ] 9.1 At the start of `/opsx:apply`: retitle the PR via `gh pr edit <pr> --title 'feat(user): fcm-token-registration'` (per [`openspec/project.md`](openspec/project.md) § Change Delivery Workflow — the proposal-phase title `docs(openspec): propose fcm-token-registration` becomes `feat(user): ...` when implementation begins).
+- [x] 9.1 At the start of `/opsx:apply`: retitle the PR via `gh pr edit <pr> --title 'feat(user): fcm-token-registration'` (per [`openspec/project.md`](openspec/project.md) § Change Delivery Workflow — the proposal-phase title `docs(openspec): propose fcm-token-registration` becomes `feat(user): ...` when implementation begins).
 - [x] 9.2 Update the PR body via `gh pr edit <pr> --body "$(cat <<'EOF' ... EOF)"` to reflect the implementation status: list the migration V-number, the endpoint, the test coverage, the staging-smoke result. Mirror the body shape of [PR #54](https://github.com/aditrioka/nearyou-id/pull/54) (`health-check-endpoints`).
 - [ ] 9.3 At archive time (in `/opsx:archive`): update the body once more with the post-merge state (squash-commit SHA, archive directory path, capability spec sync).
