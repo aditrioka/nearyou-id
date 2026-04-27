@@ -133,6 +133,31 @@ The proposed canonical workflow:
 
 ---
 
+## health-check-test-coverage-gaps
+
+**Discovered during:** `health-check-endpoints` `/opsx:archive` Section "Deferred coverage" (the honest sweep before archive).
+**Status:** open
+
+**Finding:** Six `tasks.md` items were intentionally NOT shipped during the implementation cycle: the implementation behaviors they cover are exercised end-to-end by the staging smoke (positive-path) and by the structural enforcement in code, but the unit / integration *test* coverage was deferred. Items: 3.9 (reflective scriptSha test), 3.10 (structured-log telemetry assertion), 3.11 (real-Lettuce integration test extension for `tryAcquireByKey`), 4.5 (`LettuceRedisProbe` unit tests against stub Lettuce), 5.8 (`KtorSupabaseRealtimeProbe` unit tests against mock HttpClient), 10.10 (per-probe timeout boundary test 199ms vs 201ms), 10.12 (`SpyRateLimiter`-based hash-tag key-shape assertion in `HealthRoutesScenariosTest`).
+
+Full rationale per item lives in `openspec/changes/archive/<date>-health-check-endpoints/tasks.md` § "Deferred coverage". The pattern across all six is: *behavior is verified end-to-end (staging smoke) and is structurally enforced (single field / single code branch) but lacks an explicit regression-gate test.*
+
+**Specs at fault:** None — the behaviors are spec'd; the gap is purely test coverage.
+**Code at fault:** None — implementation is correct and field-verified.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low immediately. Non-trivial only if a future maintainer:
+- Refactors `RedisRateLimiter` and accidentally diverges `tryAcquire` / `tryAcquireByKey` to use different scriptSha values (3.9 / 3.11 would catch).
+- Adds a new code path in `HealthRoutes` that bypasses `tryAcquireByKey` and uses `tryAcquire(userId, ...)` with an IP-derived UUID (10.12 would catch — this is also addressed by the `tryacquirebykey-ip-derived-uuid-detekt-rule` follow-up).
+- Reverts the structural enforcement of "no user_id in tryAcquireByKey telemetry" (3.10 would catch).
+
+**Action items:**
+- [ ] Pick up before the next change touches `:infra:redis` OR adds a second `tryAcquireByKey` consumer (Phase 1 task #25 guest pre-issuance is the most likely trigger).
+- [ ] 3.11 / 4.5 / 5.8 are the highest-leverage adds — they exercise the real Lettuce / Ktor surfaces that the staging smoke depends on. Add as a single PR `chore(health): backfill probe unit tests` with extended `RedisRateLimiterIntegrationTest`, new `LettuceRedisProbeTest`, new `KtorSupabaseRealtimeProbeTest`. ETA ~half-day of work; defer-until-needed is the right call now.
+- [ ] 3.9 / 3.10 / 10.10 / 10.12 are lower-leverage (covered structurally / via staging smoke). Bundle with the high-leverage adds OR drop entirely if their coverage delta is judged minimal at that point.
+
+---
+
 ## health-check-staging-negative-smoke-deferred
 
 **Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 staging smoke (task 11.5/11.6).
