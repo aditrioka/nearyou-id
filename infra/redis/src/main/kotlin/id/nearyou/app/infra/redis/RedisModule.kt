@@ -46,3 +46,14 @@ internal fun redisUrlSlot(env: String): String = if (env == "staging") "staging-
  * Koin singleton; the underlying connection is closed when the JVM exits.
  */
 fun redisRateLimiterFromUrl(url: String): RedisRateLimiter = RedisRateLimiter(RedisClient.create(url))
+
+/**
+ * Creates a [LettuceRedisProbe] sharing the same [RedisClient] as a corresponding
+ * [RedisRateLimiter] when both are wired off the same URL. Construct the limiter
+ * first, then pass its underlying client (or use [LettuceRedisProbe] directly with
+ * any `RedisClient` instance you already have).
+ *
+ * Encapsulates the Lettuce import surface so `:backend:ktor` does not need to
+ * `import io.lettuce.core.RedisClient`.
+ */
+fun lettuceRedisProbeFromUrl(url: String): LettuceRedisProbe = LettuceRedisProbe(RedisClient.create(url))

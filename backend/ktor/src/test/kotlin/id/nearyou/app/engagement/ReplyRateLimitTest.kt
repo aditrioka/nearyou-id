@@ -966,6 +966,12 @@ private class SpyRateLimiterReply(val delegate: RateLimiter) : RateLimiter {
         return delegate.tryAcquire(userId, key, capacity, ttl)
     }
 
+    override fun tryAcquireByKey(
+        key: String,
+        capacity: Int,
+        ttl: Duration,
+    ): RateLimiter.Outcome = delegate.tryAcquireByKey(key, capacity, ttl)
+
     override fun releaseMostRecent(
         userId: UUID,
         key: String,

@@ -20,6 +20,7 @@ class NearYouRuleSetProvider : RuleSetProvider {
                 CoordinateJitterRule(config),
                 RateLimitTtlRule(config),
                 RedisHashTagRule(config),
+                RawXForwardedForRule(config),
             ),
         )
 

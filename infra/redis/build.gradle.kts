@@ -11,6 +11,10 @@ dependencies {
 
     testImplementation(libs.kotest.runnerJunit5)
     testImplementation(libs.kotest.assertionsCore)
+    // Logback ListAppender used by RedisRateLimiterTelemetryTest to capture
+    // WARN log output and verify the user_id-omission invariant on
+    // tryAcquireByKey (per `health-check-test-coverage-gaps` follow-up).
+    testImplementation(libs.logback)
 }
 
 tasks.withType<Test>().configureEach {

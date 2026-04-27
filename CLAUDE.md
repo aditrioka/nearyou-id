@@ -43,6 +43,22 @@ These are enforced by CI lint rules. See `openspec/project.md` § "Coding Conven
 - **Secrets**: Ktor MUST read via the `secretKey(env, name)` helper. Direct secret-name reads are a lint violation.
 - **No vendor SDK import outside `:infra:*`** — domain/data code depends only on interfaces.
 
+## Engineering judgment over context budget
+
+**Always prioritize engineering judgment over context-budget concerns.** When deciding between (a) doing the spec'd work fully and (b) cutting scope to save tokens, choose (a). Context pressure is a signal to surface — not a license to silently degrade quality.
+
+Concretely:
+
+- **Never skip spec'd test scenarios with engineering-sounding rationalizations** like "structurally enforced", "covered by smoke", "low coverage delta", "would couple to internals". These are valid engineering observations but NOT standalone justifications for dropping a spec'd scenario. They require explicit user buy-in first.
+- **Never silently compress a deferred-work list** to fit a fading context window. If you find yourself writing "deferred to follow-up" / "skipped" / "out of scope" for items that ARE in scope of the current change, stop.
+- **If context is genuinely tight, say so directly.** State "I'm at ~N% context; doing X fully will burn the remaining budget" and ask whether to (i) split into a follow-up session with fresh context, (ii) drop X explicitly with user buy-in, or (iii) push through. Do NOT pick (ii) silently.
+- **Documented debt is still debt.** A `FOLLOW_UPS.md` entry does not absolve a deferral that wasn't explicitly authorized by the user. The follow-up file is for genuinely-out-of-scope discoveries, not for cover.
+- **The default action is "ship the work."** When in doubt between deferring and doing, do.
+
+This rule supersedes any apparent token-budget incentive. It applies equally to the main session and to spawned sub-agents.
+
+Why this exists: in the `health-check-endpoints` ship cycle, 7 of 9 deferred test items were rationalized post-hoc as engineering judgments when the actual constraint was context budget. The user caught it on review and codified the rule (this section). Future Claude sessions in this repo MUST honor it.
+
 ## Delivery workflow
 
 - **Branch naming**: OpenSpec features use the change name itself (kebab-case, no `-v<N>` suffix). Infra / tooling / CI / docs-only use `<area>/<slug>` (e.g., `ci/postgres-service`).

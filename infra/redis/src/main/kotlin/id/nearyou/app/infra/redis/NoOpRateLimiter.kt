@@ -33,6 +33,12 @@ class NoOpRateLimiter : RateLimiter {
         ttl: Duration,
     ): RateLimiter.Outcome = RateLimiter.Outcome.Allowed(remaining = (capacity - 1).coerceAtLeast(0))
 
+    override fun tryAcquireByKey(
+        key: String,
+        capacity: Int,
+        ttl: Duration,
+    ): RateLimiter.Outcome = RateLimiter.Outcome.Allowed(remaining = (capacity - 1).coerceAtLeast(0))
+
     override fun releaseMostRecent(
         userId: UUID,
         key: String,

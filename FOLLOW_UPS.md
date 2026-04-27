@@ -133,6 +133,95 @@ The proposed canonical workflow:
 
 ---
 
+## cloud-run-traffic-pinning-after-failed-revisions
+
+**Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 negative-smoke (tasks 11.5/11.6) — observed when recovering from the broken-Redis revision sequence.
+**Status:** open
+
+**Finding:** When a sequence of Cloud Run revisions fails the startup probe (e.g., `nearyou-backend-staging-00050-cwf` → `00051-bxt` → `00052-tpc` during the 11.5 negative smoke), Cloud Run's traffic-routing config can become **pinned** to the last-known-good revision (`00049-bsx` in this case) rather than tracking `LATEST` automatically. Subsequent successful deploys (e.g., the recovery deploy `00053-n6v`) create the new revision but traffic STAYS on the pinned revision until explicitly released.
+
+The fix is one command — `gcloud run services update-traffic <service> --region=<region> --to-latest` — but the gotcha isn't surfaced anywhere in the project's docs or runbooks. A future operator hitting a recovery scenario would see "deploy succeeded, but `/health/ready` from the new revision is unreachable" and might spend time debugging the wrong layer.
+
+Reproduction sequence in this case:
+1. `gcloud run services update --update-secrets=REDIS_URL=staging-redis-url-broken-test:latest` → revision `00051-bxt` created with broken Redis → startup probe fails → Cloud Run keeps traffic on `00049-bsx` (correct gate behavior; this is what 11.5 verifies).
+2. `gcloud run services update --update-secrets=REDIS_URL=staging-redis-url:latest` → revision `00052-tpc` created with correct Redis → ... but Cloud Run had already pinned the traffic config to `00049-bsx` from step 1, so `00052-tpc` doesn't auto-promote even though its config is now valid.
+3. `gh workflow run deploy-staging.yml` → revision `00053-n6v` created with new image + correct config → still doesn't auto-promote (traffic config still pinned).
+4. `gcloud run services update-traffic --to-latest` → traffic config released → `00053-n6v` becomes serving.
+
+**Specs at fault:** None.
+**Code at fault:** None — this is a Cloud Run platform behavior, not an app behavior.
+**Docs at fault:** `docs/07-Operations.md` § Deployment runbook (or wherever the staging-deploy ops live) does not mention the pinning failure mode.
+
+**Impact (if shipped):** Low. The misbehavior is visible (traffic stays on old revision) and the fix is a one-liner. Risk is operator confusion during a real outage recovery — could add 10-15 minutes to MTTR while the operator figures out why a "successful" deploy isn't actually serving.
+
+**Action items:**
+- [ ] Amend `docs/07-Operations.md` § Deployment runbook (or create a new § Recovery from failed-revision sequence) with the failure-mode description + the `update-traffic --to-latest` recovery command. Cite the `health-check-endpoints` 11.5 smoke as the precedent.
+- [ ] Optionally: bake `gcloud run services update-traffic --to-latest` into `deploy-staging.yml` AFTER the `gcloud run deploy` step, as a defensive belt-and-suspenders. Trade-off: extra step in every deploy (slow path) vs. eliminating the gotcha class entirely. Lean towards: amendment first, codification only if the gotcha recurs.
+
+---
+
+## gcp-secret-manager-iam-grant-on-new-slot
+
+**Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 first deploy attempt (task 11.1) — Cloud Run revision creation failed with `Permission denied on secret: projects/.../secrets/staging-supabase-url/versions/latest for Revision service account 27815942904-compute@developer.gserviceaccount.com`.
+**Status:** open
+
+**Finding:** When a new slot is added to GCP Secret Manager (e.g., `staging-supabase-url` in this change), the Cloud Run runtime service account does NOT automatically inherit the IAM bindings of sibling slots. The new slot requires an explicit `roles/secretmanager.secretAccessor` grant — `gcloud secrets add-iam-policy-binding <slot> --member=serviceAccount:<sa> --role=roles/secretmanager.secretAccessor`. This is `gcloud`'s default least-privilege model and is correct security posture, but it's a process gap that surfaces as a confusing "first deploy fails, second works" pattern.
+
+The existing staging runbook in `docs/07-Operations.md` covers secret VALUE rotation (`gcloud secrets versions add ...`) but does NOT cover NEW slot creation IAM. This is the second time the gap surfaced (first was during the original staging environment buildout — slots were bound manually one-off; the runbook was never updated).
+
+**Specs at fault:** None.
+**Code at fault:** None.
+**Docs at fault:** `docs/07-Operations.md` § Secret rotation runbook — missing "new slot creation" subsection.
+
+**Impact (if shipped):** Low. Per-deploy-attempt time cost is small (one extra failed run + IAM grant + retry = ~10 min). Risk is mostly: future engineer adds a new slot, deploy fails, has to context-switch to figure out the IAM model.
+
+**Action items:**
+- [ ] Amend `docs/07-Operations.md` § Secret rotation runbook with a new subsection "Creating a new staging/prod secret slot": cite the `gcloud secrets create <slot>` + the mandatory `gcloud secrets add-iam-policy-binding <slot> --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor` step, with the runtime SA name documented per environment.
+- [ ] Optionally: Terraform-wrap the secret-creation pattern so the IAM grant is declarative + can't drift. Out of scope for the runbook fix; flag as a Terraform-introduction follow-up if the project ever grows a Terraform module.
+
+---
+
+## tryacquirebykey-ip-derived-uuid-detekt-rule
+
+**Discovered during:** `health-check-endpoints` `/next-change` Phase D round 1 review (security-and-invariant sub-agent lens).
+**Status:** open
+
+**Finding:** The `health-check-endpoints` change resolves the IP-keyed rate-limit convention by adding `RateLimiter.tryAcquireByKey(key, capacity, ttl)` to `rate-limit-infrastructure` and forbidding sentinel-UUID workarounds via spec scenario "tryAcquireByKey omits userId from telemetry" (which forbids the literal `00000000-0000-0000-0000-000000000000` UUID). However, a future maintainer could bypass this by passing `UUID.nameUUIDFromBytes(ip.toByteArray())` to `tryAcquire` — achieving the same effect (IP-axis bucket via the user-keyed method) without using the literal sentinel. The existing `RedisHashTagRule` Detekt rule checks the *key shape*, not whether `tryAcquire` is the right method for the call site's axis.
+
+**Specs at fault:** None — the spec correctly forbids the literal sentinel.
+**Code at fault:** None until a future regression introduces this pattern.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low until the regression occurs. If introduced, the IP-axis bucket would still function correctly (same Lua script), but: (a) telemetry would log a bogus user_id derived from IP; (b) the architectural intent (key-axis vs user-axis split) becomes invisible at the call site; (c) accumulating instances would silently re-introduce the tech debt this change explicitly avoided.
+
+**Ambiguity to resolve first:** None. The fix is straightforward: a Detekt rule that fires on `tryAcquire(*, "{*ip:*}", ...)` — i.e., any `tryAcquire` whose key contains an `ip:` axis must use `tryAcquireByKey` instead.
+
+**Action items:**
+- [ ] After `health-check-endpoints` ships, add a Detekt rule `IpAxisMustUseTryAcquireByKeyRule` to `:lint:detekt-rules` that fires on calls to `RateLimiter.tryAcquire(...)` whose `key` argument matches the regex `\{[^}]*ip:`. Allow-list any legitimate use case (none expected). Wire into Detekt config + add unit tests.
+- [ ] Standalone OpenSpec change `tryacquirebykey-ip-axis-lint` (under `rate-limit-infrastructure` capability MODIFIED) — small spec amendment + Detekt rule + unit tests.
+
+---
+
+## health-check-cloud-run-probe-terminology-docs-divergence
+
+**Discovered during:** `health-check-endpoints` `/next-change` Phase B step 7 reconciliation pass — verifying Cloud Run probe flag terminology against canonical docs.
+**Status:** open
+
+**Finding:** [`docs/04-Architecture.md:166`](docs/04-Architecture.md) declares: *"Cloud Run deployed with readiness probe `/health/ready` and liveness probe `/health/live`."* This uses Kubernetes vocabulary, but Cloud Run does not implement a "readiness probe". The Cloud Run-native equivalents are `--startup-probe` (gates traffic during boot — fills the K8s readiness role) and `--liveness-probe` (continuous keepalive after startup). The `health-check-endpoints` spec aligns with Cloud Run-native vocabulary while noting the docs use K8s terminology — but the docs themselves should be amended for clarity.
+
+**Specs at fault:** None — `health-check-endpoints/specs/health-check/spec.md` correctly uses Cloud Run vocabulary while citing the docs divergence.
+**Code at fault:** None — the implementation will use the Cloud Run-native flags `--startup-probe` and `--liveness-probe` per `tasks.md` section 7.
+**Docs at fault:** [`docs/04-Architecture.md:166`](docs/04-Architecture.md) uses K8s "readiness probe" wording.
+
+**Impact (if shipped):** Low. The behavioral contract is correct — a Cloud Run startup probe targeting `/health/ready` does gate traffic during boot, which is what the docs describe semantically. Risk is to a future maintainer reading "readiness probe" in the docs and looking for a non-existent Cloud Run feature, or trying to use a `--readiness-probe` flag that doesn't exist.
+
+**Ambiguity to resolve first:** None. The fix shape is clear: amend [`docs/04-Architecture.md:166`](docs/04-Architecture.md) from `Cloud Run deployed with readiness probe '/health/ready' and liveness probe '/health/live'.` to `Cloud Run deployed with startup probe '/health/ready' (the Cloud Run analog to a Kubernetes readiness probe — gates traffic during boot until the new revision is healthy) and liveness probe '/health/live' (continuous post-startup keepalive).` Docs-only change, no spec or code impact.
+
+**Action items:**
+- [ ] After `health-check-endpoints` ships, file a docs-only amendment to [`docs/04-Architecture.md:166`](docs/04-Architecture.md) clarifying the Cloud Run startup-probe vs K8s-readiness-probe distinction. Standalone docs PR or batched with whichever change next touches `04-Architecture.md`.
+
+---
+
 ## like-rate-limit-sliding-window-vs-fixed-window-semantic
 
 **Discovered during:** `like-rate-limit` section 8 testing (CI run 24936682400 caught scenario 18 failing when the wall clock was past WIB midnight; investigation revealed a fundamental spec-vs-impl mismatch).
