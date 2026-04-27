@@ -133,23 +133,30 @@ The proposed canonical workflow:
 
 ---
 
-## health-check-staging-negative-smoke-deferred
+## cloud-run-traffic-pinning-after-failed-revisions
 
-**Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 staging smoke (task 11.5/11.6).
+**Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 negative-smoke (tasks 11.5/11.6) — observed when recovering from the broken-Redis revision sequence.
 **Status:** open
 
-**Finding:** The staging-smoke negative test (pause staging Upstash via console → observe `/health/ready` returns `503` with `redis.ok=false` → resume → observe `200` again within 1 minute) was deferred during the initial smoke run. Reason: pausing the staging Upstash database disrupts the Like / Reply rate-limit infrastructure for any concurrent QA traffic. The implementation behavior is well-covered by the `HealthRoutesScenariosTest.kt` "503 + status:degraded" scenario (probe-stub-driven, deterministic), but a real-network end-to-end verification is the canonical confidence signal for the Cloud Run startup-probe revision-promotion gate.
+**Finding:** When a sequence of Cloud Run revisions fails the startup probe (e.g., `nearyou-backend-staging-00050-cwf` → `00051-bxt` → `00052-tpc` during the 11.5 negative smoke), Cloud Run's traffic-routing config can become **pinned** to the last-known-good revision (`00049-bsx` in this case) rather than tracking `LATEST` automatically. Subsequent successful deploys (e.g., the recovery deploy `00053-n6v`) create the new revision but traffic STAYS on the pinned revision until explicitly released.
+
+The fix is one command — `gcloud run services update-traffic <service> --region=<region> --to-latest` — but the gotcha isn't surfaced anywhere in the project's docs or runbooks. A future operator hitting a recovery scenario would see "deploy succeeded, but `/health/ready` from the new revision is unreachable" and might spend time debugging the wrong layer.
+
+Reproduction sequence in this case:
+1. `gcloud run services update --update-secrets=REDIS_URL=staging-redis-url-broken-test:latest` → revision `00051-bxt` created with broken Redis → startup probe fails → Cloud Run keeps traffic on `00049-bsx` (correct gate behavior; this is what 11.5 verifies).
+2. `gcloud run services update --update-secrets=REDIS_URL=staging-redis-url:latest` → revision `00052-tpc` created with correct Redis → ... but Cloud Run had already pinned the traffic config to `00049-bsx` from step 1, so `00052-tpc` doesn't auto-promote even though its config is now valid.
+3. `gh workflow run deploy-staging.yml` → revision `00053-n6v` created with new image + correct config → still doesn't auto-promote (traffic config still pinned).
+4. `gcloud run services update-traffic --to-latest` → traffic config released → `00053-n6v` becomes serving.
 
 **Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:** None.
+**Code at fault:** None — this is a Cloud Run platform behavior, not an app behavior.
+**Docs at fault:** `docs/07-Operations.md` § Deployment runbook (or wherever the staging-deploy ops live) does not mention the pinning failure mode.
 
-**Impact (if shipped):** Low. Positive-path smoke (all three probes green at deploy time) was verified end-to-end and passed. Negative-path is unit-tested. Risk is operator confidence: until we've actually seen the real Cloud Run startup probe fail and gate revision promotion, the contract is documented but not field-verified.
+**Impact (if shipped):** Low. The misbehavior is visible (traffic stays on old revision) and the fix is a one-liner. Risk is operator confusion during a real outage recovery — could add 10-15 minutes to MTTR while the operator figures out why a "successful" deploy isn't actually serving.
 
 **Action items:**
-- [ ] During a quiet weekend window (low staging QA traffic), pause the staging Upstash database via the Upstash console. Observe `curl https://api-staging.nearyou.id/health/ready` returns `503` with `redis.ok=false, redis.error="connection_refused"` (or `"timeout"` depending on Upstash pause behavior). Trigger a fresh Cloud Run deploy during the pause window and verify the new revision does NOT take traffic (Cloud Run Console shows the previous revision still serving).
-- [ ] Resume Upstash and observe `/health/ready` returns `200` again within 1 minute.
-- [ ] Document the negative-smoke results inline in this entry, then resolve.
+- [ ] Amend `docs/07-Operations.md` § Deployment runbook (or create a new § Recovery from failed-revision sequence) with the failure-mode description + the `update-traffic --to-latest` recovery command. Cite the `health-check-endpoints` 11.5 smoke as the precedent.
+- [ ] Optionally: bake `gcloud run services update-traffic --to-latest` into `deploy-staging.yml` AFTER the `gcloud run deploy` step, as a defensive belt-and-suspenders. Trade-off: extra step in every deploy (slow path) vs. eliminating the gotcha class entirely. Lean towards: amendment first, codification only if the gotcha recurs.
 
 ---
 
