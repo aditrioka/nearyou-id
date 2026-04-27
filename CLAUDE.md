@@ -42,6 +42,8 @@ These are enforced by CI lint rules. See `openspec/project.md` § "Coding Conven
 - **RLS changes**: mandatory test case "JWT `sub` not in `public.users` → deny" on every policy change.
 - **Secrets**: Ktor MUST read via the `secretKey(env, name)` helper. Direct secret-name reads are a lint violation.
 - **No vendor SDK import outside `:infra:*`** — domain/data code depends only on interfaces.
+- **Public repository posture**: this repo is source-available under [FSL-1.1-ALv2](LICENSE) — assume external readers in commits, comments, PR bodies, code identifiers. Slot names + GCP project IDs + service-account emails are non-sensitive (matches the existing "secrets in Secret Manager, slot names in source" pattern); never inline real secret values, customer PII, or speculative commercial strategy. When in doubt, surface to the user before committing.
+- **Root README module list is auto-generated** from [`settings.gradle.kts`](settings.gradle.kts) + [`dev/module-descriptions.txt`](dev/module-descriptions.txt). When a change adds a new module, also (a) add a one-line description to `dev/module-descriptions.txt`, then (b) run `dev/scripts/sync-readme.sh --write`. CI runs `--check` (warning-only) to surface drift. See `openspec/project.md` § Documentation Maintenance for the full trigger table.
 
 ## Engineering judgment over context budget
 

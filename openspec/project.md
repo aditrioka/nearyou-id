@@ -213,6 +213,27 @@ If staging fails post-merge despite the pre-archive smoke (e.g., a dependency th
 
 ---
 
+## Documentation Maintenance
+
+The root [`README.md`](../README.md) is reader-facing (top of the tree, public-repo entry point) and has a few load-bearing sections that drift if not maintained. Discipline is **mechanical for the high-frequency drift point, manual-with-explicit-trigger for the rest** — soft "remember to update" rules don't survive contact with a months-old codebase, but hard CI failures on documentation drift create friction that solo-dev velocity can't sustain.
+
+| Trigger | Section to update | Mechanism |
+|---|---|---|
+| Add a new module to [`settings.gradle.kts`](../settings.gradle.kts) | README § What's in this repo | **Mechanical**: add a one-line entry to [`dev/module-descriptions.txt`](../dev/module-descriptions.txt), then run `dev/scripts/sync-readme.sh --write`. CI runs `--check` (warning-only) on every PR. |
+| Stack swap (e.g., Ktor → Spring, Postgres → CockroachDB, Cloudflare → Fastly) | README § Stack table | **Manual**: update in the same change that swaps the dependency. Reviewer-checked. |
+| License posture change | [`LICENSE`](../LICENSE) + README § License | **Manual**: rare event; treated as a real change. |
+| Major reorganization in `docs/` (file rename, file split, top-level section change) | README § Documentation map | **Manual**: same change as the doc move. |
+| Repo visibility flip (private ↔ public) | CLAUDE.md § Critical invariants → "Public repository posture" line | **Manual**: one-time event per flip. |
+| Add or remove a CI job | README § Stack table → CI row + workflow file | **Manual**: same change as the workflow edit. |
+
+The `dev/scripts/sync-readme.sh` script:
+- Sentinel markers in README (`<!-- AUTOGEN:modules:start -->` / `<!-- AUTOGEN:modules:end -->`) bracket the auto-generated module list.
+- `--check` mode (CI): exits non-zero with a diff if the block is stale; the CI step turns the failure into an annotation rather than a hard fail.
+- `--write` mode (local): regenerates the block in-place. Run this after editing `dev/module-descriptions.txt` or adding a module to `settings.gradle.kts`.
+- A missing description for a module in `settings.gradle.kts` is a hard error in both modes — forces every new module to ship with a one-line explanation.
+
+This pattern is cheap to extend (add more sentinel-bracketed sections + the same script) when other auto-derivable content emerges. Do **not** extend it to prose sections (stack table, license summary, build commands) — those don't have a single source of truth that's not the README itself, and trying to template them produces brittle markdown.
+
 ## Doc Map
 
 | File | Scope |

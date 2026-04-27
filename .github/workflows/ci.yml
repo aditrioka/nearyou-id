@@ -78,6 +78,30 @@ jobs:
             echo "→ Only docs paths changed; skipping heavy jobs."
           fi
 
+  # `readme-sync` is a fast warning-only check (no Java / Gradle setup required).
+  # Verifies that the auto-generated module-list block in `README.md` is still in
+  # sync with `settings.gradle.kts` + `dev/module-descriptions.txt`. Warning-only
+  # by design — solo-dev velocity beats hard-fail on documentation drift; the
+  # signal stays visible via the GH Actions warning annotation.
+  #
+  # If you added a new module and this fails: run
+  #   `dev/scripts/sync-readme.sh --write`
+  # locally and commit the README diff. If you added a module without a
+  # description, the script tells you exactly which line to add to
+  # `dev/module-descriptions.txt`.
+  readme-sync:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check README modules block in sync
+        run: |
+          if ! ./dev/scripts/sync-readme.sh --check; then
+            echo "::warning file=README.md::README modules block is out of sync — run dev/scripts/sync-readme.sh --write"
+            exit 0
+          fi
+
   # `lint` runs both linters in one job: ktlintCheck + detekt. Previously detekt
   # was missing from CI even though CLAUDE.md claimed both ran — PRs #31 / #32
   # hit detekt failures locally that CI didn't catch.
