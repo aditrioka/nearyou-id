@@ -4,10 +4,16 @@ on:
   pull_request:
     branches:
       - main
-    # paths-ignore fires only when EVERY changed path matches — any code-touching PR
-    # still runs the full lane. Pure docs / OpenSpec-proposal PRs (which are
-    # docs-only by construction in this project) skip CI entirely. The save is one
-    # full runner-set per such PR.
+    # Workflow-level `paths-ignore` evaluates the CUMULATIVE PR diff (head vs
+    # base merge-base), so a PR that has any code-touching commit anywhere in
+    # its history will still trigger CI on every push — including pure
+    # docs-tick pushes. The `changes` job below adds a PER-PUSH filter that
+    # gates the heavy jobs when the new commits only touch docs.
+    #
+    # This list still serves the all-docs-only-PR case (e.g. an OpenSpec
+    # proposal PR before any feat work lands): when EVERY path in the
+    # cumulative diff matches, the workflow doesn't fire at all — saving
+    # the ~15s `changes` job overhead too.
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
@@ -22,10 +28,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Per-push docs-only filter. Computes the diff between the previous head
+  # (`github.event.before`) and the new head (`github.event.pull_request.head.sha`)
+  # and emits `code=true` when any non-docs path changed. Heavy jobs below
+  # gate on this output so docs-tick pushes mid-PR (e.g. `tasks.md` checkbox
+  # ticks during /opsx:apply) skip the ~7 min test lane.
+  #
+  # Falls back to the cumulative PR diff when `before` is the zero-SHA
+  # (first push to a freshly-opened PR) — the heavy lane runs at least once
+  # for any code-touching PR.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          set -euo pipefail
+          BEFORE='${{ github.event.before }}'
+          AFTER='${{ github.event.pull_request.head.sha }}'
+          ZERO_SHA='0000000000000000000000000000000000000000'
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "$ZERO_SHA" ]; then
+            BEFORE='${{ github.event.pull_request.base.sha }}'
+            echo "First push or zero-sha BEFORE → falling back to PR base $BEFORE"
+          fi
+          echo "Diff range: $BEFORE..$AFTER"
+          CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" || true)
+          echo "Changed files:"
+          echo "$CHANGED"
+          # Code = anything NOT in the docs-only allowlist below.
+          # Mirror the workflow-level paths-ignore so the two stay in sync.
+          CODE=$(echo "$CHANGED" | grep -vE '^(docs/|.*\.md$|\.gitignore$|LICENSE$)' || true)
+          if [ -n "$CODE" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "→ Code paths changed; running heavy jobs."
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "→ Only docs paths changed; skipping heavy jobs."
+          fi
+
   # `lint` runs both linters in one job: ktlintCheck + detekt. Previously detekt
   # was missing from CI even though CLAUDE.md claimed both ran — PRs #31 / #32
   # hit detekt failures locally that CI didn't catch.
   lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +92,8 @@ jobs:
   # signal. If `test` ever needs splitting, re-add a focused compile-only gate
   # rather than reviving full assemble.
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # Service containers — mirror `dev/docker-compose.yml` exactly so the defaults
     # that integration tests resolve to in local dev also work on GHA runners:
@@ -99,6 +151,8 @@ jobs:
   # guard skipped on plain Postgres and hid a reference to a missing table).
   # See `dev/supabase-parity-init.sql` for the simulated starting state.
   migrate-supabase-parity:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
