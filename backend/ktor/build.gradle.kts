@@ -47,6 +47,7 @@ dependencies {
     runtimeOnly(libs.postgresql)
 
     testImplementation(libs.ktor.serverTestHost)
+    testImplementation(libs.ktor.clientMock)
     testImplementation(libs.kotest.runnerJunit5)
     testImplementation(libs.kotest.assertionsCore)
     // The V10 notifications smoke test constructs `PGobject` directly to seed
