@@ -11,16 +11,22 @@
 
 ## What's in this repo
 
-A modular monolith on Kotlin Multiplatform:
+A modular monolith on Kotlin Multiplatform. Module list below is auto-generated from [`settings.gradle.kts`](settings.gradle.kts) + [`dev/module-descriptions.txt`](dev/module-descriptions.txt) — run `dev/scripts/sync-readme.sh --write` to regenerate.
 
+<!-- AUTOGEN:modules:start -->
 - `:mobile:app` — KMP + Compose Multiplatform app (Android + iOS, sharing UI in `commonMain`).
 - `:backend:ktor` — Ktor server: REST API, scheduled workers, JWT auth, Flyway-managed Postgres schema.
-- `:core:domain` — pure-JVM domain interfaces, value types, no vendor SDK imports.
 - `:core:data` — pure-JVM repository interfaces and DTOs.
-- `:infra:*` — vendor-adapter modules (`:infra:redis`, `:infra:supabase`, `:infra:oidc`, …). Each module owns one external dependency; `:core:*` depends only on the interfaces.
+- `:core:domain` — pure-JVM domain interfaces, value types, no vendor SDK imports.
+- `:shared:distance` — KMP utilities for great-circle distance + nearby-radius math, shared by mobile and backend.
+- `:shared:tmp` — scratch placeholder for KMP boilerplate; will be split into real `:shared:<name>` modules as features are built.
+- `:infra:oidc` — Google OIDC bearer-token verifier (Auth0 `jwks-rsa` + `java-jwt`) for `/internal/*` endpoints invoked by Cloud Scheduler.
+- `:infra:redis` — Lettuce-backed `RateLimiter` + `RedisProbe` implementations; Redis client lifecycle isolated from `:backend:ktor`.
+- `:infra:supabase` — Supabase JWKS / token-verifier helpers used by Realtime channel access and Apple S2S sign-in flows.
 - `:lint:detekt-rules` — project-specific Detekt rules enforcing safety invariants (block-exclusion joins, shadow-ban view reads, raw `X-Forwarded-For` bans, Redis hash-tag scoping, etc.).
-- `:shared:distance`, `:shared:tmp` — shared KMP code consumed by both mobile and backend.
-- `iosApp/` — Xcode entry point consuming the `ComposeApp` framework emitted by `:mobile:app`.
+<!-- AUTOGEN:modules:end -->
+
+Plus [`iosApp/`](iosApp/) — the Xcode entry point that consumes the `ComposeApp` framework emitted by `:mobile:app`.
 
 ## Stack
 
