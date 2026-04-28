@@ -122,13 +122,27 @@
 
 ## 10. Staging smoke test (post-deploy)
 
+Use the smoke script committed in this change:
+[`dev/scripts/smoke-fcm-push-dispatch.sh`](dev/scripts/smoke-fcm-push-dispatch.sh) — drives the
+end-to-end FCM dispatch path (token registration → post creation → like → Cloud Logging
+inspection) against staging, with explicit `gcloud logging read` queries asserting
+`event=fcm_dispatched` (or `event=fcm_token_pruned` since synthetic tokens typically
+return UNREGISTERED), zero `event=fcm_init_failed`, and no transient FCM provider faults.
+Invocation:
+
+```sh
+KTOR_RSA_PRIVATE_KEY="$(gcloud secrets versions access latest \
+  --secret=staging-ktor-rsa-private-key --project=nearyou-staging)" \
+  dev/scripts/smoke-fcm-push-dispatch.sh <recipient-uuid> <liker-uuid>
+```
+
 - [ ] 10.1 Operator populates `staging-firebase-admin-sa` GCP Secret Manager slot with the staging Firebase service-account JSON (if not already populated).  
   **Status:** OPERATOR — staging Secret Manager slot population is an operator step, executed before the staging deploy of the merge-PR branch.
-- [ ] 10.2 After staging deploy: register a test FCM token from a staging mobile build (or via curl with a synthetic token if mobile not available) → trigger `post_liked` notification (Bob likes Alice's post via the staging API) → verify Cloud Logging shows `event="fcm_dispatched"` AND the FCM push arrives on the test device (if real device available) OR the structured log confirms the call shape was correct (if synthetic token is used, the dispatch path still exercises end-to-end except the actual push delivery).  
+- [ ] 10.2 After staging deploy: run [`dev/scripts/smoke-fcm-push-dispatch.sh`](dev/scripts/smoke-fcm-push-dispatch.sh) to register a test FCM token + trigger `post_liked` (Liker likes Recipient's post via the staging API) + verify Cloud Logging shows `event=fcm_dispatched` (or `event=fcm_token_pruned` for the synthetic-token UNREGISTERED-path).  
   **Status:** PENDING — runs post-merge after staging deploy (per `/opsx:apply` step 7 + skill convention).
-- [ ] 10.3 Inspect Cloud Logging for unexpected WARN `event="fcm_dispatch_failed"` rate over the first hour of staging traffic. Expected: zero.  
+- [ ] 10.3 Inspect Cloud Logging for unexpected WARN `event="fcm_dispatch_failed"` rate over the first hour of staging traffic. Expected: zero. (The smoke script's transient-class assertion covers the immediate post-smoke window; manual `gcloud logging read --freshness=1h` covers the broader hour.)  
   **Status:** PENDING — runs post-merge.
-- [ ] 10.4 Confirm the `user_fcm_tokens` row count is unchanged after the smoke test (no spurious deletes).  
+- [ ] 10.4 Confirm the `user_fcm_tokens` row count is unchanged after the smoke test (no spurious deletes for legitimate tokens — synthetic smoke tokens are expected to prune via UNREGISTERED, which is normal).  
   **Status:** PENDING — runs post-merge.
 
 ## 11. Documentation + follow-ups
