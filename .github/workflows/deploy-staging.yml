@@ -109,7 +109,7 @@ jobs:
             --concurrency=80 \
             --timeout=60 \
             --set-env-vars="KTOR_ENV=staging,RUN_FLYWAY_ON_STARTUP=true,INTERNAL_OIDC_AUDIENCE=https://api-staging.nearyou.id" \
-            --set-secrets="DB_URL=staging-db-url:latest,DB_USER=staging-db-user:latest,DB_PASSWORD=staging-db-password:latest,KTOR_RSA_PRIVATE_KEY=staging-ktor-rsa-private-key:latest,JITTER_SECRET=staging-jitter-secret:latest,INVITE_CODE_SECRET=staging-invite-code-secret:latest,SUPABASE_JWT_SECRET=staging-supabase-jwt-secret:latest,SUPABASE_URL=staging-supabase-url:latest,REDIS_URL=staging-redis-url:latest" \
+            --set-secrets="DB_URL=staging-db-url:latest,DB_USER=staging-db-user:latest,DB_PASSWORD=staging-db-password:latest,KTOR_RSA_PRIVATE_KEY=staging-ktor-rsa-private-key:latest,JITTER_SECRET=staging-jitter-secret:latest,INVITE_CODE_SECRET=staging-invite-code-secret:latest,SUPABASE_JWT_SECRET=staging-supabase-jwt-secret:latest,SUPABASE_URL=staging-supabase-url:latest,REDIS_URL=staging-redis-url:latest,FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest" \
             --startup-probe="httpGet.path=/health/ready,initialDelaySeconds=5,periodSeconds=10,timeoutSeconds=3,failureThreshold=3" \
             --liveness-probe="httpGet.path=/health/live,initialDelaySeconds=30,periodSeconds=30,timeoutSeconds=2,failureThreshold=3" \
             --quiet
