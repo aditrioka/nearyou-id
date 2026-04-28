@@ -117,22 +117,25 @@ Backend strings have a different posture:
 
 The `<actor_username>` substitution requires a join: `FcmDispatcher` does a single `SELECT username FROM users WHERE id = :actor_user_id` per dispatch (when `actor_user_id IS NOT NULL`). For system-emitted notifications (`actor_user_id IS NULL`, e.g., `post_auto_hidden`, `privacy_flip_warning`), no join is needed.
 
-**`actor_username` join Detekt-rule posture:** the actor-username lookup `SELECT username FROM users WHERE id = :actor_user_id LIMIT 1` is a notification-rendering step, NOT a "business query that filters posts/replies/chat." It runs on a hot path (one row by primary key). The relevant Detekt rule is **`BlockExclusionJoinRule`** ([`lint/detekt-rules/.../BlockExclusionJoinRule.kt`](../../../lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/BlockExclusionJoinRule.kt) — `users` is in its protected table set: `posts | visible_posts | users | chat_messages | post_replies`), NOT `RawFromPostsRule` (the latter only protects `posts | visible_posts`).
+**`actor_username` join Detekt-rule posture:** the actor-username lookup is a notification-rendering step, NOT a "business query that filters posts/replies/chat." It runs on a hot path (one row by primary key). The relevant Detekt rule is **`BlockExclusionJoinRule`** ([`lint/detekt-rules/.../BlockExclusionJoinRule.kt`](../../../lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/BlockExclusionJoinRule.kt) — both `users` AND `visible_users` are in its protected table set: `posts | visible_posts | users | chat_messages | post_replies`), NOT `RawFromPostsRule` (the latter only protects `posts | visible_posts`).
 
-The lookup MUST be allowlisted via `BlockExclusionJoinRule`'s canonical `@AllowMissingBlockJoin("<reason>")` KtAnnotation mechanism per [`block-exclusion-lint` requirement "Allowlists for block-exclusion lint"](../../../openspec/specs/block-exclusion-lint/spec.md). Direct precedent: [`ReportService.kt:178`](../../../backend/ktor/src/main/kotlin/id/nearyou/app/moderation/ReportService.kt) — the V9 report change applies the same annotation on its own raw-`FROM posts` / raw-`FROM post_replies` lookup for the same posture (system-originated lookup, recipient is the known audience). The annotation reason for the `ActorUsernameLookup` SHALL be:
+The lookup uses `FROM visible_users WHERE id = :actor_user_id LIMIT 1` (see D13 below for the shadow-ban rationale). It still requires the `@AllowMissingBlockJoin("<reason>")` KtAnnotation because `visible_users` is one of `BlockExclusionJoinRule`'s protected tables — the rule fires on any non-block-joined read of those tables, regardless of whether shadow-banning is filtered. Per [`block-exclusion-lint` "Allowlists for block-exclusion lint"](../../../openspec/specs/block-exclusion-lint/spec.md). Direct precedent: [`ReportService.kt:178`](../../../backend/ktor/src/main/kotlin/id/nearyou/app/moderation/ReportService.kt) — the V9 report change applies the same annotation on its own raw lookup for an analogous posture (system-originated lookup; recipient is the known audience).
+
+The annotation reason for the `ActorUsernameLookup` SHALL be:
 
 ```kotlin
 @AllowMissingBlockJoin(
-    "Notification-rendering actor-username PK lookup. The recipient is the known " +
+    "Notification-rendering actor-username lookup (PK seek on visible_users). " +
+    "Two reasons block-exclusion does not apply: (1) the recipient is the known " +
     "audience and was already cleared via the NotificationEmitter bidirectional " +
     "block-check at emit-time (see in-app-notifications spec, NotificationEmitter " +
-    "write-path requirement). Block-exclusion does not apply to the rendered " +
-    "username — it would re-litigate the actor↔recipient relationship that the " +
-    "emit path has already gated."
+    "write-path requirement) — re-applying the block-join here would re-litigate " +
+    "an already-gated relationship; (2) the read goes through visible_users which " +
+    "applies shadow-ban filtering — that is the active privacy filter on this " +
+    "surface (see fcm-push-dispatch design D13). Reads to visible_users in this " +
+    "module are restricted to the actor-username path."
 )
 ```
-
-**Shadow-ban posture (visible_users vs raw users):** the lookup uses `FROM users` not `FROM visible_users` deliberately. The existing `in-app-notifications` `NotificationEmitter` does NOT suppress on shadow-ban (it suppresses on self-action and bidirectional `user_blocks` only — see `openspec/specs/in-app-notifications/spec.md`). A shadow-banned actor liking a post therefore DOES emit a `notifications` row. Reading via `visible_users` would mask the actor's username at render time (replacing with the deletion sentinel) — that would surface a *different* contract than the in-app-list contract, where the recipient sees the actor's actual username. We preserve symmetry: the notifications list and the FCM push body show the same actor identity. Per [`docs/06-Security-Privacy.md` § Shadow Ban](../../../docs/06-Security-Privacy.md), shadow-ban is "invisible to the banned user" — not "the banned user's identity is invisible to recipients of their addressed actions." This decision is promoted to a normative spec requirement (see specs § "Actor-username SHALL render via raw `users` lookup, preserving in-app/push parity for shadow-banned actors").
 
 ### D5. Read-tokens query SHALL filter `user_fcm_tokens` by recipient only
 
@@ -189,9 +192,7 @@ Alternative considered: fail-open with a structured FATAL log on every emit atte
 - `dependencies { implementation(libs.firebase.admin) }` (the new pin in `gradle/libs.versions.toml`).
 - `dependencies { api(project(":core:data")) }` (for the `NotificationDispatcher` interface and `NotificationDto`).
 - `dependencies { implementation(project(":core:domain")) }` (for `UserId` value-class etc., if any cross-cuts).
-- A small DAO interface (`UserFcmTokenReader { fun activeTokens(userId: UserId): List<FcmTokenRow>; fun deleteTokenIfStale(userId, platform, token, dispatchStartedAt) }`) defined in `:infra:fcm` and implemented against the existing JOOQ/SQL surface in `:backend:ktor` via Koin (the implementation is in `:backend:ktor` so the SDK leaf has zero JDBC import). Wait — that creates a back-reference. Re-decide:
-
-**Decision (revised):** the `UserFcmTokenReader` interface lives in `:core:data` (alongside the existing `NotificationDispatcher` interface — same module, same posture). Its production JOOQ-backed implementation lives in `:backend:ktor`, and `FcmDispatcher` (in `:infra:fcm`) takes it as a constructor dependency. `:infra:fcm` therefore depends only on `:core:data`. The DI graph wires the JOOQ implementation in.
+- A small DAO interface `UserFcmTokenReader` (with `activeTokens(userId)` returning a `TokenSnapshot` and `deleteTokenIfStale(userId, platform, token, dispatchStartedAt)` returning row-count) lives in `:core:data` (alongside the existing `NotificationDispatcher` interface — same module, same posture). Its production JOOQ-backed implementation lives in `:backend:ktor`, and `FcmDispatcher` (in `:infra:fcm`) takes it as a constructor dependency. `:infra:fcm` therefore depends only on `:core:data`. The DI graph wires the JOOQ implementation in.
 
 This matches the existing `:core:data` interface posture (`NotificationDispatcher` lives there and is implemented in `:backend:ktor` via `InAppOnlyDispatcher`).
 
@@ -220,7 +221,11 @@ Rationale (to land in `docs/09-Versions.md` Version Decisions table):
 
 **Composite "in sequence" semantics (call-order, not completion-order).** `FcmAndInAppDispatcher.dispatch(...)` invokes `FcmDispatcher.dispatch(...)` first, then `InAppOnlyDispatcher.dispatch(...)`. Both calls return synchronously (per D2, `FcmDispatcher.dispatch` enqueues coroutines on `fcmDispatcherScope` and returns immediately; `InAppOnlyDispatcher.dispatch` is a synchronous log line). "In sequence" therefore means the call-order is deterministic — FCM enqueue happens first, in-app log fires second — but does NOT mean the FCM round-trip completes before the in-app log. This is intentional: the in-app log is the audit trail (always lands), the FCM push is fire-and-forget (lands when the FCM round-trip completes, possibly hundreds of ms later, possibly never on transport failure).
 
-### D11. Settings new module entry per CLAUDE.md README rule
+### D11. New module entry SHALL be propagated through dev/module-descriptions.txt + sync-readme.sh
+
+Per [`CLAUDE.md` invariant](../../../CLAUDE.md): "Root README module list is auto-generated from `settings.gradle.kts` + `dev/module-descriptions.txt`. When a change adds a new module, also (a) add a one-line description to `dev/module-descriptions.txt`, then (b) run `dev/scripts/sync-readme.sh --write`."
+
+This change adds `:infra:fcm`. Tasks include adding the line to `dev/module-descriptions.txt` and running `sync-readme.sh --write` to regenerate the README block. CI's `--check` mode will catch drift.
 
 ### D12. Re-registration race: `last_seen_at` predicate on the on-send DELETE
 
@@ -231,30 +236,45 @@ Race scenario:
 3. T2 — FCM responds `UNREGISTERED` for the dispatch from T0 (the token *was* stale at the time of send; the re-registration may have come from a different process / device).
 4. T3 — Naive DELETE removes the row whose `last_seen_at = T1` — i.e., the row that's *currently fresh*. The user's just-re-registered token is gone; pushes will silently drop until the next client re-register.
 
-**Decision: capture `dispatchStartedAt = Instant.now()` at the moment the dispatcher reads `activeTokens(...)` AND propagate it to `deleteTokenIfStale(...)` as a guard predicate**: `DELETE FROM user_fcm_tokens WHERE user_id = :u AND platform = :p AND token = :t AND last_seen_at <= :dispatch_started_at`. The DELETE returns 0 rows affected when a re-registration has bumped `last_seen_at` past the dispatch's window — the dispatcher logs INFO `event="fcm_token_prune_skipped_re_registered"` instead of `event="fcm_token_pruned"`.
+**Decision: capture `dispatchStartedAt` via `SELECT NOW() AT TIME ZONE 'UTC'` on the SAME database connection used for `activeTokens(...)`** — NOT via JVM `Instant.now()`. Reason: `last_seen_at` in `user_fcm_tokens` is written via Postgres `NOW()` (per the `fcm-token-registration` upsert), so the predicate `last_seen_at <= :dispatch_started_at` MUST compare two values from the same clock domain. Using JVM `Instant.now()` introduces clock-skew between the JVM container and the DB primary (NTP drift, container clock drift, leap-second handling) — a JVM clock running ahead of DB by even seconds can cause a freshly-re-registered row (`last_seen_at = T_db_now`) to falsely satisfy `last_seen_at <= T_jvm_now` and be wrongly deleted. The harm in the false-delete direction is bounded (the next client re-register recreates the row), but it's an unforced error; using DB clock-domain throughout eliminates it.
 
-The `UserFcmTokenReader` interface signature for the on-send-prune path is `deleteTokenIfStale(userId, platform, token, dispatchStartedAt) → Int` (the bare `deleteToken(...)` shape from the initial design draft was promoted to this race-guarded form during the round-1 review of PR [#60](https://github.com/aditrioka/nearyou-id/pull/60)). Tests cover both: race-free (predicate matches, row deleted) and racey (predicate doesn't match, row preserved).
+The DELETE returns 0 rows affected when a re-registration has bumped `last_seen_at` past the dispatch's window — the dispatcher logs INFO `event="fcm_token_prune_skipped_re_registered"` instead of `event="fcm_token_pruned"`.
 
-### D13. Visible_users posture: shadow-banned actors retain their username in notifications (in-app + push)
+Implementation hint: `UserFcmTokenReader.activeTokens(userId)` returns `Pair<List<FcmTokenRow>, Instant dispatchStartedAt>` where the `Instant` is the result of `SELECT NOW()` on the same connection. The dispatcher then passes that Instant to `deleteTokenIfStale(...)` for any prune that fires later in the dispatch's lifetime. Alternative API shapes (e.g., a transaction-scoped reader) are acceptable; the contract is "both ends of the comparison come from the DB clock."
 
-The actor-username lookup uses `FROM users` not `FROM visible_users`. This is a privacy-policy decision worth documenting normatively, not just as "we picked this in design."
+The `UserFcmTokenReader` interface signature for the on-send-prune path is `deleteTokenIfStale(userId, platform, token, dispatchStartedAt) → Int` (the bare `deleteToken(...)` shape from the initial design draft was promoted to this race-guarded form during the round-1 review of PR [#60](https://github.com/aditrioka/nearyou-id/pull/60); the `dispatchStartedAt` source was re-decided from `Instant.now()` to `SELECT NOW()` during the round-3 review). Tests cover both: race-free (predicate matches, row deleted) and racey (predicate doesn't match, row preserved).
 
-**Decision: shadow-banned actors' usernames surface to the recipient in both the in-app notifications list AND the FCM push body. The notifications path is NOT shadow-ban-filtered.**
+### D13. Visible_users posture: shadow-banned actors are MASKED in the FCM push body
+
+The actor-username lookup uses `FROM visible_users` (not `FROM users`). This is a privacy decision documented normatively in the spec.
+
+**Decision: shadow-banned actors' usernames are masked in the FCM push body. The dispatcher reads from `visible_users`, which returns NULL/sentinel `username` for shadow-banned (and hard-deleted) users. The downstream `PushCopy.bodyFor(notification, actorUsername=null)` produces the actor-less fallback (e.g., `"Seseorang menyukai post-mu"`).**
 
 Rationale:
-- The existing `in-app-notifications` `NotificationEmitter` does NOT suppress on shadow-ban. It suppresses on `actor == recipient` (self-action) and on bidirectional `user_blocks` only. A shadow-banned user liking another user's post *does* emit a `notifications` row with `actor_user_id` set.
-- Reading via `visible_users` would mask the actor's username at render time (replace with the deletion sentinel), creating an asymmetry between the in-app list and the push body — the in-app list shows the actor's username (since the UI renders from the joined `users` row directly), but the push would say "Seseorang menyukai post-mu." Inconsistent surface.
-- Shadow-ban semantics per [`docs/06-Security-Privacy.md` § Shadow Ban](../../../docs/06-Security-Privacy.md): "all actions succeed from the banned user's perspective, invisible to others." This is "invisible to the banned user themselves" (they think their actions succeed) — not "their identity is invisible to recipients of their actions." Notification rendering surfaces are an addressed surface (recipient-targeted), not a feed surface, so the visibility-to-others contract doesn't trip on this lookup.
 
-This decision is promoted to a normative spec requirement in `specs/fcm-push-dispatch/spec.md` (see § "Actor-username lookup SHALL use `FROM users` not `FROM visible_users`").
+1. **Shadow-ban contract per [`docs/06-Security-Privacy.md` § Shadow Ban](../../../docs/06-Security-Privacy.md):** "all actions succeed from the banned user's perspective, invisible to others. High-friction layer." The intent is high-friction so a shadow-banned user can't easily detect their state. Surfacing their handle to recipients in a high-velocity surface (push notifications) inverts the friction — the recipient may respond, the response surfaces to the shadow-banned user (because they're not blocked-from-receiving), and the shadow-banned user infers their content is being seen. We preserve the high-friction posture by masking.
 
-### D14. Composite exception propagation: catch-and-log, never silent-swallow
+2. **Industry convention.** Reddit, Hacker News, X, and most mature platforms with shadow-ban surfaces produce *no* recipient signal for shadow-banned actors' actions — the action drops silently. The closest within-scope approximation here, given that `notifications` rows are *already* being created (NotificationEmitter doesn't shadow-ban-suppress today), is to surface a generic actor signal rather than the actor's real handle.
+
+3. **Defense in depth.** The notifications path has TWO suppression layers today (self-action and bidirectional `user_blocks`). Reading actor-username via `visible_users` adds a THIRD layer that aligns with the shadow-ban contract elsewhere in the system (the timeline / search / feed surfaces all read via `visible_*` views). Adding the new push surface with the safer posture matches the rest of the system.
+
+4. **Outcome parity, not mechanism parity.** Today's `GET /api/v1/notifications` endpoint returns `actor_user_id` UUID with no username text ([`backend/ktor/.../notifications/NotificationRoutes.kt`](../../../backend/ktor/src/main/kotlin/id/nearyou/app/notifications/NotificationRoutes.kt) — verified by the round-3 review of PR [#60](https://github.com/aditrioka/nearyou-id/pull/60)). The mobile client renders the username via a separate profile-lookup endpoint that already filters via shadow-ban-aware paths. So the *outcome* is "shadow-banned actor's name is NOT directly surfaced to the recipient by the notifications endpoint." This change reads via `visible_users` to mirror that outcome on the push surface — different mechanisms (in-app: separate profile fetch; push: server-side `visible_users` read), same outcome.
+
+5. **Reversibility.** If product later decides shadow-banned actors SHOULD surface to recipients via push, switching `visible_users → users` is a one-line revert. Going the other way after shipping creates a privacy regression that's hard to walk back.
+
+6. **Upstream design flaw acknowledged.** The cleaner architectural fix is for `NotificationEmitter` to also suppress on shadow-ban — not just `user_blocks`. That's an `in-app-notifications` capability change, out of scope for `fcm-push-dispatch`. Tracked as a follow-up in `FOLLOW_UPS.md` at apply-time.
+
+This decision is promoted to a normative spec requirement in `specs/fcm-push-dispatch/spec.md` (see § "Actor-username lookup SHALL use `FROM visible_users` to mask shadow-banned and deleted actors").
+
+**Earlier-draft retraction:** an earlier version of this design (rounds 1 + 2) proposed reading from raw `users` and rationalized the choice as "preserving in-app/push parity." Round-3 review of PR [#60](https://github.com/aditrioka/nearyou-id/pull/60) verified that the asserted parity does not exist — `GET /api/v1/notifications` does not return username text — so the rationale was factually wrong. The current decision corrects the analysis and flips the read source. Documented here so the rationale-trail is preserved for future readers.
+
+### D14. Composite exception propagation: catch-and-log at ERROR + counter metric, never silent-swallow
 
 `FcmAndInAppDispatcher.dispatch(...)` invokes `FcmDispatcher.dispatch(...)` then `InAppOnlyDispatcher.dispatch(...)`. Both implementations are designed to never throw — `FcmDispatcher` catches all transport-level exceptions internally and surfaces them as WARN logs (per spec); `InAppOnlyDispatcher` is a single `logger.info(...)` call.
 
-**Decision: the composite SHALL wrap each delegate call in its own try/catch. Any exception caught is logged at FATAL severity with `event="fcm_composite_dispatcher_unexpected_error"`, `delegate=<className>`, `notification_id`, `notification_type`. The exception is NOT propagated to the caller.**
+**Decision: the composite SHALL wrap each delegate call in its own try/catch. Any exception caught is logged at ERROR severity with `event="fcm_composite_dispatcher_unexpected_error"`, `delegate=<className>`, `notification_id`, `notification_type`. A counter metric `fcm_composite_unexpected_error_total{delegate=...}` SHALL be incremented (Cloud Monitoring custom metric or OTEL counter — implementer's choice). The exception is NOT propagated to the caller.**
 
-Rationale: silent swallowing in the composite would mask emit-site bugs (e.g., a future NPE in the in-app log path because `body_data` shape changed unexpectedly). FATAL severity routes the alarm to Sentry / PagerDuty per the existing observability surface, even though dispatch itself proceeds (the other delegate runs normally). The audit-trail integrity (the in-app log) is preserved either way.
+Rationale: silent swallowing would mask emit-site bugs (e.g., a future NPE in the in-app log path because `body_data` shape changed unexpectedly). The earlier-draft posture (rounds 1+2) used FATAL severity — round-3 review of PR [#60](https://github.com/aditrioka/nearyou-id/pull/60) flagged this as over-aggressive: a latent NPE in the in-app log path would page on-call for *every* notification emit, which is wrong-shaped for a defense-in-depth catch. ERROR + counter metric is the proportional shape: structured ERROR appears in Sentry / Cloud Logging, the metric supports a Cloud Monitoring alert at "rate > 5/min" so noisy regressions still page, and a one-shot ERROR doesn't trip the alarm. Audit-trail integrity (the in-app log) is preserved either way.
 
 ### D15. Secret rotation: process restart required (no hot-reload)
 
@@ -268,9 +288,9 @@ This is documented in the spec § "Service-account JSON SHALL be read via `secre
 
 Spec § "`:infra:fcm` module SHALL encapsulate the Firebase Admin SDK" claims `:infra:fcm` is the only module with `import com.google.firebase.*`. But the production Koin DI module in `:backend:ktor` must construct the `FirebaseMessaging` instance and pass it to `FcmDispatcher`'s constructor — meaning `:backend:ktor`'s DI module references the type at compile-time.
 
-**Decision: `:backend:ktor` MAY import `com.google.firebase.messaging.FirebaseMessaging` strictly for DI binding signatures (Koin module + factory). The boundary scenario in the spec is amended to read "`:infra:fcm` is the only module that imports `com.google.firebase.*` for *behavior*; `:backend:ktor` may import only the named SDK types required to express DI bindings (not invoke them)."**
+**Decision: `:backend:ktor` MAY import `com.google.firebase.messaging.FirebaseMessaging` strictly for DI binding signatures (Koin module + factory). The boundary scenario in the spec is amended from a strict SHALL to a SHOULD — the lint check is a `grep`-based assertion in the test suite (see tasks 8.3), NOT a Detekt rule, so this rule is best-effort code-review-grade rather than CI-enforced. Round-3 review of PR [#60](https://github.com/aditrioka/nearyou-id/pull/60) flagged this distinction: claims-without-CI-enforcement rot. The spec scenario "`:backend:ktor` Firebase imports are scoped to DI-binding files only" is downgraded from a hard guarantee to a guideline that future contributors must respect at PR-review time. A future Detekt rule (e.g., `FirebaseImportBoundaryRule` allowlisting `*Module.kt` filenames or files annotated `@FcmDiBinding`) would tighten this back to SHALL — tracked as a `FOLLOW_UPS.md` candidate at apply-time.**
 
-A stricter alternative (factory function in `:infra:fcm` exposing only `NotificationDispatcher`-typed return values) would hide the Firebase types entirely from `:backend:ktor` but at the cost of a non-idiomatic DI shape. Picked the simpler pattern with the documented exception.
+A stricter alternative (factory function in `:infra:fcm` exposing only `NotificationDispatcher`-typed return values) would hide the Firebase types entirely from `:backend:ktor` at the cost of a non-idiomatic DI shape. Picked the simpler pattern with the documented exception + the explicit rot-acknowledgment.
 
 ### D17. (Promoted from Q1) No boot-time FCM liveness check via `dryRun`
 
@@ -290,9 +310,27 @@ A Remote Config flag could disable all FCM dispatch in an incident.
 
 **Decision: do NOT add the kill-switch in this change.** Rationale per D1: rotating the secret-slot value to invalid achieves the same effect (emits fall back to in-app-only via the WARN-on-transport-failure path), and the composite dispatcher already isolates FCM failures from the in-app log path. A kill-switch RC flag adds a hot-path runtime branch on every emit for an action achievable with a Secret Manager update + restart. Add later if operational pain materializes.
 
-Per [`CLAUDE.md` invariant](../../../CLAUDE.md): "Root README module list is auto-generated from `settings.gradle.kts` + `dev/module-descriptions.txt`. When a change adds a new module, also (a) add a one-line description to `dev/module-descriptions.txt`, then (b) run `dev/scripts/sync-readme.sh --write`."
+### D20. Defensive logback floor for FCM Admin SDK loggers
 
-This change adds `:infra:fcm`. Tasks include adding the line to `dev/module-descriptions.txt` and running `sync-readme.sh --write` to regenerate the README block. CI's `--check` mode will catch drift.
+The Firebase Admin SDK uses `java.util.logging` (j.u.l) and Apache HttpClient internally. At low severities (`FINE` / `FINER`) those loggers MAY emit request URLs, response bodies, or other internals — and while the SDK does not (as of the current stable line) log raw FCM tokens at default severities, defense-in-depth dictates we never assume a future SDK release will hold that contract.
+
+**Decision: the `:infra:fcm` module's logback (or `logback-classic`) configuration SHALL pin the following loggers to `INFO` floor at startup, preventing accidental token-bearing payload emission via the SDK's internal logs:**
+
+```xml
+<logger name="com.google.firebase" level="INFO"/>
+<logger name="com.google.api.client" level="INFO"/>
+<logger name="com.google.cloud" level="INFO"/>
+```
+
+The pin is implementation-defensive, not contract-driven — it does not change observable behavior of the dispatcher, but reduces the surface where a future SDK upgrade could regress token confidentiality. Tasks 5.5 includes the logback-config addition.
+
+### D21. Future FCM health-check probes SHALL reuse the initialized `FirebaseMessaging` singleton
+
+If a future change adds an FCM connectivity health-check (e.g., `/health/fcm` for ops dashboards or for the existing `/health/ready` probe surface), the implementation MUST reuse the already-initialized `FirebaseMessaging` singleton via Koin (`Koin.get<FirebaseMessaging>()` from `:backend:ktor`'s DI module). It MUST NOT re-read `firebase-admin-sa` via `secretKey(env, ...)` directly.
+
+Rationale: the secret is read exactly once at startup per D7 and D15. A second read path would (a) break the "secret rotation requires process restart" invariant (D15), (b) create a second initialization surface that could drift from the boot path's validation contract, and (c) duplicate the secret-handling code that the `secretKey(env, name)` helper exists to centralize.
+
+This decision is forward-defensive — no health-check probe is implemented in this change; D21 captures the contract for the next change to honor.
 
 ## Risks / Trade-offs
 
