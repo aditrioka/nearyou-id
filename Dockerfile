@@ -44,6 +44,7 @@ COPY build-logic build-logic
 COPY backend/ktor/build.gradle.kts backend/ktor/build.gradle.kts
 COPY core/data/build.gradle.kts core/data/build.gradle.kts
 COPY core/domain/build.gradle.kts core/domain/build.gradle.kts
+COPY infra/fcm/build.gradle.kts infra/fcm/build.gradle.kts
 COPY infra/oidc/build.gradle.kts infra/oidc/build.gradle.kts
 COPY infra/redis/build.gradle.kts infra/redis/build.gradle.kts
 COPY infra/supabase/build.gradle.kts infra/supabase/build.gradle.kts
@@ -55,6 +56,7 @@ COPY shared/tmp/build.gradle.kts shared/tmp/build.gradle.kts
 COPY backend/ktor/src backend/ktor/src
 COPY core/data/src core/data/src
 COPY core/domain/src core/domain/src
+COPY infra/fcm/src infra/fcm/src
 COPY infra/oidc/src infra/oidc/src
 COPY infra/redis/src infra/redis/src
 COPY infra/supabase/src infra/supabase/src
