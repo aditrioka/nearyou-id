@@ -41,11 +41,21 @@
 #   - POST /api/v1/user/fcm-token (recipient, synthetic Android token)        → 204
 #   - POST /api/v1/posts (recipient as author, "Smoke FCM dispatch" body)     → 201
 #   - POST /api/v1/posts/:id/like (liker)                                     → 204
-#   - Cloud Logging within 60s of the like contains `event=fcm_dispatched`
-#     for `user_id=<recipient-uuid>` AND `platform=android`. Synthetic token
-#     SHOULD return UNREGISTERED from FCM (token isn't real); the dispatcher
-#     then prunes via `event=fcm_token_pruned`. EITHER fcm_dispatched OR
-#     fcm_token_pruned is acceptable evidence the dispatch path executed.
+#   - Cloud Logging within 60s of the like contains a dispatch-path log line
+#     for `user_id=<recipient-uuid>`. Three outcomes are acceptable evidence
+#     the FcmDispatcher ran end-to-end against the FCM Admin SDK:
+#       a. event=fcm_dispatched               (real device, very rare in smoke)
+#       b. event=fcm_token_pruned             (synthetic token rejected as
+#                                              UNREGISTERED → pruned)
+#       c. event=fcm_dispatch_failed
+#          + error_code=INVALID_ARGUMENT      (synthetic token rejected as
+#                                              malformed-format — per design
+#                                              D6 INVALID_ARGUMENT is transient
+#                                              because the FCM SDK overloads
+#                                              the code; row is NOT deleted)
+#     (a)/(b)/(c) all prove the composite dispatcher fired and the FCM
+#     round-trip completed — only the FCM-side response varies. (c) is the
+#     typical observed outcome with a fabricated `smoke-*` token.
 #   - Cloud Logging within the same window contains NO unexpected
 #     `event=fcm_init_failed` AND zero `event=fcm_dispatch_failed` with
 #     error_code IN ('UNAVAILABLE','INTERNAL','QUOTA_EXCEEDED','unknown')
@@ -150,8 +160,8 @@ echo "==> 10.2.b Recipient creates a post (expect 201)..."
 POST_BODY="$(cat <<JSON
 {
   "content": "Smoke FCM dispatch ${TIMESTAMP_LABEL}",
-  "lat": -6.2088,
-  "lng": 106.8456
+  "latitude": -6.2088,
+  "longitude": 106.8456
 }
 JSON
 )"
@@ -213,21 +223,28 @@ if ! command -v gcloud >/dev/null 2>&1; then
     echo "    'resource.type=\"cloud_run_revision\" AND textPayload:\"event=fcm_dispatched\" AND textPayload:\"$RECIPIENT_UUID\"' \\" >&2
     echo "    --freshness=2m" >&2
 else
-    echo "==> 10.3 Cloud Logging — looking for fcm_dispatched / fcm_token_pruned for recipient..."
+    echo "==> 10.3 Cloud Logging — looking for dispatch-path evidence for recipient..."
+    # Accept any of the three dispatch-path outcomes (see header doc):
+    #   fcm_dispatched / fcm_token_pruned / fcm_dispatch_failed+INVALID_ARGUMENT.
+    # The synthetic 'smoke-*' token typically lands in (c) because FCM rejects
+    # the format. (b) UNREGISTERED is also seen if FCM treats it as a stale
+    # registration ID rather than a malformed one — both prove the path ran.
     LOGS_DISPATCH="$(gcloud logging read --project="$GCP_PROJECT" \
-        "resource.type=\"cloud_run_revision\" AND timestamp>=\"$SINCE_TS\" AND (textPayload:\"event=fcm_dispatched\" OR textPayload:\"event=fcm_token_pruned\") AND textPayload:\"user_id=$RECIPIENT_UUID\"" \
+        "resource.type=\"cloud_run_revision\" AND timestamp>=\"$SINCE_TS\" AND (textPayload:\"event=fcm_dispatched\" OR textPayload:\"event=fcm_token_pruned\" OR (textPayload:\"event=fcm_dispatch_failed\" AND textPayload:\"error_code=INVALID_ARGUMENT\")) AND textPayload:\"user_id=$RECIPIENT_UUID\"" \
         --freshness=2m --limit=10 --format='value(textPayload)' 2>&1 || true)"
     if [[ -z "$LOGS_DISPATCH" ]]; then
-        echo "FAIL: no fcm_dispatched OR fcm_token_pruned log entry found for recipient $RECIPIENT_UUID since $SINCE_TS." >&2
+        echo "FAIL: no fcm dispatch-path log entry found for recipient $RECIPIENT_UUID since $SINCE_TS." >&2
+        echo "      Expected one of: fcm_dispatched | fcm_token_pruned |" >&2
+        echo "                       fcm_dispatch_failed+error_code=INVALID_ARGUMENT." >&2
         echo "      The dispatch path did not execute, OR the log query missed the window." >&2
         echo "      Re-run manually with --freshness=10m to widen the search." >&2
         exit 1
     fi
-    echo "    ✓ Found dispatch evidence:"
+    echo "    ✓ Found dispatch-path evidence:"
     echo "$LOGS_DISPATCH" | head -3 | sed 's/^/      /'
     echo
 
-    echo "==> 10.3 Cloud Logging — checking for unexpected fcm_init_failed / transient fcm_dispatch_failed..."
+    echo "==> 10.3 Cloud Logging — checking for unexpected fcm_init_failed / transient-FCM-provider faults..."
     LOGS_INIT_FAILED="$(gcloud logging read --project="$GCP_PROJECT" \
         "resource.type=\"cloud_run_revision\" AND timestamp>=\"$SINCE_TS\" AND textPayload:\"event=fcm_init_failed\"" \
         --freshness=2m --limit=5 --format='value(textPayload)' 2>&1 || true)"
@@ -236,6 +253,9 @@ else
         echo "$LOGS_INIT_FAILED" | head -3 | sed 's/^/      /' >&2
         exit 1
     fi
+    # Transient-class = real provider hiccups, distinct from INVALID_ARGUMENT
+    # (which is expected for synthetic tokens and accepted as dispatch-path
+    # evidence above).
     LOGS_TRANSIENT="$(gcloud logging read --project="$GCP_PROJECT" \
         "resource.type=\"cloud_run_revision\" AND timestamp>=\"$SINCE_TS\" AND textPayload:\"event=fcm_dispatch_failed\" AND (textPayload:\"error_code=UNAVAILABLE\" OR textPayload:\"error_code=INTERNAL\" OR textPayload:\"error_code=QUOTA_EXCEEDED\" OR textPayload:\"error_code=unknown\")" \
         --freshness=2m --limit=5 --format='value(textPayload)' 2>&1 || true)"
@@ -243,7 +263,7 @@ else
         echo "WARN: transient FCM provider faults seen — investigate but does not fail the smoke:" >&2
         echo "$LOGS_TRANSIENT" | head -3 | sed 's/^/      /' >&2
     fi
-    echo "    ✓ No fcm_init_failed; no transient-class fcm_dispatch_failed"
+    echo "    ✓ No fcm_init_failed; no transient-FCM-provider faults"
     echo
 fi
 
@@ -253,14 +273,15 @@ fi
 # the on-send prune. We document this so the operator doesn't think the
 # pruned-row state is wrong.
 # ----------------------------------------------------------------------------
-echo "==> 10.4 Token state — synthetic tokens typically prune via UNREGISTERED."
+echo "==> 10.4 Token state — synthetic 'smoke-*' tokens are typically rejected"
+echo "    by FCM as INVALID_ARGUMENT (transient per design D6 — row NOT"
+echo "    deleted). Less commonly, FCM returns UNREGISTERED → row pruned"
+echo "    automatically via event=fcm_token_pruned in the logs above."
 echo "    SQL-verify (run against staging Postgres):"
 echo "      SELECT COUNT(*) FROM user_fcm_tokens"
 echo "        WHERE user_id = '$RECIPIENT_UUID' AND token = '$TOKEN_ANDROID';"
-echo "    Expected: 0 (pruned via UNREGISTERED) — log line above will show"
-echo "              event=fcm_token_pruned. If the row persists, FCM accepted"
-echo "              the synthetic token (unlikely) and the operator may want"
-echo "              to delete it manually as part of cleanup."
+echo "    Expected: 1 if INVALID_ARGUMENT path (typical) — clean it up via"
+echo "              the cleanup hints below. 0 if UNREGISTERED path (auto-pruned)."
 echo
 
 # ----------------------------------------------------------------------------
