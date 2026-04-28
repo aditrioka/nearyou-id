@@ -189,7 +189,7 @@ Alternative considered: fail-open with a structured FATAL log on every emit atte
 - `dependencies { implementation(libs.firebase.admin) }` (the new pin in `gradle/libs.versions.toml`).
 - `dependencies { api(project(":core:data")) }` (for the `NotificationDispatcher` interface and `NotificationDto`).
 - `dependencies { implementation(project(":core:domain")) }` (for `UserId` value-class etc., if any cross-cuts).
-- A small DAO interface (`UserFcmTokenReader { fun activeTokens(userId: UserId): List<FcmTokenRow>; fun deleteToken(userId, platform, token) }`) defined in `:infra:fcm` and implemented against the existing JOOQ/SQL surface in `:backend:ktor` via Koin (the implementation is in `:backend:ktor` so the SDK leaf has zero JDBC import). Wait — that creates a back-reference. Re-decide:
+- A small DAO interface (`UserFcmTokenReader { fun activeTokens(userId: UserId): List<FcmTokenRow>; fun deleteTokenIfStale(userId, platform, token, dispatchStartedAt) }`) defined in `:infra:fcm` and implemented against the existing JOOQ/SQL surface in `:backend:ktor` via Koin (the implementation is in `:backend:ktor` so the SDK leaf has zero JDBC import). Wait — that creates a back-reference. Re-decide:
 
 **Decision (revised):** the `UserFcmTokenReader` interface lives in `:core:data` (alongside the existing `NotificationDispatcher` interface — same module, same posture). Its production JOOQ-backed implementation lives in `:backend:ktor`, and `FcmDispatcher` (in `:infra:fcm`) takes it as a constructor dependency. `:infra:fcm` therefore depends only on `:core:data`. The DI graph wires the JOOQ implementation in.
 
@@ -222,8 +222,6 @@ Rationale (to land in `docs/09-Versions.md` Version Decisions table):
 
 ### D11. Settings new module entry per CLAUDE.md README rule
 
-[OUTLINE: D12–D19 below were promoted from review feedback after the round-1 sub-agent sweep on PR #60. Each formerly lived as Open Questions or implicit assumptions; promoting them to numbered Decisions documents the rationale durably.]
-
 ### D12. Re-registration race: `last_seen_at` predicate on the on-send DELETE
 
 Race scenario:
@@ -233,9 +231,9 @@ Race scenario:
 3. T2 — FCM responds `UNREGISTERED` for the dispatch from T0 (the token *was* stale at the time of send; the re-registration may have come from a different process / device).
 4. T3 — Naive DELETE removes the row whose `last_seen_at = T1` — i.e., the row that's *currently fresh*. The user's just-re-registered token is gone; pushes will silently drop until the next client re-register.
 
-**Decision: capture `dispatch_started_at = NOW()` at the moment the dispatcher reads `activeTokens(...)` AND propagate it to `deleteToken(...)` as a guard predicate**: `DELETE FROM user_fcm_tokens WHERE user_id = :u AND platform = :p AND token = :t AND last_seen_at <= :dispatch_started_at`. The DELETE returns 0 rows affected when a re-registration has bumped `last_seen_at` past the dispatch's window — the dispatcher logs INFO `event="fcm_token_prune_skipped_re_registered"` instead of `event="fcm_token_pruned"`.
+**Decision: capture `dispatchStartedAt = Instant.now()` at the moment the dispatcher reads `activeTokens(...)` AND propagate it to `deleteTokenIfStale(...)` as a guard predicate**: `DELETE FROM user_fcm_tokens WHERE user_id = :u AND platform = :p AND token = :t AND last_seen_at <= :dispatch_started_at`. The DELETE returns 0 rows affected when a re-registration has bumped `last_seen_at` past the dispatch's window — the dispatcher logs INFO `event="fcm_token_prune_skipped_re_registered"` instead of `event="fcm_token_pruned"`.
 
-The `UserFcmTokenReader.deleteToken(...)` interface signature gains the predicate parameter (renamed `deleteTokenIfStale(userId, platform, token, dispatchStartedAt) → Int`). Tests cover both: race-free (predicate matches, row deleted) and racey (predicate doesn't match, row preserved).
+The `UserFcmTokenReader` interface signature for the on-send-prune path is `deleteTokenIfStale(userId, platform, token, dispatchStartedAt) → Int` (the bare `deleteToken(...)` shape from the initial design draft was promoted to this race-guarded form during the round-1 review of PR [#60](https://github.com/aditrioka/nearyou-id/pull/60)). Tests cover both: race-free (predicate matches, row deleted) and racey (predicate doesn't match, row preserved).
 
 ### D13. Visible_users posture: shadow-banned actors retain their username in notifications (in-app + push)
 
