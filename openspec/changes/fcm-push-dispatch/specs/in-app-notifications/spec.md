@@ -7,7 +7,7 @@ An interface `NotificationDispatcher` SHALL be defined in `:core:data` with a si
 - `InAppOnlyDispatcher` — a no-op (logs at INFO `event="notification_in_app_only"`, does not push anywhere). Originally introduced in V10 as the only implementation; preserved as the audit-log baseline AND the test-profile default.
 - `FcmDispatcher` — implemented in `:infra:fcm` per the [`fcm-push-dispatch` capability](../../specs/fcm-push-dispatch/spec.md). Reads active rows from `user_fcm_tokens` for the recipient AND sends platform-specific FCM pushes (Android data-only / iOS alert + mutable-content). Owns the on-send 404/410 → row-delete contract per [`fcm-token-registration`](../../specs/fcm-token-registration/spec.md).
 
-The Koin DI module for `:backend:ktor` production startup SHALL bind `NotificationDispatcher` to a composite implementation (`FcmAndInAppDispatcher`) that calls both `FcmDispatcher.dispatch(notification)` AND `InAppOnlyDispatcher.dispatch(notification)` in sequence — preserving the in-app log line as the audit trail AND adding the FCM push alongside it. The integration-test Koin module SHALL bind `InAppOnlyDispatcher` only by default; tests that exercise FCM dispatch MUST install a test-only override binding.
+The Koin DI module for `:backend:ktor` production startup SHALL bind `NotificationDispatcher` to a composite implementation (`FcmAndInAppDispatcher`) that invokes `FcmDispatcher.dispatch(notification)` first AND `InAppOnlyDispatcher.dispatch(notification)` second. "First" and "second" describe **call-order**, NOT completion-order: `FcmDispatcher.dispatch(...)` enqueues coroutines on a background scope and returns synchronously; `InAppOnlyDispatcher.dispatch(...)` is a synchronous log line. The in-app log fires before any FCM round-trip completes — preserving the in-app log line as the audit trail AND adding the FCM push alongside it. The composite SHALL wrap each delegate call in its own try/catch, logging any unexpected exception at FATAL severity without propagating to the caller. The integration-test Koin module SHALL bind `InAppOnlyDispatcher` only by default; tests that exercise FCM dispatch MUST install a test-only override binding.
 
 `NotificationService.emit()` SHALL call `dispatch()` after the DB commit succeeds (post-commit invocation contract). The contract is preserved verbatim from V10: `NotificationService` source is unchanged by the addition of `FcmDispatcher`. Future dispatcher implementations (e.g., per-conversation push batching when chat lands) MAY add new `NotificationDispatcher` implementations or new composites without modifying `NotificationService` or any emitter.
 
@@ -29,7 +29,7 @@ The Koin DI module for `:backend:ktor` production startup SHALL bind `Notificati
 #### Scenario: Production DI binds the composite
 
 - **WHEN** the backend starts in the production profile AND `Koin.get<NotificationDispatcher>()` is resolved
-- **THEN** the resolved instance is the composite `FcmAndInAppDispatcher` AND `dispatch(...)` invokes both `FcmDispatcher.dispatch(...)` AND `InAppOnlyDispatcher.dispatch(...)` exactly once each
+- **THEN** the resolved instance is the composite `FcmAndInAppDispatcher` AND `dispatch(...)` invokes both `FcmDispatcher.dispatch(...)` AND `InAppOnlyDispatcher.dispatch(...)` exactly once each (call-order: FCM enqueue first, in-app log second; completion-order is not constrained because FCM is fire-and-forget on a background scope)
 
 #### Scenario: Test profile DI binds InAppOnlyDispatcher only
 

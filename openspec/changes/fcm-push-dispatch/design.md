@@ -42,7 +42,7 @@ Two options for combining `FcmDispatcher` with the existing `InAppOnlyDispatcher
 
 **Decision: (b) composite.** Rationale:
 - The "in-app log line" is already a no-op effect-wise; keeping it as a *consumer* of dispatch alongside FCM is cleaner than gating it behind a flag.
-- A Remote Config flag introduces a runtime branch on a hot path (every notification emit) that's only useful for one operator action ("disable all FCM in an incident"). That action is also achievable by rotating the Firebase service-account secret + restarting (forces fail-open behavior per D7), which is a less subtle bigger-hammer that doesn't require a new RC flag.
+- A Remote Config flag introduces a runtime branch on a hot path (every notification emit) that's only useful for one operator action ("disable all FCM in an incident"). That action is also achievable by rotating the Firebase service-account secret to an invalid value AND triggering a Cloud Run revision rollout (per D15: secret rotation requires process restart) — the next instance fails to start, the prior instance drains, FCM dispatch goes silent. A subsequent rollback restores. Less subtle but doesn't require a new RC flag.
 - Tests bind `InAppOnlyDispatcher` directly (no FCM), preserving the existing in-app-notifications test surface verbatim. Production binds the composite. Test ergonomics stay simple.
 
 A `kill-switch` Remote Config flag (`fcm_dispatch_enabled`) MAY be added in a follow-up change if operational experience shows it's needed. Not introduced here.
@@ -117,7 +117,22 @@ Backend strings have a different posture:
 
 The `<actor_username>` substitution requires a join: `FcmDispatcher` does a single `SELECT username FROM users WHERE id = :actor_user_id` per dispatch (when `actor_user_id IS NOT NULL`). For system-emitted notifications (`actor_user_id IS NULL`, e.g., `post_auto_hidden`, `privacy_flip_warning`), no join is needed.
 
-**`actor_username` join shadow-ban posture:** the actor-username lookup is a notification-rendering step, NOT a "business query that filters posts/replies/chat." It runs on a hot path (one row by primary key) and the value is shown to the *recipient*, who has already been deemed a legitimate audience for the actor's action by the existing `NotificationEmitter` block-check (see [`in-app-notifications` requirement "NotificationEmitter write-path with block-suppression"](../../specs/in-app-notifications/spec.md)). The join uses raw `FROM users WHERE id = :actor_user_id LIMIT 1` — exempt from `RawFromPostsRule` because: (a) it's a single-row PK lookup, not a list/feed query; (b) shadow-banning is a list-suppression mechanism (per the `visible_users` view contract), not a "hide every reference of this user globally"; (c) the upstream emit-site already gates the notification through the block-check, so the actor↔recipient relationship is approved by the time the username is rendered. Documented as a permitted call-site in the FcmDispatcher source with `// @allow-raw-users-read: notification-rendering` annotation, and the `RawFromPostsRule` allowlist is extended to recognize that annotation. (Allowlist precedent matches the `// @allow-username-write: signup` pattern from the username-customization design.)
+**`actor_username` join Detekt-rule posture:** the actor-username lookup `SELECT username FROM users WHERE id = :actor_user_id LIMIT 1` is a notification-rendering step, NOT a "business query that filters posts/replies/chat." It runs on a hot path (one row by primary key). The relevant Detekt rule is **`BlockExclusionJoinRule`** ([`lint/detekt-rules/.../BlockExclusionJoinRule.kt`](../../../lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/BlockExclusionJoinRule.kt) — `users` is in its protected table set: `posts | visible_posts | users | chat_messages | post_replies`), NOT `RawFromPostsRule` (the latter only protects `posts | visible_posts`).
+
+The lookup MUST be allowlisted via `BlockExclusionJoinRule`'s canonical `@AllowMissingBlockJoin("<reason>")` KtAnnotation mechanism per [`block-exclusion-lint` requirement "Allowlists for block-exclusion lint"](../../../openspec/specs/block-exclusion-lint/spec.md). Direct precedent: [`ReportService.kt:178`](../../../backend/ktor/src/main/kotlin/id/nearyou/app/moderation/ReportService.kt) — the V9 report change applies the same annotation on its own raw-`FROM posts` / raw-`FROM post_replies` lookup for the same posture (system-originated lookup, recipient is the known audience). The annotation reason for the `ActorUsernameLookup` SHALL be:
+
+```kotlin
+@AllowMissingBlockJoin(
+    "Notification-rendering actor-username PK lookup. The recipient is the known " +
+    "audience and was already cleared via the NotificationEmitter bidirectional " +
+    "block-check at emit-time (see in-app-notifications spec, NotificationEmitter " +
+    "write-path requirement). Block-exclusion does not apply to the rendered " +
+    "username — it would re-litigate the actor↔recipient relationship that the " +
+    "emit path has already gated."
+)
+```
+
+**Shadow-ban posture (visible_users vs raw users):** the lookup uses `FROM users` not `FROM visible_users` deliberately. The existing `in-app-notifications` `NotificationEmitter` does NOT suppress on shadow-ban (it suppresses on self-action and bidirectional `user_blocks` only — see `openspec/specs/in-app-notifications/spec.md`). A shadow-banned actor liking a post therefore DOES emit a `notifications` row. Reading via `visible_users` would mask the actor's username at render time (replacing with the deletion sentinel) — that would surface a *different* contract than the in-app-list contract, where the recipient sees the actor's actual username. We preserve symmetry: the notifications list and the FCM push body show the same actor identity. Per [`docs/06-Security-Privacy.md` § Shadow Ban](../../../docs/06-Security-Privacy.md), shadow-ban is "invisible to the banned user" — not "the banned user's identity is invisible to recipients of their addressed actions." This decision is promoted to a normative spec requirement (see specs § "Actor-username SHALL render via raw `users` lookup, preserving in-app/push parity for shadow-banned actors").
 
 ### D5. Read-tokens query SHALL filter `user_fcm_tokens` by recipient only
 
@@ -125,20 +140,37 @@ The `<actor_username>` substitution requires a join: `FcmDispatcher` does a sing
 
 The query MUST run **outside** the recipient's primary write transaction (the dispatcher runs after-commit per D2). It runs on its own connection from the pool.
 
-### D6. 404/410 → DELETE: per-token, not per-user
+### D6. Token-prune semantics: DELETE only on `UNREGISTERED` and `SENDER_ID_MISMATCH`; `INVALID_ARGUMENT` is ambiguous and treated as transient
 
-When the FCM Admin SDK reports `MessagingErrorCode.UNREGISTERED` (HTTP 404) or `MessagingErrorCode.INVALID_ARGUMENT` (HTTP 410) for a specific token, the dispatcher executes:
+When the FCM Admin SDK reports `MessagingErrorCode.UNREGISTERED` (the registration token has been unregistered or expired) OR `MessagingErrorCode.SENDER_ID_MISMATCH` (the token belongs to a different FCM project), the dispatcher executes a per-token DELETE:
 
 ```sql
 DELETE FROM user_fcm_tokens
-WHERE user_id = :u AND platform = :p AND token = :t
+WHERE user_id = :u
+  AND platform = :p
+  AND token = :t
+  AND last_seen_at <= :dispatch_started_at
 ```
 
-This deletes exactly the one row for that `(user_id, platform, token)` triple. It does NOT touch other tokens for the same user (a user with stale-token-A and live-token-B keeps token-B). The DELETE uses the UNIQUE index from V14 — a single-row index lookup.
+The `last_seen_at <= :dispatch_started_at` predicate guards against the **re-registration race** (see D12 below). The DELETE uses the UNIQUE index from V14 — a single-row index lookup.
 
-`MessagingErrorCode.SENDER_ID_MISMATCH` is also a permanent failure (the token belongs to a different FCM project) and is treated identically — DELETE the row.
+`MessagingErrorCode.INVALID_ARGUMENT` is **NOT** treated as a permanent failure. The original review of this design (PR [#60](https://github.com/aditrioka/nearyou-id/pull/60)) flagged that `INVALID_ARGUMENT` is overloaded by the FCM Admin SDK: it covers both stale-token-format failures AND oversized-payload failures (APNs caps payloads at 4 KB, FCM's underlying limit is similar). Deleting a token because the *payload* was too large would be wrong — the token is healthy. Therefore `INVALID_ARGUMENT` is treated as transient: structured WARN log, no DELETE, recipient sees the notification on next emit (or via the in-app list per the docs/04-Architecture.md:558 fallback). The trade-off: a genuinely-invalid-format token persists until the next emit attempt, where it produces another `INVALID_ARGUMENT`. This is acceptable because (a) genuinely-malformed tokens are rare (Firebase SDKs produce well-formed tokens), (b) the stale-cleanup worker (Phase 3.5) eventually purges via `last_seen_at` even if the token never gets touched, and (c) the alternative — best-effort message-substring matching to disambiguate — is brittle.
+
+To minimize the false-positive `INVALID_ARGUMENT` rate, the iOS payload builder **MUST clamp `body_full` size** so the assembled APNs payload stays under the 4 KB limit. The clamp truncates `body_full` to a safe ceiling (typically ~3 KB after JSON-stringification), preserving the `body_data` shape but truncating the longest-field — typically `post_excerpt` or `reply_excerpt` — to fit. Tests assert that a `body_data` with a deliberately-oversized excerpt produces a payload ≤ 4 KB and does not trigger `INVALID_ARGUMENT`.
 
 All other `MessagingErrorCode` values (`QUOTA_EXCEEDED`, `UNAVAILABLE`, `INTERNAL`) and any non-`FirebaseMessagingException` (network, timeout, JSON deserialize) are treated as transient — log structured WARN with the error code, do NOT delete the row.
+
+Summary of token-prune triggers:
+
+| Error | Treatment | Delete? |
+|-------|-----------|---------|
+| `UNREGISTERED` | Permanent — token gone | ✅ YES |
+| `SENDER_ID_MISMATCH` | Permanent — different FCM project | ✅ YES |
+| `INVALID_ARGUMENT` | Ambiguous (stale-format OR oversized payload) | ❌ NO |
+| `QUOTA_EXCEEDED` | Transient — back off later | ❌ NO |
+| `UNAVAILABLE` | Transient — FCM provider hiccup | ❌ NO |
+| `INTERNAL` | Transient — FCM internal | ❌ NO |
+| Network / timeout / JSON-deserialize | Transient | ❌ NO |
 
 ### D7. Boot-time service-account validation: fail-fast in non-test, fail-open in test
 
@@ -169,16 +201,16 @@ Per [`docs/09-Versions.md`](../../../docs/09-Versions.md) Pinning Policy, all th
 
 ```toml
 [versions]
-firebase-admin = "9.4.3"   # current stable as of 2026-04-28; verify before scaffold
+firebase-admin = "<verified-at-scaffold>"   # implementer pins via task 1.1 — see Maven Central before adding
 
 [libraries]
 firebase-admin = { module = "com.google.firebase:firebase-admin", version.ref = "firebase-admin" }
 ```
 
-Rationale (to land in `docs/09-Versions.md`):
-> First Firebase Admin SDK on the JVM classpath; introduced by `fcm-push-dispatch` change for the `:infra:fcm` module's FCM Admin SDK integration. 9.4.x line is current stable; transitively pulls google-auth-library which is already bundled by other Google deps. Sync API used initially (`FirebaseMessaging.send(message)`); async `sendAsync` can be revisited if a benchmark shows it matters.
+The exact version pin is deliberately deferred to implementation (task 1.1). The `firebase-admin` SDK ships frequently; the implementer's first task is to look up the current stable on Maven Central and pin it, per the "External-data dependencies need a sanity-check task" rule in [`/.claude/skills/next-change/SKILL.md`](../../../.claude/skills/next-change/SKILL.md) — same posture applies to "external library version pins."
 
-Verify the actual current stable version at scaffold time (the `firebase-admin` SDK ships frequently; treat the `9.4.3` figure above as a placeholder requiring verification per the "External-data dependencies need a sanity-check task" rule in [`/.claude/skills/next-change/SKILL.md`](../../../.claude/skills/next-change/SKILL.md) — same posture applies to "external library version pins").
+Rationale (to land in `docs/09-Versions.md` Version Decisions table):
+> First Firebase Admin SDK on the JVM classpath; introduced by `fcm-push-dispatch` change for the `:infra:fcm` module's FCM Admin SDK integration. Transitively pulls google-auth-library which is already bundled by other Google deps. Sync API used initially (`FirebaseMessaging.send(message)`); async `sendAsync` can be revisited if a benchmark shows it matters.
 
 ### D10. Post-DB-commit invocation contract is preserved verbatim
 
@@ -186,7 +218,79 @@ Verify the actual current stable version at scaffold time (the `firebase-admin` 
 
 `FcmDispatcher.dispatch(notification)` is invoked by the existing `NotificationService` post-commit. This change does NOT modify `NotificationService` source. The DI binding swap (composite vs in-app-only) is the only `:backend:ktor` change. All four emit-site services (`LikeService`, `ReplyService`, `FollowService`, `ReportService`) remain untouched.
 
+**Composite "in sequence" semantics (call-order, not completion-order).** `FcmAndInAppDispatcher.dispatch(...)` invokes `FcmDispatcher.dispatch(...)` first, then `InAppOnlyDispatcher.dispatch(...)`. Both calls return synchronously (per D2, `FcmDispatcher.dispatch` enqueues coroutines on `fcmDispatcherScope` and returns immediately; `InAppOnlyDispatcher.dispatch` is a synchronous log line). "In sequence" therefore means the call-order is deterministic — FCM enqueue happens first, in-app log fires second — but does NOT mean the FCM round-trip completes before the in-app log. This is intentional: the in-app log is the audit trail (always lands), the FCM push is fire-and-forget (lands when the FCM round-trip completes, possibly hundreds of ms later, possibly never on transport failure).
+
 ### D11. Settings new module entry per CLAUDE.md README rule
+
+[OUTLINE: D12–D19 below were promoted from review feedback after the round-1 sub-agent sweep on PR #60. Each formerly lived as Open Questions or implicit assumptions; promoting them to numbered Decisions documents the rationale durably.]
+
+### D12. Re-registration race: `last_seen_at` predicate on the on-send DELETE
+
+Race scenario:
+
+1. T0 — Dispatcher reads `(userA, android, tok-1, last_seen_at = T0)` and starts an FCM send.
+2. T1 — User reinstalls / token-rotates; client POSTs `/api/v1/user/fcm-token` with the same `(userA, android, tok-1)` triple. The upsert refreshes `last_seen_at = T1` (per `fcm-token-registration` requirement).
+3. T2 — FCM responds `UNREGISTERED` for the dispatch from T0 (the token *was* stale at the time of send; the re-registration may have come from a different process / device).
+4. T3 — Naive DELETE removes the row whose `last_seen_at = T1` — i.e., the row that's *currently fresh*. The user's just-re-registered token is gone; pushes will silently drop until the next client re-register.
+
+**Decision: capture `dispatch_started_at = NOW()` at the moment the dispatcher reads `activeTokens(...)` AND propagate it to `deleteToken(...)` as a guard predicate**: `DELETE FROM user_fcm_tokens WHERE user_id = :u AND platform = :p AND token = :t AND last_seen_at <= :dispatch_started_at`. The DELETE returns 0 rows affected when a re-registration has bumped `last_seen_at` past the dispatch's window — the dispatcher logs INFO `event="fcm_token_prune_skipped_re_registered"` instead of `event="fcm_token_pruned"`.
+
+The `UserFcmTokenReader.deleteToken(...)` interface signature gains the predicate parameter (renamed `deleteTokenIfStale(userId, platform, token, dispatchStartedAt) → Int`). Tests cover both: race-free (predicate matches, row deleted) and racey (predicate doesn't match, row preserved).
+
+### D13. Visible_users posture: shadow-banned actors retain their username in notifications (in-app + push)
+
+The actor-username lookup uses `FROM users` not `FROM visible_users`. This is a privacy-policy decision worth documenting normatively, not just as "we picked this in design."
+
+**Decision: shadow-banned actors' usernames surface to the recipient in both the in-app notifications list AND the FCM push body. The notifications path is NOT shadow-ban-filtered.**
+
+Rationale:
+- The existing `in-app-notifications` `NotificationEmitter` does NOT suppress on shadow-ban. It suppresses on `actor == recipient` (self-action) and on bidirectional `user_blocks` only. A shadow-banned user liking another user's post *does* emit a `notifications` row with `actor_user_id` set.
+- Reading via `visible_users` would mask the actor's username at render time (replace with the deletion sentinel), creating an asymmetry between the in-app list and the push body — the in-app list shows the actor's username (since the UI renders from the joined `users` row directly), but the push would say "Seseorang menyukai post-mu." Inconsistent surface.
+- Shadow-ban semantics per [`docs/06-Security-Privacy.md` § Shadow Ban](../../../docs/06-Security-Privacy.md): "all actions succeed from the banned user's perspective, invisible to others." This is "invisible to the banned user themselves" (they think their actions succeed) — not "their identity is invisible to recipients of their actions." Notification rendering surfaces are an addressed surface (recipient-targeted), not a feed surface, so the visibility-to-others contract doesn't trip on this lookup.
+
+This decision is promoted to a normative spec requirement in `specs/fcm-push-dispatch/spec.md` (see § "Actor-username lookup SHALL use `FROM users` not `FROM visible_users`").
+
+### D14. Composite exception propagation: catch-and-log, never silent-swallow
+
+`FcmAndInAppDispatcher.dispatch(...)` invokes `FcmDispatcher.dispatch(...)` then `InAppOnlyDispatcher.dispatch(...)`. Both implementations are designed to never throw — `FcmDispatcher` catches all transport-level exceptions internally and surfaces them as WARN logs (per spec); `InAppOnlyDispatcher` is a single `logger.info(...)` call.
+
+**Decision: the composite SHALL wrap each delegate call in its own try/catch. Any exception caught is logged at FATAL severity with `event="fcm_composite_dispatcher_unexpected_error"`, `delegate=<className>`, `notification_id`, `notification_type`. The exception is NOT propagated to the caller.**
+
+Rationale: silent swallowing in the composite would mask emit-site bugs (e.g., a future NPE in the in-app log path because `body_data` shape changed unexpectedly). FATAL severity routes the alarm to Sentry / PagerDuty per the existing observability surface, even though dispatch itself proceeds (the other delegate runs normally). The audit-trail integrity (the in-app log) is preserved either way.
+
+### D15. Secret rotation: process restart required (no hot-reload)
+
+The Firebase Admin SDK's `FirebaseApp` is a process-wide singleton initialized once at startup with the service-account JSON. The SDK does NOT support hot-reload of credentials.
+
+**Decision: rotating `firebase-admin-sa` (or `staging-firebase-admin-sa`) in GCP Secret Manager requires a process restart — typically a Cloud Run revision rollout. The rotation is NOT picked up mid-process.**
+
+This is documented in the spec § "Service-account JSON SHALL be read via `secretKey(env, name)`" with an explicit scenario asserting the no-hot-reload posture. Operational implication: an emergency credential rotation requires a Cloud Run revision deploy, not just a Secret Manager update — same posture as every other process-singleton secret in the system.
+
+### D16. `:infra:fcm` boundary edge: Koin DI binding may reference `FirebaseMessaging` type in `:backend:ktor`
+
+Spec § "`:infra:fcm` module SHALL encapsulate the Firebase Admin SDK" claims `:infra:fcm` is the only module with `import com.google.firebase.*`. But the production Koin DI module in `:backend:ktor` must construct the `FirebaseMessaging` instance and pass it to `FcmDispatcher`'s constructor — meaning `:backend:ktor`'s DI module references the type at compile-time.
+
+**Decision: `:backend:ktor` MAY import `com.google.firebase.messaging.FirebaseMessaging` strictly for DI binding signatures (Koin module + factory). The boundary scenario in the spec is amended to read "`:infra:fcm` is the only module that imports `com.google.firebase.*` for *behavior*; `:backend:ktor` may import only the named SDK types required to express DI bindings (not invoke them)."**
+
+A stricter alternative (factory function in `:infra:fcm` exposing only `NotificationDispatcher`-typed return values) would hide the Firebase types entirely from `:backend:ktor` but at the cost of a non-idiomatic DI shape. Picked the simpler pattern with the documented exception.
+
+### D17. (Promoted from Q1) No boot-time FCM liveness check via `dryRun`
+
+The boot-time service-account validation (D7) confirms the secret parses + the SDK accepts the credentials. It does NOT exercise an actual FCM call (e.g., `FirebaseMessaging.send(dryRun=true)` against a synthetic token).
+
+**Decision: do NOT add a boot-time FCM liveness check.** Cost: an external dependency call at every cold start (Cloud Run scales-to-zero — cold start latency matters for the first request after idle). Benefit: catches credential-rotation-broken case before the first real emit. Trade-off lands on cost: Cloud Logging on the first failed real emit produces a structured WARN that's identical in operator value to a startup-time WARN, and the latter taxes every cold start. If a rotation breaks the credential, the next emit's WARN raises the alarm and the operator rolls back / fixes the secret slot.
+
+### D18. (Promoted from Q2) No Redis cache for `actor_username` lookup
+
+The `actor_username` lookup hits Postgres on every dispatch. Per-emit cardinality is bounded by recipient token count (typically 1–3) AND the lookup is a single PK index seek (sub-millisecond).
+
+**Decision: do NOT cache the `actor_username` lookup.** A 5-minute Redis TTL would trim Postgres load by ~5x on a hot user but introduces invalidation complexity (username-customization writes must invalidate the cache) for a saving that's invisible at MVP scale. Revisit if profiling under load shows the lookup is a bottleneck.
+
+### D19. (Promoted from Q3) No `fcm_dispatch_enabled` Remote Config kill-switch
+
+A Remote Config flag could disable all FCM dispatch in an incident.
+
+**Decision: do NOT add the kill-switch in this change.** Rationale per D1: rotating the secret-slot value to invalid achieves the same effect (emits fall back to in-app-only via the WARN-on-transport-failure path), and the composite dispatcher already isolates FCM failures from the in-app log path. A kill-switch RC flag adds a hot-path runtime branch on every emit for an action achievable with a Secret Manager update + restart. Add later if operational pain materializes.
 
 Per [`CLAUDE.md` invariant](../../../CLAUDE.md): "Root README module list is auto-generated from `settings.gradle.kts` + `dev/module-descriptions.txt`. When a change adds a new module, also (a) add a one-line description to `dev/module-descriptions.txt`, then (b) run `dev/scripts/sync-readme.sh --write`."
 
@@ -225,10 +329,4 @@ This change adds `:infra:fcm`. Tasks include adding the line to `dev/module-desc
 
 ## Open Questions
 
-- **Q1**: Should the boot-time service-account validation include a *liveness* check against FCM (e.g., `FirebaseMessaging.send(dryRun=true)` with a synthetic token)? Pro: catches a key-rotation problem before the first real emit. Con: adds external dependency at boot and a startup-latency tax. **Default decision unless objected: no.** The first real emit's WARN log is sufficient; we already fail-fast on missing/malformed JSON.
-
-- **Q2**: Should the `actor_username` lookup hit a Redis cache (TTL 5 minutes per the existing pattern at [`docs/05-Implementation.md:1406`](../../../docs/05-Implementation.md))? Pro: trim Postgres load. Con: cache invalidation on username-customization writes adds another contract. **Default decision unless objected: no.** Per-notification cardinality is low (1 lookup per emit); Postgres handles a single index-PK lookup in <1ms. Revisit if profiling shows it.
-
-- **Q3**: Should `fcm_dispatch_enabled` Remote Config kill-switch be added now, even with composite as the default? Pro: cheap insurance. Con: D1 argues against. **Default decision unless objected: no.** Add later if needed.
-
-- **Q4**: Sub-agent / qodo review may surface concerns about the `actor_username` raw-`FROM users` posture in D4. If reviewers object, alternative is reading from `visible_users` view — but that filters shadow-banned actors out, which would *change* the recipient's experience (notification arrives but actor name says "akun_dihapus") for the shadow-ban target's actions on the recipient's content. Surface for explicit decision in review.
+(none remaining — Q1–Q3 from the initial design pass were promoted to numbered Decisions D17–D19 after the round-1 review of PR [#60](https://github.com/aditrioka/nearyou-id/pull/60); Q4's substance landed in D13 as a normative spec requirement.)

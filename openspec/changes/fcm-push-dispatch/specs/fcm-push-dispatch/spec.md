@@ -8,10 +8,15 @@ The module SHALL declare a single new library dependency `firebase-admin` pinned
 
 The new module SHALL be registered in [`dev/module-descriptions.txt`](../../../dev/module-descriptions.txt) with a one-line description, and `dev/scripts/sync-readme.sh --write` SHALL be run to refresh the auto-generated module list in the root README per the [`CLAUDE.md`](../../../CLAUDE.md) "Root README module list is auto-generated" rule.
 
-#### Scenario: `:infra:fcm` is the only module that imports `com.google.firebase.*`
+#### Scenario: `:infra:fcm` is the only module that imports `com.google.firebase.*` for behavior
 
 - **WHEN** the codebase is grepped for `import com.google.firebase` across all module sources
-- **THEN** every match is under `infra/fcm/` (no matches under `core/domain/`, `core/data/`, `backend/ktor/`, or any other module)
+- **THEN** every match is under `infra/fcm/` EXCEPT for narrowly-scoped DI-binding signatures in `:backend:ktor` Koin modules per `design.md` D16 (the production Koin module must reference `FirebaseMessaging` to construct `FcmDispatcher` — this is a type-only reference used solely for DI binding, not behavior); the boundary scenario admits this single edge
+
+#### Scenario: `:backend:ktor` Firebase imports are scoped to DI-binding files only
+
+- **WHEN** the codebase is grepped for `import com.google.firebase` across `backend/ktor/src/main/kotlin/`
+- **THEN** the only matches are inside Koin module / DI-binding files (e.g., `KoinModule.kt`, `FcmModule.kt`) AND no matches are found in business-logic files (services, repositories, handlers)
 
 #### Scenario: `firebase-admin` library is pinned in libs.versions.toml
 
@@ -31,14 +36,14 @@ The new module SHALL be registered in [`dev/module-descriptions.txt`](../../../d
 - **WHEN** inspecting the auto-generated module list block in the root README
 - **THEN** the `infra/fcm` entry is present and matches the description (verifying `dev/scripts/sync-readme.sh --write` was run)
 
-### Requirement: `UserFcmTokenReader` interface SHALL define the read + on-send-delete contract over `user_fcm_tokens`
+### Requirement: `UserFcmTokenReader` interface SHALL define the read + on-send-delete contract over `user_fcm_tokens` with a re-registration race guard
 
 An interface `UserFcmTokenReader` SHALL be defined in `:core:data` with two methods:
 
 - `fun activeTokens(userId: UserId): List<FcmTokenRow>` — returns every row from `user_fcm_tokens WHERE user_id = :userId`. The result is ordered platform-stable (e.g., `ORDER BY platform, token` so test snapshots are deterministic) but the order MUST NOT carry semantic meaning to callers. The query SHALL execute via a single index lookup using `user_fcm_tokens_user_idx`.
-- `fun deleteToken(userId: UserId, platform: String, token: String): Int` — deletes exactly the row matching the `(user_id, platform, token)` triple via the UNIQUE index. Returns the number of rows deleted (0 or 1). The delete SHALL execute as a single index-lookup DELETE.
+- `fun deleteTokenIfStale(userId: UserId, platform: String, token: String, dispatchStartedAt: Instant): Int` — deletes the row matching the `(user_id, platform, token)` triple **only if `last_seen_at <= :dispatchStartedAt`**. The `dispatchStartedAt` predicate is the re-registration race guard per `design.md` D12: a row whose `last_seen_at` is later than the dispatcher's read-time has been re-registered by a fresh `POST /api/v1/user/fcm-token` upsert during the dispatch window, and MUST NOT be deleted. Returns the number of rows deleted (0 — predicate did not match OR no row exists, OR 1). The delete SHALL execute as a single index-lookup DELETE.
 
-The data class `FcmTokenRow` SHALL carry `platform: String` and `token: String` (no other fields are needed for dispatch; `app_version` is metadata-only and MAY be omitted from the row).
+The data class `FcmTokenRow` SHALL carry `platform: String`, `token: String`, AND `lastSeenAt: Instant` (the latter is read from the existing `user_fcm_tokens.last_seen_at` column at query time and SHOULD be exposed so dispatchers MAY make additional decisions; production callers may ignore it but the field is required so the integration-test surface can assert race behaviour).
 
 The production implementation MUST live in `:backend:ktor` (which owns the JDBC/JOOQ surface). `:infra:fcm` consumes the interface, never JDBC directly.
 
@@ -52,19 +57,24 @@ The production implementation MUST live in `:backend:ktor` (which owns the JDBC/
 - **WHEN** no rows exist in `user_fcm_tokens` for user A AND `activeTokens(userA)` is invoked
 - **THEN** the returned list is empty (no exception)
 
-#### Scenario: deleteToken returns 1 when the row exists
+#### Scenario: deleteTokenIfStale returns 1 when the row exists and predicate matches
 
-- **WHEN** a row `(userA, 'android', 'tok-1')` exists AND `deleteToken(userA, "android", "tok-1")` is invoked
+- **WHEN** a row `(userA, 'android', 'tok-1', last_seen_at = T_old)` exists AND `deleteTokenIfStale(userA, "android", "tok-1", dispatchStartedAt = T_dispatch)` is invoked WITH `T_old <= T_dispatch`
 - **THEN** the row is removed from `user_fcm_tokens` AND the return value is 1
 
-#### Scenario: deleteToken returns 0 when no matching row exists
+#### Scenario: deleteTokenIfStale returns 0 when re-registration races
 
-- **WHEN** no row matches `(userA, 'android', 'tok-missing')` AND `deleteToken(userA, "android", "tok-missing")` is invoked
+- **WHEN** a row `(userA, 'android', 'tok-1', last_seen_at = T_fresh)` exists AND `deleteTokenIfStale(userA, "android", "tok-1", dispatchStartedAt = T_dispatch)` is invoked WITH `T_fresh > T_dispatch` (the row was upserted *after* the dispatcher started)
+- **THEN** the return value is 0 AND the row remains in `user_fcm_tokens` (race guard preserved the just-re-registered token)
+
+#### Scenario: deleteTokenIfStale returns 0 when no matching row exists
+
+- **WHEN** no row matches `(userA, 'android', 'tok-missing')` AND `deleteTokenIfStale(userA, "android", "tok-missing", dispatchStartedAt = T_dispatch)` is invoked
 - **THEN** the return value is 0 AND no other rows are affected
 
-#### Scenario: deleteToken does not affect peer tokens
+#### Scenario: deleteTokenIfStale does not affect peer tokens
 
-- **WHEN** rows exist for `(userA, 'android', 'tok-1')` AND `(userA, 'android', 'tok-2')` AND `(userA, 'ios', 'tok-3')` AND `deleteToken(userA, "android", "tok-1")` is invoked
+- **WHEN** rows exist for `(userA, 'android', 'tok-1')` AND `(userA, 'android', 'tok-2')` AND `(userA, 'ios', 'tok-3')` AND `deleteTokenIfStale(userA, "android", "tok-1", dispatchStartedAt = T_dispatch)` is invoked AND the predicate matches `tok-1`'s `last_seen_at`
 - **THEN** only the first row is removed; the other two persist intact
 
 ### Requirement: `FcmDispatcher` SHALL implement `NotificationDispatcher` and dispatch per-token in parallel after DB commit
@@ -80,15 +90,18 @@ A class `FcmDispatcher` SHALL implement the existing `NotificationDispatcher` in
 `dispatch(notification: NotificationDto)` SHALL:
 
 1. Be invoked by `NotificationService.emit()` AFTER the DB commit succeeds (contract preserved verbatim from `in-app-notifications`).
-2. Look up active tokens via `userFcmTokenReader.activeTokens(notification.userId)`.
-3. If the result is empty, log a single structured INFO line with `event="fcm_skipped_no_tokens"`, `user_id`, `notification_type` AND return without further work.
-4. Look up the `actor_username` via `actorUsernameLookup.lookup(notification.actorUserId)` if `notification.actorUserId != null`; otherwise pass `null`.
-5. For each `FcmTokenRow` in the active tokens list, build a platform-specific FCM `Message` via the per-platform builders (Android or iOS) and submit `firebaseMessaging.send(message)` on the `dispatcherScope`. The dispatch fanout SHALL be parallel (one coroutine `launch` per token); the function returns immediately without awaiting completion (the request thread that originally emitted the notification is not blocked on FCM round-trips).
-6. On a successful FCM send, log a structured INFO line `event="fcm_dispatched"` with `user_id`, `platform`, `notification_type`, `message_id` (FCM-returned).
-7. On a `FirebaseMessagingException` whose `MessagingErrorCode` is `UNREGISTERED` (HTTP 404), `INVALID_ARGUMENT` (HTTP 410), OR `SENDER_ID_MISMATCH`, invoke `userFcmTokenReader.deleteToken(userId, platform, token)` and log a structured INFO line `event="fcm_token_pruned"` with `user_id`, `platform`, `error_code`, `rows_deleted`.
-8. On any other `FirebaseMessagingException` (`QUOTA_EXCEEDED`, `UNAVAILABLE`, `INTERNAL`) OR any other throwable (network, timeout, deserialization), log a structured WARN line `event="fcm_dispatch_failed"` with `user_id`, `platform`, `error_code` (or `"unknown"`), `notification_type`, AND do NOT delete the token. The throwable MUST NOT propagate out of the dispatcher (the primary write transaction has already committed; a push failure is not a request failure).
+2. Capture `dispatchStartedAt = Instant.now()` (the timestamp passed to `deleteTokenIfStale(...)` as the re-registration race guard predicate per `design.md` D12).
+3. Look up active tokens via `userFcmTokenReader.activeTokens(notification.userId)`.
+4. If the result is empty, log a single structured INFO line with `event="fcm_skipped_no_tokens"`, `user_id`, `notification_type` AND return without further work.
+5. Look up the `actor_username` via `actorUsernameLookup.lookup(notification.actorUserId)` if `notification.actorUserId != null`; otherwise pass `null`. The lookup uses raw `FROM users WHERE id = :actor_user_id LIMIT 1` and is allowlisted via `@AllowMissingBlockJoin("...")` per `design.md` D4 + D13.
+6. For each `FcmTokenRow` in the active tokens list, build a platform-specific FCM `Message` via the per-platform builders (Android or iOS) and submit `firebaseMessaging.send(message)` on the `dispatcherScope`. The dispatch fanout SHALL be parallel (one coroutine `launch` per token); the function returns immediately without awaiting completion (the request thread that originally emitted the notification is not blocked on FCM round-trips).
+7. On a successful FCM send, log a structured INFO line `event="fcm_dispatched"` with `user_id`, `platform`, `notification_type`, `message_id` (FCM-returned). The log line MUST NOT include the raw `token` value.
+8. On a `FirebaseMessagingException` whose `MessagingErrorCode` is `UNREGISTERED` OR `SENDER_ID_MISMATCH` (the two unambiguously-permanent token-failure codes per `design.md` D6), invoke `userFcmTokenReader.deleteTokenIfStale(userId, platform, token, dispatchStartedAt)` AND:
+   - If the call returns 1: log structured INFO `event="fcm_token_pruned"` with `user_id`, `platform`, `error_code`, `rows_deleted=1`.
+   - If the call returns 0: log structured INFO `event="fcm_token_prune_skipped_re_registered"` with `user_id`, `platform`, `error_code`, `rows_deleted=0` (the row was either re-registered during the dispatch window — race-guarded — or had already been removed by a peer dispatcher).
+9. On a `FirebaseMessagingException` whose `MessagingErrorCode` is `INVALID_ARGUMENT` OR `QUOTA_EXCEEDED` OR `UNAVAILABLE` OR `INTERNAL`, OR on any non-`FirebaseMessagingException` (network, timeout, deserialization), log a structured WARN line `event="fcm_dispatch_failed"` with `user_id`, `platform`, `error_code` (or `"unknown"`), `notification_type`, AND do NOT delete the token. `INVALID_ARGUMENT` is NOT a delete trigger because it is overloaded by the FCM Admin SDK (covers both stale-token-format AND oversized-payload — see `design.md` D6). The throwable MUST NOT propagate out of the dispatcher (the primary write transaction has already committed; a push failure is not a request failure).
 
-`FcmDispatcher` MUST NOT log the raw `token` value at any severity. WARN logs MAY include `token_present=true` or `token_length=<int>` only — same posture as the `fcm-token-registration` requirement "Validation errors MUST use a closed vocabulary" sub-clause on token confidentiality.
+`FcmDispatcher` MUST NOT log the raw `token` value at ANY severity (INFO, WARN, FATAL). All structured log lines emitted by the dispatcher (including the success-path `event="fcm_dispatched"` and the prune-path `event="fcm_token_pruned"` / `event="fcm_token_prune_skipped_re_registered"`) MAY include `token_length=<int>` or `token_hash_prefix=<8-char hex>` for forensic correlation, but never the literal token value — same posture as the `fcm-token-registration` requirement "Validation errors MUST use a closed vocabulary" sub-clause on token confidentiality, extended to cover the dispatcher's full log surface.
 
 #### Scenario: Recipient with zero tokens skips dispatch and logs INFO
 
@@ -100,20 +113,25 @@ A class `FcmDispatcher` SHALL implement the existing `NotificationDispatcher` in
 - **WHEN** `dispatch(notification)` is invoked for a recipient with 2 Android rows and 1 iOS row
 - **THEN** exactly 3 `firebaseMessaging.send(...)` calls are made (one per token) AND each carries the platform-correct payload shape (Android = data-only no-notification-block; iOS = alert + mutable-content)
 
-#### Scenario: 404 UNREGISTERED prunes the specific token only
+#### Scenario: UNREGISTERED prunes the specific token only
 
 - **WHEN** `dispatch(notification)` is invoked for a recipient with rows `(userA, 'android', 'tok-stale')` AND `(userA, 'android', 'tok-live')` AND FCM responds `UNREGISTERED` for `tok-stale` AND succeeds for `tok-live`
-- **THEN** the `tok-stale` row is deleted from `user_fcm_tokens` AND the `tok-live` row persists AND the dispatcher logs INFO `event="fcm_token_pruned"` for the stale token AND INFO `event="fcm_dispatched"` for the live token AND no exception escapes
+- **THEN** the `tok-stale` row is deleted from `user_fcm_tokens` via `deleteTokenIfStale(userA, "android", "tok-stale", dispatchStartedAt)` (race guard satisfied) AND the `tok-live` row persists AND the dispatcher logs INFO `event="fcm_token_pruned"` for the stale token AND INFO `event="fcm_dispatched"` for the live token AND no exception escapes
 
-#### Scenario: 410 INVALID_ARGUMENT prunes identically to 404
-
-- **WHEN** FCM responds `INVALID_ARGUMENT` (HTTP 410) for a token
-- **THEN** that token's row is deleted via `deleteToken(...)` AND the structured INFO log carries `error_code="INVALID_ARGUMENT"`
-
-#### Scenario: SENDER_ID_MISMATCH prunes identically
+#### Scenario: SENDER_ID_MISMATCH prunes identically to UNREGISTERED
 
 - **WHEN** FCM responds `SENDER_ID_MISMATCH` for a token
-- **THEN** that token's row is deleted AND the structured INFO log carries `error_code="SENDER_ID_MISMATCH"`
+- **THEN** `deleteTokenIfStale(...)` is invoked AND the structured INFO log carries `error_code="SENDER_ID_MISMATCH"` AND if the predicate matches, `event="fcm_token_pruned"` AND `rows_deleted=1`
+
+#### Scenario: INVALID_ARGUMENT does NOT delete the token
+
+- **WHEN** FCM responds `INVALID_ARGUMENT` for a token (which is ambiguous between "stale-format token" and "oversized payload" per `design.md` D6)
+- **THEN** the corresponding `user_fcm_tokens` row is NOT deleted (no `deleteTokenIfStale` call is made) AND a structured WARN log is emitted with `event="fcm_dispatch_failed"` AND `error_code="INVALID_ARGUMENT"` AND no exception escapes
+
+#### Scenario: Re-registration race — token NOT deleted when row freshness post-dates dispatch start
+
+- **WHEN** `dispatch(notification)` is invoked at `T_dispatch_start` for `(userA, 'android', 'tok-1', last_seen_at = T_old)` AND between read-time and FCM-response-time the user re-registers `tok-1` (upserting `last_seen_at = T_fresh` where `T_fresh > T_dispatch_start`) AND FCM responds `UNREGISTERED` for the original send
+- **THEN** `deleteTokenIfStale(userA, "android", "tok-1", T_dispatch_start)` returns 0 (predicate `last_seen_at <= T_dispatch_start` does not match the now-fresh row) AND the row persists AND the dispatcher logs INFO `event="fcm_token_prune_skipped_re_registered"` AND `rows_deleted=0`
 
 #### Scenario: 5xx-class errors do NOT delete the token
 
@@ -125,15 +143,35 @@ A class `FcmDispatcher` SHALL implement the existing `NotificationDispatcher` in
 - **WHEN** the FCM Admin SDK call throws a non-`FirebaseMessagingException` (e.g., a network timeout)
 - **THEN** the token row is NOT deleted AND a structured WARN log is emitted with `event="fcm_dispatch_failed"` AND `error_code="unknown"`
 
-#### Scenario: Dispatcher does NOT log the raw token value
+#### Scenario: Dispatcher does NOT log the raw token value at any severity
 
-- **WHEN** any of the above WARN-emitting failure scenarios fires AND the failing token is the well-known test value `"sentinel-token-string-DO-NOT-LEAK"`
-- **THEN** the captured log appender's output does NOT contain the literal string `"sentinel-token-string-DO-NOT-LEAK"` (token-confidentiality posture preserved)
+- **WHEN** any successful dispatch (INFO `fcm_dispatched`) OR any prune (INFO `fcm_token_pruned`) OR any failure path (WARN `fcm_dispatch_failed`) fires AND the affected token is the well-known test value `"sentinel-token-string-DO-NOT-LEAK"`
+- **THEN** the captured log appender's output does NOT contain the literal string `"sentinel-token-string-DO-NOT-LEAK"` at any severity (INFO, WARN, FATAL — token-confidentiality posture covers the full log surface, not just WARN)
+
+#### Scenario: Recipient hard-deleted between emit and dispatch
+
+- **WHEN** `NotificationService.emit(...)` commits a notifications row for user A AND the user A row is hard-deleted (CASCADE removes `user_fcm_tokens` rows AND CASCADE removes the just-emitted `notifications` row) AND the dispatcher subsequently runs
+- **THEN** `activeTokens(userA)` returns an empty list AND the dispatcher logs INFO `event="fcm_skipped_no_tokens"` AND no exception escapes (the recipient-CASCADE is a benign data-race; the dispatcher tolerates orphaned `userId`s gracefully)
+
+#### Scenario: Actor hard-deleted between emit and dispatch
+
+- **WHEN** a `notifications` row exists with `actor_user_id = userB` AND user B is hard-deleted between emit and dispatch (per the `actor_user_id ON DELETE SET NULL` FK, the column flips to NULL on the existing row) AND the dispatcher runs
+- **THEN** the dispatcher reads the `notifications` row with `actor_user_id` now NULL AND `actorUsernameLookup.lookup(null)` returns null AND `PushCopy.bodyFor(notification, actorUsername=null)` produces the actor-less fallback string (e.g., `"Seseorang menyukai post-mu"` for `post_liked`) AND the FCM dispatch proceeds normally
+
+#### Scenario: Dispatcher invocation count is exactly once per notifications row
+
+- **WHEN** `NotificationService.emit(...)` commits a single notifications row AND `NotificationDispatcher.dispatch(...)` is invoked from the post-commit hook
+- **THEN** the FCM Admin SDK send is invoked exactly once per active token (e.g., a recipient with 2 active tokens sees 2 sends total; not 4, not 0). Re-emitting the same `notifications` row is out-of-scope for this contract — emit-site retry safety is the emitter's responsibility, not the dispatcher's.
+
+#### Scenario: Body data with quote-escape and Unicode round-trips
+
+- **WHEN** `dispatch(notification)` is invoked for a notification whose `body_data = {"post_excerpt": "Hi from Jakarta — \"Selamat datang\" 中田 🎉"}` AND the recipient has one Android token AND one iOS token
+- **THEN** the Android payload's `body_data` data field is the JSON-stringified value with all special characters preserved (parses back to the original via `JSON.parse(...)`) AND the iOS payload's `body_full` is the same stringified JSON AND no exception is thrown
 
 #### Scenario: Dispatcher returns immediately without awaiting FCM round-trips
 
-- **WHEN** `dispatch(notification)` is invoked AND each FCM Admin SDK call has a 500ms latency injected
-- **THEN** `dispatch(notification)` returns to its caller in <50ms wall-clock (the launches are fanned out on the dispatcher scope; the caller is not blocked)
+- **WHEN** `dispatch(notification)` is invoked AND each FCM Admin SDK call has a 500ms latency injected AND the dispatcher is configured with a real (non-`Unconfined`) production-shaped scope (`Dispatchers.IO.limitedParallelism(8)`)
+- **THEN** `dispatch(notification)` returns to its caller in less than half the per-call latency (i.e., <250ms when injected latency is 500ms) — the launches are fanned out on the dispatcher scope; the caller is not blocked. This scenario uses a separate test-scope from the synchronous-assertion tests (which rely on `Dispatchers.Unconfined` for deterministic dispatch ordering); the latency-bound assertion explicitly opts out of `Unconfined` so the fanout actually happens on a worker pool.
 
 #### Scenario: Exception in one token's send does not block the others
 
@@ -179,7 +217,7 @@ For each row whose `platform = "android"`, `FcmDispatcher` SHALL build an FCM `M
 - **WHEN** an Android push is constructed for a system-emitted notification (`actor_user_id = NULL`, `target_type = NULL`, `target_id = NULL` — e.g., `post_auto_hidden` for a reply target uses `target_type='reply'` so this is the `privacy_flip_warning` shape)
 - **THEN** the data map contains `"actor_user_id" -> ""`, `"target_type" -> ""`, `"target_id" -> ""` (no key omission; consumers can rely on key presence with empty-string semantics)
 
-### Requirement: iOS payload SHALL be alert + mutable-content with `body_full` data field
+### Requirement: iOS payload SHALL be alert + mutable-content with `body_full` data field, clamped to APNs 4 KB limit
 
 For each row whose `platform = "ios"`, `FcmDispatcher` SHALL build an FCM `Message` with the following shape:
 
@@ -189,6 +227,8 @@ For each row whose `platform = "ios"`, `FcmDispatcher` SHALL build an FCM `Messa
 - The `token` set to the row's `token` value.
 
 The iOS payload MUST NOT include the same data block as Android (the iOS NSE consumes `body_full` only; other data routing is via `aps.category` etc., which is out of scope for this change).
+
+**APNs 4 KB clamp:** the assembled APNs payload (notification block + custom data) MUST stay under the 4 KB APNs hard limit. Per `design.md` D6, the iOS payload builder SHALL pre-clamp `body_full` to a safe ceiling (typically 3 KB after JSON-stringification, leaving headroom for the notification block + APNs envelope overhead). Truncation MAY drop trailing characters from the longest-field — typically `post_excerpt` or `reply_excerpt` — preserving the surrounding JSON shape (the truncated string is still valid JSON; structurally `{"post_excerpt": "Hi from Jakarta...", "reply_id": "uuid"}` retains both keys, only the excerpt is shortened). The reason this matters: FCM's underlying APNs response surfaces oversized-payload as `MessagingErrorCode.INVALID_ARGUMENT`, which per `design.md` D6 is a transient WARN — without clamping, every push for an excerpt-heavy notification would silently fail.
 
 #### Scenario: iOS payload has alert title and body
 
@@ -209,6 +249,16 @@ The iOS payload MUST NOT include the same data block as Android (the iOS NSE con
 
 - **WHEN** an iOS push is constructed for a notification of type `chat_message` (not yet emitted as of this change but admitted by the V10 enum)
 - **THEN** the `notification.body` is the fallback copy `"Notifikasi baru dari NearYou"` (per `PushCopy` fallback rule) AND no exception is thrown
+
+#### Scenario: iOS payload clamps oversized body_full to stay under APNs 4 KB
+
+- **WHEN** an iOS push is constructed for a `post_replied` notification whose `body_data.reply_excerpt` is a 5000-byte UTF-8 string (deliberately oversized; per the in-app-notifications spec it should be ≤ 80 code points, but the dispatcher MUST be defensive against an emit-site bug or a future spec change)
+- **THEN** the assembled APNs payload size (notification block + custom data including `body_full`) is ≤ 4 KB AND the resulting `body_full` is the JSON-stringified `body_data` with `reply_excerpt` truncated AND the structure is valid JSON parseable by the iOS NSE AND the `reply_id` field (if any) is preserved intact
+
+#### Scenario: iOS payload below the clamp threshold is unmodified
+
+- **WHEN** an iOS push is constructed for a typical `post_liked` notification with a 50-codepoint `post_excerpt`
+- **THEN** the assembled APNs payload size is well under 4 KB AND `body_full` carries the original JSON-stringified `body_data` verbatim (no clamping applied)
 
 ### Requirement: `PushCopy` SHALL provide Indonesian copy for the four V10-wired types and a fallback for others
 
@@ -289,28 +339,91 @@ The Firebase service-account JSON MUST NOT be read via direct `System.getenv("FI
 - **WHEN** the codebase is grepped for the literal string `"firebase-admin-sa"` outside of `secretKey(env, "firebase-admin-sa")` invocations
 - **THEN** zero matches are found in production source (test fixtures may reference the name; production code reads exclusively via the helper)
 
-### Requirement: DI graph SHALL bind a composite dispatcher in production and `InAppOnlyDispatcher` in tests
+### Requirement: DI graph SHALL bind a composite dispatcher in production and `InAppOnlyDispatcher` in tests, with catch-and-log composite error handling
 
-The Koin DI module for `:backend:ktor` production startup SHALL bind `NotificationDispatcher` to a composite implementation (`FcmAndInAppDispatcher`) that calls both `FcmDispatcher.dispatch(notification)` AND `InAppOnlyDispatcher.dispatch(notification)` in sequence. The `InAppOnlyDispatcher`'s INFO log line is preserved (audit trail of every emit) AND the new FCM dispatch fires alongside it.
+The Koin DI module for `:backend:ktor` production startup SHALL bind `NotificationDispatcher` to a composite implementation (`FcmAndInAppDispatcher`) that invokes `FcmDispatcher.dispatch(notification)` first AND `InAppOnlyDispatcher.dispatch(notification)` second. "First" and "second" describe **call-order**, NOT completion-order: `FcmDispatcher.dispatch(...)` enqueues coroutines on the background `fcmDispatcherScope` and returns synchronously per `design.md` D2; `InAppOnlyDispatcher.dispatch(...)` is a synchronous log line. The in-app log is the audit trail (always lands); the FCM push completes asynchronously.
+
+The composite SHALL wrap each delegate call in its own try/catch per `design.md` D14. Any exception caught is logged at FATAL severity with `event="fcm_composite_dispatcher_unexpected_error"`, `delegate=<className>`, `notification_id`, `notification_type`. The exception is NOT propagated to the caller — silent swallowing is forbidden, but the audit-trail log line MUST always fire even when one delegate misbehaves.
 
 The Koin DI module for `:backend:ktor` test startup (the integration-test profile) SHALL bind `NotificationDispatcher` to `InAppOnlyDispatcher` only — no FCM dispatch in tests by default. Tests that explicitly want to exercise `FcmDispatcher` MUST install a test-only override module that binds it with a mocked `FirebaseMessaging`.
 
-This change SHALL NOT modify `NotificationService` or any of the four V10 emit-site services (`LikeService`, `ReplyService`, `FollowService`, `ReportService`). The integration is DI-only, behind the existing `NotificationDispatcher` interface.
+To guard against accidental production-binding leakage into tests (e.g., a copy-pasted `startKoin { modules(productionModule) }` call), the test-suite SHALL include a static-analysis test that fails if any test source references `FcmAndInAppDispatcher` outside the explicit override-installation path. Per `design.md` security-hardening review (PR [#60](https://github.com/aditrioka/nearyou-id/pull/60) round 1): this guard's reason is that DI test isolation cannot rely on absence-of-reference alone — a positive structural assertion catches the regression.
+
+This change SHALL NOT modify `NotificationService` or any of the four V10 emit-site services (`LikeService`, `ReplyService`, `FollowService`, `ReportService`). The integration is DI-only, behind the existing `NotificationDispatcher` interface. The "source unchanged" assertion is a **structural** check (no new imports referencing `FcmDispatcher` or Firebase types in `NotificationService.kt`) — NOT a brittle hash-snapshot of the file's source. Refactors that touch unrelated parts of the file (whitespace, import reordering) MUST NOT trip the assertion.
 
 #### Scenario: Production DI binds the composite
 
 - **WHEN** the backend starts in the production profile AND `Koin.get<NotificationDispatcher>()` is resolved
-- **THEN** the resolved instance is the composite `FcmAndInAppDispatcher` (or equivalent class name) AND `dispatch(notification)` invokes both `FcmDispatcher.dispatch(...)` AND `InAppOnlyDispatcher.dispatch(...)` exactly once each
+- **THEN** the resolved instance is the composite `FcmAndInAppDispatcher` (or equivalent class name) AND `dispatch(notification)` invokes both `FcmDispatcher.dispatch(...)` AND `InAppOnlyDispatcher.dispatch(...)` exactly once each (call-order: FCM enqueue first, in-app log second)
+
+#### Scenario: Composite catch-and-log on FcmDispatcher unexpected throw
+
+- **WHEN** `FcmDispatcher.dispatch(...)` throws an unexpected exception (e.g., a NullPointerException from a defensive bug; nominal `FcmDispatcher` is designed to never throw, so this scenario is a defense-in-depth guard)
+- **THEN** the composite catches the exception AND logs FATAL `event="fcm_composite_dispatcher_unexpected_error"` with `delegate="FcmDispatcher"` AND still invokes `InAppOnlyDispatcher.dispatch(...)` AND no exception propagates back to `NotificationService.emit(...)`
+
+#### Scenario: Composite catch-and-log on InAppOnlyDispatcher unexpected throw
+
+- **WHEN** `InAppOnlyDispatcher.dispatch(...)` throws an unexpected exception
+- **THEN** the composite catches the exception AND logs FATAL `event="fcm_composite_dispatcher_unexpected_error"` with `delegate="InAppOnlyDispatcher"` AND no exception propagates back to `NotificationService.emit(...)` AND `FcmDispatcher.dispatch(...)` was already invoked first per call-order
 
 #### Scenario: Test DI binds InAppOnlyDispatcher only
 
 - **WHEN** the integration-test Koin module is loaded AND `Koin.get<NotificationDispatcher>()` is resolved
 - **THEN** the resolved instance is `InAppOnlyDispatcher` AND no FCM dispatch occurs during the default test run
 
-#### Scenario: NotificationService source is unchanged
+#### Scenario: Static-analysis guard fails on accidental production binding in tests
 
-- **WHEN** comparing the source of `NotificationService` before and after this change lands
-- **THEN** the diff for `NotificationService` is empty AND the four emit-site services (`LikeService`, `ReplyService`, `FollowService`, `ReportService`) likewise have empty diffs (the integration is purely additive in `:infra:fcm` and DI wiring)
+- **WHEN** a hypothetical test source file under `backend/ktor/src/test/` references `FcmAndInAppDispatcher` outside of a designated override-installation path
+- **THEN** the static-analysis test in the suite fails AND reports the offending file:line (the guard prevents production-binding leakage that would otherwise silently degrade test isolation)
+
+#### Scenario: NotificationService structural assertion (no new FCM dependencies)
+
+- **WHEN** the structural-analysis test inspects `backend/ktor/src/main/kotlin/.../NotificationService.kt` after this change lands
+- **THEN** the file does NOT import `FcmDispatcher`, does NOT import any `com.google.firebase.*` symbol, AND the four emit-site services (`LikeService`, `ReplyService`, `FollowService`, `ReportService`) likewise contain no Firebase / FcmDispatcher references (the integration is purely additive in `:infra:fcm` and DI wiring; no source-level coupling)
+
+### Requirement: Actor-username lookup SHALL use `FROM users` not `FROM visible_users`, preserving in-app/push parity for shadow-banned actors
+
+The `ActorUsernameLookup` interface (defined in `:core:data`, production impl in `:backend:ktor`) SHALL execute `SELECT username FROM users WHERE id = :actor_user_id LIMIT 1` — reading from the raw `users` table, NOT from the shadow-ban-filtered `visible_users` view.
+
+The lookup is a single PK index seek (sub-millisecond) and runs on the dispatcher's hot path. It is allowlisted from `BlockExclusionJoinRule` via the canonical `@AllowMissingBlockJoin("<reason>")` KtAnnotation per `design.md` D4. `RawFromPostsRule` does NOT apply (its protected set is `posts | visible_posts` only).
+
+**Why raw `users` not `visible_users`:** the existing `in-app-notifications` `NotificationEmitter` does NOT suppress on shadow-ban (it suppresses on self-action and bidirectional `user_blocks` only). A shadow-banned user liking another user's post DOES emit a `notifications` row with `actor_user_id` set; the in-app list renders the actor's actual username via the join in `GET /api/v1/notifications`. To preserve parity between the in-app list and the FCM push body — same actor identity surfaces in both — the dispatcher reads from raw `users`. Reading via `visible_users` would mask the actor's username at push render time (replace with the deletion sentinel), creating an asymmetry the recipient could detect (in-app list shows "bobby liked your post"; push says "Seseorang menyukai post-mu"). Per [`docs/06-Security-Privacy.md` § Shadow Ban](../../../docs/06-Security-Privacy.md): shadow-ban semantics are "invisible to the banned user themselves" — NOT "the banned user's identity is invisible to recipients of their addressed actions." Notification dispatch is an addressed surface, not a feed surface.
+
+#### Scenario: Lookup reads from raw `users` table
+
+- **WHEN** the production `ActorUsernameLookup.lookup(userId)` is invoked
+- **THEN** the executed SQL is `SELECT username FROM users WHERE id = :actor_user_id LIMIT 1` (NOT `FROM visible_users`)
+
+#### Scenario: Shadow-banned actor's username is rendered in push body
+
+- **WHEN** user B is shadow-banned (`users.is_shadow_banned = TRUE`) AND user B likes user A's post AND the FCM push fires for the resulting `notifications` row
+- **THEN** the push body for user A contains user B's username (e.g., `"bobby menyukai post-mu"`) AND parity holds with the `GET /api/v1/notifications` in-app list rendering
+
+#### Scenario: Lookup is allowlisted via `@AllowMissingBlockJoin`
+
+- **WHEN** `./gradlew detekt` runs against the production `ActorUsernameLookup` source
+- **THEN** the `BlockExclusionJoinRule` does NOT fire because the function/class is annotated with `@AllowMissingBlockJoin("...")` AND the annotation reason references "notification-rendering" + the recipient-already-cleared rationale per `design.md` D4
+
+#### Scenario: Hard-deleted actor returns null username gracefully
+
+- **WHEN** `ActorUsernameLookup.lookup(actorUserId)` is invoked for a `userId` whose `users` row has been hard-deleted
+- **THEN** the lookup returns `null` (zero rows matched) AND the dispatcher passes `null` to `PushCopy.bodyFor(...)` AND the actor-less fallback string is used
+
+### Requirement: Service-account secret rotation SHALL require process restart (no hot-reload)
+
+Rotating `firebase-admin-sa` (or `staging-firebase-admin-sa`) in GCP Secret Manager mid-process MUST NOT change the running `FirebaseApp` singleton. The Firebase Admin SDK initializes `FirebaseApp` exactly once per process lifetime; any subsequent secret rotation requires a Cloud Run revision deploy (or equivalent process restart) to be picked up.
+
+This is documented for operators: an emergency credential rotation is a Secret Manager update PLUS a Cloud Run revision rollout, not just a Secret Manager update. The dispatcher does NOT poll Secret Manager for credential changes; the next instance reads the rotated secret at boot via D7's fail-fast validation path.
+
+#### Scenario: Rotated secret does NOT propagate without restart
+
+- **WHEN** the operator rotates the value in `firebase-admin-sa` to a new valid service-account JSON AND the running Cloud Run instance does NOT restart
+- **THEN** the running `FirebaseApp` instance continues using the previously-loaded credentials AND no log line indicating credential change is emitted (this is the documented behavior, not a bug; the dispatcher MUST NOT silently switch credentials mid-process)
+
+#### Scenario: Restart picks up the rotated secret
+
+- **WHEN** the operator rotates the value in `firebase-admin-sa` AND triggers a Cloud Run revision rollout
+- **THEN** the new instance's startup `secretKey(env, "firebase-admin-sa")` call reads the rotated value AND `FirebaseApp.initializeApp(...)` succeeds with the new credentials AND subsequent emits use the rotated credentials
 
 ### Requirement: Dispatcher coroutine scope SHALL drain on JVM shutdown
 
@@ -330,3 +443,8 @@ The `fcmDispatcherScope` SHALL be registered with a JVM shutdown hook that invok
 
 - **WHEN** `dispatch(notification)` is invoked AFTER the shutdown hook has fired
 - **THEN** a structured WARN log is emitted with `event="fcm_dispatch_after_shutdown"` AND the call returns normally (no exception propagates back to the emit site)
+
+#### Scenario: Shutdown 5-second boundary is deterministic (cancel-on-timeout)
+
+- **WHEN** the JVM receives `SIGTERM` AND 1 FCM dispatch is in-flight using a virtual-time test dispatcher with the simulated FCM round-trip set to exactly 5.0 seconds (the boundary case)
+- **THEN** the dispatch is canceled at the 5.0-second mark via `cancelAndJoin(5.seconds)` semantics (cancel-on-or-after-timeout, not "wait an extra epsilon") AND the JVM exits cleanly AND no exception escapes — this scenario MUST be exercised with a virtual-time / injectable-clock test dispatcher, NOT a wall-clock sleep, to guarantee determinism on CI
