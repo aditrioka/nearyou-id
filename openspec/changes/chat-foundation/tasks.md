@@ -122,11 +122,11 @@
 ## 10. Pre-push verification + staging deploy + smoke
 
 - [x] 10.1 Local verification: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` all green.
-- [ ] 10.2 Trigger staging deploy: `gh workflow run deploy-staging.yml --ref <branch>` per the staging-deploy-before-archive convention codified in PR [#50](https://github.com/aditrioka/nearyou-id/pull/50). Wait for the deploy to land on staging.
-- [ ] 10.3 Verify V15 schema applied on staging: run a one-shot `psql` Cloud Run job (per the `dev/scripts/promote-staging-user.sh` shape, using the `^|^` delimiter to avoid the comma + `@` parsing footguns documented in `FOLLOW_UPS.md`) executing `\dt conversations`, `\dt conversation_participants`, `\dt chat_messages` and capturing the row counts as zero.
-- [ ] 10.4 Round-trip smoke against staging: create two staging users (or reuse two existing QA accounts), call `POST /api/v1/conversations`, then `POST /api/v1/chat/{id}/messages`, then `GET /api/v1/chat/{id}/messages`, then `GET /api/v1/conversations`, and assert the data plane round-trips correctly.
-- [ ] 10.5 Verify the V2-drafted RLS policy is now active in staging: `SELECT polname FROM pg_policy WHERE polrelid = 'realtime.messages'::regclass` returns `participants_can_subscribe`.
-- [ ] 10.6 Negative smoke: attempt to subscribe to `realtime:conversation:<uuid>` with a non-participant user's HS256 token; assert Supabase Realtime denies (visible in Supabase dashboard → Realtime logs).
+- [x] 10.2 Trigger staging deploy: `gh workflow run deploy-staging.yml --ref <branch>` per the staging-deploy-before-archive convention codified in PR [#50](https://github.com/aditrioka/nearyou-id/pull/50). Wait for the deploy to land on staging.
+- [x] 10.3 Verify V15 schema applied on staging: run a one-shot `psql` Cloud Run job (per the `dev/scripts/promote-staging-user.sh` shape, using the `^|^` delimiter to avoid the comma + `@` parsing footguns documented in `FOLLOW_UPS.md`) executing `\dt conversations`, `\dt conversation_participants`, `\dt chat_messages` and capturing the row counts as zero.
+- [x] 10.4 Round-trip smoke against staging: create two staging users (or reuse two existing QA accounts), call `POST /api/v1/conversations`, then `POST /api/v1/chat/{id}/messages`, then `GET /api/v1/chat/{id}/messages`, then `GET /api/v1/conversations`, and assert the data plane round-trips correctly.
+- [x] 10.5 Verify the V2-drafted RLS policy is now active in staging: `SELECT polname FROM pg_policy WHERE polrelid = 'realtime.messages'::regclass` returns `participants_can_subscribe`.
+- [x] 10.6 Negative smoke: attempt to subscribe to `realtime:conversation:<uuid>` with a non-participant user's HS256 token; assert Supabase Realtime denies (visible in Supabase dashboard → Realtime logs).
 
 ## 11. Documentation + follow-up bookkeeping
 
