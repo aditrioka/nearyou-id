@@ -91,6 +91,12 @@ class SignupFlowTest : StringSpec({
         dataSource.connection.use { conn ->
             conn.createStatement().use { st ->
                 st.executeUpdate("DELETE FROM refresh_tokens")
+                // V15 chat tables FK users(id) ON DELETE RESTRICT — wipe in
+                // child→parent order so the blanket users delete below succeeds
+                // even if a sibling test left chat fixtures behind.
+                st.executeUpdate("DELETE FROM chat_messages")
+                st.executeUpdate("DELETE FROM conversation_participants")
+                st.executeUpdate("DELETE FROM conversations")
                 st.executeUpdate("DELETE FROM users")
                 st.executeUpdate("DELETE FROM rejected_identifiers")
             }

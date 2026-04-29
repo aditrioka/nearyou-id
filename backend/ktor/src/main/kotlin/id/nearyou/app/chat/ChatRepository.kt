@@ -164,7 +164,7 @@ class ChatRepository(
                            other.user_id AS partner_id,
                            COALESCE(u.username, 'akun_dihapus') AS partner_username,
                            COALESCE(u.display_name, 'Akun Dihapus') AS partner_display_name,
-                           COALESCE(u.is_premium, FALSE) AS partner_is_premium
+                           COALESCE(u.subscription_status IN ('premium_active', 'premium_billing_retry'), FALSE) AS partner_is_premium
                       FROM conversations c
                       JOIN conversation_participants me
                         ON me.conversation_id = c.id

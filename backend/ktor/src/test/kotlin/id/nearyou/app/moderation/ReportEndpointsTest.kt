@@ -66,23 +66,10 @@ class ReportEndpointsTest : StringSpec({
     val jwtIssuer = JwtIssuer(keys)
     val users = JdbcUserRepository(dataSource)
 
-    // chat_messages is introduced in a later migration (Phase 2 per
-    // docs/05-Implementation.md §1223). V9 references it as a valid report
-    // target. For this test we stub a minimal shape so the existence check
-    // works. CREATE TABLE IF NOT EXISTS is idempotent across test runs.
-    beforeSpec {
-        dataSource.connection.use { conn ->
-            conn.createStatement().use { st ->
-                st.executeUpdate(
-                    """
-                    CREATE TABLE IF NOT EXISTS chat_messages (
-                        id UUID PRIMARY KEY DEFAULT gen_random_uuid()
-                    )
-                    """.trimIndent(),
-                )
-            }
-        }
-    }
+    // chat_messages is created by V15 (`chat-foundation`); pre-V15 this test had a
+    // 1-column stub here. V15's table has NOT NULL conversation_id + sender_id and an
+    // empty-message CHECK, so seedChatMessage now seeds the full chain (conversation +
+    // participants + message) below.
 
     fun seedUser(
         shadowBanned: Boolean = false,
@@ -191,14 +178,39 @@ class ReportEndpointsTest : StringSpec({
     }
 
     fun seedChatMessage(): UUID {
-        val id = UUID.randomUUID()
+        // V15's chat_messages requires a non-null conversation_id + sender_id and
+        // satisfies an empty-message CHECK. Seed a sender + a 1-participant
+        // conversation owned by them, then insert a valid message.
+        val (senderId, _) = seedUser()
+        val convId = UUID.randomUUID()
+        val msgId = UUID.randomUUID()
         dataSource.connection.use { conn ->
-            conn.prepareStatement("INSERT INTO chat_messages (id) VALUES (?)").use { ps ->
-                ps.setObject(1, id)
+            conn.prepareStatement(
+                "INSERT INTO conversations (id, created_by) VALUES (?, ?)",
+            ).use { ps ->
+                ps.setObject(1, convId)
+                ps.setObject(2, senderId)
+                ps.executeUpdate()
+            }
+            conn.prepareStatement(
+                "INSERT INTO conversation_participants (conversation_id, user_id, slot) VALUES (?, ?, ?)",
+            ).use { ps ->
+                ps.setObject(1, convId)
+                ps.setObject(2, senderId)
+                ps.setInt(3, 1)
+                ps.executeUpdate()
+            }
+            conn.prepareStatement(
+                "INSERT INTO chat_messages (id, conversation_id, sender_id, content) VALUES (?, ?, ?, ?)",
+            ).use { ps ->
+                ps.setObject(1, msgId)
+                ps.setObject(2, convId)
+                ps.setObject(3, senderId)
+                ps.setString(4, "report-target-fixture")
                 ps.executeUpdate()
             }
         }
-        return id
+        return msgId
     }
 
     fun insertBlock(
@@ -306,7 +318,9 @@ class ReportEndpointsTest : StringSpec({
                     st.executeUpdate("DELETE FROM reports WHERE target_id = '$id'")
                     st.executeUpdate("DELETE FROM post_replies WHERE post_id = '$id' OR id = '$id'")
                     st.executeUpdate("DELETE FROM posts WHERE id = '$id' OR author_id = '$id'")
-                    st.executeUpdate("DELETE FROM chat_messages WHERE id = '$id'")
+                    st.executeUpdate("DELETE FROM chat_messages WHERE id = '$id' OR sender_id = '$id'")
+                    st.executeUpdate("DELETE FROM conversation_participants WHERE user_id = '$id'")
+                    st.executeUpdate("DELETE FROM conversations WHERE created_by = '$id'")
                     st.executeUpdate("DELETE FROM user_blocks WHERE blocker_id = '$id' OR blocked_id = '$id'")
                     st.executeUpdate("DELETE FROM users WHERE id = '$id'")
                 }

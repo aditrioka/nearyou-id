@@ -40,75 +40,75 @@
 
 ## 5. Tests — schema constraint enforcement
 
-- [ ] 5.1 Test: empty-message CHECK rejects `(content NULL, embedded_post_id NULL, embedded_post_snapshot NULL)` INSERT.
-- [ ] 5.2 Test: empty-message CHECK accepts snapshot-only `(content NULL, embedded_post_id NULL, embedded_post_snapshot {...})` INSERT.
-- [ ] 5.3 Test: redaction atomicity CHECK rejects `(redacted_at = T, redacted_by NULL, redaction_reason NULL)`.
-- [ ] 5.4 Test: redaction atomicity CHECK accepts `(redacted_at = T, redacted_by = X, redaction_reason NULL)`.
-- [ ] 5.5 Test: slot CHECK rejects `slot = 0`, `slot = 3`, `slot = NULL`.
-- [ ] 5.6 Test: `conv_slot_unique` partial unique blocks a third active participant with `slot = 1` when one already exists with `slot = 1, left_at NULL`.
-- [ ] 5.7 Test: a `slot = 1, left_at IS NOT NULL` row plus a second `slot = 1, left_at IS NULL` row both succeed (partial unique only constrains active rows).
+- [x] 5.1 Test: empty-message CHECK rejects `(content NULL, embedded_post_id NULL, embedded_post_snapshot NULL)` INSERT.
+- [x] 5.2 Test: empty-message CHECK accepts snapshot-only `(content NULL, embedded_post_id NULL, embedded_post_snapshot {...})` INSERT.
+- [x] 5.3 Test: redaction atomicity CHECK rejects `(redacted_at = T, redacted_by NULL, redaction_reason NULL)`.
+- [x] 5.4 Test: redaction atomicity CHECK accepts `(redacted_at = T, redacted_by = X, redaction_reason NULL)`.
+- [x] 5.5 Test: slot CHECK rejects `slot = 0`, `slot = 3`, `slot = NULL`.
+- [x] 5.6 Test: `conv_slot_unique` partial unique blocks a third active participant with `slot = 1` when one already exists with `slot = 1, left_at NULL`.
+- [x] 5.7 Test: a `slot = 1, left_at IS NOT NULL` row plus a second `slot = 1, left_at IS NULL` row both succeed (partial unique only constrains active rows).
 
 ## 6. Tests — slot-race serialization
 
-- [ ] 6.1 Concurrency test: 10 concurrent `findOrCreate1to1(A, B)` calls AND 10 concurrent `findOrCreate1to1(B, A)` calls (20 total) → exactly one row in `conversations`, exactly two rows in `conversation_participants`, all 20 callers receive the same `conversation_id`. Use a real Postgres test database (Docker Compose), not an in-memory mock.
-- [ ] 6.2 Lock-key derivation test: assert the user-pair lock takes `hashtext(LEAST(...)::text || ':' || GREATEST(...)::text)` — instrument the repository to return the lock-key string, assert canonical-ordered + colon-separated.
-- [ ] 6.3 Per-conversation lock-presence test: assert that the participant INSERTs in `findOrCreate1to1` happen AFTER `pg_advisory_xact_lock(hashtext(:conversation_id::text))` was called in the same transaction. Use `pg_locks` view introspection.
+- [x] 6.1 Concurrency test: 10 concurrent `findOrCreate1to1(A, B)` calls AND 10 concurrent `findOrCreate1to1(B, A)` calls (20 total) → exactly one row in `conversations`, exactly two rows in `conversation_participants`, all 20 callers receive the same `conversation_id`. Use a real Postgres test database (Docker Compose), not an in-memory mock.
+- [x] 6.2 Lock-key derivation test: assert the user-pair lock takes `hashtext(LEAST(...)::text || ':' || GREATEST(...)::text)` — instrument the repository to return the lock-key string, assert canonical-ordered + colon-separated.
+- [x] 6.3 Per-conversation lock-presence test: assert that the participant INSERTs in `findOrCreate1to1` happen AFTER `pg_advisory_xact_lock(hashtext(:conversation_id::text))` was called in the same transaction. Use `pg_locks` view introspection.
 
 ## 7. Tests — REST endpoint behavior
 
-- [ ] 7.1 `POST /api/v1/conversations`: first call returns status code **specifically 201** (not 200) + new conversation; second call between same pair returns status code **specifically 200** (not 201) + same conversation_id. Assert both status codes explicitly to verify the D8 idempotency contract.
-- [ ] 7.2 `POST /api/v1/conversations`: block in either direction returns 403 with canonical body `{ error: "Tidak dapat mengirim pesan ke user ini" }`.
-- [ ] 7.3 `POST /api/v1/conversations`: self-DM returns 400.
-- [ ] 7.4 `POST /api/v1/conversations`: nonexistent recipient (no row in raw `users`) returns 404.
-- [ ] 7.4.a `POST /api/v1/conversations`: shadow-banned recipient (row in `users` with `is_shadow_banned = TRUE`) returns 201/200 (NOT 404 — verifies the no-shadow-ban-oracle contract per spec Scenario "Recipient is shadow-banned does NOT 404").
-- [ ] 7.4.b `POST /api/v1/conversations`: self-DM check happens BEFORE user-pair lock acquisition. Use `pg_locks` introspection on a separate connection to assert that the user-pair lock-key is NOT held by the request transaction when the 400 is returned.
-- [ ] 7.4.c `POST /api/v1/conversations`: unauthenticated call returns 401.
-- [ ] 7.5 `GET /api/v1/conversations`: returns active-participant rows ordered by `last_message_at DESC NULLS LAST, created_at DESC`.
-- [ ] 7.6 `GET /api/v1/conversations`: empty conversation (no messages) appears at the bottom (NULLS LAST).
-- [ ] 7.7 `GET /api/v1/conversations`: rows where caller has `left_at != NULL` are absent.
-- [ ] 7.8 `GET /api/v1/conversations`: cursor pagination is forward-only, stable, no overlap, no gaps over 100-conversation seed.
-- [ ] 7.9 `GET /api/v1/conversations`: hard cap at 100 rows when `?limit=500` is passed (silent clamp; status remains 200, NOT 400).
-- [ ] 7.9.a `GET /api/v1/conversations`: malformed cursor returns 400.
-- [ ] 7.9.b `GET /api/v1/conversations`: unauthenticated call returns 401.
-- [ ] 7.9.c `GET /api/v1/conversations`: bidirectional block does NOT exclude conversation — A blocks B (or B blocks A) → conversation between A and B IS still in A's list (and B's list, by symmetry). This verifies the canonical "Existing conversations remain visible in history" applied to the list view per `docs/02-Product.md:234`.
-- [ ] 7.9.d `GET /api/v1/conversations`: shadow-banned partner B → conversation surfaces with `partner_username = 'akun_dihapus'`, `partner_display_name = 'Akun Dihapus'`, `partner_is_premium = FALSE` (LEFT JOIN visible_users + COALESCE-to-placeholder).
-- [ ] 7.10 `GET /api/v1/chat/{id}/messages`: active participant gets ordered messages.
-- [ ] 7.11 `GET /api/v1/chat/{id}/messages`: non-participant returns 403.
-- [ ] 7.12 `GET /api/v1/chat/{id}/messages`: `left_at != NULL` participant returns 403.
-- [ ] 7.13 `GET /api/v1/chat/{id}/messages`: redacted message has `content == null`, `redacted_at` surfaced, `redaction_reason` omitted from response shape.
-- [ ] 7.14 `GET /api/v1/chat/{id}/messages`: cursor pagination by `(created_at DESC, id DESC)` over 75-message seed.
-- [ ] 7.14.a `GET /api/v1/chat/{id}/messages`: cursor boundary at tied `created_at` — seed two messages M1 and M2 with identical `created_at`; fetch with `?limit=1`, then page 2 — assert M1 and M2 are split exactly across the two pages with no duplication or loss (the `(created_at, id)` composite tiebreaker disambiguates).
-- [ ] 7.14.b `GET /api/v1/chat/{id}/messages`: malformed cursor returns 400.
-- [ ] 7.14.c `GET /api/v1/chat/{id}/messages`: malformed UUID path param returns 400.
-- [ ] 7.14.d `GET /api/v1/chat/{id}/messages`: unknown well-formed UUID returns 404.
-- [ ] 7.14.e `GET /api/v1/chat/{id}/messages`: unauthenticated call returns 401.
-- [ ] 7.14.f `GET /api/v1/chat/{id}/messages`: shadow-banned sender's messages hidden from non-banned viewer.
-- [ ] 7.14.g `GET /api/v1/chat/{id}/messages`: shadow-banned sender sees their own messages (own-content carve-out per-row).
-- [ ] 7.14.h `GET /api/v1/chat/{id}/messages`: block added AFTER conversation creation does NOT hide history — pre-existing M1, M2, M3; insert `user_blocks` (either direction); assert all three messages still in the response (200).
-- [ ] 7.15 `POST /api/v1/chat/{id}/messages`: active participant sends; row inserted with sender_id, content, conversation_id; `last_message_at` updated atomically.
-- [ ] 7.16 `POST /api/v1/chat/{id}/messages`: block in either direction returns 403 + canonical body.
-- [ ] 7.17 `POST /api/v1/chat/{id}/messages`: 2001-char content returns 400; whitespace-only content returns 400.
-- [ ] 7.18 `POST /api/v1/chat/{id}/messages`: `embedded_post_id` in body silently ignored; row inserts with `embedded_post_id IS NULL`; structured WARN log emitted with `event = "chat_send_embedded_field_ignored"` + field name.
-- [ ] 7.18.a `POST /api/v1/chat/{id}/messages`: `embedded_post_snapshot` in body silently ignored; row inserts with `embedded_post_snapshot IS NULL`; WARN log includes field name `embedded_post_snapshot`.
-- [ ] 7.18.b `POST /api/v1/chat/{id}/messages`: `embedded_post_edit_id` in body silently ignored; row inserts with `embedded_post_edit_id IS NULL`; WARN log includes field name `embedded_post_edit_id`.
-- [ ] 7.18.c `POST /api/v1/chat/{id}/messages`: shadow-banned sender's send succeeds (201) and persists; recipient's subsequent `GET /messages` does NOT return the row (filter applies).
-- [ ] 7.18.d `POST /api/v1/chat/{id}/messages`: `last_message_at` rollback test — induce a post-INSERT failure (e.g., a constraint violation surfaced after the application-layer guard), assert that `conversations.last_message_at` for the conversation is unchanged from its pre-call value (verifying same-transaction atomicity per design.md § D3).
-- [ ] 7.19 `POST /api/v1/chat/{id}/messages`: unknown conversation id returns 404.
-- [ ] 7.19.a `POST /api/v1/chat/{id}/messages`: malformed UUID path param returns 400.
-- [ ] 7.19.b `POST /api/v1/chat/{id}/messages`: unauthenticated call returns 401.
+- [x] 7.1 `POST /api/v1/conversations`: first call returns status code **specifically 201** (not 200) + new conversation; second call between same pair returns status code **specifically 200** (not 201) + same conversation_id. Assert both status codes explicitly to verify the D8 idempotency contract.
+- [x] 7.2 `POST /api/v1/conversations`: block in either direction returns 403 with canonical body `{ error: "Tidak dapat mengirim pesan ke user ini" }`.
+- [x] 7.3 `POST /api/v1/conversations`: self-DM returns 400.
+- [x] 7.4 `POST /api/v1/conversations`: nonexistent recipient (no row in raw `users`) returns 404.
+- [x] 7.4.a `POST /api/v1/conversations`: shadow-banned recipient (row in `users` with `is_shadow_banned = TRUE`) returns 201/200 (NOT 404 — verifies the no-shadow-ban-oracle contract per spec Scenario "Recipient is shadow-banned does NOT 404").
+- [x] 7.4.b `POST /api/v1/conversations`: self-DM check happens BEFORE user-pair lock acquisition. Use `pg_locks` introspection on a separate connection to assert that the user-pair lock-key is NOT held by the request transaction when the 400 is returned.
+- [x] 7.4.c `POST /api/v1/conversations`: unauthenticated call returns 401.
+- [x] 7.5 `GET /api/v1/conversations`: returns active-participant rows ordered by `last_message_at DESC NULLS LAST, created_at DESC`.
+- [x] 7.6 `GET /api/v1/conversations`: empty conversation (no messages) appears at the bottom (NULLS LAST).
+- [x] 7.7 `GET /api/v1/conversations`: rows where caller has `left_at != NULL` are absent.
+- [x] 7.8 `GET /api/v1/conversations`: cursor pagination is forward-only, stable, no overlap, no gaps over 100-conversation seed.
+- [x] 7.9 `GET /api/v1/conversations`: hard cap at 100 rows when `?limit=500` is passed (silent clamp; status remains 200, NOT 400).
+- [x] 7.9.a `GET /api/v1/conversations`: malformed cursor returns 400.
+- [x] 7.9.b `GET /api/v1/conversations`: unauthenticated call returns 401.
+- [x] 7.9.c `GET /api/v1/conversations`: bidirectional block does NOT exclude conversation — A blocks B (or B blocks A) → conversation between A and B IS still in A's list (and B's list, by symmetry). This verifies the canonical "Existing conversations remain visible in history" applied to the list view per `docs/02-Product.md:234`.
+- [x] 7.9.d `GET /api/v1/conversations`: shadow-banned partner B → conversation surfaces with `partner_username = 'akun_dihapus'`, `partner_display_name = 'Akun Dihapus'`, `partner_is_premium = FALSE` (LEFT JOIN visible_users + COALESCE-to-placeholder).
+- [x] 7.10 `GET /api/v1/chat/{id}/messages`: active participant gets ordered messages.
+- [x] 7.11 `GET /api/v1/chat/{id}/messages`: non-participant returns 403.
+- [x] 7.12 `GET /api/v1/chat/{id}/messages`: `left_at != NULL` participant returns 403.
+- [x] 7.13 `GET /api/v1/chat/{id}/messages`: redacted message has `content == null`, `redacted_at` surfaced, `redaction_reason` omitted from response shape.
+- [x] 7.14 `GET /api/v1/chat/{id}/messages`: cursor pagination by `(created_at DESC, id DESC)` over 75-message seed.
+- [x] 7.14.a `GET /api/v1/chat/{id}/messages`: cursor boundary at tied `created_at` — seed two messages M1 and M2 with identical `created_at`; fetch with `?limit=1`, then page 2 — assert M1 and M2 are split exactly across the two pages with no duplication or loss (the `(created_at, id)` composite tiebreaker disambiguates).
+- [x] 7.14.b `GET /api/v1/chat/{id}/messages`: malformed cursor returns 400.
+- [x] 7.14.c `GET /api/v1/chat/{id}/messages`: malformed UUID path param returns 400.
+- [x] 7.14.d `GET /api/v1/chat/{id}/messages`: unknown well-formed UUID returns 404.
+- [x] 7.14.e `GET /api/v1/chat/{id}/messages`: unauthenticated call returns 401.
+- [x] 7.14.f `GET /api/v1/chat/{id}/messages`: shadow-banned sender's messages hidden from non-banned viewer.
+- [x] 7.14.g `GET /api/v1/chat/{id}/messages`: shadow-banned sender sees their own messages (own-content carve-out per-row).
+- [x] 7.14.h `GET /api/v1/chat/{id}/messages`: block added AFTER conversation creation does NOT hide history — pre-existing M1, M2, M3; insert `user_blocks` (either direction); assert all three messages still in the response (200).
+- [x] 7.15 `POST /api/v1/chat/{id}/messages`: active participant sends; row inserted with sender_id, content, conversation_id; `last_message_at` updated atomically.
+- [x] 7.16 `POST /api/v1/chat/{id}/messages`: block in either direction returns 403 + canonical body.
+- [x] 7.17 `POST /api/v1/chat/{id}/messages`: 2001-char content returns 400; whitespace-only content returns 400.
+- [x] 7.18 `POST /api/v1/chat/{id}/messages`: `embedded_post_id` in body silently ignored; row inserts with `embedded_post_id IS NULL`; structured WARN log emitted with `event = "chat_send_embedded_field_ignored"` + field name.
+- [x] 7.18.a `POST /api/v1/chat/{id}/messages`: `embedded_post_snapshot` in body silently ignored; row inserts with `embedded_post_snapshot IS NULL`; WARN log includes field name `embedded_post_snapshot`.
+- [x] 7.18.b `POST /api/v1/chat/{id}/messages`: `embedded_post_edit_id` in body silently ignored; row inserts with `embedded_post_edit_id IS NULL`; WARN log includes field name `embedded_post_edit_id`.
+- [x] 7.18.c `POST /api/v1/chat/{id}/messages`: shadow-banned sender's send succeeds (201) and persists; recipient's subsequent `GET /messages` does NOT return the row (filter applies).
+- [x] 7.18.d `POST /api/v1/chat/{id}/messages`: `last_message_at` rollback test — induce a post-INSERT failure (e.g., a constraint violation surfaced after the application-layer guard), assert that `conversations.last_message_at` for the conversation is unchanged from its pre-call value (verifying same-transaction atomicity per design.md § D3).
+- [x] 7.19 `POST /api/v1/chat/{id}/messages`: unknown conversation id returns 404.
+- [x] 7.19.a `POST /api/v1/chat/{id}/messages`: malformed UUID path param returns 400.
+- [x] 7.19.b `POST /api/v1/chat/{id}/messages`: unauthenticated call returns 401.
 
 ## 8. Tests — RLS realtime policy (mandatory per CLAUDE.md invariant)
 
-- [ ] 8.1 RLS: JWT `sub` not in `public.users` against topic `conversation:<valid_uuid>` denies (zero rows).
-- [ ] 8.2 RLS: valid user, NOT in `conversation_participants` for the topic conv, denies.
-- [ ] 8.3 RLS: valid user with `left_at IS NOT NULL` participant row denies.
-- [ ] 8.4 RLS: malformed topic `conversation` (no delimiter) denies via regex.
-- [ ] 8.5 RLS: malformed topic `conversation:` (no UUID after colon) denies via regex.
-- [ ] 8.6 RLS: invalid-UUID topic `conversation:not-a-uuid` denies via regex.
-- [ ] 8.7 RLS: SQL-injection topic `conversation:'; DROP TABLE conversations; --` denies; database remains intact.
-- [ ] 8.8 RLS: active participant (`left_at IS NULL`) with valid topic UUID matching their participation row allows.
-- [ ] 8.9 RLS test set MUST run in CI against a Supabase-mode Postgres container (not staging-only). If the existing CI Postgres service is plain, extend it with the Supabase realtime extension OR run a separate Supabase-mode service in the test job. A staging-only verification is INSUFFICIENT per the spec Requirement: "Realtime RLS test set runs against real schema." The mandatory invariant per `CLAUDE.md` requires the test set runs on every RLS policy change — this change INSTALLS the policy for the first time (with the V15-corrected definition per `design.md` § D9, dropping V2's subscriber-side `is_shadow_banned` clause).
-- [ ] 8.10 RLS: shadow-banned active participant ALLOWS (per spec Scenario "Shadow-banned active participant succeeds") — a user with `is_shadow_banned = TRUE` who is an active participant of the topic conversation gets the SELECT allowed. Verifies V15's policy correctly drops V2's subscriber-side `is_shadow_banned` clause.
+- [x] 8.1 RLS: JWT `sub` not in `public.users` against topic `conversation:<valid_uuid>` denies (zero rows).
+- [x] 8.2 RLS: valid user, NOT in `conversation_participants` for the topic conv, denies.
+- [x] 8.3 RLS: valid user with `left_at IS NOT NULL` participant row denies.
+- [x] 8.4 RLS: malformed topic `conversation` (no delimiter) denies via regex.
+- [x] 8.5 RLS: malformed topic `conversation:` (no UUID after colon) denies via regex.
+- [x] 8.6 RLS: invalid-UUID topic `conversation:not-a-uuid` denies via regex.
+- [x] 8.7 RLS: SQL-injection topic `conversation:'; DROP TABLE conversations; --` denies; database remains intact.
+- [x] 8.8 RLS: active participant (`left_at IS NULL`) with valid topic UUID matching their participation row allows.
+- [x] 8.9 RLS test set MUST run in CI against a Supabase-mode Postgres container (not staging-only). If the existing CI Postgres service is plain, extend it with the Supabase realtime extension OR run a separate Supabase-mode service in the test job. A staging-only verification is INSUFFICIENT per the spec Requirement: "Realtime RLS test set runs against real schema." The mandatory invariant per `CLAUDE.md` requires the test set runs on every RLS policy change — this change INSTALLS the policy for the first time (with the V15-corrected definition per `design.md` § D9, dropping V2's subscriber-side `is_shadow_banned` clause).
+- [x] 8.10 RLS: shadow-banned active participant ALLOWS (per spec Scenario "Shadow-banned active participant succeeds") — a user with `is_shadow_banned = TRUE` who is an active participant of the topic conversation gets the SELECT allowed. Verifies V15's policy correctly drops V2's subscriber-side `is_shadow_banned` clause.
 
 ## 9. Lint-rule update + coverage
 
@@ -116,12 +116,12 @@
 - [x] 9.0.2 Extend `lint/detekt-rules/src/test/kotlin/.../BlockExclusionJoinLintTest.kt` (or equivalent test class) with a positive case: a function annotated `// @allow-no-block-exclusion: chat-history-readable-after-block` containing a chat-history-style query SHALL NOT trip the rule.
 - [x] 9.0.3 Add a negative case: a function lacking the annotation but containing the same chat-history-style query SHALL still trip the rule (proves the annotation is what's gating, not some other carve-out).
 - [x] 9.0.4 Add the annotation token (`@allow-no-block-exclusion`) to the rule's recognized allowlist set with an explanatory comment citing `chat-foundation/design.md` § D10.
-- [ ] 9.1 Run `./gradlew :backend:ktor:detekt :lint:detekt-rules:test` and verify (a) `BlockExclusionJoinRule` does NOT fire on the list-messages and send-message participant-lookup queries (suppressed by the new annotation per 9.0.1–9.0.4), (b) the rule DOES fire on the conversation-list partner-lookup query if the bidirectional NOT-IN is removed (proves the rule still works on non-annotated sites), and (c) all `:lint:detekt-rules:test` cases pass including the two new ones from 9.0.2 + 9.0.3.
-- [ ] 9.2 Run `./gradlew ktlintCheck` per the pre-push verification convention from [`CLAUDE.md` § Delivery workflow](../../../CLAUDE.md).
+- [x] 9.1 Run `./gradlew :backend:ktor:detekt :lint:detekt-rules:test` and verify (a) `BlockExclusionJoinRule` does NOT fire on the list-messages and send-message participant-lookup queries (suppressed by the new annotation per 9.0.1–9.0.4), (b) the rule DOES fire on the conversation-list partner-lookup query if the bidirectional NOT-IN is removed (proves the rule still works on non-annotated sites), and (c) all `:lint:detekt-rules:test` cases pass including the two new ones from 9.0.2 + 9.0.3.
+- [x] 9.2 Run `./gradlew ktlintCheck` per the pre-push verification convention from [`CLAUDE.md` § Delivery workflow](../../../CLAUDE.md).
 
 ## 10. Pre-push verification + staging deploy + smoke
 
-- [ ] 10.1 Local verification: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` all green.
+- [x] 10.1 Local verification: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` all green.
 - [ ] 10.2 Trigger staging deploy: `gh workflow run deploy-staging.yml --ref <branch>` per the staging-deploy-before-archive convention codified in PR [#50](https://github.com/aditrioka/nearyou-id/pull/50). Wait for the deploy to land on staging.
 - [ ] 10.3 Verify V15 schema applied on staging: run a one-shot `psql` Cloud Run job (per the `dev/scripts/promote-staging-user.sh` shape, using the `^|^` delimiter to avoid the comma + `@` parsing footguns documented in `FOLLOW_UPS.md`) executing `\dt conversations`, `\dt conversation_participants`, `\dt chat_messages` and capturing the row counts as zero.
 - [ ] 10.4 Round-trip smoke against staging: create two staging users (or reuse two existing QA accounts), call `POST /api/v1/conversations`, then `POST /api/v1/chat/{id}/messages`, then `GET /api/v1/chat/{id}/messages`, then `GET /api/v1/conversations`, and assert the data plane round-trips correctly.
@@ -130,9 +130,9 @@
 
 ## 11. Documentation + follow-up bookkeeping
 
-- [ ] 11.1 Verify no `docs/` amendment is required (the canonical schema in `docs/05-Implementation.md` matches the shipped V15 byte-for-byte; if the reconciliation pass surfaced any divergence, follow-up entries are in `FOLLOW_UPS.md`).
-- [ ] 11.2 Update PR title at implementation start: `gh pr edit <pr> --title 'feat(chat): chat-foundation (schema + REST data plane for 1:1 conversations)'`.
-- [ ] 11.3 Update PR body at implementation start to reflect the current state per the same-PR iteration rule in `CLAUDE.md`.
+- [x] 11.1 Verify no `docs/` amendment is required (the canonical schema in `docs/05-Implementation.md` matches the shipped V15 byte-for-byte; if the reconciliation pass surfaced any divergence, follow-up entries are in `FOLLOW_UPS.md`).
+- [x] 11.2 Update PR title at implementation start: `gh pr edit <pr> --title 'feat(chat): chat-foundation (schema + REST data plane for 1:1 conversations)'`.
+- [x] 11.3 Update PR body at implementation start to reflect the current state per the same-PR iteration rule in `CLAUDE.md`.
 - [ ] 11.4 At archive: confirm `openspec/changes/chat-foundation/` is moved under `archive/` and `openspec/specs/chat-conversations/` (NEW) + `openspec/specs/auth-realtime/` (MODIFIED) are synced.
 - [x] 11.5 Open follow-up entry in `FOLLOW_UPS.md` titled `chat-realtime-broadcast-publish` capturing what's deferred (Supabase Realtime broadcast publish from Ktor, Phase 2 #9 realtime layer) so the follow-up has a tracked anchor.
 - [x] 11.6 Open follow-up entry in `FOLLOW_UPS.md` titled `chat-rate-limit-50-per-day` capturing the deferred Free 50/day daily-send cap (matches the like-rate-limit + reply-rate-limit shape).
