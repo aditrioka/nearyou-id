@@ -207,9 +207,20 @@ class SuspensionUnbanWorkerTest : StringSpec({
         // which would require an explicit transaction) so the EXPLAIN proves
         // the query CAN use the partial index — i.e., the index is usable, and
         // production planning at scale will choose it once the table is large.
+        //
+        // ANALYZE before EXPLAIN: when other database-tagged tests in the same
+        // CI pass have inserted users (e.g., the V14 fcm-token-registration
+        // tests + the V15+ fcm-push-dispatch JDBC tests bulk-seed users for
+        // their own setup), the `users` table statistics drift relative to
+        // the partial-index selectivity. A stale-stats planner — even with
+        // seqscan disabled — can prefer a different index path (e.g., a PK
+        // bitmap scan) over `users_suspended_idx`. Refreshing stats keeps
+        // the assertion deterministic regardless of test-ordering. See
+        // PR #60 CI run 25084748242 for the failure that motivated this.
         val plan =
             dataSource.connection.use { conn ->
                 conn.createStatement().use { st ->
+                    st.execute("ANALYZE users")
                     st.execute("SET enable_seqscan = off")
                     try {
                         st.executeQuery(
