@@ -2,6 +2,7 @@ package id.nearyou.app.admin
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import io.kotest.assertions.withClue
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContain
@@ -237,6 +238,10 @@ class SuspensionUnbanWorkerTest : StringSpec({
                     }
                 }
             }
-        plan shouldContain "users_suspended_idx"
+        // On assertion failure, surface the actual plan in the message so CI
+        // logs reveal which alternative the planner picked.
+        withClue("EXPLAIN plan was:\n$plan") {
+            plan shouldContain "users_suspended_idx"
+        }
     }
 })
