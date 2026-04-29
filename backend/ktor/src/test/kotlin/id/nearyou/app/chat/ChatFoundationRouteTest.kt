@@ -32,6 +32,10 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respondText
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
@@ -44,6 +48,7 @@ import java.sql.Timestamp
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import ch.qos.logback.classic.Logger as LogbackLogger
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientCN
 
@@ -246,38 +251,6 @@ class ChatFoundationRouteTest : StringSpec({
         }
     }
 
-    fun userPairLockHeldOnAnyConnection(
-        a: UUID,
-        b: UUID,
-    ): Boolean {
-        // The user-pair lock is taken via pg_advisory_xact_lock(hashtext(LEAST||':'||GREATEST)).
-        // pg_locks.classid + objid encode the 32-bit hashtext result for int4 advisory locks,
-        // but the objid -> oid -> bigint conversion is fiddly. We sidestep that by checking
-        // whether ANY advisory lock for any connection other than ours is held that matches
-        // the canonical key; if no such lock exists in pg_locks at all post-call, we know the
-        // SelfDmException short-circuit ran before the lock was taken.
-        val (lo, hi) = if (a.toString() < b.toString()) a to b else b to a
-        val key = "$lo:$hi"
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                SELECT EXISTS (
-                    SELECT 1
-                      FROM pg_locks pl
-                     WHERE pl.locktype = 'advisory'
-                       AND pl.objid::bigint = (hashtext(?)::bigint & x'ffffffff'::bigint)
-                )
-                """.trimIndent(),
-            ).use { ps ->
-                ps.setString(1, key)
-                ps.executeQuery().use { rs ->
-                    rs.next()
-                    return rs.getBoolean(1)
-                }
-            }
-        }
-    }
-
     fun cleanup(vararg userIds: UUID) {
         dataSource.connection.use { conn ->
             conn.createStatement().use { st ->
@@ -402,6 +375,54 @@ class ChatFoundationRouteTest : StringSpec({
         }
     }
 
+    // ---- 6.1.http: HTTP-layer slot-race differential -------------------------
+
+    "6.1.http POST /api/v1/conversations: 20 concurrent calls return 1×201 + 19×200 with same conversation_id" {
+        // Complements the repository-level 6.1 test (ChatRepositorySlotRaceTest) by
+        // asserting the HTTP-layer status-code differential: per the spec scenario
+        // "Concurrent create-or-return for the same pair produces one conversation",
+        // exactly one caller observes 201 (new) and the rest observe 200 (existing),
+        // and all responses share the same conversation_id.
+        val (a, ta) = seedUser()
+        val (b, tb) = seedUser()
+        try {
+            withChat {
+                val client = createClient { install(ClientCN) { json() } }
+                val gate = CountDownLatch(1)
+                val results: List<Pair<HttpStatusCode, String>> =
+                    coroutineScope {
+                        val deferreds =
+                            (1..20).map { i ->
+                                val (token, recipient) = if (i <= 10) ta to b else tb to a
+                                async(Dispatchers.IO) {
+                                    gate.await()
+                                    val resp =
+                                        client.post("/api/v1/conversations") {
+                                            header(HttpHeaders.Authorization, "Bearer $token")
+                                            contentType(ContentType.Application.Json)
+                                            setBody("""{"recipient_user_id":"$recipient"}""")
+                                        }
+                                    val convId =
+                                        Json.parseToJsonElement(resp.bodyAsText()).jsonObject["conversation"]!!
+                                            .jsonObject["id"]!!.jsonPrimitive.content
+                                    resp.status to convId
+                                }
+                            }
+                        gate.countDown()
+                        deferreds.awaitAll()
+                    }
+
+                val createdCount = results.count { it.first == HttpStatusCode.Created }
+                val okCount = results.count { it.first == HttpStatusCode.OK }
+                createdCount shouldBe 1
+                okCount shouldBe 19
+                results.map { it.second }.toSet().size shouldBe 1
+            }
+        } finally {
+            cleanup(a, b)
+        }
+    }
+
     // ---- 7.2: block in either direction → 403 + canonical body ----------------
 
     "7.2 POST /conversations — block in either direction returns 403 with canonical body" {
@@ -501,25 +522,63 @@ class ChatFoundationRouteTest : StringSpec({
 
     // ---- 7.4.b: self-DM check before user-pair lock --------------------------
 
-    "7.4.b POST /conversations — self-DM check happens BEFORE user-pair lock acquisition" {
-        // The repository throws SelfDmException immediately at function entry — before
-        // `dataSource.connection.use { ... acquireUserPairLock(...) }` — so no advisory
-        // lock for the self-pair is ever taken.
+    "7.4.b POST /api/v1/conversations: self-DM check runs BEFORE user-pair lock acquisition (holder-lock proof)" {
+        // Holder-lock proof of lock ordering: if the implementation took the
+        // user-pair lock BEFORE the self-DM check, the request below would block
+        // until the holder transaction released. We hold the canonical self-pair
+        // lock on a separate connection and time the request — a fast 400 proves
+        // the self-DM check ran first (no lock contention).
         //
-        // Implementation-order verification: this is a static property of `findOrCreate1to1`
-        // (line 107: `if (callerId == recipientId) throw SelfDmException()` runs before the
-        // dataSource.connection.use block at line 108). The runtime check below adds defence
-        // in depth: after the 400 returns, no lock for the self-pair (or any pair) is held in
-        // `pg_locks` because pg_advisory_xact_lock releases at commit/rollback. If the lock
-        // had been taken before the throw, it would still have been released by the rollback
-        // path — so a positive lock-held result is impossible AT THIS OBSERVATION POINT either
-        // way. The test's value: it confirms (a) the request completed (no leaked connection /
-        // permanent lock from a session-level lock leak), and (b) the 400 status. The
-        // structural assertion about source order is documented in this comment per the
-        // spec scenario "Self-DM check happens before lock acquisition".
+        // Belt-and-suspenders: while the holder is holding the lock, query
+        // `pg_locks` from a third connection and assert exactly ONE PID holds the
+        // self-pair lock-key (the holder PID); the request transaction's PID is
+        // NOT also holding it. If the request had blocked on the lock acquisition
+        // its PID would appear with `granted = false` for the same lock-key.
         val (a, ta) = seedUser()
+        val holder = dataSource.connection
         try {
+            holder.autoCommit = false
+            // Acquire the self-pair lock with the EXACT canonical shape the
+            // production code uses — LEAST(a, a) || ':' || GREATEST(a, a) reduces
+            // to "a:a", which is what acquireUserPairLock(conn, a, a) would compute.
+            holder.prepareStatement(
+                "SELECT pg_advisory_xact_lock(hashtext(LEAST(?::text, ?::text) || ':' || GREATEST(?::text, ?::text)))",
+            ).use { ps ->
+                ps.setObject(1, a)
+                ps.setObject(2, a)
+                ps.setObject(3, a)
+                ps.setObject(4, a)
+                ps.executeQuery().use { it.next() }
+            }
+            val holderPid =
+                holder.prepareStatement("SELECT pg_backend_pid()").use { ps ->
+                    ps.executeQuery().use { rs ->
+                        rs.next()
+                        rs.getInt(1)
+                    }
+                }
+
+            // Compute expected lock-key int8 on a probe connection so we can
+            // identify the held lock unambiguously in pg_locks.
+            val expectedKey: Long =
+                dataSource.connection.use { probe ->
+                    probe.prepareStatement(
+                        "SELECT hashtext(LEAST(?::text, ?::text) || ':' || GREATEST(?::text, ?::text))::bigint",
+                    ).use { ps ->
+                        ps.setObject(1, a)
+                        ps.setObject(2, a)
+                        ps.setObject(3, a)
+                        ps.setObject(4, a)
+                        ps.executeQuery().use { rs ->
+                            rs.next()
+                            rs.getLong(1)
+                        }
+                    }
+                }
+
+            val elapsedMs = java.util.concurrent.atomic.AtomicLong(0L)
             withChat {
+                val t0 = System.currentTimeMillis()
                 val resp =
                     createClient { install(ClientCN) { json() } }
                         .post("/api/v1/conversations") {
@@ -527,10 +586,57 @@ class ChatFoundationRouteTest : StringSpec({
                             contentType(ContentType.Application.Json)
                             setBody("""{"recipient_user_id":"$a"}""")
                         }
+                elapsedMs.set(System.currentTimeMillis() - t0)
                 resp.status shouldBe HttpStatusCode.BadRequest
             }
-            userPairLockHeldOnAnyConnection(a, a) shouldBe false
+            // Generous threshold (1000 ms) — if the request had blocked on the
+            // held lock, it would either time out or hang for the connection's
+            // lifetime; either way the elapsed time would dominate this bound.
+            (elapsedMs.get() < 1000).shouldBe(true)
+
+            // Belt-and-suspenders: while the holder still holds the lock, the
+            // self-pair lock-key in pg_locks must be held by EXACTLY one PID
+            // (the holder). The request transaction must NOT also be holding it.
+            dataSource.connection.use { probe ->
+                probe.prepareStatement(
+                    """
+                    SELECT pid, classid::bigint AS classid8, objid::bigint AS objid8, granted
+                      FROM pg_locks
+                     WHERE locktype = 'advisory'
+                    """.trimIndent(),
+                ).use { ps ->
+                    ps.executeQuery().use { rs ->
+                        val pidsHoldingKey = mutableListOf<Int>()
+                        while (rs.next()) {
+                            val classid = rs.getLong("classid8")
+                            val objid = rs.getLong("objid8")
+                            val reconstructed = (classid shl 32) or objid
+                            if (reconstructed == expectedKey && rs.getBoolean("granted")) {
+                                pidsHoldingKey += rs.getInt("pid")
+                            }
+                        }
+                        // Exactly one PID holds the self-pair lock — the holder.
+                        // If the production code had taken the lock before the
+                        // self-DM check, either (a) the request would still be
+                        // blocked (we'd never have reached this assertion since
+                        // elapsed-time would have failed), or (b) the lock would
+                        // have been released by rollback already (so still 1 PID).
+                        // The elapsed-time bound + this PID-count bound together
+                        // pin down the ordering claim.
+                        pidsHoldingKey.size shouldBe 1
+                        pidsHoldingKey.single() shouldBe holderPid
+                    }
+                }
+            }
+
+            holder.rollback()
         } finally {
+            try {
+                holder.autoCommit = true
+            } catch (_: Throwable) {
+                // best effort
+            }
+            holder.close()
             cleanup(a)
         }
     }
@@ -733,12 +839,48 @@ class ChatFoundationRouteTest : StringSpec({
 
     // ---- 7.9.c: bidirectional block does NOT exclude conversation ------------
 
-    "7.9.c GET /conversations — bidirectional block does NOT exclude conversation from list" {
+    "7.9.c GET /conversations — bidirectional block does NOT exclude conversation from list (BOTH directions)" {
+        // Spec scenarios "Conversation where partner has blocked caller still surfaces"
+        // AND "Conversation where caller has blocked partner still surfaces" — both
+        // directions of the block must keep the conversation visible to both viewers.
         val (a, ta) = seedUser()
         val (b, tb) = seedUser()
         try {
             val cAB = createConversationDirect(a, b)
-            seedBlock(a, b) // either direction; spec calls out symmetry
+
+            // ---- Direction 1: A blocks B ------------------------------------------
+            seedBlock(a, b)
+            withChat {
+                val client = createClient { install(ClientCN) { json() } }
+                val rA =
+                    client.get("/api/v1/conversations") {
+                        header(HttpHeaders.Authorization, "Bearer $ta")
+                    }
+                val idsA =
+                    Json.parseToJsonElement(rA.bodyAsText()).jsonObject["conversations"]!!
+                        .jsonArray.map { (it as JsonObject)["conversation"]!!.jsonObject["id"]!!.jsonPrimitive.content }
+                idsA shouldContainExactly listOf(cAB.toString())
+
+                val rB =
+                    client.get("/api/v1/conversations") {
+                        header(HttpHeaders.Authorization, "Bearer $tb")
+                    }
+                val idsB =
+                    Json.parseToJsonElement(rB.bodyAsText()).jsonObject["conversations"]!!
+                        .jsonArray.map { (it as JsonObject)["conversation"]!!.jsonObject["id"]!!.jsonPrimitive.content }
+                idsB shouldContainExactly listOf(cAB.toString())
+            }
+
+            // ---- Direction 2: reset, then B blocks A (inverse) -------------------
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("DELETE FROM user_blocks WHERE blocker_id = ? OR blocked_id = ?")
+                    .use { ps ->
+                        ps.setObject(1, a)
+                        ps.setObject(2, a)
+                        ps.executeUpdate()
+                    }
+            }
+            seedBlock(b, a)
             withChat {
                 val client = createClient { install(ClientCN) { json() } }
                 val rA =
@@ -1085,7 +1227,10 @@ class ChatFoundationRouteTest : StringSpec({
 
     // ---- 7.14.h: block AFTER conversation creation does NOT hide history -----
 
-    "7.14.h GET /chat/{id}/messages — block added AFTER creation does NOT hide history" {
+    "7.14.h GET /chat/{id}/messages — block added AFTER creation does NOT hide history (BOTH directions)" {
+        // Spec scenario "Block added after conversation creation does not hide history" reads:
+        //   "a user_blocks row is inserted (either direction)" — so both directions of
+        //   the block must keep history readable to A.
         val (a, ta) = seedUser()
         val (b, _) = seedUser()
         try {
@@ -1094,7 +1239,32 @@ class ChatFoundationRouteTest : StringSpec({
             val m1 = seedMessage(cAB, a, createdAt = now.minusSeconds(30))
             val m2 = seedMessage(cAB, b, createdAt = now.minusSeconds(20))
             val m3 = seedMessage(cAB, a, createdAt = now.minusSeconds(10))
-            seedBlock(a, b) // block AFTER conversation + messages
+
+            // ---- Direction 1: A blocks B -----------------------------------------
+            seedBlock(a, b)
+            withChat {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/chat/$cAB/messages") {
+                            header(HttpHeaders.Authorization, "Bearer $ta")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText()).jsonObject["messages"]!!
+                        .jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                ids.toSet() shouldBe setOf(m1.toString(), m2.toString(), m3.toString())
+            }
+
+            // ---- Direction 2: reset, then B blocks A (inverse) -------------------
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("DELETE FROM user_blocks WHERE blocker_id = ? OR blocked_id = ?")
+                    .use { ps ->
+                        ps.setObject(1, a)
+                        ps.setObject(2, a)
+                        ps.executeUpdate()
+                    }
+            }
+            seedBlock(b, a)
             withChat {
                 val resp =
                     createClient { install(ClientCN) { json() } }

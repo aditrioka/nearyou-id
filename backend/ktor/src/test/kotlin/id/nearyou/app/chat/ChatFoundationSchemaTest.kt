@@ -190,7 +190,12 @@ class ChatFoundationSchemaTest : StringSpec({
         }
     }
 
-    "5.3: redaction atomicity CHECK rejects half-set state (redacted_at set, redacted_by NULL)" {
+    "5.3: redaction atomicity CHECK rejects BOTH half-set states (redacted_at-only AND redacted_by-only)" {
+        // Spec scenario "Redaction atomicity CHECK rejects half-set state" reads:
+        //   "redacted_at non-null but leaves redacted_by NULL (or vice versa)"
+        // Both directions of the half-set anti-state must be rejected by the CHECK
+        // (((redacted_at IS NULL AND redacted_by IS NULL AND redaction_reason IS NULL)
+        //   OR (redacted_at IS NOT NULL AND redacted_by IS NOT NULL))).
         val u1 = seedUser()
         val u2 = seedUser()
         var convId: UUID? = null
@@ -213,7 +218,8 @@ class ChatFoundationSchemaTest : StringSpec({
                         }
                     }
             }
-            val ex =
+            // Direction 1: redacted_at SET, redacted_by NULL → CHECK violation.
+            val exA =
                 shouldThrow<SQLException> {
                     dataSource.connection.use { conn ->
                         conn.prepareStatement(
@@ -224,7 +230,23 @@ class ChatFoundationSchemaTest : StringSpec({
                         }
                     }
                 }
-            ex.sqlState shouldBe "23514"
+            exA.sqlState shouldBe "23514"
+
+            // Direction 2 (the converse, "or vice versa"): redacted_at NULL, redacted_by SET,
+            // redaction_reason NULL → CHECK violation.
+            val exB =
+                shouldThrow<SQLException> {
+                    dataSource.connection.use { conn ->
+                        conn.prepareStatement(
+                            "UPDATE chat_messages SET redacted_at = NULL, redacted_by = ?, redaction_reason = NULL WHERE id = ?",
+                        ).use { ps ->
+                            ps.setObject(1, u2)
+                            ps.setObject(2, msgId)
+                            ps.executeUpdate()
+                        }
+                    }
+                }
+            exB.sqlState shouldBe "23514"
         } finally {
             convId?.let { cleanupConversation(it) }
             cleanupUsers(u1, u2)
