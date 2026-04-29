@@ -26,6 +26,9 @@ import id.nearyou.app.auth.signup.WordPairResource
 import id.nearyou.app.auth.signup.signupRoutes
 import id.nearyou.app.block.BlockService
 import id.nearyou.app.block.blockRoutes
+import id.nearyou.app.chat.ChatRepository
+import id.nearyou.app.chat.ChatService
+import id.nearyou.app.chat.chatRoutes
 import id.nearyou.app.common.ClientIpExtractorPlugin
 import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.RemoteConfig
@@ -475,6 +478,8 @@ fun Application.module() {
             rateLimiter = rateLimiter,
             remoteConfig = remoteConfig,
         )
+    val chatRepository = ChatRepository(dataSource)
+    val chatService = ChatService(chatRepository)
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
     val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
@@ -595,6 +600,7 @@ fun Application.module() {
     userSocialRoutes(followService)
     likeRoutes(likeService)
     replyRoutes(replyService, contentLengthGuard)
+    chatRoutes(chatService, contentLengthGuard)
     timelineRoutes(nearbyTimelineService)
     followingTimelineRoutes(followingTimelineService)
     globalTimelineRoutes(globalTimelineService)

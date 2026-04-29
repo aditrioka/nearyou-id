@@ -11,6 +11,7 @@ import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtAnnotated
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
 
@@ -32,6 +33,11 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  *  - Any `KtAnnotated` (or an enclosing one) annotated `@AllowMissingBlockJoin("<reason>")`.
  *  - The `V5__user_blocks.sql` migration file (where `user_blocks` is created and references
  *    `users(id)` in its FK declarations).
+ *  - A line-comment marker on the enclosing function whose token appears in
+ *    `RECOGNIZED_COMMENT_MARKERS` (currently:
+ *    `@allow-no-block-exclusion: chat-history-readable-after-block`, per
+ *    `openspec/changes/chat-foundation/design.md` § D10). Comment-marker bypass is
+ *    function-scoped: the marker MUST appear in the text of the enclosing `KtNamedFunction`.
  *
  * Composes with `RawFromPostsRule`: a query that touches `posts` directly trips both rules,
  * which is intentional — `RawFromPostsRule` enforces "use the view", this rule enforces "join
@@ -149,6 +155,7 @@ class BlockExclusionJoinRule(config: Config = Config.empty) : Rule(config) {
         val file: KtFile = expression.containingKtFile
         if (isAllowedPath(file)) return
         if (expression.isInsideAllowedAnnotation()) return
+        if (expression.isInsideAllowedCommentMarker()) return
 
         // Multi-line `"...\n" + "FROM posts..."` concatenation: walk to the chain root and
         // analyze the combined text so split tokens still trigger. Only the LEFTMOST string
@@ -190,6 +197,23 @@ class BlockExclusionJoinRule(config: Config = Config.empty) : Rule(config) {
             ancestor = ancestor.getParentOfType<KtAnnotated>(strict = true)
         }
         return false
+    }
+
+    /**
+     * Source-comment-style bypass: scans the enclosing function's text for any of the
+     * recognized line-comment markers (e.g. `// @allow-no-block-exclusion: chat-history-readable-after-block`).
+     * This mirrors the project convention from `// @allow-username-write` and
+     * `// @allow-privacy-write` — see `CLAUDE.md` § Critical invariants. The marker is
+     * function-scoped: only the enclosing `KtNamedFunction`'s text is searched, not the
+     * entire file, so a stray marker in an unrelated function does NOT silently exempt
+     * sibling queries.
+     *
+     * Coexists with `@AllowMissingBlockJoin` — both bypass mechanisms remain valid.
+     */
+    private fun KtStringTemplateExpression.isInsideAllowedCommentMarker(): Boolean {
+        val enclosing = getParentOfType<KtNamedFunction>(strict = true) ?: return false
+        val text = enclosing.text
+        return RECOGNIZED_COMMENT_MARKERS.any { marker -> marker in text }
     }
 
     /**
@@ -238,6 +262,27 @@ class BlockExclusionJoinRule(config: Config = Config.empty) : Rule(config) {
 
         private val OWN_CONTENT_PREFIXES =
             listOf("PostOwnContent", "UserOwn", "ChatOwn", "ReplyOwn")
+
+        /**
+         * Recognized source-comment-marker tokens. Each token, when present in the text of
+         * the enclosing function, suppresses this rule for that function's body.
+         *
+         * Tokens — keep aligned with the project-wide `// @allow-...` convention documented
+         * in `CLAUDE.md` § Critical invariants:
+         *
+         *  - `@allow-no-block-exclusion: chat-history-readable-after-block` —
+         *    chat-foundation introduces an asymmetric block contract where SEND is denied
+         *    but LIST-history remains readable for both parties (per `docs/02-Product.md:234`).
+         *    Auto-applied bidirectional NOT-IN over-filters and drops the conversation
+         *    history. The send path enforces 403 via an explicit bidirectional `user_blocks`
+         *    lookup (canonical query `docs/05-Implementation.md:1304-1308`), so suppressing
+         *    the auto-applied NOT-IN there is safe — see
+         *    `openspec/changes/chat-foundation/design.md` § D10.
+         */
+        private val RECOGNIZED_COMMENT_MARKERS: List<String> =
+            listOf(
+                "@allow-no-block-exclusion: chat-history-readable-after-block",
+            )
 
         private val PROTECTED_TABLE_PATTERN: Regex =
             Regex(
