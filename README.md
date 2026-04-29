@@ -20,6 +20,7 @@ A modular monolith on Kotlin Multiplatform. Module list below is auto-generated 
 - `:core:domain` — pure-JVM domain interfaces, value types, no vendor SDK imports.
 - `:shared:distance` — KMP utilities for great-circle distance + nearby-radius math, shared by mobile and backend.
 - `:shared:tmp` — scratch placeholder for KMP boilerplate; will be split into real `:shared:<name>` modules as features are built.
+- `:infra:fcm` — Firebase Cloud Messaging Admin SDK wrapper; production `NotificationDispatcher` impl, per-platform payload builders, on-send token-prune contract.
 - `:infra:oidc` — Google OIDC bearer-token verifier (Auth0 `jwks-rsa` + `java-jwt`) for `/internal/*` endpoints invoked by Cloud Scheduler.
 - `:infra:redis` — Lettuce-backed `RateLimiter` + `RedisProbe` implementations; Redis client lifecycle isolated from `:backend:ktor`.
 - `:infra:supabase` — Supabase JWKS / token-verifier helpers used by Realtime channel access and Apple S2S sign-in flows.

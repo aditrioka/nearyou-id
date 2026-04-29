@@ -473,3 +473,81 @@ Then heavy jobs reference `needs.changes.outputs.backend == 'true'` etc. The cur
 - [ ] Wait for one of the trigger events above. Don't migrate preemptively — the hand-rolled filter is fine for single-axis docs-only.
 - [ ] When migrating: pin to a specific dorny/paths-filter SHA (not `@v3` floating tag) for supply-chain hygiene.
 - [ ] When migrating: keep the inline workflow-level `paths-ignore` as the outermost gate — it still saves the `changes` job runner cost on all-docs PRs.
+
+## fcm-payload-structural-tests
+
+**Discovered during:** `fcm-push-dispatch` apply, task 6.2 / 6.3
+**Status:** open
+
+**Finding:** The Firebase Admin SDK's `Message`, `AndroidConfig`, `ApnsConfig`, and `Aps` classes have package-private fields (Java `@Key` annotations on private members) and provide no public read-side accessor surface. The unit-test suite at `infra/fcm/src/test/kotlin/.../PayloadBuildersTest.kt` therefore cannot make brittle structural assertions like "the Android payload has no notification block" or "iOS payload sets `aps.mutable-content = true`" without relying on Java reflection that would drift on SDK minor bumps. Spec scenarios "Android payload has no notification block", "Android payload sets priority HIGH", "iOS payload sets aps.mutableContent = true", and "iOS payload carries body_full as JSON-stringified body_data" are currently smoke-tested only (the builder is invoked and produces a non-null Message).
+
+**Specs at fault:** `openspec/specs/fcm-push-dispatch/spec.md` (the four scenarios listed above)
+**Code at fault:** `infra/fcm/src/test/kotlin/id/nearyou/app/infra/fcm/PayloadBuildersTest.kt` (smoke-only coverage; deeper structural assertions deferred via file-level KDoc note)
+**Docs at fault:** none
+
+**Impact (if shipped):** A regression in `buildAndroidMessage` or `buildIosMessage` that produces structurally-wrong-but-valid output (e.g., a notification block accidentally added to the Android payload, or `mutable-content` flipped off) would NOT be caught by the unit-test suite. Detection would happen at integration / staging smoke time, after the wrong-shaped push has already been delivered to a real device. Risk is bounded because both builders are short, declarative wrappers around the SDK Builder calls — visual review catches most regressions — but defense-in-depth coverage is missing.
+
+**Action items:**
+- [ ] Add an integration test in `:backend:ktor` that initializes a Firebase test app via a synthetic service-account JSON AND uses `FirebaseMessaging.send(msg, dryRun=true)` to validate payload shape. The dry-run path runs full SDK validation (rejects oversized payloads, rejects malformed structures) without dispatching to FCM.
+- [ ] Alternatively, write a custom `MessageInspector` helper that uses the SDK's internal Jackson/Gson serialization (via `MessagingProvider` or equivalent) to dump a Message to JSON for structural assertions. Requires identifying the SDK's preferred public-API serialization path.
+
+## fcm-shutdown-drain-deterministic-tests
+
+**Discovered during:** `fcm-push-dispatch` apply, tasks 7.7 + 7.7.a
+**Status:** open
+
+**Finding:** Tasks 7.7 (shutdown drains in-flight up to 5s) and 7.7.a (boundary-case 5.0s cancel) require a virtual-time test dispatcher (e.g., `TestScheduler` from `kotlinx-coroutines-test`) for deterministic timing. That test dependency is not currently on the test classpath of `:infra:fcm` or `:backend:ktor`. The shutdown logic itself (`FcmDispatcherScope.shutdown(drainMillis)` calling `cancelAndJoin` inside `withTimeoutOrNull`) is exercised only by the §10 staging smoke test indirectly (graceful Cloud Run revision rollover). Task 7.8 (dispatch-after-shutdown WARN) IS covered deterministically.
+
+**Specs at fault:** `openspec/specs/fcm-push-dispatch/spec.md` § "Dispatcher coroutine scope SHALL drain on JVM shutdown" — scenarios "Shutdown hook drains in-flight dispatches up to 5 seconds", "Dispatches exceeding the 5-second drain are abandoned", "Shutdown 5-second boundary is deterministic"
+**Code at fault:** none — `FcmDispatcherScope.shutdown` is correct; it's the test surface that needs deepening
+**Docs at fault:** none
+
+**Impact (if shipped):** A regression in `FcmDispatcherScope.shutdown` (e.g., the `withTimeoutOrNull` budget being miscalculated, or `cancelAndJoin` being swapped for plain `cancel`) would not be caught by any test in the suite. Detection would require manual smoke against a real shutdown event.
+
+**Action items:**
+- [ ] Add `kotlinx-coroutines-test` to the libs.versions.toml + `:infra:fcm` test deps.
+- [ ] Write `FcmDispatcherScopeShutdownTest` exercising the 1.0s-completes / 10.0s-cancels / 5.0s-boundary scenarios via `runTest` + `TestScheduler.advanceTimeBy`.
+
+## fcm-end-to-end-composite-test
+
+**Discovered during:** `fcm-push-dispatch` apply, tasks 7.1 / 7.2 / 7.3 / 7.9
+**Status:** open
+
+**Finding:** The end-to-end integration tests for the composite dispatcher path (post_liked emit → mocked `FirebaseMessaging.send(...)` invoked once per active token AND on-send-prune contract via real DB) are not present. The functionality IS covered by:
+  - `:infra:fcm/FcmDispatcherTest` covering all FcmDispatcher behaviours (mocked sender + reader; tasks 6.4.1 — 6.4.16).
+  - `:backend:ktor/JdbcUserFcmTokenReaderTest` covering the SQL contract end-to-end against real Postgres (race-guard predicate, peer preservation).
+  - `:backend:ktor/JdbcActorUsernameLookupTest` covering the shadow-ban MASK contract against real Postgres.
+  - `:backend:ktor/FcmDispatchAfterShutdownTest` covering the shutdown-WARN path.
+  - `:backend:ktor/FcmDispatchStructuralTest` covering the no-Firebase-import contract for `NotificationService` + emit-site services.
+
+What's missing: a test that boots `Application.module()` with a test-only override binding `FcmAndInAppDispatcher` over a mocked `FirebaseMessaging`, drives a `POST /api/v1/posts/.../like` (or equivalent emit), AND asserts the mocked send was invoked exactly once with the registered token. The composition-level "all the parts wired together correctly" assertion is therefore deferred to the §10 staging smoke.
+
+**Specs at fault:** `openspec/specs/fcm-push-dispatch/spec.md` (scenarios "Recipient with multiple tokens triggers parallel dispatch" composition-level, "Dispatcher invocation count is exactly once per notifications row")
+**Code at fault:** none — production wiring is correct; the test surface is missing.
+**Docs at fault:** none
+
+**Impact (if shipped):** A wiring bug in `Application.module()` (e.g., the composite getting bound twice, or `notificationDispatcher` accidentally still being `inAppDispatcher` in non-test profile) would not be caught by any test. Detection would happen at staging smoke (which IS in scope of §10) — that's the safety net, but it requires a manual deploy to detect.
+
+**Ambiguity to resolve first:** does the test-only override module set `KTOR_RSA_PRIVATE_KEY` etc. via `MapApplicationConfig`, or does it run `module()` with the prod profile minus the secret read? The former is cleaner.
+
+**Action items:**
+- [ ] Add an integration test class `FcmCompositeWiringTest` in `:backend:ktor` that uses `testApplication { application { module() } }` with a Koin override module binding `NotificationDispatcher` to a constructed `FcmAndInAppDispatcher(mockFcm, NoopNotificationDispatcher())`. Drive a like → assert the mock was invoked once per token.
+- [ ] If the override approach proves brittle, fall back to a directly-constructed test surface that bypasses `Application.module()` and exercises only the composite + emit-site service wiring.
+
+## fcm-firebase-import-boundary-detekt-rule
+
+**Discovered during:** `fcm-push-dispatch` apply, design D16 acknowledgement
+**Status:** open
+
+**Finding:** Per `openspec/changes/fcm-push-dispatch/design.md` D16, the `:backend:ktor` module is permitted to import `com.google.firebase.*` strictly for DI-binding signatures, but this rule is currently enforced only at code-review time. As of this change, ZERO `:backend:ktor` files actually import any `com.google.firebase.*` symbol (the `buildFcmComposite(...)` factory in `:infra:fcm` hides the SDK types behind a non-Firebase return shape, narrowing the boundary further than D16 admits). A future contributor could regress this by importing `FirebaseMessaging` into a non-DI file without triggering any CI rule. The static-analysis test `FcmDispatchStructuralTest` covers `NotificationService` + the four emit-site services but not the rest of `:backend:ktor`.
+
+**Specs at fault:** `openspec/specs/fcm-push-dispatch/spec.md` § "`:backend:ktor` Firebase imports are scoped to DI-binding files only" (currently a SHOULD, not enforced)
+**Code at fault:** none — production code respects the boundary
+**Docs at fault:** none
+
+**Impact (if shipped):** Long-term boundary erosion. A `FirebaseMessaging` import sneaking into a route handler or service would couple the request-path code to a vendor SDK, violating the `CLAUDE.md` "No vendor SDK import outside `:infra:*`" invariant — but only at code-review-grade, not CI-grade.
+
+**Action items:**
+- [ ] Add a Detekt rule `FirebaseImportBoundaryRule` in `:lint:detekt-rules` that allowlists `*Module.kt` filenames OR a `@FcmDiBinding` KtAnnotation. Modeled on `RawXForwardedForRule` (which has a similarly tight allowlist).
+- [ ] Update spec scenario "`:backend:ktor` Firebase imports are scoped to DI-binding files only" from SHOULD to SHALL once the rule is in place.
+

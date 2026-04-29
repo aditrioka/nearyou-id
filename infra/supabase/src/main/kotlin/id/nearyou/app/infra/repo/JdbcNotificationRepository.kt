@@ -188,6 +188,25 @@ class JdbcNotificationRepository(
         }
     }
 
+    override fun findById(notificationId: UUID): NotificationRow? {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, user_id, type, actor_user_id, target_type, target_id,
+                       body_data::text AS body_data_json, created_at, read_at
+                  FROM notifications
+                 WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, notificationId)
+                ps.executeQuery().use { rs ->
+                    if (!rs.next()) return null
+                    return rs.toRowOrNull()
+                }
+            }
+        }
+    }
+
     private fun ResultSet.toRowOrNull(): NotificationRow? {
         val rawType = getString("type")
         val type = NotificationType.fromWireOrNull(rawType)

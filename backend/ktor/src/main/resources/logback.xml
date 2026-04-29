@@ -9,4 +9,12 @@
     </root>
     <logger name="org.eclipse.jetty" level="INFO"/>
     <logger name="io.netty" level="INFO"/>
+    <!-- Defense-in-depth per fcm-push-dispatch design D20: pin Firebase Admin
+         SDK + transitive Google client loggers to INFO so a future SDK release
+         that lowers default-severity logging cannot accidentally emit raw FCM
+         tokens or request bodies via the SDK's internal j.u.l / Apache
+         HttpClient loggers. -->
+    <logger name="com.google.firebase" level="INFO"/>
+    <logger name="com.google.api.client" level="INFO"/>
+    <logger name="com.google.cloud" level="INFO"/>
 </configuration>

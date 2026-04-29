@@ -31,6 +31,7 @@ import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.config.StubRemoteConfig
+import id.nearyou.app.config.secretKey
 import id.nearyou.app.core.domain.health.PostgresProbe
 import id.nearyou.app.core.domain.health.ProbeResult
 import id.nearyou.app.core.domain.health.RedisProbe
@@ -53,6 +54,9 @@ import id.nearyou.app.health.KtorSupabaseRealtimeProbe
 import id.nearyou.app.health.healthRoutes
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
+import id.nearyou.app.infra.fcm.FcmDispatcherScope
+import id.nearyou.app.infra.fcm.FcmInitException
+import id.nearyou.app.infra.fcm.buildFcmComposite
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
 import id.nearyou.app.infra.oidc.googleJwkProvider
 import id.nearyou.app.infra.redis.NoOpRateLimiter
@@ -106,7 +110,10 @@ import id.nearyou.app.timeline.followingTimelineRoutes
 import id.nearyou.app.timeline.globalTimelineRoutes
 import id.nearyou.app.timeline.timelineRoutes
 import id.nearyou.app.user.FcmTokenRepository
+import id.nearyou.app.user.JdbcActorUsernameLookup
+import id.nearyou.app.user.JdbcUserFcmTokenReader
 import id.nearyou.app.user.fcmTokenRoutes
+import id.nearyou.data.repository.ActorUsernameLookup
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationRepository
@@ -115,6 +122,7 @@ import id.nearyou.data.repository.PostLikeRepository
 import id.nearyou.data.repository.PostReplyRepository
 import id.nearyou.data.repository.ReportRepository
 import id.nearyou.data.repository.SearchRepository
+import id.nearyou.data.repository.UserFcmTokenReader
 import id.nearyou.data.repository.UserFollowsRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -319,15 +327,72 @@ fun Application.module() {
         )
     val userBlockRepository: UserBlockRepository = JdbcUserBlockRepository(dataSource)
     val blockService = BlockService(userBlockRepository)
+    val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
     val notificationRepository: NotificationRepository = JdbcNotificationRepository(dataSource)
-    val notificationDispatcher: NotificationDispatcher = NoopNotificationDispatcher()
     val notificationEmitter: NotificationEmitter = DbNotificationEmitter(notificationRepository)
     val notificationService = NotificationService(notificationRepository)
+    val userFcmTokenReader: UserFcmTokenReader = JdbcUserFcmTokenReader(dataSource)
+    val actorUsernameLookup: ActorUsernameLookup = JdbcActorUsernameLookup(dataSource)
+    val inAppDispatcher: NotificationDispatcher = NoopNotificationDispatcher()
+
+    // Per `fcm-push-dispatch` design D7: production fail-fasts on missing or
+    // malformed `firebase-admin-sa`. Test profile binds `inAppDispatcher` only
+    // (no FCM) — Cloud Run never sees the test branch because tests run
+    // through a different ApplicationEngine entrypoint that overrides Koin.
+    val fcmDispatcherScope: FcmDispatcherScope?
+    val notificationDispatcher: NotificationDispatcher
+    when (ktorEnv) {
+        "test" -> {
+            fcmDispatcherScope = null
+            notificationDispatcher = inAppDispatcher
+        }
+        else -> {
+            val secretSlot = secretKey(ktorEnv, "firebase-admin-sa")
+            val secretValue =
+                secrets.resolve("firebase-admin-sa")
+                    ?: run {
+                        org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").error(
+                            "event=fcm_init_failed reason=missing_secret slot={} env={}",
+                            secretSlot,
+                            ktorEnv,
+                        )
+                        error(
+                            "Required secret '$secretSlot' is unset (env=$ktorEnv) — " +
+                                "Firebase Admin SDK is a hard startup requirement when ktor.environment != 'test'. " +
+                                "Verify GCP Secret Manager slot exists and is populated.",
+                        )
+                    }
+            val composite =
+                try {
+                    buildFcmComposite(
+                        serviceAccountJson = secretValue,
+                        notificationRepository = notificationRepository,
+                        userFcmTokenReader = userFcmTokenReader,
+                        actorUsernameLookup = actorUsernameLookup,
+                        inAppDispatcher = inAppDispatcher,
+                    )
+                } catch (e: FcmInitException) {
+                    org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").error(
+                        "event=fcm_init_failed reason=parse_or_credential_error slot={} env={} message={}",
+                        secretSlot,
+                        ktorEnv,
+                        e.message,
+                        e,
+                    )
+                    throw e
+                }
+            // Shutdown hook: drain in-flight dispatches up to 5s, then close
+            // the scope. New emits during shutdown observe a closed scope and
+            // log WARN `event="fcm_dispatch_after_shutdown"` per spec.
+            Runtime.getRuntime().addShutdownHook(Thread(composite.onShutdown))
+            fcmDispatcherScope = composite.scope
+            notificationDispatcher = composite.dispatcher
+        }
+    }
     val userFollowsRepository: UserFollowsRepository = JdbcUserFollowsRepository(dataSource)
     val followService =
         FollowService(dataSource, userFollowsRepository, notificationEmitter, notificationDispatcher)
     val postLikeRepository: PostLikeRepository = JdbcPostLikeRepository(dataSource)
-    val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
     // Conditional Redis wiring (task 4.6 of like-rate-limit):
     //  - In staging/production: fail-fast on missing `REDIS_URL` env var — Redis is
     //    a hard dependency for the like rate limiter (per the spec, missing it is a
@@ -507,6 +572,8 @@ fun Application.module() {
                 single<NotificationDispatcher> { notificationDispatcher }
                 single<NotificationEmitter> { notificationEmitter }
                 single { notificationService }
+                single<UserFcmTokenReader> { userFcmTokenReader }
+                single<ActorUsernameLookup> { actorUsernameLookup }
                 single { fcmTokenRepository }
                 single<OidcTokenVerifier> { oidcTokenVerifier }
                 single { suspensionUnbanWorker }

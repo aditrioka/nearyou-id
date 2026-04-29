@@ -17,6 +17,7 @@ dependencies {
     implementation(projects.shared.distance)
     implementation(projects.core.domain)
     implementation(projects.core.data)
+    implementation(projects.infra.fcm)
     implementation(projects.infra.oidc)
     implementation(projects.infra.redis)
     implementation(projects.infra.supabase)
@@ -54,6 +55,13 @@ dependencies {
     // The V10 notifications smoke test constructs `PGobject` directly to seed
     // jsonb columns; promote the driver out of runtime-only on the test classpath.
     testImplementation(libs.postgresql)
+
+    // Tests that exercise FcmDispatcher end-to-end (e.g., shutdown-WARN test)
+    // need the Firebase Admin SDK types because `FcmSender` references
+    // `com.google.firebase.messaging.Message`. The `:infra:fcm` module
+    // declares the SDK as `implementation` (not `api`) per design D16; the
+    // test classpath promotes it locally for tests only.
+    testImplementation(libs.firebase.admin)
 
     detektPlugins(projects.lint.detektRules)
 }

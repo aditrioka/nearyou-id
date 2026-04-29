@@ -93,6 +93,16 @@ interface NotificationRepository {
         userId: UUID,
         notificationId: UUID,
     ): Boolean
+
+    /**
+     * Single-row lookup by id. Used by `FcmDispatcher` (per the
+     * `fcm-push-dispatch` capability) to resolve the row that the
+     * post-commit dispatch contract refers to by UUID. Returns `null` when
+     * the row no longer exists (e.g., the recipient was hard-deleted between
+     * `NotificationService.emit(...)` commit and dispatch — CASCADE removed
+     * the row; the dispatcher tolerates this gracefully).
+     */
+    fun findById(notificationId: UUID): NotificationRow?
 }
 
 /**
