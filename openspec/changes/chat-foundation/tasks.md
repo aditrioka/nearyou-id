@@ -108,9 +108,13 @@
 - [ ] 8.8 RLS: active participant (`left_at IS NULL`) with valid topic UUID matching their participation row allows.
 - [ ] 8.9 RLS test set MUST run in CI against a Supabase-mode Postgres container (not staging-only). If the existing CI Postgres service is plain, extend it with the Supabase realtime extension OR run a separate Supabase-mode service in the test job. A staging-only verification is INSUFFICIENT per the spec Requirement: "Realtime RLS test set runs against real schema." The mandatory invariant per `CLAUDE.md` requires the test set runs on every RLS policy change — this change activates the V2-drafted policy for the first time.
 
-## 9. Tests — block-exclusion lint coverage
+## 9. Lint-rule update + coverage
 
-- [ ] 9.1 Run `./gradlew :backend:ktor:detekt :lint:detekt-rules:test` and verify `BlockExclusionJoinRule` does NOT fire on the new chat queries (the partner-lookup includes the canonical bidirectional NOT-IN; the message read/write is in the Repository own-content allowlist).
+- [ ] 9.0.1 Update `lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/BlockExclusionJoinRule.kt` to recognize the new annotation `// @allow-no-block-exclusion: chat-history-readable-after-block` on the enclosing function (matching the convention pattern from `// @allow-username-write` and `// @allow-privacy-write` recognized by their respective rules). When the annotation is present, the rule SHALL skip the bidirectional NOT-IN-`user_blocks` join enforcement for the function's body.
+- [ ] 9.0.2 Extend `lint/detekt-rules/src/test/kotlin/.../BlockExclusionJoinLintTest.kt` (or equivalent test class) with a positive case: a function annotated `// @allow-no-block-exclusion: chat-history-readable-after-block` containing a chat-history-style query SHALL NOT trip the rule.
+- [ ] 9.0.3 Add a negative case: a function lacking the annotation but containing the same chat-history-style query SHALL still trip the rule (proves the annotation is what's gating, not some other carve-out).
+- [ ] 9.0.4 Add the annotation token (`@allow-no-block-exclusion`) to the rule's recognized allowlist set with an explanatory comment citing `chat-foundation/design.md` § D10.
+- [ ] 9.1 Run `./gradlew :backend:ktor:detekt :lint:detekt-rules:test` and verify (a) `BlockExclusionJoinRule` does NOT fire on the list-messages and send-message participant-lookup queries (suppressed by the new annotation per 9.0.1–9.0.4), (b) the rule DOES fire on the conversation-list partner-lookup query if the bidirectional NOT-IN is removed (proves the rule still works on non-annotated sites), and (c) all `:lint:detekt-rules:test` cases pass including the two new ones from 9.0.2 + 9.0.3.
 - [ ] 9.2 Run `./gradlew ktlintCheck` per the pre-push verification convention from [`CLAUDE.md` § Delivery workflow](../../../CLAUDE.md).
 
 ## 10. Pre-push verification + staging deploy + smoke
