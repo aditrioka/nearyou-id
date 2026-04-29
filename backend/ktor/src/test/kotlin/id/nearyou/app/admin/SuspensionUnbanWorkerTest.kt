@@ -248,10 +248,19 @@ class SuspensionUnbanWorkerTest : StringSpec({
                 }
             // Print the plan unconditionally so a future regression has the
             // raw evidence in the CI log without a re-deploy + redo cycle.
+            // Gradle test stdout doesn't surface in `gh run view` by default,
+            // so on assertion failure we additionally throw an explicit
+            // `AssertionError` whose message is the plan — exception messages
+            // DO surface in the GHA log.
             println("==== EXPLAIN plan for SuspensionUnbanWorker.SQL ====")
             println(plan)
             println("==== end EXPLAIN ====")
-            plan shouldContain "users_suspended_idx"
+            if (!plan.contains("users_suspended_idx")) {
+                throw AssertionError(
+                    "EXPLAIN plan did NOT contain 'users_suspended_idx'. " +
+                        "Actual plan:\n----\n$plan\n----",
+                )
+            }
         } finally {
             cleanup(sentinelUid)
         }
