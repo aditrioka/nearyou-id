@@ -2,7 +2,6 @@ package id.nearyou.app.admin
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
-import io.kotest.assertions.withClue
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContain
@@ -238,10 +237,12 @@ class SuspensionUnbanWorkerTest : StringSpec({
                     }
                 }
             }
-        // On assertion failure, surface the actual plan in the message so CI
-        // logs reveal which alternative the planner picked.
-        withClue("EXPLAIN plan was:\n$plan") {
-            plan shouldContain "users_suspended_idx"
-        }
+        // Always print the plan to stdout — the assertion-clue path didn't
+        // surface in `gh run view --log-failed` output. stdout reliably
+        // appears in the CI log so we can diagnose planner choices.
+        println("==== EXPLAIN plan for SuspensionUnbanWorker.SQL ====")
+        println(plan)
+        println("==== end EXPLAIN ====")
+        plan shouldContain "users_suspended_idx"
     }
 })
