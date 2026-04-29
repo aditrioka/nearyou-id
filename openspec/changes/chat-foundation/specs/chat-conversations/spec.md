@@ -8,7 +8,7 @@ The system SHALL persist 1:1 conversations in three tables: `conversations`, `co
 
 `conversation_participants` columns: `conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE`, `user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT`, `slot SMALLINT NOT NULL CHECK (slot IN (1, 2))`, `joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `left_at TIMESTAMPTZ NULL`, `last_read_at TIMESTAMPTZ NULL`. PRIMARY KEY `(conversation_id, user_id)`. UNIQUE INDEX `conv_slot_unique ON (conversation_id, slot) WHERE left_at IS NULL`. INDEX `(user_id) WHERE left_at IS NULL`. INDEX `(conversation_id)`.
 
-`chat_messages` columns: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, `conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE`, `sender_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT`, `content VARCHAR(2000) NULL`, `embedded_post_id UUID NULL REFERENCES posts(id) ON DELETE SET NULL`, `embedded_post_snapshot JSONB NULL`, `embedded_post_edit_id UUID NULL REFERENCES post_edits(id) ON DELETE SET NULL`, `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `redacted_at TIMESTAMPTZ NULL`, `redacted_by UUID NULL` (FK constraint to `admin_users(id) ON DELETE SET NULL` is DEFERRED to Phase 3.5; the column is annotated `-- @allow-admin-fk-deferred: phase-3.5` matching the V9 pattern), `redaction_reason TEXT NULL`. CHECKs: empty-message guard `(content IS NOT NULL OR embedded_post_id IS NOT NULL OR embedded_post_snapshot IS NOT NULL)`; redaction atomicity `((redacted_at IS NULL AND redacted_by IS NULL AND redaction_reason IS NULL) OR (redacted_at IS NOT NULL AND redacted_by IS NOT NULL))`. INDEXes: `(conversation_id, created_at DESC)`, `(sender_id, created_at DESC)`, `(redacted_by, redacted_at DESC) WHERE redacted_at IS NOT NULL`.
+`chat_messages` columns: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, `conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE`, `sender_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT`, `content VARCHAR(2000) NULL`, `embedded_post_id UUID NULL REFERENCES posts(id) ON DELETE SET NULL`, `embedded_post_snapshot JSONB NULL`, `embedded_post_edit_id UUID NULL` (FK constraint to `post_edits(id) ON DELETE SET NULL` is DEFERRED until the future `post-edit-history` change ships `post_edits`; the column is annotated `-- @allow-post-edits-fk-deferred: post-edit-history-change` matching the V9 deferred-FK pattern. The `post_edits` table does not exist at V14 — verified via migration scan.), `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`, `redacted_at TIMESTAMPTZ NULL`, `redacted_by UUID NULL` (FK constraint to `admin_users(id) ON DELETE SET NULL` is DEFERRED to Phase 3.5; the column is annotated `-- @allow-admin-fk-deferred: phase-3.5` matching the V9 pattern), `redaction_reason TEXT NULL`. CHECKs: empty-message guard `(content IS NOT NULL OR embedded_post_id IS NOT NULL OR embedded_post_snapshot IS NOT NULL)`; redaction atomicity `((redacted_at IS NULL AND redacted_by IS NULL AND redaction_reason IS NULL) OR (redacted_at IS NOT NULL AND redacted_by IS NOT NULL))`. INDEXes: `(conversation_id, created_at DESC)`, `(sender_id, created_at DESC)`, `(redacted_by, redacted_at DESC) WHERE redacted_at IS NOT NULL`.
 
 #### Scenario: Schema applies cleanly via Flyway
 - **WHEN** the V15 migration runs against a database that has V1–V14 applied
@@ -66,22 +66,22 @@ The user-pair lock key SHALL be derived as `hashtext(LEAST(:caller_id, :recipien
 
 `POST /api/v1/conversations` SHALL be authenticated. The body SHALL be `{ recipient_user_id: <uuid> }`. The response SHALL be:
 - `201 Created` with the conversation row + both participant rows when a new conversation is created.
-- `200 OK` with the existing conversation row + both participant rows when an existing conversation between the canonical pair is returned (idempotent).
+- `200 OK` with the existing conversation row + both participant rows when an existing conversation between the canonical pair is returned (idempotent). The status-code differential between 201 (new) and 200 (existing) is the ONLY observable difference between the two cases and is part of the contract.
 - `403 Forbidden` with the user-facing string `"Tidak dapat mengirim pesan ke user ini"` when EITHER direction in `user_blocks` between caller and recipient exists.
-- `400 Bad Request` when `recipient_user_id == caller_user_id` (self-DM rejected).
-- `404 Not Found` when the recipient user does not exist or is not visible (per `visible_users`).
+- `400 Bad Request` when `recipient_user_id == caller_user_id` (self-DM rejected) — the self-DM check SHALL run BEFORE the user-pair advisory lock is acquired.
+- `404 Not Found` when the recipient user does not exist in `users` (raw lookup, NOT `visible_users` — the recipient-existence check SHALL NOT leak shadow-ban state via a 201/404 differential).
 
-The endpoint SHALL take the user-pair advisory lock for the duration of the create-or-return transaction.
+The endpoint SHALL take the user-pair advisory lock for the duration of the create-or-return transaction (after the self-DM check).
 
 #### Scenario: First call between two users creates a conversation
 - **GIVEN** users A and B with no prior conversation between them and no `user_blocks` row in either direction
 - **WHEN** A calls `POST /api/v1/conversations { recipient_user_id: B }`
-- **THEN** the response is `201 Created` with a conversation row + two participant rows (A `slot = 1`, B `slot = 2`)
+- **THEN** the response status is `201 Created` (specifically 201, not 200) with a conversation row + two participant rows (A `slot = 1`, B `slot = 2`)
 
 #### Scenario: Second call between the same pair returns the existing conversation
 - **GIVEN** an existing conversation X between A and B with no participant having `left_at != NULL`
 - **WHEN** A or B calls `POST /api/v1/conversations` for the canonical pair
-- **THEN** the response is `200 OK` with the conversation row of X (same `id`)
+- **THEN** the response status is `200 OK` (specifically 200, not 201) with the conversation row of X (same `id` as the first creation)
 
 #### Scenario: Block in either direction rejects create
 - **GIVEN** a `user_blocks` row with `blocker_id = A, blocked_id = B`
@@ -101,13 +101,22 @@ The endpoint SHALL take the user-pair advisory lock for the duration of the crea
 - **WHEN** A calls `POST /api/v1/conversations { recipient_user_id: <uuid that is not in users> }`
 - **THEN** the response is `404 Not Found`
 
+#### Scenario: Recipient is shadow-banned does NOT 404 (no shadow-ban oracle)
+- **GIVEN** B exists in `users` with `is_shadow_banned = TRUE`
+- **WHEN** A (not shadow-banned) calls `POST /api/v1/conversations { recipient_user_id: B }`
+- **THEN** the response is `201 Created` (or `200 OK` if a conversation already existed) — NOT 404. The recipient-existence check reads RAW `users`, not `visible_users`, so shadow-ban state is not leaked via a 201/404 differential.
+
+#### Scenario: Self-DM check happens before lock acquisition
+- **WHEN** A calls `POST /api/v1/conversations { recipient_user_id: A }`
+- **THEN** the response is `400 Bad Request` AND no `pg_advisory_xact_lock` for the user-pair lock-key has been acquired in the request transaction (verifiable via `pg_locks` introspection on a separate connection in tests)
+
 #### Scenario: Unauthenticated call rejected
 - **WHEN** the endpoint is called without an Authorization header
 - **THEN** the response is `401 Unauthorized`
 
 ### Requirement: List-conversations endpoint
 
-`GET /api/v1/conversations` SHALL be authenticated. It SHALL return a cursor-paginated list of conversations the caller is an active participant in (`conversation_participants.user_id = caller AND left_at IS NULL`), ordered by `last_message_at DESC NULLS LAST, created_at DESC`. Each row SHALL include the conversation id, `created_at`, `last_message_at`, and the OTHER participant's profile (subset of `visible_users` columns: `id`, `username`, `display_name`, `is_premium`). The other-participant lookup SHALL use the bidirectional block-exclusion join per `BlockExclusionJoinRule`. Default page size 50; query parameter `?cursor` accepts an opaque cursor token.
+`GET /api/v1/conversations` SHALL be authenticated. It SHALL return a cursor-paginated list of conversations the caller is an active participant in (`conversation_participants.user_id = caller AND left_at IS NULL`), ordered by `last_message_at DESC NULLS LAST, created_at DESC`. Each row SHALL include the conversation id, `created_at`, `last_message_at`, and the OTHER participant's profile fields `id`, `username`, `display_name`, `is_premium` sourced via **LEFT JOIN `visible_users`** with `COALESCE` to placeholder values (`username = 'akun_dihapus'`, `display_name = 'Akun Dihapus'`, `is_premium = FALSE`) for partners that are shadow-banned or otherwise filtered out by `visible_users` — the conversation row SHALL surface even when the partner is shadow-banned. Bidirectional block-exclusion (caller blocked partner OR partner blocked caller) SHALL exclude the conversation row from the list (the caller cannot see partners they have blocked OR who have blocked them in the list, per `docs/02-Product.md:234`'s "blocked user cannot initiate" extended to the list-discovery surface). Default page size 50; query parameter `?cursor` accepts an opaque cursor token. Malformed cursor tokens SHALL be rejected with `400 Bad Request`. Unauthenticated calls SHALL be rejected with `401 Unauthorized`.
 
 #### Scenario: Caller sees their active conversations
 - **GIVEN** A is an active participant in conversations X, Y, Z with last_message_at descending Z > Y > X
@@ -127,7 +136,25 @@ The endpoint SHALL take the user-pair advisory lock for the duration of the crea
 #### Scenario: Other-participant profile masks shadow-banned partner
 - **GIVEN** A is a participant in conversation X with B; B has `is_shadow_banned = TRUE`
 - **WHEN** A calls `GET /api/v1/conversations`
-- **THEN** X is in the list, but B's profile fields render via `visible_users` placeholder semantics (shadow-banned partner masked)
+- **THEN** X is in the list, AND the partner profile fields are `username = 'akun_dihapus'`, `display_name = 'Akun Dihapus'`, `is_premium = FALSE` (the COALESCE-to-placeholder masks B's profile while keeping the conversation row visible)
+
+#### Scenario: Conversation where partner has blocked caller is excluded
+- **GIVEN** A is a participant in conversation X with B; a `user_blocks` row exists with `blocker_id = B, blocked_id = A`
+- **WHEN** A calls `GET /api/v1/conversations`
+- **THEN** X is NOT in the response list (bidirectional block-exclusion applies)
+
+#### Scenario: Conversation where caller has blocked partner is excluded
+- **GIVEN** A is a participant in conversation X with B; a `user_blocks` row exists with `blocker_id = A, blocked_id = B`
+- **WHEN** A calls `GET /api/v1/conversations`
+- **THEN** X is NOT in the response list
+
+#### Scenario: Malformed cursor returns 400
+- **WHEN** A calls `GET /api/v1/conversations?cursor=not-a-base64-token`
+- **THEN** the response is `400 Bad Request`
+
+#### Scenario: Unauthenticated call rejected
+- **WHEN** the endpoint is called without an Authorization header
+- **THEN** the response is `401 Unauthorized`
 
 #### Scenario: Cursor pagination is forward-only and stable
 - **GIVEN** A has 100 conversations
@@ -140,11 +167,15 @@ The endpoint SHALL take the user-pair advisory lock for the duration of the crea
 
 ### Requirement: List-messages endpoint
 
-`GET /api/v1/chat/{conversation_id}/messages` SHALL be authenticated. The caller MUST be an active participant of the conversation (`conversation_participants.user_id = caller AND conversation_id = :conv_id AND left_at IS NULL`); a non-participant or `left_at != NULL` participant SHALL receive `403 Forbidden`. The response SHALL be a cursor-paginated list of `chat_messages` rows ordered by `(created_at DESC, id DESC)`, default 50/page, hard cap 100/page. The cursor SHALL be a base64-encoded `{created_at, id}` pair.
+`GET /api/v1/chat/{conversation_id}/messages` SHALL be authenticated. Unauthenticated calls SHALL be rejected with `401 Unauthorized`. A malformed `conversation_id` path parameter (not a parseable UUID) SHALL be rejected with `400 Bad Request`. An unknown but well-formed `conversation_id` (no row in `conversations`) SHALL be rejected with `404 Not Found`. The caller MUST be an active participant of the conversation (`conversation_participants.user_id = caller AND conversation_id = :conv_id AND left_at IS NULL`); a non-participant or `left_at != NULL` participant SHALL receive `403 Forbidden`. The response SHALL be a cursor-paginated list of `chat_messages` rows ordered by `(created_at DESC, id DESC)`, default 50/page, hard cap 100/page (a `?limit` value above 100 is silently clamped to 100, NOT 400). Malformed cursor tokens SHALL be rejected with `400 Bad Request`.
 
-When `redacted_at IS NOT NULL` for a row, the response row SHALL set `content: null`, surface `redacted_at`, and OMIT `redaction_reason`. The original `content` value SHALL NOT be returned in any response shape.
+The cursor SHALL be a base64-encoded JSON object with fields named `created_at` (ISO-8601 string) and `id` (UUID string).
 
-The query SHALL read directly from raw `chat_messages` (this is a Repository own-content path explicitly allowed in the `CLAUDE.md` raw-`FROM` carve-out).
+**Shadow-ban filter on read path**: the query SHALL filter rows where the sender is shadow-banned UNLESS the sender is the viewer themselves. Concretely, the row is included iff `sender_id = :viewer OR NOT EXISTS (SELECT 1 FROM users u WHERE u.id = chat_messages.sender_id AND u.is_shadow_banned = TRUE)`. This implements the canonical invisible-actor shadow-ban model per `design.md` § D9 — a shadow-banned user always sees their own sent messages; non-banned viewers never see a shadow-banned sender's messages.
+
+When `redacted_at IS NOT NULL` for a row, the response row SHALL set `content: null`, surface `redacted_at`, and the response field `redaction_reason` SHALL be absent from the JSON body (never serialized for the chat data plane). The original `content` value SHALL NOT be returned in any response shape.
+
+The query SHALL read directly from raw `chat_messages` (this is a Repository own-content path explicitly allowed in the `CLAUDE.md` raw-`FROM` carve-out). The `BlockExclusionJoinRule` SHALL NOT auto-apply here — the canonical product spec at `docs/02-Product.md:234` requires that "Existing conversations remain visible in history" even after a block, so a NOT-IN `user_blocks` join would over-filter. The query site SHALL carry the annotation `// @allow-no-block-exclusion: chat-history-readable-after-block` to suppress the lint rule per `design.md` § D10.
 
 #### Scenario: Active participant sees ordered messages
 - **GIVEN** A is an active participant in conversation X with three messages M1 < M2 < M3 by `created_at`
@@ -177,13 +208,47 @@ The query SHALL read directly from raw `chat_messages` (this is a Repository own
 
 #### Scenario: Hard cap on page size
 - **WHEN** A passes `?limit=500`
-- **THEN** the response contains at most 100 rows
+- **THEN** the response contains at most 100 rows (silent clamp; NOT a 400)
+
+#### Scenario: Shadow-banned sender's messages hidden from non-banned viewer
+- **GIVEN** conversation X has messages M1 (sender A, not banned) and M2 (sender B, where B has `is_shadow_banned = TRUE`)
+- **WHEN** A calls `GET /api/v1/chat/X/messages`
+- **THEN** M1 is in the response and M2 is NOT (the shadow-ban filter excludes B's messages from non-banned viewers)
+
+#### Scenario: Shadow-banned sender sees their own messages
+- **GIVEN** conversation X has messages M1 (sender A) and M2 (sender B); B has `is_shadow_banned = TRUE`
+- **WHEN** B calls `GET /api/v1/chat/X/messages`
+- **THEN** both M1 and M2 are in the response (B always sees their own messages — own-content carve-out applied per-row via the inline `sender_id = :viewer OR NOT EXISTS shadow-ban` filter)
+
+#### Scenario: Block added after conversation creation does not hide history
+- **GIVEN** A and B are active participants in conversation X with message history M1, M2, M3; THEN a `user_blocks` row is inserted (either direction)
+- **WHEN** A calls `GET /api/v1/chat/X/messages`
+- **THEN** the response is `200 OK` with M1, M2, M3 still readable — the block-aware-chat contract at `docs/02-Product.md:234` requires history visibility for both parties post-block
+
+#### Scenario: Cursor boundary at tied created_at
+- **GIVEN** conversation X has two messages M1 and M2 with identical `created_at` (DB-clock-tie scenario per `design.md` § D4); the page size is exactly 1
+- **WHEN** A fetches page 1 with `?limit=1`, then page 2 using the returned cursor
+- **THEN** M1 and M2 are split across the two pages with NO duplication and NO loss — the `(created_at DESC, id DESC)` composite cursor's `id` tiebreaker disambiguates the tied timestamps
+
+#### Scenario: Malformed cursor returns 400
+- **WHEN** A calls `GET /api/v1/chat/X/messages?cursor=not-a-base64-token`
+- **THEN** the response is `400 Bad Request`
+
+#### Scenario: Malformed UUID path parameter returns 400
+- **WHEN** A calls `GET /api/v1/chat/not-a-uuid/messages`
+- **THEN** the response is `400 Bad Request`
+
+#### Scenario: Unauthenticated call rejected
+- **WHEN** the endpoint is called without an Authorization header
+- **THEN** the response is `401 Unauthorized`
 
 ### Requirement: Send-message endpoint
 
-`POST /api/v1/chat/{conversation_id}/messages` SHALL be authenticated. The caller MUST be an active participant; non-participant or `left_at != NULL` SHALL receive `403 Forbidden`. The request body SHALL be `{ content: <string, 1–2000 chars> }`. Bidirectional block check SHALL match the canonical query in [`docs/05-Implementation.md:1304-1308`](../../../../docs/05-Implementation.md): if `user_blocks` contains a row in either direction between caller and the OTHER active participant of the conversation, the response SHALL be `403 Forbidden` with body `{ "error": "Tidak dapat mengirim pesan ke user ini" }`. Content length guard SHALL reject content longer than 2000 characters with `400 Bad Request`. Empty content (`""` or whitespace-only) SHALL be rejected with `400 Bad Request`. On success, the handler SHALL `INSERT INTO chat_messages` AND `UPDATE conversations SET last_message_at = NOW()` in the same transaction, and return `201 Created` with the inserted row.
+`POST /api/v1/chat/{conversation_id}/messages` SHALL be authenticated. Unauthenticated calls SHALL be rejected with `401 Unauthorized`. A malformed `conversation_id` path parameter SHALL be rejected with `400 Bad Request`. An unknown `conversation_id` (no row in `conversations`) SHALL be rejected with `404 Not Found`. The caller MUST be an active participant; non-participant or `left_at != NULL` SHALL receive `403 Forbidden`. The request body SHALL be `{ content: <string, 1–2000 chars> }`. Bidirectional block check SHALL match the canonical query in [`docs/05-Implementation.md:1304-1308`](../../../../docs/05-Implementation.md): if `user_blocks` contains a row in either direction between caller and the OTHER active participant of the conversation, the response SHALL be `403 Forbidden` with body `{ "error": "Tidak dapat mengirim pesan ke user ini" }`. Content length guard SHALL reject content longer than 2000 characters with `400 Bad Request`. Empty content (`""` or whitespace-only) SHALL be rejected with `400 Bad Request`. **Shadow-banned senders SHALL be allowed to send** (per `design.md` § D9 invisible-actor model — the row persists; non-banned recipients silently never see the row via the `GET /messages` shadow-ban filter). On success, the handler SHALL `INSERT INTO chat_messages` AND `UPDATE conversations SET last_message_at = NOW()` in the same transaction (one transaction; if either operation fails, both roll back), and return `201 Created` with the inserted row.
 
-Any `embedded_post_id` field present in the request body SHALL be silently ignored by this change (deferred to `chat-embedded-posts`); a structured WARN log line SHALL note the ignored field with the message-id.
+Any of `embedded_post_id`, `embedded_post_snapshot`, OR `embedded_post_edit_id` fields present in the request body SHALL be silently ignored by this change (deferred to `chat-embedded-posts`); a structured WARN log line per ignored field SHALL note the field name and the resulting message-id with `event = "chat_send_embedded_field_ignored"`.
+
+The send query SHALL carry the annotation `// @allow-no-block-exclusion: chat-history-readable-after-block` per `design.md` § D10 (the canonical bidirectional block check is performed via an EXPLICIT query inside the handler, satisfying the 403 contract; the auto-applied NOT-IN-`user_blocks` join is suppressed because it would over-filter the participant lookup).
 
 #### Scenario: Active participant sends a valid message
 - **GIVEN** A and B are active participants in X with no `user_blocks` row in either direction
@@ -220,11 +285,41 @@ Any `embedded_post_id` field present in the request body SHALL be silently ignor
 
 #### Scenario: embedded_post_id silently ignored
 - **WHEN** A sends `POST /api/v1/chat/X/messages { content: "halo", embedded_post_id: <uuid> }`
-- **THEN** the response is `201 Created`; the inserted row has `embedded_post_id IS NULL`; a structured WARN log line records the ignored field with the message-id
+- **THEN** the response is `201 Created`; the inserted row has `embedded_post_id IS NULL`; a structured WARN log line records the ignored field with the message-id, `event = "chat_send_embedded_field_ignored"`, and field name `embedded_post_id`
+
+#### Scenario: embedded_post_snapshot silently ignored
+- **WHEN** A sends `POST /api/v1/chat/X/messages { content: "halo", embedded_post_snapshot: { ... } }`
+- **THEN** the response is `201 Created`; the inserted row has `embedded_post_snapshot IS NULL`; a structured WARN log line records the ignored field with field name `embedded_post_snapshot`
+
+#### Scenario: embedded_post_edit_id silently ignored
+- **WHEN** A sends `POST /api/v1/chat/X/messages { content: "halo", embedded_post_edit_id: <uuid> }`
+- **THEN** the response is `201 Created`; the inserted row has `embedded_post_edit_id IS NULL`; a structured WARN log line records the ignored field with field name `embedded_post_edit_id`
+
+#### Scenario: Shadow-banned sender's message persists
+- **GIVEN** A is shadow-banned (`is_shadow_banned = TRUE`) and is an active participant in conversation X with B; no `user_blocks` row in either direction
+- **WHEN** A calls `POST /api/v1/chat/X/messages { content: "halo" }`
+- **THEN** the response is `201 Created` with the inserted row; the row exists in `chat_messages` with `sender_id = A`; B's subsequent `GET /api/v1/chat/X/messages` does NOT return this row (per the shadow-ban read-path filter)
+
+#### Scenario: last_message_at rollback on INSERT failure
+- **GIVEN** an active participant A in conversation X with X.last_message_at = T1; a fault is induced post-INSERT (e.g., the trigger or constraint surfacing causes the transaction to roll back)
+- **WHEN** A calls the endpoint and the transaction rolls back
+- **THEN** `conversations.last_message_at` for X remains T1 (the UPDATE was inside the same transaction and rolled back together with the failed INSERT — verifying the same-transaction guarantee from `design.md` § D3)
+
+#### Scenario: Unknown conversation id returns 404
+- **WHEN** A calls `POST /api/v1/chat/<uuid that is not in conversations>/messages { content: "x" }`
+- **THEN** the response is `404 Not Found`
+
+#### Scenario: Malformed UUID path parameter returns 400
+- **WHEN** A calls `POST /api/v1/chat/not-a-uuid/messages { content: "x" }`
+- **THEN** the response is `400 Bad Request`
+
+#### Scenario: Unauthenticated call rejected
+- **WHEN** the endpoint is called without an Authorization header
+- **THEN** the response is `401 Unauthorized`
 
 ### Requirement: Realtime RLS test set runs against real schema
 
-The mandatory RLS test set per [`CLAUDE.md` § Critical invariants](../../../../CLAUDE.md) ("RLS changes: mandatory test case JWT `sub` not in `public.users` → deny on every policy change") SHALL run against the V2-drafted policy on `realtime.messages` activated by V15. The set SHALL cover the deny cases enumerated in [`docs/05-Implementation.md:108-110`](../../../../docs/05-Implementation.md): JWT-sub-not-in-users, non-participant, `left_at`-participant, malformed topic (`conversation:` no UUID, `conversation` no delimiter), invalid-UUID topic (`conversation:not-a-uuid`), SQL-injection topic.
+The mandatory RLS test set per [`CLAUDE.md` § Critical invariants](../../../../CLAUDE.md) ("RLS changes: mandatory test case JWT `sub` not in `public.users` → deny on every policy change") SHALL run in CI against a Supabase-mode Postgres container that has `realtime.messages` and the V2-drafted policy active. A staging-only verification is INSUFFICIENT — the policy activates with V15 and the test set MUST run against a real schema in CI before the change can ship. The set SHALL cover the deny cases enumerated in [`docs/05-Implementation.md:108-110`](../../../../docs/05-Implementation.md): JWT-sub-not-in-users, non-participant, `left_at`-participant, malformed topic (`conversation:` no UUID, `conversation` no delimiter), invalid-UUID topic (`conversation:not-a-uuid`), SQL-injection topic.
 
 #### Scenario: JWT sub not in users denies
 - **GIVEN** a JWT with a `sub` UUID that does not exist in `public.users`
