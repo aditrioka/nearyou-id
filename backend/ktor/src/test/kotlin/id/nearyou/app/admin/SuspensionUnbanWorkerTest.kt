@@ -208,41 +208,52 @@ class SuspensionUnbanWorkerTest : StringSpec({
         // the query CAN use the partial index — i.e., the index is usable, and
         // production planning at scale will choose it once the table is large.
         //
-        // ANALYZE before EXPLAIN: when other database-tagged tests in the same
-        // CI pass have inserted users (e.g., the V14 fcm-token-registration
-        // tests + the V15+ fcm-push-dispatch JDBC tests bulk-seed users for
-        // their own setup), the `users` table statistics drift relative to
-        // the partial-index selectivity. A stale-stats planner — even with
-        // seqscan disabled — can prefer a different index path (e.g., a PK
-        // bitmap scan) over `users_suspended_idx`. Refreshing stats keeps
-        // the assertion deterministic regardless of test-ordering. See
-        // PR #60 CI run 25084748242 for the failure that motivated this.
-        val plan =
-            dataSource.connection.use { conn ->
-                conn.createStatement().use { st ->
-                    st.execute("ANALYZE users")
-                    st.execute("SET enable_seqscan = off")
-                    try {
-                        st.executeQuery(
-                            "EXPLAIN ${SuspensionUnbanWorker.SQL.trim()}",
-                        ).use { rs ->
-                            buildString {
-                                while (rs.next()) {
-                                    appendLine(rs.getString(1))
+        // Seed-and-analyze pattern: the assertion is "this query CAN use
+        // users_suspended_idx" — to give the planner clear cost signal we
+        // (a) seed at least one row matching the partial-index predicate
+        // (`is_banned = TRUE AND suspended_until IS NOT NULL`), then
+        // (b) ANALYZE so the planner sees the partial index is non-empty
+        // and selective, then (c) EXPLAIN with seqscan disabled. Without
+        // (a)+(b), prior CI runs of PR #60 (25084748242, 25089259155,
+        // 25089684790) showed the planner — even with seqscan=off — picking
+        // an alternative index path because the partial index appeared
+        // empty. The fix is local to this test; production runs always have
+        // matching rows whenever the worker is invoked, so the planner never
+        // sees the empty-partial-index case there.
+        val sentinelUid =
+            seedUser(
+                isBanned = true,
+                suspendedUntil = Instant.now().minusSeconds(3600),
+            )
+        try {
+            val plan =
+                dataSource.connection.use { conn ->
+                    conn.createStatement().use { st ->
+                        st.execute("ANALYZE users")
+                        st.execute("SET enable_seqscan = off")
+                        try {
+                            st.executeQuery(
+                                "EXPLAIN ${SuspensionUnbanWorker.SQL.trim()}",
+                            ).use { rs ->
+                                buildString {
+                                    while (rs.next()) {
+                                        appendLine(rs.getString(1))
+                                    }
                                 }
                             }
+                        } finally {
+                            st.execute("SET enable_seqscan = on")
                         }
-                    } finally {
-                        st.execute("SET enable_seqscan = on")
                     }
                 }
-            }
-        // Always print the plan to stdout — the assertion-clue path didn't
-        // surface in `gh run view --log-failed` output. stdout reliably
-        // appears in the CI log so we can diagnose planner choices.
-        println("==== EXPLAIN plan for SuspensionUnbanWorker.SQL ====")
-        println(plan)
-        println("==== end EXPLAIN ====")
-        plan shouldContain "users_suspended_idx"
+            // Print the plan unconditionally so a future regression has the
+            // raw evidence in the CI log without a re-deploy + redo cycle.
+            println("==== EXPLAIN plan for SuspensionUnbanWorker.SQL ====")
+            println(plan)
+            println("==== end EXPLAIN ====")
+            plan shouldContain "users_suspended_idx"
+        } finally {
+            cleanup(sentinelUid)
+        }
     }
 })
