@@ -14,9 +14,9 @@ The system SHALL persist 1:1 conversations in three tables: `conversations`, `co
 - **WHEN** the V15 migration runs against a database that has V1–V14 applied
 - **THEN** the three tables, six indexes, and four CHECK constraints are created without error, and `flyway_schema_history` shows V15 as `success = true`
 
-#### Scenario: V2-drafted realtime RLS policy activates
-- **WHEN** V15 has applied and `conversation_participants` exists
-- **THEN** the V2 RLS policy `participants_can_subscribe ON realtime.messages` is now active (the V2 `IF EXISTS conversation_participants` gate evaluates true), and a `SELECT` against `realtime.messages` from a non-participant JWT context is denied
+#### Scenario: V15 installs realtime RLS policy with corrected definition
+- **WHEN** V15 has applied
+- **THEN** the policy `participants_can_subscribe ON realtime.messages` is installed (V15 CREATEs it directly because V2's gated DO block was a no-op when V2 ran with no `conversation_participants` table); the policy body matches V2's intent EXCEPT the subscriber-side `AND NOT EXISTS (SELECT 1 FROM public.users WHERE id = cp.user_id AND is_shadow_banned = TRUE)` clause from V2 lines 81-84 is REMOVED — shadow-banned subscribers are allowed to subscribe to their own conversation realtime channels per the invisible-actor model
 
 #### Scenario: Empty-message CHECK rejects fully empty INSERT
 - **WHEN** an INSERT is attempted with `content IS NULL`, `embedded_post_id IS NULL`, AND `embedded_post_snapshot IS NULL`
@@ -116,7 +116,7 @@ The endpoint SHALL take the user-pair advisory lock for the duration of the crea
 
 ### Requirement: List-conversations endpoint
 
-`GET /api/v1/conversations` SHALL be authenticated. It SHALL return a cursor-paginated list of conversations the caller is an active participant in (`conversation_participants.user_id = caller AND left_at IS NULL`), ordered by `last_message_at DESC NULLS LAST, created_at DESC`. Each row SHALL include the conversation id, `created_at`, `last_message_at`, and the OTHER participant's profile fields `id`, `username`, `display_name`, `is_premium` sourced via **LEFT JOIN `visible_users`** with `COALESCE` to placeholder values (`username = 'akun_dihapus'`, `display_name = 'Akun Dihapus'`, `is_premium = FALSE`) for partners that are shadow-banned or otherwise filtered out by `visible_users` — the conversation row SHALL surface even when the partner is shadow-banned. Bidirectional block-exclusion (caller blocked partner OR partner blocked caller) SHALL exclude the conversation row from the list (the caller cannot see partners they have blocked OR who have blocked them in the list, per `docs/02-Product.md:234`'s "blocked user cannot initiate" extended to the list-discovery surface). Default page size 50; query parameter `?cursor` accepts an opaque cursor token. Malformed cursor tokens SHALL be rejected with `400 Bad Request`. Unauthenticated calls SHALL be rejected with `401 Unauthorized`.
+`GET /api/v1/conversations` SHALL be authenticated. It SHALL return a cursor-paginated list of conversations the caller is an active participant in (`conversation_participants.user_id = caller AND left_at IS NULL`), ordered by `last_message_at DESC NULLS LAST, created_at DESC`. Each row SHALL include the conversation id, `created_at`, `last_message_at`, and the OTHER participant's profile fields `id`, `username`, `display_name`, `is_premium` sourced via **LEFT JOIN `visible_users`** with `COALESCE` to placeholder values (`username = 'akun_dihapus'`, `display_name = 'Akun Dihapus'`, `is_premium = FALSE`) for partners that are shadow-banned or otherwise filtered out by `visible_users` — the conversation row SHALL surface even when the partner is shadow-banned. **The list-conversations query SHALL NOT exclude conversations based on `user_blocks` in either direction** — per the canonical block-aware-chat contract at [`docs/02-Product.md:234`](../../../../docs/02-Product.md), "Existing conversations remain visible in history" applies symmetrically to the list view AND the messages view; only `POST /api/v1/conversations` (create) and `POST /api/v1/chat/{id}/messages` (send) enforce the bidirectional block. The query site SHALL carry the annotation `// @allow-no-block-exclusion: chat-history-readable-after-block` to suppress `BlockExclusionJoinRule` on the partner-lookup join, matching the carve-out applied to list-messages and send-message participant-lookup queries. Default page size 50; query parameter `?cursor` accepts an opaque cursor token. Malformed cursor tokens SHALL be rejected with `400 Bad Request`. Unauthenticated calls SHALL be rejected with `401 Unauthorized`.
 
 #### Scenario: Caller sees their active conversations
 - **GIVEN** A is an active participant in conversations X, Y, Z with last_message_at descending Z > Y > X
@@ -138,15 +138,15 @@ The endpoint SHALL take the user-pair advisory lock for the duration of the crea
 - **WHEN** A calls `GET /api/v1/conversations`
 - **THEN** X is in the list, AND the partner profile fields are `username = 'akun_dihapus'`, `display_name = 'Akun Dihapus'`, `is_premium = FALSE` (the COALESCE-to-placeholder masks B's profile while keeping the conversation row visible)
 
-#### Scenario: Conversation where partner has blocked caller is excluded
+#### Scenario: Conversation where partner has blocked caller still surfaces
 - **GIVEN** A is a participant in conversation X with B; a `user_blocks` row exists with `blocker_id = B, blocked_id = A`
 - **WHEN** A calls `GET /api/v1/conversations`
-- **THEN** X is NOT in the response list (bidirectional block-exclusion applies)
+- **THEN** X IS in the response list — list-view does not enforce block exclusion (consistent with `docs/02-Product.md:234` "Existing conversations remain visible in history" and the list-messages history-readable-after-block contract)
 
-#### Scenario: Conversation where caller has blocked partner is excluded
+#### Scenario: Conversation where caller has blocked partner still surfaces
 - **GIVEN** A is a participant in conversation X with B; a `user_blocks` row exists with `blocker_id = A, blocked_id = B`
 - **WHEN** A calls `GET /api/v1/conversations`
-- **THEN** X is NOT in the response list
+- **THEN** X IS in the response list — same canonical block-aware-chat contract; the partner profile fields are still rendered via `visible_users` (no special masking for the block, only for shadow-ban)
 
 #### Scenario: Malformed cursor returns 400
 - **WHEN** A calls `GET /api/v1/conversations?cursor=not-a-base64-token`
@@ -319,7 +319,7 @@ The send query SHALL carry the annotation `// @allow-no-block-exclusion: chat-hi
 
 ### Requirement: Realtime RLS test set runs against real schema
 
-The mandatory RLS test set per [`CLAUDE.md` § Critical invariants](../../../../CLAUDE.md) ("RLS changes: mandatory test case JWT `sub` not in `public.users` → deny on every policy change") SHALL run in CI against a Supabase-mode Postgres container that has `realtime.messages` and the V2-drafted policy active. A staging-only verification is INSUFFICIENT — the policy activates with V15 and the test set MUST run against a real schema in CI before the change can ship. The set SHALL cover the deny cases enumerated in [`docs/05-Implementation.md:108-110`](../../../../docs/05-Implementation.md): JWT-sub-not-in-users, non-participant, `left_at`-participant, malformed topic (`conversation:` no UUID, `conversation` no delimiter), invalid-UUID topic (`conversation:not-a-uuid`), SQL-injection topic.
+The mandatory RLS test set per [`CLAUDE.md` § Critical invariants](../../../../CLAUDE.md) ("RLS changes: mandatory test case JWT `sub` not in `public.users` → deny on every policy change") SHALL run in CI against a Supabase-mode Postgres container that has `realtime.messages` and the V15-installed policy active. A staging-only verification is INSUFFICIENT — the policy is installed by V15 (with the corrected subscriber-side definition; see Requirement: Schema applies cleanly via Flyway scenario "V15 installs realtime RLS policy with corrected definition") and the test set MUST run against a real schema in CI before the change can ship. The set SHALL cover the deny cases enumerated in [`docs/05-Implementation.md:108-110`](../../../../docs/05-Implementation.md): JWT-sub-not-in-users, non-participant, `left_at`-participant, malformed topic (`conversation:` no UUID, `conversation` no delimiter), invalid-UUID topic (`conversation:not-a-uuid`), SQL-injection topic. The set SHALL ALSO include an allow case for the shadow-banned active participant (the V15 policy does NOT carry V2's subscriber-side `is_shadow_banned` clause).
 
 #### Scenario: JWT sub not in users denies
 - **GIVEN** a JWT with a `sub` UUID that does not exist in `public.users`
@@ -352,3 +352,8 @@ The mandatory RLS test set per [`CLAUDE.md` § Critical invariants](../../../../
 - **GIVEN** a user in JWT context who is an active participant (`left_at IS NULL`) of the topic conversation
 - **WHEN** a SELECT against `realtime.messages` runs
 - **THEN** the policy allows
+
+#### Scenario: Shadow-banned active participant succeeds
+- **GIVEN** a user in JWT context who is an active participant of the topic conversation AND has `is_shadow_banned = TRUE`
+- **WHEN** a SELECT against `realtime.messages` runs
+- **THEN** the policy ALLOWS (the V15-installed policy intentionally does NOT carry V2's subscriber-side `is_shadow_banned` clause; per the invisible-actor model in `design.md` § D9, shadow-banned subscribers retain their own realtime view)
