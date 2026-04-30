@@ -133,7 +133,7 @@
 - [x] 11.1 Verify no `docs/` amendment is required (the canonical schema in `docs/05-Implementation.md` matches the shipped V15 byte-for-byte; if the reconciliation pass surfaced any divergence, follow-up entries are in `FOLLOW_UPS.md`).
 - [x] 11.2 Update PR title at implementation start: `gh pr edit <pr> --title 'feat(chat): chat-foundation (schema + REST data plane for 1:1 conversations)'`.
 - [x] 11.3 Update PR body at implementation start to reflect the current state per the same-PR iteration rule in `CLAUDE.md`.
-- [ ] 11.4 At archive: confirm `openspec/changes/chat-foundation/` is moved under `archive/` and `openspec/specs/chat-conversations/` (NEW) + `openspec/specs/auth-realtime/` (MODIFIED) are synced.
+- [x] 11.4 At archive: confirm `openspec/changes/chat-foundation/` is moved under `archive/` and `openspec/specs/chat-conversations/` (NEW) + `openspec/specs/auth-realtime/` (MODIFIED) are synced.
 - [x] 11.5 Open follow-up entry in `FOLLOW_UPS.md` titled `chat-realtime-broadcast-publish` capturing what's deferred (Supabase Realtime broadcast publish from Ktor, Phase 2 #9 realtime layer) so the follow-up has a tracked anchor.
 - [x] 11.6 Open follow-up entry in `FOLLOW_UPS.md` titled `chat-rate-limit-50-per-day` capturing the deferred Free 50/day daily-send cap (matches the like-rate-limit + reply-rate-limit shape).
 - [x] 11.7 Open follow-up entry in `FOLLOW_UPS.md` titled `chat-message-notification-emit-sites` for the `chat_message` and `chat_message_redacted` notification emit-sites, deferred until chat-realtime-broadcast lands the publish surface. The fcm-push-dispatch composite (PR [#60](https://github.com/aditrioka/nearyou-id/pull/60)) will pick them up automatically once emitted.
