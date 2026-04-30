@@ -439,6 +439,49 @@ class BlockExclusionJoinLintTest : StringSpec({
         rule.lint(code) shouldHaveSize 1
     }
 
+    // ---- chat-foundation: per-call-site comment-marker bypass
+    //      (chat-foundation/design.md § D10 — `@allow-no-block-exclusion: chat-history-readable-after-block`) ----
+
+    "chat_history_query_with_allow_no_block_exclusion_marker — passes" {
+        // Positive case for chat-foundation tasks 9.0.1 + 9.0.2: a function carrying the
+        // line-comment marker `// @allow-no-block-exclusion: chat-history-readable-after-block`
+        // SHALL NOT trip the rule, even when its FROM chat_messages literal lacks the
+        // bidirectional user_blocks NOT-IN. Rationale: chat list-history is readable for
+        // both parties after a block per docs/02-Product.md:234. See design.md § D10.
+        val code =
+            """
+            package id.nearyou.app.chat
+
+            class T {
+                fun listMessages(): String {
+                    // @allow-no-block-exclusion: chat-history-readable-after-block
+                    return "SELECT id, sender_id, content, created_at FROM chat_messages " +
+                        "WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 50"
+                }
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
+    "chat_history_query_without_marker — rule fires (proves the marker is what gates)" {
+        // Negative case for chat-foundation task 9.0.3: identical FROM chat_messages
+        // literal with NO marker present MUST trip the rule. Together with the positive
+        // case above, this proves it's the marker (not some other carve-out — package,
+        // filename, annotation) that's gating the bypass.
+        val code =
+            """
+            package id.nearyou.app.chat
+
+            class T {
+                fun listMessages(): String {
+                    return "SELECT id, sender_id, content, created_at FROM chat_messages " +
+                        "WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 50"
+                }
+            }
+            """.trimIndent()
+        rule.lint(code) shouldHaveSize 1
+    }
+
     "admin_regions_is_deliberately_not_protected_table — SELECT passes" {
         // Encoding for the V11 block-exclusion-lint ADDED requirement: admin_regions is
         // deliberately NOT in the protected-table set. Reference-data table, no user-

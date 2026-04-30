@@ -551,3 +551,121 @@ What's missing: a test that boots `Application.module()` with a test-only overri
 - [ ] Add a Detekt rule `FirebaseImportBoundaryRule` in `:lint:detekt-rules` that allowlists `*Module.kt` filenames OR a `@FcmDiBinding` KtAnnotation. Modeled on `RawXForwardedForRule` (which has a similarly tight allowlist).
 - [ ] Update spec scenario "`:backend:ktor` Firebase imports are scoped to DI-binding files only" from SHOULD to SHALL once the rule is in place.
 
+## chat-realtime-broadcast-publish
+
+**Discovered during:** `chat-foundation` apply, scope-deferral discipline (proposal § Out of scope)
+**Status:** open
+
+**Finding:** `chat-foundation` ships the data plane (schema + REST endpoints) for 1:1 chat but explicitly defers the Supabase Realtime broadcast layer per [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 2 #9. Without broadcast publish from Ktor, the user-visible product is "1:1 chat with REST polling" — the data plane is correct and shippable for testing, but it is not a real-time chat experience until the publish layer lands. The V2-drafted RLS policy on `realtime.messages` is now installed correctly by V15 (subscriber-side authorization works end-to-end), and the realtime token endpoint shipped in `auth-realtime` is ready, so the only missing piece is the Ktor-side publish that emits a Supabase Realtime broadcast on every successful `chat_messages` INSERT.
+
+**Specs at fault:** None — `openspec/specs/chat-conversations/spec.md` (post-archive) deliberately scopes to REST.
+**Code at fault:** None — REST data plane is complete and correct.
+**Docs at fault:** None — [`docs/04-Architecture.md`](docs/04-Architecture.md) and [`docs/05-Implementation.md`](docs/05-Implementation.md) describe the realtime layer; `chat-foundation` simply doesn't implement it yet.
+
+**Impact (if shipped):** No regression risk — the REST data plane works in isolation. Until broadcast publish ships, clients fall back to REST polling for new messages, which is acceptable for staging-side testing but not for production traffic. The fcm-push-dispatch composite (PR #60) currently has no `chat_message` emit-site to push from; that emit-site is tracked separately in `chat-message-notification-emit-sites`.
+
+**Ambiguity to resolve first:** Publish strategy — Ktor calls Supabase REST `realtime.broadcast` after the chat_messages INSERT commits, OR Ktor uses a Postgres LISTEN/NOTIFY relay that Supabase realtime picks up automatically. The canonical pattern in [`docs/05-Implementation.md` § Chat Flow](docs/05-Implementation.md) is the post-commit REST publish; confirm that hasn't changed before implementing.
+
+**Action items:**
+- [ ] File OpenSpec change `chat-realtime-broadcast` after `chat-foundation` archives. Add an ADDED capability `chat-realtime-broadcast` covering the post-commit publish, the publish-side shadow-ban filter (see `chat-realtime-broadcast-publish-side-shadow-ban-filter`), and the publish-failure-fallback strategy (logged + retry-batch via background job; no client-visible error).
+- [ ] Wire the publish-after-commit hook in `ChatRepository.sendMessage` (or pull it up to a service-level transaction-aware hook) so the publish runs only after successful commit.
+- [ ] Cover the publish path with an integration test against a real Supabase realtime container (or staging integration if a containerized Supabase realtime image isn't available).
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
+
+## chat-rate-limit-50-per-day
+
+**Discovered during:** `chat-foundation` apply, scope-deferral discipline
+**Status:** open
+
+**Finding:** `chat-foundation` does NOT enforce a daily send-rate cap on `POST /api/v1/chat/{id}/messages`. Per [`docs/02-Product.md:318`](docs/02-Product.md), Free-tier users SHALL be capped at 50 messages/day; Premium SHALL be unlimited. The shape is canonical and matches the existing like-rate-limit + reply-rate-limit changes (limiter BEFORE body parse, per-user WIB-midnight TTL via `computeTTLToNextReset(userId)`, `{scope:rate_chat_day}:{user:U}` Redis key, RemoteConfig override `premium_chat_cap_override` for ops dial). The `rate-limit-infrastructure` capability is already shared across like + reply, so the chat extension is mostly route-layer wiring + a service tryRateLimit method.
+
+**Specs at fault:** None — `chat-foundation` is correctly scoped to data plane only.
+**Code at fault:** `backend/ktor/src/main/kotlin/id/nearyou/app/chat/ChatRoutes.kt` (POST handler does not gate on rate-limiter).
+**Docs at fault:** None — `docs/02-Product.md:318` is canonical.
+
+**Impact (if shipped):** Without a daily cap, a Free user can spam an arbitrary number of `POST /api/v1/chat/{id}/messages` calls per day. The data plane has correct length-guard (2000-char) and block enforcement, so spam payloads are bounded per-message; the cap is a fairness + abuse-prevention layer, not a correctness layer. Acceptable to defer for staging-side testing; MUST land before any beta with external users.
+
+**Ambiguity to resolve first:** None — same shape as like-rate-limit + reply-rate-limit.
+
+**Action items:**
+- [ ] File OpenSpec change `chat-rate-limit` after `chat-foundation` archives. ADD a `chat-rate-limit` capability following the like-rate-limit + reply-rate-limit shape: limiter BEFORE body parse, Free-only daily cap (default 50, override via `premium_chat_cap_override`), `{scope:rate_chat_day}:{user:U}` Redis key, per-user WIB-midnight TTL.
+- [ ] Wire the limiter into `ChatRoutes.kt` POST handler at the same ordering position as `ReplyRoutes.kt` uses (auth → UUID validation → limiter → body parse → content guard → repo).
+- [ ] Add `ChatRateLimitTest` mirroring `ReplyRateLimitTest` shape.
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
+
+## chat-message-notification-emit-sites
+
+**Discovered during:** `chat-foundation` apply, fcm-push-dispatch cross-reference
+**Status:** open (hard prerequisite is `chat-realtime-broadcast-publish` landing first)
+
+**Finding:** The fcm-push-dispatch composite shipped in PR #60 wires the dispatcher with all four current emit-site services (post_liked, post_replied, follow, etc.) but has NO `chat_message` or `chat_message_redacted` emit-site to push from. `chat-foundation` deliberately defers adding these emit-sites because (a) without the realtime broadcast layer there's no async surface to push from, and (b) the canonical Phase 2 #11 per-conversation FCM push batching depends on the broadcast layer being in place. Once `chat-realtime-broadcast-publish` lands, the chat send path will have a natural emit-site (after the post-commit broadcast publish) where `notifications` table emits + FCM dispatch can be added. The fcm-push-dispatch dispatcher will pick them up automatically once emitted.
+
+**Specs at fault:** None — `chat-foundation` is correctly scoped.
+**Code at fault:** None — pre-existing emit-sites are correct; chat emit-sites are net-new and live in the future change.
+**Docs at fault:** None.
+
+**Impact (if shipped):** No FCM push for chat until both this and `chat-realtime-broadcast-publish` land. In-app notifications via the existing `notifications` table also won't fire for chat-message events until then. Acceptable for the chat-foundation cut (staging testing only); MUST land before any user-visible chat beta.
+
+**Ambiguity to resolve first:** Notification body shape for chat — what fields land in `notifications.body_data`? Sender username + content excerpt (truncated to 80 code points like reply excerpt)? Or sender + conversation_id only, with the client fetching content on tap? Decide in the change's design.md.
+
+**Action items:**
+- [ ] After `chat-realtime-broadcast-publish` lands, file OpenSpec change `chat-message-notification-emit-sites`. ADD `chat_message` and `chat_message_redacted` notification types in `core/data/.../NotificationType.kt`. Wire the `chat_message` emit in the chat-message send transaction (mirror the `post_replied` + `post_liked` emit-site pattern in ReplyService / LikeService).
+- [ ] Add the per-conversation FCM push batching design (Phase 2 #11) — this may be a separate change depending on scope.
+- [ ] Cover the emit + dispatch end-to-end against a real Postgres + mocked FCM (mirror `JdbcUserFcmTokenReaderTest` shape).
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
+
+## chat-realtime-broadcast-publish-side-shadow-ban-filter
+
+**Discovered during:** `chat-foundation` apply, design § D9 reconciliation
+**Status:** open (hard prerequisite for `chat-realtime-broadcast-publish`)
+
+**Finding:** V15 installs the `realtime.messages` RLS policy WITHOUT V2's subscriber-side `is_shadow_banned` clause (per `chat-foundation/design.md` § D9 + `chat-conversations` spec § Requirement: Realtime RLS policy installed with shadow-ban-aware subscriber semantics). The subscriber-side reconciliation is COMPLETE — shadow-banned users retain their own realtime view, consistent with the invisible-actor model. **What remains:** the publish-side filter. When `chat-realtime-broadcast-publish` ships, the publish path SHALL skip emit when `sender.is_shadow_banned = TRUE`, mirroring the read-path inline filter in `GET /api/v1/chat/{id}/messages` per `chat-conversations` spec § Requirement: List-messages endpoint. Without this filter, shadow-banned senders' messages would broadcast normally to non-banned recipients via WSS while being filtered from the REST `GET /messages` path — REST/WSS asymmetry that defeats the invisible-actor model on the realtime surface.
+
+**Specs at fault:** Future `chat-realtime-broadcast` capability (does not exist yet) — must include the publish-side filter requirement.
+**Code at fault:** Future `chat-realtime-broadcast-publish` change must implement the filter.
+**Docs at fault:** None — `chat-foundation/design.md` § D9 documents the deferral; `chat-conversations` spec includes the read-path filter that the publish-side must mirror.
+
+**Impact (if shipped):** Only relevant once `chat-realtime-broadcast-publish` ships. Without the publish-side filter at that point, a shadow-banned user's messages would silently reach non-banned recipients via WSS while being filtered from REST — a privacy hole and shadow-ban-detection oracle (the punished user could ask a non-banned friend "do you see my messages on the websocket?" to detect the shadow-ban state in seconds rather than the canonical 24-48 hour friction window).
+
+**Ambiguity to resolve first:** Implementation site — filter at the publish call (Ktor checks `sender.is_shadow_banned` before invoking the broadcast publish), OR at the broadcast routing layer (Supabase realtime evaluates a server-side filter via the policy or a function). The natural fit is Ktor-side because (a) the sender's shadow-ban state is already loaded as part of the send transaction and (b) the subscriber-side policy was deliberately kept simple per D9.
+
+**Action items:**
+- [ ] When `chat-realtime-broadcast-publish` is filed, the proposal MUST include this publish-side filter as part of its scope (NOT as a follow-up to that change).
+- [ ] Cover the filter end-to-end with an integration test: shadow-banned sender A sends to conversation X with non-banned recipient B; assert (a) the row persists, (b) `GET /messages` for B does NOT return the row, (c) the realtime broadcast for `realtime:conversation:X` does NOT carry the row.
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
+
+## compute-ttl-to-next-reset-test-flake
+
+**Discovered during:** `chat-foundation` round-2 PR-readiness scan (CI flaked 3 times across the lifecycle on `ComputeTtlToNextResetTest > Different users produce different offsets at high probability`)
+**Status:** open
+
+**Finding:** [`core/domain/src/test/kotlin/id/nearyou/app/core/domain/ratelimit/ComputeTtlToNextResetTest.kt:55-71`](core/domain/src/test/kotlin/id/nearyou/app/core/domain/ratelimit/ComputeTtlToNextResetTest.kt) asserts `(differingPairs >= 999) shouldBe true` over 1000 pairs of `UUID.randomUUID()`. The spec scenario at [`openspec/specs/rate-limit-infrastructure/spec.md:158-160`](openspec/specs/rate-limit-infrastructure/spec.md) prescribes "at least 999 of 1000 random pairs differ" — but the math is over-specified relative to the achievable randomness:
+
+- Per-pair collision probability = 1/3600 (the `hashCode() % 3600` offset bucket).
+- Expected collisions in 1000 pairs ≈ 0.278.
+- Variance ≈ 0.278 → standard deviation ≈ 0.527.
+- P(≥2 collisions) ≈ 3.2% via Poisson approximation.
+
+So the test has a baked-in ~3-4% flake rate even on a perfect hash distribution. Confirmed empirically: 3 flakes in this lifecycle alone (CI runs 25132387140 attempts 1, 2, 3; passed on attempt 4). The test's own KDoc comment at lines 65-69 says "If this ever flakes, the hashCode distribution is the suspect, not the assertion" — that diagnosis is incorrect; the assertion threshold is mathematically too tight.
+
+**Specs at fault:** [`openspec/specs/rate-limit-infrastructure/spec.md:160`](openspec/specs/rate-limit-infrastructure/spec.md) — `Different users different offsets (with high probability)` scenario over-specifies the threshold to "999 of 1000" when ~96-97% of randomized 1000-pair samples meet that bar.
+**Code at fault:** `core/domain/src/test/kotlin/id/nearyou/app/core/domain/ratelimit/ComputeTtlToNextResetTest.kt` — the test as written depends on the spec's tight threshold.
+**Docs at fault:** None — `docs/` doesn't prescribe a specific threshold.
+
+**Impact (if shipped):** Ongoing CI flake at ~3-4% per push. Costs a manual retry click per occurrence (~5-7 min of CI runtime per retry on top of the legitimate test run). Not a correctness regression, not a security issue, not blocking. Has not blocked any feature merge to date — every change has shipped after retry. Pre-launch (no live customers) so reliability cost is low.
+
+**Ambiguity to resolve first:** Three approaches with different trade-offs — pick one in the change's design.md:
+
+1. **Seeded RNG**: replace `UUID.randomUUID()` with `kotlin.random.Random(seed = <empirically-chosen>).nextLong()`-derived UUIDs. Deterministic, zero flake. Trade-off: weakens "random pairs" semantics — we're now testing one specific sample of UUIDs rather than the random distribution. Reasonable since `computeTTLToNextReset` is deterministic and testing one sample with 999/1000 differing IS a valid implementation of the property.
+2. **Loosen threshold + amend spec**: change to ">= 995 of 1000" (P(≥6 collisions) ≈ 0.0001%, effectively zero flake) and amend `rate-limit-infrastructure/spec.md:160` to say "for the vast majority of random pairs" or ">= 99.5%". Preserves random-pair semantics. Spec-level wording change.
+3. **Increase sample size**: 100,000 pairs with threshold 99,500. Variance shrinks relative to threshold by sqrt(100) → P(failure) effectively zero. Preserves random-pair semantics + threshold percentage. Cost: 100x slower test (currently ~50ms; would become ~5s). Acceptable for a test that runs once per CI invocation.
+
+Recommend approach 3 — preserves spec semantics, no spec amendment needed (spec wording could even tighten to "for at least 99.5% of 100,000 random pairs" if desired), test runtime cost is trivial.
+
+**Action items:**
+- [ ] File OpenSpec change `harden-compute-ttl-test` (or similar). Pick approach (recommend 3) in `design.md`. The change MODIFIES the `rate-limit-infrastructure` capability spec (loosens or restates the threshold to match achievable randomness) AND updates the test to match.
+- [ ] If approach 3: bump the `repeat(N)` from 1000 to 100,000; update threshold proportionally; verify test runtime stays under ~5s.
+- [ ] If approach 1: empirically choose a seed that produces ≥999 differing pairs and document why (lock the seed for reproducibility).
+- [ ] If approach 2: amend `rate-limit-infrastructure/spec.md:160` to use a threshold compatible with the math; lower test threshold to match.
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
+
