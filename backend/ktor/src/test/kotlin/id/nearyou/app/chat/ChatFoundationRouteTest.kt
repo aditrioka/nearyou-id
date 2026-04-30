@@ -9,6 +9,8 @@ import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
+import id.nearyou.app.config.StubRemoteConfig
+import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import io.kotest.core.annotation.Tags
@@ -86,7 +88,12 @@ class ChatFoundationRouteTest : StringSpec({
     val jwtIssuer = JwtIssuer(keys)
     val users = JdbcUserRepository(dataSource)
     val repository = ChatRepository(dataSource)
-    val service = ChatService(repository)
+    val service =
+        ChatService(
+            repository = repository,
+            rateLimiter = InMemoryRateLimiter(),
+            remoteConfig = StubRemoteConfig(),
+        )
     val contentGuard = ContentLengthGuard(mapOf(CHAT_CONTENT_KEY to 2000))
 
     afterSpec { dataSource.close() }

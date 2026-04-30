@@ -184,6 +184,21 @@ fun Application.chatRoutes(
                         call.respondInvalidUuid("conversation_id must be a UUID.")
                         return@post
                     }
+                // Rate limit gate (chat-rate-limit § Daily send-rate cap). MUST run BEFORE
+                // JSON body parse / content guard / sendMessage so a Free attacker spamming
+                // oversized payloads / non-existent conversation UUIDs / blocked recipients
+                // still consumes daily slots and hits 429 at the cap (design.md Decision 5).
+                when (val outcome = service.tryRateLimit(principal.userId, principal.subscriptionStatus)) {
+                    is ChatService.RateLimitOutcome.RateLimited -> {
+                        call.response.headers.append("Retry-After", outcome.retryAfterSeconds.toString())
+                        call.respond(
+                            HttpStatusCode.TooManyRequests,
+                            mapOf("error" to mapOf("code" to "rate_limited")),
+                        )
+                        return@post
+                    }
+                    ChatService.RateLimitOutcome.Allowed -> Unit
+                }
                 val body =
                     try {
                         call.receive<SendMessageRequest>()

@@ -81,7 +81,7 @@ data class ChatMessageRow(
     val redactedAt: Instant?,
 )
 
-class ChatRepository(
+open class ChatRepository(
     private val dataSource: DataSource,
 ) {
     /**
@@ -326,7 +326,7 @@ class ChatRepository(
      * deliberately do NOT carry an automatic NOT-IN — the canonical 403 contract is enforced
      * by the explicit query, NOT by the auto-applied join.
      */
-    fun sendMessage(
+    open fun sendMessage(
         conversationId: UUID,
         senderId: UUID,
         content: String,

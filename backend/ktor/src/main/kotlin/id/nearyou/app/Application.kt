@@ -479,7 +479,12 @@ fun Application.module() {
             remoteConfig = remoteConfig,
         )
     val chatRepository = ChatRepository(dataSource)
-    val chatService = ChatService(chatRepository)
+    val chatService =
+        ChatService(
+            repository = chatRepository,
+            rateLimiter = rateLimiter,
+            remoteConfig = remoteConfig,
+        )
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
     val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
