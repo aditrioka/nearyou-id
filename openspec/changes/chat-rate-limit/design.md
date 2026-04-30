@@ -106,7 +106,7 @@ A rate-limited request never reaches participant lookup, never queries the block
 
 **Choice.** Add a single new key constant `premium_chat_send_cap_override` to whatever shape `:infra:remote-config` exposes for `premium_like_cap_override` and `premium_reply_cap_override` (likely a typed accessor or a string-keyed reader). The chat send handler reads it via the existing client.
 
-**Why.** `like-rate-limit` and `reply-rate-limit` already proved out the Remote-Config-override path: SDK error, malformed value, oversized value, ≤ 0, and unset all fall back to the canonical default. Reusing the exact pattern means zero design risk and one new key constant to register. The default-fallback and oversized-clamp contract is part of the existing `rate-limit-infrastructure` capability's behavior surface; this change does not extend that surface.
+**Why.** `like-rate-limit` and `reply-rate-limit` already proved out the Remote-Config-override path: SDK error, malformed value, oversized value, ≤ 0, and unset all fall back to the canonical default. Reusing the exact pattern means zero design risk and one new key constant to register. The default-fallback contract (including the oversized-value branch — 10,000 is the threshold that triggers the fallback, not a clamp value) is part of the existing `rate-limit-infrastructure` capability's behavior surface; this change does not extend that surface.
 
 **Alternatives considered.**
 
