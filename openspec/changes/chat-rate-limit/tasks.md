@@ -4,7 +4,7 @@
 - [ ] 1.2 Verify `openspec/specs/rate-limit-infrastructure/spec.md` confirms the `RateLimiter` interface contract (`tryAcquire(userId, key, capacity, ttl): Outcome`, `releaseMostRecent(userId, key)`) and `computeTTLToNextReset` placement in `id.nearyou.app.core.domain.ratelimit`.
 - [ ] 1.3 Verify chat-foundation send-message ordering by reading the chat-foundation send route + service: current sequence is auth → UUID → conversation existence + active-participant check → bidirectional block check → JSON parse + content guard → INSERT + `last_message_at` UPDATE in TX → 201. New ordering inserts the rate limiter BETWEEN UUID validation AND the conversation-existence check.
 - [ ] 1.4 Verify: `:infra:redis` module exists (per like-rate-limit shipped). CI workflow runs `redis:7-alpine` service container with `REDIS_URL=redis://localhost:6379`. No new CI infra needed.
-- [ ] 1.5 Verify: `UserPrincipal.subscriptionStatus: String` exists at `backend/ktor/src/main/kotlin/id/nearyou/app/auth/AuthPlugin.kt:34`. RevenueCat webhook handler does not yet exist in the backend (Phase 4 work per `docs/08-Roadmap-Risk.md`); the JWT TTL window concern raised during like / reply review remains moot until Phase 4 lands the handler. Confirm the existing `auth-jwt-spec-debt-userprincipal-subscription-status` `FOLLOW_UPS.md` line item still tracks this — extend its scope only if needed.
+- [ ] 1.5 Verify: `UserPrincipal.subscriptionStatus: String` exists at `backend/ktor/src/main/kotlin/id/nearyou/app/auth/AuthPlugin.kt:34`. Run `grep -rn "RevenueCat\|revenuecat" backend/ktor/src/main/` — expect zero hits (the RevenueCat webhook handler is Phase 4 work per `docs/08-Roadmap-Risk.md`); the JWT TTL window concern raised during like / reply review remains moot until Phase 4 lands the handler. Confirm the existing `auth-jwt-spec-debt-userprincipal-subscription-status` `FOLLOW_UPS.md` line item still tracks this — extend its scope only if needed.
 - [ ] 1.6 **Defer to manual user verification.** Mobile chat-compose 429 handling cannot be reliably checked from this scope (Compose Multiplatform UI code). The backend 429 contract is correct regardless; the generic timeline rate-limit screen catches uncaught 429s. File in commit body as a known unverified-at-merge item.
 
 ## 2. `premium_chat_send_cap_override` Remote Config flag plumbing
@@ -27,7 +27,7 @@
 ## 4. Tests for `POST /chat/{id}/messages` rate limit
 
 - [ ] 4.1 Implement `ChatSendRateLimitTest` at `backend/ktor/src/test/kotlin/id/nearyou/app/chat/ChatSendRateLimitTest.kt` (or wherever the chat module lives), tagged `database`. Back it with `InMemoryRateLimiter` (extracted in `like-rate-limit` task 7.1). Test fixtures (`SpyRateLimiterChat`, `FixedRemoteConfigChat`, `ThrowingRemoteConfigChat`, `NullRemoteConfigChat`) follow the like / reply rate-limit precedents with `Chat` suffix to avoid top-level-class redeclaration collisions across the three test files.
-- [ ] 4.2 Implement all 30 scenarios from `specs/chat-conversations/spec.md` § "Integration test coverage — chat send rate limit" as Kotest `StringSpec` strings named "scenario 1 — …" through "scenario 30 — …". Run `./gradlew :backend:ktor:test --rerun-tasks "-Dkotest.filter.specs=*ChatSendRateLimitTest"` — expect 30/30 green.
+- [ ] 4.2 Implement all 34 scenarios from `specs/chat-conversations/spec.md` § "Integration test coverage — chat send rate limit" as Kotest `StringSpec` strings named "scenario 1 — …" through "scenario 34 — …". Run `./gradlew :backend:ktor:test --rerun-tasks "-Dkotest.filter.specs=*ChatSendRateLimitTest"` — expect 34/34 green.
 - [ ] 4.3 Baseline preserved: chat-foundation route test class (and any other touched chat tests) green against the modified chat send service. The new rate-limit scenarios live in `ChatSendRateLimitTest`; chat-foundation tests are updated only to pass the new `rateLimiter` + `remoteConfig` constructor args (using `NoOpRateLimiter` + `StubRemoteConfig` test doubles).
 - [ ] 4.4 Pre-push gauntlet: `./gradlew ktlintCheck detekt :backend:ktor:test --rerun-tasks "-Dkotest.filter.specs=*ChatSendRateLimitTest|*ChatFoundation*" :lint:detekt-rules:test :infra:redis:test :core:domain:test -PincludeMobile=false` — all green expected. (Targeted Kotest filter rather than the full `:backend:ktor:test` to keep local cycle time ≤2 min; full suite runs on CI.)
 
@@ -35,8 +35,8 @@
 
 - [ ] 5.1 `openspec validate chat-rate-limit --strict` — GREEN throughout (proposal phase + any review fixes; no spec edits in feat phase except in response to review).
 - [ ] 5.2 `./gradlew ktlintCheck detekt -PincludeMobile=false` — GREEN. Both `RateLimitTtlRule` and `RedisHashTagRule` produce 0 findings on the new chat send call site (the `_day}` substring + `{scope:rate_chat_send_day}:{user:<uuid>}` shape align with the rules' patterns).
-- [ ] 5.3 Local Kotest-filtered run: `ChatSendRateLimitTest` 30/30, chat-foundation route test class baseline preserved — all green.
-- [ ] 5.4 CI green on the change branch HEAD: `lint` SUCCESS, `test` SUCCESS (30 new ChatSendRateLimitTest scenarios + chat-foundation baselines all passing against the CI Postgres + Redis service containers), `migrate-supabase-parity` SUCCESS.
+- [ ] 5.3 Local Kotest-filtered run: `ChatSendRateLimitTest` 34/34, chat-foundation route test class baseline preserved — all green.
+- [ ] 5.4 CI green on the change branch HEAD: `lint` SUCCESS, `test` SUCCESS (34 new ChatSendRateLimitTest scenarios + chat-foundation baselines all passing against the CI Postgres + Redis service containers), `migrate-supabase-parity` SUCCESS.
 
 ## 6. Smoke test against staging (post-CI-green)
 
