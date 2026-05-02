@@ -160,6 +160,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
    - Client subscribes via `conversation:<id>` channel pattern
    - REST fallback for resync
    - Block check before send
+   - **Chat send rate limit shipped** in change `chat-rate-limit`: 50/day Free, unlimited Premium on `POST /api/v1/chat/{conversation_id}/messages` — daily-only (no burst clause per `02-Product.md:318` — the asymmetry with likes is canonical, not an oversight; chat is a 2000-char compose surface and does not have the velocity-fingerprint surface that anti-bot burst caps target), `premium_chat_send_cap_override` Firebase Remote Config flag (mirrors the like + reply flags' contracts; canonical authority `05-Implementation.md:1416`), oversized-flag fallback threshold at 10,000 (anti-typo guard — values above the threshold fall back to the default 50, not a clamp value applied to the override), no `releaseMostRecent` escape hatch (every successful POST is a real new row — no idempotent re-action analogous to the like handler's INSERT-ON-CONFLICT no-op). GET /messages, GET /conversations, and POST /conversations are NOT rate-limited at the per-endpoint layer (read-side throttling lives at the session/hourly layer; conversation-create is rare and already serialized by the user-pair advisory lock from chat-foundation).
 10. `ChatRealtimeClient` + `RealtimeTokenProvider` abstraction
 11. Reconnection handling via Supabase SDK
 12. **CTE batching mandatory** on timeline endpoint
