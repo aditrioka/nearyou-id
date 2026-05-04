@@ -783,3 +783,24 @@ Gap surface: zero OTel SDK references in [`gradle/libs.versions.toml`](gradle/li
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
 
 ---
+
+## chat-flow-diagram-missing-notification-emit-step
+
+**Discovered during:** `chat-message-notification` `/next-change` Phase B step 7 reconciliation pass — verifying the canonical chat flow diagram at [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) against the as-shipped + about-to-ship runtime.
+**Status:** open
+
+**Finding:** [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) shows the chat flow as: validate → INSERT chat_messages → Supabase Realtime broadcast → Client B receives. The diagram does NOT mention notification emit (the `chat_message` row + FCM push), even though the canonical body_data catalog at [`docs/05-Implementation.md:860`](docs/05-Implementation.md) declares `chat_message` as a wired notification type with body_data shape `{conversation_id, preview}`. The diagram was authored before `fcm-push-dispatch` and `in-app-notifications` shipped, and has not been amended since. Other shipped capabilities have similarly omitted-from-diagrams emit steps (e.g., post likes don't show notification dispatch in the like flow either) — the diagram is an architectural overview, not a complete sequence — but the `chat-message-notification` change makes the omission newly load-bearing for chat specifically: a future maintainer reading 1195-1212 might conclude that chat sends do NOT emit notifications, contradicting the actual ship state.
+
+**Specs at fault:** None — `chat-conversations/spec.md` (post-archive of `chat-message-notification`) will correctly require the emit step inside the chat send tx.
+**Code at fault:** None — the chat-message-notification change ships the emit correctly.
+**Docs at fault:** [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) chat flow diagram (omits the emit step).
+
+**Impact (if shipped):** Low. Misleads a future maintainer reading the diagram into thinking chat sends do not produce a `notifications` row — they will discover the truth on first grep of `NotificationEmitter` use sites or first read of the spec, but that's wasted time. Same shape as several other doc-staleness FOLLOW_UPs in this project (e.g., `architecture-doc-otel-mandatory-attributes-clarification` above, `premium-search-reindex-trigger-doc-divergence` earlier in this file).
+
+**Ambiguity to resolve first:** Optional design choice — either (a) amend the chat flow diagram to add an "INSERT notifications + dispatch FCM push" step inside the tx between `INSERT chat_messages` and the broadcast, OR (b) add an explicit pointer line below the diagram noting that the canonical notifications catalog at line 860 + the in-app-notifications spec own the emit detail. Either fix resolves the ambiguity.
+
+**Action items:**
+- [ ] After `chat-message-notification` ships, file a docs-only amendment to [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) — either approach (a) or approach (b) above. Standalone docs PR or batched with the next OpenSpec change that touches chat documentation.
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
+
+---
