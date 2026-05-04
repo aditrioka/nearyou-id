@@ -15,6 +15,7 @@ import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContain
@@ -263,7 +264,10 @@ class ChatSendRateLimitTest : StringSpec({
                     }
                 }
                 install(Authentication) { configureUserJwt(keys, users, Instant::now) }
-                chatRoutes(service, contentGuard)
+                // chat-rate-limit suite predates chat-realtime-broadcast — bind a no-op
+                // realtime client so the route signature satisfies (this suite asserts on
+                // the rate-limit gate, not the broadcast publish).
+                chatRoutes(service, contentGuard, NoopChatRealtimeClient())
             }
             block()
         }

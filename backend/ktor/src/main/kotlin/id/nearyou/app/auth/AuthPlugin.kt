@@ -30,8 +30,25 @@ val AuthFailureKey = AttributeKey<String>("auth.failure_code")
  * than issuing a fresh `SELECT subscription_status FROM users WHERE id = :caller`,
  * per `openspec/specs/post-likes/spec.md` § "Read-site constraint" (the rate limiter
  * runs before any DB read; a fresh tier SELECT would violate that ordering).
+ *
+ * [isShadowBanned] is read once here — the chat send handler's publish-side shadow-ban
+ * skip (per `chat-realtime-broadcast` spec § Publish-side shadow-ban skip) reads from
+ * this field instead of issuing a fresh `SELECT is_shadow_banned FROM users` for the
+ * publish decision. Mid-flight admin flips between auth and publish are accepted (stale
+ * state acceptable per design § D2; mobile consumer-side filter at
+ * `docs/05-Implementation.md:1880` is defense-in-depth).
+ *
+ * Both [subscriptionStatus] and [isShadowBanned] are populated by the same auth-time
+ * `users` row SELECT in [JdbcUserRepository.baseSelect]. Spec debt: neither field is
+ * documented in `openspec/specs/auth-jwt/spec.md`; the `auth-jwt-spec-debt-userprincipal-subscription-status`
+ * `FOLLOW_UPS.md` entry tracks the future docs-only OpenSpec change that documents both.
  */
-data class UserPrincipal(val userId: UUID, val tokenVersion: Int, val subscriptionStatus: String)
+data class UserPrincipal(
+    val userId: UUID,
+    val tokenVersion: Int,
+    val subscriptionStatus: String,
+    val isShadowBanned: Boolean,
+)
 
 fun Application.installAuth(
     keys: RsaKeyLoader,
@@ -82,7 +99,13 @@ internal fun AuthenticationConfig.configureUserJwt(
                     this.attributes.put(AuthFailureKey, "account_suspended")
                     null
                 }
-                else -> UserPrincipal(user.id, user.tokenVersion, user.subscriptionStatus)
+                else ->
+                    UserPrincipal(
+                        userId = user.id,
+                        tokenVersion = user.tokenVersion,
+                        subscriptionStatus = user.subscriptionStatus,
+                        isShadowBanned = user.isShadowBanned,
+                    )
             }
         }
 

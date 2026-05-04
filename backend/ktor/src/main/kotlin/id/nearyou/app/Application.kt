@@ -35,6 +35,7 @@ import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.config.StubRemoteConfig
 import id.nearyou.app.config.secretKey
+import id.nearyou.app.core.domain.chat.ChatRealtimeClient
 import id.nearyou.app.core.domain.health.PostgresProbe
 import id.nearyou.app.core.domain.health.ProbeResult
 import id.nearyou.app.core.domain.health.RedisProbe
@@ -91,6 +92,8 @@ import id.nearyou.app.infra.repo.RejectedIdentifierRepository
 import id.nearyou.app.infra.repo.ReservedUsernameRepository
 import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
+import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
+import id.nearyou.app.infra.supabase.realtime.SupabaseBroadcastChatClient
 import id.nearyou.app.internal.InternalEndpointAuth
 import id.nearyou.app.moderation.ReportRateLimiter
 import id.nearyou.app.moderation.ReportService
@@ -485,6 +488,36 @@ fun Application.module() {
             rateLimiter = rateLimiter,
             remoteConfig = remoteConfig,
         )
+    // chat-realtime-broadcast wiring per design § D8 (extends `:infra:supabase`).
+    // Test profile binds NoopChatRealtimeClient — local tests have no real Supabase
+    // project. Non-test profiles fail-fast on missing `supabase-service-role-key`
+    // (matches the FCM `firebase-admin-sa` precedent: deploy-time secret-slot
+    // misconfiguration surfaces here, NOT silently downgrades to a no-op).
+    val chatRealtimeClient: ChatRealtimeClient =
+        when (ktorEnv) {
+            "test" -> NoopChatRealtimeClient()
+            else -> {
+                val slot = secretKey(ktorEnv, "supabase-service-role-key")
+                val key =
+                    secrets.resolve("supabase-service-role-key")
+                        ?: run {
+                            org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").error(
+                                "event=chat_realtime_broadcast_init_failed reason=missing_secret slot={} env={}",
+                                slot,
+                                ktorEnv,
+                            )
+                            error(
+                                "Required secret '$slot' is unset (env=$ktorEnv) — " +
+                                    "Supabase service role key is a hard startup requirement when ktor.environment != 'test'. " +
+                                    "Verify GCP Secret Manager slot exists and is populated.",
+                            )
+                        }
+                SupabaseBroadcastChatClient(
+                    projectUrl = supabaseUrl,
+                    serviceRoleKey = key,
+                )
+            }
+        }
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
     val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
@@ -605,7 +638,7 @@ fun Application.module() {
     userSocialRoutes(followService)
     likeRoutes(likeService)
     replyRoutes(replyService, contentLengthGuard)
-    chatRoutes(chatService, contentLengthGuard)
+    chatRoutes(chatService, contentLengthGuard, chatRealtimeClient)
     timelineRoutes(nearbyTimelineService)
     followingTimelineRoutes(followingTimelineService)
     globalTimelineRoutes(globalTimelineService)

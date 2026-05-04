@@ -122,9 +122,11 @@ fun userRow(
     googleIdHash: String? = null,
     appleIdHash: String? = null,
     isBanned: Boolean = false,
+    isShadowBanned: Boolean = false,
     suspendedUntil: Instant? = null,
     tokenVersion: Int = 0,
     appleRelayEmail: Boolean = false,
+    subscriptionStatus: String = "free",
 ) = UserRow(
     id = id,
     username = "tester",
@@ -133,9 +135,10 @@ fun userRow(
     googleIdHash = googleIdHash,
     appleIdHash = appleIdHash,
     appleRelayEmail = appleRelayEmail,
-    isShadowBanned = false,
+    isShadowBanned = isShadowBanned,
     isBanned = isBanned,
     suspendedUntil = suspendedUntil,
     tokenVersion = tokenVersion,
     deletedAt = null,
+    subscriptionStatus = subscriptionStatus,
 )

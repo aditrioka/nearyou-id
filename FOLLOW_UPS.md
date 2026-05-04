@@ -169,22 +169,22 @@ The proposed canonical workflow:
 
 ## auth-jwt-spec-debt-userprincipal-subscription-status
 
-**Discovered during:** `reply-rate-limit` proposal review (Phase D round 1 — the on-demand `claude.yml` review pass at PR #49 flagged that the reply spec depends on `UserPrincipal.subscriptionStatus` being populated by the auth-jwt plugin, but no spec documents the field).
+**Discovered during:** `reply-rate-limit` proposal review (Phase D round 1 — the on-demand `claude.yml` review pass at PR #49 flagged that the reply spec depends on `UserPrincipal.subscriptionStatus` being populated by the auth-jwt plugin, but no spec documents the field). Extended during `chat-realtime-broadcast` Phase 2.6 — the same gap now applies to `UserPrincipal.isShadowBanned: Boolean`, added by that change for the publish-side shadow-ban skip.
 **Status:** open
 
-**Finding:** [`like-rate-limit` task 6.1.1](openspec/changes/archive/2026-04-25-like-rate-limit/tasks.md) added `subscriptionStatus: String` to `UserPrincipal` (populated from `users.subscription_status` by `AuthPlugin.configureUserJwt`) as a **code change with no corresponding spec amendment**. Neither [`openspec/specs/auth-jwt/spec.md`](openspec/specs/auth-jwt/spec.md) nor [`openspec/specs/auth-session/spec.md`](openspec/specs/auth-session/spec.md) documents this field. The `like-rate-limit/specs/post-likes/spec.md` § "Daily rate limit" requirement and now `reply-rate-limit/specs/post-replies/spec.md` § "Daily rate limit" both rely on the field being populated; a future maintainer reading the canonical auth-jwt spec will find no `subscriptionStatus` on the principal and may assume the rate-limit handlers are buggy.
+**Finding:** [`like-rate-limit` task 6.1.1](openspec/changes/archive/2026-04-25-like-rate-limit/tasks.md) added `subscriptionStatus: String` to `UserPrincipal` (populated from `users.subscription_status` by `AuthPlugin.configureUserJwt`) as a **code change with no corresponding spec amendment**. `chat-realtime-broadcast` Phase 2.6 added a second principal field — `isShadowBanned: Boolean`, populated from `users.is_shadow_banned` in the same auth-time SELECT — used by the chat send handler's publish-side shadow-ban skip. Neither [`openspec/specs/auth-jwt/spec.md`](openspec/specs/auth-jwt/spec.md) nor [`openspec/specs/auth-session/spec.md`](openspec/specs/auth-session/spec.md) documents either field. The `like-rate-limit/specs/post-likes/spec.md` § "Daily rate limit" requirement, `reply-rate-limit/specs/post-replies/spec.md` § "Daily rate limit", and now `chat-realtime-broadcast/specs/chat-realtime-broadcast/spec.md` § "Publish-side shadow-ban skip" all rely on these fields being populated; a future maintainer reading the canonical auth-jwt spec will find neither field on the principal and may assume the dependent handlers are buggy.
 
 **Specs at fault:** `openspec/specs/auth-jwt/spec.md`, `openspec/specs/auth-session/spec.md`
-**Code at fault:** None — the field is correctly populated; the spec is the gap.
+**Code at fault:** None — both fields are correctly populated; the spec is the gap.
 **Docs at fault:** None — `docs/05-Implementation.md` § Auth Session does describe principal contents abstractly but doesn't go field-by-field.
 
-**Impact (if shipped):** Low. Code is correct. Risk is to future-maintainer cognitive load: rate-limit handlers reference an undocumented principal field; a refactor that adds new fields to `UserPrincipal` may forget `subscriptionStatus` because no spec lists it. Also: the same gap will accumulate as future rate-limit changes (post-rate-limit, search-rate-limit, etc.) all consume the field.
+**Impact (if shipped):** Low. Code is correct. Risk is to future-maintainer cognitive load: rate-limit handlers + the chat publish path reference undocumented principal fields; a refactor that adds new fields to `UserPrincipal` may forget existing fields because no spec lists them. The gap accumulates as future changes consume principal-loaded state (post-rate-limit, search-rate-limit, future moderation features, etc.).
 
-**Ambiguity to resolve first:** None. The fix shape is clear: a docs-only OpenSpec change `auth-jwt-principal-subscription-status` that adds a Requirement to `auth-jwt` spec documenting `UserPrincipal.subscriptionStatus: String` (loaded from `users.subscription_status`, three-state enum, populated at JWT issuance). No code change needed. Could be batched with similar principal-field documentation tasks if more land later.
+**Ambiguity to resolve first:** None. The fix shape is clear: a docs-only OpenSpec change (working name `auth-jwt-principal-fields-documentation` — broader than the original `auth-jwt-principal-subscription-status` so it covers both fields in one go) that adds Requirements to `auth-jwt` spec documenting BOTH `UserPrincipal.subscriptionStatus: String` AND `UserPrincipal.isShadowBanned: Boolean` (loaded from `users.subscription_status` / `users.is_shadow_banned`, populated at JWT issuance via the auth-time `users` row SELECT). No code change needed. Could be batched with similar principal-field documentation tasks if more land later.
 
 **Action items:**
-- [ ] File a docs-only OpenSpec change `auth-jwt-principal-subscription-status` with one ADDED Requirement to `auth-jwt` spec describing the field.
-- [ ] In the same change, optionally amend `auth-session` spec to cross-reference the principal field for capability-spanning clarity.
+- [ ] File a docs-only OpenSpec change `auth-jwt-principal-fields-documentation` with ADDED Requirements to `auth-jwt` spec describing BOTH `UserPrincipal.subscriptionStatus: String` AND `UserPrincipal.isShadowBanned: Boolean`.
+- [ ] In the same change, optionally amend `auth-session` spec to cross-reference the principal fields for capability-spanning clarity.
 - [ ] When the Phase 4 RevenueCat webhook handler lands, ensure `EXPIRATION` / cancellation events bump `users.token_version` so JWT re-issuance picks up the new tier (closes the JWT-TTL window risk documented in `reply-rate-limit/design.md` § Premium → Free downgrade window). Confirmed during `reply-rate-limit` apply (task 1.5): the RevenueCat webhook handler **does not yet exist in the backend** — the verification is moot until Phase 4 lands the handler, but should be the first item on the handler's spec checklist.
 
 ---
@@ -669,3 +669,117 @@ Recommend approach 3 — preserves spec semantics, no spec amendment needed (spe
 - [ ] If approach 2: amend `rate-limit-infrastructure/spec.md:160` to use a threshold compatible with the math; lower test threshold to match.
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
 
+
+---
+
+## pre-phase-1-secret-slot-list-supabase-service-role-key
+
+**Discovered during:** `chat-realtime-broadcast` Phase 1.8 reconciliation — verifying the canonical Pre-Phase 1 secret-slot list at [`docs/08-Roadmap-Risk.md` § Pre-Phase 1 #34](docs/08-Roadmap-Risk.md) (line 51 at this writing) lists `staging-supabase-jwt-secret` but does NOT yet list `staging-supabase-service-role-key` / `supabase-service-role-key` — the slots required by `chat-realtime-broadcast` Phase 7 staging deploy.
+**Status:** open
+
+**Finding:** The chat-realtime-broadcast change adds the GCP Secret Manager slots `staging-supabase-service-role-key` (staging) and `supabase-service-role-key` (prod, deferred until prod deploy) per `chat-realtime-broadcast` design § D7. The canonical Pre-Phase 1 secret-slot list at [`docs/08-Roadmap-Risk.md:51`](docs/08-Roadmap-Risk.md) was last updated when only `supabase-jwt-secret` (HS256-signing for client realtime tokens, per `auth-realtime`) existed; the additive service-role-key slot is not on the list. Slot creation in GCP happens at deploy time (Phase 7 of this change); the docs amendment is purely a documentation hygiene update.
+
+**Specs at fault:** None.
+**Code at fault:** None.
+**Docs at fault:** [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) § Pre-Phase 1 #34 (line 51).
+
+**Impact (if shipped):** Low. Operational deploy works correctly without the docs amendment (the GCP slot is created via the deploy workflow). Risk is to future-maintainer cognitive load — a future Pre-Phase 1 inventory pass that checks the doc list would not find the slot, potentially treating it as missing infrastructure.
+
+**Ambiguity to resolve first:** None. Append `staging-supabase-service-role-key` and `supabase-service-role-key` to the existing slot list, mirroring the existing `staging-supabase-jwt-secret` shape.
+
+**Action items:**
+- [ ] File a docs-only PR (or batch with the next OpenSpec change touching the Pre-Phase 1 section) amending [`docs/08-Roadmap-Risk.md:51`](docs/08-Roadmap-Risk.md) to include `staging-supabase-service-role-key` and `supabase-service-role-key` in the secret-slot inventory.
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs PR merges.
+
+---
+
+## chat-flow-pseudocode-shadow-ban-precheck-stale
+
+**Discovered during:** `chat-realtime-broadcast` Phase 1.9 reconciliation — re-checking [`docs/05-Implementation.md:1200`](docs/05-Implementation.md) (Pre-Swap chat flow pseudocode) which says "validates quota, sender is participant, not shadow-banned, not blocked" — the "not shadow-banned" sender pre-check contradicts the chat-foundation invisible-actor model.
+**Status:** open
+
+**Finding:** The Pre-Swap chat flow pseudocode at [`docs/05-Implementation.md:1200`](docs/05-Implementation.md) lists "not shadow-banned" as a SENDER pre-check before the chat send INSERT. This contradicts the canonical chat-foundation invisible-actor model documented in `chat-foundation/design.md` § D9 (and re-affirmed by `chat-realtime-broadcast` design § D2): shadow-banned senders DO insert their messages — the row persists, but the publish step is skipped (publish-side filter) and other readers never see the row via the `GET /messages` shadow-ban filter (read-path filter). This is chat-foundation residue in the doc, NOT introduced by this change.
+
+**Specs at fault:** None.
+**Code at fault:** None — the chat-foundation send handler correctly does NOT pre-check sender shadow-ban state (verified by `chat-rate-limit` scenario 33 + `chat-realtime-broadcast` test 2).
+**Docs at fault:** [`docs/05-Implementation.md:1200`](docs/05-Implementation.md).
+
+**Impact (if shipped):** Low. Code is correct. Risk: a future maintainer reading the canonical chat-flow pseudocode might infer that shadow-banned senders should be 4xx-rejected at the send endpoint, attempting a "fix" that breaks the invisible-actor model.
+
+**Ambiguity to resolve first:** None. Remove the "not shadow-banned" clause from the sender pre-check list at line 1200; optionally add a sentence noting that shadow-banned senders insert normally and the publish-side skip is documented in `chat-realtime-broadcast` § Publish-side shadow-ban skip.
+
+**Action items:**
+- [ ] Amend [`docs/05-Implementation.md:1200`](docs/05-Implementation.md) to remove the "not shadow-banned" clause from the sender pre-check list (batch with the docs-only PR for the secret-slot list amendment, or with the next OpenSpec change touching that doc section).
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
+
+---
+
+## chat-flow-pseudocode-channel-prefix-clarification
+
+**Discovered during:** `chat-realtime-broadcast` Phase 1.10 reconciliation — verifying [`docs/05-Implementation.md:1204`](docs/05-Implementation.md) describes the broadcast channel as `conversation:<id>` (without the publisher-side `realtime:` prefix). Correct at the topic layer (the V15 RLS regex evaluates against the prefix-stripped topic) but understates the publisher API contract.
+**Status:** open
+
+**Finding:** [`docs/05-Implementation.md:1204`](docs/05-Implementation.md) describes the broadcast channel name as `conversation:<id>` without the `realtime:` prefix. This is correct at the **topic** layer — what the V15 `participants_can_subscribe` RLS regex (`^conversation:[0-9a-f]{8}-[0-9a-f]{4}-...`) evaluates against — but understates the publisher-side API which requires the `realtime:` prefix on the channel identifier (Supabase strips it before RLS topic evaluation). The two readings are consistent at different layers, but a future implementer reading only line 1204 might drop the `realtime:` prefix from publisher code, breaking authorization-gated channel subscription. `chat-realtime-broadcast` design § D5 documents the distinction explicitly; the canonical doc should mirror that clarification.
+
+**Specs at fault:** None.
+**Code at fault:** None — `SupabaseBroadcastChatClient.chatBroadcastChannelIdentifier` correctly produces `realtime:conversation:<id>` and the topic-stripping is unit-tested.
+**Docs at fault:** [`docs/05-Implementation.md:1204`](docs/05-Implementation.md).
+
+**Impact (if shipped):** Low. The shipped implementation uses the canonical prefixed channel + stripped topic. Risk is to future implementers (e.g., a hypothetical `:infra:ktor-ws` swap or an additional broadcast caller) reading only the canonical doc and reproducing the bug.
+
+**Ambiguity to resolve first:** None. Amend line 1204 to clarify the publisher channel identifier (with `realtime:` prefix) vs the underlying topic (without prefix) the RLS regex matches.
+
+**Action items:**
+- [ ] Amend [`docs/05-Implementation.md:1204`](docs/05-Implementation.md) to distinguish publisher channel identifier (`realtime:conversation:<id>`) from the topic (`conversation:<id>`) the V15 RLS regex evaluates against. Batch with the other Phase 9 docs-only amendments.
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
+
+---
+
+## observability-otel-foundation
+
+**Discovered during:** `chat-realtime-broadcast` Phase 9.5 — `design.md` § D9 + `proposal.md` "Observability deferred" descope of the `chat.realtime.publish` OTel span requirement. Round-3 review surfaced that OTel SDK is not in the project; instrumenting only chat-realtime-broadcast would create a single-instrumented-capability anomaly.
+**Status:** open
+
+**Finding:** `chat-realtime-broadcast` design § D9 descoped the OTel-span observability per [`docs/04-Architecture.md:398`](docs/04-Architecture.md) "mandatory OTel attributes" — adopting OTel here would couple a chat-publish feature change to a project-wide observability foundation (SDK + global tracer + hashed-user-id helper + DI plumbing + retroactive instrumentation across every shipped capability). The `chat-realtime-broadcast` change ships ONLY the structured WARN log on failure; OTel adoption is the future work tracked here.
+
+Gap surface: zero OTel SDK references in [`gradle/libs.versions.toml`](gradle/libs.versions.toml) or [`build-logic/`](build-logic/); no shipped capability (chat-foundation, chat-rate-limit, fcm-push-dispatch, post-likes, post-replies, premium-search) emits OTel spans; "user_id (hashed)" attribute referenced by the architecture doc has no implementation helper on disk.
+
+**Specs at fault:** None — the `chat-realtime-broadcast` spec correctly omits an OTel requirement.
+**Code at fault:** None — pre-foundation; nothing to refactor yet.
+**Docs at fault:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) describes mandatory OTel attributes as if enforced. Tracked separately by `architecture-doc-otel-mandatory-attributes-clarification`.
+
+**Impact (if shipped):** Low today (structured logs are the de-facto observability surface across all shipped capabilities). Risk: as more capabilities ship, retroactive instrumentation work compounds; the `chat.realtime.publish` span specifically would be useful for alerting on publish-failure rate but is currently approximated via WARN-log-rate alerts.
+
+**Ambiguity to resolve first:** None — the foundation shape is clear from `docs/04-Architecture.md` § Instrumentation priorities + the existing structured-log usage. The change should:
+1. Add OTel SDK + `opentelemetry-sdk-testing` to [`gradle/libs.versions.toml`](gradle/libs.versions.toml).
+2. Wire a global tracer in [`backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt).
+3. Introduce a `hashUserIdForTelemetry` helper in [`:core:domain`](core/domain/) (per `docs/04-Architecture.md:398` "user_id (hashed)").
+4. Retroactively instrument call sites with one consistent policy: chat send (`chat.send`), chat publish (`chat.realtime.publish`), fcm send (`fcm.send`), like / reply / search action paths.
+
+**Action items:**
+- [ ] File an OpenSpec change `observability-otel-foundation` per the migration sketch above.
+- [ ] In a follow-on change, retro-add the `chat.realtime.publish` span requirement to the `chat-realtime-broadcast` capability spec (currently descoped in design § D9).
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the foundation change merges.
+
+---
+
+## architecture-doc-otel-mandatory-attributes-clarification
+
+**Discovered during:** `chat-realtime-broadcast` Phase 9.6 — flagged that [`docs/04-Architecture.md:398`](docs/04-Architecture.md) describes the "mandatory OTel attributes" list as if it is already enforced, but no shipped capability emits OTel spans (per `observability-otel-foundation` finding above).
+**Status:** open
+
+**Finding:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) reads as a present-tense enforced contract: "Mandatory attributes: `user_id` (hashed), `endpoint`, `db.statement` (parameterized), `supabase.realtime.channel`, `geo.cloud_region`". The actual project state is that NO shipped capability emits OTel spans — the line describes the FUTURE state once `observability-otel-foundation` ships. The `chat-realtime-broadcast` changes round-3 review caught this when an earlier draft of the design treated the line as a load-bearing requirement.
+
+**Specs at fault:** None.
+**Code at fault:** None.
+**Docs at fault:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md).
+
+**Impact (if shipped):** Low. Misleads future implementers who treat the line as a present-state spec — `chat-realtime-broadcast` round 3 caught this, but a future capability author may not.
+
+**Ambiguity to resolve first:** None. Amend the line to clarify the attribute list is the FUTURE state once `observability-otel-foundation` ships (or batch with that changes amendments).
+
+**Action items:**
+- [ ] Amend [`docs/04-Architecture.md:398`](docs/04-Architecture.md) to add a "future-state once `observability-otel-foundation` ships" qualifier to the mandatory-attributes line, OR fold the amendment into the `observability-otel-foundation` change itself.
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
+
+---

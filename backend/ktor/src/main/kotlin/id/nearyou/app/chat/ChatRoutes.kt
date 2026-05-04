@@ -3,6 +3,9 @@ package id.nearyou.app.chat
 import id.nearyou.app.auth.AUTH_PROVIDER_USER
 import id.nearyou.app.auth.UserPrincipal
 import id.nearyou.app.common.InvalidCursorException
+import id.nearyou.app.core.domain.chat.ChatMessageBroadcast
+import id.nearyou.app.core.domain.chat.ChatRealtimeClient
+import id.nearyou.app.core.domain.chat.PublishResult
 import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.guard.ContentTooLongException
@@ -47,6 +50,7 @@ import java.util.UUID
 fun Application.chatRoutes(
     service: ChatService,
     contentGuard: ContentLengthGuard,
+    chatRealtimeClient: ChatRealtimeClient,
 ) {
     routing {
         authenticate(AUTH_PROVIDER_USER) {
@@ -236,6 +240,14 @@ fun Application.chatRoutes(
                 // Embed fields are silently ignored on this cut (deferred to chat-embedded-posts).
                 // Per spec: structured WARN log per ignored field with the resulting message-id.
                 logIgnoredEmbedFields(body, row.id)
+                // Post-commit broadcast publish per `chat-realtime-broadcast` spec (design § D1
+                // — await-inline on the request's coroutine context, NOT fire-and-forget).
+                // Sender-side shadow-ban skip per spec § Publish-side shadow-ban skip: read
+                // `viewer.isShadowBanned` from the request principal (auth-time SELECT;
+                // mid-request staleness is design-accepted per § D2).
+                if (!principal.isShadowBanned) {
+                    publishBroadcast(chatRealtimeClient, conversationId, row)
+                }
                 call.respond(HttpStatusCode.Created, row.toJson())
             }
         }
@@ -288,6 +300,65 @@ private suspend fun ApplicationCall.respondBlocked() {
         contentType = ContentType.Application.Json,
         status = HttpStatusCode.Forbidden,
     )
+}
+
+/**
+ * Invoke [ChatRealtimeClient.publish] post-commit and translate the result into the
+ * `chat-realtime-broadcast` spec's WARN-log contract on failure paths. Per design § D3,
+ * a failed publish does NOT change HTTP semantics — the persisted `chat_messages` row +
+ * `conversations.last_message_at` UPDATE remain; the response is still 201; mobile REST
+ * resync recovers a missed broadcast.
+ *
+ * On [PublishResult.Failure], `error_class = result.reason` (the fully-qualified class
+ * name of the last exception captured during the adapter's retry loop, per design § D12).
+ * On a thrown `Throwable` that escapes the adapter, the catch block logs
+ * `error_class = throwable::class.qualifiedName` for symmetry.
+ */
+private suspend fun publishBroadcast(
+    chatRealtimeClient: ChatRealtimeClient,
+    conversationId: UUID,
+    row: ChatMessageRow,
+) {
+    val broadcast =
+        ChatMessageBroadcast(
+            id = row.id,
+            conversationId = row.conversationId,
+            senderId = row.senderId,
+            content = row.content,
+            embeddedPostId = null,
+            embeddedPostSnapshot = null,
+            embeddedPostEditId = null,
+            createdAt = row.createdAt,
+            redactedAt = row.redactedAt,
+        )
+    val result =
+        try {
+            chatRealtimeClient.publish(conversationId, broadcast)
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            // Coroutine cancellation (typically: client disconnected mid-publish) — propagate
+            // so the request scope tears down per the standard structured-concurrency contract.
+            // Per `chat-realtime-broadcast` spec § "Coroutine cancellation behavior" the WARN
+            // log MUST NOT fire on this path: the (now-canceled) request was preempted before
+            // handler completion. The persisted row remains; mobile REST resync recovers the
+            // missed broadcast on the next reconnect.
+            throw ce
+        } catch (t: Throwable) {
+            log.warn(
+                "event=chat_realtime_publish_failed conversation_id={} message_id={} error_class={}",
+                conversationId,
+                row.id,
+                t.javaClass.name,
+            )
+            return
+        }
+    if (result is PublishResult.Failure) {
+        log.warn(
+            "event=chat_realtime_publish_failed conversation_id={} message_id={} error_class={}",
+            conversationId,
+            row.id,
+            result.reason,
+        )
+    }
 }
 
 private fun logIgnoredEmbedFields(
