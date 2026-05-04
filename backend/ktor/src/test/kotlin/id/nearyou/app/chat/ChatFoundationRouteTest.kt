@@ -319,7 +319,9 @@ class ChatFoundationRouteTest : StringSpec({
                     }
                 }
                 install(Authentication) { configureUserJwt(keys, users, java.time.Instant::now) }
-                chatRoutes(service, contentGuard)
+                // chat-foundation suite predates chat-realtime-broadcast — no-op realtime
+                // client satisfies the route signature; this suite tests REST data plane.
+                chatRoutes(service, contentGuard, id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient())
             }
             block()
         }

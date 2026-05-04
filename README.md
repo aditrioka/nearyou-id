@@ -23,7 +23,7 @@ A modular monolith on Kotlin Multiplatform. Module list below is auto-generated 
 - `:infra:fcm` — Firebase Cloud Messaging Admin SDK wrapper; production `NotificationDispatcher` impl, per-platform payload builders, on-send token-prune contract.
 - `:infra:oidc` — Google OIDC bearer-token verifier (Auth0 `jwks-rsa` + `java-jwt`) for `/internal/*` endpoints invoked by Cloud Scheduler.
 - `:infra:redis` — Lettuce-backed `RateLimiter` + `RedisProbe` implementations; Redis client lifecycle isolated from `:backend:ktor`.
-- `:infra:supabase` — Supabase JWKS / token-verifier helpers used by Realtime channel access and Apple S2S sign-in flows.
+- `:infra:supabase` — Supabase-vendor-specific code: JDBC repos (users, posts, moderation, etc.) backed by HikariCP + Supabase Postgres; Realtime broadcast publish (`SupabaseBroadcastChatClient` per `chat-realtime-broadcast`).
 - `:lint:detekt-rules` — project-specific Detekt rules enforcing safety invariants (block-exclusion joins, shadow-ban view reads, raw `X-Forwarded-For` bans, Redis hash-tag scoping, etc.).
 <!-- AUTOGEN:modules:end -->
 

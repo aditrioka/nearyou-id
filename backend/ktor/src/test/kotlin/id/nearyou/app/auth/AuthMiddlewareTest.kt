@@ -108,4 +108,65 @@ class AuthMiddlewareTest : StringSpec({
             response.bodyAsText() shouldContain "token_revoked"
         }
     }
+
+    // ----------------------------------------------------------------------------------
+    // chat-realtime-broadcast Phase 2.6 — UserPrincipal carries `isShadowBanned: Boolean`
+    // populated from `users.is_shadow_banned` AND existing `subscriptionStatus` regression.
+    // ----------------------------------------------------------------------------------
+
+    "UserPrincipal.isShadowBanned = true when users.is_shadow_banned = true" {
+        val user = userRow(isShadowBanned = true, subscriptionStatus = "free")
+        testApplication {
+            application {
+                install(ContentNegotiation) { json() }
+                install(io.ktor.server.auth.Authentication) {
+                    configureUserJwt(keys, InMemoryUsers(listOf(user))) { now }
+                }
+                routing {
+                    authenticate(AUTH_PROVIDER_USER) {
+                        get("/principal") {
+                            val p = call.principal<UserPrincipal>()!!
+                            call.respondText(
+                                "isShadowBanned=${p.isShadowBanned};subscription=${p.subscriptionStatus}",
+                            )
+                        }
+                    }
+                }
+            }
+            val token = issuer.issueAccessToken(user.id, tokenVersion = user.tokenVersion)
+            val response = client.get("/principal") { bearerAuth(token) }
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldBe "isShadowBanned=true;subscription=free"
+        }
+    }
+
+    "UserPrincipal.isShadowBanned = false AND subscriptionStatus regression for premium tier" {
+        val user = userRow(isShadowBanned = false, subscriptionStatus = "premium_active")
+        testApplication {
+            application {
+                install(ContentNegotiation) { json() }
+                install(io.ktor.server.auth.Authentication) {
+                    configureUserJwt(keys, InMemoryUsers(listOf(user))) { now }
+                }
+                routing {
+                    authenticate(AUTH_PROVIDER_USER) {
+                        get("/principal") {
+                            val p = call.principal<UserPrincipal>()!!
+                            call.respondText(
+                                "isShadowBanned=${p.isShadowBanned};subscription=${p.subscriptionStatus}",
+                            )
+                        }
+                    }
+                }
+            }
+            val token = issuer.issueAccessToken(user.id, tokenVersion = user.tokenVersion)
+            val response = client.get("/principal") { bearerAuth(token) }
+            response.status shouldBe HttpStatusCode.OK
+            // Both fields populated correctly after the constructor change. Regression
+            // guard: a positional-arg drift in `UserPrincipal(...)` would silently break
+            // the existing `subscriptionStatus` invariant tested by like/reply/chat
+            // rate-limit suites.
+            response.bodyAsText() shouldBe "isShadowBanned=false;subscription=premium_active"
+        }
+    }
 })
