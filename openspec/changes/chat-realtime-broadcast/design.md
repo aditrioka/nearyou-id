@@ -36,16 +36,22 @@ After this change ships, the chat MVP is feature-complete on the server side. Ph
 
 ## Decisions
 
-### D1. Tx boundary: publish runs AFTER the chat-foundation transaction commits
+### D1. Tx boundary: publish runs AFTER the chat-foundation transaction commits, awaited inline before HTTP 201
 
-**Choice:** the publish call is dispatched after the `INSERT chat_messages` + `UPDATE conversations.last_message_at` transaction commits. The handler captures the inserted row's projection, completes the tx, then invokes `chatRealtimeClient.publish(...)` outside the tx scope.
+**Choice:** the publish call is dispatched after the `INSERT chat_messages` + `UPDATE conversations.last_message_at` transaction commits. The handler captures the inserted row's projection, completes the tx, then invokes `chatRealtimeClient.publish(...)` outside the tx scope. The publish call IS `await`ed inline by the request handler — the HTTP 201 response is written ONLY after publish returns (Success or Failure). The handler runs publish on the request's coroutine context (NOT a fire-and-forget `application.launch`).
 
-**Rationale:**
+**Why awaited inline (not fire-and-forget):**
+- **Predictable observability**: with await-inline, the WARN log on `event = "chat_realtime_publish_failed"` fires synchronously within the request lifecycle and is captured by request-scoped tracing/MDC; with fire-and-forget, the log line emerges after the response has already been sent and may not be correlated with the request.
+- **Bounded latency**: worst-case added HTTP latency = 4 attempts × per-attempt timeout + ~1.3s backoff. With a 500ms per-attempt timeout (D7 task), worst case is ~3.3s — large but acceptable for chat send (the 99th-percentile chat latency target in `docs/04-Architecture.md` Phase 2 benchmark is p95 <200ms for timeline; chat is comparatively lax).
+- **Coroutine cancellation safety**: if the client disconnects mid-handler, Ktor cancels the coroutine. With await-inline on the request's context, publish is canceled too — no orphaned in-flight Supabase call. The persisted row remains; the client will resync via REST on reconnect. Documented in spec scenario "Coroutine cancellation behavior."
+
+**Why not in-tx, why not fire-and-forget — alternatives rejected:**
 - Persistence is the source of truth (`docs/04-Architecture.md:69` — Ktor as authoritative publisher; persistence-then-broadcast). If publish were inside the tx, a slow Supabase call would hold a row lock on `chat_messages` and `conversations` for the full broadcast duration, multiplying contention with `chat-foundation`'s `last_message_at` UPDATE.
 - A failed publish must not roll back the persisted INSERT (the message is visible via REST `GET /messages` regardless). In-tx failure semantics would force rollback-or-swallow, both wrong.
 - The chat-foundation `chat-conversations/spec.md` § Send-message endpoint scenario "Send updates last_message_at atomically" requires the INSERT and UPDATE be in a single tx — but the post-commit publish does not undermine that requirement.
+- **Fire-and-forget alternative rejected**: would let the request handler return 201 before publish completes, but the WARN log on failure would emerge outside the request scope (worse correlation for ops debugging) and the orphaned in-flight call could complete after the JVM is killed (no log line, silent drop). Await-inline is the cleaner contract.
 
-**Alternative rejected (in-tx publish):** would couple Supabase availability to chat send latency, expand the lock window, and create a path where a transient Supabase 503 fails the whole HTTP request despite the message being legitimately persistable.
+**Crash-window contract (adversarial finding E):** if the JVM is killed (OOM / SIGKILL / container eviction / network drop) between the tx commit and the publish call (or mid-publish), the persisted row exists but no broadcast fires AND no WARN log is captured (the handler died before reaching the WARN). Recovery is mobile REST resync via `GET /api/v1/chat/{id}/messages?cursor=...`. This is an explicit non-goal: an outbox / replay log is NOT introduced by this change. A future change MAY add an outbox if the operational incident rate justifies it; the current contract is "best-effort post-commit publish; durable persistence; mobile resync covers misses." Spec scenario "Crash-window contract" documents this.
 
 ### D2. Shadow-ban filter location: publish-side skip on the server, sourced from the `viewer` principal
 
@@ -135,33 +141,38 @@ After this change ships, the chat MVP is feature-complete on the server side. Ph
 
 **Alternative rejected (anon key + RLS bypass via service role on broadcast endpoint only):** Supabase Realtime broadcast publish over HTTP requires a credential authorized to `realtime:broadcast`; the anon key is not. The service role key is the canonical answer. Alternative also rejected (signed payload via the existing HS256 secret): conflates two different secrets and would require a custom auth path on the Supabase side that does not exist.
 
-### D8. Module placement: new `:infra:supabase` Gradle module
+### D8. Module placement: extend the existing `:infra:supabase` Gradle module
 
-**Choice:** create a new `:infra:supabase` module containing `SupabaseBroadcastChatClient` and the Supabase SDK dependency. The `ChatRealtimeClient` interface and `ChatMessageBroadcast` / `PublishResult` types live in `:core:domain`. The chat-module handler in `:backend:ktor` injects the interface; the binding is in `:backend:ktor`'s DI configuration.
+**Choice:** add the new `realtime/` package + `SupabaseBroadcastChatClient` + the Supabase Realtime SDK dependency to the **existing** `:infra:supabase` module ([`settings.gradle.kts:51`](../../../settings.gradle.kts) — already includes JdbcUserRepository et al.). The `ChatRealtimeClient` interface and `ChatMessageBroadcast` / `PublishResult` types live in `:core:domain`. The chat-module handler in `:backend:ktor` injects the interface; the DI binding is in `:backend:ktor`'s Koin module (per the project's existing DI convention at `Application.kt`).
 
 **Rationale:**
-- `CLAUDE.md` § Critical invariants: "No vendor SDK import outside `:infra:*` — domain/data code depends only on interfaces."
-- [`docs/04-Architecture.md:149`](../../../docs/04-Architecture.md) names `:infra:supabase` as the canonical module for `SupabaseBroadcastChatClient`.
-- A new module triggers the `dev/module-descriptions.txt` + `dev/scripts/sync-readme.sh --write` requirement per `CLAUDE.md` § Critical invariants. Phase 2 task captures this.
+- `CLAUDE.md` § Critical invariants: "No vendor SDK import outside `:infra:*` — domain/data code depends only on interfaces." The Supabase Realtime SDK import stays inside `:infra:supabase`.
+- [`docs/04-Architecture.md:149`](../../../docs/04-Architecture.md) names `:infra:supabase` as the canonical module for `SupabaseBroadcastChatClient` — and that module exists already, currently housing the JDBC repos. Adding the realtime client keeps the module's responsibility coherent ("Supabase-vendor-specific code lives here").
+- The existing module description at [`dev/module-descriptions.txt:20`](../../../dev/module-descriptions.txt) currently misclaims JWKS/token-verifier scope (stale). Phase 2.3 replaces it with an accurate one-liner covering both the JDBC repos and the new realtime client. `dev/scripts/sync-readme.sh --write` runs to refresh the auto-generated root README per `CLAUDE.md` § Critical invariants.
+
+**Reconciliation with round-3 finding:** an earlier draft of this design treated `:infra:supabase` as a NEW module to be created. Round-3 implementation-feasibility review surfaced that the module is already on disk with 25+ Kotlin files. This design decision is updated accordingly: the change EXTENDS the existing module (adds a new `realtime/` package), it does NOT create a new module. Phase 2 tasks were rewritten in lock-step.
 
 **Alternative rejected (put `SupabaseBroadcastChatClient` in `:backend:ktor`):** violates the no-vendor-SDK-outside-`:infra:*` rule. Even though the only caller is `:backend:ktor`, the rule exists so the future `:infra:ktor-ws` swap is mechanical (delete one module, add another, change DI binding).
 
-### D9. Observability: OTel span around publish + structured WARN on failure
+### D9. Observability: structured WARN log on failure (OTel deferred to a future foundation change)
 
-**Choice:** `SupabaseBroadcastChatClient.publish(...)` emits an OTel span named `chat.realtime.publish` with attributes:
+**Choice:** observability for THIS change is structured WARN log only. On `PublishResult.Failure` after retry exhaustion (or thrown exception caught after the tx commits), the chat handler logs a structured line with: `event = "chat_realtime_publish_failed"`, `conversation_id`, `message_id`, `error_class`. Log level is WARN (not ERROR) — the user-visible outcome is fine; REST resync covers the missed broadcast; ops can alert on the log-line rate.
 
-- `supabase.realtime.channel = realtime:conversation:<conv_id>` (mandatory per `docs/04-Architecture.md:398`)
-- `user_id` (hashed via the existing helper, mandatory per `docs/04-Architecture.md:398`)
-- `chat.message_id = <uuid>` (NOT hashed — UUIDs are opaque random identifiers with no PII content; convention asymmetry vs `user_id` is acknowledged: `user_id` is hashed because the raw user UUID is a stable cross-event correlator that could let a log reader build a per-user activity profile, while `chat.message_id` is single-use and surfaces no aggregation surface)
-- Span status `OK` on `Success`, `ERROR` with `error.type` = exception class name on `Failure`.
+**OpenTelemetry deferred to a future `observability-otel-foundation` change.** An earlier draft of this design mandated an OTel span `chat.realtime.publish` with mandatory attributes per [`docs/04-Architecture.md:398`](../../../docs/04-Architecture.md). Round-3 implementation-feasibility review surfaced that:
 
-On `Failure` after retry exhaustion, the chat handler ALSO logs a structured WARN: `event = "chat_realtime_publish_failed"`, `conversation_id`, `message_id`, `error_class`. Log level is WARN (not ERROR) because the user-visible outcome is fine — REST resync covers it.
+1. **OTel SDK is NOT in the project** — zero references in `gradle/libs.versions.toml` or `build-logic/`.
+2. **No "existing user-id hashing helper" exists** — the design's reference to "user_id (hashed via existing helper)" was wrong; no such helper is on disk.
+3. **No shipped capability emits OTel spans** — chat-foundation, chat-rate-limit, fcm-push-dispatch, post-likes, post-replies, premium-search all use structured logs only; instrumenting only chat-realtime-broadcast would create a single-instrumented-capability anomaly.
 
-**Secret-leakage guarantees:** the resolved Supabase service-role-key VALUE (loaded via `secretKey(env, "supabase-service-role-key")`) MUST NEVER appear as a span attribute, log field, HTTP request/response that gets logged, or any other observable. The spec includes both a literal-source-grep scenario (the slot name only appears at the `secretKey(...)` call site) AND a defense-in-depth scenario (no captured span/log emitted by `chat.realtime.publish` contains the resolved key value as an attribute or message). The `RawSecretReadRule` Detekt rule referenced in earlier drafts of this design does NOT exist on disk; enforcement is via static-grep tests aligned with the [`auth-realtime/spec.md:31-33`](../../specs/auth-realtime/spec.md) precedent for `supabase-jwt-secret`.
+Adopting OTel here would couple a chat-publish feature change to a project-wide observability foundation (SDK adoption + global tracer wiring + hash helper introduction + DI plumbing) — at minimum doubling the scope and creating a long-running PR. Per the precedent set by other infrastructure adoptions (Detekt rules in `coordinate-jitter-lint-rule` etc.), project-wide infrastructure lands via its own dedicated change. THIS change ships ONLY the structured WARN log; a future `observability-otel-foundation` change adopts OTel SDK + global tracer + hashed-user-id helper + retroactively instruments all existing call sites with one consistent policy.
+
+The `docs/04-Architecture.md:398` "mandatory OTel attributes" list documents the FUTURE state once that foundation lands. A FOLLOW_UPS entry (filed in `tasks.md` Phase 9) amends the canonical doc to clarify this. Until the foundation lands, structured logs are the de-facto observability surface (matching every other shipped capability).
+
+**Secret-leakage guarantees (still in scope):** the resolved Supabase service-role-key VALUE (loaded via `secretKey(env, "supabase-service-role-key")`) MUST NEVER appear in any log field, HTTP request header that gets logged, or anywhere observable. The spec includes both a literal-source-grep scenario (the slot name only appears at the `secretKey(...)` call site) AND a defense-in-depth scenario (no captured log line on the publish call path contains the resolved key value as a field or message substring). The `RawSecretReadRule` Detekt rule referenced in earlier drafts of this design does NOT exist on disk; enforcement is via static-grep tests aligned with the [`auth-realtime/spec.md:31-33`](../../specs/auth-realtime/spec.md) precedent for `supabase-jwt-secret`.
 
 **Rationale:**
-- `docs/04-Architecture.md:398` explicitly lists `supabase.realtime.channel` as a mandatory OTel attribute.
 - WARN (not ERROR) prevents Sentry-noise when transient Supabase outages cause harmless REST-resync recovery — but ops can still set up an alert on `event = "chat_realtime_publish_failed"` rate.
+- Structured logs (already used everywhere else in the project) provide enough context (`conversation_id`, `message_id`, `error_class`) for ops to investigate; OTel adds richer distributed-tracing context but is not a launch blocker.
 
 ### D10. Test layering: `ChatRealtimeBroadcastTest` mocks `ChatRealtimeClient`
 
@@ -171,12 +182,62 @@ On `Failure` after retry exhaustion, the chat handler ALSO logs a structured WAR
 - Decouples behavioral correctness (handler did the right thing given a publish result) from infra correctness (the SDK actually talks to Supabase). Same pattern as `like-rate-limit`'s `InMemoryRateLimiter` vs `RedisRateLimiterIntegrationTest` split.
 - Behavioral tests run on every CI; infra tests gated to staging-smoke avoid network flake on every PR.
 
+### D11. Privileged publish path: caller-allowlist non-goal
+
+**Choice:** the `ChatRealtimeClient` binding (with the service-role-key-equipped Supabase client) is registered in DI for `:backend:ktor`. The ONLY caller permitted to invoke `publish` is the chat send handler (`POST /api/v1/chat/{conversation_id}/messages`). Any future route that wants to publish chat broadcasts MUST replicate the chat-foundation auth + active-participant + bidirectional-block check pre-publish, OR use a separately-bound chat-only client. This is not a code-enforced restriction in THIS change — it's a non-goal contract that future authors must honor.
+
+**Rationale:**
+- The Supabase service role key bypasses RLS by design (D7). A future ill-considered route (e.g., an admin "broadcast announcement to all conversations" feature) could trivially misuse the same DI binding to spam channels with arbitrary payloads.
+- Encoding the restriction as a non-goal in the spec creates a paper trail; reviewers of future PRs that inject `ChatRealtimeClient` outside the chat send route can flag the missing checks.
+- A code-enforced approach (e.g., a token-based caller assertion) is overkill for the current state (one caller); revisit if a second legitimate caller arises.
+
+**Surfaced by adversarial round-3 review.** The original draft did not address this defense-in-depth concern. Spec § Privileged publish path codifies the non-goal.
+
+### D12. `PublishResult.Failure` shape and `error_class` log field
+
+**Choice:** `PublishResult.Failure(reason: String)` carries a `reason` string that is the FULLY-QUALIFIED CLASS NAME of the last exception encountered during the retry loop (e.g., `"java.io.IOException"`, `"java.net.SocketTimeoutException"`, `"id.nearyou.app.infra.supabase.SupabaseHttp5xxException"`). The chat handler's WARN log on `PublishResult.Failure` sets `error_class = result.reason`. On `PublishResult.Success`, no WARN is logged. On a thrown exception (rare — should be caught by the retry loop and converted to `Failure`, but defensive against unexpected `Throwable`), the handler catches and logs `error_class = throwable::class.qualifiedName`.
+
+**Rationale:**
+- A unified `error_class` field across both Failure-path and exception-path keeps the log-line schema flat for ops alerting (single Splunk/Elasticsearch query for `event = "chat_realtime_publish_failed"`).
+- Fully-qualified names disambiguate (e.g., `java.net.SocketTimeoutException` vs a hypothetical custom one); short names risk collision in big logs.
+
+**Earlier draft ambiguity (round-3 implementation-feasibility finding):** spec scenario "Publish failure with persisted row + 201 + WARN log" said `error_class = "Failure"`. That was wrong — the scenario implied a literal string `"Failure"` regardless of the actual error. Spec scenario corrected to assert `error_class = result.reason` (the captured class name).
+
+### D13. Payload JSON naming: snake_case via per-field `@SerialName` annotations
+
+**Choice:** `ChatMessageBroadcast` data class uses Kotlin camelCase fields. Each field has a `@SerialName("snake_case_form")` annotation matching the wire format. NO global `JsonNamingStrategy` is configured — explicit per-field annotation keeps the contract visible at the data class definition.
+
+**Rationale:**
+- Existing chat-foundation REST DTOs (`ChatDtos.kt`) use a hand-rolled `chatMessageJson` for serialization rather than reflection-driven kotlinx.serialization. The publish payload could either: (a) hand-roll a serializer matching `ChatDtos.kt`, OR (b) use kotlinx.serialization with `@SerialName` annotations. Option (b) is cleaner because the chat-foundation hand-rolled serializer is internal to `ChatDtos.kt`; the broadcast payload is a separate concern emitting a smaller field set.
+- Per-field annotations are explicit at the source; a global `JsonNamingStrategy.SnakeCase` is implicit and would change behavior across unrelated kotlinx.serialization usages in the project.
+
+**Surfaced by adversarial round-3 review.** Implementer ambiguity flagged.
+
+### D14. `:infra:supabase` build conventions match the existing module
+
+**Choice:** the new `realtime/` package added to `:infra:supabase` uses the SAME Gradle plugin / dependency conventions as the existing module's `build.gradle.kts` (currently uses `id("nearyou.kotlin.jvm")` per the project's `build-logic` convention plugins). NEW dependencies (Supabase Realtime SDK, kotlinx.serialization-json) are added to the existing module's dependency block.
+
+**Rationale:**
+- Avoids creating a divergent build configuration within the same module.
+- The convention plugin handles the project's standard ktlint/detekt/Java-toolchain setup; sticking with it ensures the new realtime code participates in the same CI lint surface as the existing JDBC repos.
+
+**Surfaced by adversarial round-3 review.** Phase 2.2 task is "match the existing `:infra:supabase` build file conventions" — this design entry pins what that means.
+
 ## Risks / Trade-offs
 
-- **Risk: Supabase broadcast outage with high message volume burns the retry budget on every send.** → Mitigation: 3-retry cap with bounded backoff (100/300/900 ms) limits per-request added latency to ~1.3s worst case. Failure path is WARN-and-move-on, not 5xx; chat persists regardless. A circuit-breaker layer is NOT added in this change (rule-of-three: one call site is too few; revisit if a second publish-style infra adapter accumulates).
+- **Risk: Supabase broadcast outage with high message volume burns the retry budget on every send.** → Mitigation: 4-attempts cap (1 initial + 3 retries) with bounded backoff (100/300/900 ms = ~1.3s budget) plus per-attempt timeout (~500ms; pinned in Phase 3.1) limits per-request added latency to ~3.3s worst case. Failure path is WARN-and-move-on, not 5xx; chat persists regardless. A circuit-breaker layer is NOT added in this change (rule-of-three: one call site is too few; revisit if a second publish-style infra adapter accumulates).
+- **Risk: handler crash / coroutine cancellation between commit and publish (adversarial finding E + F).** → Mitigation accepted: the persisted row is durable; mobile REST resync via `GET /api/v1/chat/{id}/messages?cursor=...` recovers the missed broadcast on the next app open (per `docs/05-Implementation.md:1215`). No outbox / replay log introduced. If the operational incident rate from "subscribers complain about missing messages on a healthy DB" exceeds tolerance, a future change adds a Postgres-backed outbox + worker; this change documents the gap as a non-goal so future authors know where to start.
 - **Risk: payload schema drift between server publish and mobile consumer.** → Mitigation: spec pins the payload field set explicitly; integration test asserts the exact payload shape; future `chat-embedded-posts` change MUST extend the schema with NEW fields (additive only, never rename or repurpose existing fields).
 - **Risk: shadow-ban skip race — sender becomes shadow-banned between INSERT and post-commit publish.** → Mitigation: the publish-side check reads `is_shadow_banned` from the same `users` row consulted by the chat handler's auth/principal context (already loaded). If a moderator flips `is_shadow_banned = TRUE` between auth and publish, the publish still emits (using stale state). This is acceptable per the invisible-actor model — an in-flight message slips through but all subsequent messages are filtered. Mobile consumer-side filter (`docs/05-Implementation.md:1880`) catches this race as defense-in-depth.
-- **Risk: service role key exposure in OTel span attributes / logs.** → Mitigation: the credential is read once at startup via `secretKey(env, name)` and stored only in the Supabase SDK client's internal state; never logged, never set as a span attribute. Enforcement is via the static-grep test scenario shape (matches the precedent set by [`auth-realtime/spec.md:31-33`](../../specs/auth-realtime/spec.md) for `supabase-jwt-secret`): the spec includes a scenario asserting the literal string `"supabase-service-role-key"` appears only at the `secretKey(env, ...)` call site, AND a defense-in-depth scenario asserting the resolved key VALUE never appears in any captured OTel span attribute or log field. NOTE: an earlier draft of this design referenced a `RawSecretReadRule` Detekt rule; that rule does not exist on disk (the lint rules in `lint/detekt-rules/` are RateLimitTtlRule, RedisHashTagRule, RawFromPostsRule, RawXForwardedForRule, BlockExclusionJoinRule, CoordinateJitterRule). The `secretKey(env, name)` convention is enforced via static grep tests, not Detekt — aligned with auth-realtime precedent.
+- **Risk: service role key exposure in logs.** → Mitigation: the credential is read once at startup via `secretKey(env, name)` and stored only in the Supabase SDK client's internal state; never logged. Enforcement is via the static-grep test scenario shape (matches the precedent set by [`auth-realtime/spec.md:31-33`](../../specs/auth-realtime/spec.md) for `supabase-jwt-secret`): the spec includes a scenario asserting the literal string `"supabase-service-role-key"` appears only at the `secretKey(env, ...)` call site, AND a defense-in-depth scenario asserting the resolved key VALUE never appears in any captured log field across the publish call path. NOTE: an earlier draft of this design referenced a `RawSecretReadRule` Detekt rule; that rule does not exist on disk (the lint rules in `lint/detekt-rules/` are RateLimitTtlRule, RedisHashTagRule, RawFromPostsRule, RawXForwardedForRule, BlockExclusionJoinRule, CoordinateJitterRule). The `secretKey(env, name)` convention is enforced via static grep tests, not Detekt — aligned with auth-realtime precedent.
+- **Risk: privileged-publish caller-allowlist drift.** → Mitigation: D11 documents the non-goal (only the chat send route may invoke `ChatRealtimeClient.publish`). Reviewers of future PRs that inject `ChatRealtimeClient` outside the chat send route flag the missing chat-foundation auth + participant + block checks. This is a paper-trail mitigation, not a code-enforced one — accepted because there's currently one caller and over-engineering the protection is premature.
+- **Risk: broadcast ordering not guaranteed (adversarial round-3 finding 4).** → Mitigation accepted: Supabase Realtime broadcast does not promise ordered delivery for messages published in quick succession. Mobile clients dedup via `id` AND order by `(created_at, id)` per `chat-foundation` § List-messages cursor shape. The spec's payload schema includes `id` and `created_at` so the client has the fields it needs. Spec § Payload schema documents the non-goal "broadcast ordering NOT guaranteed; clients order by (created_at, id) per chat-foundation cursor shape."
+- **Risk: oversized `embedded_post_snapshot` JSONB payload bloating broadcast (adversarial round-3 finding 5).** → Mitigation: not in scope here (this change emits `embedded_*` as null-only). The future `chat-embedded-posts` change MUST cap payload size at the schema layer (`CHECK (octet_length(embedded_post_snapshot::text) < ...)`) AND verify Supabase Realtime broadcast accepts the resulting payload size. Spec § Payload schema documents this as a non-goal pin: "payload size cap is the responsibility of `chat-embedded-posts`."
+- **Risk: WSS subscriber token TTL drift (adversarial round-3 finding 6).** → Mitigation: not in scope here. The 1h `auth-realtime` token TTL is a mobile-side concern; the mobile client refetches via `GET /api/v1/realtime/token` on token expiry. Spec § Out-of-scope lists this as deferred to mobile.
+- **Risk: receiver-shadow-ban does NOT skip publish (adversarial round-3 finding 3).** → Mitigation accepted: only SENDER-side shadow-ban skips publish (per `auth-realtime/spec.md:37` invisible-actor model — shadow-banned subscribers ARE allowed to subscribe; the receiver's shadow-ban state is irrelevant to the publish decision). Spec § Publish-side shadow-ban skip documents this explicitly so future readers don't infer "publish hides from shadow-banned receivers too."
+- **Risk: banned (not shadow-banned) sender publish-skip not specified (adversarial round-3 finding 3 secondary).** → Mitigation: chat-foundation's auth path 403s banned senders BEFORE the chat send handler runs. The publish step is reached only by senders who passed auth (i.e., NOT banned). Spec § Publish-side shadow-ban skip notes this dependency on chat-foundation's auth check — no additional ban-skip logic needed in THIS change.
+- **Risk: retry-induced duplicate broadcasts (adversarial round-3 finding 10).** → Mitigation accepted: if a Supabase 5xx is returned but the broadcast was actually fan-out to subscribers (partial-failure), the retry produces a duplicate broadcast. Mobile dedup via `id` (per `docs/05-Implementation.md:1216`) is the contract. Spec § Out-of-scope documents: "duplicate broadcasts on partial-failure retry IS expected; mobile dedup via id is the recovery contract."
+- **Risk: conversation deleted mid-publish (adversarial round-3 finding 9).** → Mitigation: not in scope here. No conversation-delete endpoint exists yet. If a future cleanup worker / admin tool deletes a conversation between commit and publish, subscribers receive a payload for a now-orphaned row; mobile clients refetch via REST and get 404, handling as a deleted message. Spec § Out-of-scope notes this for the future deletion-worker change author.
 - **Trade-off: post-commit publish vs in-tx publish** — chosen post-commit (D1). The cost is that a consumer who subscribes-then-checks-via-REST in the wrong order may see a brief window where the message is in DB but not yet broadcast. Mobile UX guidelines (deferred, Phase 3) handle this by always treating REST as authoritative on first-load.
 - **Trade-off: ChatRealtimeClient interface extension (`publish` added to a sketch that originally had only `subscribe`/`unsubscribe`)** — the [`docs/04-Architecture.md:139-149`](../../../docs/04-Architecture.md) sketch shows the SUBSCRIBER side. Adding `publish` extends the interface for the publisher side. Acceptable because (a) the architecture doc sketch is an abstraction, not a complete contract; (b) the post-swap `KtorWebSocketChatClient` will need both sides too (publish via Redis Streams, subscribe via WebSocket); (c) keeping both in one interface lets the DI binding pick a single implementation per environment.
 
@@ -195,4 +256,14 @@ This is a server-side capability addition. No data migration. No mobile change r
 
 ## Open Questions
 
-None at proposal time. The canonical docs anchor every load-bearing decision (D1 tx boundary via 04-Architecture.md:69; D2 shadow-ban skip via auth-realtime/spec.md:37; D4 retry policy via 05-Implementation.md:1213; D5 channel name via the V15 RLS regex; D6 payload via the chat_messages columns; D7 credential via the service-role-key convention; D8 module placement via 04-Architecture.md:149). The reconciliation pass (Phase 1 tasks) re-verifies each anchor before code lands.
+After round-3 review, all major scope decisions are pinned:
+
+- **OTel observability**: descoped to a future `observability-otel-foundation` change (D9 explanation; FOLLOW_UPS entry filed in `tasks.md` Phase 9.6).
+- **Module placement**: extends existing `:infra:supabase` (D8 update; Phase 2 tasks rewritten in lock-step).
+- **`UserPrincipal.isShadowBanned` field**: added in this change's Phase 2.6; future docs-only OpenSpec change documents the field alongside `subscriptionStatus` (extends existing `auth-jwt-spec-debt-userprincipal-subscription-status` FOLLOW_UPS entry per `tasks.md` Phase 9.4).
+- **Crash/cancellation contract**: best-effort post-commit publish + REST resync recovery; no outbox introduced (Risks section).
+- **Caller-allowlist**: paper-trail non-goal (D11); future authors flag at PR review.
+- **Retry timing tolerance**: ±150ms (relaxed from ±50ms per `:infra:redis` precedent — see `tasks.md` Phase 5.18).
+- **Test 17 (D2 race) determinism**: pinned via test-injectable hook (see `spec.md` § Publish-side shadow-ban skip scenario "Shadow-ban skip race tolerance" — test mechanism noted in `tasks.md` Phase 5.19).
+
+The canonical docs anchor every load-bearing decision (D1 tx boundary via 04-Architecture.md:69; D2 shadow-ban skip via auth-realtime/spec.md:37; D4 retry policy via 05-Implementation.md:1213; D5 channel name via the V15 RLS regex; D6 payload via the chat_messages columns; D7 credential via the service-role-key convention; D8 module placement via 04-Architecture.md:149). The reconciliation pass (Phase 1 tasks) re-verifies each anchor before code lands.

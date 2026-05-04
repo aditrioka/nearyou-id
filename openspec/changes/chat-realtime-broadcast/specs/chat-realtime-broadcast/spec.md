@@ -166,22 +166,32 @@ If `ChatRealtimeClient.publish(...)` returns `PublishResult.Failure(reason)` OR 
 1. NOT roll back the persisted `chat_messages` row.
 2. NOT roll back the `conversations.last_message_at` UPDATE.
 3. Return HTTP 201 with the unchanged chat-foundation response shape.
-4. Log a structured WARN line with `event = "chat_realtime_publish_failed"`, `conversation_id = <uuid>`, `message_id = <uuid>`, `error_class = <exception class name or "Failure" if Failure was returned>`.
+4. Log a structured WARN line with `event = "chat_realtime_publish_failed"`, `conversation_id = <uuid>`, `message_id = <uuid>`, `error_class = <fully-qualified exception class name>`. On `PublishResult.Failure(reason)`, `error_class = result.reason` (where `reason` is the fully-qualified class name of the last exception captured during the retry loop, e.g., `"java.io.IOException"`). On a thrown `Throwable` caught by the handler, `error_class = throwable::class.qualifiedName`.
 
 #### Scenario: Publish failure with persisted row + 201 + WARN log
-- **GIVEN** the test-double `FakeChatRealtimeClient.publish` is configured to return `Failure("simulated outage")`
+- **GIVEN** the test-double `FakeChatRealtimeClient.publish` is configured to return `Failure("java.io.IOException")` (the reason string is the fully-qualified class name of the last exception during the simulated retry exhaustion)
 - **WHEN** caller A successfully INSERTs a chat_messages row (tx commits) AND publish is then invoked AND returns `Failure`
-- **THEN** the HTTP response is 201 (NOT 5xx); the `chat_messages` row remains persisted; `conversations.last_message_at` reflects the new send; a WARN log line is emitted with `event = "chat_realtime_publish_failed"`, the matching `message_id` and `conversation_id`, and `error_class = "Failure"`
+- **THEN** the HTTP response is 201 (NOT 5xx); the `chat_messages` row remains persisted; `conversations.last_message_at` reflects the new send; a WARN log line is emitted with `event = "chat_realtime_publish_failed"`, the matching `message_id` and `conversation_id`, and `error_class = "java.io.IOException"` (the captured `reason`)
 
 #### Scenario: Publish exception with persisted row + 201 + WARN log
-- **GIVEN** `FakeChatRealtimeClient.publish` is configured to throw `IOException("Connection refused")`
-- **WHEN** caller A successfully sends a message AND publish throws
-- **THEN** the HTTP response is 201; the row persists; a WARN log line is emitted with `error_class = "IOException"`
+- **GIVEN** `FakeChatRealtimeClient.publish` is configured to throw `java.io.IOException("Connection refused")`
+- **WHEN** caller A successfully sends a message AND publish throws after the tx commits
+- **THEN** the HTTP response is 201; the row persists; a WARN log line is emitted with `error_class = "java.io.IOException"` (fully-qualified class name)
 
 #### Scenario: Publish failure does not corrupt last_message_at
 - **GIVEN** conversation X has `last_message_at = T1` AND publish is configured to fail
 - **WHEN** caller A successfully sends a message at clock time T2 > T1
 - **THEN** after the request completes, `conversations.last_message_at` for X is T2 (the chat-foundation atomicity contract is preserved; publish failure does not touch it)
+
+#### Scenario: Crash-window contract — no outbox, REST resync recovers
+- **GIVEN** caller A's chat-foundation transaction commits successfully BUT the JVM is killed (OOM / SIGKILL / container eviction) BEFORE the publish call is invoked OR mid-publish
+- **WHEN** the application restarts AND caller A's mobile client subsequently calls `GET /api/v1/chat/{conversation_id}/messages?cursor=...`
+- **THEN** the persisted `chat_messages` row is returned via the REST resync path (the row was committed before the crash); no broadcast was emitted; no WARN log was captured (the handler died before reaching the WARN). This is the documented crash-window contract per `design.md` § D1: best-effort post-commit publish; durable persistence; mobile REST resync covers the missed broadcast; an outbox / replay log is explicitly NOT introduced by this change
+
+#### Scenario: Coroutine cancellation behavior — client disconnect mid-publish
+- **GIVEN** caller A's chat-foundation transaction commits successfully AND `publish` is in-flight (e.g., between retry attempts) AND the request coroutine is canceled (typical cause: client disconnects before receiving the 201 response)
+- **WHEN** the cancellation propagates to the in-flight publish
+- **THEN** the publish call is canceled (no orphaned in-flight Supabase HTTP call survives the request scope); the persisted row remains; the (now-canceled) request did NOT emit the WARN log (handler completion was preempted); caller A's subsequent reconnect + REST resync recovers the message per the crash-window contract
 
 ### Requirement: 4 total attempts (1 initial + 3 retries) with exponential backoff inside SupabaseBroadcastChatClient
 
@@ -208,34 +218,71 @@ The retry policy SHALL be encapsulated inside the infra adapter; the chat handle
 - **WHEN** the chat send handler invokes `chatRealtimeClient.publish(...)` via the test-double `FakeChatRealtimeClient`
 - **THEN** the handler code makes exactly one call (no handler-level loop); retry semantics are owned by the adapter
 
-### Requirement: OTel span around publish
+### Requirement: Structured WARN log on publish failure
 
-`SupabaseBroadcastChatClient.publish(...)` SHALL emit an OpenTelemetry span named `chat.realtime.publish` with attributes:
+The chat send handler SHALL log a structured WARN line on every publish failure path (Failure return + thrown exception caught after the chat-foundation tx commits). The line SHALL carry these fields exactly: `event = "chat_realtime_publish_failed"`, `conversation_id = <UUID>`, `message_id = <UUID>`, `error_class = <fully-qualified class name>`. Log level SHALL be WARN (not ERROR) per design § D9.
 
-- `supabase.realtime.channel = realtime:conversation:<conversation_id>` (mandatory per [`docs/04-Architecture.md:398`](../../../../../docs/04-Architecture.md))
-- `user_id` set to the hashed sender id via the existing hashing helper (mandatory per [`docs/04-Architecture.md:398`](../../../../../docs/04-Architecture.md))
-- `chat.message_id = <message uuid>` (NOT hashed — message UUIDs are opaque single-use identifiers with no aggregation surface, unlike `user_id` which is a stable cross-event correlator)
+The handler SHALL NOT emit OpenTelemetry spans in this change. OTel-based observability is deferred to a future `observability-otel-foundation` change; until that change ships, structured WARN logs are the canonical observability surface (consistent with every other shipped capability in the project).
 
-Span status SHALL be `OK` on `Success` and `ERROR` (with `error.type` attribute = exception class name) on `Failure` or thrown exception.
+The Supabase service role key SHALL NEVER appear in any log field. Two enforcement scenarios apply: (1) literal-source-grep — any source-code occurrence of the literal `supabase-service-role-key` SHALL be only at the `secretKey(env, "supabase-service-role-key")` call site; (2) defense-in-depth — the resolved key VALUE itself SHALL NEVER appear in any log field captured during the publish call path.
 
-The Supabase service role key SHALL NEVER appear as a span attribute, log field, HTTP request header that gets logged, or anywhere observable. Two enforcement scenarios apply: (1) literal-source-grep — any source-code occurrence of the literal `supabase-service-role-key` SHALL be only at the `secretKey(env, "supabase-service-role-key")` call site; (2) defense-in-depth — the resolved key VALUE itself SHALL NEVER appear in any attribute or log field captured during `chat.realtime.publish` execution.
+#### Scenario: WARN log emitted on PublishResult.Failure
+- **GIVEN** the test-double `FakeChatRealtimeClient.publish` returns `PublishResult.Failure("java.io.IOException")`
+- **WHEN** the chat send handler completes
+- **THEN** exactly one WARN log line is captured with fields `event = "chat_realtime_publish_failed"`, `conversation_id` matching the request, `message_id` matching the inserted row, `error_class = "java.io.IOException"`
 
-#### Scenario: Span emitted with mandatory attributes on success
-- **WHEN** `publish` is invoked successfully
-- **THEN** an OTel span named `chat.realtime.publish` is recorded with attributes `supabase.realtime.channel`, `user_id`, `chat.message_id` populated; status is `OK`
+#### Scenario: WARN log emitted on thrown exception caught post-commit
+- **GIVEN** the test-double `FakeChatRealtimeClient.publish` throws `java.net.SocketTimeoutException`
+- **WHEN** the chat send handler catches the exception after the tx commits
+- **THEN** a WARN log line is captured with `error_class = "java.net.SocketTimeoutException"` (the fully-qualified class name of the thrown exception)
 
-#### Scenario: Span error on Failure
-- **WHEN** `publish` returns `PublishResult.Failure` after retry exhaustion
-- **THEN** the OTel span has status `ERROR` AND attribute `error.type` set to the last exception class name
+#### Scenario: No WARN log on PublishResult.Success
+- **WHEN** `publish` returns `PublishResult.Success`
+- **THEN** no log line with `event = "chat_realtime_publish_failed"` is emitted for that request
 
 #### Scenario: Service role key slot name appears only at secretKey call site
 - **WHEN** searching the backend source for the literal string `"supabase-service-role-key"`
 - **THEN** the only occurrences are calls to `secretKey(env, "supabase-service-role-key")`
 
-#### Scenario: Service role key VALUE never appears in spans or logs
-- **GIVEN** the resolved service role key value `K` (loaded at startup via `secretKey(env, ...)`) AND a test that captures all OTel span attributes + all log lines emitted during a `publish` invocation (across both success and failure paths)
-- **WHEN** the captured attributes and log fields are scanned for `K` (substring match)
-- **THEN** `K` does NOT appear in any captured attribute value or log message
+#### Scenario: Service role key VALUE never appears in logs
+- **GIVEN** the resolved service role key value `K` (loaded at startup via `secretKey(env, ...)`) AND a test that captures all log lines emitted during a `publish` invocation (across both success and failure paths)
+- **WHEN** the captured log messages are scanned for `K` (substring match)
+- **THEN** `K` does NOT appear in any captured log line as a field value or message substring
+
+### Requirement: Privileged publish path — caller-allowlist non-goal
+
+The `ChatRealtimeClient` DI binding equipped with the Supabase service role key is RLS-bypassing by design (per `design.md` § D7). The ONLY caller permitted to invoke `chatRealtimeClient.publish(...)` in this change is the chat send route handler at `POST /api/v1/chat/{conversation_id}/messages`. Any future code path that injects `ChatRealtimeClient` MUST replicate the chat-foundation auth + active-participant + bidirectional-block check pre-publish, OR a separate chat-only client SHALL be bound for that caller.
+
+This is a paper-trail non-goal — not enforced by code in this change. Reviewers of future PRs that inject `ChatRealtimeClient` outside the chat send route are expected to flag the missing checks. Codified here so the expectation is explicit.
+
+#### Scenario: Only the chat send route invokes publish in this change
+- **WHEN** searching the `:backend:ktor` source for callers of `ChatRealtimeClient.publish` (or its DI-bound `SupabaseBroadcastChatClient.publish`)
+- **THEN** the only caller is the chat send route handler (the file landing the implementation of `POST /api/v1/chat/{conversation_id}/messages`)
+
+#### Scenario: Future caller without participant check fails review
+- **GIVEN** a hypothetical future PR that adds a new route invoking `chatRealtimeClient.publish(...)` directly (e.g., an admin "broadcast announcement" feature) without first running the chat-foundation auth + active-participant + bidirectional-block check
+- **WHEN** that PR is reviewed
+- **THEN** the reviewer rejects (or asks for changes on) the PR citing this requirement; the future author either (a) adds the chat-foundation checks before invoking publish, or (b) introduces a separately-bound chat-only client distinct from the general-purpose `ChatRealtimeClient` binding
+
+### Requirement: Out-of-scope clarifications (broadcast ordering, payload size, retry duplicates, conversation deletion, WSS token TTL)
+
+The following are explicit non-goals of this change. Future authors picking up these threads MUST file dedicated changes; THIS change SHALL NOT introduce code or specs addressing them beyond the surface called out here.
+
+1. **Broadcast ordering NOT guaranteed.** Supabase Realtime broadcast does not promise FIFO delivery for messages published in quick succession. Mobile clients SHALL dedup via `id` AND order by `(created_at, id)` per the chat-foundation cursor shape. The payload schema (see § Payload schema) carries `id` and `created_at` precisely so the client has the fields it needs.
+2. **Embedded-payload size cap.** This change emits `embedded_post_id`, `embedded_post_snapshot`, `embedded_post_edit_id` as null-only. The future `chat-embedded-posts` change is responsible for capping `embedded_post_snapshot` size at the schema layer (e.g., `CHECK (octet_length(embedded_post_snapshot::text) < <limit>)`) AND verifying the resulting broadcast payload fits within Supabase Realtime broadcast's per-message size limit.
+3. **Retry-induced duplicate broadcasts.** If a Supabase 5xx response is returned for a publish attempt that DID partially fan-out to subscribers, the retry produces a duplicate broadcast. Mobile dedup via `id` is the recovery contract per `docs/05-Implementation.md:1216`. This change does NOT introduce server-side idempotency tokens or de-duplication state.
+4. **Conversation deletion mid-publish.** No conversation-delete endpoint exists yet. If a future cleanup worker / admin tool deletes a conversation between commit and publish, subscribers receive a payload for an orphaned `conversation_id`. Mobile clients refetch via REST and get 404, handling as a deleted message. The future deletion-worker change author SHALL address this race.
+5. **WSS subscriber token TTL drift.** The `auth-realtime` token TTL is 1 hour. Long-running mobile chat sessions losing their subscription after 1 hour and refetching via `GET /api/v1/realtime/token` is a mobile-side concern, NOT in scope here.
+6. **Receiver-side shadow-ban does NOT skip publish.** Only SENDER-side shadow-ban triggers publish-skip (per § Publish-side shadow-ban skip). The receiver's `is_shadow_banned` state is irrelevant to the publish decision (per `auth-realtime/spec.md:37` invisible-actor model — shadow-banned subscribers ARE allowed to subscribe; broadcast fans out regardless of receiver state).
+7. **Banned (not shadow-banned) sender publish-skip.** Senders with `is_banned = TRUE` are 403'd by chat-foundation's auth path BEFORE the chat send handler runs. The publish step is reached only by senders who passed auth. No additional ban-skip logic is needed in this change.
+
+#### Scenario: Broadcast ordering documented as non-goal
+- **WHEN** the spec's § Payload schema requirement is read end-to-end
+- **THEN** the document explicitly states that broadcast ordering is NOT guaranteed AND that mobile clients order by `(created_at, id)` for the canonical client-side ordering contract
+
+#### Scenario: Embedded-payload size cap deferred to future change
+- **WHEN** a publish payload is emitted by this change
+- **THEN** all three `embedded_*` fields are null (this change does not exercise the embedded-payload size surface); the future `chat-embedded-posts` change is named as the owner of payload-size enforcement
 
 ### Requirement: Credential resolution via secretKey helper
 
@@ -270,13 +317,13 @@ The credential SHALL be loaded once at startup and held in the Supabase SDK clie
 11. Payload format: capture the `ChatMessageBroadcast` argument; assert all 9 fields are present (the three `embedded_*` are null for this change). Also assert at compile-time that `redaction_reason` is NOT a Kotlin field on `ChatMessageBroadcast` (e.g., reflection-based check or simply that the data class doesn't compile with that field — captured by the test asserting the field set is exactly the 9 documented fields).
 12. Tx rollback on INSERT failure does NOT invoke `publish` (the rollback path tested by chat-foundation extends here).
 13. **Post-commit ordering via separate JDBC connection**: a successful send is captured in two snapshots — (a) before the test-double's `publish` callback fires, a separate JDBC connection SELECTs the new row from `chat_messages` and finds it; (b) after the callback fires, the same SELECT still finds it. Proves publish runs strictly AFTER the chat-foundation tx commits and the row is externally visible.
-14. **OTel span emission on success**: an in-memory OTel exporter (e.g., `InMemorySpanExporter`) captures the span emitted during a successful publish; assert span name = `chat.realtime.publish`, status = OK, and attributes `supabase.realtime.channel`, `user_id`, `chat.message_id` are populated with the expected values.
-15. **OTel span emission on failure**: same setup, but the test-double's adapter is configured to fail; assert span status = ERROR, attribute `error.type` = the captured exception class name.
-16. **Retry timing assertion**: when a stub adapter delays each attempt and the test captures wall-clock timestamps, the inter-attempt gaps approximate 100ms / 300ms / 900ms (±50ms tolerance) for 4 total attempts.
-17. **D2 shadow-ban race**: a Free caller's principal has `viewer.isShadowBanned = FALSE` AND a moderator flips `users.is_shadow_banned = TRUE` (in a separate connection) BEFORE the handler reaches the publish step; assert the response is HTTP 201 AND `publish` IS invoked (stale-state-acceptable per D2). Then in a fresh request from the same user, the new principal has `viewer.isShadowBanned = TRUE` and `publish` is correctly NOT invoked.
+14. **WARN log on PublishResult.Failure**: a `ListAppender` captures the WARN log emitted when the test-double returns `Failure("java.io.IOException")`; assert exactly one log line with `event = "chat_realtime_publish_failed"`, the matching `message_id` + `conversation_id`, and `error_class = "java.io.IOException"` (the captured `reason`, NOT the literal string "Failure").
+15. **WARN log on thrown exception caught post-commit**: same `ListAppender` setup but test-double throws `java.net.SocketTimeoutException`; assert WARN line with `error_class = "java.net.SocketTimeoutException"` (fully-qualified class name).
+16. **Retry timing assertion**: when a stub adapter delays each attempt and the test captures wall-clock timestamps, the inter-attempt gaps approximate 100ms / 300ms / 900ms (±150ms tolerance to absorb CI runner scheduler jitter — matches the `:infra:redis` integration test precedent) for 4 total attempts.
+17. **D2 shadow-ban race**: a Free caller's principal has `viewer.isShadowBanned = FALSE` AND a moderator flips `users.is_shadow_banned = TRUE` (in a separate connection) BEFORE the handler reaches the publish step (sequencing pinned via test-injectable hook between auth completion and publish dispatch — NOT via Thread.sleep, which would be flaky); assert the response is HTTP 201 AND `publish` IS invoked (stale-state-acceptable per D2). Then in a fresh request from the same user, the new principal has `viewer.isShadowBanned = TRUE` and `publish` is correctly NOT invoked.
 18. **2000-char content boundary on broadcast path**: send a message with `content` of length exactly 2000 chars (the chat-foundation upper bound); assert HTTP 201 AND the captured broadcast payload's `content` field is exactly the 2000-char string (no truncation, no escaping artifacts).
 19. **secretKey wiring**: a unit-level test (or DI-wiring test) asserts `SupabaseBroadcastChatClient` is constructed with the value returned from `secretKey(env, "supabase-service-role-key")` (verifiable via a test-injected mock `SecretResolver` that records the key it was queried for).
-20. **Service-role-key not in span/log**: configure the OTel in-memory exporter + a `ListAppender`; trigger a success and a failure publish; scan all captured span attributes and log messages for the exact resolved key value; assert zero matches.
+20. **Service-role-key not in logs**: configure a `ListAppender`; trigger a success and a failure publish; scan all captured log messages for the exact resolved key value; assert zero matches across both success and failure paths.
 
 ---
 
