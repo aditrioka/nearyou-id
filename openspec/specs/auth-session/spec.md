@@ -1,5 +1,7 @@
 # Auth — Session
 
+## Purpose
+
 Defines the refresh-token storage shape, rotation logic with a 30-second overlap window, family revocation on reuse detection, and the logout / logout-all behaviors.
 
 See `docs/05-Implementation.md § Session Management` for background, including the revocation-latency table.

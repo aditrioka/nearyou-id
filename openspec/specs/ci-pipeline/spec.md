@@ -1,5 +1,7 @@
 # CI Pipeline
 
+## Purpose
+
 This spec defines the GitHub Actions workflow that gates PRs (lint + build + test) and what is deliberately deferred. Push-triggered workflows (deploy, migrate, symbol upload) are out of scope and live in their own future changes.
 
 ## Requirements

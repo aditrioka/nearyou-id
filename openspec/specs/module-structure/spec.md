@@ -1,5 +1,7 @@
 # Module Structure
 
+## Purpose
+
 This spec defines the Gradle module layout and naming for the NearYouID project.
 See `docs/04-Architecture.md § Dependency Isolation Pattern` for the broader target layout this scaffold grows into.
 

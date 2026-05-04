@@ -1,5 +1,7 @@
 # Auth — JWT
 
+## Purpose
+
 Defines the RS256 access-token format issued by the backend, the JWKS publication contract, the `kid` rotation slot, and the `token_version`-based instant-revocation check applied on every authenticated request.
 
 See `docs/05-Implementation.md § Authentication Implementation` for background.
