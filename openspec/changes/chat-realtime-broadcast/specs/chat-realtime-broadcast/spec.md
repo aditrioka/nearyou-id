@@ -278,11 +278,14 @@ The credential SHALL be loaded once at startup and held in the Supabase SDK clie
 19. **secretKey wiring**: a unit-level test (or DI-wiring test) asserts `SupabaseBroadcastChatClient` is constructed with the value returned from `secretKey(env, "supabase-service-role-key")` (verifiable via a test-injected mock `SecretResolver` that records the key it was queried for).
 20. **Service-role-key not in span/log**: configure the OTel in-memory exporter + a `ListAppender`; trigger a success and a failure publish; scan all captured span attributes and log messages for the exact resolved key value; assert zero matches.
 
+---
+
 A separate test class `SupabaseBroadcastChatClientTest` (tagged `network`, gated to staging-smoke) SHALL exercise the real Supabase round-trip:
 
 21. Real publish to a staging Supabase project succeeds.
 22. Real publish failure (e.g., bad credential) returns `PublishResult.Failure` after retry exhaustion (4 attempts total).
 23. **Payload deserialization round-trip**: a test subscriber on the same staging project subscribes to `realtime:conversation:<test-uuid>`, the publish is invoked, and the subscriber receives a payload that JSON-deserializes back to a 9-field shape with values matching the publisher input.
+24. **Network-level transient-failure recovery**: a stub Supabase endpoint configured to return 503 on the first attempt and success on the second; assert `publish` returns `PublishResult.Success` AND the captured HTTP request count is exactly 2 (proves the retry-on-success path at the network layer, distinct from the unit-level "Single transient failure recovers" scenario in § "4 total attempts" which exercises the in-process retry loop without network involvement).
 
 #### Scenario: ChatRealtimeBroadcastTest discoverable
 - **WHEN** running `./gradlew :backend:ktor:test --tests '*ChatRealtimeBroadcastTest*'`
@@ -290,7 +293,7 @@ A separate test class `SupabaseBroadcastChatClientTest` (tagged `network`, gated
 
 #### Scenario: SupabaseBroadcastChatClientTest discoverable when network credentials present
 - **WHEN** running `./gradlew :infra:supabase:test --tests '*SupabaseBroadcastChatClientTest*'` on a runner with staging Supabase credentials configured
-- **THEN** the class is discovered AND every numbered scenario 21–23 above corresponds to at least one `@Test` method
+- **THEN** the class is discovered AND every numbered scenario 21–24 above corresponds to at least one `@Test` method
 
 #### Scenario: SupabaseBroadcastChatClientTest gated to staging-smoke
 - **WHEN** running `./gradlew :infra:supabase:test` on a CI runner without staging credentials

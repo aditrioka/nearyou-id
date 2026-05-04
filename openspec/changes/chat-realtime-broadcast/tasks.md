@@ -61,7 +61,7 @@
 - [ ] 5.9 Test 7: 400 invalid_request (empty content) → publish NOT invoked
 - [ ] 5.10 Test 8: 404 conversation_not_found → publish NOT invoked
 - [ ] 5.11 Test 9: 403 not_a_participant → publish NOT invoked
-- [ ] 5.12 Test 10: channel name format — capture the `conversationId` arg, assert `"conversation:" + conversationId.toString()` matches the V15 RLS regex (canonical anchored form `^conversation:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, NOT the loose `[0-9a-f-]{36}`)
+- [ ] 5.12 Test 10: channel name format — capture the actual channel STRING passed to the Supabase Realtime client (NOT just the `conversationId` arg) so a regression where someone strips the `realtime:` prefix in the publisher implementation is caught. Assertions: (a) the captured channel string starts with the literal `realtime:conversation:`, (b) stripping that prefix yields a topic that matches the canonical anchored V15 regex `^conversation:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$` (NOT the loose `[0-9a-f-]{36}`)
 - [ ] 5.13 Test 11: payload format — capture `ChatMessageBroadcast`, assert all 9 fields present (embedded_* are null for this change), assert `embeddedPostSnapshot: JsonElement?` (NOT String?) AND assert at compile-time that `redaction_reason` is NOT a property on the `ChatMessageBroadcast` data class (e.g., reflection-based check via `ChatMessageBroadcast::class.memberProperties.map { it.name }` returns exactly the 9 documented field names)
 - [ ] 5.14 Test 12: tx rollback on INSERT failure → publish NOT invoked AND zero `chat_messages` rows persist
 - [ ] 5.15 Test 13: post-commit ordering via separate JDBC connection — when publish is invoked, a SELECT from a separate JDBC connection (held by the test, not the request handler's connection) returns the new `chat_messages` row BEFORE the publish callback fires; the test-double's `publish` lambda performs the SELECT to verify visibility
@@ -79,10 +79,10 @@
 - [ ] 6.1 Create `SupabaseBroadcastChatClientTest.kt` in `:infra:supabase`, tagged `network` (gated to staging-smoke runs)
 - [ ] 6.2 Test 21: publish to a real staging Supabase Realtime project succeeds (channel = `realtime:conversation:<test-uuid>`, payload matches contract)
 - [ ] 6.3 Test 22: bad credential → `PublishResult.Failure` after 4 total attempts (verify count via test-injected counter or HTTP request count)
-- [ ] 6.4 Test: simulated 503 then success → `PublishResult.Success` after retry (verify exactly 2 attempts via test injection)
+- [ ] 6.4 Test 24: network-level transient-failure recovery — stub Supabase endpoint configured to return 503 on the first attempt and success on the second; assert `publish` returns `PublishResult.Success` AND the captured HTTP request count is exactly 2 (proves the retry-on-success path at the network layer)
 - [ ] 6.5 Test 23: payload deserialization round-trip — a test subscriber on the same staging project subscribes to `realtime:conversation:<test-uuid>`; publish is invoked; the subscriber receives a payload that JSON-deserializes back to a 9-field shape with values matching the publisher input (this exercises the embeddedPostSnapshot JsonElement serialization end-to-end and proves the channel topic stripping is correct on Supabase's side)
 - [ ] 6.6 Verify CI runner skips this class when staging credentials are absent (matches the precedent set by `like-rate-limit`'s `RedisRateLimiterIntegrationTest`)
-- [ ] 6.7 Discoverability assertion: `./gradlew :infra:supabase:test --tests '*SupabaseBroadcastChatClientTest*'` discovers the class on a runner with staging credentials; every numbered scenario 21–23 corresponds to at least one `@Test` method
+- [ ] 6.7 Discoverability assertion: `./gradlew :infra:supabase:test --tests '*SupabaseBroadcastChatClientTest*'` discovers the class on a runner with staging credentials; every numbered scenario 21–24 corresponds to at least one `@Test` method
 
 ## 7. Staging deploy + smoke
 

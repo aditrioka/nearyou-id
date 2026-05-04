@@ -188,7 +188,7 @@ This is a server-side capability addition. No data migration. No mobile change r
 
 1. Land secret slots `staging-supabase-service-role-key` and `supabase-service-role-key` in GCP Secret Manager (manual step, captured in Phase 1 tasks).
 2. Merge proposal PR + implementation PR (one-PR-per-change per `openspec/project.md` § Change Delivery Workflow + parent `/next-change` skill).
-3. CI auto-deploys to staging. Phase 5 staging-smoke validates publish round-trip end-to-end.
+3. CI auto-deploys to staging. Phase 7 staging-smoke validates publish round-trip end-to-end (per `tasks.md` § 7. Staging deploy + smoke).
 4. Manual approval gates prod deploy (per `docs/04-Architecture.md` deployment table).
 
 **Rollback:** if publish causes elevated chat-send latency or persistent failure, revert via standard rollback (revert the merge commit, redeploy). The chat handler's pre-this-change behavior (persist + return 201, no publish) is the safe fallback. No DB schema changes, so rollback is a pure code revert.
