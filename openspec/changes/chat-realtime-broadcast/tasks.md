@@ -88,15 +88,15 @@ NOTE: `:infra:supabase` is an EXISTING module (already at [`settings.gradle.kts:
 
 ## 7. Staging deploy + smoke
 
-- [ ] 7.1 Land secret slots `staging-supabase-service-role-key` (staging GCP Secret Manager) and document `supabase-service-role-key` (prod, deferred to actual prod deploy)
-- [ ] 7.2 Trigger `gh workflow run deploy-staging.yml --ref chat-realtime-broadcast` to deploy the branch to staging
-- [ ] 7.3 Smoke check: as a real test user, send a chat message via `POST /api/v1/chat/{conversation_id}/messages`; assert HTTP 201 and a row in `chat_messages` (REST data plane unaffected)
-- [ ] 7.4 Smoke check: subscribe a second test user to `realtime:conversation:<conv_id>` via the Supabase Realtime client (using a token from `GET /api/v1/realtime/token`); send from user A; assert user B receives the broadcast within ~1 second
-- [ ] 7.5 Smoke check: **two simultaneous subscribers** — subscribe BOTH user B (the conversation partner) AND a third test client (using B's token; same active-participant subscription) to the same `realtime:conversation:<conv_id>`; send a single message from A; assert BOTH subscribers receive identical payloads
-- [ ] 7.6 Smoke check: shadow-ban user A in the staging DB; send a message as A; assert user B does NOT receive a realtime broadcast (publish-side skip works) AND the row IS persisted (REST `GET /messages` from A's perspective shows it)
-- [ ] 7.7 Smoke check: induce a Supabase outage (e.g., temporarily revoke the service role key via Supabase Dashboard); send a message; assert HTTP 201 still returned, row persisted, WARN log line `chat_realtime_publish_failed` appears in Cloud Logging within 30 seconds
-- [ ] 7.8 Restore the service role key; confirm subsequent sends broadcast normally
-- [ ] 7.9 Capture smoke output as a comment on the PR (matches `chat-rate-limit` precedent)
+- [x] 7.1 Land secret slots `staging-supabase-service-role-key` (staging GCP Secret Manager) and document `supabase-service-role-key` (prod, deferred to actual prod deploy)
+- [x] 7.2 Trigger `gh workflow run deploy-staging.yml --ref chat-realtime-broadcast` to deploy the branch to staging
+- [x] 7.3 Smoke check: as a real test user, send a chat message via `POST /api/v1/chat/{conversation_id}/messages`; assert HTTP 201 and a row in `chat_messages` (REST data plane unaffected)
+- [x] 7.4 Smoke check: subscribe a second test user to `realtime:conversation:<conv_id>` via the Supabase Realtime client (using a token from `GET /api/v1/realtime/token`); send from user A; assert user B receives the broadcast within ~1 second
+- [x] 7.5 Smoke check: **two simultaneous subscribers** — subscribe BOTH user B (the conversation partner) AND a third test client (using B's token; same active-participant subscription) to the same `realtime:conversation:<conv_id>`; send a single message from A; assert BOTH subscribers receive identical payloads
+- [x] 7.6 Smoke check: shadow-ban user A in the staging DB; send a message as A; assert user B does NOT receive a realtime broadcast (publish-side skip works) AND the row IS persisted (REST `GET /messages` from A's perspective shows it)
+- [x] 7.7 Smoke check: induce a Supabase outage (e.g., temporarily revoke the service role key via Supabase Dashboard); send a message; assert HTTP 201 still returned, row persisted, WARN log line `chat_realtime_publish_failed` appears in Cloud Logging within 30 seconds
+- [x] 7.8 Restore the service role key; confirm subsequent sends broadcast normally
+- [x] 7.9 Capture smoke output as a comment on the PR (matches `chat-rate-limit` precedent)
 
 ## 8. CI lint + final verification
 
