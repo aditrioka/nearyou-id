@@ -121,4 +121,4 @@ NOTE: `:infra:supabase` is an EXISTING module (already at [`settings.gradle.kts:
 
 - [x] 10.1 At the boundary from proposal-review to implementation: retitle the PR via `gh pr edit <pr> --title 'feat(chat): chat-realtime-broadcast (publish leg + ChatRealtimeClient + SupabaseBroadcastChatClient)'` per `CLAUDE.md` § "PR title and body MUST stay current at every phase boundary"
 - [x] 10.2 Update the PR body via `gh pr edit <pr> --body "$(cat <<'EOF' ... EOF)"` to reflect the implementation diff (modules added, secrets to provision, smoke-check evidence link)
-- [ ] 10.3 At archive boundary: retitle if needed AND update the body to point to archive paths
+- [x] 10.3 At archive boundary: retitle if needed AND update the body to point to archive paths
