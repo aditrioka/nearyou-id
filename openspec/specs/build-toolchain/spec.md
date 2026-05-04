@@ -1,5 +1,7 @@
 # Build Toolchain
 
+## Purpose
+
 This spec defines the version catalog, convention plugins, and ktlint enforcement that govern every module's build. See `docs/09-Versions.md` for the version-pinning policy and decision log.
 
 ## Requirements

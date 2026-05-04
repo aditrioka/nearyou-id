@@ -1,5 +1,7 @@
 # Local Dev Environment
 
+## Purpose
+
 Defines the Dockerized Postgres+PostGIS+Redis stack used for local development, the env-var conventions for backend connection + secrets, and the bootstrap helper scripts (RSA keypair, test-user seeding).
 
 See `dev/README.md` for the day-to-day workflow.
