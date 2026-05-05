@@ -60,7 +60,7 @@ A `NotificationEmitter` component SHALL encapsulate the write path for all notif
 
 The emitter MUST be constructor-injectable into the **five wired writer services** (`LikeService`, `ReplyService`, `FollowService`, `ReportService`, `ChatService` — the chat send-handler service introduced by `chat-message-notification`) via Koin. The block-check and INSERT MUST execute in the same DB transaction as the caller's primary write.
 
-For chat sends (`ChatService`), the caller is responsible for the sender-shadow-ban skip BEFORE invoking `NotificationEmitter.emit(...)` — this is a chat-handler-level decision documented in [`chat-conversations/spec.md`](../../../../openspec/specs/chat-conversations/spec.md) § "Send-message endpoint" and is NOT enforced inside the emitter (the emitter is generic across notification types). For all other emit sites (Like / Reply / Follow / Report), shadow-ban skip is not relevant — those flows do not have a publishable real-time surface to suppress.
+For chat sends (`ChatService`), the caller is responsible for the sender-shadow-ban skip BEFORE invoking `NotificationEmitter.emit(...)` — this is a chat-handler-level decision documented in [`chat-conversations/spec.md`](../../../../specs/chat-conversations/spec.md) § "Send-message endpoint" and is NOT enforced inside the emitter (the emitter is generic across notification types). For all other emit sites (Like / Reply / Follow / Report), shadow-ban skip is not relevant — those flows do not have a publishable real-time surface to suppress.
 
 #### Scenario: Self-action suppression (like own post)
 - **WHEN** user Alice likes her own post
@@ -106,7 +106,7 @@ For the **five types V10 writes after `chat-message-notification` lands**, `body
 
 Excerpts and previews SHALL be the first 80 code points of the source content (post content for `post_liked`, reply content for `post_replied`, chat message content for `chat_message`), taken at emit time. The excerpt / preview MUST NOT be regenerated on read; subsequent edits to the source content do NOT update the already-written `body_data`.
 
-For `chat_message` specifically, `preview` SHALL be JSON `null` when the source `chat_messages.content` is `NULL` (an embedded-only message — schema-permitted per [`docs/05-Implementation.md:1273`](../../../../docs/05-Implementation.md)). `null` is the canonical signal for "no text to preview"; mobile UI is responsible for rendering a localized fallback (e.g., "Sent a post") via Moko Resources.
+For `chat_message` specifically, `preview` SHALL be JSON `null` when the source `chat_messages.content` is `NULL` (an embedded-only message — schema-permitted per [`docs/05-Implementation.md:1273`](../../../../../docs/05-Implementation.md)). `null` is the canonical signal for "no text to preview"; mobile UI is responsible for rendering a localized fallback (e.g., "Sent a post") via Moko Resources.
 
 The `chat_message` `body_data` SHALL NOT carry `embedded_post_id`, `embedded_post_snapshot`, or `embedded_post_edit_id` keys (those are owned by the future `chat-embedded-posts` change and are out of scope for `chat-message-notification`). Forward-compat: future changes MAY add keys to `chat_message` body_data, but this change ships exactly the two-key shape `{conversation_id, preview}`.
 
