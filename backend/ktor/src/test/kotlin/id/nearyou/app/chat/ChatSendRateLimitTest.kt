@@ -16,6 +16,9 @@ import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
+import id.nearyou.app.notifications.NoopNotificationDispatcher
+import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.data.repository.NotificationType
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContain
@@ -240,6 +243,8 @@ class ChatSendRateLimitTest : StringSpec({
         val service =
             ChatService(
                 repository = repo,
+                notifications = NoopChatRateLimitEmitter,
+                dispatcher = NoopNotificationDispatcher(),
                 rateLimiter = rateLimiter,
                 remoteConfig = remoteConfig,
                 clock = clock,
@@ -1061,6 +1066,8 @@ class ChatSendRateLimitTest : StringSpec({
             val service =
                 ChatService(
                     repository = repository,
+                    notifications = NoopChatRateLimitEmitter,
+                    dispatcher = NoopNotificationDispatcher(),
                     rateLimiter = limiter,
                     remoteConfig = NullRemoteConfigChat,
                 )
@@ -1096,6 +1103,7 @@ class ChatSendRateLimitTest : StringSpec({
                         conversationId: UUID,
                         senderId: UUID,
                         content: String,
+                        emitInTx: ((java.sql.Connection, ChatMessageRow, UUID) -> Unit)?,
                     ): ChatMessageRow {
                         throw RuntimeException("simulated chat-foundation TX rollback")
                     }
@@ -1307,4 +1315,22 @@ private class SpyRateLimiterChat(val delegate: RateLimiter) : RateLimiter {
     private data class AcquireCall(val userId: UUID, val key: String, val capacity: Int, val ttl: Duration)
 
     private data class ReleaseCall(val userId: UUID, val key: String)
+}
+
+/**
+ * No-op [NotificationEmitter] for rate-limit tests. These tests pre-date
+ * `chat-message-notification` and assert on rate-limit behaviour, not on emit
+ * semantics; the no-op keeps the chat-foundation tx's emit step a structural
+ * no-op (avoiding unrelated `notifications` rows).
+ */
+private object NoopChatRateLimitEmitter : NotificationEmitter {
+    override fun emit(
+        conn: java.sql.Connection,
+        recipientId: UUID,
+        actorUserId: UUID?,
+        type: NotificationType,
+        targetType: String?,
+        targetId: UUID?,
+        bodyData: kotlinx.serialization.json.JsonObject,
+    ): UUID? = null
 }

@@ -3,8 +3,15 @@ package id.nearyou.app.chat
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
+import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.data.repository.NotificationDispatcher
+import id.nearyou.data.repository.NotificationType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
@@ -50,6 +57,8 @@ import java.util.UUID
  */
 class ChatService(
     private val repository: ChatRepository,
+    private val notifications: NotificationEmitter,
+    private val dispatcher: NotificationDispatcher,
     private val rateLimiter: RateLimiter,
     private val remoteConfig: RemoteConfig,
     private val clock: () -> Instant = Instant::now,
@@ -152,10 +161,25 @@ class ChatService(
     ): List<ChatMessageRow> = repository.listMessages(conversationId, viewerId, cursor, limit)
 
     /**
-     * Inserts a chat message + updates `conversations.last_message_at` in one transaction
-     * (chat-foundation atomicity contract). Throws [ConversationNotFoundException] (404),
+     * Inserts a chat message + emits the V10 `chat_message` notification + updates
+     * `conversations.last_message_at`, all in one transaction (chat-foundation atomicity
+     * contract + chat-message-notification design § D5 ordering: INSERT → emit → UPDATE
+     * last_message_at → COMMIT). Throws [ConversationNotFoundException] (404),
      * [NotParticipantException] (403), or [BlockedException] (403 with the canonical
      * "Tidak dapat mengirim pesan ke user ini" body) on the corresponding rejection paths.
+     *
+     * Sender-shadow-ban skip per design § D3: when [senderShadowBanned] is true, the emit
+     * step is skipped entirely (the `chat_messages` row still persists per the invisible-
+     * actor contract). The flag is read from `UserPrincipal.isShadowBanned` at the route
+     * layer — this method does NOT issue any `SELECT is_shadow_banned FROM users` for the
+     * decision. Self-action suppression is structurally a no-op (1:1 chat: sender ≠
+     * recipient — chat-foundation slot-race serialization rejects single-participant
+     * conversations); block-suppression is delegated to [NotificationEmitter] (per design
+     * § D6 — the emitter's bidirectional `user_blocks` query is the canonical check).
+     *
+     * After the transaction commits successfully, the FCM dispatcher fires post-commit
+     * (fire-and-forget on `Dispatchers.IO` inside the dispatcher impl). A `null` emittedId
+     * (e.g., suppressed by emitter-internal block-check on a race) skips dispatch.
      *
      * Caller MUST have already invoked [tryRateLimit] and observed [RateLimitOutcome.Allowed]
      * (the limiter is route-orchestrated to satisfy the spec's "limiter BEFORE all DB reads
@@ -167,7 +191,54 @@ class ChatService(
         conversationId: UUID,
         senderId: UUID,
         content: String,
-    ): ChatMessageRow = repository.sendMessage(conversationId, senderId, content)
+        senderShadowBanned: Boolean,
+    ): ChatMessageRow {
+        var emittedId: UUID? = null
+        // @chat-shadow-ban-skip-couples: realtime-broadcast+notification-emit
+        // Both ChatRealtimeClient.publish and NotificationEmitter.emit MUST skip together
+        // when viewer.isShadowBanned is true. Removing one without the other breaks the
+        // symmetric privacy guarantee — see chat-conversations spec § "Send-message endpoint"
+        // and chat-realtime-broadcast spec § "Publish-side shadow-ban skip".
+        val emitInTx: ((java.sql.Connection, ChatMessageRow, UUID) -> Unit)? =
+            if (senderShadowBanned) {
+                null
+            } else {
+                { conn, row, recipientId ->
+                    emittedId =
+                        notifications.emit(
+                            conn = conn,
+                            recipientId = recipientId,
+                            actorUserId = senderId,
+                            type = NotificationType.CHAT_MESSAGE,
+                            targetType = "message",
+                            targetId = row.id,
+                            bodyData = buildChatMessageBodyData(conversationId, row.content),
+                        )
+                }
+            }
+        val row =
+            repository.sendMessage(
+                conversationId = conversationId,
+                senderId = senderId,
+                content = content,
+                emitInTx = emitInTx,
+            )
+        emittedId?.let(dispatcher::dispatch)
+        return row
+    }
+
+    private fun buildChatMessageBodyData(
+        conversationId: UUID,
+        content: String?,
+    ): JsonObject =
+        buildJsonObject {
+            put("conversation_id", JsonPrimitive(conversationId.toString()))
+            if (content == null) {
+                put("preview", JsonNull)
+            } else {
+                put("preview", JsonPrimitive(content.firstCodePoints(CHAT_PREVIEW_MAX_CODE_POINTS)))
+            }
+        }
 
     /**
      * Resolves the daily cap for a Free-tier caller. Reads
@@ -223,6 +294,14 @@ class ChatService(
         const val PREMIUM_CHAT_SEND_CAP_OVERRIDE_KEY: String = "premium_chat_send_cap_override"
 
         /**
+         * Code-point ceiling for `body_data.preview` per `chat-message-notification` spec
+         * § "body_data.preview shape" — matches the `post_excerpt` / `reply_excerpt` 80-cp
+         * truncation precedent. Truncation is on Unicode code points (NOT chars / bytes)
+         * so a 4-byte emoji at the boundary either fits whole or is excluded whole.
+         */
+        const val CHAT_PREVIEW_MAX_CODE_POINTS: Int = 80
+
+        /**
          * Upper-bound clamp threshold for the override flag — values above this fall
          * back to [DEFAULT_DAILY_CAP] (anti-typo guard; spec § Flag oversized integer
          * scenario). 10,000 chosen because no abuse signal supports a Free user
@@ -237,4 +316,23 @@ class ChatService(
 
         internal fun dailyKey(userId: UUID): String = "{scope:rate_chat_send_day}:{user:$userId}"
     }
+}
+
+/**
+ * Surrogate-pair-safe code-point truncation, mirroring the `ReplyService.firstCodePoints`
+ * helper. Code-point counted (NOT char-counted via `String.length`) so a non-BMP emoji
+ * (`String.codePointCount > 1`-position by Java char semantics) is treated as a single
+ * code point. A 4-byte emoji whose code point would be position 81 is excluded whole;
+ * an emoji whose code point is exactly position 80 is included whole.
+ */
+internal fun String.firstCodePoints(n: Int): String {
+    if (n <= 0) return ""
+    var cpCount = 0
+    var i = 0
+    while (i < length && cpCount < n) {
+        val cp = codePointAt(i)
+        i += Character.charCount(cp)
+        cpCount++
+    }
+    return substring(0, i)
 }

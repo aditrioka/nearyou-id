@@ -596,7 +596,7 @@ What's missing: a test that boots `Application.module()` with a test-only overri
 ## chat-message-notification-emit-sites
 
 **Discovered during:** `chat-foundation` apply, fcm-push-dispatch cross-reference
-**Status:** open (hard prerequisite is `chat-realtime-broadcast-publish` landing first)
+**Status:** partially closed — `chat-message-notification` change wires the `chat_message` emit-site + end-to-end coverage; `chat_message_redacted` emit + per-conversation FCM batching remain open.
 
 **Finding:** The fcm-push-dispatch composite shipped in PR #60 wires the dispatcher with all four current emit-site services (post_liked, post_replied, follow, etc.) but has NO `chat_message` or `chat_message_redacted` emit-site to push from. `chat-foundation` deliberately defers adding these emit-sites because (a) without the realtime broadcast layer there's no async surface to push from, and (b) the canonical Phase 2 #11 per-conversation FCM push batching depends on the broadcast layer being in place. Once `chat-realtime-broadcast-publish` lands, the chat send path will have a natural emit-site (after the post-commit broadcast publish) where `notifications` table emits + FCM dispatch can be added. The fcm-push-dispatch dispatcher will pick them up automatically once emitted.
 
@@ -609,10 +609,10 @@ What's missing: a test that boots `Application.module()` with a test-only overri
 **Ambiguity to resolve first:** Notification body shape for chat — what fields land in `notifications.body_data`? Sender username + content excerpt (truncated to 80 code points like reply excerpt)? Or sender + conversation_id only, with the client fetching content on tap? Decide in the change's design.md.
 
 **Action items:**
-- [ ] After `chat-realtime-broadcast-publish` lands, file OpenSpec change `chat-message-notification-emit-sites`. ADD `chat_message` and `chat_message_redacted` notification types in `core/data/.../NotificationType.kt`. Wire the `chat_message` emit in the chat-message send transaction (mirror the `post_replied` + `post_liked` emit-site pattern in ReplyService / LikeService).
-- [ ] Add the per-conversation FCM push batching design (Phase 2 #11) — this may be a separate change depending on scope.
-- [ ] Cover the emit + dispatch end-to-end against a real Postgres + mocked FCM (mirror `JdbcUserFcmTokenReaderTest` shape).
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
+- [x] After `chat-realtime-broadcast-publish` lands, file OpenSpec change `chat-message-notification-emit-sites`. ADD `chat_message` and `chat_message_redacted` notification types in `core/data/.../NotificationType.kt`. Wire the `chat_message` emit in the chat-message send transaction (mirror the `post_replied` + `post_liked` emit-site pattern in ReplyService / LikeService). _Closed by `chat-message-notification` (this branch). `chat_message_redacted` emit is deferred to the Phase 3.5 admin redaction change per `chat-message-notification` proposal § Open Questions Q3._
+- [ ] Add the per-conversation FCM push batching design (Phase 2 #11) — this may be a separate change depending on scope. _Still open. Out of scope for `chat-message-notification`._
+- [x] Cover the emit + dispatch end-to-end against a real Postgres + mocked FCM (mirror `JdbcUserFcmTokenReaderTest` shape). _Closed by `chat-message-notification` — `:backend:ktor` `ChatMessageNotificationTest` covers the emit + composite-dispatcher fan-out; `:infra:fcm` `PushCopyTest` + `PayloadBuildersTest` cover the chat_message push copy + iOS payload._
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges. _Will close fully when the per-conversation FCM batching design is filed._
 
 ## chat-realtime-broadcast-publish-side-shadow-ban-filter
 

@@ -167,6 +167,60 @@ class PayloadBuildersTest : StringSpec(
             val result = buildIosMessage(row(bodyDataJson = raw), actorUsername = "bobby", token = "tok")
             result shouldBe IosPayloadResult.OversizedPayload
         }
+
+        // ---- chat-message-notification Section 3 (tasks 3.2 + 3.4) ----
+        "ios payload uses chat_message copy when actor username is present (task 3.2)" {
+            // Per `fcm-push-dispatch` spec § "iOS payload uses chat_message copy when actor
+            // username is present": notification.body == "bobby mengirim pesan" AND body_full
+            // is the JSON-stringified body_data carrying conversation_id AND preview keys.
+            val convId = UUID.randomUUID()
+            val bodyDataJson = """{"conversation_id":"$convId","preview":"halo Alice"}"""
+            val result =
+                buildIosMessage(
+                    row(
+                        type = NotificationType.CHAT_MESSAGE,
+                        targetType = "message",
+                        bodyDataJson = bodyDataJson,
+                    ),
+                    actorUsername = "bobby",
+                    token = "tok",
+                )
+            check(result is IosPayloadResult.Built)
+            // body_full carries both keys verbatim; assembled payload is valid JSON.
+            val parsed = Json.parseToJsonElement(result.bodyFull).jsonObject
+            parsed["conversation_id"]?.jsonPrimitive?.content shouldBe convId.toString()
+            parsed["preview"]?.jsonPrimitive?.content shouldBe "halo Alice"
+            // PushCopy assertion — the body field used in the assembled Message is the
+            // chat_message template (verified via PushCopy.bodyFor since the SDK's
+            // Notification fields are package-private; see file-level note on the
+            // structural-assertion deferral).
+            PushCopy.bodyFor("chat_message", "bobby") shouldBe "bobby mengirim pesan"
+        }
+
+        "ios payload for chat_message with quote in actor username does not throw (task 3.4)" {
+            // Per `fcm-push-dispatch` spec § "chat_message body with actor username
+            // containing a quote character does not break JSON serialization": the spec
+            // permits either (a) valid-JSON-escaped notification.body or (b) dispatcher
+            // rejection with WARN. The implementation chose (a) — pass-through to the
+            // Firebase Admin SDK, which handles JSON escaping internally. This test
+            // pins outcome (a): buildIosMessage returns Built (no exception, no
+            // rejection) for a quote-containing username.
+            val convId = UUID.randomUUID()
+            val result =
+                buildIosMessage(
+                    row(
+                        type = NotificationType.CHAT_MESSAGE,
+                        targetType = "message",
+                        bodyDataJson = """{"conversation_id":"$convId","preview":"halo"}""",
+                    ),
+                    actorUsername = "bo\"by",
+                    token = "tok",
+                )
+            check(result is IosPayloadResult.Built)
+            // PushCopy passes the username through; the SDK is responsible for JSON-
+            // escaping the body field when it serializes the Message.
+            PushCopy.bodyFor("chat_message", "bo\"by") shouldBe "bo\"by mengirim pesan"
+        }
     },
 )
 

@@ -13,6 +13,10 @@ import id.nearyou.app.config.StubRemoteConfig
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.notifications.NoopNotificationDispatcher
+import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.app.notifications.notificationRoutes
+import id.nearyou.data.repository.NotificationType
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainExactly
@@ -91,6 +95,8 @@ class ChatFoundationRouteTest : StringSpec({
     val service =
         ChatService(
             repository = repository,
+            notifications = NoopChatEmitter,
+            dispatcher = NoopNotificationDispatcher(),
             rateLimiter = InMemoryRateLimiter(),
             remoteConfig = StubRemoteConfig(),
         )
@@ -1616,4 +1622,148 @@ class ChatFoundationRouteTest : StringSpec({
             resp.status shouldBe HttpStatusCode.Unauthorized
         }
     }
+
+    // -----------------------------------------------------------------------------
+    // chat-message-notification Section 5 light regressions — keep `ChatMessageNotificationTest`
+    // as the primary coverage; these two scenarios anchor the regression surface
+    // from the chat-foundation entry point so a future refactor that breaks the emit
+    // wiring in ChatService trips here too (not just in the dedicated notification
+    // test class).
+    // -----------------------------------------------------------------------------
+    val notificationsRepoR = id.nearyou.app.infra.repo.JdbcNotificationRepository(dataSource)
+    val realDbEmitterR = id.nearyou.app.notifications.DbNotificationEmitter(notificationsRepoR)
+    val notificationServiceR = id.nearyou.app.notifications.NotificationService(notificationsRepoR)
+
+    suspend fun withChatPlusNotifications(
+        emitter: id.nearyou.app.notifications.NotificationEmitter = realDbEmitterR,
+        block: suspend io.ktor.server.testing.ApplicationTestBuilder.() -> Unit,
+    ) {
+        val svc =
+            ChatService(
+                repository = repository,
+                notifications = emitter,
+                dispatcher = NoopNotificationDispatcher(),
+                rateLimiter = InMemoryRateLimiter(),
+                remoteConfig = StubRemoteConfig(),
+            )
+        testApplication {
+            application {
+                install(ContentNegotiation) {
+                    json(
+                        Json {
+                            ignoreUnknownKeys = true
+                            explicitNulls = false
+                        },
+                    )
+                }
+                install(StatusPages) {
+                    exception<Throwable> { call, _ ->
+                        call.respondText(
+                            "{\"error\":{\"code\":\"internal\"}}",
+                            ContentType.Application.Json,
+                            HttpStatusCode.InternalServerError,
+                        )
+                    }
+                }
+                install(Authentication) { configureUserJwt(keys, users, java.time.Instant::now) }
+                chatRoutes(svc, contentGuard, id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient())
+                notificationRoutes(notificationServiceR)
+            }
+            block()
+        }
+    }
+
+    // 5.1 — successful send produces a chat_message notification visible to the recipient.
+    "5.1 chat-msg-notif regression — successful send → recipient's GET /api/v1/notifications shows chat_message" {
+        val (sender, tok) = seedUser()
+        val (recipient, recipientTok) = seedUser()
+        val conv = createConversationDirect(sender, recipient)
+        try {
+            withChatPlusNotifications {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/chat/$conv/messages") {
+                            header(HttpHeaders.Authorization, "Bearer $tok")
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"content":"halo"}""")
+                        }
+                resp.status shouldBe HttpStatusCode.Created
+                val notifResp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/notifications") { header(HttpHeaders.Authorization, "Bearer $recipientTok") }
+                notifResp.status shouldBe HttpStatusCode.OK
+                val items =
+                    Json.parseToJsonElement(notifResp.bodyAsText())
+                        .jsonObject["items"]!!.jsonArray
+                items.size shouldBe 1
+                items[0].jsonObject["type"]!!.jsonPrimitive.content shouldBe "chat_message"
+                items[0].jsonObject["body_data"]!!.jsonObject["preview"]!!.jsonPrimitive.content shouldBe "halo"
+            }
+        } finally {
+            // Targeted cleanup — extend the test-class cleanup to wipe notifications too.
+            dataSource.connection.use { conn ->
+                conn.createStatement().use { st ->
+                    st.executeUpdate(
+                        "DELETE FROM notifications WHERE user_id IN ('$sender','$recipient') OR actor_user_id IN ('$sender','$recipient')",
+                    )
+                }
+            }
+            cleanup(sender, recipient)
+        }
+    }
+
+    // 5.2 — shadow-banned sender produces NO chat_message notification.
+    "5.2 chat-msg-notif regression — shadow-banned sender produces NO chat_message notification" {
+        val (sender, tok) = seedUser(shadowBanned = true)
+        val (recipient, recipientTok) = seedUser()
+        val conv = createConversationDirect(sender, recipient)
+        try {
+            withChatPlusNotifications {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/chat/$conv/messages") {
+                            header(HttpHeaders.Authorization, "Bearer $tok")
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"content":"halo"}""")
+                        }
+                resp.status shouldBe HttpStatusCode.Created
+                val notifResp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/notifications") { header(HttpHeaders.Authorization, "Bearer $recipientTok") }
+                notifResp.status shouldBe HttpStatusCode.OK
+                val items =
+                    Json.parseToJsonElement(notifResp.bodyAsText())
+                        .jsonObject["items"]!!.jsonArray
+                items.size shouldBe 0
+            }
+        } finally {
+            dataSource.connection.use { conn ->
+                conn.createStatement().use { st ->
+                    st.executeUpdate(
+                        "DELETE FROM notifications WHERE user_id IN ('$sender','$recipient') OR actor_user_id IN ('$sender','$recipient')",
+                    )
+                }
+            }
+            cleanup(sender, recipient)
+        }
+    }
 })
+
+/**
+ * No-op [NotificationEmitter] for the existing chat-foundation route tests, which pre-date
+ * `chat-message-notification` and don't assert on emit behaviour. Pre-this-change the
+ * service did not call any emitter; preserving that behaviour avoids polluting the test DB
+ * with notification rows + having to extend cleanup to delete them. Notification-aware
+ * tests (`ChatMessageNotificationTest`) wire `DbNotificationEmitter` instead.
+ */
+private object NoopChatEmitter : NotificationEmitter {
+    override fun emit(
+        conn: java.sql.Connection,
+        recipientId: UUID,
+        actorUserId: UUID?,
+        type: NotificationType,
+        targetType: String?,
+        targetId: UUID?,
+        bodyData: kotlinx.serialization.json.JsonObject,
+    ): UUID? = null
+}
