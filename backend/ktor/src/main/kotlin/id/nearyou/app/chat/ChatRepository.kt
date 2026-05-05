@@ -318,29 +318,45 @@ open class ChatRepository(
      * Insert a chat message. Enforces the canonical bidirectional block check at
      * `docs/05-Implementation.md:1304-1308` via an EXPLICIT `user_blocks` query against
      * the OTHER active participant — throws [BlockedException] on hit. Active-participant
-     * check is enforced by the participant-lookup. INSERT + UPDATE last_message_at run
-     * in ONE transaction (design.md § D3).
+     * check + recipient resolution share a single `SELECT FROM conversation_participants`
+     * (per `chat-message-notification` design § D2 — the JDBC-spy scenario forbids a
+     * second SELECT for the emit step). INSERT + emit-in-tx (when supplied) + UPDATE
+     * last_message_at run in ONE transaction (design.md § D3 + chat-message-notification
+     * design § D5).
      *
      * Block-exclusion lint annotation (above): the participant-lookup queries against
      * `conversation_participants` (joined to `users` through the explicit block check below)
      * deliberately do NOT carry an automatic NOT-IN — the canonical 403 contract is enforced
      * by the explicit query, NOT by the auto-applied join.
+     *
+     * @param emitInTx optional callback invoked after the chat_messages INSERT and before
+     * bumpLastMessageAt, on the SAME [Connection] inside the open transaction. Receives
+     * the inserted [ChatMessageRow] and the OTHER participant's user_id (recipient). When
+     * `null` the emit step is skipped entirely (e.g., shadow-banned sender). Throws from
+     * the callback bubble up and roll the entire transaction back per the canonical
+     * emit-failure-rolls-back-primary-write contract.
      */
     open fun sendMessage(
         conversationId: UUID,
         senderId: UUID,
         content: String,
+        emitInTx: ((Connection, ChatMessageRow, UUID) -> Unit)? = null,
     ): ChatMessageRow {
         // @allow-no-block-exclusion: chat-history-readable-after-block
         dataSource.connection.use { conn ->
             conn.autoCommit = false
             try {
                 if (!conversationExists(conn, conversationId)) throw ConversationNotFoundException()
-                if (!isActiveParticipant(conn, conversationId, senderId)) throw NotParticipantException()
-                if (isBlockedAgainstOtherParticipant(conn, conversationId, senderId)) {
+                val activeParticipants = loadActiveParticipants(conn, conversationId)
+                if (senderId !in activeParticipants) throw NotParticipantException()
+                val recipientId =
+                    activeParticipants.singleOrNull { it != senderId }
+                        ?: throw NotParticipantException()
+                if (isBlockedBidirectional(conn, senderId, recipientId)) {
                     throw BlockedException()
                 }
                 val row = insertChatMessage(conn, conversationId, senderId, content)
+                emitInTx?.invoke(conn, row, recipientId)
                 bumpLastMessageAt(conn, conversationId)
                 conn.commit()
                 return row
@@ -433,35 +449,110 @@ open class ChatRepository(
     }
 
     /**
-     * Block check at send time per `docs/05-Implementation.md:1304-1308` — bidirectional
-     * `user_blocks` lookup against the OTHER active participant of the conversation.
+     * Test-only path that exercises the embedded-only chat-message INSERT (content NULL,
+     * embedded_post_snapshot non-null) — the schema-permitted shape per
+     * [`docs/05-Implementation.md:1285`](../../../../../docs/05-Implementation.md) CHECK
+     * constraint. Bypasses the route-layer content-required guard (which is enforced at
+     * `ChatRoutes.kt` via the `ContentEmptyException` from `contentGuard.enforce(...)` on
+     * an empty `content` field) so an emit can fire on a row whose `content IS NULL` —
+     * verifies the spec scenario "Embedded-only message produces null preview".
+     *
+     * Marked `@VisibleForTesting` (paper-trail) AND placed under `internal` visibility so
+     * it cannot be reached from any production code path: callers in `:backend:ktor` 's
+     * production source set will fail compilation if they attempt to invoke this method
+     * (Kotlin `internal` resolves at the module boundary; the prod source set sees this
+     * symbol but it is intended ONLY for the test source set's `ChatMessageNotificationTest`).
+     * Future regressions where production code starts calling this hook are catchable by
+     * grep on `testInsertEmbeddedOnly` in the prod source set.
+     *
+     * Invariants matched to [sendMessage]:
+     *  - Loads active participants in ONE SELECT.
+     *  - Throws [NotParticipantException] / [BlockedException] on the same paths.
+     *  - Emit + INSERT + bumpLastMessageAt run in ONE transaction; emit failure rolls
+     *    the entire tx back per the in-app-notifications contract.
+     *
+     * Block check is omitted here only because the embedded-only path is test-internal —
+     * test setup MUST seed an unblocked sender/recipient pair (the parent suite's
+     * pre-test cleanup is responsible).
      */
-    private fun isBlockedAgainstOtherParticipant(
+    @JvmSynthetic
+    internal fun testInsertEmbeddedOnly(
+        conversationId: UUID,
+        senderId: UUID,
+        embeddedPostSnapshotJson: String,
+        emitInTx: ((Connection, ChatMessageRow, UUID) -> Unit)? = null,
+    ): ChatMessageRow {
+        // @allow-no-block-exclusion: chat-history-readable-after-block
+        dataSource.connection.use { conn ->
+            conn.autoCommit = false
+            try {
+                if (!conversationExists(conn, conversationId)) throw ConversationNotFoundException()
+                val activeParticipants = loadActiveParticipants(conn, conversationId)
+                if (senderId !in activeParticipants) throw NotParticipantException()
+                val recipientId =
+                    activeParticipants.singleOrNull { it != senderId }
+                        ?: throw NotParticipantException()
+                val row = insertEmbeddedOnlyChatMessage(conn, conversationId, senderId, embeddedPostSnapshotJson)
+                emitInTx?.invoke(conn, row, recipientId)
+                bumpLastMessageAt(conn, conversationId)
+                conn.commit()
+                return row
+            } catch (t: Throwable) {
+                conn.rollback()
+                throw t
+            } finally {
+                conn.autoCommit = true
+            }
+        }
+    }
+
+    private fun insertEmbeddedOnlyChatMessage(
         conn: Connection,
         conversationId: UUID,
         senderId: UUID,
-    ): Boolean {
+        embeddedPostSnapshotJson: String,
+    ): ChatMessageRow {
         conn.prepareStatement(
             """
-            SELECT 1 FROM user_blocks ub
-             WHERE (ub.blocker_id = ? AND ub.blocked_id IN (
-                        SELECT cp.user_id FROM conversation_participants cp
-                         WHERE cp.conversation_id = ? AND cp.user_id <> ?
-                    ))
-                OR (ub.blocked_id = ? AND ub.blocker_id IN (
-                        SELECT cp.user_id FROM conversation_participants cp
-                         WHERE cp.conversation_id = ? AND cp.user_id <> ?
-                    ))
-             LIMIT 1
+            INSERT INTO chat_messages (conversation_id, sender_id, content, embedded_post_snapshot)
+            VALUES (?, ?, NULL, ?::jsonb)
+            RETURNING id, conversation_id, sender_id, content, created_at, redacted_at
             """.trimIndent(),
         ).use { ps ->
-            ps.setObject(1, senderId)
-            ps.setObject(2, conversationId)
-            ps.setObject(3, senderId)
-            ps.setObject(4, senderId)
-            ps.setObject(5, conversationId)
-            ps.setObject(6, senderId)
-            ps.executeQuery().use { rs -> return rs.next() }
+            ps.setObject(1, conversationId)
+            ps.setObject(2, senderId)
+            ps.setString(3, embeddedPostSnapshotJson)
+            ps.executeQuery().use { rs ->
+                check(rs.next()) { "INSERT ... RETURNING produced no row" }
+                return rs.toChatMessageRow()
+            }
+        }
+    }
+
+    /**
+     * Load the active participant set (`left_at IS NULL`) for [conversationId] in a single
+     * SELECT. Used by [sendMessage] to derive both the active-participant gate AND the
+     * recipient (= the OTHER user) without issuing a second `SELECT conversation_participants`
+     * for the emit step (per `chat-message-notification` design § D2 — JDBC-spy scenario
+     * forbids the duplicate). Returns the set of `user_id` values; caller decides whether
+     * `senderId in set` (auth gate) and `set - {senderId}` (recipient).
+     */
+    private fun loadActiveParticipants(
+        conn: Connection,
+        conversationId: UUID,
+    ): Set<UUID> {
+        conn.prepareStatement(
+            """
+            SELECT user_id FROM conversation_participants
+             WHERE conversation_id = ? AND left_at IS NULL
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setObject(1, conversationId)
+            ps.executeQuery().use { rs ->
+                val out = mutableSetOf<UUID>()
+                while (rs.next()) out += rs.getObject("user_id", UUID::class.java)
+                return out
+            }
         }
     }
 

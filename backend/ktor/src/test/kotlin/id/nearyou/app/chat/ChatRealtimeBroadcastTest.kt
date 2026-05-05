@@ -17,6 +17,9 @@ import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.notifications.NoopNotificationDispatcher
+import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.data.repository.NotificationType
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -212,6 +215,8 @@ class ChatRealtimeBroadcastTest : StringSpec({
         val service =
             ChatService(
                 repository = repo,
+                notifications = NoopChatBroadcastEmitter,
+                dispatcher = NoopNotificationDispatcher(),
                 rateLimiter = rateLimiter,
                 remoteConfig = NullRemoteConfigBroadcast,
             )
@@ -574,6 +579,7 @@ class ChatRealtimeBroadcastTest : StringSpec({
                         conversationId: UUID,
                         senderId: UUID,
                         content: String,
+                        emitInTx: ((java.sql.Connection, ChatMessageRow, UUID) -> Unit)?,
                     ): ChatMessageRow {
                         throw RuntimeException("simulated rollback")
                     }
@@ -723,8 +729,9 @@ class ChatRealtimeBroadcastTest : StringSpec({
                         conversationId: UUID,
                         senderId: UUID,
                         content: String,
+                        emitInTx: ((java.sql.Connection, ChatMessageRow, UUID) -> Unit)?,
                     ): ChatMessageRow {
-                        val row = super.sendMessage(conversationId, senderId, content)
+                        val row = super.sendMessage(conversationId, senderId, content, emitInTx)
                         if (firstCall) {
                             firstCall = false
                             // Mid-request admin flip — happens after auth completed,
@@ -890,3 +897,22 @@ private fun <T> List<T>.shouldBeEmpty() {
 
 @Suppress("UnusedPrivateProperty")
 private val sentinelDataSource: DataSource? = null
+
+/**
+ * No-op [NotificationEmitter] for the chat-realtime-broadcast tests. Broadcast tests
+ * predate `chat-message-notification` and assert on publish behaviour (NOT emit
+ * behaviour); a no-op emitter keeps the tx-internal step a structural no-op so the
+ * assertions stay focused on the publish path. Notification-aware tests use
+ * `DbNotificationEmitter`.
+ */
+private object NoopChatBroadcastEmitter : NotificationEmitter {
+    override fun emit(
+        conn: java.sql.Connection,
+        recipientId: UUID,
+        actorUserId: UUID?,
+        type: NotificationType,
+        targetType: String?,
+        targetId: UUID?,
+        bodyData: kotlinx.serialization.json.JsonObject,
+    ): UUID? = null
+}

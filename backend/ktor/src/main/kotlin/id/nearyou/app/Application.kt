@@ -485,6 +485,8 @@ fun Application.module() {
     val chatService =
         ChatService(
             repository = chatRepository,
+            notifications = notificationEmitter,
+            dispatcher = notificationDispatcher,
             rateLimiter = rateLimiter,
             remoteConfig = remoteConfig,
         )

@@ -596,7 +596,7 @@ What's missing: a test that boots `Application.module()` with a test-only overri
 ## chat-message-notification-emit-sites
 
 **Discovered during:** `chat-foundation` apply, fcm-push-dispatch cross-reference
-**Status:** open (hard prerequisite is `chat-realtime-broadcast-publish` landing first)
+**Status:** partially closed — `chat-message-notification` change wires the `chat_message` emit-site + end-to-end coverage; `chat_message_redacted` emit + per-conversation FCM batching remain open.
 
 **Finding:** The fcm-push-dispatch composite shipped in PR #60 wires the dispatcher with all four current emit-site services (post_liked, post_replied, follow, etc.) but has NO `chat_message` or `chat_message_redacted` emit-site to push from. `chat-foundation` deliberately defers adding these emit-sites because (a) without the realtime broadcast layer there's no async surface to push from, and (b) the canonical Phase 2 #11 per-conversation FCM push batching depends on the broadcast layer being in place. Once `chat-realtime-broadcast-publish` lands, the chat send path will have a natural emit-site (after the post-commit broadcast publish) where `notifications` table emits + FCM dispatch can be added. The fcm-push-dispatch dispatcher will pick them up automatically once emitted.
 
@@ -609,10 +609,10 @@ What's missing: a test that boots `Application.module()` with a test-only overri
 **Ambiguity to resolve first:** Notification body shape for chat — what fields land in `notifications.body_data`? Sender username + content excerpt (truncated to 80 code points like reply excerpt)? Or sender + conversation_id only, with the client fetching content on tap? Decide in the change's design.md.
 
 **Action items:**
-- [ ] After `chat-realtime-broadcast-publish` lands, file OpenSpec change `chat-message-notification-emit-sites`. ADD `chat_message` and `chat_message_redacted` notification types in `core/data/.../NotificationType.kt`. Wire the `chat_message` emit in the chat-message send transaction (mirror the `post_replied` + `post_liked` emit-site pattern in ReplyService / LikeService).
-- [ ] Add the per-conversation FCM push batching design (Phase 2 #11) — this may be a separate change depending on scope.
-- [ ] Cover the emit + dispatch end-to-end against a real Postgres + mocked FCM (mirror `JdbcUserFcmTokenReaderTest` shape).
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
+- [x] After `chat-realtime-broadcast-publish` lands, file OpenSpec change `chat-message-notification-emit-sites`. ADD `chat_message` and `chat_message_redacted` notification types in `core/data/.../NotificationType.kt`. Wire the `chat_message` emit in the chat-message send transaction (mirror the `post_replied` + `post_liked` emit-site pattern in ReplyService / LikeService). _Closed by `chat-message-notification` (this branch). `chat_message_redacted` emit is deferred to the Phase 3.5 admin redaction change per `chat-message-notification` proposal § Open Questions Q3._
+- [ ] Add the per-conversation FCM push batching design (Phase 2 #11) — this may be a separate change depending on scope. _Still open. Out of scope for `chat-message-notification`._
+- [x] Cover the emit + dispatch end-to-end against a real Postgres + mocked FCM (mirror `JdbcUserFcmTokenReaderTest` shape). _Closed by `chat-message-notification` — `:backend:ktor` `ChatMessageNotificationTest` covers the emit + composite-dispatcher fan-out; `:infra:fcm` `PushCopyTest` + `PayloadBuildersTest` cover the chat_message push copy + iOS payload._
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges. _Will close fully when the per-conversation FCM batching design is filed._
 
 ## chat-realtime-broadcast-publish-side-shadow-ban-filter
 
@@ -780,6 +780,27 @@ Gap surface: zero OTel SDK references in [`gradle/libs.versions.toml`](gradle/li
 
 **Action items:**
 - [ ] Amend [`docs/04-Architecture.md:398`](docs/04-Architecture.md) to add a "future-state once `observability-otel-foundation` ships" qualifier to the mandatory-attributes line, OR fold the amendment into the `observability-otel-foundation` change itself.
+- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
+
+---
+
+## chat-flow-diagram-missing-notification-emit-step
+
+**Discovered during:** `chat-message-notification` `/next-change` Phase B step 7 reconciliation pass — verifying the canonical chat flow diagram at [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) against the as-shipped + about-to-ship runtime.
+**Status:** open
+
+**Finding:** [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) shows the chat flow as: validate → INSERT chat_messages → Supabase Realtime broadcast → Client B receives. The diagram does NOT mention notification emit (the `chat_message` row + FCM push), even though the canonical body_data catalog at [`docs/05-Implementation.md:860`](docs/05-Implementation.md) declares `chat_message` as a wired notification type with body_data shape `{conversation_id, preview}`. The diagram was authored before `fcm-push-dispatch` and `in-app-notifications` shipped, and has not been amended since. Other shipped capabilities have similarly omitted-from-diagrams emit steps (e.g., post likes don't show notification dispatch in the like flow either) — the diagram is an architectural overview, not a complete sequence — but the `chat-message-notification` change makes the omission newly load-bearing for chat specifically: a future maintainer reading 1195-1212 might conclude that chat sends do NOT emit notifications, contradicting the actual ship state.
+
+**Specs at fault:** None — `chat-conversations/spec.md` (post-archive of `chat-message-notification`) will correctly require the emit step inside the chat send tx.
+**Code at fault:** None — the chat-message-notification change ships the emit correctly.
+**Docs at fault:** [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) chat flow diagram (omits the emit step).
+
+**Impact (if shipped):** Low. Misleads a future maintainer reading the diagram into thinking chat sends do not produce a `notifications` row — they will discover the truth on first grep of `NotificationEmitter` use sites or first read of the spec, but that's wasted time. Same shape as several other doc-staleness FOLLOW_UPs in this project (e.g., `architecture-doc-otel-mandatory-attributes-clarification` above, `premium-search-reindex-trigger-doc-divergence` earlier in this file).
+
+**Ambiguity to resolve first:** Optional design choice — either (a) amend the chat flow diagram to add an "INSERT notifications + dispatch FCM push" step inside the tx between `INSERT chat_messages` and the broadcast, OR (b) add an explicit pointer line below the diagram noting that the canonical notifications catalog at line 860 + the in-app-notifications spec own the emit detail. Either fix resolves the ambiguity.
+
+**Action items:**
+- [ ] After `chat-message-notification` ships, file a docs-only amendment to [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) — either approach (a) or approach (b) above. Standalone docs PR or batched with the next OpenSpec change that touches chat documentation.
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
 
 ---

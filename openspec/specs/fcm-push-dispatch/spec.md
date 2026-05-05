@@ -249,7 +249,7 @@ For each row whose `platform = "android"`, `FcmDispatcher` SHALL build an FCM `M
 For each row whose `platform = "ios"`, `FcmDispatcher` SHALL build an FCM `Message` with the following shape:
 
 - A `Notification` block with `title` (per-type via `PushCopy.titleFor(type)`) and `body` (per-type via `PushCopy.bodyFor(notification, actor_username)`).
-- An `ApnsConfig` block with `aps.mutableContent = true`. This is the flag the future iOS Notification Service Extension consumes to optionally rewrite the body based on the on-device preview-toggle preference per [`docs/04-Architecture.md:535-540`](../../../docs/04-Architecture.md).
+- An `ApnsConfig` block with `aps.mutableContent = true`. This is the flag the future iOS Notification Service Extension consumes to optionally rewrite the body based on the on-device preview-toggle preference per [`docs/04-Architecture.md:535-540`](../../../../../docs/04-Architecture.md).
 - A custom data field `body_full` carrying the JSON-stringified `dto.bodyData`. The NSE rewrites the body based on this field if the preview-toggle is ON.
 - The `token` set to the row's `token` value.
 
@@ -278,8 +278,13 @@ The reason this matters: FCM's underlying APNs response surfaces oversized-paylo
 
 #### Scenario: iOS payload uses fallback copy for unwired notification types
 
-- **WHEN** an iOS push is constructed for a notification of type `chat_message` (not yet emitted as of this change but admitted by the V10 enum)
+- **WHEN** an iOS push is constructed for a notification of type `subscription_billing_issue` (not yet emitted as of this change but admitted by the V10 enum; replaces the prior `chat_message` example which is wired by `chat-message-notification`)
 - **THEN** the `notification.body` is the fallback copy `"Notifikasi baru dari NearYou"` (per `PushCopy` fallback rule) AND no exception is thrown
+
+#### Scenario: iOS payload uses chat_message copy when actor username is present
+
+- **WHEN** an iOS push is constructed for a `chat_message` notification with actor `"bobby"` (added by `chat-message-notification`)
+- **THEN** the `notification.body` is `"bobby mengirim pesan"` (per the `chat_message` template added by `chat-message-notification`); the `body_full` JSON-stringified `body_data` carries `conversation_id` and `preview` keys verbatim
 
 #### Scenario: iOS payload clamps oversized body_full to stay under APNs 4 KB
 
@@ -311,7 +316,10 @@ A Kotlin object `PushCopy` SHALL be defined in `:infra:fcm` with at minimum:
   - `post_replied`: `"<actor_username> membalas post-mu"` (or `"Seseorang membalas post-mu"` when `actorUsername == null`)
   - `followed`: `"<actor_username> mulai mengikuti kamu"` (or `"Seseorang mulai mengikuti kamu"` when `actorUsername == null`)
   - `post_auto_hidden`: `"Postinganmu disembunyikan otomatis karena beberapa laporan"` (no actor; system-emitted)
-  - Any other type (the 9 not yet emitted): `"Notifikasi baru dari NearYou"` (fallback)
+  - `chat_message`: `"<actor_username> mengirim pesan"` (or `"Seseorang mengirim pesan"` when `actorUsername == null`) — added by `chat-message-notification`. The body SHALL NOT inline `body_data.preview` content into the FCM body string; preview rendering is a mobile NSE / Android-side concern via the data payload `body_data.preview` key. The null-fallback path is structurally unreachable under the chat send-handler's sender-shadow-ban skip (a shadow-banned sender never triggers emit, so `ActorUsernameLookup.lookup(sender)` is invoked only for non-shadow-banned senders whose `visible_users` row exists and returns the username); the fallback is retained for defense-in-depth against rare races (e.g., a hard-deleted-mid-flight sender between emit and FCM dispatch).
+  - Any other type (the 8 not yet emitted after `chat-message-notification`): `"Notifikasi baru dari NearYou"` (fallback)
+
+(Note on the requirement title's "four" count: the title is preserved verbatim per OpenSpec's MODIFIED-header-stability convention — changing it would break the MODIFIED match against the existing canonical requirement. With `chat-message-notification` adding `chat_message` as the fifth wired type, the body above is the authoritative count; the title is a stable identifier with historical-original wording. A future change MAY use the OpenSpec RENAMED operation to update the title.)
 
 `PushCopy` MUST NOT call any external service, MUST NOT read any database row, AND MUST NOT depend on Moko Resources (Moko Resources is a KMP client concern; backend strings are server-side i18n per `design.md` D4).
 
@@ -330,9 +338,39 @@ A Kotlin object `PushCopy` SHALL be defined in `:infra:fcm` with at minimum:
 - **WHEN** `bodyFor(post_auto_hidden_notification, actorUsername = null)` is invoked
 - **THEN** the result is `"Postinganmu disembunyikan otomatis karena beberapa laporan"`
 
+#### Scenario: chat_message body uses actor username when present
+
+- **WHEN** `bodyFor(chat_message_notification, actorUsername = "bobby")` is invoked
+- **THEN** the result is `"bobby mengirim pesan"`
+
+#### Scenario: chat_message body falls back when actor username is null
+
+- **WHEN** `bodyFor(chat_message_notification, actorUsername = null)` is invoked
+- **THEN** the result is `"Seseorang mengirim pesan"` AND no exception is thrown
+
+#### Scenario: chat_message body does NOT inline body_data.preview
+
+- **WHEN** `bodyFor(chat_message_notification_with_preview, actorUsername = "bobby")` is invoked, where the notification's `body_data.preview = "halo Alice"`
+- **THEN** the result is exactly `"bobby mengirim pesan"` — the string `"halo Alice"` (or any substring of the preview) does NOT appear in the body. Preview rendering is delegated to the mobile NSE / Android side via the FCM data payload's `body_data.preview` key.
+
+#### Scenario: chat_message body with empty-string actor username falls back to null-fallback
+
+- **WHEN** `bodyFor(chat_message_notification, actorUsername = "")` is invoked (empty string, distinct from null — defensive against a bug in `ActorUsernameLookup` that returns `""` instead of `null`)
+- **THEN** the result is `"Seseorang mengirim pesan"` (treated as null-fallback — the empty-string username MUST NOT render as `" mengirim pesan"` with a leading space, which would be a UX bug). Implementation hint: the template SHALL check `actorUsername.isNullOrBlank()` (not just `== null`) before substituting.
+
+#### Scenario: chat_message body with actor username containing emoji renders verbatim
+
+- **WHEN** `bodyFor(chat_message_notification, actorUsername = "bobby🎉")` is invoked (emoji in username — Indonesian usernames are lowercase ASCII per the `username-generation` rules, but defensive against future schema changes that might allow Unicode)
+- **THEN** the result is `"bobby🎉 mengirim pesan"` — the emoji is preserved verbatim; no double-encoding, no HTML escaping. APNs / FCM payload stays valid UTF-8.
+
+#### Scenario: chat_message body with actor username containing a quote character does not break JSON serialization
+
+- **WHEN** an iOS push payload is assembled for a `chat_message` notification with `actor_username = "bo\"by"` (containing a JSON-special character — extremely unlikely in practice given username schema, but the dispatcher MUST be robust)
+- **THEN** the assembled `ApnsConfig.payload` is valid JSON when parsed back; the `notification.body` field correctly escapes the embedded quote OR the dispatcher rejects the notification with a structured WARN `event="fcm_dispatch_failed"` `error_code="invalid_actor_username"`. Either outcome is acceptable; the test pins which outcome the implementation chose.
+
 #### Scenario: Unknown / unwired type returns the fallback
 
-- **WHEN** `bodyFor(chat_message_notification, actorUsername = "bobby")` is invoked (chat emit-site has not shipped as of this change but the type is admitted by the V10 enum)
+- **WHEN** `bodyFor(subscription_billing_issue_notification, actorUsername = null)` is invoked (subscription-billing-issue emit-site has not shipped as of this change)
 - **THEN** the result is `"Notifikasi baru dari NearYou"` AND no exception is thrown
 
 #### Scenario: titleFor returns "NearYou" for every known type

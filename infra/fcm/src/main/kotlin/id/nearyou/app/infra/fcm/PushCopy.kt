@@ -30,22 +30,29 @@ object PushCopy {
     /**
      * Per-type push body parameterized by the actor username (when available).
      *
-     * For unwired types (the nine V10 enum values that have no emit-site yet),
-     * returns the fallback `"Notifikasi baru dari NearYou"` regardless of
-     * whether [actorUsername] is null — the fallback intentionally does not
-     * interpolate the actor handle.
+     * For unwired types (the eight V10 enum values that have no emit-site yet
+     * after `chat-message-notification`), returns the fallback
+     * `"Notifikasi baru dari NearYou"` regardless of whether [actorUsername] is
+     * null — the fallback intentionally does not interpolate the actor handle.
+     *
+     * Empty / blank [actorUsername] is collapsed to the null-fallback path
+     * (defends against an `ActorUsernameLookup` impl that returns `""` instead
+     * of `null` — would otherwise render `" mengirim pesan"` with a leading
+     * space). Per `fcm-push-dispatch` spec § "chat_message body with empty-
+     * string actor username falls back to null-fallback".
      */
     fun bodyFor(
         type: String,
         actorUsername: String?,
     ): String {
-        val actor = actorUsername ?: UNKNOWN_ACTOR
+        val actor = if (actorUsername.isNullOrBlank()) UNKNOWN_ACTOR else actorUsername
         return when (type) {
             NotificationType.POST_LIKED.wire -> "$actor menyukai post-mu"
             NotificationType.POST_REPLIED.wire -> "$actor membalas post-mu"
             NotificationType.FOLLOWED.wire -> "$actor mulai mengikuti kamu"
             NotificationType.POST_AUTO_HIDDEN.wire ->
                 "Postinganmu disembunyikan otomatis karena beberapa laporan"
+            NotificationType.CHAT_MESSAGE.wire -> "$actor mengirim pesan"
             else -> FALLBACK_BODY
         }
     }

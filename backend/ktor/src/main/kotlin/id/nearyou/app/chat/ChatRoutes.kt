@@ -226,6 +226,7 @@ fun Application.chatRoutes(
                             conversationId = conversationId,
                             senderId = principal.userId,
                             content = content,
+                            senderShadowBanned = principal.isShadowBanned,
                         )
                     } catch (_: ConversationNotFoundException) {
                         call.respond(HttpStatusCode.NotFound)
@@ -245,6 +246,14 @@ fun Application.chatRoutes(
                 // Sender-side shadow-ban skip per spec § Publish-side shadow-ban skip: read
                 // `viewer.isShadowBanned` from the request principal (auth-time SELECT;
                 // mid-request staleness is design-accepted per § D2).
+                //
+                // @chat-shadow-ban-skip-couples: realtime-broadcast+notification-emit
+                // Both ChatRealtimeClient.publish and NotificationEmitter.emit MUST skip
+                // together when viewer.isShadowBanned is true. The emit-side skip lives
+                // inside ChatService.sendMessage; this is the publish-side skip. Removing
+                // one without the other breaks the symmetric privacy guarantee — see
+                // chat-conversations spec § "Send-message endpoint" and chat-realtime-
+                // broadcast spec § "Publish-side shadow-ban skip".
                 if (!principal.isShadowBanned) {
                     publishBroadcast(chatRealtimeClient, conversationId, row)
                 }
