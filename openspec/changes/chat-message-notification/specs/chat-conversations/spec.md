@@ -25,6 +25,25 @@ The send query SHALL carry the annotation `// @allow-no-block-exclusion: chat-hi
 
 **`BlockExclusionJoinRule` composition with the new emit step.** The existing `// @allow-no-block-exclusion: chat-history-readable-after-block` annotation continues to apply ONLY to the chat-foundation participant-lookup query inside `ChatService.send(...)`. The new `NotificationEmitter.emit(...)` invocation introduced by this change runs `SELECT 1 FROM user_blocks WHERE ...` internally (per [`in-app-notifications/spec.md`](../../../../specs/in-app-notifications/spec.md) § "NotificationEmitter write-path with block-suppression and self-action suppression") — this is itself the bidirectional block check the `BlockExclusionJoinRule` Detekt rule looks for, so the emitter's SQL satisfies the rule on its own merits and does NOT require a new annotation. The chat handler SHALL NOT add a new `@allow-no-block-exclusion` annotation for the emit; the emitter's existing block-check is the canonical exclusion mechanism for the notification INSERT. Reviewers checking the chat send-handler diff for `BlockExclusionJoinRule` compliance should verify (a) the existing annotation's scope is unchanged and (b) the new emit call site delegates to `NotificationEmitter` (not a hand-rolled `INSERT INTO notifications` that would bypass the emitter's block check).
 
+**Shadow-ban-skip coupling annotation.** The chat send-handler's emit call site SHALL carry a paper-trail comment marker:
+
+```kotlin
+// @chat-shadow-ban-skip-couples: realtime-broadcast+notification-emit
+// Both ChatRealtimeClient.publish and NotificationEmitter.emit MUST skip together
+// when viewer.isShadowBanned is true. Removing one without the other breaks the
+// symmetric privacy guarantee — see chat-conversations spec § "Send-message endpoint"
+// and chat-realtime-broadcast spec § "Publish-side shadow-ban skip".
+if (!viewer.isShadowBanned) {
+    notificationEmitter.emit(...)  // emit skip (this change)
+}
+// later, post-commit:
+if (!viewer.isShadowBanned) {
+    chatRealtimeClient.publish(...)  // publish skip (chat-realtime-broadcast)
+}
+```
+
+This marker is documentation-only (not a Detekt-enforced rule in this change) — it tells future maintainers that the two skip branches travel together. A future change MAY introduce a Detekt rule to lint the coupling if drift is observed in practice; until then the marker is the canonical paper trail.
+
 #### Scenario: Active participant sends a valid message
 - **GIVEN** A and B are active participants in X with no `user_blocks` row in either direction; A is NOT shadow-banned
 - **WHEN** A calls `POST /api/v1/chat/X/messages { content: "halo B" }`
@@ -181,3 +200,30 @@ The send query SHALL carry the annotation `// @allow-no-block-exclusion: chat-hi
 #### Scenario: Unauthenticated call rejected before emit
 - **WHEN** the endpoint is called without an Authorization header
 - **THEN** the response is `401 Unauthorized` AND `ChatRealtimeClient.publish` is NOT invoked AND `NotificationEmitter.emit` is NOT invoked
+
+## ADDED Requirements
+
+### Requirement: Privileged chat-message emit path — caller-allowlist non-goal
+
+The chat-handler emit step (`NotificationEmitter.emit(...)` for `type = 'chat_message'`) inherits the shipped chat-foundation auth + active-participant + bidirectional-block + shadow-ban-skip composition. The ONLY caller permitted to invoke this composition in this change is the chat send route handler at `POST /api/v1/chat/{conversation_id}/messages` (concretely: `ChatService.send(...)` or whichever class owns the chat send-handler tx). Any future code path that invokes `NotificationEmitter.emit(recipient, type = 'chat_message', ...)` MUST replicate the full composition pre-emit:
+
+1. Bidirectional block check (`SELECT 1 FROM user_blocks WHERE ...`) returning 403 to the caller, OR delegating to the emitter's internal block-suppression
+2. Active-participant verification (caller is a participant of the conversation referenced by `body_data.conversation_id`)
+3. Sender-shadow-ban skip (read `viewer.isShadowBanned` from request principal — DO NOT issue an additional `SELECT is_shadow_banned`)
+4. Tx-internal emit ordering (INSERT chat_messages → emit → UPDATE last_message_at → COMMIT)
+5. Post-commit publish skip-coupling with `ChatRealtimeClient.publish(...)` on the SAME shadow-ban condition
+
+OR a separate, distinctly-named notification type SHALL be introduced for the new caller (e.g., a future "broadcast announcement" admin feature would use `type = 'admin_announcement'`, NOT reuse `chat_message`).
+
+This is a paper-trail non-goal — NOT enforced by code in this change. Reviewers of future PRs that emit `chat_message` outside the chat send route are expected to flag the missing composition. Codified here so the expectation is explicit and the chat-message notification surface stays minimal.
+
+#### Scenario: Only the chat send route emits chat_message in this change
+
+- **WHEN** searching the `:backend:ktor` source for callers of `notificationEmitter.emit(...)` with `type = "chat_message"` (or its DI-bound `ChatService` invocation site)
+- **THEN** the only caller is the chat send route handler (the file landing the implementation of `POST /api/v1/chat/{conversation_id}/messages`)
+
+#### Scenario: Future caller without composition fails review
+
+- **GIVEN** a hypothetical future PR that adds a new route invoking `notificationEmitter.emit(recipient, type = "chat_message", ...)` directly (e.g., an admin "send system message" feature) without first running the chat-foundation auth + active-participant + bidirectional-block check + sender-shadow-ban skip + post-commit publish skip-coupling
+- **WHEN** that PR is reviewed
+- **THEN** the reviewer rejects (or asks for changes on) the PR citing this requirement; the future author either (a) adds the full composition before invoking emit, OR (b) introduces a separately-named notification type distinct from `chat_message` (e.g., `admin_announcement`, which would also need its own enum entry, body_data shape, PushCopy template, and security review)

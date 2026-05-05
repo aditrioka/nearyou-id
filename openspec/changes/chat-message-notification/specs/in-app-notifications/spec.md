@@ -62,6 +62,14 @@ The emitter MUST be constructor-injectable into the **five wired writer services
 
 For chat sends (`ChatService`), the caller is responsible for the sender-shadow-ban skip BEFORE invoking `NotificationEmitter.emit(...)` — this is a chat-handler-level decision documented in [`chat-conversations/spec.md`](../../../../specs/chat-conversations/spec.md) § "Send-message endpoint" and is NOT enforced inside the emitter (the emitter is generic across notification types). For all other emit sites (Like / Reply / Follow / Report), shadow-ban skip is not relevant — those flows do not have a publishable real-time surface to suppress.
 
+**Cross-capability shadow-ban handling rule.** Capabilities that compose `NotificationEmitter.emit(...)` SHALL choose between two patterns based on the surface's privacy properties:
+
+1. **Real-time + private-1:1 surface (e.g., chat) → SUPPRESS the emit at the call site.** The shadow-banned actor's notification is not written, no FCM push fires, no in-app row appears. Justification: the recipient cannot reach the actor by any other means (no mutual public surface), so a "Seseorang sent you a message" push from an unreachable counterparty is creepy and useless. Both real-time channels (broadcast + FCM push) get suppressed together. This is the chat pattern, established by `chat-realtime-broadcast` (publish-skip) and extended by `chat-message-notification` (emit-skip).
+
+2. **Public-engagement surface (e.g., post likes / replies / follows) → ALLOW the emit; MASK the username at the FCM body.** The notification row writes normally; the FCM dispatcher reads `actor_user_id` via `ActorUsernameLookup.lookup(...)` from `visible_users` (per [`fcm-push-dispatch/spec.md`](../../specs/fcm-push-dispatch/spec.md) § "ActorUsernameLookup reads from visible_users"); the username masking falls back to `"Seseorang menyukai post-mu"` etc. Justification: the recipient is already exposed to the actor's content via the public surface (post visible via reporter / direct-link / search paths), so a generic-actor notification preserves the recipient's awareness without amplifying the actor.
+
+Future capability authors with a similar real-time + private-1:1 surface (e.g., a future direct-mention feature, a future DM-style group chat, a future voice-message capability) SHOULD follow the chat pattern. Authors with a public-engagement surface (a future bookmark / repost / quote-engagement notification) SHOULD follow the like/reply/follow pattern. Reviewers SHALL flag any new emit call site that doesn't explicitly reference this rule when choosing between the two patterns.
+
 #### Scenario: Self-action suppression (like own post)
 - **WHEN** user Alice likes her own post
 - **THEN** zero rows are inserted into `notifications` AND the emitter logs `suppressed_reason = "self_action"` at DEBUG
