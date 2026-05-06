@@ -31,6 +31,10 @@ dependencies {
     // Logback ListAppender used by the service-role-key-not-in-logs scenario in
     // SupabaseBroadcastChatClientTest (matches the precedent set by `:infra:redis`).
     testImplementation(libs.logback)
+    // SpanRecorder + the OTel surface for the W3C `traceparent` outbound
+    // propagation test (`SupabaseBroadcastTraceparentPropagationTest`).
+    testImplementation(projects.infra.otel)
+    testImplementation(testFixtures(projects.infra.otel))
 }
 
 tasks.withType<Test>().configureEach {

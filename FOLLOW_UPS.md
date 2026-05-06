@@ -33,6 +33,74 @@ Format per entry:
 
 ---
 
+## staging-cold-start-flyway-on-startup-cost
+
+**Discovered during:** `observability-otel-foundation` §1.2 baseline measurement at task-execution time — staging Cloud Run cold-start mean = 25.03s (n=32, last 7 days), 8x above the project's <3s p99 SLO from [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 2 §14.
+**Status:** open
+
+**Finding:** [`Application.kt:243-253`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) gates Flyway migration replay on cold-start behind `RUN_FLYWAY_ON_STARTUP=true`, which staging sets explicitly in [`deploy-staging.yml:111`](.github/workflows/deploy-staging.yml). With 70+ Flyway migrations accumulated, the per-cold-start `flyway.repair() + flyway.migrate()` call dominates startup cost. Comment in Application.kt explicitly notes "prod later splits this into a dedicated Cloud Run Job (`nearyou-migrate`) per the docs/04-Architecture.md deployment plan" — the staging behavior is a deliberate simplification, not an oversight.
+
+**Specs at fault:** None — the canonical deployment plan in `docs/04-Architecture.md` already names the Cloud Run Job split as the prod-shape solution.
+**Code at fault:** None — the gating flag works correctly; staging's deploy workflow is what flips it on.
+**Docs at fault:** None — the comment block in `Application.kt:236-241` correctly describes the trade-off.
+
+**Impact (if shipped):** Phase 2 §14 cold-start benchmark cannot be meaningfully run against staging today — the 25s baseline is artificially inflated. Operators measuring "is this change increasing cold-start?" must use mean-delta comparison (which works), not absolute number (which doesn't reflect prod). Production cold-start estimate (~7-10s) is theoretical until the Cloud Run Job split lands.
+
+**Ambiguity to resolve first:** Two paths: (a) introduce `nearyou-migrate` Cloud Run Job for staging too (adds operational complexity for staging), (b) keep staging-as-is and document the limitation (cheaper, accept measurement caveat). Recommend (b) for pre-launch — premature ops complexity for a synthetic-data environment.
+
+**Action items:**
+- [ ] Document the staging-vs-prod cold-start caveat in `docs/04-Architecture.md` § Deployment so future operators don't get confused by the staging numbers.
+- [ ] When production tag-deploy happens, ensure `RUN_FLYWAY_ON_STARTUP` is NOT set (or explicitly false) and Flyway runs via separate Cloud Run Job per the canonical deployment plan.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after production deploy validates the ~7-10s cold-start estimate.
+
+---
+
+## cloud-run-startup-latency-bucket-resolution
+
+**Discovered during:** `observability-otel-foundation` §1.2/§7.7 baseline measurement — Cloud Monitoring's `run.googleapis.com/container/startup_latencies` distribution metric uses exponential histogram buckets that are 2.5s wide at the 25-27s latency range (e.g., the `[24.8s, 27.3s)` bucket contains 28 of 32 baseline samples).
+**Status:** open
+
+**Finding:** Sub-second mean deltas (the regime where OTel cost lands — ~100-300ms) are **invisible** from bucket-based percentile interpolation when both pre-change and post-change samples cluster in the same wide bucket. Mean (computed from `sum/count`) preserves ms-level resolution, but p50/p95/p99 reads via the standard `percentileFromBuckets` interpolation cannot detect them. This is a measurement-tool limitation, not a Cloud Run misconfiguration — exponential bucket scaling is standard for latency histograms.
+
+**Specs at fault:** None — but the §7.7 task in `observability-otel-foundation/tasks.md` originally specified "p99 delta" as the regression metric. Updated mid-flight to "mean delta" after this finding surfaced.
+**Code at fault:** None.
+**Docs at fault:** None canonical, but operations notes don't currently document this measurement caveat.
+
+**Impact (if shipped):** Future cold-start regression checks against this metric must use mean-delta, not p99-bucket-shift. Documentation gap; operators following spec text without context could conclude "no regression" when a real 200ms delta is hidden by bucket resolution.
+
+**Ambiguity to resolve first:** None — the resolution is deterministic (use mean for sub-second deltas, use p99 bucket for >2s deltas).
+
+**Action items:**
+- [ ] Add a section to `docs/04-Architecture.md` § Observability OR a new `docs/07-Operations.md` § Cold-start measurement note documenting: "use mean (sum/count) for sub-second delta tracking; p99 bucket interpolation has 2.5s+ resolution at the 25-27s range and won't capture small regressions."
+- [ ] Consider switching to per-event log-based measurement (Cloud Run logs each cold-start) for high-resolution regression detection in future ops scenarios. Out of scope for `observability-otel-foundation`; surface here so the next ops-touching change can reference.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after the docs amendment lands.
+
+---
+
+## grafana-otlp-token-scope-tightening
+
+**Discovered during:** `observability-otel-foundation` operator setup at task-execution time — Grafana Cloud's "OpenTelemetry setup wizard" (`https://<stack>.grafana.net/.../otel/instrumentation`) generates API tokens with **bundled scopes** (`metrics:write`, `logs:write`, `traces:write`, `profiles:write`, `stacks:read`) and does NOT expose per-scope toggles in its UI. The token created for staging slot `staging-otel-grafana-otlp-token` is over-privileged vs the `traces:write`-only ideal.
+**Status:** open
+
+**Finding:** Principle-of-least-privilege violation. Token in GCP Secret Manager (mitigated by IAM grants — Cloud Run SA-only access) carries write permissions to metrics + logs + profiles planes we don't use, plus `stacks:read` admin scope we don't need. Blast radius if token leaks: attacker can write garbage to all data planes (not just traces) + read stack metadata. Acceptable for pre-launch staging (synthetic data, no production users), unacceptable for production tag-deploy.
+
+**Specs at fault:** None — the spec at `openspec/specs/observability-otel-foundation/spec.md` (post-archive) is intentionally silent on token scope provisioning (operator concern, not capability behavior).
+**Code at fault:** None — `OtelBootstrap` doesn't care about scope; it just authenticates with whatever credential the slot contains.
+**Docs at fault:** [`docs/10-Setup-Checklist.md`](docs/10-Setup-Checklist.md) § 3.7 mentions "Read+Write trace permissions only — no metric/log scope" but the wizard UI doesn't honor the operator's intent. Doc is aspirationally correct; reality requires custom Access Policy path.
+
+**Impact (if shipped):** Medium pre-launch (GCP Secret Manager IAM is the primary defense; token leak requires GCP credential compromise first). High at production tag-deploy (real user data, regulatory considerations).
+
+**Ambiguity to resolve first:** Whether to apply this to staging slots retroactively or only enforce on production. Recommend: tighten production from day-one (custom Access Policy with `traces:write` only + custom token), leave staging as-is until next regular rotation.
+
+**Action items:**
+- [ ] Before production tag-deploy: navigate to Grafana Cloud Portal (`https://grafana.com/orgs/<org>/access-policies`), create custom Access Policy `nearyou-prod-traces-write-only` with realm = stack `nearyouid`, scope = `traces:write` only.
+- [ ] Generate token from that policy, populate `otel-grafana-otlp-token` slot in `nearyou-production` GCP Secret Manager project.
+- [ ] Optional staging hardening: rotate `staging-otel-grafana-otlp-token` to a custom-policy-generated token at next convenient maintenance window.
+- [ ] Update [`docs/10-Setup-Checklist.md`](docs/10-Setup-Checklist.md) § 3.7 to document the Access Policy path as the canonical token-mint procedure (current OTLP wizard path is convenient-but-over-privileged shortcut).
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after production token rotation.
+
+---
+
 ## observability-otel-collector-tail-sampling
 
 **Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 adversarial-lens finding #11 — the round-1 design § D4 force-keep `SpanProcessor` re-emitting via `Tracer.spanBuilder().setNoParent()` is structurally wrong: it creates a fresh root span detached from the original trace, breaking trace_id linkage in Tempo.

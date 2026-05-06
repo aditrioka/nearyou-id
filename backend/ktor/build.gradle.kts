@@ -19,6 +19,7 @@ dependencies {
     implementation(projects.core.data)
     implementation(projects.infra.fcm)
     implementation(projects.infra.oidc)
+    implementation(projects.infra.otel)
     implementation(projects.infra.redis)
     implementation(projects.infra.supabase)
 
@@ -62,6 +63,10 @@ dependencies {
     // declares the SDK as `implementation` (not `api`) per design D16; the
     // test classpath promotes it locally for tests only.
     testImplementation(libs.firebase.admin)
+
+    // SpanRecorder + FailingSpanProcessor test fixtures from `:infra:otel`,
+    // consumed by `chat-realtime-broadcast` + `fcm-push-dispatch` pairing tests.
+    testImplementation(testFixtures(projects.infra.otel))
 
     detektPlugins(projects.lint.detektRules)
 }

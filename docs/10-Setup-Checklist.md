@@ -221,12 +221,20 @@ End-to-end verified 2026-04-26: pulled credential from Secret Manager → minted
 
 - [ ] Signup - https://grafana.com/auth/sign-up/create-user
 - [ ] Pilih Free tier
-- [ ] Create stack "nearyou"
-- [ ] Save OTel endpoint + API key (Tempo/Prometheus)
+- [ ] Create stack `nearyou-staging` (staging) and `nearyou-prod` (production) — one Grafana Cloud project, two stacks
+- [ ] Mint OTLP/HTTP token for each stack with **Read+Write trace permissions only** (no metric/log scope at the `observability-otel-foundation` change). Token format: `<instance-id>:<api-key>` for the OTLP/HTTP `Authorization: Basic` header
+- [ ] Populate GCP Secret Manager slots (verbatim names — match `secretKey(env, ...)` lookups in `:infra:otel`):
+    - `staging-otel-grafana-otlp-endpoint` — staging Tempo OTLP/HTTP endpoint (e.g., `https://tempo-prod-XX-us-central-0.grafana.net/tempo`)
+    - `staging-otel-grafana-otlp-token` — staging HTTP Basic auth credential (base64 of `<instance_id>:<api_token>` from the Grafana OTLP wizard; `OtelBootstrap` prepends `Basic ` scheme)
+    - `otel-grafana-otlp-endpoint` — production Tempo OTLP/HTTP endpoint
+    - `otel-grafana-otlp-token` — production HTTP Basic auth credential (same shape as staging slot)
+- [ ] Confirm IAM: ONLY the staging + production Cloud Run service accounts have `roles/secretmanager.secretAccessor` on these slots — no CI / dev access
+- [ ] Wire env-var bindings in `.github/workflows/deploy-staging.yml` and the production deploy workflow: `OTEL_GRAFANA_OTLP_ENDPOINT=staging-otel-grafana-otlp-endpoint:latest` (staging) and `OTEL_GRAFANA_OTLP_TOKEN=staging-otel-grafana-otlp-token:latest` (staging); unprefixed slot names in production
 
 **Notes**:
-- Grafana stack URL: _________________
-- OTel endpoint: _________________
+- Grafana stack URLs (staging / prod): _________________ / _________________
+- OTel OTLP/HTTP endpoints (staging / prod): _________________ / _________________
+- Cloud Run SA grants verified: [ ] staging  [ ] production
 
 ### 3.8 Amplitude
 

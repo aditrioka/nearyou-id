@@ -1,6 +1,8 @@
 package id.nearyou.app.infra.fcm
 
 import com.google.firebase.messaging.MessagingErrorCode
+import id.nearyou.app.infra.otel.UserIdHasher
+import id.nearyou.app.infra.otel.withSpan
 import id.nearyou.data.repository.ActorUsernameLookup
 import id.nearyou.data.repository.FcmTokenRow
 import id.nearyou.data.repository.NotificationDispatcher
@@ -62,6 +64,14 @@ class FcmDispatcher(
                 "event=fcm_dispatch_after_shutdown notification_id={}",
                 notificationId,
             )
+            // Best-effort span-event recording for the dispatch-after-shutdown
+            // path. Wrapped in swallow try/catch per `fcm-push-dispatch` spec
+            // § "Span recording failure does not block dispatch".
+            recordFcmFailureEvent(
+                eventName = "fcm_dispatch_after_shutdown",
+                errorCode = null,
+                cause = null,
+            )
             return
         }
         // Enqueue all work on the background scope; the request thread returns
@@ -79,6 +89,11 @@ class FcmDispatcher(
                         notificationId,
                         t.javaClass.simpleName,
                     )
+                    recordFcmFailureEvent(
+                        eventName = "fcm_dispatch_failed",
+                        errorCode = "dispatch_setup_failed",
+                        cause = t,
+                    )
                 }
             }
         } catch (t: Throwable) {
@@ -89,6 +104,11 @@ class FcmDispatcher(
                 "event=fcm_dispatch_after_shutdown notification_id={} reason=launch_rejected error_class={}",
                 notificationId,
                 t.javaClass.simpleName,
+            )
+            recordFcmFailureEvent(
+                eventName = "fcm_dispatch_after_shutdown",
+                errorCode = null,
+                cause = t,
             )
         }
     }
@@ -124,6 +144,29 @@ class FcmDispatcher(
     }
 
     private fun sendOne(
+        notification: NotificationRow,
+        row: FcmTokenRow,
+        actorUsername: String?,
+        dispatchStartedAt: java.time.Instant,
+    ) {
+        // Per `fcm-push-dispatch` spec § "WARN-log scenarios SHALL pair with
+        // an OTel span event": wrap the FCM Admin SDK send call in
+        // `withSpan("fcm.dispatch", ...)`. Attributes carry `messaging.system="fcm"`
+        // + the hashed `user.id` (recipient is the relevant principal in the
+        // dispatch path). `messaging.destination.kind` is intentionally omitted —
+        // FCM dispatches to per-device tokens, neither "topic" nor "queue"
+        // accurately describes the destination.
+        withSpan(
+            name = "fcm.dispatch",
+            attributes =
+                mapOf(
+                    "messaging.system" to "fcm",
+                    "user.id" to UserIdHasher.hash(notification.userId),
+                ),
+        ) { sendOneInner(notification, row, actorUsername, dispatchStartedAt) }
+    }
+
+    private fun sendOneInner(
         notification: NotificationRow,
         row: FcmTokenRow,
         actorUsername: String?,
@@ -302,6 +345,14 @@ class FcmDispatcher(
                 tokenHashPrefix(token),
             )
         }
+        // Per `fcm-push-dispatch` spec § "WARN-log scenarios SHALL pair with
+        // an OTel span event": every WARN log emission ALSO records a span
+        // event on the surrounding `fcm.dispatch` span. The event carries
+        // `event` + `error_code` matching the log-line fields (NEVER the raw
+        // token, raw user UUID, or raw notification body). Wrapped in
+        // recordFcmFailureEvent's swallow try/catch so observability failure
+        // does not block dispatch.
+        recordFcmFailureEvent(eventName = event, errorCode = errorCode, cause = cause)
     }
 
     private fun tokenHashPrefix(token: String): String {
@@ -316,5 +367,48 @@ class FcmDispatcher(
 
     companion object {
         private val log = LoggerFactory.getLogger(FcmDispatcher::class.java)
+
+        /**
+         * Records an `fcm_dispatch_failed` (or `fcm_dispatch_after_shutdown`)
+         * span event on the currently-active span. Wrapped in a swallow
+         * try/catch per `fcm-push-dispatch` spec § "Span recording failure
+         * does not block dispatch" — observability failure MUST NOT block
+         * dispatch, propagate to the caller, or change the WARN log emission.
+         *
+         * The event is added to whatever span is current at the call site —
+         * normally the `fcm.dispatch` span wrapped by [withSpan] in
+         * [sendOne], but for the [dispatch] entrypoint paths
+         * (dispatch-after-shutdown, launch-rejected, dispatch-setup-failed)
+         * there is no surrounding `withSpan` so the event lands on whatever
+         * Ktor server / `withSpan` parent context is active. Either is
+         * acceptable per the spec — the requirement is "the event is recorded
+         * paired with the WARN log".
+         */
+        internal fun recordFcmFailureEvent(
+            eventName: String,
+            errorCode: String?,
+            cause: Throwable?,
+        ) {
+            try {
+                val span = io.opentelemetry.api.trace.Span.current()
+                val attrsBuilder =
+                    io.opentelemetry.api.common.Attributes.builder()
+                        .put("event", eventName)
+                if (errorCode != null) {
+                    attrsBuilder.put("error_code", errorCode)
+                }
+                if (cause != null) {
+                    span.recordException(cause)
+                }
+                span.addEvent(eventName, attrsBuilder.build())
+                if (eventName.startsWith("fcm_dispatch_failed") ||
+                    eventName == "fcm_dispatch_after_shutdown"
+                ) {
+                    span.setStatus(io.opentelemetry.api.trace.StatusCode.ERROR)
+                }
+            } catch (_: Throwable) {
+                // Observability failure MUST NOT block dispatch.
+            }
+        }
     }
 }

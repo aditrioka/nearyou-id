@@ -9,6 +9,7 @@ import id.nearyou.app.core.domain.chat.PublishResult
 import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.guard.ContentTooLongException
+import id.nearyou.app.infra.otel.withSpan
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -323,7 +324,7 @@ private suspend fun ApplicationCall.respondBlocked() {
  * On a thrown `Throwable` that escapes the adapter, the catch block logs
  * `error_class = throwable::class.qualifiedName` for symmetry.
  */
-private suspend fun publishBroadcast(
+internal suspend fun publishBroadcast(
     chatRealtimeClient: ChatRealtimeClient,
     conversationId: UUID,
     row: ChatMessageRow,
@@ -340,33 +341,87 @@ private suspend fun publishBroadcast(
             createdAt = row.createdAt,
             redactedAt = row.redactedAt,
         )
-    val result =
-        try {
-            chatRealtimeClient.publish(conversationId, broadcast)
-        } catch (ce: kotlinx.coroutines.CancellationException) {
-            // Coroutine cancellation (typically: client disconnected mid-publish) — propagate
-            // so the request scope tears down per the standard structured-concurrency contract.
-            // Per `chat-realtime-broadcast` spec § "Coroutine cancellation behavior" the WARN
-            // log MUST NOT fire on this path: the (now-canceled) request was preempted before
-            // handler completion. The persisted row remains; mobile REST resync recovers the
-            // missed broadcast on the next reconnect.
-            throw ce
-        } catch (t: Throwable) {
+    // Per `chat-realtime-broadcast` spec § "Structured WARN log on publish
+    // failure" (the OTel-foundation amendment): the publish call is wrapped
+    // in `:infra:otel`'s `withSpan(...)` helper. On a `PublishResult.Failure`
+    // OR a thrown Throwable post-tx-commit, the surrounding span is set to
+    // ERROR + records a `chat_realtime_publish_failed` event whose
+    // attributes match the WARN log's fields. The caller-provided
+    // attributes carry conversation_id + message_id (UUIDs are primary
+    // keys per spec § "Mandatory span attributes" — acceptable in attrs).
+    // CancellationException remains re-thrown without a WARN log per the
+    // existing crash-window contract.
+    withSpan(
+        name = "chat.realtime.publish",
+        attributes =
+            mapOf(
+                "conversation_id" to conversationId.toString(),
+                "message_id" to row.id.toString(),
+                "supabase.realtime.channel" to "chat:$conversationId",
+            ),
+    ) {
+        val result =
+            try {
+                chatRealtimeClient.publish(conversationId, broadcast)
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                // Coroutine cancellation (typically: client disconnected mid-publish) —
+                // propagate so the request scope tears down per the standard
+                // structured-concurrency contract. Per `chat-realtime-broadcast` spec
+                // § "Coroutine cancellation behavior" the WARN log MUST NOT fire on
+                // this path. withSpan's try/finally records exception + sets ERROR
+                // status via its standard re-throw handler.
+                throw ce
+            } catch (t: Throwable) {
+                log.warn(
+                    "event=chat_realtime_publish_failed conversation_id={} message_id={} error_class={}",
+                    conversationId,
+                    row.id,
+                    t.javaClass.name,
+                )
+                // Record the exception + status manually (rather than re-throwing
+                // through withSpan) so HTTP semantics are unchanged: a publish
+                // exception persists the row + returns 201 per design § D3.
+                recordChatPublishFailureEvent(t.javaClass.name, recordException = t)
+                return@withSpan
+            }
+        if (result is PublishResult.Failure) {
             log.warn(
                 "event=chat_realtime_publish_failed conversation_id={} message_id={} error_class={}",
                 conversationId,
                 row.id,
-                t.javaClass.name,
+                result.reason,
             )
-            return
+            recordChatPublishFailureEvent(result.reason, recordException = null)
         }
-    if (result is PublishResult.Failure) {
-        log.warn(
-            "event=chat_realtime_publish_failed conversation_id={} message_id={} error_class={}",
-            conversationId,
-            row.id,
-            result.reason,
+    }
+}
+
+/**
+ * Best-effort span-event recording for publish failure. Sets the surrounding
+ * span to ERROR status, records the exception when provided, and adds the
+ * `chat_realtime_publish_failed` event with `error.type` matching the WARN
+ * log's `error_class` field. Wrapped in a swallow try/catch so a degraded
+ * SDK cannot block the surrounding return.
+ */
+private fun recordChatPublishFailureEvent(
+    errorClass: String,
+    recordException: Throwable?,
+) {
+    try {
+        val span = io.opentelemetry.api.trace.Span.current()
+        if (recordException != null) {
+            span.recordException(recordException)
+        }
+        span.addEvent(
+            "chat_realtime_publish_failed",
+            io.opentelemetry.api.common.Attributes.builder()
+                .put("event", "chat_realtime_publish_failed")
+                .put("error.type", errorClass)
+                .build(),
         )
+        span.setStatus(io.opentelemetry.api.trace.StatusCode.ERROR)
+    } catch (_: Throwable) {
+        // Observability failure MUST NOT block the publish path.
     }
 }
 
