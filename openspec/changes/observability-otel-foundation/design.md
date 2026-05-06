@@ -30,7 +30,7 @@ Constraints carried into the design:
 
 ### D1: `:infra:otel` is a new standalone module, not a sub-package of an existing infra module
 
-**Decision**: Create a fresh `infra/otel/` Gradle module with its own `build.gradle.kts` and namespace `id.nearyou.infra.otel`.
+**Decision**: Create a fresh `infra/otel/` Gradle module with its own `build.gradle.kts` and namespace `id.nearyou.app.infra.otel` — matching the existing infra-module package convention (`infra/fcm/src/main/kotlin/id/nearyou/app/infra/fcm/`, `infra/redis/src/main/kotlin/id/nearyou/app/infra/redis/`, etc.).
 
 **Rationale**: Symmetric with the existing pattern — `:infra:fcm`, `:infra:oidc`, `:infra:redis`, `:infra:supabase` each own one vendor concern. Folding OTel into one of them (e.g., `:infra:redis` because it's the most-instrumented) couples vendor lifecycles. Module name is already reserved in [`openspec/project.md:53`](../../project.md) so there's no surprise.
 
@@ -88,7 +88,7 @@ Staging + dev: `Sampler.alwaysOn()` (head 100%).
 - Always-on + tail sampling at OTel Collector. Rejected: violates the Non-goal "no Collector deployment in this change". A Collector is a separate ops surface; the architecture doc defers it ([`docs/04-Architecture.md:394`](../../../docs/04-Architecture.md)).
 - Always-on in production at full volume. Rejected: cost overrun risk + cardinality at scale; the canonical doc explicitly mandates 10% base.
 
-### D5: `user.id` attribute is SHA-256 hashed via a project-wide `hashUserId(uuid)` helper, NEVER raw
+### D5: `user.id` attribute is SHA-256 hashed via the project-wide `UserIdHasher.hash(uuid)` helper, NEVER raw
 
 **Decision**: `:infra:otel` exposes `UserIdHasher.hash(userId: UUID): String` which returns the first 16 hex characters of `SHA-256(user_id.bytes)`. Every code site setting `user.id` on a span MUST go through this helper — there is no overload accepting a raw UUID. The Detekt rule list grows by one entry: `OtelUserIdRawSetterRule` (forbid `Span.setAttribute("user.id", <UUID>)` outside the `UserIdHasher` invocation; allowlist the helper itself).
 
@@ -130,7 +130,7 @@ Staging + dev: `Sampler.alwaysOn()` (head 100%).
 
 ### D8: Manual `traceparent` header injection on the FCM Admin SDK send call
 
-**Decision**: The Firebase Admin SDK FCM send (`FirebaseMessaging.send(message)`) uses an internal HTTP client that the OTel auto-instrumentation does NOT cover. The fix: wrap the existing `FcmDispatcher.send(...)` body in `:infra:otel`'s `withSpan("fcm.dispatch", attributes) { ... }`, which (a) creates a span; (b) records the span's `traceparent` in MDC; (c) installs an `MDCInsertingServletFilter`-style propagator so the FCM Admin SDK's outbound HTTP request includes the `traceparent` header. If the FCM SDK's HTTP client doesn't expose a propagator hook, fall back to skipping the propagation and just recording the local span (the local span is still useful for latency attribution; cross-service propagation is a nice-to-have).
+**Decision**: The Firebase Admin SDK FCM send (`FirebaseMessaging.send(message)`) uses an internal HTTP client that the OTel auto-instrumentation does NOT cover. The fix: wrap the existing `FcmDispatcher.send(...)` body in `:infra:otel`'s `withSpan("fcm.dispatch", attributes) { ... }` AND configure the Firebase Admin SDK to inject the active `traceparent` header on outbound HTTP requests. The `firebase-admin` JVM client supports a `setHttpTransport(HttpTransport)` builder option that accepts a custom transport; `:infra:otel` ships a `TracingHttpTransport` wrapper that delegates to the SDK's default transport while injecting `traceparent` from the active OTel context. The integration is REQUIRED — the spec scenario "FCM Admin SDK send carries traceparent" is unconditional. If the firebase-admin version pinned in `gradle/libs.versions.toml` does not expose `setHttpTransport` (we currently pin `9.5.0` which does), this becomes a tasks.md `1.x` baseline check — fail-loud rather than ship a half-instrumented FCM path.
 
 **Rationale**:
 - FCM is a Google service that itself emits OTel/Cloud Trace spans — propagation gives operators a single trace from the user's chat send all the way through to FCM's delivery attempt. Worth the manual wrapping.

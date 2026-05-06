@@ -18,6 +18,10 @@ This module-shape requirement enables the Open Decision #12 vendor swap (Grafana
 - **WHEN** the source files of `:core:domain` and `:core:data` are scanned for `import io.opentelemetry.`
 - **THEN** zero matches are found
 
+#### Scenario: Business modules carry no `:infra:otel` Gradle dependency
+- **WHEN** `:core:domain`'s `build.gradle.kts` AND `:core:data`'s `build.gradle.kts` `dependencies { ... }` blocks are inspected
+- **THEN** no `project(":infra:otel")` declaration appears in either AND no `implementation(libs.opentelemetry.*)` BOM-managed declaration appears (this catches a regression where someone adds the dependency edge without writing an `import io.opentelemetry.*` statement that the source-file scenario above would flag)
+
 ### Requirement: `OtelBootstrap.start(env)` initializes the SDK at Ktor startup, idempotent and exception-safe
 
 The `:infra:otel` module SHALL expose a single startup entrypoint `OtelBootstrap.start(env: KtorEnv)` that initializes the OTel `SdkTracerProvider`, configures the per-env exporter, registers the global `OpenTelemetry` instance, and wires auto-instrumentation for HikariCP / Lettuce / outbound HTTP clients. The function SHALL be idempotent — a second call within the same JVM SHALL be a no-op that logs an INFO line and returns. The function SHALL NOT throw on misconfiguration; instead, the bootstrap SHALL fall back to the no-op exporter shape (per the Exporter token absence requirement) and log a single INFO line.
@@ -50,6 +54,11 @@ The composed production sampler MUST NOT export base-ratio-rejected spans where 
 - **WHEN** `OtelBootstrap.start(env)` initializes the SDK
 - **THEN** the configured root `Sampler` reports `SamplingDecision.RECORD_AND_SAMPLE` for every synthetic root span tested
 
+#### Scenario: Staging environment samples at 100% (parity with dev)
+- **GIVEN** `env = KtorEnv.staging`
+- **WHEN** `OtelBootstrap.start(env)` initializes the SDK
+- **THEN** the configured root `Sampler` reports `SamplingDecision.RECORD_AND_SAMPLE` for every synthetic root span tested (equivalent to dev — Phase 2 §14 benchmark needs full traces) AND the sampler is NOT the production composed sampler (defense against a copy-paste regression that would silently demote staging to the prod 10%-base shape)
+
 #### Scenario: Production environment samples at 10% base
 - **GIVEN** `env = KtorEnv.production` AND a synthetic root span with `http.status_code = 200` AND `duration_ms = 100`
 - **WHEN** the sampler is invoked across 1000 trace-id seeds
@@ -64,6 +73,11 @@ The composed production sampler MUST NOT export base-ratio-rejected spans where 
 - **GIVEN** `env = KtorEnv.production` AND a synthetic root span with `http.status_code = 200` AND a recorded duration of 800ms
 - **WHEN** the span ends
 - **THEN** the span is exported regardless of the trace-id seed (slow-promotion predicate satisfied: 800ms > 500ms threshold)
+
+#### Scenario: Production sampler force-keeps an exception-escaped span at status_code 200
+- **GIVEN** `env = KtorEnv.production` AND a synthetic root span with `http.status_code = 200` AND `exception.escaped = true` AND `duration_ms = 100`
+- **WHEN** the span ends
+- **THEN** the span is exported regardless of the trace-id seed (force-keep predicate satisfied via exception, not status code; locks the OR-shape of the predicate so a future regression making it AND would be caught)
 
 #### Scenario: Production sampler drops a fast healthy span outside the base ratio
 - **GIVEN** `env = KtorEnv.production` AND a synthetic root span with `http.status_code = 200` AND `duration_ms = 50` AND a trace-id seed that falls in the 90% drop window
@@ -88,6 +102,11 @@ The OTLP token VALUE SHALL NEVER appear in any log line, span attribute, span na
 - **WHEN** `OtelBootstrap.start(env)` runs
 - **THEN** exactly one INFO log line is emitted with `event="otel_exporter_disabled"` AND `reason="endpoint_missing"`
 
+#### Scenario: Both secrets absent → exactly one INFO line, deterministic precedence
+- **GIVEN** both `secretKey(env, "otel-grafana-otlp-endpoint")` AND `secretKey(env, "otel-grafana-otlp-token")` return null
+- **WHEN** `OtelBootstrap.start(env)` runs
+- **THEN** exactly ONE INFO log line is emitted (NOT two — the implementation SHALL short-circuit on the first missing lookup) AND `reason` carries a single deterministic value (the implementation MAY choose either `"endpoint_missing"` or `"token_missing"` but the choice SHALL be stable across runs)
+
 #### Scenario: Both secrets present → live OTLP exporter wired
 - **GIVEN** both `secretKey(env, "otel-grafana-otlp-endpoint")` and `secretKey(env, "otel-grafana-otlp-token")` return non-null values
 - **WHEN** `OtelBootstrap.start(env)` runs
@@ -97,6 +116,11 @@ The OTLP token VALUE SHALL NEVER appear in any log line, span attribute, span na
 - **GIVEN** the resolved token VALUE `T` AND a test that captures all log lines emitted during `OtelBootstrap.start(env)`
 - **WHEN** the captured log messages are scanned for `T` (substring match)
 - **THEN** `T` does NOT appear in any captured log line
+
+#### Scenario: OTLP token VALUE never appears in span attributes, events, or names
+- **GIVEN** the resolved OTLP token VALUE `T` is configured at startup AND a test SpanRecorder captures every span exported during a representative request flow (server span + outbound HTTP spans + manual `withSpan` sites)
+- **WHEN** all captured spans' names, attribute values, and event attribute values are scanned for `T` (substring match)
+- **THEN** `T` does NOT appear in any captured span attribute value, event attribute value, or span name (the OTLP exporter's outbound HTTPS Authorization header is the ONLY sanctioned location for the token VALUE)
 
 ### Requirement: `user.id` span attribute SHALL be SHA-256 truncated, never raw
 
@@ -127,7 +151,7 @@ Every Ktor server span (root span for an inbound HTTP request) SHALL carry these
 - `http.status_code` (auto-instrumentation).
 - `endpoint` (alias for `http.route`, for query-by-endpoint convenience in Grafana Tempo).
 - `user.id` (set via `UserIdHasher.hash(...)`) when the request is authenticated.
-- `geo.cloud_region` (read from `K_SERVICE_REGION` env var; constant per Cloud Run instance).
+- `cloud.region` (OTel semconv name; read from `K_SERVICE_REGION` env var; constant per Cloud Run instance). The canonical doc at [`docs/04-Architecture.md:398`](../../../../../docs/04-Architecture.md) currently uses the shorthand `geo.cloud_region`; this spec uses the OTel semconv name `cloud.region` to align with standard tooling and to avoid a future "block all `geo.*` attributes" lint false-positive — a follow-up entry in [`FOLLOW_UPS.md`](../../../../../FOLLOW_UPS.md) tracks the canonical-doc amendment.
 
 Every Postgres JDBC span SHALL carry:
 - `db.system = "postgresql"` (auto-instrumentation).
@@ -136,6 +160,10 @@ Every Postgres JDBC span SHALL carry:
 Every Redis Lettuce span SHALL carry:
 - `db.system = "redis"` (auto-instrumentation).
 - `db.operation` (e.g., `"EVALSHA"`, `"GET"`).
+- `db.connection_string` MUST be omitted OR sanitized — the Lettuce auto-instrumentation's default `db.connection_string` value carries the Redis URI in the form `redis://user:password@host:port/db`. The Redis password is a secret per the `secretKey(env, ...)` posture; emitting it as a span attribute is forbidden. The implementation MUST configure Lettuce telemetry to either drop the attribute or strip the userinfo portion before export.
+
+Every Realtime publish span (the `chat.realtime.publish` manual-span site) SHALL carry:
+- `supabase.realtime.channel` — the channel name (e.g., `chat:{conversation_id}`). The conversation_id UUID portion is acceptable in span attributes: it is a primary key, not user-PII, and it is the natural correlation key for trace-by-conversation queries in Grafana Tempo. Raw `user_id` UUIDs remain forbidden per the forbidden-attributes contract.
 
 Every manual `withSpan(name, attributes)` invocation SHALL include any caller-provided attributes verbatim; the helper SHALL NOT mutate, drop, or rename caller-provided attributes.
 
@@ -158,11 +186,13 @@ Every manual `withSpan(name, attributes)` invocation SHALL include any caller-pr
 NO span produced by `:backend:ktor` SHALL ever carry these attribute keys or values:
 - The raw `user_id` UUID (in any attribute, including custom names like `user_uuid`, `principal`, `actor`, etc.). Use `UserIdHasher.hash(...)` instead.
 - The raw client IP read from `CF-Connecting-IP` or `X-Forwarded-For`. (No truncated form is currently sanctioned; if needed, file a follow-up that introduces an `ip.cidr` truncated attribute.)
-- Raw JWT tokens, raw refresh tokens, raw API bearer tokens, raw Supabase service role key, JWKS contents, OAuth client secrets.
-- Raw `actual_location` GIS coordinates from `posts` (only `display_location`-derived numbers may appear, and even those are not currently sanctioned for span attributes).
-- Raw post `content`, raw chat message `content`, raw search query strings — span attribute surface is observable to operators with read access; these surfaces are user-private content.
+- The OTel HTTP server semconv attributes `client.address`, `net.peer.ip`, `net.sock.peer.addr`, `http.client_ip`. The auto-instrumentation attaches these by default — when running behind Cloudflare they would carry the Cloudflare-edge peer IP (NOT the real client IP, which is sourced via `CF-Connecting-IP`), but the project's posture forbids exposing peer-IPs at all. The implementation MUST configure the Ktor server instrumentation to suppress these keys (`SpanCustomizer` / attribute-filter pattern, OTel SDK feature-supported).
+- Raw JWT tokens, raw refresh tokens, raw API bearer tokens, raw OAuth client secrets, JWKS contents, raw Supabase service role key.
+- Raw JWT claims (`sub`, `aud`, `iss`, custom claims). The truncated SHA-256 token correlation id pattern from [`internal-endpoint-auth/spec.md:18`](../../../../specs/internal-endpoint-auth/spec.md) is the only sanctioned anonymization shape for token-related identifiers.
+- Raw `actual_location` GIS coordinates from `posts`. Even `display_location`-derived numbers are not currently sanctioned for span attributes (the spatial-fuzzing invariant covers all telemetry surfaces). Forbid any attribute key matching `*location*`, `*lat*`, `*lng*`, `*coord*` unless explicitly sanctioned.
+- Raw post `content`, raw chat message `content`, raw search query strings (e.g., the `q` query parameter on the search endpoint) — span attribute surface is observable to operators with read access; these surfaces are user-private content.
 - Plaintext password fields (defensive — none are accepted by the current API but the rule preempts a future regression).
-- Raw Redis cluster credentials.
+- Raw Redis cluster credentials. The Lettuce auto-instrumentation's `db.connection_string` attribute MUST be sanitized to strip the `userinfo` portion of the Redis URI (the password) — see the Mandatory span attributes requirement above.
 
 This requirement is enforced at code-review time. A follow-up Detekt rule (`OtelForbiddenAttributeRule`) is reserved for a future hardening change once the writer surface is concrete; this change does not ship the rule but the spec encodes the contract that the rule will enforce.
 
@@ -181,6 +211,31 @@ This requirement is enforced at code-review time. A follow-up Detekt rule (`Otel
 - **WHEN** the captured spans' attributes are scanned for the literal `"sentinel-chat-content-DO-NOT-LEAK"`
 - **THEN** the literal does NOT appear
 
+#### Scenario: No raw client IP / peer IP appears in any server span
+- **GIVEN** a request arriving with `CF-Connecting-IP: 1.2.3.4` AND the upstream peer IP (Cloudflare edge) being some address `E` AND the OTel HTTP server instrumentation configured with the project's attribute-suppression for `client.address` / `net.peer.ip` / `net.sock.peer.addr` / `http.client_ip`
+- **WHEN** the resulting Ktor server span is exported
+- **THEN** none of the keys `client.address`, `net.peer.ip`, `net.sock.peer.addr`, `http.client_ip` appear on the span AND no attribute value equals `"1.2.3.4"` or the peer IP `E`
+
+#### Scenario: No raw bearer token appears in any span
+- **GIVEN** an authenticated request whose `Authorization: Bearer <token>` header value is the well-known sentinel `"sentinel-bearer-token-DO-NOT-LEAK"` AND a test SpanRecorder captures every span emitted during the request
+- **WHEN** the captured spans' attribute values, event attribute values, and span names are scanned for the literal sentinel
+- **THEN** the literal does NOT appear
+
+#### Scenario: No raw JWT claim appears in any span
+- **GIVEN** an authenticated request whose JWT carries `sub = <UUID>` AND `aud = "api.nearyou.id"` AND a test SpanRecorder captures every span emitted during the request
+- **WHEN** the captured spans' attribute values and event attribute values are scanned for the literal raw `<UUID>` and the literal `"api.nearyou.id"` (in any attribute key — `jwt.sub`, `jwt.aud`, custom keys)
+- **THEN** the raw `<UUID>` does NOT appear in any attribute value (the `user.id` attribute uses the truncated `UserIdHasher.hash(...)` form) AND no span carries an attribute key named `jwt.sub`, `jwt.aud`, `jwt.iss`, or any other raw-claim attribute
+
+#### Scenario: No raw search query appears in any span
+- **GIVEN** an authenticated `GET /api/v1/search?q=<sentinel>` request where `<sentinel>` is the well-known string `"sentinel-search-query-DO-NOT-LEAK"` AND a test SpanRecorder captures every span emitted during the request
+- **WHEN** the captured spans' attribute values are scanned for the literal sentinel
+- **THEN** the literal does NOT appear in any attribute (the server span's `http.route` is the route pattern `"/api/v1/search"` — query strings are not part of the route pattern)
+
+#### Scenario: No raw Redis password appears in `db.connection_string` (Lettuce auto-instrumentation)
+- **GIVEN** the Redis connection URI is `redis://default:<sentinel>@<host>:6379/0` where `<sentinel>` is the well-known string `"sentinel-redis-password-DO-NOT-LEAK"` AND a test SpanRecorder captures every Redis span emitted during a representative cache read
+- **WHEN** the captured Redis spans' attribute values are scanned for the literal sentinel
+- **THEN** the literal does NOT appear in `db.connection_string` or any other attribute (the Lettuce telemetry is configured to either drop the attribute or sanitize the userinfo portion)
+
 ### Requirement: W3C Trace Context propagation on outbound HTTP from `:backend:ktor`
 
 Every outbound HTTP request initiated by `:backend:ktor` SHALL carry the W3C `traceparent` header (and `tracestate` when non-empty) populated from the active `Context`. This applies to: the JDK / Apache HTTP client used by the Resend wrapper, Supabase REST calls, Supabase Realtime broadcast publish; and the Firebase Admin SDK FCM send (which uses its own internal HTTP client — propagation is achieved via manual `withSpan` wrapping that injects the header on the way out, per design § D8).
@@ -188,14 +243,24 @@ Every outbound HTTP request initiated by `:backend:ktor` SHALL carry the W3C `tr
 Auto-instrumentation handles propagation for the JDK / Apache HTTP client surface. The FCM Admin SDK case requires a manual injection wrapper provided by `:infra:otel`.
 
 #### Scenario: Outbound JDK HTTP client carries `traceparent`
-- **GIVEN** an active span context AND a Resend HTTP request initiated from `:backend:ktor`
+- **GIVEN** an active span context AND a Resend HTTP request initiated from `:backend:ktor` (or — pre-Resend-module — any other JDK-HTTP-client outbound)
 - **WHEN** the outbound request is captured at the test boundary
 - **THEN** the request headers include `traceparent` matching the active context's trace id and span id
 
-#### Scenario: FCM Admin SDK send carries `traceparent`
-- **GIVEN** an active span context AND a `FirebaseMessaging.send(message)` invocation wrapped by `:infra:otel`'s `withSpan` helper
-- **WHEN** the FCM Admin SDK's outbound HTTP request is captured at the test boundary (e.g., via a mock HTTP client transport)
+#### Scenario: Supabase Realtime broadcast publish carries `traceparent`
+- **GIVEN** an active span context inside the chat send handler AND a `ChatRealtimeClient.publish(...)` call wrapped by `:infra:otel`'s `withSpan("chat.realtime.publish", ...)` helper
+- **WHEN** the Supabase Realtime publish HTTP request to `realtime.supabase.co` (or the configured Supabase endpoint) is captured at the test boundary
+- **THEN** the request headers include `traceparent` matching the active context (this is the only currently-shipped manual-span site requiring verified outbound propagation; the `SupabaseBroadcastChatClient` HTTP transport uses the auto-instrumented JDK client — propagation is auto, but the assertion locks the contract)
+
+#### Scenario: Supabase REST call carries `traceparent`
+- **GIVEN** an active span context inside an authenticated request handler AND a Supabase REST request from `:backend:ktor`
+- **WHEN** the outbound Supabase REST request is captured at the test boundary
 - **THEN** the request headers include `traceparent`
+
+#### Scenario: FCM Admin SDK send carries `traceparent`
+- **GIVEN** an active span context AND a `FirebaseMessaging.send(message)` invocation wrapped by `:infra:otel`'s `withSpan` helper AND the Firebase Admin SDK configured with the `TracingHttpTransport` wrapper (per design § D8)
+- **WHEN** the FCM Admin SDK's outbound HTTPS request to `fcm.googleapis.com` is captured at the test boundary (e.g., via a mock HTTP client transport)
+- **THEN** the request headers include `traceparent` matching the active context (per design § D8 the integration is unconditional — if the firebase-admin pin doesn't expose the transport hook, that fails the tasks.md `1.x` baseline check, NOT this scenario)
 
 ### Requirement: `withSpan` helper is the canonical manual-span surface
 
@@ -213,10 +278,25 @@ Manual span sites (Realtime publish, FCM dispatch, rate-limit Lua call, any futu
 - **WHEN** the helper completes
 - **THEN** the helper returns `V` AND a span named `"test.op"` is captured with status OK
 
-#### Scenario: Block throws → exception is recorded and re-thrown
+#### Scenario: Block throws Exception subclass → recorded and re-thrown
 - **GIVEN** a `withSpan("test.op")` invocation whose block throws `IllegalStateException("boom")`
 - **WHEN** the helper completes
 - **THEN** the helper re-throws `IllegalStateException("boom")` (caller observes the original exception) AND a span named `"test.op"` is captured with status ERROR AND `Span.recordException` captured the thrown exception
+
+#### Scenario: Block throws CancellationException (coroutine cancellation) → recorded and re-thrown
+- **GIVEN** a `withSpan("test.op")` invocation whose block throws `kotlinx.coroutines.CancellationException("cancelled by caller")` (reachable when an outer coroutine cancels the request scope mid-block — relevant for chat send handlers per `chat-realtime-broadcast` design)
+- **WHEN** the helper completes
+- **THEN** the helper re-throws `CancellationException` (NOT swallowed — coroutine cancellation must propagate or the parent scope hangs) AND a span named `"test.op"` is captured with status ERROR AND `Span.recordException` captured the cancellation
+
+#### Scenario: Block throws Throwable subclass (e.g., Error) → span ends via try/finally
+- **GIVEN** a `withSpan("test.op")` invocation whose block throws `OutOfMemoryError("simulated")` (a `java.lang.Error` subclass — `Throwable` not `Exception`)
+- **WHEN** the helper completes
+- **THEN** the helper re-throws `OutOfMemoryError` AND the span is closed via try/finally (`Span.end()` runs even though the throwable is not an Exception subclass) AND no span resource leak occurs
+
+#### Scenario: Nested `withSpan` calls produce parent-child relationship
+- **GIVEN** a nested invocation `withSpan("outer") { withSpan("inner") { ... } }` AND a SpanRecorder captures both spans
+- **WHEN** both spans complete
+- **THEN** the captured `inner` span's parent context references the captured `outer` span's span id (the inner span sees the outer as parent in the trace tree)
 
 #### Scenario: Caller-provided attributes appear verbatim
 - **GIVEN** a `withSpan("test.op", mapOf("foo" to "bar", "n" to 42))` invocation

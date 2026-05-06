@@ -33,6 +33,27 @@ Format per entry:
 
 ---
 
+## geo-cloud-region-canonical-doc-amendment
+
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-1 review (security-and-invariant lens finding Q1).
+**Status:** open
+
+**Finding:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) lists the mandatory Cloud Run region attribute as `geo.cloud_region`. The shipped `observability-otel-foundation` spec + implementation use the OTel semconv standard name `cloud.region` instead. Deliberate divergence: (a) `cloud.region` matches the OTel standard that Grafana Tempo's query patterns expect, (b) the `geo.*` namespace is semantically close to the project's user-PII spatial keys (`actual_location` / `display_location` invariants), so a future "forbid `geo.*` span attributes" Detekt rule could false-positive on a safe value. Doc amendment was deliberately deferred from the OpenSpec change to avoid scope creep.
+
+**Specs at fault:** None — `openspec/specs/observability-otel-foundation/spec.md` (post-archive) correctly uses `cloud.region`.
+**Code at fault:** None — the implementation correctly uses `cloud.region`.
+**Docs at fault:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) — uses non-standard `geo.cloud_region` shorthand.
+
+**Impact (if shipped):** Low. The doc shorthand is the only place the non-standard name appears; readers comparing the doc to the running implementation will notice the divergence. No data quality impact; no operator workflow impact (Tempo accepts both attribute names; queries work either way).
+
+**Ambiguity to resolve first:** None.
+
+**Action items:**
+- [ ] File a docs-only PR that amends `docs/04-Architecture.md:398` to use `cloud.region` (OTel semconv) instead of `geo.cloud_region`.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete it once the docs PR merges.
+
+---
+
 ## suspension-unban-worker-audit-log-after-phase-3.5
 
 **Discovered during:** `suspension-unban-worker` `/next-change` Phase B step 7 reconciliation pass — verifying the canonical "Audit log inserted per unban" line at [`docs/05-Implementation.md:363`](docs/05-Implementation.md) against the current Flyway migration set.

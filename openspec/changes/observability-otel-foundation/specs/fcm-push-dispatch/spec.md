@@ -6,7 +6,7 @@ For each WARN log path defined by the existing requirements (INVALID_ARGUMENT, r
 - `event = <same string as the WARN log's event field>` (e.g., `"fcm_dispatch_failed"`, `"fcm_dispatch_after_shutdown"`).
 - `error_code = <same value as the WARN log's error_code field>` (e.g., `"INVALID_ARGUMENT"`, `"INTERNAL"`, `"UNAVAILABLE"`, `"QUOTA_EXCEEDED"`, `"unknown"`). The `error_code` attribute SHALL NOT appear when the WARN log line itself does not include an `error_code` field.
 
-The surrounding `"fcm.dispatch"` span SHALL be created via `:infra:otel`'s `withSpan(...)` helper around the FCM Admin SDK send call. The span's attributes SHALL include `messaging.system = "fcm"`, `messaging.destination.kind = "topic"` (semconv-aligned), AND the user.id attribute set via `UserIdHasher.hash(userId)` (per `observability-otel-foundation` § "Mandatory span attributes" — recipient user is the relevant principal in the dispatch path). The span SHALL NEVER carry the raw FCM token, the raw user UUID, the raw notification body content, or any other forbidden attribute per the `observability-otel-foundation` § "Forbidden span attributes" requirement.
+The surrounding `"fcm.dispatch"` span SHALL be created via `:infra:otel`'s `withSpan(...)` helper around the FCM Admin SDK send call. The span's attributes SHALL include `messaging.system = "fcm"` AND the `user.id` attribute set via `UserIdHasher.hash(userId)` (per `observability-otel-foundation` § "Mandatory span attributes" — recipient user is the relevant principal in the dispatch path). The span SHALL NOT carry `messaging.destination.kind` (the dispatcher sends to per-device tokens, NOT to FCM topics or queues — neither OTel semconv enum value `"topic"` nor `"queue"` accurately describes the destination, so the attribute is omitted; setting it to `"topic"` would mislead operators into thinking topic-fanout is in use). The span SHALL NEVER carry the raw FCM token, the raw user UUID, the raw notification body content, or any other forbidden attribute per the `observability-otel-foundation` § "Forbidden span attributes" requirement.
 
 Span event recording SHALL be best-effort. If span recording itself throws (e.g., the SDK is in a degraded state), the exception SHALL be silently swallowed AND SHALL NOT block the dispatch, propagate to the caller, or change the WARN log emission. This is consistent with the existing FATAL→ERROR+metric downgrade in [`fcm-push-dispatch/spec.md`](../../../../specs/fcm-push-dispatch/spec.md) § "Composite dispatcher unexpected exception fan-out" — observability is a side-effect surface that MUST NOT be in the critical-path of dispatch.
 
@@ -39,6 +39,11 @@ Span event recording SHALL be best-effort. If span recording itself throws (e.g.
 - **GIVEN** `dispatch(notification)` is invoked for a recipient with 1 token AND the FCM send succeeds
 - **WHEN** `dispatch(notification)` completes
 - **THEN** the surrounding `"fcm.dispatch"` span has status OK AND no event with `event="fcm_dispatch_failed"` is recorded
+
+#### Scenario: INFO-level skip paths do NOT record a span event
+- **GIVEN** `dispatch(notification)` is invoked for a recipient who has been hard-deleted between emit and dispatch (the existing INFO-level `event="fcm_skipped_no_tokens"` log per [`fcm-push-dispatch/spec.md`](../../../../specs/fcm-push-dispatch/spec.md) "Recipient hard-deleted between emit and dispatch" scenario), OR for a token whose stale-prune check returned 0 (existing INFO `event="fcm_token_prune_skipped_re_registered"`)
+- **WHEN** `dispatch(notification)` completes
+- **THEN** the INFO log line is captured (existing behavior preserved) AND the surrounding `"fcm.dispatch"` span SHALL NOT record an event with `event="fcm_dispatch_failed"` or any other failure-style event — INFO-level skip paths are not failures and do not pair with the WARN-log↔span-event surface defined in this requirement (locks the requirement scope to WARN-level paths only)
 
 #### Scenario: Span recording failure does not block dispatch
 - **GIVEN** the OTel SDK is in a degraded state where `Span.addEvent(...)` throws on every call AND FCM responds `INVALID_ARGUMENT` for a token
