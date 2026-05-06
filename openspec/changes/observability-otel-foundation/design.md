@@ -67,25 +67,23 @@ Constraints carried into the design:
 - Cloud Trace direct. Rejected: vendor lock-in to GCP; harder to swap.
 - Honeycomb default. Rejected: paid from message one (no free tier comparable to Grafana Cloud's). Re-evaluate at swap-time.
 
-### D4: Sampling profile via `ParentBased(TraceIdRatioBased)` + a force-keep `SpanProcessor` for error/slow promotion
+### D4: Sampling profile = `Sampler.alwaysOn()` for dev/staging, `ParentBased(TraceIdRatioBased(0.1))` for production — NO force-keep promotion in this change
 
-**Decision**: Production sampler is composed as:
-```
-Sampler.parentBased(
-  TraceIdRatioBased(0.1)          // 10% base
-)
-```
-combined with a custom `SpanProcessor` (`ErrorSlowForceKeepProcessor`) that runs in `onEnd(span)` and promotes any RecordOnly span where `http.status_code >= 500 || exception.escaped == true || (span.isRoot && duration_ms > 500)` to a force-export by re-emitting through a separate `BatchSpanProcessor` configured to export-all.
+**Decision**: Production sampler is `ParentBased(TraceIdRatioBased(0.1))` only. **No force-keep promotion of error / slow spans is implemented in this change.** Staging + dev: `Sampler.alwaysOn()` (head 100%) for the Phase 2 §14 benchmark surface.
 
-Staging + dev: `Sampler.alwaysOn()` (head 100%).
+The canonical sampling profile at [`docs/05-Implementation.md:2042`](../../../docs/05-Implementation.md) prescribes "10% base + 100% errors + 100% slow (>500ms) in production" — and the canonical full target IS the eventual production shape. But the round-3 review surfaced that the only correct way to implement force-keep at production scale is **OTel Collector tail sampling**: a Collector receives all spans, applies tail-sampling rules (`status=ERROR` OR `duration>500ms` → keep; everything else → 10% sample), and forwards the survivors to Tempo. Doing the equivalent at the SDK level (recording all spans on a secondary `BatchSpanProcessor` and re-emitting force-keep candidates) requires either (a) detaching the secondary span via `setNoParent()` — which loses trace_id linkage and breaks Tempo's trace-tree view — or (b) holding all spans in memory until end-of-trace, which the SDK doesn't natively support without Collector-style tail sampling.
+
+This change ships the foundation correctly (10% base, no force-keep) and defers the force-keep work to a focused follow-up (`observability-otel-collector-tail-sampling`). MVP production accepts that 90% of healthy spans drop AND that 90% of error/slow traces also drop — structured JSON logging at 100% retention via Cloud Logging continues to be the authoritative surface for incident replay until the Collector lands.
 
 **Rationale**:
-- The pure `ParentBased(TraceIdRatioBased(0.1))` shape is too loose — it would drop 90% of error traces, violating the "100% errors" requirement at [`docs/05-Implementation.md:2042`](../../../docs/05-Implementation.md).
-- A `RuleBasedRoutingSampler` that hard-decides at `shouldSample` time would force `100% of errors` but you don't know if a span is an error until it ends — you have to record-then-decide-to-export.
-- The `ErrorSlowForceKeepProcessor` shape is the standard OTel idiom for "head-sample but keep specific tail signals" — implemented via `Tracer.spanBuilder().setNoParent()` for the secondary export pipeline. Reference: OpenTelemetry SDK Sampling docs (canonical pattern, not a project invention).
+- The naive SDK-level force-keep (secondary `BatchSpanProcessor`, force-keep `SpanProcessor` re-emitting via `setNoParent()`) silently breaks trace correlation. Round-3 review (codebase-grounded) caught this. Shipping it would create a real correctness bug in production telemetry the first time an operator clicks into an error trace and finds it isolated from the rest of the request flow.
+- An OTel Collector deployment is meaningful infrastructure work (Cloud Run sidecar or separate Collector service, IAM grants, sampling-rule config). Forcing it into this change would expand scope beyond what the canonical foundation needs.
+- Phase 2 §14 benchmark uses staging at head-100% sampling — force-keep is irrelevant for the benchmark workflow.
+- Cloud Logging at 100% retention covers incident replay during the gap. Reduced trace fidelity in production is acceptable transitional behavior; data quality on the spans we DO export is preserved.
 
 **Alternatives considered**:
-- Always-on + tail sampling at OTel Collector. Rejected: violates the Non-goal "no Collector deployment in this change". A Collector is a separate ops surface; the architecture doc defers it ([`docs/04-Architecture.md:394`](../../../docs/04-Architecture.md)).
+- Always-on + tail sampling at OTel Collector inline in this change. Rejected: scope expansion. Tracked as `observability-otel-collector-tail-sampling` follow-up.
+- Naive SDK-level force-keep (the round-1 design). **Rejected after round-3 codebase grounding** — `setNoParent()` loses trace_id linkage; force-kept traces would not join the original error trace tree in Tempo. Real correctness bug.
 - Always-on in production at full volume. Rejected: cost overrun risk + cardinality at scale; the canonical doc explicitly mandates 10% base.
 
 ### D5: `user.id` attribute is SHA-256 hashed via the project-wide `UserIdHasher.hash(uuid)` helper, NEVER raw
@@ -115,43 +113,58 @@ Staging + dev: `Sampler.alwaysOn()` (head 100%).
 - Custom span attribute interceptor. Rejected: redundant with the SDK feature.
 - Disable `db.statement` entirely. Rejected: query shape is essential for performance investigation in Phase 2 §14 benchmark; only the values need stripping.
 
-### D7: Exporter token absence is a clean no-op (no startup failure)
+### D7: Exporter secret absence is a clean no-op (no startup failure); secret resolution uses the existing `secretKey` + `SecretResolver.resolve` two-step pattern
 
-**Decision**: When `secretKey(env, "otel-grafana-otlp-token")` returns `null` (local dev environment without a token configured, or a misconfigured staging deployment), `OtelBootstrap.start(env)` initializes a `LoggingSpanExporter` (logs at DEBUG, dropped by default Logback config) and emits a single startup INFO log: `event="otel_exporter_disabled" reason="<reason>" sampling_profile="<profile>"`. Spans are still created in-memory but never reach a network endpoint.
+**Decision**: `:infra:otel`'s `OtelBootstrap.start(env, secretResolver)` derives slot names via `secretKey(env, name)` (which simply prefixes `staging-` for the staging env per [`backend/ktor/.../config/Secrets.kt`](../../../backend/ktor/src/main/kotlin/id/nearyou/app/config/Secrets.kt)) and resolves their VALUES via `SecretResolver.resolve(slotName)` — the same two-step pattern Application.kt uses for every other secret today. When EITHER `SecretResolver.resolve(...)` lookup returns null (local dev, unconfigured staging, or a misconfigured production), `OtelBootstrap` initializes a `LoggingSpanExporter` (DEBUG severity, dropped by default Logback config) and emits a single startup INFO log: `event="otel_exporter_disabled" reason="<endpoint_missing|token_missing>" sampling_profile="<profile>"`. Spans are still created in-memory but never reach a network endpoint.
+
+The deterministic precedence for the EITHER-absent case is: check endpoint first; if endpoint is null, emit `reason="endpoint_missing"` and return. Only if endpoint is present is the token checked. This locks the reason field across runs (a dashboard or alerting query against `event="otel_exporter_disabled" reason="endpoint_missing"` is stable).
 
 **Rationale**:
+- The codebase already uses a two-step secret pattern (`secretKey(env, name)` builds the slot name; `SecretResolver.resolve(name)` returns the nullable value). Round-3 review caught that the round-1 spec assumed `secretKey` itself was nullable — wrong. This decision aligns the spec with codebase reality.
 - Forcing an exporter token in dev is friction. Devs running `supabase start` + `./gradlew :backend:ktor:run` shouldn't need a Grafana Cloud account.
 - Forcing an exporter token in CI is friction (CI tests run thousands of times; a missing token would block CI on something orthogonal).
-- The single startup INFO line is observable enough that an operator deploying to production with a missing token would immediately see "OTel exporter is disabled in production" in Cloud Logging — fail-loud-but-don't-crash.
+- The single startup INFO line is observable enough that an operator deploying to production with missing secrets would immediately see "OTel exporter is disabled in production" in Cloud Logging — fail-loud-but-don't-crash.
+- Deterministic precedence on EITHER-absent makes alerting queries stable.
 
 **Alternatives considered**:
 - Crash on missing token. Rejected: fragile in dev; over-restrictive.
 - Always-export-to-stderr. Rejected: log-scraping noise.
+- Treat both-absent as a single "secrets_missing" reason. Rejected: less precise for ops triage.
 
-### D8: Manual `traceparent` header injection on the FCM Admin SDK send call
+### D8: FCM dispatch gets the LOCAL `withSpan("fcm.dispatch", ...)` wrap only; cross-service `traceparent` injection is DEFERRED
 
-**Decision**: The Firebase Admin SDK FCM send (`FirebaseMessaging.send(message)`) uses an internal HTTP client that the OTel auto-instrumentation does NOT cover. The fix: wrap the existing `FcmDispatcher.send(...)` body in `:infra:otel`'s `withSpan("fcm.dispatch", attributes) { ... }` AND configure the Firebase Admin SDK to inject the active `traceparent` header on outbound HTTP requests. The `firebase-admin` JVM client supports a `setHttpTransport(HttpTransport)` builder option that accepts a custom transport; `:infra:otel` ships a `TracingHttpTransport` wrapper that delegates to the SDK's default transport while injecting `traceparent` from the active OTel context. The integration is REQUIRED — the spec scenario "FCM Admin SDK send carries traceparent" is unconditional. If the firebase-admin version pinned in `gradle/libs.versions.toml` does not expose `setHttpTransport` (we currently pin `9.5.0` which does), this becomes a tasks.md `1.x` baseline check — fail-loud rather than ship a half-instrumented FCM path.
+**Decision**: The Firebase Admin SDK FCM send (`FirebaseMessaging.send(message)`) gets wrapped in `:infra:otel`'s `withSpan("fcm.dispatch", attributes) { ... }` so the LOCAL span captures FCM dispatch latency, status, and the WARN-log↔span-event pairing per the modified `fcm-push-dispatch` spec. **Cross-service `traceparent` propagation to Google's FCM endpoint is deferred** to a focused follow-up change (`observability-otel-fcm-traceparent`).
 
-**Rationale**:
-- FCM is a Google service that itself emits OTel/Cloud Trace spans — propagation gives operators a single trace from the user's chat send all the way through to FCM's delivery attempt. Worth the manual wrapping.
-- The `withSpan` helper is the same shape used by other manual span sites (Realtime publish, rate-limit Lua call), so the FCM site doesn't introduce a new pattern.
+The deferral is shaped by the round-3 review finding that the current `:infra:fcm` API does NOT surface `FirebaseOptions.Builder.setHttpTransport(...)` to `:backend:ktor`. The `buildFcmComposite(...)` factory consumed by Application.kt:373 owns Firebase Admin SDK initialization internally; threading a `TracingHttpTransport` through requires either (a) modifying `:infra:fcm`'s public API to accept an HttpTransport parameter, or (b) defining a wiring contract where `:infra:otel` injects itself into `:infra:fcm`'s init flow. Both are real architectural decisions that deserve a focused proposal — not an inline patch on this change.
 
-**Alternatives considered**:
-- Skip FCM tracing entirely. Rejected: leaves a visible gap in the chat-message-notification trace.
-- Forking the FCM Admin SDK to add propagation. Rejected: massive maintenance overhead.
-
-### D9: Spec-modification scope is `chat-realtime-broadcast` + `fcm-push-dispatch`; `internal-endpoint-auth` is left unchanged
-
-**Decision**: This change modifies two existing capability specs (`chat-realtime-broadcast` to drop the explicit deferral + add positive pairing; `fcm-push-dispatch` to add WARN-log↔span-event pairing). `internal-endpoint-auth` is NOT modified because:
-- The `internal-endpoint-auth` WARN log lines at [`spec.md:18,101`](../../specs/internal-endpoint-auth/spec.md) describe verifier-failure logging, not application-level events. The auto-instrumented Ktor server span on `/internal/*` requests already carries `http.status_code = 401` on a verifier failure — the operator-queryable signal is already there.
-- Adding a "MUST emit a span with `internal.endpoint` = route pattern" requirement on top of the auto-instrumentation is redundant noise. The new `observability-otel-foundation` capability spec encodes the cross-cutting requirement that ALL Ktor server spans carry `endpoint` = route pattern; per-capability specs don't need to restate it.
+The local span alone is still useful: it captures dispatch latency for Phase 2 §14 benchmarking, exposes the WARN-log↔span-event pairing required by the modified `fcm-push-dispatch` spec, and queries cleanly in Tempo. What's missing is the cross-service hop into Google's own Cloud Trace surface — the user's chat send trace stops at FCM dispatch, rather than continuing into FCM's delivery infrastructure. That's a degraded-but-acceptable transitional shape until the follow-up ships.
 
 **Rationale**:
-- Spec-modification scope discipline: only modify a spec when the underlying behavioral contract changes. Adding a span attribute that's already covered by the cross-cutting capability is a redundant modification.
-- `internal-endpoint-auth` is a security-critical spec; minimizing churn is good hygiene.
+- Round-3 implementation-realism review found that `:infra:fcm`'s current API doesn't expose the transport hook — the integration would force a `:infra:fcm` API change, which deserves its own focused proposal.
+- The local span captures the most operationally relevant data (dispatch latency + failure-mode pairing) without the API expansion.
+- Cloud Logging at 100% retention covers cross-service correlation today (Cloud Run logs + Cloud Trace logs are timestamp-correlatable) until the propagation follow-up lands.
 
 **Alternatives considered**:
-- Modify all three specs symmetrically. Rejected: redundant for the reasons above.
+- Inline the `:infra:fcm` API change in this proposal. Rejected: scope expansion; deserves focused review per the round-3 finding.
+- Skip FCM tracing entirely (no local span either). Rejected: the WARN-log↔span-event pairing requirement in the modified `fcm-push-dispatch` spec needs the local span to record events on.
+- Forking the FCM Admin SDK. Rejected: maintenance overhead.
+
+### D9: Spec-modification scope is `chat-realtime-broadcast` + `fcm-push-dispatch`; `internal-endpoint-auth` is left unchanged AND the `user.id` requirement does NOT extend to `/internal/*`
+
+**Decision**: This change modifies two existing capability specs (`chat-realtime-broadcast` to drop the explicit deferral + add positive pairing; `fcm-push-dispatch` to add WARN-log↔span-event pairing). `internal-endpoint-auth` is NOT modified, AND **the new capability's `user.id` requirement explicitly applies only to `UserPrincipal`-backed authentication**. `/internal/*` requests authenticated via Cloud Scheduler service-account OIDC do NOT receive the `user.id` span attribute in this change — there is no `users` row to hash.
+
+A sanctioned `service.account.id` shape (truncated SHA-256 of the OIDC `sub` claim) for `/internal/*` requests is **deferred** to a focused follow-up (`internal-endpoint-auth-otel-attributes`). That follow-up modifies the `internal-endpoint-auth` spec to require the attribute and ships the implementation. Until then, `/internal/*` server spans carry `http.route` and `http.status_code` (auto-instrumentation) but no principal-correlation attribute.
+
+The auto-instrumented Ktor server span on `/internal/*` requests already carries `http.status_code = 401` on a verifier failure — the operator-queryable signal is already there. Extending the foundation now to bake in `service.account.id` would require either inventing the truncated-SHA-256 shape inline (round-3 caught that the spec requires `user.id` "when authenticated" but contradicts itself by forbidding raw JWT claims, leaving the OIDC sub case unaddressed) or defining the shape correctly in a focused proposal — the latter is right.
+
+**Rationale**:
+- Spec-modification scope discipline: only modify a spec when the underlying behavioral contract changes. The `user.id` requirement applies cleanly to `UserPrincipal` requests; the OIDC service-account case is structurally different (different principal type, different identifier shape) and deserves its own focused spec.
+- `internal-endpoint-auth` is a security-critical spec; minimizing churn while the `service.account.id` shape is being designed is good hygiene.
+
+**Alternatives considered**:
+- Define `service.account.id` inline. Rejected: cross-spec contract that deserves focused review.
+- Apply `user.id = UserIdHasher.hash(serviceAccountUuid)` to `/internal/*`. Rejected: the OIDC `sub` is an email-like string, not a UUID; the helper signature is wrong for it.
+- Modify `internal-endpoint-auth` spec to add the cross-cutting attribute requirement. Rejected: same reason as the original D9 — `internal-endpoint-auth` is auth-only; observability attributes belong in the cross-cutting capability + a per-spec extension when there's something to add.
 
 ### D10: The cross-cutting "forbidden attributes" list is a positive requirement in the new spec, not a Detekt rule (yet)
 

@@ -33,6 +33,114 @@ Format per entry:
 
 ---
 
+## observability-otel-collector-tail-sampling
+
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 adversarial-lens finding #11 — the round-1 design § D4 force-keep `SpanProcessor` re-emitting via `Tracer.spanBuilder().setNoParent()` is structurally wrong: it creates a fresh root span detached from the original trace, breaking trace_id linkage in Tempo.
+**Status:** open
+
+**Finding:** The canonical sampling profile at [`docs/05-Implementation.md:2042`](docs/05-Implementation.md) prescribes "10% base + 100% errors + 100% slow (>500ms)" in production. The `observability-otel-foundation` change ships only the 10% base via `ParentBased(TraceIdRatioBased(0.1))` — the force-keep tail (errors + slow) is deliberately deferred because correctly preserving trace_id linkage on force-keep promotion requires OTel Collector tail sampling, which is meaningful infrastructure work the architecture doc explicitly defers at [`docs/04-Architecture.md:394`](docs/04-Architecture.md): _"Tail sampling via OTel Collector if volume is high"_. Until this follow-up ships, MVP production accepts that 90% of error/slow traces drop; structured JSON logging at 100% retention via Cloud Logging is the authoritative incident-replay surface.
+
+**Specs at fault:** `openspec/specs/observability-otel-foundation/spec.md` (post-archive) — its sampling-profile requirement explicitly does NOT promote error/slow spans; this follow-up adds that promotion via Collector.
+**Code at fault:** None — there is no half-implemented force-keep in this change to fix; the deferral is clean.
+**Docs at fault:** None — [`docs/04-Architecture.md:394`](docs/04-Architecture.md) already names the Collector as the upgrade path.
+
+**Impact (if shipped):** Low-during-MVP, rising as production traffic grows. Errors at p99 latency are the spans operators most need; today they're 90%-dropped in production. Cloud Logging fills the gap (100% retention, structured JSON includes `trace_id` so Tempo correlation is possible via log↔trace cross-link), but trace-tree-style debugging in Tempo isn't available for dropped traces. Acceptable transitional shape until volume warrants the Collector ops cost.
+
+**Ambiguity to resolve first:** Collector deployment shape. Options: (a) Cloud Run sidecar (per-instance, simplest deploy), (b) separate Cloud Run service receiving from a published OTLP endpoint (operationally cleanest), (c) OTel Collector Operator if we ever migrate to GKE (out of scope today). Open question for the follow-up's design.md.
+
+**Action items:**
+- [ ] File OpenSpec change `observability-otel-collector-tail-sampling` that (a) deploys an OTel Collector with tail-sampling rules `status=ERROR` OR `duration>500ms` → 100% keep, else 10% sample, (b) reconfigures the production `OtelBootstrap` to point the OTLP exporter at the Collector instead of Grafana Cloud directly, (c) the Collector's outbound exporter targets Grafana Cloud Tempo, (d) MODIFIES the `observability-otel-foundation` capability spec's sampling-profile requirement to flip the "does NOT force-keep error / slow" scenarios.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
+
+---
+
+## observability-otel-fcm-traceparent
+
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 implementation-realism finding #3 + adversarial finding #11 — the round-1 design § D8 assumed `:infra:fcm` exposed `FirebaseOptions.Builder.setHttpTransport(...)` to `:backend:ktor`. Codebase reality: `:infra:fcm`'s `buildFcmComposite(...)` factory owns Firebase Admin SDK initialization internally, with no surfaced HttpTransport hook.
+**Status:** open
+
+**Finding:** The Firebase Admin SDK FCM send (`FirebaseMessaging.send(message)`) uses an internal HTTP transport that the OTel auto-instrumentation does NOT cover. Cross-service `traceparent` propagation requires plumbing a custom `HttpTransport` (specifically a `TracingHttpTransport` that delegates to the SDK's default while injecting the active OTel context's `traceparent` header) through `:infra:fcm`'s public API. This is a real `:infra:fcm` API change that deserves a focused proposal — too much surface to inline-patch on the foundation change. The `observability-otel-foundation` change ships only the LOCAL `withSpan("fcm.dispatch", ...)` wrap; cross-service propagation lands in this follow-up.
+
+**Specs at fault:** `openspec/specs/observability-otel-foundation/spec.md` (post-archive) — its W3C-propagation requirement explicitly carves out FCM ("FCM Admin SDK send does NOT carry `traceparent`"); this follow-up flips that.
+**Code at fault:** [`infra/fcm/src/main/kotlin/id/nearyou/app/infra/fcm/FcmDispatcher.kt`](infra/fcm/src/main/kotlin/id/nearyou/app/infra/fcm/FcmDispatcher.kt) — `buildFcmComposite(...)` factory needs an `HttpTransport` parameter or a `:infra:otel` injection point.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Operationally medium. The user's chat-send → FCM-dispatch trace ends at the FCM dispatch local span until this lands; cross-service correlation into Google's Cloud Trace surface is unavailable. Cloud Logging timestamp correlation across the two surfaces remains possible (workaround). Phase 2 §14 benchmark uses staging at head-100% sampling; this gap doesn't affect the benchmark.
+
+**Ambiguity to resolve first:** API shape for the `:infra:fcm` change. Options: (a) `buildFcmComposite(httpTransport: HttpTransport? = null)` — additive parameter; (b) `buildFcmComposite(otel: OpenTelemetry? = null)` — let `:infra:fcm` construct the transport internally with an OTel reference; (c) a separate `FcmTracingConfig` DI surface. Open question for the follow-up's design.md.
+
+**Action items:**
+- [ ] File OpenSpec change `observability-otel-fcm-traceparent` that (a) refactors `:infra:fcm`'s `buildFcmComposite(...)` to surface the `HttpTransport` hook, (b) ships `TracingHttpTransport` in `:infra:otel`, (c) MODIFIES the `fcm-push-dispatch` spec to require unconditional `traceparent` injection on the FCM Admin SDK's outbound HTTPS request, (d) MODIFIES the `observability-otel-foundation` spec's W3C-propagation requirement to flip the "FCM does NOT carry traceparent" scenario.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
+
+---
+
+## observability-otel-pii-disclosure
+
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 cross-doc-impact finding #5 — `docs/06-Security-Privacy.md:308` third-party processor list does NOT include Grafana Cloud, but trace data carries pseudonymous personal data (truncated SHA-256 of user UUIDs).
+**Status:** open
+
+**Finding:** [`docs/06-Security-Privacy.md:308`](docs/06-Security-Privacy.md) enumerates third-party data processors that must be disclosed under UU PDP article 20–22 obligations (Resend, Amplitude, Sentry, RevenueCat, Cloudflare, Firebase, Google Play, Apple, Supabase, Upstash). Grafana Cloud is absent. The `observability-otel-foundation` change starts exporting trace data to Grafana Cloud's EU/US infrastructure containing route patterns + parameterized SQL + truncated SHA-256 user IDs (pseudonymous personal data per UU PDP definitions). Disclosure obligations apply.
+
+**Specs at fault:** None.
+**Code at fault:** None — the trace data export shape is correct; only the disclosure documentation is missing.
+**Docs at fault:** [`docs/06-Security-Privacy.md:308`](docs/06-Security-Privacy.md) (third-party processor list); the public Privacy Policy.
+
+**Impact (if shipped without disclosure):** Medium-to-high — UU PDP compliance gap. Indonesia's UU PDP (effective 2024) requires explicit disclosure of cross-border data transfers to third-party processors; trace data containing pseudonymous personal data clears the bar. Pre-launch context softens the immediate risk (no production users yet) but the gap MUST close before Public Launch (Week 20 per `docs/08-Roadmap-Risk.md`).
+
+**Ambiguity to resolve first:** Whether truncated SHA-256(uuid) at 64 bits qualifies as "pseudonymous personal data" under UU PDP (likely yes per the regulation's broad definition; legal advisor confirmation recommended pre-launch).
+
+**Action items:**
+- [ ] File a docs-only PR that amends `docs/06-Security-Privacy.md:308` to add Grafana Cloud to the third-party processor list with a brief description ("OpenTelemetry trace backend; receives pseudonymous trace data including hashed user IDs, route patterns, parameterized SQL").
+- [ ] Update the public Privacy Policy (when published) to include Grafana Cloud in the third-party processors section.
+- [ ] Confirm with legal advisor whether truncated SHA-256(uuid) at 64 bits triggers UU PDP article 20–22 cross-border-transfer disclosure obligations; if yes, ensure the Privacy Policy includes the standard disclosure language.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete once the docs PR + Privacy Policy update merge.
+
+---
+
+## internal-endpoint-auth-otel-attributes
+
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 cross-doc-impact finding #1 — the new capability's `user.id` requirement implicitly contradicts itself for `/internal/*` requests authenticated via Cloud Scheduler service-account OIDC, which have no `users` row to hash.
+**Status:** open
+
+**Finding:** The `observability-otel-foundation` capability spec mandates `user.id` "when the request is authenticated" — but `/internal/*` requests are OIDC-authenticated by service accounts with no `users` row. The same spec forbids raw JWT claims (`sub`, `aud`, `iss`) on spans, blocking the obvious "use the OIDC sub" workaround. The foundation change resolves this by carving out `/internal/*` from the `user.id` requirement and deferring a sanctioned `service.account.id` shape (truncated SHA-256 of OIDC `sub`, mirroring the [`internal-endpoint-auth/spec.md:18`](openspec/specs/internal-endpoint-auth/spec.md) WARN-log token-correlation-id pattern) to this follow-up.
+
+**Specs at fault:** `openspec/specs/internal-endpoint-auth/spec.md` — currently has no positive requirement on span attributes for `/internal/*` requests.
+**Code at fault:** None.
+**Docs at fault:** None.
+
+**Impact (if shipped without follow-up):** Low. `/internal/*` server spans still carry `http.route` + `http.status_code` (auto-instrumentation), so operator-side dashboards work. Missing piece is principal-correlation: an operator looking at a slow `/internal/unban-worker` span can't easily correlate it to a specific Cloud Scheduler invocation. The truncated-SHA-256 `sub` correlation id is already in the WARN-log surface ([`internal-endpoint-auth/spec.md:18`](openspec/specs/internal-endpoint-auth/spec.md)), so log-trace correlation works; only span-attribute query-by-correlation is missing.
+
+**Ambiguity to resolve first:** Whether `service.account.id` is the right OTel semconv name (the standard exists at OTel semconv as `cloud.account.id` / `gcp.client_id` / similar — verify the most-aligned name before settling).
+
+**Action items:**
+- [ ] File OpenSpec change `internal-endpoint-auth-otel-attributes` that (a) MODIFIES the `internal-endpoint-auth` spec to require a sanctioned `service.account.id` (or whatever semconv name turns out aligned) attribute on `/internal/*` server spans, (b) populates it via truncated SHA-256(`sub` claim) per the existing WARN-log pattern, (c) MODIFIES the `observability-otel-foundation` capability spec's `user.id` requirement to flip the "does NOT apply to `/internal/*`" carve-out (or to coexist; design decision in the follow-up).
+- [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
+
+---
+
+## observability-otel-attribute-detekt-rule
+
+**Discovered during:** `observability-otel-foundation` design § D10 (deferred from this change) + reinforced by round-3 adversarial finding #9 (forbidden categories with no enforcement mechanism).
+**Status:** open
+
+**Finding:** The `observability-otel-foundation` spec § "Forbidden span attributes" lists ~12 categories of forbidden attributes (raw user_id, raw IPs, raw JWT claims, raw bearer tokens, raw post/chat/search content, raw `actual_location`, raw Redis credentials, JWKS contents, plaintext passwords, OAuth client secrets, Supabase service role key, peer-IP attributes from auto-instrumentation). Sentinel-string regression tests cover ~7 of those categories on the `:backend:ktor` side. The remaining 5 categories (raw OAuth client secret, JWKS contents, plaintext passwords, raw `actual_location` GIS coordinates, raw refresh tokens) have no automated enforcement — they're code-review-only. A Detekt rule (`OtelForbiddenAttributeRule`) that scans `Span.setAttribute(...)` / `addEvent(...)` call sites against the forbidden-attributes contract would close the gap. Deferred from this change because (a) Detekt rules built ahead of writers tend to over-fit, (b) the writer surface stabilizes after `:infra:otel` lands.
+
+**Specs at fault:** None — the spec correctly defers the rule per design § D10.
+**Code at fault:** None — the rule scaffold doesn't exist yet.
+**Docs at fault:** None.
+
+**Impact (if shipped without follow-up):** Low at MVP scale. The 7 sentinel-string scenarios that DO ship cover the highest-velocity surfaces (chat content, post content, search query, IP, JWT, bearer token, Redis password). The 5 uncovered categories have no current writer that would attempt to set them; risk is regression rather than active leak. Code review remains the primary defense in the interim.
+
+**Ambiguity to resolve first:** Detekt rule scope — should it lint at every `Span.setAttribute` call site, or only inside `:infra:otel`? The former is the right enforcement boundary but increases false-positive risk on legitimate test fixtures.
+
+**Action items:**
+- [ ] File OpenSpec change `observability-otel-attribute-detekt-rule` that ships `OtelForbiddenAttributeRule` in `:lint:detekt-rules`, with a forbidden-attribute-keys allowlist + value-regex denylist per the spec contract.
+- [ ] Decide rule scope (cross-cutting vs `:infra:otel`-only) at design time.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
+
+---
+
 ## geo-cloud-region-canonical-doc-amendment
 
 **Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-1 review (security-and-invariant lens finding Q1).

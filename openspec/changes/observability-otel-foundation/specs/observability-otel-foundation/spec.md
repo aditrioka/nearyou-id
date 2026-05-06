@@ -22,94 +22,89 @@ This module-shape requirement enables the Open Decision #12 vendor swap (Grafana
 - **WHEN** `:core:domain`'s `build.gradle.kts` AND `:core:data`'s `build.gradle.kts` `dependencies { ... }` blocks are inspected
 - **THEN** no `project(":infra:otel")` declaration appears in either AND no `implementation(libs.opentelemetry.*)` BOM-managed declaration appears (this catches a regression where someone adds the dependency edge without writing an `import io.opentelemetry.*` statement that the source-file scenario above would flag)
 
-### Requirement: `OtelBootstrap.start(env)` initializes the SDK at Ktor startup, idempotent and exception-safe
+### Requirement: `OtelBootstrap.start(env, secretResolver)` initializes the SDK at Ktor startup, idempotent and exception-safe
 
-The `:infra:otel` module SHALL expose a single startup entrypoint `OtelBootstrap.start(env: KtorEnv)` that initializes the OTel `SdkTracerProvider`, configures the per-env exporter, registers the global `OpenTelemetry` instance, and wires auto-instrumentation for HikariCP / Lettuce / outbound HTTP clients. The function SHALL be idempotent — a second call within the same JVM SHALL be a no-op that logs an INFO line and returns. The function SHALL NOT throw on misconfiguration; instead, the bootstrap SHALL fall back to the no-op exporter shape (per the Exporter token absence requirement) and log a single INFO line.
+The `:infra:otel` module SHALL expose a single startup entrypoint `OtelBootstrap.start(env: String, secretResolver: SecretResolver)` that initializes the OTel `SdkTracerProvider`, configures the per-env exporter, registers the global `OpenTelemetry` instance, and wires auto-instrumentation for HikariCP / Lettuce / outbound HTTP clients. The `env` parameter is the same `String` value (`"dev"` / `"staging"` / `"production"`) that Application.kt reads from `KTOR_ENV` today; the `secretResolver` is the existing `SecretResolver` interface consumed by Application.kt for every other secret. The function SHALL be idempotent — a second call within the same JVM SHALL be a no-op that logs an INFO line and returns. The function SHALL NOT throw on misconfiguration; instead, the bootstrap SHALL fall back to the no-op exporter shape (per the Exporter secret absence requirement) and log a single INFO line.
 
-`Application.module()` in `:backend:ktor` SHALL invoke `OtelBootstrap.start(env)` exactly once before any other module init (so subsequent module inits get auto-instrumented).
+`Application.module()` in `:backend:ktor` SHALL invoke `OtelBootstrap.start(env, secretResolver)` exactly once before any other module init (so subsequent module inits get auto-instrumented).
 
 #### Scenario: First call initializes the SDK
-- **WHEN** `OtelBootstrap.start(env)` runs for the first time in the JVM
+- **WHEN** `OtelBootstrap.start(env, secretResolver)` runs for the first time in the JVM
 - **THEN** the global `OpenTelemetry` instance is registered AND a `Tracer` named `"id.nearyou.backend"` is obtainable AND auto-instrumentation hooks for HikariCP / Lettuce / the outbound HTTP client are installed
 
 #### Scenario: Second call is a no-op
-- **WHEN** `OtelBootstrap.start(env)` is invoked twice in the same JVM
+- **WHEN** `OtelBootstrap.start(env, secretResolver)` is invoked twice in the same JVM
 - **THEN** the second call returns immediately AND emits an INFO log with `event="otel_bootstrap_already_initialized"` AND does not re-register the SDK
 
 #### Scenario: Exporter misconfiguration does not crash the application
 - **GIVEN** the exporter endpoint URL resolves to an unreachable host
-- **WHEN** `OtelBootstrap.start(env)` is invoked
+- **WHEN** `OtelBootstrap.start(env, secretResolver)` is invoked
 - **THEN** the function returns normally AND emits an INFO log AND the no-op exporter shape is active AND `Application.module()` continues startup unblocked
 
-### Requirement: Sampling profile per environment matches the canonical profile
+### Requirement: Sampling profile per environment — no force-keep promotion in this change
 
-The sampling profile SHALL be selected by `KtorEnv` value:
-- `dev` AND `staging` → `Sampler.alwaysOn()` (head 100%) per the Phase 2 §14 benchmark requirement at [`docs/05-Implementation.md:2042`](../../../../../docs/05-Implementation.md).
-- `production` → composed sampler: `ParentBased(TraceIdRatioBased(0.1))` (10% base) + force-keep `SpanProcessor` that promotes any RecordOnly span where `http.status_code >= 500` OR `exception.escaped == true` OR (root-span only) `duration_ms > 500` is satisfied.
+The sampling profile SHALL be selected by the `env` String value passed to `OtelBootstrap.start(env, secretResolver)`:
+- `"dev"` AND `"staging"` → `Sampler.alwaysOn()` (head 100%) per the Phase 2 §14 benchmark requirement at [`docs/05-Implementation.md:2042`](../../../../../docs/05-Implementation.md).
+- `"production"` → `Sampler.parentBased(Sampler.traceIdRatioBased(0.1))` (10% base ratio). **No force-keep promotion of error or slow spans is implemented in this change.** The canonical "100% errors + 100% slow" target from the production sampling profile is deferred to a focused follow-up change that deploys an OTel Collector (the only correct way to preserve trace_id linkage on tail-sampled force-keep). Until that follow-up ships, MVP production accepts that 90% of all traces drop AND that 90% of error / slow traces also drop; structured JSON logging at 100% retention via Cloud Logging continues to be the authoritative incident-replay surface.
 
-The composed production sampler MUST NOT export base-ratio-rejected spans where none of the force-keep predicates fire — those spans terminate with `SamplingResult.drop()` semantics post-record. The 10%-base ratio MUST be configurable via a single constant in `:infra:otel` (so a future tuning change is a one-line edit).
+The 10%-base ratio MUST be configurable via a single constant in `:infra:otel` (so a future tuning change is a one-line edit).
 
 #### Scenario: Dev environment samples at 100%
-- **GIVEN** `env = KtorEnv.dev`
-- **WHEN** `OtelBootstrap.start(env)` initializes the SDK
+- **GIVEN** `env = "dev"`
+- **WHEN** `OtelBootstrap.start(env, secretResolver)` initializes the SDK
 - **THEN** the configured root `Sampler` reports `SamplingDecision.RECORD_AND_SAMPLE` for every synthetic root span tested
 
 #### Scenario: Staging environment samples at 100% (parity with dev)
-- **GIVEN** `env = KtorEnv.staging`
-- **WHEN** `OtelBootstrap.start(env)` initializes the SDK
-- **THEN** the configured root `Sampler` reports `SamplingDecision.RECORD_AND_SAMPLE` for every synthetic root span tested (equivalent to dev — Phase 2 §14 benchmark needs full traces) AND the sampler is NOT the production composed sampler (defense against a copy-paste regression that would silently demote staging to the prod 10%-base shape)
+- **GIVEN** `env = "staging"`
+- **WHEN** `OtelBootstrap.start(env, secretResolver)` initializes the SDK
+- **THEN** the configured root `Sampler` reports `SamplingDecision.RECORD_AND_SAMPLE` for every synthetic root span tested (equivalent to dev — Phase 2 §14 benchmark needs full traces) AND the sampler is NOT the production ratio-based sampler (defense against a copy-paste regression that would silently demote staging to the prod 10%-base shape)
 
 #### Scenario: Production environment samples at 10% base
-- **GIVEN** `env = KtorEnv.production` AND a synthetic root span with `http.status_code = 200` AND `duration_ms = 100`
+- **GIVEN** `env = "production"` AND a synthetic root span with `http.status_code = 200` AND `duration_ms = 100`
 - **WHEN** the sampler is invoked across 1000 trace-id seeds
 - **THEN** between 5% and 15% of the seeds yield `SamplingDecision.RECORD_AND_SAMPLE` (statistical tolerance for a 10% target)
 
-#### Scenario: Production sampler force-keeps an error span
-- **GIVEN** `env = KtorEnv.production` AND a synthetic root span tagged `http.status_code = 500`
+#### Scenario: Production sampler does NOT force-keep an error span (deferred to Collector follow-up)
+- **GIVEN** `env = "production"` AND a synthetic root span tagged `http.status_code = 500` AND a trace-id seed that falls in the 90% drop window
 - **WHEN** the span ends
-- **THEN** the span is exported regardless of the trace-id seed (force-keep predicate satisfied)
+- **THEN** the span is NOT exported (the base 10% ratio applies; force-keep promotion is NOT implemented in this change). Locks the deferral: a future regression that adds force-keep at the SDK level (which would lose trace_id linkage) would surface in this scenario as a behavioral change.
 
-#### Scenario: Production sampler force-keeps a slow span
-- **GIVEN** `env = KtorEnv.production` AND a synthetic root span with `http.status_code = 200` AND a recorded duration of 800ms
+#### Scenario: Production sampler does NOT force-keep a slow span (deferred to Collector follow-up)
+- **GIVEN** `env = "production"` AND a synthetic root span with `http.status_code = 200` AND `duration_ms = 800` AND a trace-id seed that falls in the 90% drop window
 - **WHEN** the span ends
-- **THEN** the span is exported regardless of the trace-id seed (slow-promotion predicate satisfied: 800ms > 500ms threshold)
-
-#### Scenario: Production sampler force-keeps an exception-escaped span at status_code 200
-- **GIVEN** `env = KtorEnv.production` AND a synthetic root span with `http.status_code = 200` AND `exception.escaped = true` AND `duration_ms = 100`
-- **WHEN** the span ends
-- **THEN** the span is exported regardless of the trace-id seed (force-keep predicate satisfied via exception, not status code; locks the OR-shape of the predicate so a future regression making it AND would be caught)
+- **THEN** the span is NOT exported. Same rationale as above; force-keep promotion is the `observability-otel-collector-tail-sampling` follow-up's scope.
 
 #### Scenario: Production sampler drops a fast healthy span outside the base ratio
-- **GIVEN** `env = KtorEnv.production` AND a synthetic root span with `http.status_code = 200` AND `duration_ms = 50` AND a trace-id seed that falls in the 90% drop window
+- **GIVEN** `env = "production"` AND a synthetic root span with `http.status_code = 200` AND `duration_ms = 50` AND a trace-id seed that falls in the 90% drop window
 - **WHEN** the span ends
-- **THEN** the span is NOT exported (base ratio rejected AND no force-keep predicate fired)
+- **THEN** the span is NOT exported (base ratio rejected)
 
-### Requirement: OTLP exporter target is sourced via `secretKey(env, ...)` with a clean no-op fallback
+### Requirement: OTLP exporter target is sourced via `secretKey(env, ...)` slot-name derivation + `SecretResolver.resolve(...)` value lookup, with a clean no-op fallback
 
-The exporter target endpoint URL SHALL be read via `secretKey(env, "otel-grafana-otlp-endpoint")` and the bearer token via `secretKey(env, "otel-grafana-otlp-token")`. Both lookups SHALL go through the existing environment-aware `secretKey(env, name)` helper — direct secret-name reads are forbidden by the existing `SecretKeyHelperRule` Detekt rule and this requirement does not relax it.
+The exporter target SHALL be sourced via the existing two-step pattern at [`backend/ktor/.../config/Secrets.kt`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/config/Secrets.kt): (1) the slot NAME is derived via `secretKey(env, "otel-grafana-otlp-endpoint")` and `secretKey(env, "otel-grafana-otlp-token")` (which simply prefixes `staging-` for the staging env); (2) the slot VALUE is fetched via `secretResolver.resolve(slotName)` (which returns `String?` from GCP Secret Manager). This matches every other secret in `:backend:ktor` and respects the `SecretKeyHelperRule` Detekt rule. The `SecretResolver` is passed into `OtelBootstrap.start(env, secretResolver)` by `Application.module()`.
 
-When EITHER lookup returns `null`, `OtelBootstrap` SHALL configure a `LoggingSpanExporter` (DEBUG severity, dropped by default Logback config — effectively no-op for production logging volume) and emit exactly one INFO startup log line: `event="otel_exporter_disabled" reason="<endpoint_missing|token_missing>" sampling_profile="<profile_name>"`. The application start-up SHALL NOT block, fail, or retry.
+When EITHER `SecretResolver.resolve(...)` returns `null`, `OtelBootstrap` SHALL configure a `LoggingSpanExporter` (DEBUG severity, dropped by default Logback config — effectively no-op for production logging volume) and emit exactly one INFO startup log line: `event="otel_exporter_disabled" reason="<endpoint_missing|token_missing>" sampling_profile="<profile_name>"`. The application start-up SHALL NOT block, fail, or retry. **Deterministic precedence**: the implementation SHALL check the endpoint slot first; if endpoint is null, emit `reason="endpoint_missing"` and return without checking the token. Only if endpoint is present is the token checked.
 
 The OTLP token VALUE SHALL NEVER appear in any log line, span attribute, span name, or HTTP request body produced by `:backend:ktor` outside the OTLP exporter's own outbound HTTPS request to the endpoint.
 
-#### Scenario: Token absent → no-op exporter + single INFO line
-- **GIVEN** `secretKey(env, "otel-grafana-otlp-token")` returns null
-- **WHEN** `OtelBootstrap.start(env)` runs
-- **THEN** exactly one INFO log line is emitted with `event="otel_exporter_disabled"` AND `reason="token_missing"` AND the `LoggingSpanExporter` is the configured exporter
+#### Scenario: Endpoint absent → no-op exporter + single INFO line with `endpoint_missing`
+- **GIVEN** `secretResolver.resolve(secretKey(env, "otel-grafana-otlp-endpoint"))` returns null
+- **WHEN** `OtelBootstrap.start(env, secretResolver)` runs
+- **THEN** exactly one INFO log line is emitted with `event="otel_exporter_disabled"` AND `reason="endpoint_missing"` AND the `LoggingSpanExporter` is the configured exporter
 
-#### Scenario: Endpoint absent → no-op exporter + single INFO line
-- **GIVEN** `secretKey(env, "otel-grafana-otlp-endpoint")` returns null
-- **WHEN** `OtelBootstrap.start(env)` runs
-- **THEN** exactly one INFO log line is emitted with `event="otel_exporter_disabled"` AND `reason="endpoint_missing"`
+#### Scenario: Token absent → no-op exporter + single INFO line with `token_missing`
+- **GIVEN** `secretResolver.resolve(secretKey(env, "otel-grafana-otlp-endpoint"))` returns a non-null endpoint AND `secretResolver.resolve(secretKey(env, "otel-grafana-otlp-token"))` returns null
+- **WHEN** `OtelBootstrap.start(env, secretResolver)` runs
+- **THEN** exactly one INFO log line is emitted with `event="otel_exporter_disabled"` AND `reason="token_missing"`
 
-#### Scenario: Both secrets absent → exactly one INFO line, deterministic precedence
-- **GIVEN** both `secretKey(env, "otel-grafana-otlp-endpoint")` AND `secretKey(env, "otel-grafana-otlp-token")` return null
-- **WHEN** `OtelBootstrap.start(env)` runs
-- **THEN** exactly ONE INFO log line is emitted (NOT two — the implementation SHALL short-circuit on the first missing lookup) AND `reason` carries a single deterministic value (the implementation MAY choose either `"endpoint_missing"` or `"token_missing"` but the choice SHALL be stable across runs)
+#### Scenario: Both secrets absent → exactly one INFO line with `endpoint_missing` (deterministic precedence)
+- **GIVEN** both `secretResolver.resolve(...)` lookups for endpoint AND token return null
+- **WHEN** `OtelBootstrap.start(env, secretResolver)` runs
+- **THEN** exactly ONE INFO log line is emitted (NOT two — endpoint check short-circuits before token check) AND `reason="endpoint_missing"` (deterministic precedence: endpoint is checked first)
 
 #### Scenario: Both secrets present → live OTLP exporter wired
-- **GIVEN** both `secretKey(env, "otel-grafana-otlp-endpoint")` and `secretKey(env, "otel-grafana-otlp-token")` return non-null values
-- **WHEN** `OtelBootstrap.start(env)` runs
+- **GIVEN** both `secretResolver.resolve(...)` lookups return non-null values
+- **WHEN** `OtelBootstrap.start(env, secretResolver)` runs
 - **THEN** the OTLP/HTTP exporter is wired to the resolved endpoint AND no `event="otel_exporter_disabled"` line is emitted
 
 #### Scenario: OTLP token VALUE never appears in logs
@@ -150,8 +145,8 @@ Every Ktor server span (root span for an inbound HTTP request) SHALL carry these
 - `http.route` (Ktor route pattern, e.g., `/api/v1/posts/{post_id}/like` — NOT the raw URL with the path-param value substituted).
 - `http.status_code` (auto-instrumentation).
 - `endpoint` (alias for `http.route`, for query-by-endpoint convenience in Grafana Tempo).
-- `user.id` (set via `UserIdHasher.hash(...)`) when the request is authenticated.
-- `cloud.region` (OTel semconv name; read from `K_SERVICE_REGION` env var; constant per Cloud Run instance). The canonical doc at [`docs/04-Architecture.md:398`](../../../../../docs/04-Architecture.md) currently uses the shorthand `geo.cloud_region`; this spec uses the OTel semconv name `cloud.region` to align with standard tooling and to avoid a future "block all `geo.*` attributes" lint false-positive — a follow-up entry in [`FOLLOW_UPS.md`](../../../../../FOLLOW_UPS.md) tracks the canonical-doc amendment.
+- `user.id` (set via `UserIdHasher.hash(...)`) **when the request is authenticated against a `UserPrincipal`-backed identity (i.e., a row in the `users` table)**. The attribute SHALL NOT be set for `/internal/*` requests authenticated via Cloud Scheduler service-account OIDC — those requests have no `users` row to hash. A sanctioned `service.account.id` shape (truncated SHA-256 of the OIDC `sub` claim) is deferred to the `internal-endpoint-auth-otel-attributes` follow-up; until that ships, `/internal/*` server spans carry `http.route` + `http.status_code` only (no principal-correlation attribute).
+- `cloud.region` — OTel semconv name; sourced from the GCP metadata server at `http://metadata.google.internal/computeMetadata/v1/instance/region` (called once at `OtelBootstrap.start(...)` with a 500ms timeout; the resolved value is cached as a resource attribute on the `SdkTracerProvider`, so every span gets it without per-span lookup). When the metadata server is unreachable (local dev outside Cloud Run, network failure), the attribute defaults to `"unknown"`. The canonical doc at [`docs/04-Architecture.md:398`](../../../../../docs/04-Architecture.md) currently uses the shorthand `geo.cloud_region`; this spec uses the OTel semconv name `cloud.region` to align with standard tooling and to avoid a future "block all `geo.*` attributes" lint false-positive — a follow-up entry in [`FOLLOW_UPS.md`](../../../../../FOLLOW_UPS.md) tracks the canonical-doc amendment.
 
 Every Postgres JDBC span SHALL carry:
 - `db.system = "postgresql"` (auto-instrumentation).
@@ -236,20 +231,20 @@ This requirement is enforced at code-review time. A follow-up Detekt rule (`Otel
 - **WHEN** the captured Redis spans' attribute values are scanned for the literal sentinel
 - **THEN** the literal does NOT appear in `db.connection_string` or any other attribute (the Lettuce telemetry is configured to either drop the attribute or sanitize the userinfo portion)
 
-### Requirement: W3C Trace Context propagation on outbound HTTP from `:backend:ktor`
+### Requirement: W3C Trace Context propagation on outbound HTTP from `:backend:ktor` (excluding FCM)
 
-Every outbound HTTP request initiated by `:backend:ktor` SHALL carry the W3C `traceparent` header (and `tracestate` when non-empty) populated from the active `Context`. This applies to: the JDK / Apache HTTP client used by the Resend wrapper, Supabase REST calls, Supabase Realtime broadcast publish; and the Firebase Admin SDK FCM send (which uses its own internal HTTP client — propagation is achieved via manual `withSpan` wrapping that injects the header on the way out, per design § D8).
+Every outbound HTTP request initiated by `:backend:ktor` via the JDK / CIO HTTP client SHALL carry the W3C `traceparent` header (and `tracestate` when non-empty) populated from the active `Context`. This applies to Supabase REST calls, Supabase Realtime broadcast publish, and (when shipped) the Resend wrapper. Auto-instrumentation handles propagation for these surfaces.
 
-Auto-instrumentation handles propagation for the JDK / Apache HTTP client surface. The FCM Admin SDK case requires a manual injection wrapper provided by `:infra:otel`.
+**FCM Admin SDK propagation is explicitly OUT of scope** for this change. The Firebase Admin SDK uses its own internal HTTP transport, and surfacing `FirebaseOptions.Builder.setHttpTransport(...)` for OTel injection requires refactoring `:infra:fcm`'s public API. Per design § D8, this is deferred to the `observability-otel-fcm-traceparent` follow-up; this change ships only the LOCAL `withSpan("fcm.dispatch", ...)` wrap (per the modified `fcm-push-dispatch` spec) without cross-service propagation. The chat-send → FCM-dispatch trace will end at the FCM dispatch local span until the follow-up ships.
 
 #### Scenario: Outbound JDK HTTP client carries `traceparent`
-- **GIVEN** an active span context AND a Resend HTTP request initiated from `:backend:ktor` (or — pre-Resend-module — any other JDK-HTTP-client outbound)
+- **GIVEN** an active span context AND any JDK-HTTP-client outbound from `:backend:ktor`
 - **WHEN** the outbound request is captured at the test boundary
 - **THEN** the request headers include `traceparent` matching the active context's trace id and span id
 
 #### Scenario: Supabase Realtime broadcast publish carries `traceparent`
 - **GIVEN** an active span context inside the chat send handler AND a `ChatRealtimeClient.publish(...)` call wrapped by `:infra:otel`'s `withSpan("chat.realtime.publish", ...)` helper
-- **WHEN** the Supabase Realtime publish HTTP request to `realtime.supabase.co` (or the configured Supabase endpoint) is captured at the test boundary
+- **WHEN** the Supabase Realtime publish HTTP request to the configured Supabase endpoint is captured at the test boundary
 - **THEN** the request headers include `traceparent` matching the active context (this is the only currently-shipped manual-span site requiring verified outbound propagation; the `SupabaseBroadcastChatClient` HTTP transport uses the auto-instrumented JDK client — propagation is auto, but the assertion locks the contract)
 
 #### Scenario: Supabase REST call carries `traceparent`
@@ -257,10 +252,10 @@ Auto-instrumentation handles propagation for the JDK / Apache HTTP client surfac
 - **WHEN** the outbound Supabase REST request is captured at the test boundary
 - **THEN** the request headers include `traceparent`
 
-#### Scenario: FCM Admin SDK send carries `traceparent`
-- **GIVEN** an active span context AND a `FirebaseMessaging.send(message)` invocation wrapped by `:infra:otel`'s `withSpan` helper AND the Firebase Admin SDK configured with the `TracingHttpTransport` wrapper (per design § D8)
-- **WHEN** the FCM Admin SDK's outbound HTTPS request to `fcm.googleapis.com` is captured at the test boundary (e.g., via a mock HTTP client transport)
-- **THEN** the request headers include `traceparent` matching the active context (per design § D8 the integration is unconditional — if the firebase-admin pin doesn't expose the transport hook, that fails the tasks.md `1.x` baseline check, NOT this scenario)
+#### Scenario: FCM Admin SDK send does NOT carry `traceparent` (deferred to follow-up)
+- **GIVEN** an active span context AND a `FirebaseMessaging.send(message)` invocation wrapped by `:infra:otel`'s `withSpan("fcm.dispatch", ...)` helper
+- **WHEN** the FCM Admin SDK's outbound HTTPS request is captured at the test boundary
+- **THEN** the request headers do NOT include `traceparent` injected by `:infra:otel` (the `firebase-admin` HTTP transport is not wired through the OTel instrumentation in this change). Locks the deferral; the follow-up `observability-otel-fcm-traceparent` will modify the fcm-push-dispatch spec to flip this scenario.
 
 ### Requirement: `withSpan` helper is the canonical manual-span surface
 
