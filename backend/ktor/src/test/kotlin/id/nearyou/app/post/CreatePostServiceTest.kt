@@ -72,11 +72,26 @@ class CreatePostServiceTest : StringSpec({
             .decode("00000000000000000000000000000000000000000000")
             .copyOf(32)
     val contentGuard = ContentLengthGuard(mapOf("post.content" to 280))
+    // The base post-creation tests in this file pre-date `content-moderation-keyword-lists`;
+    // they cover length / envelope / fuzz / INSERT semantics, NOT moderation behavior.
+    // Inject an Allow-only TextModerator (empty lists → fail-open Allow) so existing
+    // scenarios pass through the moderation gate unchanged. The dedicated moderation
+    // integration tests live in PostCreationModerationIntegrationTest.kt.
+    val allowOnlyLoader =
+        object : id.nearyou.app.moderation.ModerationListLoader {
+            override fun load(list: id.nearyou.app.moderation.ModerationList): List<String> = emptyList()
+
+            override fun loadThreshold(): Int = 3
+        }
+    val passThroughModerator = id.nearyou.app.moderation.TextModerator(allowOnlyLoader)
+    val moderationQueueRepo = id.nearyou.app.infra.repo.JdbcModerationQueueRepository()
     val service =
         CreatePostService(
             dataSource = dataSource,
             posts = posts,
             contentGuard = contentGuard,
+            textModerator = passThroughModerator,
+            moderationQueue = moderationQueueRepo,
             jitterSecret = jitterSecret,
         )
 

@@ -191,6 +191,16 @@ class ReplyRateLimitTest : StringSpec({
         clock: () -> Instant = Instant::now,
         block: suspend ApplicationTestBuilder.() -> Unit,
     ) {
+        // Reply tests pre-date `content-moderation-keyword-lists`. Inject an
+        // Allow-only TextModerator (loader returns empty lists) so existing rate-limit /
+        // notification scenarios pass through the moderation gate unchanged. Dedicated
+        // moderation integration tests live in PostRepliesModerationIntegrationTest.kt.
+        val allowOnlyLoader =
+            object : id.nearyou.app.moderation.ModerationListLoader {
+                override fun load(list: id.nearyou.app.moderation.ModerationList): List<String> = emptyList()
+
+                override fun loadThreshold(): Int = 3
+            }
         val service =
             ReplyService(
                 dataSource = dataSource,
@@ -199,6 +209,8 @@ class ReplyRateLimitTest : StringSpec({
                 dispatcher = dispatcher,
                 rateLimiter = rateLimiter,
                 remoteConfig = remoteConfig,
+                textModerator = id.nearyou.app.moderation.TextModerator(allowOnlyLoader),
+                moderationQueue = id.nearyou.app.infra.repo.JdbcModerationQueueRepository(),
                 clock = clock,
             )
         testApplication {
@@ -816,6 +828,15 @@ class ReplyRateLimitTest : StringSpec({
                     dispatcher = NoopNotificationDispatcher(),
                     rateLimiter = limiter,
                     remoteConfig = NullRemoteConfigReply,
+                    textModerator =
+                        id.nearyou.app.moderation.TextModerator(
+                            object : id.nearyou.app.moderation.ModerationListLoader {
+                                override fun load(list: id.nearyou.app.moderation.ModerationList): List<String> = emptyList()
+
+                                override fun loadThreshold(): Int = 3
+                            },
+                        ),
+                    moderationQueue = id.nearyou.app.infra.repo.JdbcModerationQueueRepository(),
                 )
             // Run 20 limiter-only calls with subscriptionStatus = null. All should be
             // Allowed (Free path, default cap = 20).

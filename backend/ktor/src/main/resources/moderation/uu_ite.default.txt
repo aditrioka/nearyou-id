@@ -1,0 +1,23 @@
+# UU ITE fallback list — see docs/06-Security-Privacy.md §158.
+#
+# Production wordlist lives in Firebase Remote Config parameter
+# `moderation_uu_ite_list` and is operator-managed via the Firebase Console.
+# This file is a fail-soft Tier 3 fallback per the 4-tier loader cascade
+# canonicalized at docs/05-Implementation.md:1255 + spec'd in
+# `openspec/specs/content-moderation-keyword-lists/spec.md` §
+# `### Requirement: ModerationListLoader resolves keyword lists via the canonical 4-tier fallback ladder`.
+#
+# Layer 2 of the moderation stack — soft-flag (NOT auto-hide). Threshold of
+# distinct matches before flagging is the `moderation_match_threshold` Remote
+# Config parameter (default 3, runtime-tunable, clamped to [1, 10000]).
+#
+# Format: one keyword per line, UTF-8, comment lines starting with `#` and
+# blank lines are ignored after trim. Real entries lowercase by convention.
+#
+# Quarterly UU ITE legal-advisor review per docs/06-Security-Privacy.md:159
+# updates BOTH the Remote Config parameter AND this file.
+#
+# At least one non-comment, non-blank line MUST be present so Tier 3 boot
+# integrity check passes. The placeholder sentinel below would never match
+# real user content.
+__seed_uu_ite_placeholder__

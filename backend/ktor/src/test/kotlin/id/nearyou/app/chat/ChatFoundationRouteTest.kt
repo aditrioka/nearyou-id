@@ -99,6 +99,8 @@ class ChatFoundationRouteTest : StringSpec({
             dispatcher = NoopNotificationDispatcher(),
             rateLimiter = InMemoryRateLimiter(),
             remoteConfig = StubRemoteConfig(),
+            textModerator = id.nearyou.app.moderation.TestModerationFixtures.ALLOW_ONLY_MODERATOR,
+            moderationQueue = id.nearyou.app.moderation.TestModerationFixtures.SHARED_QUEUE_REPO,
         )
     val contentGuard = ContentLengthGuard(mapOf(CHAT_CONTENT_KEY to 2000))
 
@@ -1645,6 +1647,8 @@ class ChatFoundationRouteTest : StringSpec({
                 dispatcher = NoopNotificationDispatcher(),
                 rateLimiter = InMemoryRateLimiter(),
                 remoteConfig = StubRemoteConfig(),
+                textModerator = id.nearyou.app.moderation.TestModerationFixtures.ALLOW_ONLY_MODERATOR,
+                moderationQueue = id.nearyou.app.moderation.TestModerationFixtures.SHARED_QUEUE_REPO,
             )
         testApplication {
             application {

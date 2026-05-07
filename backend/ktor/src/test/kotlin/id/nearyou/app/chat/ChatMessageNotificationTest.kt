@@ -267,6 +267,8 @@ class ChatMessageNotificationTest : StringSpec({
             dispatcher = dispatcher,
             rateLimiter = InMemoryRateLimiter(),
             remoteConfig = NullRemoteConfigChatNotif,
+            textModerator = id.nearyou.app.moderation.TestModerationFixtures.ALLOW_ONLY_MODERATOR,
+            moderationQueue = id.nearyou.app.moderation.TestModerationFixtures.SHARED_QUEUE_REPO,
         )
 
     suspend fun withChat(
@@ -697,8 +699,18 @@ class ChatMessageNotificationTest : StringSpec({
                         senderId: UUID,
                         content: String,
                         emitInTx: ((Connection, ChatMessageRow, UUID) -> Unit)?,
+                        preInsertHookInTx: ((Connection) -> Unit)?,
+                        afterInsertHookInTx: ((Connection, ChatMessageRow) -> Unit)?,
                     ): ChatMessageRow {
-                        val row = super.sendMessage(conversationId, senderId, content, emitInTx)
+                        val row =
+                            super.sendMessage(
+                                conversationId = conversationId,
+                                senderId = senderId,
+                                content = content,
+                                emitInTx = emitInTx,
+                                preInsertHookInTx = preInsertHookInTx,
+                                afterInsertHookInTx = afterInsertHookInTx,
+                            )
                         if (firstCall) {
                             firstCall = false
                             setShadowBan(senderId, true)
@@ -1046,6 +1058,8 @@ class ChatMessageNotificationTest : StringSpec({
                         senderId: UUID,
                         content: String,
                         emitInTx: ((Connection, ChatMessageRow, UUID) -> Unit)?,
+                        preInsertHookInTx: ((Connection) -> Unit)?,
+                        afterInsertHookInTx: ((Connection, ChatMessageRow) -> Unit)?,
                     ): ChatMessageRow {
                         throw RuntimeException("simulated failure between INSERT and emit")
                     }

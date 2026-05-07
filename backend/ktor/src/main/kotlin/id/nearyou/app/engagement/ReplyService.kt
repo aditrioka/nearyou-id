@@ -3,11 +3,16 @@ package id.nearyou.app.engagement
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
+import id.nearyou.app.moderation.TextModerator
+import id.nearyou.app.moderation.Verdict
 import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.app.post.ContentModeratedProfanityException
+import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.PostReplyRepository
 import id.nearyou.data.repository.PostReplyRow
+import id.nearyou.data.repository.ReportTargetType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
@@ -54,6 +59,8 @@ class ReplyService(
     private val dispatcher: NotificationDispatcher,
     private val rateLimiter: RateLimiter,
     private val remoteConfig: RemoteConfig,
+    private val textModerator: TextModerator,
+    private val moderationQueue: ModerationQueueRepository,
     private val clock: () -> Instant = Instant::now,
 ) {
     /**
@@ -124,12 +131,29 @@ class ReplyService(
         content: String,
     ): PostReplyRow {
         replies.resolveVisiblePost(postId, authorId) ?: throw PostNotFoundException()
+
+        // Moderation gate (per `content-moderation-keyword-lists` post-replies spec) runs
+        // AFTER rate-limit (route-layer) + length guard (route-layer) + visibility resolution
+        // (above), BEFORE the INSERT. Reject short-circuits to 400; Flag falls through to
+        // INSERT + queue row in the same transaction; Allow falls through to plain INSERT.
+        val verdict = textModerator.moderate(content)
+        if (verdict is Verdict.Reject) {
+            throw ContentModeratedProfanityException(verdict.matchedKeywords)
+        }
+
         var emittedId: UUID? = null
         val row =
             dataSource.connection.use { conn ->
                 conn.autoCommit = false
                 try {
                     val inserted = replies.insertInTx(conn, postId = postId, authorId = authorId, content = content)
+                    if (verdict is Verdict.Flag) {
+                        moderationQueue.upsertUuIteKeywordMatchRow(
+                            conn = conn,
+                            targetType = ReportTargetType.REPLY,
+                            targetId = inserted.id,
+                        )
+                    }
                     val parentAuthor = replies.loadParentAuthorId(conn, postId)
                     if (parentAuthor != null) {
                         emittedId =

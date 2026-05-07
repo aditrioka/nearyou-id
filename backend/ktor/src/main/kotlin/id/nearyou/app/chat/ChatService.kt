@@ -3,9 +3,14 @@ package id.nearyou.app.chat
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
+import id.nearyou.app.moderation.TextModerator
+import id.nearyou.app.moderation.Verdict
 import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.app.post.ContentModeratedProfanityException
+import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
+import id.nearyou.data.repository.ReportTargetType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonNull
@@ -61,6 +66,8 @@ class ChatService(
     private val dispatcher: NotificationDispatcher,
     private val rateLimiter: RateLimiter,
     private val remoteConfig: RemoteConfig,
+    private val textModerator: TextModerator,
+    private val moderationQueue: ModerationQueueRepository,
     private val clock: () -> Instant = Instant::now,
 ) {
     sealed interface CreateConversationResult {
@@ -216,12 +223,43 @@ class ChatService(
                         )
                 }
             }
+
+        // Moderation pipeline (per `content-moderation-keyword-lists` chat-conversations spec):
+        // - preInsertHookInTx runs the moderator AFTER block check + length guard, BEFORE INSERT.
+        //   On Verdict.Reject, throwing ContentModeratedProfanityException rolls back the
+        //   whole transaction (no INSERT, no last_message_at bump, no broadcast — broadcast
+        //   is post-COMMIT in ChatRoutes).
+        // - afterInsertHookInTx writes the moderation_queue row for Verdict.Flag in the SAME
+        //   transaction as the chat_messages INSERT. The Flag verdict produced by the
+        //   pre-INSERT hook is captured in the `verdictForFlag` variable so the after-INSERT
+        //   hook can read it.
+        var verdictForFlag: Verdict.Flag? = null
+        val preInsertHookInTx: (java.sql.Connection) -> Unit = { _ ->
+            when (val verdict = textModerator.moderate(content)) {
+                is Verdict.Reject -> throw ContentModeratedProfanityException(verdict.matchedKeywords)
+                is Verdict.Flag -> verdictForFlag = verdict
+                Verdict.Allow -> Unit
+            }
+        }
+        val afterInsertHookInTx: ((java.sql.Connection, ChatMessageRow) -> Unit)? =
+            { conn, row ->
+                if (verdictForFlag != null) {
+                    moderationQueue.upsertUuIteKeywordMatchRow(
+                        conn = conn,
+                        targetType = ReportTargetType.CHAT_MESSAGE,
+                        targetId = row.id,
+                    )
+                }
+            }
+
         val row =
             repository.sendMessage(
                 conversationId = conversationId,
                 senderId = senderId,
                 content = content,
                 emitInTx = emitInTx,
+                preInsertHookInTx = preInsertHookInTx,
+                afterInsertHookInTx = afterInsertHookInTx,
             )
         emittedId?.let(dispatcher::dispatch)
         return row

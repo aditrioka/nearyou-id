@@ -76,6 +76,12 @@ class ReplyEndpointsTest : StringSpec({
     val notificationsRepo = JdbcNotificationRepository(dataSource)
     val dispatcher = NoopNotificationDispatcher()
     val notificationEmitter = DbNotificationEmitter(notificationsRepo)
+    val allowOnlyReplyLoader =
+        object : id.nearyou.app.moderation.ModerationListLoader {
+            override fun load(list: id.nearyou.app.moderation.ModerationList): List<String> = emptyList()
+
+            override fun loadThreshold(): Int = 3
+        }
     val service =
         ReplyService(
             dataSource = dataSource,
@@ -84,6 +90,8 @@ class ReplyEndpointsTest : StringSpec({
             dispatcher = dispatcher,
             rateLimiter = NoOpRateLimiter(),
             remoteConfig = StubRemoteConfig(),
+            textModerator = id.nearyou.app.moderation.TextModerator(allowOnlyReplyLoader),
+            moderationQueue = id.nearyou.app.infra.repo.JdbcModerationQueueRepository(),
         )
     val contentGuard = ContentLengthGuard(mapOf(REPLY_CONTENT_KEY to 280))
 

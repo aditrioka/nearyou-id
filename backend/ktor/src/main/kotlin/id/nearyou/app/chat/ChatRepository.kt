@@ -341,6 +341,8 @@ open class ChatRepository(
         senderId: UUID,
         content: String,
         emitInTx: ((Connection, ChatMessageRow, UUID) -> Unit)? = null,
+        preInsertHookInTx: ((Connection) -> Unit)? = null,
+        afterInsertHookInTx: ((Connection, ChatMessageRow) -> Unit)? = null,
     ): ChatMessageRow {
         // @allow-no-block-exclusion: chat-history-readable-after-block
         dataSource.connection.use { conn ->
@@ -355,7 +357,17 @@ open class ChatRepository(
                 if (isBlockedBidirectional(conn, senderId, recipientId)) {
                     throw BlockedException()
                 }
+                // Pre-INSERT hook (per content-moderation-keyword-lists spec — runs AFTER
+                // block check, BEFORE chat_messages INSERT). Throwing rolls back the whole
+                // transaction (no chat_messages row, no last_message_at bump, no broadcast).
+                preInsertHookInTx?.invoke(conn)
                 val row = insertChatMessage(conn, conversationId, senderId, content)
+                // After-INSERT hook (writes the moderation_queue row for Verdict.Flag in
+                // the same transaction — tx atomicity per content-moderation-keyword-lists
+                // chat-conversations spec scenario "Flag transaction is atomic"). Runs
+                // BEFORE notification emit + last_message_at bump so a queue-INSERT
+                // failure aborts both notification and timestamp update.
+                afterInsertHookInTx?.invoke(conn, row)
                 emitInTx?.invoke(conn, row, recipientId)
                 bumpLastMessageAt(conn, conversationId)
                 conn.commit()

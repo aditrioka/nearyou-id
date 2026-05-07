@@ -318,6 +318,14 @@ class NotificationWritePathTest : StringSpec({
             rateLimiter = noopLimiter,
             remoteConfig = noopRemoteConfig,
         )
+    val allowOnlyLoader =
+        object : id.nearyou.app.moderation.ModerationListLoader {
+            override fun load(list: id.nearyou.app.moderation.ModerationList): List<String> = emptyList()
+
+            override fun loadThreshold(): Int = 3
+        }
+    val passThroughModerator = id.nearyou.app.moderation.TextModerator(allowOnlyLoader)
+    val moderationQueueRepoLocal = id.nearyou.app.infra.repo.JdbcModerationQueueRepository()
     val replyService =
         ReplyService(
             dataSource = dataSource,
@@ -326,6 +334,8 @@ class NotificationWritePathTest : StringSpec({
             dispatcher = dispatcher,
             rateLimiter = noopLimiter,
             remoteConfig = noopRemoteConfig,
+            textModerator = passThroughModerator,
+            moderationQueue = moderationQueueRepoLocal,
         )
     val followService = FollowService(dataSource, JdbcUserFollowsRepository(dataSource), emitter, dispatcher)
     val contentGuard = ContentLengthGuard(mapOf("reply.content" to 280))
@@ -678,6 +688,8 @@ class NotificationWritePathTest : StringSpec({
                 dispatcher = dispatcher,
                 rateLimiter = noopLimiter,
                 remoteConfig = noopRemoteConfig,
+                textModerator = passThroughModerator,
+                moderationQueue = moderationQueueRepoLocal,
             )
         try {
             runCatching { failReply.post(p, bob, "text") }.isFailure shouldBe true

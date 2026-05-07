@@ -1,0 +1,21 @@
+# Profanity fallback list — see docs/06-Security-Privacy.md §155.
+#
+# Production wordlist lives in Firebase Remote Config parameter
+# `moderation_profanity_list` and is operator-managed via the Firebase Console.
+# This file is a fail-soft Tier 3 fallback per the 4-tier loader cascade
+# canonicalized at docs/05-Implementation.md:1255 + spec'd in
+# `openspec/specs/content-moderation-keyword-lists/spec.md` §
+# `### Requirement: ModerationListLoader resolves keyword lists via the canonical 4-tier fallback ladder`.
+#
+# Format: one keyword per line, UTF-8, comment lines starting with `#` and
+# blank lines are ignored after trim. Real entries lowercase by convention
+# (the matcher lowercases at scan time anyway).
+#
+# Quarterly UU ITE legal-advisor review per docs/06-Security-Privacy.md:159
+# updates BOTH the Remote Config parameter AND this file (so a Remote Config
+# outage falls back to a recent-and-vetted list).
+#
+# At least one non-comment, non-blank line MUST be present so Tier 3 boot
+# integrity check passes. The placeholder sentinel below would never match
+# real user content.
+__seed_profanity_placeholder__
