@@ -523,23 +523,6 @@ What's missing: a test that boots `Application.module()` with a test-only overri
 - [ ] Add an integration test class `FcmCompositeWiringTest` in `:backend:ktor` that uses `testApplication { application { module() } }` with a Koin override module binding `NotificationDispatcher` to a constructed `FcmAndInAppDispatcher(mockFcm, NoopNotificationDispatcher())`. Drive a like → assert the mock was invoked once per token.
 - [ ] If the override approach proves brittle, fall back to a directly-constructed test surface that bypasses `Application.module()` and exercises only the composite + emit-site service wiring.
 
-## fcm-firebase-import-boundary-detekt-rule
-
-**Discovered during:** `fcm-push-dispatch` apply, design D16 acknowledgement
-**Status:** open
-
-**Finding:** Per `openspec/changes/fcm-push-dispatch/design.md` D16, the `:backend:ktor` module is permitted to import `com.google.firebase.*` strictly for DI-binding signatures, but this rule is currently enforced only at code-review time. As of this change, ZERO `:backend:ktor` files actually import any `com.google.firebase.*` symbol (the `buildFcmComposite(...)` factory in `:infra:fcm` hides the SDK types behind a non-Firebase return shape, narrowing the boundary further than D16 admits). A future contributor could regress this by importing `FirebaseMessaging` into a non-DI file without triggering any CI rule. The static-analysis test `FcmDispatchStructuralTest` covers `NotificationService` + the four emit-site services but not the rest of `:backend:ktor`.
-
-**Specs at fault:** `openspec/specs/fcm-push-dispatch/spec.md` § "`:backend:ktor` Firebase imports are scoped to DI-binding files only" (currently a SHOULD, not enforced)
-**Code at fault:** none — production code respects the boundary
-**Docs at fault:** none
-
-**Impact (if shipped):** Long-term boundary erosion. A `FirebaseMessaging` import sneaking into a route handler or service would couple the request-path code to a vendor SDK, violating the `CLAUDE.md` "No vendor SDK import outside `:infra:*`" invariant — but only at code-review-grade, not CI-grade.
-
-**Action items:**
-- [ ] Add a Detekt rule `FirebaseImportBoundaryRule` in `:lint:detekt-rules` that allowlists `*Module.kt` filenames OR a `@FcmDiBinding` KtAnnotation. Modeled on `RawXForwardedForRule` (which has a similarly tight allowlist).
-- [ ] Update spec scenario "`:backend:ktor` Firebase imports are scoped to DI-binding files only" from SHOULD to SHALL once the rule is in place.
-
 ## chat-message-notification-per-conversation-fcm-batching
 
 **Discovered during:** `chat-foundation` apply (originally tracked under `chat-message-notification-emit-sites`; reduced to the only remaining open scope after `chat-message-notification` shipped via PR #65).
