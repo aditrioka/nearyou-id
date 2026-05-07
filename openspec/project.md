@@ -44,23 +44,53 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 
 ## Module Structure (dependency isolation)
 
+**Currently scaffolded** (canonical source: [`settings.gradle.kts`](../settings.gradle.kts)):
+
 ```
 :core:domain              (pure Kotlin, zero vendor deps)
 :core:data                (interfaces + DTOs)
-:shared:distance, :shared:resources
-:infra:supabase, :infra:r2, :infra:cloudflare-images,
-:infra:revenuecat, :infra:redis, :infra:attestation,
-:infra:resend, :infra:remote-config, :infra:otel,
-:infra:sentry, :infra:amplitude,
-:infra:postgres-neon      (Plan B scaffold, keep compilable)
-:infra:ktor-ws            (post-swap chat, Month 14+)
+:shared:tmp               (KMP scaffold placeholder)
+:shared:distance          (renderDistance, JVM target)
+:infra:supabase           (DB, auth, realtime broadcast publish)
+:infra:redis              (Upstash rate limit + cache)
+:infra:fcm                (FCM push dispatch)
+:infra:oidc               (internal endpoint OIDC verification)
+:infra:otel               (OpenTelemetry tracing — wired 2026-05-07)
 :backend:ktor             (routes + Koin wiring)
-:mobile:app
+:mobile:app               (KMP — currently JetBrains wizard scaffold; see § Mobile + Admin Status below)
+:lint:detekt-rules        (custom Detekt rules)
 ```
 
-Backend modules inside `:backend:ktor`: user, post, social, chat, media, moderation, admin, internal, health. Details + `ChatRealtimeClient` interface in [`docs/04-Architecture.md`](../docs/04-Architecture.md).
+**Planned modules** (described in `docs/04-Architecture.md` § Dependency Isolation Pattern as future architecture; **not yet scaffolded** — do NOT `import` from these):
+
+| Module | Status | Trigger to scaffold |
+|---|---|---|
+| `:shared:resources` | DESIGN | Mobile work begins (Moko Resources UI strings) |
+| `:infra:r2` + `:infra:cloudflare-images` | DESIGN | Image upload feature (Phase 2/3) |
+| `:infra:revenuecat` | DESIGN | Premium subscription billing |
+| `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27, not yet modular) |
+| `:infra:sentry` | DESIGN | Sentry SDK module-isation (project configured, not yet modular) |
+| `:infra:amplitude` | DESIGN | Consent-gated analytics |
+| `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
+| `:infra:remote-config` | DECISION NEEDED | DB-backed feature flags already operational (`premium_*_cap_override`); a separate Remote Config module may be redundant |
+| `:infra:postgres-neon` | ABANDONED | Plan B scaffold not pursued; Supabase PITR is the backup posture |
+| `:infra:ktor-ws` | ABANDONED | Realtime ships via Supabase Broadcast (`SupabaseBroadcastChatClient`); Ktor WS path retired |
+
+Backend modules inside `:backend:ktor` (regenerate from `find backend/ktor/src/main/kotlin/id/nearyou/app -type d -maxdepth 1` if drift suspected): `auth`, `block`, `chat`, `common`, `config`, `dev`, `engagement`, `follow`, `guard`, `health`, `internal`, `lint`, `moderation`, `notifications`, `post`, `search`, `timeline`, `user`, `admin`. The `admin` package contains only `SuspensionUnbanWorker` + `UnbanWorkerRoute` — see § Mobile + Admin Status. Details + `ChatRealtimeClient` interface in [`docs/04-Architecture.md`](../docs/04-Architecture.md).
 
 Rule: **no vendor SDK import outside `:infra:*`**. Domain/data code depends only on interfaces.
+
+---
+
+## Mobile + Admin Status (as of 2026-05-07)
+
+These two surfaces are intentionally thin in the current code; docs/specs that mention them mostly describe future-state contracts. **AI agents reading specs/docs that mention mobile UI or admin endpoints should treat them as DESIGN, not as-built, until this section is updated.**
+
+**Mobile (`:mobile:app`).** Currently the JetBrains Compose Multiplatform wizard template — `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt` is a single MaterialTheme with a "Click me!" button + greeting from `:shared:tmp`. **Zero feature screens, zero auth flow, zero networking, zero Moko Resources usage.** Specs that mention mobile UI (e.g., `distance-rendering` consumer side, `auth-realtime` consumer side, in-app notification rendering) describe future-state contracts the backend already serves. Until mobile work begins, treat any mobile claim in `docs/02-Product.md`, `docs/03-UX-Design.md`, or `docs/04-Architecture.md` as forward-looking design.
+
+**Admin (`:backend:ktor` `admin` package).** Currently 2 files (`SuspensionUnbanWorker.kt` + `UnbanWorkerRoute.kt`, ~189 LOC). No admin UI, no admin REST endpoints beyond the `/internal/unban-worker` tick. The admin features listed in `docs/07-Operations.md` § Admin Panel are deferred to post-MVP. Admin schema (RLS for `service_role`, `admin_sessions` CSRF requirement, `csrf_token_hash` invariant, admin-user FK `ON DELETE SET NULL` invariant) IS shipped in migrations and enforced by Detekt rules — but no admin REST/UI surface consumes it yet.
+
+**Trigger to update this section:** when any non-trivial mobile screen or admin REST endpoint lands, update the bullet above and remove the affected DESIGN tags from the docs/specs sections that describe it.
 
 ---
 

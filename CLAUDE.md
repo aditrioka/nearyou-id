@@ -6,6 +6,15 @@ Project context for Claude running in Claude Code or the `anthropics/claude-code
 
 **nearyou-id** — location-based social media MVP (Indonesia, 18+ only). Text posts with location, nearby discovery, 1:1 chat, freemium + Premium. Modular monolith on Kotlin Multiplatform. Solo-operator build; pre-launch.
 
+## Mobile + Admin are DESIGN-only (read this before believing docs)
+
+The backend is roughly MVP-ready (15 Flyway migrations, 41 OpenSpec capabilities shipped, Detekt-enforced invariants). The **mobile and admin surfaces are intentionally thin**, and many `docs/*` and `openspec/specs/*` paragraphs describe their future-state contracts in present tense. Treat those paragraphs as DESIGN until proven otherwise.
+
+- **Mobile (`:mobile:app`)** — JetBrains Compose Multiplatform wizard scaffold (4 files, ~95 LOC, single "Click me!" button). No screens, no auth flow, no networking, no Moko Resources usage.
+- **Admin (`backend/ktor/.../admin`)** — `SuspensionUnbanWorker.kt` + `UnbanWorkerRoute.kt` only (~189 LOC). No admin UI, no admin REST surface beyond the `/internal/unban-worker` tick.
+
+Canonical detail + trigger-to-update: `openspec/project.md` § Mobile + Admin Status. Don't author code or specs that assume these surfaces exist beyond what's listed there.
+
 ## Canonical references
 
 Start here, in priority order:

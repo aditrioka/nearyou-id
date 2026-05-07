@@ -52,7 +52,9 @@ Losing your Google/Apple account means losing your NearYouID account. By design.
 
 **No regenerate path**: users cannot regenerate the auto-generated username. If they want a different handle, they must subscribe to Premium (see next section).
 
-### Premium Username Customization (Premium Only)
+### Premium Username Customization (Premium Only) — DESIGN
+
+> **Status: DESIGN.** No code today. The endpoints `PATCH /api/v1/user/username` and `GET /api/v1/username/check` referenced below do NOT exist in `backend/ktor/`; the section describes intended behaviour for a future change. The `users.username_last_changed_at` column IS present in V2/V3 schema and the `username_history` table exists, so the data model is partially ready.
 
 Premium users can change their username from the auto-generated one to a custom handle via Settings.
 
@@ -92,7 +94,9 @@ Premium users can change their username from the auto-generated one to a custom 
 - **Permanent ban** (admin action): sets `users.is_banned = TRUE`, leaves `suspended_until = NULL`. No automatic unban.
 - **Shadow ban** (admin action): sets `users.is_shadow_banned = TRUE`. See `06-Security-Privacy.md`.
 
-### Privacy Downgrade Flow (Premium to Free)
+### Privacy Downgrade Flow (Premium to Free) — DESIGN
+
+> **Status: DESIGN.** No code today. The `/internal/privacy-flip-worker` route, the RevenueCat webhook handler, and the worker SQL described below do NOT exist. `Application.kt` mounts only `/internal/unban-worker` under the internal namespace. The `users.privacy_flip_scheduled_at` column IS present in V2 schema (data model partially ready).
 
 When a user with `private_profile_opt_in = TRUE` downgrades to Free (RevenueCat `EXPIRATION` or grace elapse):
 
@@ -259,7 +263,7 @@ One-tap report from a post and profile. Report is recorded in the `reports` tabl
 
 Real-time in-app notification list backed by the `notifications` table. FCM push triggers the client to fetch the list.
 
-- Event types: `post_liked`, `post_replied`, `followed`, `chat_message`, `subscription_billing_issue`, `subscription_expired`, `post_auto_hidden`, `account_action_applied`, `data_export_ready`
+- Event types (canonical: V10 `notifications.type` CHECK constraint, 13 values): `post_liked`, `post_replied`, `followed`, `chat_message`, `subscription_billing_issue`, `subscription_expired`, `post_auto_hidden`, `account_action_applied`, `data_export_ready`, `chat_message_redacted`, `privacy_flip_warning`, `username_release_scheduled`, `apple_relay_email_changed`. The first four have shipped writers; the remaining nine are reserved for the features that own them (chat redaction, billing webhook, admin moderation, privacy-flip worker, etc.) — see V10 migration header.
 - Read state per notification (`read_at` timestamp)
 - Retention: 90 days auto-purge via weekly cleanup worker
 
@@ -340,7 +344,9 @@ Client B fetches history via REST to resync if needed
 
 ---
 
-## 6. Premium Media Upload (Image, Month 6+)
+## 6. Premium Media Upload (Image, Month 6+) — DESIGN
+
+> **Status: DESIGN entire section.** No code today. No image-upload endpoint, no Cloudflare Images / R2 wiring, no Vision Safe Search check, no CSAM webhook handler, no `image_upload_enabled` flag enforcement. The `:infra:r2` and `:infra:cloudflare-images` modules described in `docs/04-Architecture.md` are unscaffolded.
 
 ### Feature Flag Gating
 

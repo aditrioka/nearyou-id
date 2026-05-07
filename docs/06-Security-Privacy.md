@@ -68,7 +68,9 @@ Settings > Privasi > "Pengaturan Data" (user-facing). Toggle change takes effect
 
 ---
 
-## Device Attestation
+## Device Attestation — DESIGN
+
+> **Status: DESIGN.** No code today. The `:infra:attestation` module is unscaffolded; signup flow does not invoke Play Integrity / App Attest verification. The `attestation_mode` and `attestation_bypass_google_ids_sha256` Remote Config keys described below do not yet have a consumer in `SignupService.kt`. This section describes the intended posture for when attestation work begins (post-MVP per `docs/08-Roadmap-Risk.md`).
 
 **Mandatory at registration + sensitive operations**:
 
@@ -422,20 +424,26 @@ All internal scheduler endpoints served under `/internal/*` with mandatory OIDC 
 
 ### Covered Endpoints
 
+> **Status (2026-05-07).** Only **2 of the endpoints below are shipped**. The rest are DESIGN — the route is not yet mounted in `Application.kt`. Cross-check against `find backend/ktor/src/main -name "*Routes.kt" -path "*internal*"` if drift suspected.
+
+**Shipped:**
+- Apple S2S notifications (`/internal/apple/s2s-notifications`) — `AppleS2SRoutes.kt`
+- Suspension unban worker (`/internal/unban-worker`, daily) — `admin/UnbanWorkerRoute.kt`
+
+**DESIGN — not yet implemented:**
 - Hard delete worker (`/internal/cleanup`)
 - Image lifecycle cleanup
 - Session purge + refresh token cleanup
 - Reverse geocoding cache warmup
-- Apple S2S notifications (`/internal/apple/s2s-notifications`)
 - CSAM webhook handler (`/internal/csam-webhook`)
 - Granted entitlement activity gate check (daily)
-- Subscription grace period downgrade worker (daily)
+- Subscription grace period downgrade worker (daily, `/internal/privacy-flip-worker`)
 - CSAM archive purge worker (post-90-day)
-- Suspension unban worker (`/internal/unban-worker`, daily)
 - FCM token cleanup (weekly)
 - Notifications purge (weekly, >90 days)
 - Moderation queue / reports archival (weekly)
 - Stream GC (post-swap, weekly)
+- RevenueCat webhook (`/internal/revenuecat-webhook`)
 
 **Exceptions to OIDC** (use alternative auth):
 - RevenueCat webhook (`/internal/revenuecat-webhook`): Bearer token + HMAC signature (vendor doesn't support OIDC). See `05-Implementation.md`.
