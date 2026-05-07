@@ -34,7 +34,7 @@ If a triage cycle promotes a follow-up to a real OpenSpec change, this skill pro
    - Action items (the unchecked `- [ ]` boxes are the live work)
    - File references (specs / code / docs at fault)
 
-3. **Count current open entries.** If ≥25, flag urgency to user up-front (intro budget is 30; sweep should bring it well below). If <15, note it's healthy and triage can proceed at lower urgency.
+3. **Count current open entries.** Count by grepping `^## ` headings (subtract 1 for the intro's format-block placeholder), not by trusting the intro's `Audit on YYYY-MM-DD found N open + M triaged` note — that prose number can itself be stale between sweeps. If ≥25, flag urgency to user up-front (intro budget is 30; sweep should bring it well below). If <15, note it's healthy and triage can proceed at lower urgency.
 
 4. **Run staleness checks per entry, in parallel where possible.** For each entry, check whether its action items are silently resolved:
    - **"File OpenSpec change `<name>`"** → list `openspec/changes/<name>/` and `openspec/changes/archive/<name>/`. If either exists → `superseded`.
@@ -95,9 +95,11 @@ If a triage cycle promotes a follow-up to a real OpenSpec change, this skill pro
     - Synthesize a chore PR scope: one paragraph + bulleted file-list of changes derived from action items.
     - Surface the scope to the user. The skill does NOT itself write the implementation — that's the user's call (separate explicit invocation).
 
-### Phase E — Push, PR, wrap up
+### Phase E — Refresh intro, push, PR, wrap up
 
-14. **Push the deletion / migration commits + open a PR.** Single PR for the entire triage sweep (typical: 1 deletion commit + 0–N migration commits):
+14. **Refresh `FOLLOW_UPS.md` intro audit note.** After all Phase C deletions / migrations have committed, update the intro's `Audit on YYYY-MM-DD found N open + M triaged (still healthy)` line to reflect the post-triage count + today's date. Without this step, the intro's prose number drifts further from reality on every sweep — exactly the rot this skill is meant to prevent. Commit `docs: refresh FOLLOW_UPS.md intro audit note (post-triage to <N> open)`. Stage `FOLLOW_UPS.md` only. If the file was deleted in step 11 (zero entries left), skip this step.
+
+15. **Push the deletion / migration / intro-refresh commits + open a PR.** Single PR for the entire triage sweep (typical: 1 deletion commit + 0–N migration commits + 1 intro-refresh commit):
     ```bash
     git push -u origin <branch-name>
     gh pr create --title "chore: triage FOLLOW_UPS.md (<YYYY-MM-DD>)" --body "$(cat <<'EOF'
@@ -130,7 +132,7 @@ If a triage cycle promotes a follow-up to a real OpenSpec change, this skill pro
     ```
     The PR body is the audit trail for why the file shrank.
 
-15. **Report final state to user:**
+16. **Report final state to user:**
     - Open count before / after
     - Promotions handed off (list change-name candidates for `/next-change`)
     - Regular-PR work surfaced (list bundles awaiting user action)
