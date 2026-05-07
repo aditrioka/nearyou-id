@@ -155,7 +155,7 @@ Both flows land at `POST /internal/apple/s2s-notifications` (OIDC-exempt, Apple 
 1. **Manual keyword blocklist**: profanity, slurs, scam patterns
 2. **UU ITE content categories**: SARA (suku/agama/ras/antargolongan), defamation, incitement patterns
    - Indonesian-specific wordlist, AI + manual review (Pre-Phase 1 budget 1 day)
-   - Higher threshold: 1 match = soft flag to the moderation queue (not auto-hide)
+   - Higher threshold: matches the Remote Config-tunable threshold (`moderation_match_threshold`, default 3) → soft flag to the moderation queue (not auto-hide)
    - Quarterly review cadence with legal advisor
 3. **Google Perspective API (dev Phase 2 stopgap)**:
    - Free tier: 1 QPS, adequate for dev Phase 2 volume
@@ -173,11 +173,10 @@ Both flows land at `POST /internal/apple/s2s-notifications` (OIDC-exempt, Apple 
 ```
 POST /api/v1/post
 → length validation (280 chars max)
-→ keyword blocklist (sync)
-→ UU ITE category check (sync)
-→ Perspective API (async, 500ms timeout, fail-open)
-→ Insert post
-→ If flagged: set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed)
+→ Layer 1: profanity blocklist (sync) — match → 400 REJECT pre-INSERT
+→ Layer 2: UU ITE category check (sync, threshold per moderation_match_threshold) — match → soft-flag (INSERT proceeds, moderation_queue row inserted, no is_auto_hidden flip)
+→ Insert post (Layer 1 + 2 passed)
+→ Layer 3: Perspective API (async post-INSERT, 500ms timeout, fail-open) — score >0.8 → set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed)
 ```
 
 ### Legal Documentation
