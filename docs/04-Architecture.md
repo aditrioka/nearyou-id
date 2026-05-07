@@ -356,6 +356,10 @@ All production-cost components active (plus staging minimal-spec running in para
 - Rollback: manual (Flyway does not auto-rollback in production; DBA-level responsibility)
 - Deploy order enforced: staging migration must succeed + smoke tests pass before production migration kicks off
 
+**Staging vs prod cold-start caveat (`RUN_FLYWAY_ON_STARTUP`)**: For pre-launch convenience, staging runs Flyway on every Cloud Run cold-start (gated by `RUN_FLYWAY_ON_STARTUP=true` env var in `.github/workflows/deploy-staging.yml`). With 70+ migrations accumulated this dominates startup time (~25s mean as of 2026-05; the canonical < 3s p99 production target assumes the dedicated `nearyou-migrate-prod` Cloud Run Job path above). Production tag-deploy MUST NOT set `RUN_FLYWAY_ON_STARTUP`.
+
+**Cold-start regression measurement caveat**: Cloud Monitoring's `run.googleapis.com/container/startup_latencies` distribution metric uses exponential histogram buckets (~2.5s wide at the 25-27s range). Sub-second mean deltas — the regime where most instrumentation cost lands (~100-300ms) — are invisible from bucket-based percentile interpolation when pre-change and post-change samples cluster in the same bucket. Mean (computed from `sum/count`) preserves ms-level resolution; **use mean-delta for sub-second cold-start regression checks**, p99-bucket-shift only for >2s deltas. Per-event log-based measurement (Cloud Run logs each cold-start) is the high-resolution alternative if needed.
+
 ### Cross-Cloud Latency Mitigation
 
 GCP Cloud Run (Jakarta) + Supabase (AWS Singapore) + Upstash + Cloudflare: per DB round-trip +15-30ms vs co-located.
@@ -395,7 +399,7 @@ GCP Cloud Run (Jakarta) + Supabase (AWS Singapore) + Upstash + Cloudflare: per D
 
 **Instrumentation priorities**:
 - **Mandatory spans**: HTTP request on Ktor, Supabase API calls, Redis calls, PostGIS spatial queries, CF Images calls, Resend API calls
-- **Mandatory attributes**: `user_id` (hashed), `endpoint`, `db.statement` (parameterized), `supabase.realtime.channel`, `geo.cloud_region`
+- **Mandatory attributes**: `user_id` (hashed), `endpoint`, `db.statement` (parameterized), `supabase.realtime.channel`, `cloud.region` — see [`openspec/specs/observability-otel-foundation/spec.md`](../openspec/specs/observability-otel-foundation/spec.md) for the full enforced attribute contract (including the forbidden-attributes list)
 - **Trace context propagation**: W3C Trace Context on all outbound HTTP
 
 ### Sentry KMP (unified crash + error reporting)

@@ -79,45 +79,15 @@ Format per entry:
 
 ## staging-cold-start-flyway-on-startup-cost
 
-**Discovered during:** `observability-otel-foundation` §1.2 baseline measurement at task-execution time — staging Cloud Run cold-start mean = 25.03s (n=32, last 7 days), 8x above the project's <3s p99 SLO from [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 2 §14.
-**Status:** open
+**Discovered during:** `observability-otel-foundation` §1.2 baseline measurement (staging cold-start mean ~25s, dominated by `flyway.repair() + flyway.migrate()` on every Cloud Run start; staging-specific simplification per [`Application.kt:243-253`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) + [`deploy-staging.yml:111`](.github/workflows/deploy-staging.yml)).
+**Status:** triaged — docs caveat shipped at `docs/04-Architecture.md` § Flyway Migration Deployment. Awaits production deploy validation.
 
-**Finding:** [`Application.kt:243-253`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) gates Flyway migration replay on cold-start behind `RUN_FLYWAY_ON_STARTUP=true`, which staging sets explicitly in [`deploy-staging.yml:111`](.github/workflows/deploy-staging.yml). With 70+ Flyway migrations accumulated, the per-cold-start `flyway.repair() + flyway.migrate()` call dominates startup cost. Comment in Application.kt explicitly notes "prod later splits this into a dedicated Cloud Run Job (`nearyou-migrate`) per the docs/04-Architecture.md deployment plan" — the staging behavior is a deliberate simplification, not an oversight.
-
-**Specs at fault:** None — the canonical deployment plan in `docs/04-Architecture.md` already names the Cloud Run Job split as the prod-shape solution.
-**Code at fault:** None — the gating flag works correctly; staging's deploy workflow is what flips it on.
-**Docs at fault:** None — the comment block in `Application.kt:236-241` correctly describes the trade-off.
-
-**Impact (if shipped):** Phase 2 §14 cold-start benchmark cannot be meaningfully run against staging today — the 25s baseline is artificially inflated. Operators measuring "is this change increasing cold-start?" must use mean-delta comparison (which works), not absolute number (which doesn't reflect prod). Production cold-start estimate (~7-10s) is theoretical until the Cloud Run Job split lands.
-
-**Ambiguity to resolve first:** Two paths: (a) introduce `nearyou-migrate` Cloud Run Job for staging too (adds operational complexity for staging), (b) keep staging-as-is and document the limitation (cheaper, accept measurement caveat). Recommend (b) for pre-launch — premature ops complexity for a synthetic-data environment.
+**Finding:** Staging runs Flyway on cold-start (gated by `RUN_FLYWAY_ON_STARTUP=true`) for pre-launch convenience. Production tag-deploy MUST run migrations via the dedicated `nearyou-migrate-prod` Cloud Run Job (per the canonical deployment plan) and MUST NOT set `RUN_FLYWAY_ON_STARTUP`. The ~7-10s production cold-start estimate is theoretical until the Cloud Run Job split runs end-to-end on a real prod tag-deploy.
 
 **Action items:**
-- [ ] Document the staging-vs-prod cold-start caveat in `docs/04-Architecture.md` § Deployment so future operators don't get confused by the staging numbers.
-- [ ] When production tag-deploy happens, ensure `RUN_FLYWAY_ON_STARTUP` is NOT set (or explicitly false) and Flyway runs via separate Cloud Run Job per the canonical deployment plan.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after production deploy validates the ~7-10s cold-start estimate.
-
----
-
-## cloud-run-startup-latency-bucket-resolution
-
-**Discovered during:** `observability-otel-foundation` §1.2/§7.7 baseline measurement — Cloud Monitoring's `run.googleapis.com/container/startup_latencies` distribution metric uses exponential histogram buckets that are 2.5s wide at the 25-27s latency range (e.g., the `[24.8s, 27.3s)` bucket contains 28 of 32 baseline samples).
-**Status:** open
-
-**Finding:** Sub-second mean deltas (the regime where OTel cost lands — ~100-300ms) are **invisible** from bucket-based percentile interpolation when both pre-change and post-change samples cluster in the same wide bucket. Mean (computed from `sum/count`) preserves ms-level resolution, but p50/p95/p99 reads via the standard `percentileFromBuckets` interpolation cannot detect them. This is a measurement-tool limitation, not a Cloud Run misconfiguration — exponential bucket scaling is standard for latency histograms.
-
-**Specs at fault:** None — but the §7.7 task in `observability-otel-foundation/tasks.md` originally specified "p99 delta" as the regression metric. Updated mid-flight to "mean delta" after this finding surfaced.
-**Code at fault:** None.
-**Docs at fault:** None canonical, but operations notes don't currently document this measurement caveat.
-
-**Impact (if shipped):** Future cold-start regression checks against this metric must use mean-delta, not p99-bucket-shift. Documentation gap; operators following spec text without context could conclude "no regression" when a real 200ms delta is hidden by bucket resolution.
-
-**Ambiguity to resolve first:** None — the resolution is deterministic (use mean for sub-second deltas, use p99 bucket for >2s deltas).
-
-**Action items:**
-- [ ] Add a section to `docs/04-Architecture.md` § Observability OR a new `docs/07-Operations.md` § Cold-start measurement note documenting: "use mean (sum/count) for sub-second delta tracking; p99 bucket interpolation has 2.5s+ resolution at the 25-27s range and won't capture small regressions."
-- [ ] Consider switching to per-event log-based measurement (Cloud Run logs each cold-start) for high-resolution regression detection in future ops scenarios. Out of scope for `observability-otel-foundation`; surface here so the next ops-touching change can reference.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after the docs amendment lands.
+- [ ] At first production tag-deploy: confirm `RUN_FLYWAY_ON_STARTUP` is NOT set on the production Cloud Run service AND Flyway runs via the dedicated `nearyou-migrate-prod` Cloud Run Job.
+- [ ] Validate the ~7-10s production cold-start estimate against the actual `run.googleapis.com/container/startup_latencies` metric. Use mean-delta (sub-second resolution) rather than p99-bucket-shift (2.5s+ resolution at this range) — see the cold-start measurement caveat in the same `docs/04-Architecture.md` § Flyway Migration Deployment block.
+- [ ] Delete this entry once production validates the ~7-10s estimate.
 
 ---
 
@@ -189,24 +159,15 @@ Format per entry:
 
 ## observability-otel-pii-disclosure
 
-**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 cross-doc-impact finding #5 — `docs/06-Security-Privacy.md:308` third-party processor list does NOT include Grafana Cloud, but trace data carries pseudonymous personal data (truncated SHA-256 of user UUIDs).
-**Status:** open
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 cross-doc-impact finding #5 — Grafana Cloud was not yet listed as a third-party data processor under UU PDP article 20–22 disclosure obligations.
+**Status:** triaged — `docs/06-Security-Privacy.md:308` processor list amended (Grafana Cloud added with pseudonymous trace data scope). Privacy Policy publication + legal advisor confirmation remain.
 
-**Finding:** [`docs/06-Security-Privacy.md:308`](docs/06-Security-Privacy.md) enumerates third-party data processors that must be disclosed under UU PDP article 20–22 obligations (Resend, Amplitude, Sentry, RevenueCat, Cloudflare, Firebase, Google Play, Apple, Supabase, Upstash). Grafana Cloud is absent. The `observability-otel-foundation` change starts exporting trace data to Grafana Cloud's EU/US infrastructure containing route patterns + parameterized SQL + truncated SHA-256 user IDs (pseudonymous personal data per UU PDP definitions). Disclosure obligations apply.
-
-**Specs at fault:** None.
-**Code at fault:** None — the trace data export shape is correct; only the disclosure documentation is missing.
-**Docs at fault:** [`docs/06-Security-Privacy.md:308`](docs/06-Security-Privacy.md) (third-party processor list); the public Privacy Policy.
-
-**Impact (if shipped without disclosure):** Medium-to-high — UU PDP compliance gap. Indonesia's UU PDP (effective 2024) requires explicit disclosure of cross-border data transfers to third-party processors; trace data containing pseudonymous personal data clears the bar. Pre-launch context softens the immediate risk (no production users yet) but the gap MUST close before Public Launch (Week 20 per `docs/08-Roadmap-Risk.md`).
-
-**Ambiguity to resolve first:** Whether truncated SHA-256(uuid) at 64 bits qualifies as "pseudonymous personal data" under UU PDP (likely yes per the regulation's broad definition; legal advisor confirmation recommended pre-launch).
+**Finding:** OTel trace export to Grafana Cloud carries pseudonymous personal data (truncated SHA-256 of user UUIDs, parameterized SQL, route patterns). UU PDP (effective 2024) requires explicit disclosure of cross-border data transfers to third-party processors. Pre-launch (no production users yet) softens the immediate risk; the gap MUST close before Public Launch (Week 20 per `docs/08-Roadmap-Risk.md`).
 
 **Action items:**
-- [ ] File a docs-only PR that amends `docs/06-Security-Privacy.md:308` to add Grafana Cloud to the third-party processor list with a brief description ("OpenTelemetry trace backend; receives pseudonymous trace data including hashed user IDs, route patterns, parameterized SQL").
-- [ ] Update the public Privacy Policy (when published) to include Grafana Cloud in the third-party processors section.
+- [ ] When the public Privacy Policy is drafted/published, include Grafana Cloud in the third-party processors section using wording aligned with `docs/06-Security-Privacy.md:308`.
 - [ ] Confirm with legal advisor whether truncated SHA-256(uuid) at 64 bits triggers UU PDP article 20–22 cross-border-transfer disclosure obligations; if yes, ensure the Privacy Policy includes the standard disclosure language.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete once the docs PR + Privacy Policy update merge.
+- [ ] Delete this entry once Privacy Policy publication + legal confirmation land.
 
 ---
 
@@ -250,27 +211,6 @@ Format per entry:
 - [ ] File OpenSpec change `observability-otel-attribute-detekt-rule` that ships `OtelForbiddenAttributeRule` in `:lint:detekt-rules`, with a forbidden-attribute-keys allowlist + value-regex denylist per the spec contract.
 - [ ] Decide rule scope (cross-cutting vs `:infra:otel`-only) at design time.
 - [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
-
----
-
-## geo-cloud-region-canonical-doc-amendment
-
-**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-1 review (security-and-invariant lens finding Q1).
-**Status:** open
-
-**Finding:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) lists the mandatory Cloud Run region attribute as `geo.cloud_region`. The shipped `observability-otel-foundation` spec + implementation use the OTel semconv standard name `cloud.region` instead. Deliberate divergence: (a) `cloud.region` matches the OTel standard that Grafana Tempo's query patterns expect, (b) the `geo.*` namespace is semantically close to the project's user-PII spatial keys (`actual_location` / `display_location` invariants), so a future "forbid `geo.*` span attributes" Detekt rule could false-positive on a safe value. Doc amendment was deliberately deferred from the OpenSpec change to avoid scope creep.
-
-**Specs at fault:** None — `openspec/specs/observability-otel-foundation/spec.md` (post-archive) correctly uses `cloud.region`.
-**Code at fault:** None — the implementation correctly uses `cloud.region`.
-**Docs at fault:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) — uses non-standard `geo.cloud_region` shorthand.
-
-**Impact (if shipped):** Low. The doc shorthand is the only place the non-standard name appears; readers comparing the doc to the running implementation will notice the divergence. No data quality impact; no operator workflow impact (Tempo accepts both attribute names; queries work either way).
-
-**Ambiguity to resolve first:** None.
-
-**Action items:**
-- [ ] File a docs-only PR that amends `docs/04-Architecture.md:398` to use `cloud.region` (OTel semconv) instead of `geo.cloud_region`.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete it once the docs PR merges.
 
 ---
 
@@ -909,27 +849,6 @@ Recommend approach 3 — preserves spec semantics, no spec amendment needed (spe
 
 **Action items:**
 - [ ] Amend [`docs/05-Implementation.md:1204`](docs/05-Implementation.md) to distinguish publisher channel identifier (`realtime:conversation:<id>`) from the topic (`conversation:<id>`) the V15 RLS regex evaluates against. Batch with the other Phase 9 docs-only amendments.
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
-
----
-
-## architecture-doc-otel-mandatory-attributes-clarification
-
-**Discovered during:** `chat-realtime-broadcast` Phase 9.6 — flagged that [`docs/04-Architecture.md:398`](docs/04-Architecture.md) describes the "mandatory OTel attributes" list as if it is already enforced, but no shipped capability emits OTel spans (per `observability-otel-foundation` finding above).
-**Status:** open
-
-**Finding:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) reads as a present-tense enforced contract: "Mandatory attributes: `user_id` (hashed), `endpoint`, `db.statement` (parameterized), `supabase.realtime.channel`, `geo.cloud_region`". The actual project state is that NO shipped capability emits OTel spans — the line describes the FUTURE state once `observability-otel-foundation` ships. The `chat-realtime-broadcast` changes round-3 review caught this when an earlier draft of the design treated the line as a load-bearing requirement.
-
-**Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md).
-
-**Impact (if shipped):** Low. Misleads future implementers who treat the line as a present-state spec — `chat-realtime-broadcast` round 3 caught this, but a future capability author may not.
-
-**Ambiguity to resolve first:** None. Amend the line to clarify the attribute list is the FUTURE state once `observability-otel-foundation` ships (or batch with that changes amendments).
-
-**Action items:**
-- [ ] Amend [`docs/04-Architecture.md:398`](docs/04-Architecture.md) to add a "future-state once `observability-otel-foundation` ships" qualifier to the mandatory-attributes line, OR fold the amendment into the `observability-otel-foundation` change itself.
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
 
 ---
