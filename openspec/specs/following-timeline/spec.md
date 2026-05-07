@@ -1,7 +1,9 @@
 # following-timeline Specification
 
 ## Purpose
-TBD - created by archiving change following-timeline-with-follow-cascade. Update Purpose after archive.
+
+The following-timeline capability defines `GET /api/v1/timeline/following`, the chronological feed of posts authored by users the viewer follows. The query reads `FROM visible_posts` joined to `follows` with bidirectional `user_blocks` NOT-IN exclusion and keyset-paginates on `(created_at DESC, id DESC)` exactly like Nearby and Global, returning the same per-post shape minus `distance_m`. There is no spatial filter, no radius, and no algorithmic ranking — strictly chronological — and the same shadow-ban + auto-hide invariants enforced by `visible_posts` apply.
+
 ## Requirements
 ### Requirement: GET /api/v1/timeline/following endpoint exists
 

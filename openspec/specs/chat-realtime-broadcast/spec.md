@@ -1,7 +1,9 @@
 # chat-realtime-broadcast Specification
 
 ## Purpose
-TBD - created by archiving change chat-realtime-broadcast. Update Purpose after archive.
+
+The chat-realtime-broadcast capability adds server-side publish of new chat messages to Supabase Realtime so subscribed mobile clients receive them without REST polling. Ktor publishes after the chat-foundation transaction commits via the `ChatRealtimeClient` interface implemented in `:infra:supabase` by `SupabaseBroadcastChatClient`, with shadow-banned senders skipped publish-side as the counterpart to the read-path filter. The publish is best-effort: a 4-attempt retry-then-WARN contract logs structured failures without rolling back the persisted INSERT, and the channel name and JSON payload schema are fixed contracts that mobile subscribers and the V15 RLS topic regex both depend on.
+
 ## Requirements
 ### Requirement: ChatRealtimeClient domain interface
 

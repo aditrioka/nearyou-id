@@ -1,7 +1,9 @@
 # visible-posts-view Specification
 
 ## Purpose
-TBD - created by archiving change post-creation-geo. Update Purpose after archive.
+
+The visible-posts-view capability defines `visible_posts` as the canonical read surface for any business code that lists or aggregates posts. It filters out auto-hidden rows (`WHERE is_auto_hidden = FALSE`) so timelines, search, replies, and counters never have to repeat that predicate. The companion `RawFromPostsRule` Detekt rule pins the convention by failing CI on any raw `FROM posts` / `JOIN posts` outside the sanctioned allowlist (Repository own-content paths, the admin module, the report-target existence helper, and the V4 view definition itself), preventing shadow-ban bypass at commit time rather than at audit time.
+
 ## Requirements
 ### Requirement: visible_posts view definition
 

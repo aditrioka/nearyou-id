@@ -1,7 +1,9 @@
 # internal-endpoint-auth Specification
 
 ## Purpose
-TBD - created by archiving change suspension-unban-worker. Update Purpose after archive.
+
+The internal-endpoint-auth capability defines the OIDC-bearer-token authentication contract that gates every `/internal/*` route invoked by Cloud Scheduler or another GCP service account. The Ktor plugin verifies the bearer token's signature against the Google JWKS, checks expiry, and matches the `aud` claim against the configured audience (the deployed service URL); missing, invalid, or wrong-audience tokens are rejected `401`. The plugin is composable so future endpoints with vendor-specific auth (RevenueCat webhook, CSAM webhook) can opt out, and it is the canonical pattern reused by every scheduled worker (suspension unban, privacy-flip, hard-delete, FCM cleanup, notifications purge, and more).
+
 ## Requirements
 ### Requirement: `/internal/*` routes require Google OIDC bearer token
 

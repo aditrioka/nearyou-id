@@ -1,7 +1,9 @@
 # auth-signup Specification
 
 ## Purpose
-TBD - created by archiving change signup-flow. Update Purpose after archive.
+
+The auth-signup capability defines the `POST /api/v1/auth/signup` endpoint that creates a new `users` row from a Google or Apple id-token plus a date-of-birth, atomically populating every NOT NULL column (provider hash, `date_of_birth`, generated `username`, `display_name`, and derived `invite_code_prefix`) inside a single transaction. It composes the age-gate check, rejected-identifier pre-check, and username-generation algorithm into one all-or-nothing creation flow, returning an access + refresh token pair on success. This is the only supported path for creating a real user row; `/signin` continues to return `404 user_not_found` for unknown identities.
+
 ## Requirements
 ### Requirement: Signup endpoint contract
 

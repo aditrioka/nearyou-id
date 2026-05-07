@@ -1,7 +1,9 @@
 # fcm-push-dispatch Specification
 
 ## Purpose
-TBD - created by archiving change fcm-push-dispatch. Update Purpose after archive.
+
+The fcm-push-dispatch capability provides the production `FcmDispatcher` implementation of the `NotificationDispatcher` seam, sending Firebase Cloud Messaging pushes after each `notifications` row is committed. It builds platform-specific payloads (Android data-only with high priority, iOS alert with `mutable-content` for the NSE preview-toggle), masks shadow-banned and deleted actors via the `visible_users` join, and prunes stale tokens on `UNREGISTERED` / `SENDER_ID_MISMATCH` responses guarded by a `last_seen_at <= dispatch_started_at` race-check so freshly re-registered tokens survive. The Firebase Admin SDK is isolated inside the `:infra:fcm` module per the project's vendor-isolation invariant; failures degrade to the in-app `notifications` table fallback.
+
 ## Requirements
 ### Requirement: `:infra:fcm` module SHALL encapsulate the Firebase Admin SDK with no vendor imports outside it
 

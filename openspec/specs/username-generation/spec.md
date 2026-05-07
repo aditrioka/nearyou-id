@@ -1,7 +1,9 @@
 # username-generation Specification
 
 ## Purpose
-TBD - created by archiving change signup-flow. Update Purpose after archive.
+
+The username-generation capability provides the canonical server-side algorithm that produces a unique handle for every new user during signup, never relying on client input. Generation runs a deterministic 5-attempt template ladder (`{adj}_{noun}` → `{adj}_{noun}_{modifier}` → `{adj}_{noun}_{random_5_digit}`) checked against `reserved_usernames` and unreleased `username_history` rows, with a `{adj}_{noun}_{uuid8hex}` fallback on full collision. It guarantees uniqueness and reserved-word safety, caps length at 60 chars, and exposes a deterministic seed hook so signup flows are testable without fakes.
+
 ## Requirements
 ### Requirement: Canonical 5-attempt generation loop
 

@@ -1,7 +1,9 @@
 # global-timeline Specification
 
 ## Purpose
-TBD - created by archiving change global-timeline-with-region-polygons. Update Purpose after archive.
+
+The global-timeline capability defines `GET /api/v1/timeline/global`, the third and final timeline tab — a chronological cross-Indonesia feed of posts. The query reads `FROM visible_posts` with the same bidirectional `user_blocks` NOT-IN exclusion + V7 likes LEFT JOIN + V8 reply-count LEFT JOIN LATERAL pattern as Nearby and Following, keyset-paginated on `(created_at DESC, id DESC)`, and adds a required `city_name` field to every item (denormalized at write time by the `posts_set_city_tg` trigger). MVP scope is authenticated-only, strictly chronological with no province / island filter or ranking; guest read access and Redis-backed session/hour scroll caps are deferred to follow-up changes.
+
 ## Requirements
 ### Requirement: GET /api/v1/timeline/global endpoint exists
 

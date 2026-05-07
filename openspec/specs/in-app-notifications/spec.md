@@ -1,7 +1,9 @@
 # in-app-notifications Specification
 
 ## Purpose
-TBD - created by archiving change in-app-notifications. Update Purpose after archive.
+
+The in-app-notifications capability provides the DB-backed per-user notification feed: the `notifications` table (full 13-value `type` enum reserved at V10 for forward-compatibility, of which 4 are written today — `post_liked`, `post_replied`, `followed`, `post_auto_hidden`) plus the read endpoints under `/api/v1/notifications`. Emit happens inside the same transaction as the source write (like, reply, follow, auto-hide) and is suppressed at write-time when the recipient and actor are blocked in either direction or when the action is on the user's own content. The `NotificationDispatcher` seam is the hook point for FCM push delivery, which lands in the `fcm-push-dispatch` capability.
+
 ## Requirements
 ### Requirement: notifications table created via Flyway V10
 

@@ -1,7 +1,9 @@
 # distance-rendering Specification
 
 ## Purpose
-TBD - created by archiving change post-creation-geo. Update Purpose after archive.
+
+The distance-rendering capability defines the canonical `DistanceRenderer.render(distanceMeters)` function that converts a fuzzed distance (already measured against `display_location`, never `actual_location`) into the user-facing string shown next to nearby posts. The function lives in `:shared:distance` `commonMain` so backend and mobile clients share one implementation, and the contract is fuzz-first input, floor at 5km, and round-to-1km above that — defending against fine-grained distance inference that would partially undo coordinate jitter.
+
 ## Requirements
 ### Requirement: DistanceRenderer.render lives in :shared:distance
 

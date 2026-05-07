@@ -1,7 +1,9 @@
 # reports Specification
 
 ## Purpose
-TBD - created by archiving change reports-v9. Update Purpose after archive.
+
+The reports capability ships the user-facing Report submission surface: `POST /api/v1/reports`, the `reports` table with UNIQUE `(reporter_id, target_type, target_id)`, and the auto-hide coupling that flips `is_auto_hidden = TRUE` on a post or reply when 3 distinct reporters with accounts older than 7 days have reported the same target inside the same DB transaction. The endpoint is JWT-required, validates target existence (without applying block-exclusion — reporting blocked or shadow-banned users is valid), rejects self-reports, returns `409 reports.duplicate` on UNIQUE collision, and is rate-limited at 10 submissions/hour per user. Auto-hide also enqueues an idempotent `auto_hide_3_reports` row in `moderation_queue` for admin review.
+
 ## Requirements
 ### Requirement: reports table created via Flyway V9
 

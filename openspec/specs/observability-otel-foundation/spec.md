@@ -1,7 +1,9 @@
 # observability-otel-foundation Specification
 
 ## Purpose
-TBD - created by archiving change observability-otel-foundation. Update Purpose after archive.
+
+The observability-otel-foundation capability scaffolds the `:infra:otel` module and wires OpenTelemetry tracing into `:backend:ktor` with auto-instrumentation for the Ktor HTTP server, the JDK / CIO HTTP client, Postgres JDBC via HikariCP, and Redis Lettuce. It defines the mandatory spans and attributes (including the `UserIdHasher` that hashes user UUIDs to 16 hex chars before they can be attached to spans), the forbidden-attributes contract that defends against PII leakage, W3C Trace Context propagation on outbound HTTP, and a `ParentBased(TraceIdRatioBased(0.1))` production sampler with a no-op exporter fallback when secrets are absent. Force-keep promotion (100% errors + 100% slow) is deferred to a follow-up change that deploys an OTel Collector for tail sampling.
+
 ## Requirements
 ### Requirement: `:infra:otel` module is the sole owner of the OTel SDK + vendor exporter
 

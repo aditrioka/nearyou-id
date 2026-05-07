@@ -1,7 +1,9 @@
 # suspension-unban-worker Specification
 
 ## Purpose
-TBD - created by archiving change suspension-unban-worker. Update Purpose after archive.
+
+The suspension-unban-worker capability defines `POST /internal/unban-worker`, the daily Cloud-Scheduler-invoked endpoint that flips `is_banned = FALSE` and `suspended_until = NULL` for every user whose 7-day suspension window has elapsed. Permanent bans (`suspended_until IS NULL`) and soft-deleted users (`deleted_at IS NOT NULL`) are deliberately untouched. The worker is gated by the `internal-endpoint-auth` OIDC plugin, runs at 04:00 WIB (`0 21 * * *` UTC), emits a structured `suspension_unban_applied` log per run, and returns `{"unbanned_count": N}` so Scheduler retries are observable. It pioneered the `/internal/*` route prefix that subsequent scheduled workers (privacy-flip, hard-delete, FCM cleanup, notifications purge) reuse.
+
 ## Requirements
 ### Requirement: `POST /internal/unban-worker` flips elapsed time-bound suspensions
 

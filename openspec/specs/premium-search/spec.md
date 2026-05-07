@@ -1,7 +1,9 @@
 # premium-search Specification
 
 ## Purpose
-TBD - created by archiving change premium-search. Update Purpose after archive.
+
+The premium-search capability adds `GET /api/v1/search` as a Premium-only full-text + fuzzy search across post content and usernames. It builds the FTS stack V4 deferred — the `pg_trgm` extension, the `posts.content_tsv` GENERATED column, and the GIN indexes on `content_tsv`, `content gin_trgm_ops`, and `username gin_trgm_ops` — and ranks results from `visible_posts JOIN visible_users` with bidirectional block exclusion, auto-hide filtering, and the Premium-private-profile gate. Free users receive `403 premium_required` (mobile renders the upsell), the `search_enabled` Remote Config kill switch returns `503` when toggled off, query length is bounded `2..100` post-NFKC, OFFSET is capped at 10000, and a 60-queries-per-hour Redis rate limit per Premium user defends the GIN heap-fetch path against deep-OFFSET DoS.
+
 ## Requirements
 ### Requirement: Search endpoint exposes Premium full-text + fuzzy search
 

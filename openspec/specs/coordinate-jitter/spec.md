@@ -1,7 +1,9 @@
 # coordinate-jitter Specification
 
 ## Purpose
-TBD - created by archiving change post-creation-geo. Update Purpose after archive.
+
+The coordinate-jitter capability defines the deterministic HMAC-SHA256-based jitter contract that derives every post's `display_location` from its `actual_location`, post id, and `JITTER_SECRET`, producing a fuzzed point within a 50–500m envelope. The same `post_id` always yields the same display point (deterministic for cache-friendliness and predictable testing), but the offset is non-reversible without the secret so `actual_location` cannot be triangulated from public spatial responses. The canonical implementation lives in the `:shared:distance` Kotlin Multiplatform module so backend and mobile consume the same math, and the `actual_location`-vs-`display_location` separation is enforced by the `CoordinateJitterRule` Detekt rule.
+
 ## Requirements
 ### Requirement: JitterEngine lives in :shared:distance
 

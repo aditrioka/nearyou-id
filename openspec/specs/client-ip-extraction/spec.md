@@ -1,7 +1,9 @@
 # client-ip-extraction Specification
 
 ## Purpose
-TBD - created by archiving change health-check-endpoints. Update Purpose after archive.
+
+The client-ip-extraction capability provides the Ktor `ClientIpExtractor` route-scoped plugin that populates a `clientIp` request-context attribute via the canonical CF-Connecting-IP → XFF-first → remoteHost precedence ladder. Every consumer that needs the caller's IP (rate limiters, abuse-tracking, future guest pre-issuance limits) reads from `clientIp` rather than touching headers directly, and the `RawXForwardedForRule` Detekt rule fails CI on any direct `X-Forwarded-For` access outside the extractor itself. The plugin defaults to a defensive `"unknown"` fallback so extraction errors never fail the request pipeline.
+
 ## Requirements
 ### Requirement: `clientIp` Ktor request-context value
 

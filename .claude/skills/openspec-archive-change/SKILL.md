@@ -65,7 +65,32 @@ Archive a completed change in the experimental workflow.
 
    If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
 
-5. **Perform the archive**
+5. **Block archive if any resulting spec would carry a TBD Purpose placeholder.**
+
+   The historical default of `/opsx:archive` produced spec.md files with `## Purpose\nTBD - created by archiving change <name>. Update Purpose after archive.` — and the human/AI handing off the archive almost always forgot to fill it. Audit on 2026-05-07 found 26 of 41 specs (63%) still carrying the TBD placeholder. This step closes the gap by **refusing to archive until every affected spec's Purpose is grounded.**
+
+   For each delta spec file under `openspec/changes/<name>/specs/<capability>/spec.md`:
+
+   1. Determine what `openspec/specs/<capability>/spec.md` will look like AFTER archive sync. This is the file the world reads going forward — it carries either the existing Purpose (if `<capability>` was previously specced) or whatever Purpose the archive process synthesises from the delta (typically the TBD placeholder for new capabilities).
+   2. Check the post-archive spec for the literal substring `TBD - created by archiving`. If found, the archive MUST NOT proceed silently.
+
+   **Acceptable resolution paths (offer all three via AskUserQuestion):**
+   - **(a) Fill the Purpose now (recommended).** Read the change's `proposal.md` § Why + § What Changes; synthesize a 2-4 sentence Purpose paragraph; edit the affected spec.md (or the delta spec.md if the sync hasn't run yet) to replace the TBD line with the real Purpose. Re-run `openspec validate <name> --strict` and re-run this step.
+   - **(b) Defer with explicit FOLLOW_UPS entry.** If filling the Purpose meaningfully requires inputs you do not have right now, append an entry to `FOLLOW_UPS.md` per the format in `openspec/project.md` § Notes. Then proceed. Do NOT use this path for laziness — it consumes a real follow-up budget.
+   - **(c) Cancel archive.** Stop, surface the affected capability list to the user, and let them decide.
+
+   Acceptable check command (regex-anchored to the literal placeholder phrase the archive process inserts; tolerates leading whitespace):
+
+   ```bash
+   # After running `openspec archive` or before doing the mv, scan for placeholders:
+   grep -rn "TBD - created by archiving" openspec/specs/ openspec/changes/<name>/specs/ 2>/dev/null
+   ```
+
+   If the command emits any line, the archive halts. Empty output means proceed.
+
+   **Why this is mandatory, not advisory:** the Purpose paragraph is the first thing AI agents and humans read when grepping `openspec/specs/`. A TBD placeholder leaves the spec half-filled — agents skip the spec because they can't tell what it covers, or worse, they treat the placeholder as authoritative and propose changes that conflict with the actual capability. The 26-of-41 audit finding is the consequence of leaving this rule at "advisory."
+
+6. **Perform the archive**
 
    Create the archive directory if it doesn't exist:
    ```bash
@@ -82,7 +107,7 @@ Archive a completed change in the experimental workflow.
    mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
    ```
 
-6. **Update PR body to merge-ready state (one-PR-per-change convention).**
+7. **Update PR body to merge-ready state (one-PR-per-change convention).**
 
    Per `openspec/project.md` § Change Delivery Workflow + § "PR title and body MUST stay current at every phase boundary," the archive commit lands on the SAME PR that `/next-change` opened. After `openspec archive` moves the change directory and syncs specs, push the archive commit to the PR's branch and refresh the PR body to a "merge-ready" shape.
 
@@ -105,7 +130,7 @@ Archive a completed change in the experimental workflow.
 
    This step is required by `openspec/project.md` § "PR title and body MUST stay current at every phase boundary." Skipping it leaves the PR description in its in-progress / proposal shape after archive, which misleads reviewers at squash-merge time. Precedent: an earlier `/opsx:archive` run on PR #37 skipped this step and the user had to manually request the body refresh — that gap is closed by making this an explicit skill step.
 
-7. **Display summary**
+8. **Display summary**
 
    Show archive completion summary including:
    - Change name

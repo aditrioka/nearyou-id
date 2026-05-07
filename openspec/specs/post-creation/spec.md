@@ -1,7 +1,9 @@
 # post-creation Specification
 
 ## Purpose
-TBD - created by archiving change post-creation-geo. Update Purpose after archive.
+
+The post-creation capability defines `POST /api/v1/posts`, the single endpoint that creates a text post with location. Inside one DB transaction it validates content length (1..280 chars after NFKC-normalize + trim), checks that the coordinate falls inside the Indonesia + 12-mile maritime envelope, generates a UUIDv7 post id, derives `display_location` via the coordinate-jitter HMAC, and INSERTs both `actual_location` and `display_location` in one statement. The dual-column geo contract is load-bearing: every non-admin read path consumes `display_location` while admin tooling and the `posts_set_city_tg` reverse-geocode trigger are the only sanctioned readers of `actual_location`.
+
 ## Requirements
 ### Requirement: POST /api/v1/posts endpoint
 
