@@ -305,7 +305,7 @@ In both cases, all active refresh tokens for the user are deleted, so all active
 - Chat admin-readable disclosure: explicit at onboarding + Privacy Policy
 - Age gate + DOB declaration mandatory (18+ only)
 - Analytics consent screen at onboarding (Amplitude + Sentry + AdMob)
-- Third-party data processor disclosure in Privacy Policy: Resend (email), Amplitude (analytics), Sentry (error tracking), RevenueCat (subscription), Cloudflare (CDN + CSAM), Firebase (FCM + Remote Config), Google Play / Apple (auth + billing), Supabase (DB), Upstash (cache)
+- Third-party data processor disclosure in Privacy Policy: Resend (email), Amplitude (analytics), Sentry (error tracking), RevenueCat (subscription), Cloudflare (CDN + CSAM), Firebase (FCM + Remote Config), Google Play / Apple (auth + billing), Supabase (DB), Upstash (cache), Grafana Cloud (OpenTelemetry trace backend — receives pseudonymous trace data: hashed user IDs, parameterized SQL, route patterns)
 
 ### Retention Policy
 

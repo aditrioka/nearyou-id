@@ -1197,18 +1197,22 @@ On shadow-ban / unban / block / unblock: application code invalidates any Redis 
 ```
 Client A: POST /api/v1/chat/:conversation_id/messages { content }
   ↓
-Ktor: validates quota, sender is participant, not shadow-banned, not blocked (either direction)
+Ktor: validates quota, sender is participant, not blocked (either direction)
   ↓
 Ktor: INSERT INTO chat_messages (persistence)
   ↓
-Ktor: Supabase Realtime broadcasts to channel "conversation:<id>"
+Ktor: Supabase Realtime broadcasts via channel identifier "realtime:conversation:<id>" (skipped when sender is shadow-banned)
   ↓
-Client B (subscribed, passed RLS): receives broadcast
+Client B (subscribed, passed RLS on the prefix-stripped topic "conversation:<id>"): receives broadcast
   ↓
 Client B: ACK, render, update UI
   ↓
 Client B later: fetches history via REST to resync if needed
 ```
+
+> **Pointers (details deliberately not in the diagram)**:
+> - **Sender shadow-ban**: shadow-banned senders' messages persist in `chat_messages` but the publish step is skipped (invisible-actor model — sender retains their own view; recipients never see the message via WSS or REST). The `GET /messages` read-path filter mirrors this for REST/WSS symmetry. Canonical: [`openspec/specs/chat-realtime-broadcast/spec.md`](../openspec/specs/chat-realtime-broadcast/spec.md) § Publish-side shadow-ban skip.
+> - **Notification fan-out**: the chat-message INSERT and the `notifications` table emit run in the same transaction; post-commit the composite FCM dispatcher fans out to recipient devices. Canonical: [`openspec/specs/in-app-notifications/spec.md`](../openspec/specs/in-app-notifications/spec.md) § chat_message body_data shape.
 
 **Failure handling**:
 - INSERT success + broadcast fail: Ktor retries broadcast 3x with exponential backoff. If still failing, log a warning. Client eventually fetches via REST.
@@ -1378,12 +1382,15 @@ CREATE TABLE user_fcm_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     platform VARCHAR(8) NOT NULL CHECK (platform IN ('android', 'ios')),
-    token TEXT NOT NULL,
-    app_version TEXT,
+    token TEXT NOT NULL CHECK (char_length(token) BETWEEN 1 AND 4096),
+    app_version TEXT CHECK (app_version IS NULL OR char_length(app_version) <= 64),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (user_id, platform, token)
 );
+-- Token / app_version length CHECKs are defense-in-depth against a malformed
+-- client payload bypassing the route-layer guard. FCM tokens themselves don't
+-- approach 4096 chars in practice; the bound is generous to avoid false rejects.
 
 CREATE INDEX user_fcm_tokens_user_idx ON user_fcm_tokens(user_id);
 CREATE INDEX user_fcm_tokens_last_seen_idx ON user_fcm_tokens(last_seen_at);

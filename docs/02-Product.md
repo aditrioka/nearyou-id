@@ -279,7 +279,7 @@ Users can search post content + usernames.
 
 **Rate limit**: 60 queries/hour Premium (abuse prevention).
 
-**Re-index trigger**: async job on every shadow ban / block / unban applied.
+**Re-index trigger** (deferred to Month 6+, when the Redis search-result cache lands per `docs/05-Implementation.md` § Search): async job on every shadow ban / block / unban applied — needed only when a results cache exists to invalidate. Pre-cache, the view-based shadow-ban filter (`visible_posts` / `visible_users`) plus GIN auto-maintenance handle correctness inline.
 
 > FTS schema, query pattern, and index definition: see `05-Implementation.md`.
 

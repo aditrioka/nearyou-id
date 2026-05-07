@@ -79,45 +79,15 @@ Format per entry:
 
 ## staging-cold-start-flyway-on-startup-cost
 
-**Discovered during:** `observability-otel-foundation` §1.2 baseline measurement at task-execution time — staging Cloud Run cold-start mean = 25.03s (n=32, last 7 days), 8x above the project's <3s p99 SLO from [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 2 §14.
-**Status:** open
+**Discovered during:** `observability-otel-foundation` §1.2 baseline measurement (staging cold-start mean ~25s, dominated by `flyway.repair() + flyway.migrate()` on every Cloud Run start; staging-specific simplification per [`Application.kt:243-253`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) + [`deploy-staging.yml:111`](.github/workflows/deploy-staging.yml)).
+**Status:** triaged — docs caveat shipped at `docs/04-Architecture.md` § Flyway Migration Deployment. Awaits production deploy validation.
 
-**Finding:** [`Application.kt:243-253`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) gates Flyway migration replay on cold-start behind `RUN_FLYWAY_ON_STARTUP=true`, which staging sets explicitly in [`deploy-staging.yml:111`](.github/workflows/deploy-staging.yml). With 70+ Flyway migrations accumulated, the per-cold-start `flyway.repair() + flyway.migrate()` call dominates startup cost. Comment in Application.kt explicitly notes "prod later splits this into a dedicated Cloud Run Job (`nearyou-migrate`) per the docs/04-Architecture.md deployment plan" — the staging behavior is a deliberate simplification, not an oversight.
-
-**Specs at fault:** None — the canonical deployment plan in `docs/04-Architecture.md` already names the Cloud Run Job split as the prod-shape solution.
-**Code at fault:** None — the gating flag works correctly; staging's deploy workflow is what flips it on.
-**Docs at fault:** None — the comment block in `Application.kt:236-241` correctly describes the trade-off.
-
-**Impact (if shipped):** Phase 2 §14 cold-start benchmark cannot be meaningfully run against staging today — the 25s baseline is artificially inflated. Operators measuring "is this change increasing cold-start?" must use mean-delta comparison (which works), not absolute number (which doesn't reflect prod). Production cold-start estimate (~7-10s) is theoretical until the Cloud Run Job split lands.
-
-**Ambiguity to resolve first:** Two paths: (a) introduce `nearyou-migrate` Cloud Run Job for staging too (adds operational complexity for staging), (b) keep staging-as-is and document the limitation (cheaper, accept measurement caveat). Recommend (b) for pre-launch — premature ops complexity for a synthetic-data environment.
+**Finding:** Staging runs Flyway on cold-start (gated by `RUN_FLYWAY_ON_STARTUP=true`) for pre-launch convenience. Production tag-deploy MUST run migrations via the dedicated `nearyou-migrate-prod` Cloud Run Job (per the canonical deployment plan) and MUST NOT set `RUN_FLYWAY_ON_STARTUP`. The ~7-10s production cold-start estimate is theoretical until the Cloud Run Job split runs end-to-end on a real prod tag-deploy.
 
 **Action items:**
-- [ ] Document the staging-vs-prod cold-start caveat in `docs/04-Architecture.md` § Deployment so future operators don't get confused by the staging numbers.
-- [ ] When production tag-deploy happens, ensure `RUN_FLYWAY_ON_STARTUP` is NOT set (or explicitly false) and Flyway runs via separate Cloud Run Job per the canonical deployment plan.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after production deploy validates the ~7-10s cold-start estimate.
-
----
-
-## cloud-run-startup-latency-bucket-resolution
-
-**Discovered during:** `observability-otel-foundation` §1.2/§7.7 baseline measurement — Cloud Monitoring's `run.googleapis.com/container/startup_latencies` distribution metric uses exponential histogram buckets that are 2.5s wide at the 25-27s latency range (e.g., the `[24.8s, 27.3s)` bucket contains 28 of 32 baseline samples).
-**Status:** open
-
-**Finding:** Sub-second mean deltas (the regime where OTel cost lands — ~100-300ms) are **invisible** from bucket-based percentile interpolation when both pre-change and post-change samples cluster in the same wide bucket. Mean (computed from `sum/count`) preserves ms-level resolution, but p50/p95/p99 reads via the standard `percentileFromBuckets` interpolation cannot detect them. This is a measurement-tool limitation, not a Cloud Run misconfiguration — exponential bucket scaling is standard for latency histograms.
-
-**Specs at fault:** None — but the §7.7 task in `observability-otel-foundation/tasks.md` originally specified "p99 delta" as the regression metric. Updated mid-flight to "mean delta" after this finding surfaced.
-**Code at fault:** None.
-**Docs at fault:** None canonical, but operations notes don't currently document this measurement caveat.
-
-**Impact (if shipped):** Future cold-start regression checks against this metric must use mean-delta, not p99-bucket-shift. Documentation gap; operators following spec text without context could conclude "no regression" when a real 200ms delta is hidden by bucket resolution.
-
-**Ambiguity to resolve first:** None — the resolution is deterministic (use mean for sub-second deltas, use p99 bucket for >2s deltas).
-
-**Action items:**
-- [ ] Add a section to `docs/04-Architecture.md` § Observability OR a new `docs/07-Operations.md` § Cold-start measurement note documenting: "use mean (sum/count) for sub-second delta tracking; p99 bucket interpolation has 2.5s+ resolution at the 25-27s range and won't capture small regressions."
-- [ ] Consider switching to per-event log-based measurement (Cloud Run logs each cold-start) for high-resolution regression detection in future ops scenarios. Out of scope for `observability-otel-foundation`; surface here so the next ops-touching change can reference.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after the docs amendment lands.
+- [ ] At first production tag-deploy: confirm `RUN_FLYWAY_ON_STARTUP` is NOT set on the production Cloud Run service AND Flyway runs via the dedicated `nearyou-migrate-prod` Cloud Run Job.
+- [ ] Validate the ~7-10s production cold-start estimate against the actual `run.googleapis.com/container/startup_latencies` metric. Use mean-delta (sub-second resolution) rather than p99-bucket-shift (2.5s+ resolution at this range) — see the cold-start measurement caveat in the same `docs/04-Architecture.md` § Flyway Migration Deployment block.
+- [ ] Delete this entry once production validates the ~7-10s estimate.
 
 ---
 
@@ -189,24 +159,15 @@ Format per entry:
 
 ## observability-otel-pii-disclosure
 
-**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 cross-doc-impact finding #5 — `docs/06-Security-Privacy.md:308` third-party processor list does NOT include Grafana Cloud, but trace data carries pseudonymous personal data (truncated SHA-256 of user UUIDs).
-**Status:** open
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 cross-doc-impact finding #5 — Grafana Cloud was not yet listed as a third-party data processor under UU PDP article 20–22 disclosure obligations.
+**Status:** triaged — `docs/06-Security-Privacy.md:308` processor list amended (Grafana Cloud added with pseudonymous trace data scope). Privacy Policy publication + legal advisor confirmation remain.
 
-**Finding:** [`docs/06-Security-Privacy.md:308`](docs/06-Security-Privacy.md) enumerates third-party data processors that must be disclosed under UU PDP article 20–22 obligations (Resend, Amplitude, Sentry, RevenueCat, Cloudflare, Firebase, Google Play, Apple, Supabase, Upstash). Grafana Cloud is absent. The `observability-otel-foundation` change starts exporting trace data to Grafana Cloud's EU/US infrastructure containing route patterns + parameterized SQL + truncated SHA-256 user IDs (pseudonymous personal data per UU PDP definitions). Disclosure obligations apply.
-
-**Specs at fault:** None.
-**Code at fault:** None — the trace data export shape is correct; only the disclosure documentation is missing.
-**Docs at fault:** [`docs/06-Security-Privacy.md:308`](docs/06-Security-Privacy.md) (third-party processor list); the public Privacy Policy.
-
-**Impact (if shipped without disclosure):** Medium-to-high — UU PDP compliance gap. Indonesia's UU PDP (effective 2024) requires explicit disclosure of cross-border data transfers to third-party processors; trace data containing pseudonymous personal data clears the bar. Pre-launch context softens the immediate risk (no production users yet) but the gap MUST close before Public Launch (Week 20 per `docs/08-Roadmap-Risk.md`).
-
-**Ambiguity to resolve first:** Whether truncated SHA-256(uuid) at 64 bits qualifies as "pseudonymous personal data" under UU PDP (likely yes per the regulation's broad definition; legal advisor confirmation recommended pre-launch).
+**Finding:** OTel trace export to Grafana Cloud carries pseudonymous personal data (truncated SHA-256 of user UUIDs, parameterized SQL, route patterns). UU PDP (effective 2024) requires explicit disclosure of cross-border data transfers to third-party processors. Pre-launch (no production users yet) softens the immediate risk; the gap MUST close before Public Launch (Week 20 per `docs/08-Roadmap-Risk.md`).
 
 **Action items:**
-- [ ] File a docs-only PR that amends `docs/06-Security-Privacy.md:308` to add Grafana Cloud to the third-party processor list with a brief description ("OpenTelemetry trace backend; receives pseudonymous trace data including hashed user IDs, route patterns, parameterized SQL").
-- [ ] Update the public Privacy Policy (when published) to include Grafana Cloud in the third-party processors section.
+- [ ] When the public Privacy Policy is drafted/published, include Grafana Cloud in the third-party processors section using wording aligned with `docs/06-Security-Privacy.md:308`.
 - [ ] Confirm with legal advisor whether truncated SHA-256(uuid) at 64 bits triggers UU PDP article 20–22 cross-border-transfer disclosure obligations; if yes, ensure the Privacy Policy includes the standard disclosure language.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete once the docs PR + Privacy Policy update merge.
+- [ ] Delete this entry once Privacy Policy publication + legal confirmation land.
 
 ---
 
@@ -250,27 +211,6 @@ Format per entry:
 - [ ] File OpenSpec change `observability-otel-attribute-detekt-rule` that ships `OtelForbiddenAttributeRule` in `:lint:detekt-rules`, with a forbidden-attribute-keys allowlist + value-regex denylist per the spec contract.
 - [ ] Decide rule scope (cross-cutting vs `:infra:otel`-only) at design time.
 - [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
-
----
-
-## geo-cloud-region-canonical-doc-amendment
-
-**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-1 review (security-and-invariant lens finding Q1).
-**Status:** open
-
-**Finding:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) lists the mandatory Cloud Run region attribute as `geo.cloud_region`. The shipped `observability-otel-foundation` spec + implementation use the OTel semconv standard name `cloud.region` instead. Deliberate divergence: (a) `cloud.region` matches the OTel standard that Grafana Tempo's query patterns expect, (b) the `geo.*` namespace is semantically close to the project's user-PII spatial keys (`actual_location` / `display_location` invariants), so a future "forbid `geo.*` span attributes" Detekt rule could false-positive on a safe value. Doc amendment was deliberately deferred from the OpenSpec change to avoid scope creep.
-
-**Specs at fault:** None — `openspec/specs/observability-otel-foundation/spec.md` (post-archive) correctly uses `cloud.region`.
-**Code at fault:** None — the implementation correctly uses `cloud.region`.
-**Docs at fault:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) — uses non-standard `geo.cloud_region` shorthand.
-
-**Impact (if shipped):** Low. The doc shorthand is the only place the non-standard name appears; readers comparing the doc to the running implementation will notice the divergence. No data quality impact; no operator workflow impact (Tempo accepts both attribute names; queries work either way).
-
-**Ambiguity to resolve first:** None.
-
-**Action items:**
-- [ ] File a docs-only PR that amends `docs/04-Architecture.md:398` to use `cloud.region` (OTel semconv) instead of `geo.cloud_region`.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete it once the docs PR merges.
 
 ---
 
@@ -330,47 +270,6 @@ The two vocabularies overlap on `timeout` / `connection_refused` / `unknown` and
 - [ ] Refactor `UnbanWorkerRoute.classifyHandlerError` to delegate to it.
 - [ ] Refactor `JdbcPostgresProbe` (and any sibling probes) to delegate to it.
 - [ ] Delete this entry once the extraction lands.
-
----
-
-## fcm-tokens-schema-check-doc-amendment
-
-**Discovered during:** `fcm-token-registration` `/next-change` Phase D round 1 (security-and-invariant sub-agent flagged that the canonical schema lacks DB-level CHECKs on `token` and `app_version` length, recommending defense-in-depth additions).
-**Status:** open
-
-**Finding:** The `fcm-token-registration` change ships with two additive DB-level CHECK constraints (`CHECK (char_length(token) BETWEEN 1 AND 4096)` and `CHECK (app_version IS NULL OR char_length(app_version) <= 64)`) on `user_fcm_tokens` per design D9. These constraints are NOT in the canonical schema at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md). The canonical docs are not wrong — they specify the minimum schema; this change adds belt-and-suspenders that the security review rated as worth-having now while we're touching the schema. The deviation is documented in proposal § What Changes (marked "additive"), spec § Schema (with the deviation note), and design § Reconciliation notes (item 2). The doc still needs to be updated to match the as-shipped schema so a future maintainer reading [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) doesn't conclude the CHECKs are an undocumented production deviation.
-
-**Specs at fault:** None — `openspec/specs/fcm-token-registration/spec.md` (post-archive) will correctly carry the CHECKs.
-**Code at fault:** None — V14 migration carries the CHECKs.
-**Docs at fault:** [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) (FCM Token Registration § Schema block — needs the two CHECKs added).
-
-**Impact (if shipped):** Low. The DB CHECKs work correctly as shipped; risk is to a future maintainer reading the canonical docs and finding the CHECKs missing → spending time looking for them or assuming the production schema diverges. Same-shape fix as the v10 notifications `body_data` doc amendment in PR #24.
-
-**Ambiguity to resolve first:** None. The fix shape is clear: insert two CHECK clauses inside the canonical `CREATE TABLE user_fcm_tokens (...)` block at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md), and add a one-sentence note explaining the defense-in-depth rationale (mirror the spec's framing).
-
-**Action items:**
-- [ ] After `fcm-token-registration` ships, file a docs-only amendment to [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) adding the two CHECK constraints to the canonical schema block. Standalone docs PR or batched with the next OpenSpec change that touches the FCM section.
-
----
-
-## premium-search-reindex-trigger-doc-divergence
-
-**Discovered during:** `premium-search` `/next-change` Phase D round 1 (general-lens sub-agent flagged that `proposal.md` defers re-index trigger plumbing, but `docs/02-Product.md:282` declares the trigger as live infrastructure).
-**Status:** open
-
-**Finding:** [`docs/02-Product.md:282`](docs/02-Product.md) under § Search (Premium, Month 1+) declares: *"Re-index trigger: async job on every shadow ban / block / unban applied."* No such async job has ever shipped — the project's view-based shadow-ban + GIN-auto-maintenance design (per [`docs/05-Implementation.md:1881`](docs/05-Implementation.md) `Search: FROM visible_posts JOIN visible_users` and [`docs/05-Implementation.md:1189`](docs/05-Implementation.md) "On shadow-ban / unban / block / unblock: application code invalidates any Redis search-result cache (if added at scale)") makes the trigger unnecessary until a Redis search-result cache lands. The `premium-search` proposal explicitly defers the cache to "Month 6+ at scale" and consequently does not implement the trigger either. The doc line is aspirational; the runtime does not implement it.
-
-**Specs at fault:** None — `premium-search/specs/premium-search/spec.md` correctly specifies the view-based safety net + defers cache + trigger together.
-**Code at fault:** None — the design is deliberate.
-**Docs at fault:** [`docs/02-Product.md:282`](docs/02-Product.md) overstates current infrastructure.
-
-**Impact (if shipped):** Low. The Search feature is correct without the trigger (views handle shadow-ban; GIN auto-maintains; no cache exists yet to invalidate). Risk is to a future maintainer reading `02-Product.md:282` and concluding the trigger is missing → spending time looking for it before discovering it was never needed. Also: when the Redis cache eventually lands (Month 6+), the trigger DOES become necessary, and at that point this divergence resolves itself by the canonical infrastructure catching up to the doc claim.
-
-**Ambiguity to resolve first:** None. The fix shape is clear: amend `docs/02-Product.md:282` from `Re-index trigger: async job on every shadow ban / block / unban applied.` to `Re-index trigger (deferred to Month 6+, when the Redis search-result cache lands per docs/05-Implementation.md:1189): async job on every shadow ban / block / unban applied.` Docs-only change, no spec or code impact.
-
-**Action items:**
-- [ ] File a docs-only amendment to `docs/02-Product.md:282` clarifying the deferral. Either as a standalone docs PR OR batched with the next OpenSpec change that touches Phase 2 social-features documentation.
-- [ ] When the Redis search-result cache eventually lands (Month 6+), the trigger requirement becomes a live spec deliverable — at that point, write the `search-result-cache` OpenSpec change with both the cache infrastructure AND the trigger plumbing in the same lifecycle.
 
 ---
 
@@ -453,54 +352,6 @@ The proposed canonical workflow:
 
 ---
 
-## cloud-run-traffic-pinning-after-failed-revisions
-
-**Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 negative-smoke (tasks 11.5/11.6) — observed when recovering from the broken-Redis revision sequence.
-**Status:** open
-
-**Finding:** When a sequence of Cloud Run revisions fails the startup probe (e.g., `nearyou-backend-staging-00050-cwf` → `00051-bxt` → `00052-tpc` during the 11.5 negative smoke), Cloud Run's traffic-routing config can become **pinned** to the last-known-good revision (`00049-bsx` in this case) rather than tracking `LATEST` automatically. Subsequent successful deploys (e.g., the recovery deploy `00053-n6v`) create the new revision but traffic STAYS on the pinned revision until explicitly released.
-
-The fix is one command — `gcloud run services update-traffic <service> --region=<region> --to-latest` — but the gotcha isn't surfaced anywhere in the project's docs or runbooks. A future operator hitting a recovery scenario would see "deploy succeeded, but `/health/ready` from the new revision is unreachable" and might spend time debugging the wrong layer.
-
-Reproduction sequence in this case:
-1. `gcloud run services update --update-secrets=REDIS_URL=staging-redis-url-broken-test:latest` → revision `00051-bxt` created with broken Redis → startup probe fails → Cloud Run keeps traffic on `00049-bsx` (correct gate behavior; this is what 11.5 verifies).
-2. `gcloud run services update --update-secrets=REDIS_URL=staging-redis-url:latest` → revision `00052-tpc` created with correct Redis → ... but Cloud Run had already pinned the traffic config to `00049-bsx` from step 1, so `00052-tpc` doesn't auto-promote even though its config is now valid.
-3. `gh workflow run deploy-staging.yml` → revision `00053-n6v` created with new image + correct config → still doesn't auto-promote (traffic config still pinned).
-4. `gcloud run services update-traffic --to-latest` → traffic config released → `00053-n6v` becomes serving.
-
-**Specs at fault:** None.
-**Code at fault:** None — this is a Cloud Run platform behavior, not an app behavior.
-**Docs at fault:** `docs/07-Operations.md` § Deployment runbook (or wherever the staging-deploy ops live) does not mention the pinning failure mode.
-
-**Impact (if shipped):** Low. The misbehavior is visible (traffic stays on old revision) and the fix is a one-liner. Risk is operator confusion during a real outage recovery — could add 10-15 minutes to MTTR while the operator figures out why a "successful" deploy isn't actually serving.
-
-**Action items:**
-- [ ] Amend `docs/07-Operations.md` § Deployment runbook (or create a new § Recovery from failed-revision sequence) with the failure-mode description + the `update-traffic --to-latest` recovery command. Cite the `health-check-endpoints` 11.5 smoke as the precedent.
-- [ ] Optionally: bake `gcloud run services update-traffic --to-latest` into `deploy-staging.yml` AFTER the `gcloud run deploy` step, as a defensive belt-and-suspenders. Trade-off: extra step in every deploy (slow path) vs. eliminating the gotcha class entirely. Lean towards: amendment first, codification only if the gotcha recurs.
-
----
-
-## gcp-secret-manager-iam-grant-on-new-slot
-
-**Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 first deploy attempt (task 11.1) — Cloud Run revision creation failed with `Permission denied on secret: projects/.../secrets/staging-supabase-url/versions/latest for Revision service account 27815942904-compute@developer.gserviceaccount.com`.
-**Status:** open
-
-**Finding:** When a new slot is added to GCP Secret Manager (e.g., `staging-supabase-url` in this change), the Cloud Run runtime service account does NOT automatically inherit the IAM bindings of sibling slots. The new slot requires an explicit `roles/secretmanager.secretAccessor` grant — `gcloud secrets add-iam-policy-binding <slot> --member=serviceAccount:<sa> --role=roles/secretmanager.secretAccessor`. This is `gcloud`'s default least-privilege model and is correct security posture, but it's a process gap that surfaces as a confusing "first deploy fails, second works" pattern.
-
-The existing staging runbook in `docs/07-Operations.md` covers secret VALUE rotation (`gcloud secrets versions add ...`) but does NOT cover NEW slot creation IAM. This is the second time the gap surfaced (first was during the original staging environment buildout — slots were bound manually one-off; the runbook was never updated).
-
-**Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:** `docs/07-Operations.md` § Secret rotation runbook — missing "new slot creation" subsection.
-
-**Impact (if shipped):** Low. Per-deploy-attempt time cost is small (one extra failed run + IAM grant + retry = ~10 min). Risk is mostly: future engineer adds a new slot, deploy fails, has to context-switch to figure out the IAM model.
-
-**Action items:**
-- [ ] Amend `docs/07-Operations.md` § Secret rotation runbook with a new subsection "Creating a new staging/prod secret slot": cite the `gcloud secrets create <slot>` + the mandatory `gcloud secrets add-iam-policy-binding <slot> --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor` step, with the runtime SA name documented per environment.
-- [ ] Optionally: Terraform-wrap the secret-creation pattern so the IAM grant is declarative + can't drift. Out of scope for the runbook fix; flag as a Terraform-introduction follow-up if the project ever grows a Terraform module.
-
----
-
 ## tryacquirebykey-ip-derived-uuid-detekt-rule
 
 **Discovered during:** `health-check-endpoints` `/next-change` Phase D round 1 review (security-and-invariant sub-agent lens).
@@ -519,26 +370,6 @@ The existing staging runbook in `docs/07-Operations.md` covers secret VALUE rota
 **Action items:**
 - [ ] After `health-check-endpoints` ships, add a Detekt rule `IpAxisMustUseTryAcquireByKeyRule` to `:lint:detekt-rules` that fires on calls to `RateLimiter.tryAcquire(...)` whose `key` argument matches the regex `\{[^}]*ip:`. Allow-list any legitimate use case (none expected). Wire into Detekt config + add unit tests.
 - [ ] Standalone OpenSpec change `tryacquirebykey-ip-axis-lint` (under `rate-limit-infrastructure` capability MODIFIED) — small spec amendment + Detekt rule + unit tests.
-
----
-
-## health-check-cloud-run-probe-terminology-docs-divergence
-
-**Discovered during:** `health-check-endpoints` `/next-change` Phase B step 7 reconciliation pass — verifying Cloud Run probe flag terminology against canonical docs.
-**Status:** open
-
-**Finding:** [`docs/04-Architecture.md:166`](docs/04-Architecture.md) declares: *"Cloud Run deployed with readiness probe `/health/ready` and liveness probe `/health/live`."* This uses Kubernetes vocabulary, but Cloud Run does not implement a "readiness probe". The Cloud Run-native equivalents are `--startup-probe` (gates traffic during boot — fills the K8s readiness role) and `--liveness-probe` (continuous keepalive after startup). The `health-check-endpoints` spec aligns with Cloud Run-native vocabulary while noting the docs use K8s terminology — but the docs themselves should be amended for clarity.
-
-**Specs at fault:** None — `health-check-endpoints/specs/health-check/spec.md` correctly uses Cloud Run vocabulary while citing the docs divergence.
-**Code at fault:** None — the implementation will use the Cloud Run-native flags `--startup-probe` and `--liveness-probe` per `tasks.md` section 7.
-**Docs at fault:** [`docs/04-Architecture.md:166`](docs/04-Architecture.md) uses K8s "readiness probe" wording.
-
-**Impact (if shipped):** Low. The behavioral contract is correct — a Cloud Run startup probe targeting `/health/ready` does gate traffic during boot, which is what the docs describe semantically. Risk is to a future maintainer reading "readiness probe" in the docs and looking for a non-existent Cloud Run feature, or trying to use a `--readiness-probe` flag that doesn't exist.
-
-**Ambiguity to resolve first:** None. The fix shape is clear: amend [`docs/04-Architecture.md:166`](docs/04-Architecture.md) from `Cloud Run deployed with readiness probe '/health/ready' and liveness probe '/health/live'.` to `Cloud Run deployed with startup probe '/health/ready' (the Cloud Run analog to a Kubernetes readiness probe — gates traffic during boot until the new revision is healthy) and liveness probe '/health/live' (continuous post-startup keepalive).` Docs-only change, no spec or code impact.
-
-**Action items:**
-- [ ] After `health-check-endpoints` ships, file a docs-only amendment to [`docs/04-Architecture.md:166`](docs/04-Architecture.md) clarifying the Cloud Run startup-probe vs K8s-readiness-probe distinction. Standalone docs PR or batched with whichever change next touches `04-Architecture.md`.
 
 ---
 
@@ -792,87 +623,24 @@ What's missing: a test that boots `Application.module()` with a test-only overri
 - [ ] Add a Detekt rule `FirebaseImportBoundaryRule` in `:lint:detekt-rules` that allowlists `*Module.kt` filenames OR a `@FcmDiBinding` KtAnnotation. Modeled on `RawXForwardedForRule` (which has a similarly tight allowlist).
 - [ ] Update spec scenario "`:backend:ktor` Firebase imports are scoped to DI-binding files only" from SHOULD to SHALL once the rule is in place.
 
-## chat-realtime-broadcast-publish
+## chat-message-notification-per-conversation-fcm-batching
 
-**Discovered during:** `chat-foundation` apply, scope-deferral discipline (proposal § Out of scope)
+**Discovered during:** `chat-foundation` apply (originally tracked under `chat-message-notification-emit-sites`; reduced to the only remaining open scope after `chat-message-notification` shipped via PR #65).
 **Status:** open
 
-**Finding:** `chat-foundation` ships the data plane (schema + REST endpoints) for 1:1 chat but explicitly defers the Supabase Realtime broadcast layer per [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 2 #9. Without broadcast publish from Ktor, the user-visible product is "1:1 chat with REST polling" — the data plane is correct and shippable for testing, but it is not a real-time chat experience until the publish layer lands. The V2-drafted RLS policy on `realtime.messages` is now installed correctly by V15 (subscriber-side authorization works end-to-end), and the realtime token endpoint shipped in `auth-realtime` is ready, so the only missing piece is the Ktor-side publish that emits a Supabase Realtime broadcast on every successful `chat_messages` INSERT.
+**Finding:** The `chat_message` emit-site + end-to-end FCM dispatch wiring shipped in `chat-message-notification` (PR #65) — every successful chat send produces a `notifications` row AND fans out one FCM push per active recipient token. What did NOT ship is the **per-conversation push batching** behavior described as a Phase 2 chat scope item: when a sender pumps multiple messages into one conversation in quick succession (a typing burst), the receiver currently gets one FCM push per message rather than a single coalesced push for the burst. At MVP scale this is acceptable noise; at scale it becomes a notification-fatigue + FCM quota concern. The `chat_message_redacted` emit-site (the second originally-open item under `chat-message-notification-emit-sites`) is deferred to the Phase 3.5 admin redaction change per `chat-message-notification` proposal § Open Questions Q3 and does NOT need its own follow-up entry — the Phase 3.5 admin work owns it.
 
-**Specs at fault:** None — `openspec/specs/chat-conversations/spec.md` (post-archive) deliberately scopes to REST.
-**Code at fault:** None — REST data plane is complete and correct.
-**Docs at fault:** None — [`docs/04-Architecture.md`](docs/04-Architecture.md) and [`docs/05-Implementation.md`](docs/05-Implementation.md) describe the realtime layer; `chat-foundation` simply doesn't implement it yet.
-
-**Impact (if shipped):** No regression risk — the REST data plane works in isolation. Until broadcast publish ships, clients fall back to REST polling for new messages, which is acceptable for staging-side testing but not for production traffic. The fcm-push-dispatch composite (PR #60) currently has no `chat_message` emit-site to push from; that emit-site is tracked separately in `chat-message-notification-emit-sites`.
-
-**Ambiguity to resolve first:** Publish strategy — Ktor calls Supabase REST `realtime.broadcast` after the chat_messages INSERT commits, OR Ktor uses a Postgres LISTEN/NOTIFY relay that Supabase realtime picks up automatically. The canonical pattern in [`docs/05-Implementation.md` § Chat Flow](docs/05-Implementation.md) is the post-commit REST publish; confirm that hasn't changed before implementing.
-
-**Action items:**
-- [ ] File OpenSpec change `chat-realtime-broadcast` after `chat-foundation` archives. Add an ADDED capability `chat-realtime-broadcast` covering the post-commit publish, the publish-side shadow-ban filter (see `chat-realtime-broadcast-publish-side-shadow-ban-filter`), and the publish-failure-fallback strategy (logged + retry-batch via background job; no client-visible error).
-- [ ] Wire the publish-after-commit hook in `ChatRepository.sendMessage` (or pull it up to a service-level transaction-aware hook) so the publish runs only after successful commit.
-- [ ] Cover the publish path with an integration test against a real Supabase realtime container (or staging integration if a containerized Supabase realtime image isn't available).
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
-
-## chat-rate-limit-50-per-day
-
-**Discovered during:** `chat-foundation` apply, scope-deferral discipline
-**Status:** open
-
-**Finding:** `chat-foundation` does NOT enforce a daily send-rate cap on `POST /api/v1/chat/{id}/messages`. Per [`docs/02-Product.md:318`](docs/02-Product.md), Free-tier users SHALL be capped at 50 messages/day; Premium SHALL be unlimited. The shape is canonical and matches the existing like-rate-limit + reply-rate-limit changes (limiter BEFORE body parse, per-user WIB-midnight TTL via `computeTTLToNextReset(userId)`, `{scope:rate_chat_day}:{user:U}` Redis key, RemoteConfig override `premium_chat_cap_override` for ops dial). The `rate-limit-infrastructure` capability is already shared across like + reply, so the chat extension is mostly route-layer wiring + a service tryRateLimit method.
-
-**Specs at fault:** None — `chat-foundation` is correctly scoped to data plane only.
-**Code at fault:** `backend/ktor/src/main/kotlin/id/nearyou/app/chat/ChatRoutes.kt` (POST handler does not gate on rate-limiter).
-**Docs at fault:** None — `docs/02-Product.md:318` is canonical.
-
-**Impact (if shipped):** Without a daily cap, a Free user can spam an arbitrary number of `POST /api/v1/chat/{id}/messages` calls per day. The data plane has correct length-guard (2000-char) and block enforcement, so spam payloads are bounded per-message; the cap is a fairness + abuse-prevention layer, not a correctness layer. Acceptable to defer for staging-side testing; MUST land before any beta with external users.
-
-**Ambiguity to resolve first:** None — same shape as like-rate-limit + reply-rate-limit.
-
-**Action items:**
-- [ ] File OpenSpec change `chat-rate-limit` after `chat-foundation` archives. ADD a `chat-rate-limit` capability following the like-rate-limit + reply-rate-limit shape: limiter BEFORE body parse, Free-only daily cap (default 50, override via `premium_chat_cap_override`), `{scope:rate_chat_day}:{user:U}` Redis key, per-user WIB-midnight TTL.
-- [ ] Wire the limiter into `ChatRoutes.kt` POST handler at the same ordering position as `ReplyRoutes.kt` uses (auth → UUID validation → limiter → body parse → content guard → repo).
-- [ ] Add `ChatRateLimitTest` mirroring `ReplyRateLimitTest` shape.
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
-
-## chat-message-notification-emit-sites
-
-**Discovered during:** `chat-foundation` apply, fcm-push-dispatch cross-reference
-**Status:** partially closed — `chat-message-notification` change wires the `chat_message` emit-site + end-to-end coverage; `chat_message_redacted` emit + per-conversation FCM batching remain open.
-
-**Finding:** The fcm-push-dispatch composite shipped in PR #60 wires the dispatcher with all four current emit-site services (post_liked, post_replied, follow, etc.) but has NO `chat_message` or `chat_message_redacted` emit-site to push from. `chat-foundation` deliberately defers adding these emit-sites because (a) without the realtime broadcast layer there's no async surface to push from, and (b) the canonical Phase 2 #11 per-conversation FCM push batching depends on the broadcast layer being in place. Once `chat-realtime-broadcast-publish` lands, the chat send path will have a natural emit-site (after the post-commit broadcast publish) where `notifications` table emits + FCM dispatch can be added. The fcm-push-dispatch dispatcher will pick them up automatically once emitted.
-
-**Specs at fault:** None — `chat-foundation` is correctly scoped.
-**Code at fault:** None — pre-existing emit-sites are correct; chat emit-sites are net-new and live in the future change.
+**Specs at fault:** None.
+**Code at fault:** None — current behavior (one push per message) is correct, just unbatched.
 **Docs at fault:** None.
 
-**Impact (if shipped):** No FCM push for chat until both this and `chat-realtime-broadcast-publish` land. In-app notifications via the existing `notifications` table also won't fire for chat-message events until then. Acceptable for the chat-foundation cut (staging testing only); MUST land before any user-visible chat beta.
+**Impact (if shipped):** Low at MVP. Receiver sees N pushes for N rapid messages instead of 1 coalesced push. Premium-chat user experience consideration; not a blocker.
 
-**Ambiguity to resolve first:** Notification body shape for chat — what fields land in `notifications.body_data`? Sender username + content excerpt (truncated to 80 code points like reply excerpt)? Or sender + conversation_id only, with the client fetching content on tap? Decide in the change's design.md.
-
-**Action items:**
-- [x] After `chat-realtime-broadcast-publish` lands, file OpenSpec change `chat-message-notification-emit-sites`. ADD `chat_message` and `chat_message_redacted` notification types in `core/data/.../NotificationType.kt`. Wire the `chat_message` emit in the chat-message send transaction (mirror the `post_replied` + `post_liked` emit-site pattern in ReplyService / LikeService). _Closed by `chat-message-notification` (this branch). `chat_message_redacted` emit is deferred to the Phase 3.5 admin redaction change per `chat-message-notification` proposal § Open Questions Q3._
-- [ ] Add the per-conversation FCM push batching design (Phase 2 #11) — this may be a separate change depending on scope. _Still open. Out of scope for `chat-message-notification`._
-- [x] Cover the emit + dispatch end-to-end against a real Postgres + mocked FCM (mirror `JdbcUserFcmTokenReaderTest` shape). _Closed by `chat-message-notification` — `:backend:ktor` `ChatMessageNotificationTest` covers the emit + composite-dispatcher fan-out; `:infra:fcm` `PushCopyTest` + `PayloadBuildersTest` cover the chat_message push copy + iOS payload._
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges. _Will close fully when the per-conversation FCM batching design is filed._
-
-## chat-realtime-broadcast-publish-side-shadow-ban-filter
-
-**Discovered during:** `chat-foundation` apply, design § D9 reconciliation
-**Status:** open (hard prerequisite for `chat-realtime-broadcast-publish`)
-
-**Finding:** V15 installs the `realtime.messages` RLS policy WITHOUT V2's subscriber-side `is_shadow_banned` clause (per `chat-foundation/design.md` § D9 + `chat-conversations` spec § Requirement: Realtime RLS policy installed with shadow-ban-aware subscriber semantics). The subscriber-side reconciliation is COMPLETE — shadow-banned users retain their own realtime view, consistent with the invisible-actor model. **What remains:** the publish-side filter. When `chat-realtime-broadcast-publish` ships, the publish path SHALL skip emit when `sender.is_shadow_banned = TRUE`, mirroring the read-path inline filter in `GET /api/v1/chat/{id}/messages` per `chat-conversations` spec § Requirement: List-messages endpoint. Without this filter, shadow-banned senders' messages would broadcast normally to non-banned recipients via WSS while being filtered from the REST `GET /messages` path — REST/WSS asymmetry that defeats the invisible-actor model on the realtime surface.
-
-**Specs at fault:** Future `chat-realtime-broadcast` capability (does not exist yet) — must include the publish-side filter requirement.
-**Code at fault:** Future `chat-realtime-broadcast-publish` change must implement the filter.
-**Docs at fault:** None — `chat-foundation/design.md` § D9 documents the deferral; `chat-conversations` spec includes the read-path filter that the publish-side must mirror.
-
-**Impact (if shipped):** Only relevant once `chat-realtime-broadcast-publish` ships. Without the publish-side filter at that point, a shadow-banned user's messages would silently reach non-banned recipients via WSS while being filtered from REST — a privacy hole and shadow-ban-detection oracle (the punished user could ask a non-banned friend "do you see my messages on the websocket?" to detect the shadow-ban state in seconds rather than the canonical 24-48 hour friction window).
-
-**Ambiguity to resolve first:** Implementation site — filter at the publish call (Ktor checks `sender.is_shadow_banned` before invoking the broadcast publish), OR at the broadcast routing layer (Supabase realtime evaluates a server-side filter via the policy or a function). The natural fit is Ktor-side because (a) the sender's shadow-ban state is already loaded as part of the send transaction and (b) the subscriber-side policy was deliberately kept simple per D9.
+**Ambiguity to resolve first:** Batching strategy — debounce-on-send (delay each push by ~3s and merge incoming siblings), OR per-conversation rate-limit (cap pushes per conversation per minute), OR FCM-side notification grouping (Android `setGroup` + iOS `thread-id`). The third option is purely client-display batching, no server change; cheapest. Likely correct first move.
 
 **Action items:**
-- [ ] When `chat-realtime-broadcast-publish` is filed, the proposal MUST include this publish-side filter as part of its scope (NOT as a follow-up to that change).
-- [ ] Cover the filter end-to-end with an integration test: shadow-banned sender A sends to conversation X with non-banned recipient B; assert (a) the row persists, (b) `GET /messages` for B does NOT return the row, (c) the realtime broadcast for `realtime:conversation:X` does NOT carry the row.
+- [ ] When user growth or feedback signals notification fatigue, file OpenSpec change `chat-message-notification-per-conversation-batching`. Most likely shape: client-display grouping (Android `setGroup`, iOS `thread-id` keyed on `conversation_id`) shipped in `:infra:fcm`'s payload builders + minimal spec amendment to `fcm-push-dispatch`.
+- [ ] If client-display grouping proves insufficient: add server-side debounce/coalesce in a separate change.
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
 
 ## compute-ttl-to-next-reset-test-flake
@@ -909,139 +677,3 @@ Recommend approach 3 — preserves spec semantics, no spec amendment needed (spe
 - [ ] If approach 1: empirically choose a seed that produces ≥999 differing pairs and document why (lock the seed for reproducibility).
 - [ ] If approach 2: amend `rate-limit-infrastructure/spec.md:160` to use a threshold compatible with the math; lower test threshold to match.
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
-
-
----
-
-## pre-phase-1-secret-slot-list-supabase-service-role-key
-
-**Discovered during:** `chat-realtime-broadcast` Phase 1.8 reconciliation — verifying the canonical Pre-Phase 1 secret-slot list at [`docs/08-Roadmap-Risk.md` § Pre-Phase 1 #34](docs/08-Roadmap-Risk.md) (line 51 at this writing) lists `staging-supabase-jwt-secret` but does NOT yet list `staging-supabase-service-role-key` / `supabase-service-role-key` — the slots required by `chat-realtime-broadcast` Phase 7 staging deploy.
-**Status:** open
-
-**Finding:** The chat-realtime-broadcast change adds the GCP Secret Manager slots `staging-supabase-service-role-key` (staging) and `supabase-service-role-key` (prod, deferred until prod deploy) per `chat-realtime-broadcast` design § D7. The canonical Pre-Phase 1 secret-slot list at [`docs/08-Roadmap-Risk.md:51`](docs/08-Roadmap-Risk.md) was last updated when only `supabase-jwt-secret` (HS256-signing for client realtime tokens, per `auth-realtime`) existed; the additive service-role-key slot is not on the list. Slot creation in GCP happens at deploy time (Phase 7 of this change); the docs amendment is purely a documentation hygiene update.
-
-**Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:** [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) § Pre-Phase 1 #34 (line 51).
-
-**Impact (if shipped):** Low. Operational deploy works correctly without the docs amendment (the GCP slot is created via the deploy workflow). Risk is to future-maintainer cognitive load — a future Pre-Phase 1 inventory pass that checks the doc list would not find the slot, potentially treating it as missing infrastructure.
-
-**Ambiguity to resolve first:** None. Append `staging-supabase-service-role-key` and `supabase-service-role-key` to the existing slot list, mirroring the existing `staging-supabase-jwt-secret` shape.
-
-**Action items:**
-- [ ] File a docs-only PR (or batch with the next OpenSpec change touching the Pre-Phase 1 section) amending [`docs/08-Roadmap-Risk.md:51`](docs/08-Roadmap-Risk.md) to include `staging-supabase-service-role-key` and `supabase-service-role-key` in the secret-slot inventory.
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs PR merges.
-
----
-
-## chat-flow-pseudocode-shadow-ban-precheck-stale
-
-**Discovered during:** `chat-realtime-broadcast` Phase 1.9 reconciliation — re-checking [`docs/05-Implementation.md:1200`](docs/05-Implementation.md) (Pre-Swap chat flow pseudocode) which says "validates quota, sender is participant, not shadow-banned, not blocked" — the "not shadow-banned" sender pre-check contradicts the chat-foundation invisible-actor model.
-**Status:** open
-
-**Finding:** The Pre-Swap chat flow pseudocode at [`docs/05-Implementation.md:1200`](docs/05-Implementation.md) lists "not shadow-banned" as a SENDER pre-check before the chat send INSERT. This contradicts the canonical chat-foundation invisible-actor model documented in `chat-foundation/design.md` § D9 (and re-affirmed by `chat-realtime-broadcast` design § D2): shadow-banned senders DO insert their messages — the row persists, but the publish step is skipped (publish-side filter) and other readers never see the row via the `GET /messages` shadow-ban filter (read-path filter). This is chat-foundation residue in the doc, NOT introduced by this change.
-
-**Specs at fault:** None.
-**Code at fault:** None — the chat-foundation send handler correctly does NOT pre-check sender shadow-ban state (verified by `chat-rate-limit` scenario 33 + `chat-realtime-broadcast` test 2).
-**Docs at fault:** [`docs/05-Implementation.md:1200`](docs/05-Implementation.md).
-
-**Impact (if shipped):** Low. Code is correct. Risk: a future maintainer reading the canonical chat-flow pseudocode might infer that shadow-banned senders should be 4xx-rejected at the send endpoint, attempting a "fix" that breaks the invisible-actor model.
-
-**Ambiguity to resolve first:** None. Remove the "not shadow-banned" clause from the sender pre-check list at line 1200; optionally add a sentence noting that shadow-banned senders insert normally and the publish-side skip is documented in `chat-realtime-broadcast` § Publish-side shadow-ban skip.
-
-**Action items:**
-- [ ] Amend [`docs/05-Implementation.md:1200`](docs/05-Implementation.md) to remove the "not shadow-banned" clause from the sender pre-check list (batch with the docs-only PR for the secret-slot list amendment, or with the next OpenSpec change touching that doc section).
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
-
----
-
-## chat-flow-pseudocode-channel-prefix-clarification
-
-**Discovered during:** `chat-realtime-broadcast` Phase 1.10 reconciliation — verifying [`docs/05-Implementation.md:1204`](docs/05-Implementation.md) describes the broadcast channel as `conversation:<id>` (without the publisher-side `realtime:` prefix). Correct at the topic layer (the V15 RLS regex evaluates against the prefix-stripped topic) but understates the publisher API contract.
-**Status:** open
-
-**Finding:** [`docs/05-Implementation.md:1204`](docs/05-Implementation.md) describes the broadcast channel name as `conversation:<id>` without the `realtime:` prefix. This is correct at the **topic** layer — what the V15 `participants_can_subscribe` RLS regex (`^conversation:[0-9a-f]{8}-[0-9a-f]{4}-...`) evaluates against — but understates the publisher-side API which requires the `realtime:` prefix on the channel identifier (Supabase strips it before RLS topic evaluation). The two readings are consistent at different layers, but a future implementer reading only line 1204 might drop the `realtime:` prefix from publisher code, breaking authorization-gated channel subscription. `chat-realtime-broadcast` design § D5 documents the distinction explicitly; the canonical doc should mirror that clarification.
-
-**Specs at fault:** None.
-**Code at fault:** None — `SupabaseBroadcastChatClient.chatBroadcastChannelIdentifier` correctly produces `realtime:conversation:<id>` and the topic-stripping is unit-tested.
-**Docs at fault:** [`docs/05-Implementation.md:1204`](docs/05-Implementation.md).
-
-**Impact (if shipped):** Low. The shipped implementation uses the canonical prefixed channel + stripped topic. Risk is to future implementers (e.g., a hypothetical `:infra:ktor-ws` swap or an additional broadcast caller) reading only the canonical doc and reproducing the bug.
-
-**Ambiguity to resolve first:** None. Amend line 1204 to clarify the publisher channel identifier (with `realtime:` prefix) vs the underlying topic (without prefix) the RLS regex matches.
-
-**Action items:**
-- [ ] Amend [`docs/05-Implementation.md:1204`](docs/05-Implementation.md) to distinguish publisher channel identifier (`realtime:conversation:<id>`) from the topic (`conversation:<id>`) the V15 RLS regex evaluates against. Batch with the other Phase 9 docs-only amendments.
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
-
----
-
-## observability-otel-foundation
-
-**Discovered during:** `chat-realtime-broadcast` Phase 9.5 — `design.md` § D9 + `proposal.md` "Observability deferred" descope of the `chat.realtime.publish` OTel span requirement. Round-3 review surfaced that OTel SDK is not in the project; instrumenting only chat-realtime-broadcast would create a single-instrumented-capability anomaly.
-**Status:** open
-
-**Finding:** `chat-realtime-broadcast` design § D9 descoped the OTel-span observability per [`docs/04-Architecture.md:398`](docs/04-Architecture.md) "mandatory OTel attributes" — adopting OTel here would couple a chat-publish feature change to a project-wide observability foundation (SDK + global tracer + hashed-user-id helper + DI plumbing + retroactive instrumentation across every shipped capability). The `chat-realtime-broadcast` change ships ONLY the structured WARN log on failure; OTel adoption is the future work tracked here.
-
-Gap surface: zero OTel SDK references in [`gradle/libs.versions.toml`](gradle/libs.versions.toml) or [`build-logic/`](build-logic/); no shipped capability (chat-foundation, chat-rate-limit, fcm-push-dispatch, post-likes, post-replies, premium-search) emits OTel spans; "user_id (hashed)" attribute referenced by the architecture doc has no implementation helper on disk.
-
-**Specs at fault:** None — the `chat-realtime-broadcast` spec correctly omits an OTel requirement.
-**Code at fault:** None — pre-foundation; nothing to refactor yet.
-**Docs at fault:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) describes mandatory OTel attributes as if enforced. Tracked separately by `architecture-doc-otel-mandatory-attributes-clarification`.
-
-**Impact (if shipped):** Low today (structured logs are the de-facto observability surface across all shipped capabilities). Risk: as more capabilities ship, retroactive instrumentation work compounds; the `chat.realtime.publish` span specifically would be useful for alerting on publish-failure rate but is currently approximated via WARN-log-rate alerts.
-
-**Ambiguity to resolve first:** None — the foundation shape is clear from `docs/04-Architecture.md` § Instrumentation priorities + the existing structured-log usage. The change should:
-1. Add OTel SDK + `opentelemetry-sdk-testing` to [`gradle/libs.versions.toml`](gradle/libs.versions.toml).
-2. Wire a global tracer in [`backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt).
-3. Introduce a `hashUserIdForTelemetry` helper in [`:core:domain`](core/domain/) (per `docs/04-Architecture.md:398` "user_id (hashed)").
-4. Retroactively instrument call sites with one consistent policy: chat send (`chat.send`), chat publish (`chat.realtime.publish`), fcm send (`fcm.send`), like / reply / search action paths.
-
-**Action items:**
-- [ ] File an OpenSpec change `observability-otel-foundation` per the migration sketch above.
-- [ ] In a follow-on change, retro-add the `chat.realtime.publish` span requirement to the `chat-realtime-broadcast` capability spec (currently descoped in design § D9).
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the foundation change merges.
-
----
-
-## architecture-doc-otel-mandatory-attributes-clarification
-
-**Discovered during:** `chat-realtime-broadcast` Phase 9.6 — flagged that [`docs/04-Architecture.md:398`](docs/04-Architecture.md) describes the "mandatory OTel attributes" list as if it is already enforced, but no shipped capability emits OTel spans (per `observability-otel-foundation` finding above).
-**Status:** open
-
-**Finding:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) reads as a present-tense enforced contract: "Mandatory attributes: `user_id` (hashed), `endpoint`, `db.statement` (parameterized), `supabase.realtime.channel`, `geo.cloud_region`". The actual project state is that NO shipped capability emits OTel spans — the line describes the FUTURE state once `observability-otel-foundation` ships. The `chat-realtime-broadcast` changes round-3 review caught this when an earlier draft of the design treated the line as a load-bearing requirement.
-
-**Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md).
-
-**Impact (if shipped):** Low. Misleads future implementers who treat the line as a present-state spec — `chat-realtime-broadcast` round 3 caught this, but a future capability author may not.
-
-**Ambiguity to resolve first:** None. Amend the line to clarify the attribute list is the FUTURE state once `observability-otel-foundation` ships (or batch with that changes amendments).
-
-**Action items:**
-- [ ] Amend [`docs/04-Architecture.md:398`](docs/04-Architecture.md) to add a "future-state once `observability-otel-foundation` ships" qualifier to the mandatory-attributes line, OR fold the amendment into the `observability-otel-foundation` change itself.
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
-
----
-
-## chat-flow-diagram-missing-notification-emit-step
-
-**Discovered during:** `chat-message-notification` `/next-change` Phase B step 7 reconciliation pass — verifying the canonical chat flow diagram at [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) against the as-shipped + about-to-ship runtime.
-**Status:** open
-
-**Finding:** [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) shows the chat flow as: validate → INSERT chat_messages → Supabase Realtime broadcast → Client B receives. The diagram does NOT mention notification emit (the `chat_message` row + FCM push), even though the canonical body_data catalog at [`docs/05-Implementation.md:860`](docs/05-Implementation.md) declares `chat_message` as a wired notification type with body_data shape `{conversation_id, preview}`. The diagram was authored before `fcm-push-dispatch` and `in-app-notifications` shipped, and has not been amended since. Other shipped capabilities have similarly omitted-from-diagrams emit steps (e.g., post likes don't show notification dispatch in the like flow either) — the diagram is an architectural overview, not a complete sequence — but the `chat-message-notification` change makes the omission newly load-bearing for chat specifically: a future maintainer reading 1195-1212 might conclude that chat sends do NOT emit notifications, contradicting the actual ship state.
-
-**Specs at fault:** None — `chat-conversations/spec.md` (post-archive of `chat-message-notification`) will correctly require the emit step inside the chat send tx.
-**Code at fault:** None — the chat-message-notification change ships the emit correctly.
-**Docs at fault:** [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) chat flow diagram (omits the emit step).
-
-**Impact (if shipped):** Low. Misleads a future maintainer reading the diagram into thinking chat sends do not produce a `notifications` row — they will discover the truth on first grep of `NotificationEmitter` use sites or first read of the spec, but that's wasted time. Same shape as several other doc-staleness FOLLOW_UPs in this project (e.g., `architecture-doc-otel-mandatory-attributes-clarification` above, `premium-search-reindex-trigger-doc-divergence` earlier in this file).
-
-**Ambiguity to resolve first:** Optional design choice — either (a) amend the chat flow diagram to add an "INSERT notifications + dispatch FCM push" step inside the tx between `INSERT chat_messages` and the broadcast, OR (b) add an explicit pointer line below the diagram noting that the canonical notifications catalog at line 860 + the in-app-notifications spec own the emit detail. Either fix resolves the ambiguity.
-
-**Action items:**
-- [ ] After `chat-message-notification` ships, file a docs-only amendment to [`docs/05-Implementation.md:1195-1212`](docs/05-Implementation.md) — either approach (a) or approach (b) above. Standalone docs PR or batched with the next OpenSpec change that touches chat documentation.
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
-
----
