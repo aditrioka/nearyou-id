@@ -130,13 +130,16 @@ The scaffold handles this automatically:
 
 No manual polygon-splitting required.
 
-## TODO before first run
+## Historical context (pipeline already run; preserved for reproducibility)
 
-Scripts in this directory are **scaffold only** — they lay out the shape of the pipeline but have not yet been executed against a live Overpass + PostGIS. Before Session 2 runs this for real, the implementer should:
+> **Status (2026-05-07).** This pipeline RAN successfully on 2026-04-25, producing the 552-row polygon seed shipped as `backend/ktor/src/main/resources/db/migration/V12__admin_regions_seed.sql` (34.5 MB). Earlier drafts of this README marked the scripts as "scaffold only" — that label is no longer accurate; V12 is in production. The directory is preserved so a future re-seed (after an Overpass dataset refresh, an admin-boundary change, or a polygon-precision upgrade) can follow the same pipeline rather than starting over.
 
-1. Verify Overpass area IDs (`area:3600304716` for Indonesia is correct as of 2026; DKI's relation ID needs discovery via `relation["name"="Daerah Khusus Ibukota Jakarta"]` + `area: 3600000000 + rel_id`).
-2. Confirm the degree-vs-geography buffer choice matches the product's precision needs — 22 km in degrees at latitude 0 ≠ 22 km at latitude −11; if precision matters, switch to `ST_Buffer(geog, 22000)` and accept the perf hit (one-time cost during import, not per-request).
-3. Verify that `generate-seed.py` handles OSM relations that cross the antimeridian (e.g., parts of Maluku Utara / Papua) — PostGIS `ST_Union` can produce degenerate geometries for such relations. Test-run in the staging DB first.
-4. Record the exact Overpass timestamp at import time in the V11 header comment, so reviewers can verify row counts against a known snapshot.
+The notes below are the lessons learned during the original 2026-04-25 run, retained so a re-seed doesn't re-discover them. The original `tasks.md` for the change is archived under `openspec/changes/archive/2026-04-25-global-timeline-with-region-polygons/tasks.md`.
 
-See [`tasks.md`](../../../openspec/changes/global-timeline-with-region-polygons/tasks.md) group 1 for the full checklist.
+1. **Overpass area IDs require explicit verification at run time.** The original scaffold hardcoded `area:3600304716` — that is the OSM area for an INDIAN relation, not Indonesia. The correct Indonesia area is `area:3600304751` (relation 304751). Before running, fetch `relation(304751); out tags;` and confirm the response contains `name=Indonesia` + `ISO3166-1=ID`. Do NOT trust comments in old import scripts — OSM relation IDs can be re-numbered, and pasting the value forward without verification was the root cause of 3 wasted fetch cycles in PR [#31](https://github.com/aditrioka/nearyou-id/pull/31).
+2. **DKI Jakarta polygon split.** OSM models DKI as a single `admin_level = 5` row; product wants the 5 kotamadya + Kepulauan Seribu instead. The pipeline issues a separate Overpass query at `admin_level = 6` inside DKI's area (NOT `admin_level = 5` as initially assumed) and skips DKI's own row to avoid conflation. This was the second discovery in PR [#31](https://github.com/aditrioka/nearyou-id/pull/31).
+3. **Degree-vs-geography buffer.** The 22 km maritime buffer is applied as a fixed-degree buffer in degree space. 22 km in degrees at latitude 0 ≠ 22 km at latitude −11; if a future re-seed requires precise km-equidistant buffering, switch to `ST_Buffer(geog, 22000)` and accept the perf hit (one-time during import, not per-request).
+4. **Antimeridian-crossing relations.** OSM relations for parts of Maluku Utara / Papua can produce degenerate geometries via `ST_Union`. Validate the seed file against a staging DB before merging to main.
+5. **Record the exact Overpass timestamp.** The V12 header comment includes the import timestamp so reviewers can verify row counts against a known OSM snapshot.
+
+If you start a fresh re-seed, copy this README into a dated subfolder under `openspec/changes/archive/<re-seed-change-name>/` so future contributors can see both the original-run notes and the re-seed-run notes side by side.

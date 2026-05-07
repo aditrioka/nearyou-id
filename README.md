@@ -47,7 +47,7 @@ Plus [`iosApp/`](iosApp/) — the Xcode entry point that consumes the `ComposeAp
 The README is the elevator pitch; the load-bearing context lives in three places, all version-controlled in this repo:
 
 - [`docs/00-README.md`](docs/00-README.md) → master design doc, principles, cross-reference map. Start here for product intent, architecture, security/privacy posture, and roadmap.
-- [`openspec/specs/`](openspec/specs) → 35+ capability specs in OpenSpec format. Every shipped feature has a spec describing requirements, scenarios, and invariants. The archive at [`openspec/changes/archive/`](openspec/changes/archive) is a chronological log of every change proposal that landed, including rejected alternatives and reconciliation notes.
+- [`openspec/specs/`](openspec/specs) → 42 capability specs in OpenSpec format (regenerate count from `ls openspec/specs/ | wc -l` if drift suspected). Every shipped feature has a spec describing requirements, scenarios, and invariants. The archive at [`openspec/changes/archive/`](openspec/changes/archive) is a chronological log of every change proposal that landed, including rejected alternatives and reconciliation notes.
 - [`CLAUDE.md`](CLAUDE.md) → project instructions for AI agents (Claude Code, GitHub Action). Documents the critical invariants (shadow-ban safety, block enforcement, spatial fuzzing, rate-limit conventions, RLS policies) and the change-delivery workflow. Useful as a fast-onboarding read for humans too.
 
 ## Local development

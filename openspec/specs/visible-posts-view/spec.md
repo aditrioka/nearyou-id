@@ -31,7 +31,7 @@ Rows where `is_auto_hidden = TRUE` MUST NOT appear in `visible_posts`. Rows wher
 
 ### Requirement: Detekt rule RawFromPostsRule enforces view usage
 
-A Detekt custom rule `RawFromPostsRule` SHALL live under `build-logic/detekt-rules/` (creating that module if absent) and MUST be active in the Detekt config applied to `backend/ktor` and `backend/ktor/src/main/resources/db/migration/`. The rule SHALL flag case-insensitive matches of `\bFROM\s+posts\b` and `\bJOIN\s+posts\b` in:
+A Detekt custom rule `RawFromPostsRule` SHALL live under `lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/` (the canonical home for project Detekt rules; the `build-logic/detekt-rules/` path used in earlier drafts of this spec was the working name during scaffold and has since been replaced by the dedicated `:lint:detekt-rules` Gradle module). The rule MUST be active in the Detekt config applied to `backend/ktor` and `backend/ktor/src/main/resources/db/migration/`. The rule SHALL flag case-insensitive matches of `\bFROM\s+posts\b` and `\bJOIN\s+posts\b` in:
 - Kotlin string literals (`.kt` files)
 - SQL resource files (`.sql` files under `backend/ktor/src/main/resources/db/`)
 
