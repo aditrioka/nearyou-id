@@ -78,30 +78,6 @@ Format per entry:
 
 ---
 
-## grafana-otlp-token-scope-tightening
-
-**Discovered during:** `observability-otel-foundation` operator setup at task-execution time — Grafana Cloud's "OpenTelemetry setup wizard" (`https://<stack>.grafana.net/.../otel/instrumentation`) generates API tokens with **bundled scopes** (`metrics:write`, `logs:write`, `traces:write`, `profiles:write`, `stacks:read`) and does NOT expose per-scope toggles in its UI. The token created for staging slot `staging-otel-grafana-otlp-token` is over-privileged vs the `traces:write`-only ideal.
-**Status:** open
-
-**Finding:** Principle-of-least-privilege violation. Token in GCP Secret Manager (mitigated by IAM grants — Cloud Run SA-only access) carries write permissions to metrics + logs + profiles planes we don't use, plus `stacks:read` admin scope we don't need. Blast radius if token leaks: attacker can write garbage to all data planes (not just traces) + read stack metadata. Acceptable for pre-launch staging (synthetic data, no production users), unacceptable for production tag-deploy.
-
-**Specs at fault:** None — the spec at `openspec/specs/observability-otel-foundation/spec.md` (post-archive) is intentionally silent on token scope provisioning (operator concern, not capability behavior).
-**Code at fault:** None — `OtelBootstrap` doesn't care about scope; it just authenticates with whatever credential the slot contains.
-**Docs at fault:** [`docs/10-Setup-Checklist.md`](docs/10-Setup-Checklist.md) § 3.7 mentions "Read+Write trace permissions only — no metric/log scope" but the wizard UI doesn't honor the operator's intent. Doc is aspirationally correct; reality requires custom Access Policy path.
-
-**Impact (if shipped):** Medium pre-launch (GCP Secret Manager IAM is the primary defense; token leak requires GCP credential compromise first). High at production tag-deploy (real user data, regulatory considerations).
-
-**Ambiguity to resolve first:** Whether to apply this to staging slots retroactively or only enforce on production. Recommend: tighten production from day-one (custom Access Policy with `traces:write` only + custom token), leave staging as-is until next regular rotation.
-
-**Action items:**
-- [ ] Before production tag-deploy: navigate to Grafana Cloud Portal (`https://grafana.com/orgs/<org>/access-policies`), create custom Access Policy `nearyou-prod-traces-write-only` with realm = stack `nearyouid`, scope = `traces:write` only.
-- [ ] Generate token from that policy, populate `otel-grafana-otlp-token` slot in `nearyou-production` GCP Secret Manager project.
-- [ ] Optional staging hardening: rotate `staging-otel-grafana-otlp-token` to a custom-policy-generated token at next convenient maintenance window.
-- [ ] Update [`docs/10-Setup-Checklist.md`](docs/10-Setup-Checklist.md) § 3.7 to document the Access Policy path as the canonical token-mint procedure (current OTLP wizard path is convenient-but-over-privileged shortcut).
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after production token rotation.
-
----
-
 ## observability-otel-collector-tail-sampling
 
 **Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 adversarial-lens finding #11 — the round-1 design § D4 force-keep `SpanProcessor` re-emitting via `Tracer.spanBuilder().setNoParent()` is structurally wrong: it creates a fresh root span detached from the original trace, breaking trace_id linkage in Tempo.
