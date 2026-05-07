@@ -1197,18 +1197,22 @@ On shadow-ban / unban / block / unblock: application code invalidates any Redis 
 ```
 Client A: POST /api/v1/chat/:conversation_id/messages { content }
   ↓
-Ktor: validates quota, sender is participant, not shadow-banned, not blocked (either direction)
+Ktor: validates quota, sender is participant, not blocked (either direction)
   ↓
 Ktor: INSERT INTO chat_messages (persistence)
   ↓
-Ktor: Supabase Realtime broadcasts to channel "conversation:<id>"
+Ktor: Supabase Realtime broadcasts via channel identifier "realtime:conversation:<id>" (skipped when sender is shadow-banned)
   ↓
-Client B (subscribed, passed RLS): receives broadcast
+Client B (subscribed, passed RLS on the prefix-stripped topic "conversation:<id>"): receives broadcast
   ↓
 Client B: ACK, render, update UI
   ↓
 Client B later: fetches history via REST to resync if needed
 ```
+
+> **Pointers (details deliberately not in the diagram)**:
+> - **Sender shadow-ban**: shadow-banned senders' messages persist in `chat_messages` but the publish step is skipped (invisible-actor model — sender retains their own view; recipients never see the message via WSS or REST). The `GET /messages` read-path filter mirrors this for REST/WSS symmetry. Canonical: [`openspec/specs/chat-realtime-broadcast/spec.md`](../openspec/specs/chat-realtime-broadcast/spec.md) § Publish-side shadow-ban skip.
+> - **Notification fan-out**: the chat-message INSERT and the `notifications` table emit run in the same transaction; post-commit the composite FCM dispatcher fans out to recipient devices. Canonical: [`openspec/specs/in-app-notifications/spec.md`](../openspec/specs/in-app-notifications/spec.md) § chat_message body_data shape.
 
 **Failure handling**:
 - INSERT success + broadcast fail: Ktor retries broadcast 3x with exponential backoff. If still failing, log a warning. Client eventually fetches via REST.
