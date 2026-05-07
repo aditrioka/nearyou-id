@@ -33,9 +33,9 @@ Before proposing non-trivial changes, skim the relevant doc. Many details (jitte
 
 ## Critical invariants (don't violate these)
 
-**Canonical list lives at [`openspec/project.md`](openspec/project.md) § "Coding Conventions & CI Lint Rules"** (~18 invariants, each tied to a Detekt rule, allowlist mechanism, or schema CHECK). Read that section before editing code that might touch any of them. Audit on 2026-05-07 found this list was previously duplicated here verbatim, which created drift risk; trimming to a pointer keeps `openspec/project.md` as the single canonical source.
+**Canonical for the 16 code-level invariants: [`openspec/project.md`](openspec/project.md) § "Coding Conventions & CI Lint Rules"** (each tied to a Detekt rule, allowlist mechanism, or schema CHECK). Read that section before editing code that might touch any of them. Audit on 2026-05-07 found this list was previously duplicated here verbatim, creating drift risk; trimming to a pointer + summary keeps `openspec/project.md` as the single canonical source for those 16.
 
-The invariants cover (high-level summary; not enforcement-grade — for the actual rules read project.md):
+The 16 code-level invariants cover (high-level summary; for the actual enforcement detail — Detekt rule names, allowlist regex, annotation syntax — read project.md):
 
 - Shadow-ban safety (`visible_*` views, never raw `posts|users|...`)
 - Block enforcement (bidirectional `user_blocks` NOT-IN join via `BlockExclusionJoinRule`)
@@ -51,10 +51,13 @@ The invariants cover (high-level summary; not enforcement-grade — for the actu
 - RLS changes: mandatory "JWT `sub` not in `public.users` → deny" test
 - Secrets via `secretKey(env, name)` helper only
 - No vendor SDK import outside `:infra:*`
-- Public-repo posture (FSL-1.1-ALv2; never inline secrets, PII, speculative strategy)
-- Root README module list is auto-generated (sync via `dev/scripts/sync-readme.sh --write`)
 
-Drift-detection: if you find yourself wanting to add a new invariant, add it to `openspec/project.md` first; only update this summary list if a new invariant warrants top-of-mind awareness for every AI session.
+**Two CLAUDE.md-only invariants (canonical here, not in project.md)** — these govern how we author *content*, not how we author *code*, so they live with the AI-session entry-point file:
+
+- **Public repository posture**: this repo is source-available under [FSL-1.1-ALv2](LICENSE) — assume external readers in commits, comments, PR bodies, code identifiers. Slot names + GCP project IDs + service-account emails are non-sensitive (matches the existing "secrets in Secret Manager, slot names in source" pattern); never inline real secret values, customer PII, or speculative commercial strategy. When in doubt, surface to the user before committing.
+- **Root README module list is auto-generated** from [`settings.gradle.kts`](settings.gradle.kts) + [`dev/module-descriptions.txt`](dev/module-descriptions.txt). When a change adds a new module, also (a) add a one-line description to `dev/module-descriptions.txt`, then (b) run `dev/scripts/sync-readme.sh --write`. CI runs `--check` (warning-only) to surface drift. See `openspec/project.md` § Documentation Maintenance for the full trigger table.
+
+Drift-detection: if you find yourself wanting to add a new code-level invariant, add it to `openspec/project.md` first; only update the 16-item summary above if it warrants top-of-mind awareness for every AI session. New content/posture-level invariants land here in the "two CLAUDE.md-only" section.
 
 ## Engineering judgment over context budget
 

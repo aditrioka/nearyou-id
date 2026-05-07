@@ -49,7 +49,7 @@ The scan SHALL match these exact import prefixes (string `startsWith` after `imp
 3. `io.lettuce.` — Lettuce Redis client; canonical home `:infra:redis`
 4. `com.google.firebase.` — Firebase Admin SDK (FCM dispatch); canonical home `:infra:fcm`
 
-The list MAY be extended when a new vendor SDK is introduced — extension SHALL ship in the same OpenSpec change that introduces the `:infra:<vendor>` module that owns it. The list SHALL NOT include OTel API types (`io.opentelemetry.api.trace.Span`, `io.opentelemetry.api.trace.Tracer`) — those are intentional consumption surfaces in `:backend:ktor` (per `observability-otel-foundation` spec) and are explicitly exempt from this scan even though OTel SDK + exporter packages live in `:infra:otel`. If a future change forbids more granular OTel imports (e.g., `io.opentelemetry.sdk.*`, `io.opentelemetry.exporter.otlp.*`) outside `:infra:otel`, that change amends this requirement.
+The list MAY be extended when a new vendor SDK is introduced — extension SHALL ship in the same OpenSpec change that introduces the `:infra:<vendor>` module that owns it. The list SHALL NOT include OTel API types (`io.opentelemetry.api.trace.Span`, `io.opentelemetry.api.trace.Tracer`) — those are intentional consumption surfaces in `:backend:ktor` (per `observability-otel-foundation` spec). The OTel API exemption is by absence (the OTel prefix is simply not on the forbidden list), not by an explicit allowlist mechanism in the test code. If a future change forbids more granular OTel imports (e.g., `io.opentelemetry.sdk.*`, `io.opentelemetry.exporter.otlp.*`) outside `:infra:otel`, that change amends this requirement.
 
 #### Scenario: Trimmed prefix match required
 
@@ -64,7 +64,7 @@ The list MAY be extended when a new vendor SDK is introduced — extension SHALL
 #### Scenario: OTel API import in :backend:ktor allowed
 
 - **WHEN** `backend/ktor/src/main/kotlin/.../WithSpan.kt` contains `import io.opentelemetry.api.trace.Span`
-- **THEN** the scan does NOT flag this file (OTel API is exempt; only the SDK + exporter packages would be added in a future amendment)
+- **THEN** the scan does NOT flag this file (the `io.opentelemetry.api.` prefix is not on the forbidden list; only the SDK + exporter packages would be added in a future amendment)
 
 ### Requirement: Violation report format
 

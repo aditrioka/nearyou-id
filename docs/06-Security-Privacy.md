@@ -445,11 +445,12 @@ All internal scheduler endpoints served under `/internal/*` with mandatory OIDC 
 - Stream GC (post-swap, weekly)
 - RevenueCat webhook (`/internal/revenuecat-webhook`)
 
-**Exceptions to OIDC** (use alternative auth):
-- RevenueCat webhook (`/internal/revenuecat-webhook`): Bearer token + HMAC signature (vendor doesn't support OIDC). See `05-Implementation.md`.
-- CSAM webhook handler (`/internal/csam-webhook`): invoked via two supported paths, both non-OIDC.
-  - **Admin-triggered (MVP)**: the Admin Panel calls the handler internally using the admin's scoped session + a session-bound CSRF-style token. Since both services share the cluster network, the call never leaves the trust boundary.
-  - **Cloudflare Worker forwarding (Phase 2+)**: the CF Worker signs its POST with a Bearer token pulled from a Worker secret and an HMAC-SHA256 body signature (key in GCP Secret Manager as `cf-worker-csam-secret`). The Ktor handler verifies both before processing. Rate-limited to 100 req/hour per IP (prevents replay amplification).
+**Exceptions to OIDC** (use alternative auth) — **ALL DESIGN as of 2026-05-07**: neither endpoint below is mounted; the auth posture described is the intended future shape, not active code.
+
+- RevenueCat webhook (`/internal/revenuecat-webhook`) — DESIGN: Bearer token + HMAC signature (vendor doesn't support OIDC). See `05-Implementation.md` § RevenueCat Webhook (also tagged DESIGN).
+- CSAM webhook handler (`/internal/csam-webhook`) — DESIGN: when implemented, it will be invoked via two supported paths, both non-OIDC.
+  - **Admin-triggered (MVP)** — DESIGN: the Admin Panel will call the handler internally using the admin's scoped session + a session-bound CSRF-style token. Since both services would share the cluster network, the call never leaves the trust boundary. (Admin Panel itself is DESIGN per `docs/07-Operations.md`.)
+  - **Cloudflare Worker forwarding (Phase 2+)** — DESIGN: the CF Worker will sign its POST with a Bearer token pulled from a Worker secret and an HMAC-SHA256 body signature (key reserved as `cf-worker-csam-secret` in GCP Secret Manager). The Ktor handler will verify both before processing. Rate limit will be 100 req/hour per IP (prevents replay amplification).
 
 **Backup NOT via `/internal/*` endpoint**: backup runs as a standalone Cloud Run Jobs container, not an HTTP endpoint.
 
