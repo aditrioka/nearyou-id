@@ -114,7 +114,7 @@ This is bounded scope. The module-trigger from [`openspec/project.md`](../../pro
 
 ### D4 — Cache strategy: **Redis 5-min TTL, no explicit invalidation**
 
-The Redis cache layer uses a 5-minute fixed TTL keyed at `mod:list:{tier:profanity}` and `mod:list:{tier:uu_ite}` (hash-tag format per [`openspec/project.md`](../../project.md) § Critical invariants). Cache content is the parsed `List<String>` of keywords, serialized as JSON.
+The Redis cache layer uses a 5-minute fixed TTL keyed at `{scope:mod_list}:{tier:profanity}` and `{scope:mod_list}:{tier:uu_ite}` (hash-tag format per [`openspec/project.md`](../../project.md) § Critical invariants — the `RedisHashTagRule` Detekt rule enforces the `{scope:<value>}:{<axis>:<value>}` shape). Cache content is the parsed `List<String>` of keywords, serialized as JSON.
 
 When Remote Config is updated by an operator, the change propagates within 5 minutes max (TTL elapse + next loader call refreshes from Remote Config). No push-based invalidation, no cache busting endpoint.
 
@@ -165,6 +165,8 @@ Each fallback step emits one Sentry breadcrumb-style event:
 
 Rate-limit Sentry events: at most 1 per loader call (not per cache miss). Use Sentry's built-in deduplication so a sustained Remote Config outage doesn't flood Sentry.
 
+The events listed in the table above describe per-tier *triggers*; per-call deduplication (max 1 event per `load()`) is governed by the spec requirement `### Requirement: Tier-fallback Sentry events emit at most once per load(list) call`. A reader cross-walking design ↔ spec sees the per-tier triggers as cascade-step labels and the at-most-one-event contract as the per-call rate limit on top.
+
 ### D8 — Endpoint integration order
 
 For each integration site (`POST /api/v1/posts`, `POST /api/v1/posts/{post_id}/replies`, `POST /api/v1/chat/{conversation_id}/messages`):
@@ -200,7 +202,7 @@ The matched-keyword list is **NOT** included in the response (would tip off bypa
 
 ### D10 — Test data / sentinel keywords
 
-Tests use synthetic sentinel keywords (e.g., `"sentinel-profanity-DO-NOT-LEAK"`, `"sentinel-uuite-DO-NOT-LEAK"`) injected via test-only Remote Config override. This avoids couplinge tests to the real wordlist (which legitimately churns) and avoids the test suite shipping actual profanity in the repo (a CI / repo-hygiene concern).
+Tests use synthetic sentinel keywords (e.g., `"sentinel-profanity-DO-NOT-LEAK"`, `"sentinel-uuite-DO-NOT-LEAK"`) injected via test-only Remote Config override. This avoids coupling tests to the real wordlist (which legitimately churns) and avoids the test suite shipping actual profanity in the repo (a CI / repo-hygiene concern).
 
 The repo-committed `*.default.txt` files SHOULD ship with at least 1-2 placeholder entries for boot integrity (Tier 3 fallback verification); these CAN be banal placeholders like `__seed_profanity_placeholder__` that no real user input would match. Production Remote Config is the source of truth for the actual wordlist — checked in lists are fail-soft fallbacks, not the operational list.
 

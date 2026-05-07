@@ -9,7 +9,7 @@ The verdict mapping is:
 - **`Verdict.Flag(matchedKeywords)`** → INSERT proceeds; in the same SQL transaction, INSERT one row into `moderation_queue` with `target_type = 'chat_message'`, `target_id = <new_message_id>`, `trigger = 'uu_ite_keyword_match'`, `priority = 5`, `status = 'pending'`, using `ON CONFLICT (target_type, target_id, trigger) DO NOTHING`. The broadcast publish proceeds normally; the `chat_message` notification is emitted normally; `conversations.last_message_at` is updated normally. The recipient sees the message — Layer 2 is soft-flag for admin review, NOT a hide-from-recipient action.
 - **`Verdict.Allow`** → INSERT proceeds; no queue row; broadcast + notification + `last_message_at` update unchanged.
 
-The chat content schema permits `content` to be NULL (when an embedded post stands alone — see existing `### Requirement: Send-message endpoint`). When `content` is NULL the moderator MUST be skipped — `TextModerator.moderate(null)` is not called; only the `embedded_post_*` columns are populated. Embedded-post snapshots are created at chat-initiation time from already-moderated `posts` content; they do not need re-moderation at every send.
+The existing send-message endpoint contract at [`openspec/specs/chat-conversations/spec.md`](../../../../specs/chat-conversations/spec.md) `### Requirement: Send-message endpoint` REQUIRES `content` to be a 1–2000 char string (the `embedded_post_*` request fields are silently ignored, deferred to a future `chat-embedded-posts` capability). Therefore every send-message invocation in the current API contract carries a non-empty content string and the moderator runs unconditionally on it. A future `chat-embedded-posts` change that introduces null-content embedded-only sends MUST add its own moderator-bypass scenario then; until that change ships, no skip path exists.
 
 #### Scenario: Profanity hit rejects the chat send, no INSERT or broadcast
 - **GIVEN** caller A has an active conversation `C` with a non-blocked recipient B AND the active profanity list contains `"badword"`
@@ -20,11 +20,6 @@ The chat content schema permits `content` to be NULL (when an embedded post stan
 - **GIVEN** the active UU ITE list is `["sara1", "sara2", "sara3"]` AND threshold is 3 AND caller A has an active conversation C with B
 - **WHEN** caller A POSTs `{"content": "soal sara1 dan sara2 dan sara3"}` to `/api/v1/chat/{C}/messages`
 - **THEN** the response is HTTP 201 AND exactly one `chat_messages` row is inserted AND exactly one `moderation_queue` row exists with `target_type = 'chat_message'`, `target_id = <new_message_id>`, `trigger = 'uu_ite_keyword_match'` AND `ChatRealtimeClient.publish(...)` was called once AND `conversations.last_message_at` is updated AND a `chat_message` `notifications` row is emitted for B
-
-#### Scenario: Embedded-post-only chat (NULL content) bypasses moderator
-- **GIVEN** caller A has an active conversation C AND posts a chat message with `content = null` AND `embedded_post_id = <visible post P>` populated
-- **WHEN** the send-message handler executes
-- **THEN** `TextModerator.moderate(...)` is NOT called for this request (no content to moderate) AND the response is HTTP 201 AND the message is broadcast AND `chat_message` notification is emitted
 
 #### Scenario: Allowed chat message writes no moderation_queue row
 - **GIVEN** caller A has an active conversation C AND the active lists do not match the content

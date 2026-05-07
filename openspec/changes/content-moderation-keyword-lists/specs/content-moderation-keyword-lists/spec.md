@@ -17,7 +17,7 @@ The matcher SHALL be:
 - **Distinct-keyword counting**: a keyword that appears multiple times in the content counts once (the matcher returns *distinct keywords matched*, not total occurrences). Rationale: threshold semantics are over distinct list entries, not repetitions of one entry.
 - **Allocation-free for the common no-match path**: when no keyword matches, the returned `matchedKeywords` is an empty immutable list (singleton), no per-call allocation beyond the `MatchResult` data instance.
 
-The matcher SHALL NOT mutate the keyword list. The matcher MAY internally cache the built automaton keyed on the `keywords` list identity (reference equality is sufficient — callers reuse the same list across calls).
+The matcher SHALL NOT mutate the keyword list. Automaton-build cost is sub-millisecond for ~50 patterns; the matcher SHALL build a fresh automaton per call by default (no internal cache). If profiling at p99 shows the rebuild matters, a future change MAY introduce a per-call-site memoization layer; the current contract is "build per call, no caching" so test surface stays simple and the implementation is deterministic.
 
 #### Scenario: Single match returns one element
 - **WHEN** `KeywordMatcher.match("apa kabar dunia", listOf("kabar", "salam"))` is invoked
@@ -51,6 +51,18 @@ The matcher SHALL NOT mutate the keyword list. The matcher MAY internally cache 
 - **WHEN** `KeywordMatcher.match("foo, bar! baz.", listOf("foo", "bar", "baz"))` is invoked
 - **THEN** all three keywords are matched (boundaries: `,`, `!`, `.`, whitespace, start-of-string, end-of-string)
 
+#### Scenario: Keyword equal to entire content matches
+- **WHEN** `KeywordMatcher.match("foo", listOf("foo"))` is invoked
+- **THEN** the result equals `MatchResult(matchedKeywords = listOf("foo"), matchCount = 1)` (start-of-string + end-of-string serve as the boundary on both sides)
+
+#### Scenario: Overlapping keywords both match (Aho-Corasick suffix-link emission)
+- **WHEN** `KeywordMatcher.match("abcd", listOf("abc", "bcd"))` is invoked
+- **THEN** the result equals `MatchResult(matchedKeywords = listOf("abc", "bcd"), matchCount = 2)` — Aho-Corasick's suffix-link emission detects both patterns from a single content scan; first-occurrence ordering surfaces `"abc"` before `"bcd"`. Note: word-boundary semantics still apply per the existing scenario — `"abcd"` content has start-of-string before `"abc"` and end-of-string after `"bcd"`, both valid boundaries; if instead the content were `"xabcdy"`, neither would match (no word boundary on either side of either keyword)
+
+#### Scenario: Indonesian non-ASCII content lowercased correctly
+- **WHEN** `KeywordMatcher.match("halo Dünia", listOf("dünia"))` is invoked
+- **THEN** the result equals `MatchResult(matchedKeywords = listOf("dünia"), matchCount = 1)` (the `"D"` lowercases to `"d"` AND the `"ü"` is preserved; Indonesian-locale lowercasing does not strip diacritics)
+
 ### Requirement: `:core:domain` MUST NOT depend on a vendor Aho-Corasick library
 
 The `KeywordMatcher` implementation SHALL be in-house pure Kotlin. `:core:domain`'s `build.gradle.kts` SHALL NOT add a dependency on any third-party Aho-Corasick library (e.g., `org.ahocorasick:ahocorasick`, `com.hankcs:hanlp`, etc.). Rationale: a single ~150-LOC implementation does not justify a third-party dependency that imports an indirect-deps surface.
@@ -74,11 +86,11 @@ The loader SHALL consult these tiers in strict order, falling through to the nex
 1. **Tier 1 — Redis 5-min cache.** Read JSON-serialized `List<String>` from key `{scope:mod_list}:{tier:profanity}` (or `{tier:uu_ite}`). Hit: return parsed list. Miss: proceed to Tier 2.
 2. **Tier 2 — Firebase Remote Config.** Fetch parameter `moderation_profanity_list` (or `moderation_uu_ite_list`) as a string-array. On success: cache to Tier 1 with 5-min TTL via Lettuce `SETEX` and return. On network error / parse error / empty payload: emit `Sentry.warn("moderation_list_fallback", tier = "remote_config", to = "repo_file", list = "<...>", reason = "<...>")` and proceed to Tier 3.
 3. **Tier 3 — Repo-committed resource file.** Read `backend/ktor/src/main/resources/moderation/profanity.default.txt` (or `uu_ite.default.txt`) line-by-line, trim whitespace, drop empty lines + comment lines (lines starting with `#`). On success: cache to Tier 1 with 5-min TTL and return. On missing resource: emit `Sentry.warn("moderation_list_fallback", tier = "repo_file", to = "secret_manager", list = "<...>")` and proceed to Tier 4.
-4. **Tier 4 — Secret Manager.** Read slot value via `secretResolver.resolve(secretKey(env, "content-moderation-fallback-list"))` returning a JSON document with shape `{"profanity": [...], "uu_ite": [...]}`. On success: extract the relevant list, cache to Tier 1 with 5-min TTL, return. On unresolved/null: emit `Sentry.error("moderation_list_unavailable", list = "<...>", outcome = "fail_open")` and return `emptyList()`.
+4. **Tier 4 — Secret Manager.** Read slot value via `secretResolver.resolve("content-moderation-fallback-list")` (the bare slot name; the `SecretResolver` implementation handles env-prefix derivation internally per the precedent at [`backend/ktor/.../Application.kt:386–388`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) where `secrets.resolve("firebase-admin-sa")` is the canonical call shape and `secretKey(env, "firebase-admin-sa")` is computed only for the diagnostic log message). The resolver returns a JSON document with shape `{"profanity": [...], "uu_ite": [...]}`. On success: extract the relevant list, cache to Tier 1 with 5-min TTL, return. On unresolved/null: emit `Sentry.error("moderation_list_unavailable", list = "<...>", outcome = "fail_open")` and return `emptyList()`.
 
 The loader SHALL emit at most ONE Sentry event per `load(list)` call (not per tier-miss); Sentry's built-in deduplication suppresses event floods during sustained outages.
 
-The Tier 4 Secret Manager slot name SHALL be derived via `secretKey(env, "content-moderation-fallback-list")` (matching the `staging-content-moderation-fallback-list` vs prod naming pattern); direct hardcoded slot names are a `SecretKeyHelperRule` Detekt violation.
+The diagnostic log line emitted on Tier 4 failure SHALL include the env-aware slot name derived via `secretKey(env, "content-moderation-fallback-list")` so operators can immediately see whether `staging-content-moderation-fallback-list` or `content-moderation-fallback-list` was the missing slot — this matches the `Application.kt:391-393` precedent (`event=fcm_init_failed reason=missing_secret slot={} env={}`). Direct hardcoded slot-name reads (bypassing both the `SecretResolver` AND the `secretKey()` helper for diagnostic logging) are a lint violation per [`openspec/project.md`](../../project.md) § "Coding Conventions & CI Lint Rules" (the convention is enforced today via `Secrets.kt`'s `secretKey()` helper as a naming convention; a future Detekt rule reservation `SecretKeyHelperRule` is documented in the convention text but not yet implemented — the implementation MUST follow the convention regardless).
 
 The Redis cache key SHALL match the pattern `{scope:mod_list}:{tier:<tier-name>}` exactly, where `<tier-name>` is `profanity` or `uu_ite` (kebab-case, no underscores in the value portion). The key SHALL include the hash-tag braces `{...}` for cluster-safe multi-key ops per `RedisHashTagRule`.
 
@@ -112,9 +124,24 @@ The Redis cache key SHALL match the pattern `{scope:mod_list}:{tier:<tier-name>}
 - **WHEN** `loader.load(ProfanityList)` is invoked
 - **THEN** the result equals `emptyList()` AND exactly one Sentry ERROR is emitted with `event = "moderation_list_unavailable"`, `list = "profanity"`, `outcome = "fail_open"`
 
-#### Scenario: Tier 4 secret slot name is derived via `secretKey(env, ...)`
+#### Scenario: Tier 2 returns malformed payload, cascade to Tier 3
+- **GIVEN** Redis cache miss AND Firebase Remote Config returns a value that fails JSON-array deserialization (e.g., the parameter holds the literal string `"not-an-array"` or `{"key": "value"}`)
+- **WHEN** `loader.load(ProfanityList)` is invoked AND the repo file contains `["a", "b"]`
+- **THEN** the result equals `["a", "b"]` AND exactly one Sentry WARN is emitted with `tier = "remote_config"`, `to = "repo_file"`, `reason = "parse"`
+
+#### Scenario: Tier 3 file present but contains only comment / blank lines, cascade to Tier 4
+- **GIVEN** Redis cache miss AND Remote Config returns a network error AND the repo resource file `profanity.default.txt` exists but contains ONLY comment lines (`# placeholder`) and blank lines (no parseable keyword lines remaining after the trim+drop step)
+- **WHEN** `loader.load(ProfanityList)` is invoked AND `secretResolver.resolve(...)` returns the JSON `{"profanity": ["a", "b"], "uu_ite": ["c"]}`
+- **THEN** the result equals `["a", "b"]` AND exactly one Sentry WARN is emitted with `tier = "repo_file"`, `to = "secret_manager"`, `reason = "empty"` (an empty post-parse list is treated as a Tier 3 failure analogous to Tier 2 empty payload — locks the repo-file integrity contract from `### Requirement: Repo-committed default fallback wordlists exist`)
+
+#### Scenario: Tier 4 returns malformed JSON, cascade to empty list + ERROR
+- **GIVEN** Redis cache miss AND Remote Config network error AND the repo resource file is missing AND `secretResolver.resolve("content-moderation-fallback-list")` returns the literal string `"not-a-json-document"`
+- **WHEN** `loader.load(ProfanityList)` is invoked
+- **THEN** the result equals `emptyList()` AND exactly one Sentry ERROR is emitted with `event = "moderation_list_unavailable"`, `list = "profanity"`, `outcome = "fail_open"` AND the `reason` tag (if present) is `"parse"`
+
+#### Scenario: Tier 4 resolve call matches the established `SecretResolver` precedent
 - **WHEN** the loader's Tier 4 call site is inspected statically
-- **THEN** the call site SHALL be `secretResolver.resolve(secretKey(env, "content-moderation-fallback-list"))` (the helper-derived slot name; not a hardcoded `"content-moderation-fallback-list"` or `"staging-content-moderation-fallback-list"` literal)
+- **THEN** the call site SHALL be `secretResolver.resolve("content-moderation-fallback-list")` (bare slot name; the `SecretResolver` implementation owns env-prefix derivation, mirroring [`Application.kt:388`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) `secrets.resolve("firebase-admin-sa")`) AND a `secretKey(env, "content-moderation-fallback-list")` computation SHALL be present for the diagnostic log emitted on Tier 4 failure (mirroring `Application.kt:386` `secretSlot = secretKey(ktorEnv, "firebase-admin-sa")` used at line 392 in the structured error log) — neither shape SHALL be a hardcoded `"staging-content-moderation-fallback-list"` literal
 
 #### Scenario: Cache key uses canonical hash-tag format
 - **WHEN** the loader writes to Redis after a successful Tier 2 / 3 / 4 resolution for the profanity list
@@ -122,9 +149,9 @@ The Redis cache key SHALL match the pattern `{scope:mod_list}:{tier:<tier-name>}
 
 ### Requirement: `ModerationMatchThresholdLoader` resolves the threshold via the same Remote Config + fallback path
 
-A separate loader OR a sibling method on `ModerationListLoader` SHALL resolve the integer `moderation_match_threshold` from Firebase Remote Config (default value 3 when Remote Config is unreachable or returns a non-positive integer). The 5-min Redis cache and Sentry-on-fallback contract apply equally; the cache key SHALL be `{scope:mod_list}:{tier:threshold}`.
+A separate loader OR a sibling method on `ModerationListLoader` SHALL resolve the integer `moderation_match_threshold` from Firebase Remote Config (default value 3 when Remote Config is unreachable or returns a non-positive integer or returns a non-integer string). The 5-min Redis cache and Sentry-on-fallback contract apply equally; the cache key SHALL be `{scope:mod_list}:{tier:threshold}` (the `mod_list` scope namespace is reused across `tier:profanity` / `tier:uu_ite` / `tier:threshold` for cluster-safe `MGET`/`MULTI` operations on the same Redis hash slot — the threshold is treated as another moderation parameter colocated with the lists; the alternative `{scope:moderation}` scope was considered but `mod_list` keeps continuity with the lists' shape).
 
-The threshold loader SHALL clamp the resolved value to `[1, 10000]`; values outside that range fall back to the default 3 (mirrors the oversized-flag clamp in `like-rate-limit` / `reply-rate-limit` precedents). The default 3 aligns with Pre-Phase 1 §36 (`moderation_match_threshold` numeric parameter, default 3).
+The threshold loader SHALL clamp the resolved value to `[1, 10000]`; values outside that range fall back to the default 3 (mirrors the oversized-flag clamp in `like-rate-limit` / `reply-rate-limit` precedents). The clamp SHALL apply on EVERY read, including Tier 1 (Redis cache) reads — a stale cached value from a prior bad Remote Config push (e.g., `0` or `999999`) MUST NOT propagate to the matcher. The default 3 aligns with Pre-Phase 1 §36 (`moderation_match_threshold` numeric parameter, default 3).
 
 #### Scenario: Threshold default 3 when Remote Config unreachable
 - **GIVEN** Redis cache miss for `{scope:mod_list}:{tier:threshold}` AND Firebase Remote Config returns a network error
@@ -140,6 +167,16 @@ The threshold loader SHALL clamp the resolved value to `[1, 10000]`; values outs
 - **GIVEN** Firebase Remote Config returns `moderation_match_threshold = 5`
 - **WHEN** `loader.loadThreshold()` is invoked
 - **THEN** the result equals `5` (no clamp, no fallback)
+
+#### Scenario: Threshold clamped on cached out-of-range value (cached-0 poisoning prevention)
+- **GIVEN** Redis key `{scope:mod_list}:{tier:threshold}` holds the value `"0"` (a stale cached value from a prior bad Remote Config push that has since been corrected, but the cache TTL has not yet elapsed)
+- **WHEN** `loader.loadThreshold()` is invoked
+- **THEN** the result equals `3` (the default; the Tier 1 cache hit's `0` value is rejected by the same `[1, 10000]` clamp that applies to Tier 2 reads — a single bad Remote Config push CANNOT poison Layer 2 enforcement for the 5-min cache window)
+
+#### Scenario: Threshold falls back to default on non-integer Remote Config value
+- **GIVEN** Redis cache miss AND Firebase Remote Config returns `moderation_match_threshold = "abc"` (non-numeric string)
+- **WHEN** `loader.loadThreshold()` is invoked
+- **THEN** the result equals `3` (the default; the `RemoteConfigClient.fetchInt(...)` returns `null` for non-integer values, cascading to the next tier; if no further tier resolves, the default 3 is used) AND a Sentry WARN with `reason = "parse"` is emitted
 
 ### Requirement: `TextModerator.moderate(content)` orchestrates loader + matcher into a `Verdict`
 
@@ -196,11 +233,11 @@ The moderator SHALL be a Koin singleton instance — `TextModerator.moderate(...
 #### Scenario: Profanity precedence — content matching both lists is Rejected (not Flagged)
 - **GIVEN** profanity list `["badword"]` AND UU ITE list `["sara1", "sara2", "sara3"]` AND threshold `3` AND content `"this contains badword and sara1, sara2, sara3"`
 - **WHEN** `TextModerator.moderate(content)` is invoked
-- **THEN** the result equals `Verdict.Reject(matchedKeywords = listOf("badword"))` (Layer 1 short-circuits before Layer 2 runs; UU ITE matches are not surfaced)
+- **THEN** the result equals `Verdict.Reject(matchedKeywords = listOf("badword"))` AND `loader.load(UuIteList)` was NOT called AND `loader.loadThreshold()` was NOT called (Layer 1 short-circuits before Layer 2 runs; UU ITE matches are not surfaced; verifiable via mock-spy call count on the loader)
 
 ### Requirement: `TextModerator` Sentry events do NOT carry user content
 
-When `TextModerator.moderate(...)` produces a `Reject` or `Flag`, the orchestrator MAY emit a Sentry breadcrumb-level event for ops auditability. The event payload SHALL include:
+When `TextModerator.moderate(...)` produces a `Reject` or `Flag`, the orchestrator SHALL emit a Sentry breadcrumb-level event for ops auditability (the SHALL — not MAY — matches the test contract in `tasks.md` 6.6 which asserts the event fires; without emission the omission test cannot run). The event payload SHALL include:
 - `event = "content_moderation_rejected"` (Reject) or `"content_moderation_flagged"` (Flag)
 - `verdict_kind = "reject" | "flag"`
 - `matched_keyword_count = <int>`
@@ -240,6 +277,20 @@ The files SHALL be addressable from the `:backend:ktor` JVM classpath via `/mode
 - **GIVEN** both default resource files are read line-by-line AND empty/whitespace lines AND lines starting with `#` are dropped
 - **THEN** the remaining line count is ≥ 1 for each file
 
+### Requirement: Boot-time loader prime exercises Tier 3 fallback per list
+
+On `Application.module()` startup, the loader SHALL invoke `load(ProfanityList)` AND `load(UuIteList)` exactly once each in a non-blocking coroutine. This boot-prime: (a) seeds the Redis cache with the canonical wordlists (so first-traffic requests do not pay the Tier 2 / 3 / 4 cascade cost), (b) verifies Tier 3 integrity at boot rather than at first user-content-write traffic — a missing or corrupt repo resource surfaces in Sentry pre-traffic instead of degrading the first user's submission. The boot-prime SHALL NOT block startup; if it fails entirely, the fail-open posture (per `### Requirement: TextModerator.moderate(content) orchestrates loader + matcher into a Verdict`) preserves availability and the Sentry events emitted by the loader's cascade are the operator-visible signal.
+
+#### Scenario: Boot prime emits Sentry WARN if Tier 3 resource is missing
+- **GIVEN** the repo resource `/moderation/profanity.default.txt` is absent at boot AND Remote Config is unreachable AND Secret Manager is reachable with a valid `content-moderation-fallback-list` value
+- **WHEN** `Application.module()` boots AND the boot-prime coroutine completes
+- **THEN** within 5s of boot, exactly one Sentry event is emitted with `event = "moderation_list_fallback"`, `tier = "repo_file"`, `to = "secret_manager"`, `list = "profanity"` AND startup completes (the boot-prime does not throw)
+
+#### Scenario: Boot prime success does not emit Sentry events on the happy path
+- **GIVEN** Tier 1 cache miss AND Tier 2 Remote Config returns valid lists for both profanity and UU ITE
+- **WHEN** `Application.module()` boots AND the boot-prime coroutine completes
+- **THEN** within 5s of boot, the Redis cache holds populated keys for both `{scope:mod_list}:{tier:profanity}` and `{scope:mod_list}:{tier:uu_ite}` AND zero Sentry events are emitted by the loader (Tier 2 success is not a fallback)
+
 ### Requirement: Tier-fallback Sentry events emit at most once per `load(list)` call
 
 A single `loader.load(list)` invocation that cascades through multiple tiers SHALL emit at most one Sentry event (the most-severe one in the cascade — typically the highest-tier WARN or the all-tier ERROR). Repeated tier-misses within the SAME `load(list)` call SHALL NOT each emit their own Sentry event; only the cumulative outcome is reported. This prevents Sentry-event flooding during sustained Remote Config outages where every `moderate()` call would otherwise produce 3+ events.
@@ -262,7 +313,7 @@ A new Gradle module `:infra:remote-config` SHALL be created under `infra/remote-
 
 `:backend:ktor` SHALL depend on `:infra:remote-config` and SHALL NOT carry any direct `com.google.firebase.*` import in its source files. Business modules (`:core:domain`, `:core:data`, `:shared:*`) SHALL NOT depend on `:infra:remote-config` — they remain pure-Kotlin / interface-only.
 
-The new module SHALL initialize its OWN named FirebaseApp (e.g., `"nearyou-rc"`) reading the service-account JSON from `secretKey(env, "firebase-admin-sa")` (the same secret slot already consumed by `:infra:fcm`'s `FirebaseAdminInit`, but a separate FirebaseApp instance — keeps the modules cleanly independent without an `:infra:remote-config` → `:infra:fcm` dependency edge). The named-FirebaseApp pattern mirrors `FirebaseAdminInit`'s `"nearyou-default"` pattern.
+The new module SHALL initialize its OWN named FirebaseApp (e.g., `"nearyou-rc"`) reading the service-account JSON via `secretResolver.resolve("firebase-admin-sa")` (bare slot name, mirroring the [`Application.kt:388`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) precedent), with `secretKey(env, "firebase-admin-sa")` computed for the diagnostic startup log only. This is the same secret slot already consumed by `:infra:fcm`'s `FirebaseAdminInit`, but a separate FirebaseApp instance — keeps the modules cleanly independent without an `:infra:remote-config` → `:infra:fcm` dependency edge. The named-FirebaseApp pattern mirrors `FirebaseAdminInit`'s `"nearyou-default"` pattern.
 
 The module SHALL expose ONLY the `RemoteConfigClient` public interface + a Koin-bindable implementation. The Firebase Admin SDK types (`FirebaseRemoteConfig`, `Template`, `Parameter`, etc.) SHALL NOT leak into the public interface — `RemoteConfigClient` returns plain Kotlin types (`Map<String, String>` for parameters, `List<String>` for parsed string-arrays, `Int` for parsed numbers).
 
@@ -290,9 +341,9 @@ The module SHALL expose ONLY the `RemoteConfigClient` public interface + a Koin-
 - **WHEN** the `RemoteConfigClient` implementation is initialized
 - **THEN** the FirebaseApp instance bound to it has a `name` value distinct from `"nearyou-default"` (the name owned by `:infra:fcm`'s `FirebaseAdminInit`)
 
-#### Scenario: `:infra:remote-config` reads the service-account secret via `secretKey(env, ...)`
+#### Scenario: `:infra:remote-config` resolves the service-account secret via the precedent call shape
 - **WHEN** the module's FirebaseApp initialization call site is inspected statically
-- **THEN** the service-account JSON is sourced via `secretKey(env, "firebase-admin-sa")` (the helper-derived slot name; not a hardcoded `"firebase-admin-sa"` or `"staging-firebase-admin-sa"` literal)
+- **THEN** the service-account JSON is sourced via `secretResolver.resolve("firebase-admin-sa")` (bare slot name, mirroring [`Application.kt:388`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt)) AND a `secretKey(env, "firebase-admin-sa")` computation is present for the diagnostic startup log line (mirroring `Application.kt:386` and used at line 392 — `event=...init_failed reason=missing_secret slot={} env={}`) AND no hardcoded `"staging-firebase-admin-sa"` literal appears
 
 ### Requirement: User-facing rejection message is in Bahasa Indonesia, omits matched keywords
 
@@ -340,3 +391,8 @@ For `Verdict.Flag`, the `moderation_queue` row SHALL be written in the same SQL 
 - **GIVEN** a `Verdict.Flag` writes a `moderation_queue` row with `(target_type, target_id, trigger) = ('post', U, 'uu_ite_keyword_match')` AND a retry of the same content+target produces another `Verdict.Flag`
 - **WHEN** the second handler attempts the INSERT
 - **THEN** the `ON CONFLICT (target_type, target_id, trigger) DO NOTHING` clause suppresses the duplicate AND the queue contains exactly one row for that target+trigger
+
+#### Scenario: Concurrent Flag inserts collapse to one queue row
+- **GIVEN** two concurrent transactions T1 and T2 each produce a `Verdict.Flag` for the same target tuple `(target_type='post', target_id=P, trigger='uu_ite_keyword_match')` (e.g., a retry race where both clients submit the same content nearly simultaneously, both pass auth + length + moderation, both reach the INSERT step)
+- **WHEN** both transactions execute `INSERT INTO moderation_queue ... ON CONFLICT (target_type, target_id, trigger) DO NOTHING` AND both COMMIT
+- **THEN** exactly one `moderation_queue` row exists for the tuple AND neither transaction surfaces a unique-violation error to its caller (mirrors the existing `moderation-queue` capability's idempotency guarantee on the auto-hide-3-reports writer; the Layer 2 writer this change introduces has the same semantics)
