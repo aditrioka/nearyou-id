@@ -33,6 +33,247 @@ Format per entry:
 
 ---
 
+## rate-limit-key-includes-raw-client-ip
+
+**Discovered during:** `observability-otel-foundation` §8.3 Tempo TraceQL verification at task-execution time — Lettuce/Redis spans for the rate-limit Lua call carry `db.statement = "EVALSHA <hash> 1 {scope:health}:{ip:169.254.169.126} ? ? ? ? ?"`. The `{ip:<value>}` segment is the rate-limit Redis key, and the `<value>` is the client/peer IP read by the rate-limiter. Value appears verbatim in span attributes ingested to Grafana Cloud Tempo.
+**Status:** open
+
+**Finding:** Rate-limit keys use raw client IP for keying. While the IP value observed at staging Cloud Run direct URL is a link-local LB IP (`169.254.169.126`, not a real customer IP), the rate-limiter on production paths via Cloudflare reads `CF-Connecting-IP` which IS a real customer IP — that value would appear in Redis Lua key arguments and leak into `db.statement` Tempo span attributes. PII per UU PDP article 1(15) (IP address is identifying when paired with timestamp).
+
+**Specs at fault:** None directly — `observability-otel-foundation` § "Forbidden span attributes" forbids raw IPs but the rate-limiter's Lua key shape is determined by the `like-rate-limit` / `chat-rate-limit` / `report-rate-limit` capabilities, not the OTel foundation. Those specs do not currently require IP hashing.
+**Code at fault:** `:infra:redis`'s `RedisRateLimiter` Lua-key construction. The exact key shape lives in the rate-limiter scope/key derivation logic; pattern is `{scope:<scope>}:{ip:<raw-ip>}`.
+**Docs at fault:** `docs/05-Implementation.md` rate-limiter key documentation reflects current behavior — would need amendment alongside the code fix.
+
+**Impact (if shipped):** Medium — pre-launch staging-only at the moment, no real customers. High at production launch + Cloudflare-fronted traffic. Trace-data leak of client IP undermines the project's `CF-Connecting-IP` privacy posture on the OTel surface (the request-context `clientIp` value is properly handled in app code per `RawXForwardedForRule` Detekt rule, but the rate-limiter's Lua key bypass leaks it into span attributes regardless).
+
+**Ambiguity to resolve first:** Hash the IP at rate-limit-key construction (truncated SHA-256 like `UserIdHasher`) — what truncation length? 16 hex (matches user.id) probably fine. Or 8 hex. Worth discussion before committing to a key-format change that breaks existing rate-limit slot continuity.
+
+**Action items:**
+- [ ] File OpenSpec change `rate-limit-ip-hashing` that updates `:infra:redis`'s `RedisRateLimiter` to hash `clientIp` to 16-hex truncated SHA-256 before constructing the Lua key.
+- [ ] Pre-existing rate-limit slots become invalid post-rollout (they were keyed by raw IP); this is acceptable for a one-time slot reset at the change rollout window. Document in the change's design.md.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
+
+---
+
+## rate-limit-applies-to-health-endpoints
+
+**Discovered during:** `observability-otel-foundation` §8.3 Tempo TraceQL verification — `GET /health/live` traces show child EVALSHA Lettuce span = the rate-limit Lua script is being executed on health-check requests.
+**Status:** open
+
+**Finding:** The rate-limiter middleware processes `/health/*` paths along with all other routes. Health-check paths should bypass rate-limiting because: (a) Cloud Run's startup probe + liveness probe hit `/health/ready` and `/health/live` repeatedly during deployment; if a deploy coincides with a real rate-limit burst, the probes themselves get throttled and Cloud Run kills the instance, cascading to a deploy failure; (b) probe traffic generates Redis load + consumes the rate-limit slot quota; (c) the rate-limit metric becomes noisier when health probes count toward it.
+
+**Specs at fault:** Each rate-limit capability spec (`like-rate-limit`, `chat-rate-limit`, `report-rate-limit`) — none currently scope-out `/health/*`.
+**Code at fault:** Wherever the rate-limit middleware is installed in `:backend:ktor`'s `Application.kt`. The fix is either (a) install rate-limit middleware on a sub-route subtree that excludes `/health/*`, or (b) add an explicit path-prefix bypass in the rate-limiter itself.
+**Docs at fault:** None — operations docs don't mention this current behavior.
+
+**Impact (if shipped):** Medium — staging cold-start cycling during §7.7 measurement caused 6 of 8 revisions to fail because Supabase pool exhaustion AND health-probe rate-limit interaction may have compounded. Low at steady-state production traffic but real risk during deploy windows.
+
+**Ambiguity to resolve first:** None — the fix is mechanical. Q: should ALL rate limits skip health paths, or only some? Recommend: all (health paths SHOULD always answer regardless of any rate-limit state).
+
+**Action items:**
+- [ ] File OpenSpec change `rate-limit-bypass-health-endpoints` that mounts rate-limit middleware on a sub-route subtree excluding `/health/*` (cleanest pattern: `route("/api/v1") { install(RateLimit) { ... } ; ...routes... }` instead of installing globally).
+- [ ] Add regression test asserting `/health/ready` does NOT execute the rate-limit Lua script.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
+
+---
+
+## staging-cold-start-flyway-on-startup-cost
+
+**Discovered during:** `observability-otel-foundation` §1.2 baseline measurement at task-execution time — staging Cloud Run cold-start mean = 25.03s (n=32, last 7 days), 8x above the project's <3s p99 SLO from [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 2 §14.
+**Status:** open
+
+**Finding:** [`Application.kt:243-253`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) gates Flyway migration replay on cold-start behind `RUN_FLYWAY_ON_STARTUP=true`, which staging sets explicitly in [`deploy-staging.yml:111`](.github/workflows/deploy-staging.yml). With 70+ Flyway migrations accumulated, the per-cold-start `flyway.repair() + flyway.migrate()` call dominates startup cost. Comment in Application.kt explicitly notes "prod later splits this into a dedicated Cloud Run Job (`nearyou-migrate`) per the docs/04-Architecture.md deployment plan" — the staging behavior is a deliberate simplification, not an oversight.
+
+**Specs at fault:** None — the canonical deployment plan in `docs/04-Architecture.md` already names the Cloud Run Job split as the prod-shape solution.
+**Code at fault:** None — the gating flag works correctly; staging's deploy workflow is what flips it on.
+**Docs at fault:** None — the comment block in `Application.kt:236-241` correctly describes the trade-off.
+
+**Impact (if shipped):** Phase 2 §14 cold-start benchmark cannot be meaningfully run against staging today — the 25s baseline is artificially inflated. Operators measuring "is this change increasing cold-start?" must use mean-delta comparison (which works), not absolute number (which doesn't reflect prod). Production cold-start estimate (~7-10s) is theoretical until the Cloud Run Job split lands.
+
+**Ambiguity to resolve first:** Two paths: (a) introduce `nearyou-migrate` Cloud Run Job for staging too (adds operational complexity for staging), (b) keep staging-as-is and document the limitation (cheaper, accept measurement caveat). Recommend (b) for pre-launch — premature ops complexity for a synthetic-data environment.
+
+**Action items:**
+- [ ] Document the staging-vs-prod cold-start caveat in `docs/04-Architecture.md` § Deployment so future operators don't get confused by the staging numbers.
+- [ ] When production tag-deploy happens, ensure `RUN_FLYWAY_ON_STARTUP` is NOT set (or explicitly false) and Flyway runs via separate Cloud Run Job per the canonical deployment plan.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after production deploy validates the ~7-10s cold-start estimate.
+
+---
+
+## cloud-run-startup-latency-bucket-resolution
+
+**Discovered during:** `observability-otel-foundation` §1.2/§7.7 baseline measurement — Cloud Monitoring's `run.googleapis.com/container/startup_latencies` distribution metric uses exponential histogram buckets that are 2.5s wide at the 25-27s latency range (e.g., the `[24.8s, 27.3s)` bucket contains 28 of 32 baseline samples).
+**Status:** open
+
+**Finding:** Sub-second mean deltas (the regime where OTel cost lands — ~100-300ms) are **invisible** from bucket-based percentile interpolation when both pre-change and post-change samples cluster in the same wide bucket. Mean (computed from `sum/count`) preserves ms-level resolution, but p50/p95/p99 reads via the standard `percentileFromBuckets` interpolation cannot detect them. This is a measurement-tool limitation, not a Cloud Run misconfiguration — exponential bucket scaling is standard for latency histograms.
+
+**Specs at fault:** None — but the §7.7 task in `observability-otel-foundation/tasks.md` originally specified "p99 delta" as the regression metric. Updated mid-flight to "mean delta" after this finding surfaced.
+**Code at fault:** None.
+**Docs at fault:** None canonical, but operations notes don't currently document this measurement caveat.
+
+**Impact (if shipped):** Future cold-start regression checks against this metric must use mean-delta, not p99-bucket-shift. Documentation gap; operators following spec text without context could conclude "no regression" when a real 200ms delta is hidden by bucket resolution.
+
+**Ambiguity to resolve first:** None — the resolution is deterministic (use mean for sub-second deltas, use p99 bucket for >2s deltas).
+
+**Action items:**
+- [ ] Add a section to `docs/04-Architecture.md` § Observability OR a new `docs/07-Operations.md` § Cold-start measurement note documenting: "use mean (sum/count) for sub-second delta tracking; p99 bucket interpolation has 2.5s+ resolution at the 25-27s range and won't capture small regressions."
+- [ ] Consider switching to per-event log-based measurement (Cloud Run logs each cold-start) for high-resolution regression detection in future ops scenarios. Out of scope for `observability-otel-foundation`; surface here so the next ops-touching change can reference.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after the docs amendment lands.
+
+---
+
+## grafana-otlp-token-scope-tightening
+
+**Discovered during:** `observability-otel-foundation` operator setup at task-execution time — Grafana Cloud's "OpenTelemetry setup wizard" (`https://<stack>.grafana.net/.../otel/instrumentation`) generates API tokens with **bundled scopes** (`metrics:write`, `logs:write`, `traces:write`, `profiles:write`, `stacks:read`) and does NOT expose per-scope toggles in its UI. The token created for staging slot `staging-otel-grafana-otlp-token` is over-privileged vs the `traces:write`-only ideal.
+**Status:** open
+
+**Finding:** Principle-of-least-privilege violation. Token in GCP Secret Manager (mitigated by IAM grants — Cloud Run SA-only access) carries write permissions to metrics + logs + profiles planes we don't use, plus `stacks:read` admin scope we don't need. Blast radius if token leaks: attacker can write garbage to all data planes (not just traces) + read stack metadata. Acceptable for pre-launch staging (synthetic data, no production users), unacceptable for production tag-deploy.
+
+**Specs at fault:** None — the spec at `openspec/specs/observability-otel-foundation/spec.md` (post-archive) is intentionally silent on token scope provisioning (operator concern, not capability behavior).
+**Code at fault:** None — `OtelBootstrap` doesn't care about scope; it just authenticates with whatever credential the slot contains.
+**Docs at fault:** [`docs/10-Setup-Checklist.md`](docs/10-Setup-Checklist.md) § 3.7 mentions "Read+Write trace permissions only — no metric/log scope" but the wizard UI doesn't honor the operator's intent. Doc is aspirationally correct; reality requires custom Access Policy path.
+
+**Impact (if shipped):** Medium pre-launch (GCP Secret Manager IAM is the primary defense; token leak requires GCP credential compromise first). High at production tag-deploy (real user data, regulatory considerations).
+
+**Ambiguity to resolve first:** Whether to apply this to staging slots retroactively or only enforce on production. Recommend: tighten production from day-one (custom Access Policy with `traces:write` only + custom token), leave staging as-is until next regular rotation.
+
+**Action items:**
+- [ ] Before production tag-deploy: navigate to Grafana Cloud Portal (`https://grafana.com/orgs/<org>/access-policies`), create custom Access Policy `nearyou-prod-traces-write-only` with realm = stack `nearyouid`, scope = `traces:write` only.
+- [ ] Generate token from that policy, populate `otel-grafana-otlp-token` slot in `nearyou-production` GCP Secret Manager project.
+- [ ] Optional staging hardening: rotate `staging-otel-grafana-otlp-token` to a custom-policy-generated token at next convenient maintenance window.
+- [ ] Update [`docs/10-Setup-Checklist.md`](docs/10-Setup-Checklist.md) § 3.7 to document the Access Policy path as the canonical token-mint procedure (current OTLP wizard path is convenient-but-over-privileged shortcut).
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after production token rotation.
+
+---
+
+## observability-otel-collector-tail-sampling
+
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 adversarial-lens finding #11 — the round-1 design § D4 force-keep `SpanProcessor` re-emitting via `Tracer.spanBuilder().setNoParent()` is structurally wrong: it creates a fresh root span detached from the original trace, breaking trace_id linkage in Tempo.
+**Status:** open
+
+**Finding:** The canonical sampling profile at [`docs/05-Implementation.md:2042`](docs/05-Implementation.md) prescribes "10% base + 100% errors + 100% slow (>500ms)" in production. The `observability-otel-foundation` change ships only the 10% base via `ParentBased(TraceIdRatioBased(0.1))` — the force-keep tail (errors + slow) is deliberately deferred because correctly preserving trace_id linkage on force-keep promotion requires OTel Collector tail sampling, which is meaningful infrastructure work the architecture doc explicitly defers at [`docs/04-Architecture.md:394`](docs/04-Architecture.md): _"Tail sampling via OTel Collector if volume is high"_. Until this follow-up ships, MVP production accepts that 90% of error/slow traces drop; structured JSON logging at 100% retention via Cloud Logging is the authoritative incident-replay surface.
+
+**Specs at fault:** `openspec/specs/observability-otel-foundation/spec.md` (post-archive) — its sampling-profile requirement explicitly does NOT promote error/slow spans; this follow-up adds that promotion via Collector.
+**Code at fault:** None — there is no half-implemented force-keep in this change to fix; the deferral is clean.
+**Docs at fault:** None — [`docs/04-Architecture.md:394`](docs/04-Architecture.md) already names the Collector as the upgrade path.
+
+**Impact (if shipped):** Low-during-MVP, rising as production traffic grows. Errors at p99 latency are the spans operators most need; today they're 90%-dropped in production. Cloud Logging fills the gap (100% retention, structured JSON includes `trace_id` so Tempo correlation is possible via log↔trace cross-link), but trace-tree-style debugging in Tempo isn't available for dropped traces. Acceptable transitional shape until volume warrants the Collector ops cost.
+
+**Ambiguity to resolve first:** Collector deployment shape. Options: (a) Cloud Run sidecar (per-instance, simplest deploy), (b) separate Cloud Run service receiving from a published OTLP endpoint (operationally cleanest), (c) OTel Collector Operator if we ever migrate to GKE (out of scope today). Open question for the follow-up's design.md.
+
+**Action items:**
+- [ ] File OpenSpec change `observability-otel-collector-tail-sampling` that (a) deploys an OTel Collector with tail-sampling rules `status=ERROR` OR `duration>500ms` → 100% keep, else 10% sample, (b) reconfigures the production `OtelBootstrap` to point the OTLP exporter at the Collector instead of Grafana Cloud directly, (c) the Collector's outbound exporter targets Grafana Cloud Tempo, (d) MODIFIES the `observability-otel-foundation` capability spec's sampling-profile requirement to flip the "does NOT force-keep error / slow" scenarios.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
+
+---
+
+## observability-otel-fcm-traceparent
+
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 implementation-realism finding #3 + adversarial finding #11 — the round-1 design § D8 assumed `:infra:fcm` exposed `FirebaseOptions.Builder.setHttpTransport(...)` to `:backend:ktor`. Codebase reality: `:infra:fcm`'s `buildFcmComposite(...)` factory owns Firebase Admin SDK initialization internally, with no surfaced HttpTransport hook.
+**Status:** open
+
+**Finding:** The Firebase Admin SDK FCM send (`FirebaseMessaging.send(message)`) uses an internal HTTP transport that the OTel auto-instrumentation does NOT cover. Cross-service `traceparent` propagation requires plumbing a custom `HttpTransport` (specifically a `TracingHttpTransport` that delegates to the SDK's default while injecting the active OTel context's `traceparent` header) through `:infra:fcm`'s public API. This is a real `:infra:fcm` API change that deserves a focused proposal — too much surface to inline-patch on the foundation change. The `observability-otel-foundation` change ships only the LOCAL `withSpan("fcm.dispatch", ...)` wrap; cross-service propagation lands in this follow-up.
+
+**Specs at fault:** `openspec/specs/observability-otel-foundation/spec.md` (post-archive) — its W3C-propagation requirement explicitly carves out FCM ("FCM Admin SDK send does NOT carry `traceparent`"); this follow-up flips that.
+**Code at fault:** [`infra/fcm/src/main/kotlin/id/nearyou/app/infra/fcm/FcmDispatcher.kt`](infra/fcm/src/main/kotlin/id/nearyou/app/infra/fcm/FcmDispatcher.kt) — `buildFcmComposite(...)` factory needs an `HttpTransport` parameter or a `:infra:otel` injection point.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Operationally medium. The user's chat-send → FCM-dispatch trace ends at the FCM dispatch local span until this lands; cross-service correlation into Google's Cloud Trace surface is unavailable. Cloud Logging timestamp correlation across the two surfaces remains possible (workaround). Phase 2 §14 benchmark uses staging at head-100% sampling; this gap doesn't affect the benchmark.
+
+**Ambiguity to resolve first:** API shape for the `:infra:fcm` change. Options: (a) `buildFcmComposite(httpTransport: HttpTransport? = null)` — additive parameter; (b) `buildFcmComposite(otel: OpenTelemetry? = null)` — let `:infra:fcm` construct the transport internally with an OTel reference; (c) a separate `FcmTracingConfig` DI surface. Open question for the follow-up's design.md.
+
+**Action items:**
+- [ ] File OpenSpec change `observability-otel-fcm-traceparent` that (a) refactors `:infra:fcm`'s `buildFcmComposite(...)` to surface the `HttpTransport` hook, (b) ships `TracingHttpTransport` in `:infra:otel`, (c) MODIFIES the `fcm-push-dispatch` spec to require unconditional `traceparent` injection on the FCM Admin SDK's outbound HTTPS request, (d) MODIFIES the `observability-otel-foundation` spec's W3C-propagation requirement to flip the "FCM does NOT carry traceparent" scenario.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
+
+---
+
+## observability-otel-pii-disclosure
+
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 cross-doc-impact finding #5 — `docs/06-Security-Privacy.md:308` third-party processor list does NOT include Grafana Cloud, but trace data carries pseudonymous personal data (truncated SHA-256 of user UUIDs).
+**Status:** open
+
+**Finding:** [`docs/06-Security-Privacy.md:308`](docs/06-Security-Privacy.md) enumerates third-party data processors that must be disclosed under UU PDP article 20–22 obligations (Resend, Amplitude, Sentry, RevenueCat, Cloudflare, Firebase, Google Play, Apple, Supabase, Upstash). Grafana Cloud is absent. The `observability-otel-foundation` change starts exporting trace data to Grafana Cloud's EU/US infrastructure containing route patterns + parameterized SQL + truncated SHA-256 user IDs (pseudonymous personal data per UU PDP definitions). Disclosure obligations apply.
+
+**Specs at fault:** None.
+**Code at fault:** None — the trace data export shape is correct; only the disclosure documentation is missing.
+**Docs at fault:** [`docs/06-Security-Privacy.md:308`](docs/06-Security-Privacy.md) (third-party processor list); the public Privacy Policy.
+
+**Impact (if shipped without disclosure):** Medium-to-high — UU PDP compliance gap. Indonesia's UU PDP (effective 2024) requires explicit disclosure of cross-border data transfers to third-party processors; trace data containing pseudonymous personal data clears the bar. Pre-launch context softens the immediate risk (no production users yet) but the gap MUST close before Public Launch (Week 20 per `docs/08-Roadmap-Risk.md`).
+
+**Ambiguity to resolve first:** Whether truncated SHA-256(uuid) at 64 bits qualifies as "pseudonymous personal data" under UU PDP (likely yes per the regulation's broad definition; legal advisor confirmation recommended pre-launch).
+
+**Action items:**
+- [ ] File a docs-only PR that amends `docs/06-Security-Privacy.md:308` to add Grafana Cloud to the third-party processor list with a brief description ("OpenTelemetry trace backend; receives pseudonymous trace data including hashed user IDs, route patterns, parameterized SQL").
+- [ ] Update the public Privacy Policy (when published) to include Grafana Cloud in the third-party processors section.
+- [ ] Confirm with legal advisor whether truncated SHA-256(uuid) at 64 bits triggers UU PDP article 20–22 cross-border-transfer disclosure obligations; if yes, ensure the Privacy Policy includes the standard disclosure language.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete once the docs PR + Privacy Policy update merge.
+
+---
+
+## internal-endpoint-auth-otel-attributes
+
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 cross-doc-impact finding #1 — the new capability's `user.id` requirement implicitly contradicts itself for `/internal/*` requests authenticated via Cloud Scheduler service-account OIDC, which have no `users` row to hash.
+**Status:** open
+
+**Finding:** The `observability-otel-foundation` capability spec mandates `user.id` "when the request is authenticated" — but `/internal/*` requests are OIDC-authenticated by service accounts with no `users` row. The same spec forbids raw JWT claims (`sub`, `aud`, `iss`) on spans, blocking the obvious "use the OIDC sub" workaround. The foundation change resolves this by carving out `/internal/*` from the `user.id` requirement and deferring a sanctioned `service.account.id` shape (truncated SHA-256 of OIDC `sub`, mirroring the [`internal-endpoint-auth/spec.md:18`](openspec/specs/internal-endpoint-auth/spec.md) WARN-log token-correlation-id pattern) to this follow-up.
+
+**Specs at fault:** `openspec/specs/internal-endpoint-auth/spec.md` — currently has no positive requirement on span attributes for `/internal/*` requests.
+**Code at fault:** None.
+**Docs at fault:** None.
+
+**Impact (if shipped without follow-up):** Low. `/internal/*` server spans still carry `http.route` + `http.status_code` (auto-instrumentation), so operator-side dashboards work. Missing piece is principal-correlation: an operator looking at a slow `/internal/unban-worker` span can't easily correlate it to a specific Cloud Scheduler invocation. The truncated-SHA-256 `sub` correlation id is already in the WARN-log surface ([`internal-endpoint-auth/spec.md:18`](openspec/specs/internal-endpoint-auth/spec.md)), so log-trace correlation works; only span-attribute query-by-correlation is missing.
+
+**Ambiguity to resolve first:** Whether `service.account.id` is the right OTel semconv name (the standard exists at OTel semconv as `cloud.account.id` / `gcp.client_id` / similar — verify the most-aligned name before settling).
+
+**Action items:**
+- [ ] File OpenSpec change `internal-endpoint-auth-otel-attributes` that (a) MODIFIES the `internal-endpoint-auth` spec to require a sanctioned `service.account.id` (or whatever semconv name turns out aligned) attribute on `/internal/*` server spans, (b) populates it via truncated SHA-256(`sub` claim) per the existing WARN-log pattern, (c) MODIFIES the `observability-otel-foundation` capability spec's `user.id` requirement to flip the "does NOT apply to `/internal/*`" carve-out (or to coexist; design decision in the follow-up).
+- [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
+
+---
+
+## observability-otel-attribute-detekt-rule
+
+**Discovered during:** `observability-otel-foundation` design § D10 (deferred from this change) + reinforced by round-3 adversarial finding #9 (forbidden categories with no enforcement mechanism).
+**Status:** open
+
+**Finding:** The `observability-otel-foundation` spec § "Forbidden span attributes" lists ~12 categories of forbidden attributes (raw user_id, raw IPs, raw JWT claims, raw bearer tokens, raw post/chat/search content, raw `actual_location`, raw Redis credentials, JWKS contents, plaintext passwords, OAuth client secrets, Supabase service role key, peer-IP attributes from auto-instrumentation). Sentinel-string regression tests cover ~7 of those categories on the `:backend:ktor` side. The remaining 5 categories (raw OAuth client secret, JWKS contents, plaintext passwords, raw `actual_location` GIS coordinates, raw refresh tokens) have no automated enforcement — they're code-review-only. A Detekt rule (`OtelForbiddenAttributeRule`) that scans `Span.setAttribute(...)` / `addEvent(...)` call sites against the forbidden-attributes contract would close the gap. Deferred from this change because (a) Detekt rules built ahead of writers tend to over-fit, (b) the writer surface stabilizes after `:infra:otel` lands.
+
+**Specs at fault:** None — the spec correctly defers the rule per design § D10.
+**Code at fault:** None — the rule scaffold doesn't exist yet.
+**Docs at fault:** None.
+
+**Impact (if shipped without follow-up):** Low at MVP scale. The 7 sentinel-string scenarios that DO ship cover the highest-velocity surfaces (chat content, post content, search query, IP, JWT, bearer token, Redis password). The 5 uncovered categories have no current writer that would attempt to set them; risk is regression rather than active leak. Code review remains the primary defense in the interim.
+
+**Ambiguity to resolve first:** Detekt rule scope — should it lint at every `Span.setAttribute` call site, or only inside `:infra:otel`? The former is the right enforcement boundary but increases false-positive risk on legitimate test fixtures.
+
+**Action items:**
+- [ ] File OpenSpec change `observability-otel-attribute-detekt-rule` that ships `OtelForbiddenAttributeRule` in `:lint:detekt-rules`, with a forbidden-attribute-keys allowlist + value-regex denylist per the spec contract.
+- [ ] Decide rule scope (cross-cutting vs `:infra:otel`-only) at design time.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
+
+---
+
+## geo-cloud-region-canonical-doc-amendment
+
+**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-1 review (security-and-invariant lens finding Q1).
+**Status:** open
+
+**Finding:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) lists the mandatory Cloud Run region attribute as `geo.cloud_region`. The shipped `observability-otel-foundation` spec + implementation use the OTel semconv standard name `cloud.region` instead. Deliberate divergence: (a) `cloud.region` matches the OTel standard that Grafana Tempo's query patterns expect, (b) the `geo.*` namespace is semantically close to the project's user-PII spatial keys (`actual_location` / `display_location` invariants), so a future "forbid `geo.*` span attributes" Detekt rule could false-positive on a safe value. Doc amendment was deliberately deferred from the OpenSpec change to avoid scope creep.
+
+**Specs at fault:** None — `openspec/specs/observability-otel-foundation/spec.md` (post-archive) correctly uses `cloud.region`.
+**Code at fault:** None — the implementation correctly uses `cloud.region`.
+**Docs at fault:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) — uses non-standard `geo.cloud_region` shorthand.
+
+**Impact (if shipped):** Low. The doc shorthand is the only place the non-standard name appears; readers comparing the doc to the running implementation will notice the divergence. No data quality impact; no operator workflow impact (Tempo accepts both attribute names; queries work either way).
+
+**Ambiguity to resolve first:** None.
+
+**Action items:**
+- [ ] File a docs-only PR that amends `docs/04-Architecture.md:398` to use `cloud.region` (OTel semconv) instead of `geo.cloud_region`.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete it once the docs PR merges.
+
+---
+
 ## suspension-unban-worker-audit-log-after-phase-3.5
 
 **Discovered during:** `suspension-unban-worker` `/next-change` Phase B step 7 reconciliation pass — verifying the canonical "Audit log inserted per unban" line at [`docs/05-Implementation.md:363`](docs/05-Implementation.md) against the current Flyway migration set.

@@ -15,6 +15,7 @@ composeMultiplatform = "1.10.3"
 detekt = "1.23.8"
 firebase-admin = "9.5.0"
 flyway = "11.10.5"
+h2database = "2.4.240"
 hikaricp = "6.3.2"
 junit = "4.13.2"
 koin = "4.1.0"
@@ -27,6 +28,8 @@ ktlint-plugin = "12.1.2"
 ktor = "3.4.1"
 lettuce = "6.5.0.RELEASE"
 logback = "1.5.32"
+opentelemetry-bom = "1.51.0"
+opentelemetry-instrumentation-bom = "2.25.0-alpha"
 slf4j = "2.0.16"
 material3 = "1.10.0-alpha05"
 postgresql-jdbc = "42.7.7"
@@ -77,12 +80,33 @@ flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 flyway-databasePostgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
 
 hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikaricp" }
+h2 = { module = "com.h2database:h2", version.ref = "h2database" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql-jdbc" }
 
 kotest-runnerJunit5 = { module = "io.kotest:kotest-runner-junit5", version.ref = "kotest" }
 kotest-assertionsCore = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
 
 lettuce-core = { module = "io.lettuce:lettuce-core", version.ref = "lettuce" }
+
+# OpenTelemetry: SDK + API + exporter come from `opentelemetry-bom` (stable);
+# per-library instrumentation (Ktor 3.0, JDBC, Lettuce 5.1) comes from
+# `opentelemetry-instrumentation-bom-alpha` because the instrumentation
+# packages are still under semver-zero. The two BOMs are co-versioned by the
+# upstream release cadence — keep both pins in lockstep at version-bump time.
+# Vendor: every consumer of these symbols MUST live inside `:infra:otel`
+# (per the `observability-otel-foundation` capability spec).
+opentelemetry-bom = { module = "io.opentelemetry:opentelemetry-bom", version.ref = "opentelemetry-bom" }
+opentelemetry-instrumentationBomAlpha = { module = "io.opentelemetry.instrumentation:opentelemetry-instrumentation-bom-alpha", version.ref = "opentelemetry-instrumentation-bom" }
+opentelemetry-api = { module = "io.opentelemetry:opentelemetry-api" }
+opentelemetry-sdk = { module = "io.opentelemetry:opentelemetry-sdk" }
+opentelemetry-sdkExtensionAutoconfigure = { module = "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure" }
+opentelemetry-exporterOtlp = { module = "io.opentelemetry:opentelemetry-exporter-otlp" }
+opentelemetry-exporterLogging = { module = "io.opentelemetry:opentelemetry-exporter-logging" }
+opentelemetry-extensionKotlin = { module = "io.opentelemetry:opentelemetry-extension-kotlin" }
+opentelemetry-semconv = { module = "io.opentelemetry.semconv:opentelemetry-semconv", version = "1.30.0-rc.1" }
+opentelemetry-instrumentationKtor3 = { module = "io.opentelemetry.instrumentation:opentelemetry-ktor-3.0" }
+opentelemetry-instrumentationJdbc = { module = "io.opentelemetry.instrumentation:opentelemetry-jdbc" }
+opentelemetry-instrumentationLettuce = { module = "io.opentelemetry.instrumentation:opentelemetry-lettuce-5.1" }
 
 auth0-javaJwt = { module = "com.auth0:java-jwt", version.ref = "auth0-javaJwt" }
 auth0-jwksRsa = { module = "com.auth0:jwks-rsa", version.ref = "auth0-jwksRsa" }

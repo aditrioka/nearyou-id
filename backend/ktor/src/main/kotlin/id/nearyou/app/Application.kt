@@ -63,6 +63,10 @@ import id.nearyou.app.infra.fcm.FcmInitException
 import id.nearyou.app.infra.fcm.buildFcmComposite
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
 import id.nearyou.app.infra.oidc.googleJwkProvider
+import id.nearyou.app.infra.otel.OtelBootstrap
+import id.nearyou.app.infra.otel.OtelInstrumentation
+import id.nearyou.app.infra.otel.httpClientWithOtel
+import id.nearyou.app.infra.otel.installKtorServerTelemetry
 import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.redis.lettuceRedisProbeFromUrl
 import id.nearyou.app.infra.redis.redisRateLimiterFromUrl
@@ -131,7 +135,7 @@ import id.nearyou.data.repository.SearchRepository
 import id.nearyou.data.repository.UserFcmTokenReader
 import id.nearyou.data.repository.UserFollowsRepository
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -156,6 +160,22 @@ fun main(args: Array<String>) {
 }
 
 fun Application.module() {
+    // OTel bootstrap MUST be the first call inside `Application.module()` so
+    // every subsequent install + DI binding is auto-instrumented. The
+    // bootstrap is exception-safe: missing endpoint/token secrets fall back
+    // to a no-op LoggingSpanExporter (DEBUG severity, dropped by default
+    // Logback). Per `observability-otel-foundation` capability spec.
+    val otelEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
+    val otelSecrets = EnvVarSecretResolver()
+    OtelBootstrap.start(env = otelEnv, secretResolver = otelSecrets::resolve)
+
+    // Ktor server OTel plugin: emits a server span per inbound request with
+    // `http.route` = Ktor route pattern, `http.status_code`, etc. Forbidden
+    // attributes (`client.address`, `net.peer.ip`, `net.sock.peer.addr`,
+    // `http.client_ip`) are stripped at export time by
+    // `ForbiddenAttributeStripper` registered in the OTel SDK pipeline.
+    installKtorServerTelemetry()
+
     // ClientIpExtractor MUST run before auth, rate-limit, and any business handler.
     // It populates `call.clientIp` via the canonical CF-Connecting-IP →
     // XFF-first → remoteHost ladder. Direct `X-Forwarded-For` reads outside
@@ -231,7 +251,12 @@ fun Application.module() {
             password = environment.config.property("db.password").getString(),
             maxPoolSize = environment.config.propertyOrNull("db.maxPoolSize")?.getString()?.toInt() ?: 20,
         )
-    val dataSource: DataSource = DataSourceFactory.create(dbConfig)
+    // JDBC OTel instrumentation: every PreparedStatement gets a span with
+    // `db.system="postgresql"` and parameterized `db.statement` (raw values
+    // stripped to `?` placeholders via the statement-sanitizer flag). The
+    // wrap happens post-construction in the smaller-blast-radius shape so
+    // `:infra:supabase`'s DataSourceFactory stays decoupled from OTel.
+    val dataSource: DataSource = OtelInstrumentation.wrapDataSource(DataSourceFactory.create(dbConfig))
 
     // Staging-simplified bootstrap: Ktor runs Flyway migrations at startup on the same
     // data source the app will serve requests against. The `RUN_FLYWAY_ON_STARTUP` env
@@ -264,7 +289,12 @@ fun Application.module() {
     val refreshTokenRepository: RefreshTokenRepository = JdbcRefreshTokenRepository(dataSource)
     val refreshTokenService = RefreshTokenService(refreshTokenRepository, userRepository)
 
-    val httpClient = HttpClient(CIO)
+    // Outbound HTTP client with OTel KtorClientTelemetry plugin pre-installed
+    // so every outbound request carries `traceparent` populated from the
+    // active span context. Consumed by `JwksCache` (Google + Apple JWKS),
+    // `KtorSupabaseRealtimeProbe`, `appleS2SJwks`. Per spec § "W3C Trace
+    // Context propagation on outbound HTTP from `:backend:ktor` (excluding FCM)".
+    val httpClient: HttpClient = httpClientWithOtel()
     val googleJwksUrl =
         environment.config.propertyOrNull("auth.google.jwksUrl")?.getString()?.takeIf { it.isNotBlank() }
             ?: GOOGLE_JWKS_URL_DEFAULT
@@ -428,6 +458,8 @@ fun Application.module() {
             // termination closes the underlying Netty event loop; explicit
             // shutdown is not needed for the V1 rollout (matches V9
             // ReportRateLimiter precedent).
+            // OTel Lettuce tracing enabled by default — the factory pulls the
+            // global OpenTelemetry registered by OtelBootstrap above.
             redisRateLimiterFromUrl(redisUrl)
         } else {
             require(ktorEnv != "staging" && ktorEnv != "production") {
@@ -514,9 +546,25 @@ fun Application.module() {
                                     "Verify GCP Secret Manager slot exists and is populated.",
                             )
                         }
+                // Per spec § "Supabase Realtime broadcast publish carries `traceparent`":
+                // pass an OTel-instrumented HttpClient so the publish HTTP request
+                // carries `traceparent` populated from the active span context.
+                // Replicates SupabaseBroadcastChatClient.defaultHttpClient settings
+                // (`expectSuccess=false`, 500ms-per-attempt HttpTimeout) since
+                // overriding the constructor's default client opts out of the
+                // default. The retry loop's backoff schedule is unchanged.
                 SupabaseBroadcastChatClient(
                     projectUrl = supabaseUrl,
                     serviceRoleKey = key,
+                    httpClient =
+                        httpClientWithOtel {
+                            expectSuccess = false
+                            install(HttpTimeout) {
+                                requestTimeoutMillis = 500L
+                                connectTimeoutMillis = 500L
+                                socketTimeoutMillis = 500L
+                            }
+                        },
                 )
             }
         }

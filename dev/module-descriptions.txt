@@ -16,6 +16,7 @@
 :shared:tmp | scratch placeholder for KMP boilerplate; will be split into real `:shared:<name>` modules as features are built.
 :infra:fcm | Firebase Cloud Messaging Admin SDK wrapper; production `NotificationDispatcher` impl, per-platform payload builders, on-send token-prune contract.
 :infra:oidc | Google OIDC bearer-token verifier (Auth0 `jwks-rsa` + `java-jwt`) for `/internal/*` endpoints invoked by Cloud Scheduler.
+:infra:otel | OpenTelemetry SDK + OTLP exporter + per-library auto-instrumentation (Ktor server, JDBC, Lettuce, outbound HTTP) for `:backend:ktor`. Owns the `OtelBootstrap.start(env, secrets)` entrypoint, the `withSpan(...)` helper, the `UserIdHasher` helper, and the `SpanRecorder` test fixture.
 :infra:redis | Lettuce-backed `RateLimiter` + `RedisProbe` implementations; Redis client lifecycle isolated from `:backend:ktor`.
 :infra:supabase | Supabase-vendor-specific code: JDBC repos (users, posts, moderation, etc.) backed by HikariCP + Supabase Postgres; Realtime broadcast publish (`SupabaseBroadcastChatClient` per `chat-realtime-broadcast`).
 :lint:detekt-rules | project-specific Detekt rules enforcing safety invariants (block-exclusion joins, shadow-ban view reads, raw `X-Forwarded-For` bans, Redis hash-tag scoping, etc.).

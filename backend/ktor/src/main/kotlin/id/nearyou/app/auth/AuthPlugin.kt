@@ -99,13 +99,32 @@ internal fun AuthenticationConfig.configureUserJwt(
                     this.attributes.put(AuthFailureKey, "account_suspended")
                     null
                 }
-                else ->
+                else -> {
+                    // Per `observability-otel-foundation` capability spec § "Mandatory
+                    // span attributes": when a request is authenticated against a
+                    // `UserPrincipal`-backed identity, the active Ktor server span
+                    // gets a `user.id` attribute set to the SHA-256-truncated form
+                    // (16 hex chars). The raw UUID is NEVER set; `:infra:otel`'s
+                    // `UserIdHasher` is the only sanctioned anonymization path.
+                    // /internal/* requests authenticated by Cloud Scheduler OIDC do
+                    // NOT pass through this plugin — they do NOT get `user.id`
+                    // (the `service.account.id` shape is deferred to the
+                    // `internal-endpoint-auth-otel-attributes` follow-up).
+                    try {
+                        io.opentelemetry.api.trace.Span.current()
+                            .setAttribute("user.id", id.nearyou.app.infra.otel.UserIdHasher.hash(user.id))
+                    } catch (_: Throwable) {
+                        // Span recording failure MUST NOT block authentication —
+                        // observability is a side-effect surface. Per spec
+                        // § "Span recording failure does not block dispatch".
+                    }
                     UserPrincipal(
                         userId = user.id,
                         tokenVersion = user.tokenVersion,
                         subscriptionStatus = user.subscriptionStatus,
                         isShadowBanned = user.isShadowBanned,
                     )
+                }
             }
         }
 
