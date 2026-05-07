@@ -173,9 +173,10 @@ The text-moderation pipeline (per [`openspec/specs/content-moderation-keyword-li
 
 1. Open the Firebase Console for the relevant environment (staging / production).
 2. Navigate to Remote Config → Parameters.
-3. Edit `moderation_profanity_list` (or `moderation_uu_ite_list`) — value is a JSON array of strings, e.g., `["badword1","badword2"]`. Save + Publish.
-4. The 5-min Redis cache TTL elapses; the next moderator call after the elapse refreshes from Remote Config and emits the new list.
-5. Verify the change took effect: post a test sentinel keyword via the relevant API → expect 400 (`content_moderated_profanity`) or 201 + `moderation_queue` row depending on the layer.
+3. **Switch to the Server template** (the dropdown next to "Parameters / Conditions" tabs has Client / Server selector). The backend reads via `getServerTemplate()` — parameters under the Client template are NOT visible to the backend.
+4. Edit `moderation_profanity_list` (or `moderation_uu_ite_list`) — value is a JSON array of strings, e.g., `["badword1","badword2"]`. Save + Publish.
+5. The 5-min Redis cache TTL elapses; the next moderator call after the elapse refreshes from Remote Config and emits the new list.
+6. Verify the change took effect: post a test sentinel keyword via the relevant API → expect 400 (`content_moderated_profanity`) or 201 + `moderation_queue` row depending on the layer.
 
 **Important:** the quarterly UU ITE legal-advisor review per [`docs/06-Security-Privacy.md:159`](06-Security-Privacy.md) updates BOTH the Remote Config parameter AND the repo-committed [`backend/ktor/src/main/resources/moderation/uu_ite.default.txt`](../backend/ktor/src/main/resources/moderation/uu_ite.default.txt) file (so a Remote Config outage falls back to a recent-and-vetted list via Tier 3 of the loader cascade). The same holds for the profanity list and [`backend/ktor/src/main/resources/moderation/profanity.default.txt`](../backend/ktor/src/main/resources/moderation/profanity.default.txt).
 

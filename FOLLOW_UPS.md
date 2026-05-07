@@ -735,28 +735,6 @@ Recommend approach 3 — preserves spec semantics, no spec amendment needed (spe
 
 ---
 
-## content-moderation-secret-slot-provisioning
-
-**Discovered during:** `content-moderation-keyword-lists` Phase 1 task 1.2 — sanity-checking that staging GCP Secret Manager has the `staging-content-moderation-fallback-list` slot.
-**Status:** open
-
-**Finding:** The Tier 4 last-resort fallback reads from `secretResolver.resolve("content-moderation-fallback-list")` — this resolves the GCP Secret Manager slot via the env-prefix derivation in `secretKey(env, "content-moderation-fallback-list")` ⇒ `staging-content-moderation-fallback-list` in staging. The slot needs to be created + populated with a JSON document matching the expected shape (`{"profanity":[...],"uu_ite":[...]}`).
-
-**Specs at fault:** None — the spec scenarios verify the cascade independent of slot presence via fixtures.
-**Code at fault:** None.
-**Docs at fault:** Operations procedure — see [`docs/07-Operations.md`](docs/07-Operations.md) § Secret Management Runbook for the standard slot-creation procedure.
-
-**Impact (if shipped):** Low — Tier 4 is the LAST resort. Tier 3 (the repo `*.default.txt` placeholder sentinels) is always present (the JAR ships with these). So an unprovisioned Tier 4 slot is functionally an extra Sentry ERROR per `load()` call, not a runtime failure.
-
-**Ambiguity to resolve first:** None.
-
-**Action items:**
-- [ ] Operator: create `staging-content-moderation-fallback-list` Secret Manager slot per the canonical procedure in [`docs/07-Operations.md`](docs/07-Operations.md).
-- [ ] Operator: populate with a JSON document `{"profanity":[],"uu_ite":[]}` (empty arrays — the sentinel content lives in Remote Config; the slot is purely for the fail-soft cascade).
-- [ ] Delete this entry once the slot is provisioned.
-
----
-
 ## reply-rate-limit-moderator-spy
 
 **Discovered during:** `content-moderation-keyword-lists` Phase 8 task 8.7 — rate-limit-precedence test for the moderator-not-called scenario.

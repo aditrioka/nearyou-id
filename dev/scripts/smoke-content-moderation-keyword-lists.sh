@@ -17,10 +17,14 @@
 #     dev/scripts/smoke-content-moderation-keyword-lists.sh <user-uuid>
 #
 # The script ASSUMES staging Remote Config has been primed with sentinel values
-# matching tasks.md 11.4:
-#   moderation_profanity_list = ["sentinel-profanity"]
-#   moderation_uu_ite_list    = ["sentinel-uuite-1", "sentinel-uuite-2", "sentinel-uuite-3"]
+# in the SERVER template tab (NOT Client) per tasks.md 11.4:
+#   moderation_profanity_list  = ["sentinel-profanity"]
+#   moderation_uu_ite_list     = ["sentinel-uuite-1", "sentinel-uuite-2", "sentinel-uuite-3"]
 #   moderation_match_threshold = 3
+#
+# Backend reads via FirebaseRemoteConfig.getServerTemplate() — the Server template
+# is the architectural home for backend-evaluated parameters per Firebase's
+# official server-side Remote Config guidance (SDK 9.7.0+).
 #
 # Prerequisites:
 #  - The user-uuid references an existing Free user in staging.
