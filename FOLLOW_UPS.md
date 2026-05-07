@@ -744,28 +744,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## content-moderation-staging-remote-config-priming
-
-**Discovered during:** `content-moderation-keyword-lists` Phase 1 task 1.1 — sanity-checking that staging Firebase Remote Config has the three reserved parameters.
-**Status:** open
-
-**Finding:** The implementation is independent of staging Remote Config priming — the 4-tier loader cascade is unit-tested with mocks, and the production Firebase Remote Config integration is exercised at staging deploy time. Operators MUST prime the staging Remote Config with sentinel values (per tasks.md 11.4) before running the staging smoke script.
-
-**Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:** Operations-only — the priming procedure should be documented in [`docs/07-Operations.md`](docs/07-Operations.md) § Moderation Runbook (already added by this change).
-
-**Impact (if shipped):** Low — the loader's Tier 3 fallback (the repo `*.default.txt` placeholder sentinels) ensures the moderator returns `Verdict.Allow` for any non-sentinel content if Remote Config is unprimed. So an unprimed staging environment is functionally fail-open.
-
-**Ambiguity to resolve first:** None.
-
-**Action items:**
-- [ ] Operator: prime staging Firebase Remote Config with the 3 parameters per tasks.md 11.4.
-- [ ] Operator: verify the staging smoke script `dev/scripts/smoke-content-moderation-keyword-lists.sh` runs green.
-- [ ] Delete this entry once staging priming is confirmed.
-
----
-
 ## reply-rate-limit-moderator-spy
 
 **Discovered during:** `content-moderation-keyword-lists` Phase 8 task 8.7 — rate-limit-precedence test for the moderator-not-called scenario.
