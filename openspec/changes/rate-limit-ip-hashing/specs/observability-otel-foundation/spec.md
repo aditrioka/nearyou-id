@@ -6,7 +6,9 @@
 
 The truncation length and digest function are fixed (changing them is an explicit follow-up change requiring a separate proposal). The shape mirrors `UserIdHasher` ("first 16 hex chars of `SHA-256(...)`"), keeping the operator mental model unified across user/IP/token correlation IDs.
 
-`IpHasher` accepts the literal string supplied by the caller (the `clientIp` request-context value from `ClientIpExtractor`). It does NOT normalize IPv6 forms (`::1` vs `0:0:0:0:0:0:0:1` hash differently) — Cloudflare's emission shape is deterministic per request-edge, so two semantically-equivalent forms reaching the helper from the same client is not a real-world concern. If a future IPv6 audit shows form-drift causing rate-limit-bypass, normalization can be added without breaking the shape contract.
+`IpHasher.hash` MUST `require(ip.isNotBlank())` defensively — blank input is a `clientIp` extraction regression and silently collapsing disparate requests to a single shared rate-limit bucket would invert the intent of the limiter. The fail-fast guard makes regressions in `ClientIpExtractor` immediately observable.
+
+`IpHasher` accepts whatever non-blank literal string the caller supplies (the `clientIp` request-context value from `ClientIpExtractor`). It does NOT normalize IPv6 forms (`::1` vs `0:0:0:0:0:0:0:1` vs `2001:DB8::1` vs `2001:db8::1` all hash differently) AND it does NOT trim whitespace (`"1.2.3.4 "` vs `"1.2.3.4"` hash differently — `ClientIpExtractor` is the canonical trim site). Cloudflare's emission shape is deterministic per request-edge, so two semantically-equivalent forms reaching the helper from the same client is not a real-world concern. If a future IPv6 audit shows form-drift causing rate-limit-bypass, normalization can be added without breaking the shape contract.
 
 #### Scenario: Hash is deterministic
 - **GIVEN** an IP literal `I` (e.g., `"1.2.3.4"`)
@@ -19,7 +21,7 @@ The truncation length and digest function are fixed (changing them is an explici
 - **THEN** the two return values differ
 
 #### Scenario: Hash output is exactly 16 hex characters
-- **GIVEN** any IP literal
+- **GIVEN** any non-blank IP literal
 - **WHEN** `IpHasher.hash(ip)` is invoked
 - **THEN** the return value matches the regex `^[0-9a-f]{16}$`
 
@@ -32,6 +34,21 @@ The truncation length and digest function are fixed (changing them is an explici
 - **GIVEN** the IPv6 literal `"2001:db8::1"`
 - **WHEN** `IpHasher.hash(ip)` is invoked
 - **THEN** the return value matches the regex `^[0-9a-f]{16}$` (no IPv6-specific path; same shape as IPv4)
+
+#### Scenario: Blank input fails fast
+- **GIVEN** a blank IP literal (`""`, `" "`, `"\t"`, or any string where `ip.isBlank()` is true)
+- **WHEN** `IpHasher.hash(ip)` is invoked
+- **THEN** an `IllegalArgumentException` is thrown (via `require(ip.isNotBlank())`) — defensive guard against a regression in `ClientIpExtractor` that would otherwise collapse disparate requests to one bucket
+
+#### Scenario: Whitespace is not trimmed
+- **GIVEN** the IP literal `"1.2.3.4"` and the same value with trailing whitespace `"1.2.3.4 "`
+- **WHEN** `IpHasher.hash` is invoked on each
+- **THEN** the two return values differ (no implicit trim — `ClientIpExtractor` is the canonical trim site, the hasher is byte-exact on its input)
+
+#### Scenario: IPv6 case sensitivity is preserved
+- **GIVEN** the IPv6 literal `"2001:DB8::1"` and its lowercase form `"2001:db8::1"`
+- **WHEN** `IpHasher.hash` is invoked on each
+- **THEN** the two return values differ (no IPv6 normalization — the design explicitly defers normalization to a future change if needed)
 
 ## MODIFIED Requirements
 

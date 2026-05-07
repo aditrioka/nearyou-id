@@ -159,6 +159,7 @@ Format per entry:
 **Action items:**
 - [ ] File OpenSpec change `observability-otel-attribute-detekt-rule` that ships `OtelForbiddenAttributeRule` in `:lint:detekt-rules`, with a forbidden-attribute-keys allowlist + value-regex denylist per the spec contract.
 - [ ] Decide rule scope (cross-cutting vs `:infra:otel`-only) at design time.
+- [ ] **Extend rule scope to enforce `IpHasher.hash` consumption** at every IP-axis Redis-key call site (e.g., the `health-check` capability's `tryAcquireByKey` invocation, plus future Layer 1 pre-issuance buckets). The `rate-limit-ip-hashing` change (PR #74, in flight as of 2026-05-08) introduced the spec convention but explicitly deferred Detekt enforcement to this entry — round-1 review N6. The rule MUST fire on any `tryAcquireByKey(...)` call whose key-literal contains the regex `\{ip:[^h{][^}]*` (anything inside `{ip:...}` that is not 16 hex characters).
 - [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
 
 ---

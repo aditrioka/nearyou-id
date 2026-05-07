@@ -58,7 +58,7 @@ The convention for IP-keyed callers (the first such call site is the `health-che
 
 #### Scenario: IP-axis key shape uses hashed IP, never raw
 - **WHEN** any IP-axis caller (e.g., the `health-check` capability) constructs a Redis key for `tryAcquireByKey`
-- **THEN** the `<addr>` segment in `{scope:<role>}:{ip:<addr>}` MUST be the result of `IpHasher.hash(clientIp)` (16-hex truncated SHA-256, exported from `:infra:otel`) AND MUST NOT be the raw IPv4 dotted-quad or IPv6 colon-delimited literal AND any literal matching the regex `\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b` or containing `::` between brace segments is a spec violation
+- **THEN** the `<addr>` segment in `{scope:<role>}:{ip:<addr>}` MUST be the result of `IpHasher.hash(clientIp)` (16-hex truncated SHA-256, exported from `:infra:otel`) AND MUST NOT be the raw IPv4 dotted-quad or IPv6 colon-delimited literal AND any literal matching the regex `\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b` or containing `::` between brace segments is a spec violation AND any structured log field carrying an IP-derived value alongside the rate-limit `key=<key>` field (per the telemetry log mandate above) MUST contain only the hashed form — emitting a `key.ip = <raw>` alias or any sibling log field with the raw IP literal is forbidden by the same posture
 
 #### Scenario: releaseMostRecent on empty bucket is a no-op
 - **WHEN** `releaseMostRecent(userId, key)` is called against a key that has never been written OR a key whose entries have all aged out and been pruned

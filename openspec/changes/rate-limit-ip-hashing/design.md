@@ -52,6 +52,8 @@ Matches the existing `UserIdHasher` ([`observability-otel-foundation/spec.md:127
 
 **Why 16 hex is correct**: 64-bit collision probability over the IPv4 address space (~4×10^9) is ~2^-32 per pair — well below noise floor for rate-limit correctness, while keeping span attributes scannable.
 
+**IPv6 pigeonhole acknowledgment**: the IPv6 input space is 2^128 against a 64-bit output, so collisions are guaranteed by pigeonhole. In rate-limit semantics this is graceful-degradation (two IPv6 clients share a single bucket), not a security regression — the cap they share is the same cap they'd individually have, and the worst-case rate is `cap * 2` for the colliding pair. Acceptable today; if IPv6 traffic at scale shows pathological collisions, a follow-up can re-examine truncation length without breaking the existing IPv4 surface.
+
 ### D3. Digest function: SHA-256 (not BLAKE3, MD5, or murmur)
 
 Matches `UserIdHasher` precedent. SHA-256 is well-tested, present in JDK stdlib (`MessageDigest.getInstance("SHA-256")`), and the spec explicitly documents that "the truncation length and digest function are fixed (changing them is an explicit follow-up change requiring a separate proposal)." We honor that pin.
@@ -61,6 +63,8 @@ Matches `UserIdHasher` precedent. SHA-256 is well-tested, present in JDK stdlib 
 Matches `UserIdHasher` (no salt). Rate-limit correctness requires that `hash(IP_X)` always returns the same value across requests so the bucket lookup stays consistent. A per-instance salt would invalidate slots on every Cloud Run revision rollover.
 
 A static project-wide pepper (e.g., from `secretKey(env, "ip-hasher-pepper")`) would defend against a hypothetical adversary who has full Tempo read access AND knows the SHA-256 algorithm AND wants to look up specific IPs in span data — but the threat model here is "don't leak raw PII into telemetry," not "make it cryptographically infeasible to reverse-engineer." A pepper adds operational complexity (key rotation, multi-env consistency) for marginal security gain. **Skipped.**
+
+**Small-cohort correlation acknowledgment** (symmetric with `UserIdHasher`): an adversary with Tempo read access AND a candidate IP list (e.g., 10 known suspect IPs) can trivially compute the 16-hex hash for each and confirm presence/absence in span data — this is a *correlation* attack, not a *recovery* attack. The same property holds for `UserIdHasher` and is in-scope-acceptable for the project's threat model (telemetry confidentiality is enforced at the Tempo access-control layer; the hash is defense-in-depth, not the primary control).
 
 ### D5. Pre-existing rate-limit slots become invalid at deploy time (one-time reset)
 
@@ -129,11 +133,10 @@ If a future audit shows IPv6-form drift causing rate-limit bypass, normalization
 
 ## Open Questions
 
-1. **Should the `key=<key>` log field also be hashed at the structured-log layer?** The spec at `rate-limit-infrastructure/spec.md:84` mandates `key=<key>` logging. With the new convention, the key already contains the hashed IP. But if a future change adds a `key.ip = <ip>` log alias (for split-by-axis dashboards), that alias would carry the raw IP unless we explicitly forbid it.
-   - **Lean**: amend the `rate-limit-infrastructure` spec scenario to explicitly forbid raw-IP log aliases when the key contains a hashed segment. Defer to review feedback.
+1. ~~**Should the `key=<key>` log field also be hashed at the structured-log layer?**~~ **RESOLVED in this change** (per round-1 review feedback): `specs/rate-limit-infrastructure/spec.md` § "IP-axis key shape uses hashed IP, never raw" scenario amended to forbid raw-IP log aliases (e.g., a future `key.ip = <ip>` sibling field would have to carry the hashed form too). Codified now rather than deferred so the next IP-axis call site lands cleanly.
 
 2. **Should `IpHasher` be marked internal to `:infra:otel` or exposed publicly?** `UserIdHasher` is `public` (consumed from `AuthPlugin.kt:115`). Following precedent, `IpHasher` should be public for the same reason — call sites in `:backend:ktor` need it.
    - **Decision**: public, matching `UserIdHasher`. No open question.
 
 3. **Should we add a `OtelForbiddenAttributeRule` Detekt rule in this change?** The `FOLLOW_UPS.md` entry `observability-otel-attribute-detekt-rule` tracks this as a separate change.
-   - **Decision**: no — that's a separately-scoped follow-up. This change establishes the convention; the rule enforces it later.
+   - **Decision**: no — that's a separately-scoped follow-up. This change establishes the convention; the rule enforces it later. Round-1 review noted the existing `FOLLOW_UPS.md` entry should explicitly mention IpHasher consumption enforcement; that addendum is applied in this cycle.
