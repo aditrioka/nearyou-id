@@ -8,75 +8,34 @@ Database schemas, algorithms, auth/session implementation, rate limiting impleme
 
 ### JWT Strategy: Asymmetric Primary + HS256 WSS Companion
 
-Two tokens, two purposes, one primary key pair:
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/auth/jwt/` (verifier) + `auth/jwks/` (JWKS publisher). Update both when changing the canonical claim shape.
 
-**1. Ktor REST JWT**: **RS256 asymmetric**, short-lived (15 minutes), refresh token 30 days.
-- Backend signs with a private key in GCP Secret Manager
-- Exposes public key via `https://api.nearyou.id/.well-known/jwks.json` with `kid` header
-- Supports scheduled rotation via multiple kids in JWKS (new kid rolling deploy, old kid retained during TTL overlap, no user re-auth)
-- **Claims**: `sub` (user_id), `exp`, `iat`, `token_version` (integer, compared against `users.token_version` on every request for instant revocation), `kid` (header)
+Two tokens, one primary key pair:
 
-**2. Supabase Realtime JWT**: **HS256** (Supabase-compatible).
-- Issued by the Ktor endpoint `/api/v1/realtime/token` after verifying the Ktor JWT
-- TTL 1 hour, claims `sub` (user_id), `role: 'authenticated'`, `exp`, `iat`
-- Signed with the Supabase Project JWT Secret (shared via GCP Secret Manager)
+1. **Ktor REST JWT**: RS256 asymmetric, TTL 15 min, refresh-token 30 days. Signed with a private key in GCP Secret Manager; public key exposed via `https://api.nearyou.id/.well-known/jwks.json` with `kid` header. Supports scheduled rotation via multiple kids in JWKS (rolling deploy, no user re-auth). **Claims**: `sub` (user_id), `exp`, `iat`, `token_version` (compared against `users.token_version` on every request for instant revocation), `kid` (header).
+2. **Supabase Realtime JWT**: HS256 (Supabase-compatible). Issued by `/api/v1/realtime/token` after verifying the Ktor JWT. TTL 1h, claims `sub`, `role: 'authenticated'`, `exp`, `iat`. Signed with the Supabase Project JWT Secret.
 
-**Rationale**: Supabase Realtime Authorization without paid Third-Party Auth only supports HS256 natively. Maintaining two tracks:
-- REST future-proof: RS256 with proper JWKS + kid rotation
-- WSS compatible: HS256 with Supabase-managed secret
+**Rationale**: Supabase Realtime Authorization without paid Third-Party Auth only supports HS256 natively, so we keep two tracks (REST future-proof RS256 + WSS-compatible HS256).
 
-**Migration path to Third-Party Auth (trivial, ~2-3 days of work)**: when MAU >10k and Third-Party Auth becomes affordable, enable it in the Supabase Dashboard, point it at the existing `https://api.nearyou.id/.well-known/jwks.json`, swap WSS token generation from HS256 to RS256 (using the same key pair already used for REST). Zero REST refactor.
+**Third-Party Auth migration path** (~2-3 days when MAU >10k makes it affordable): enable Third-Party Auth in Supabase Dashboard, point at the existing JWKS URL, swap WSS token generation from HS256 to RS256 (same key pair as REST). Zero REST refactor.
 
-**Secret storage** (all in GCP Secret Manager):
-- `ktor-rsa-private-key` (single slot, kid rotation via versions)
-- `supabase-jwt-secret`
-- `backup-age-private-key` (for restore; encryption uses the public key baked into the backup image)
-- `jitter-secret` (256-bit, long-lived)
-- `revenuecat-webhook-secret`
-- `revenuecat-webhook-hmac-secret` (optional)
-- `resend-api-key`
-- `firebase-admin-sa` (for Remote Config server access)
-- `apns-key-p8`
-- `admin-app-db-connection-string` (scoped role for the admin panel)
-- `admin-session-cookie-signing-key` (optional; reserved for future signed-cookie mode if the opaque-token scheme is ever swapped)
-- `csam-archive-aes-key` (AES-256 for `csam_detection_archive.encrypted_metadata`)
-- `cf-worker-csam-secret` (HMAC-SHA256 key shared between the Cloudflare Worker forwarding path and the Ktor CSAM webhook handler; used only once the Phase 2+ Worker path is enabled)
-- `invite-code-secret` (256-bit random, HMAC key for deterministic invite-code derivation from `user_id`)
-- `content-moderation-fallback-list` (Firebase Remote Config secret-string slot; see "Content Moderation Keyword Lists" below)
+**Secrets** (GCP Secret Manager): `ktor-rsa-private-key` (kid rotation via versions), `supabase-jwt-secret`, `apns-key-p8`, `firebase-admin-sa`, `invite-code-secret`, `revenuecat-webhook-secret`(+`-hmac-secret`), `resend-api-key`, `jitter-secret` (256-bit), `backup-age-private-key`, `admin-app-db-connection-string`, `admin-session-cookie-signing-key` (optional). DESIGN-reserved: `csam-archive-aes-key`, `cf-worker-csam-secret`, `content-moderation-fallback-list`. Staging mirrors the list with a `staging-*` prefix.
 
-Staging uses the same slot list with a `staging-*` prefix (see `04-Architecture.md` Deployment > Secret Manager namespace).
+**HS256 incident rotation**: new Supabase JWT secret → Dashboard update (Realtime sessions kicked within ~20 min) → GCP slot update → rolling Ktor deploy → audit-log pre-rotation refresh tokens.
 
-**Incident-only rotation procedure** (HS256 compromise scenario):
-1. Generate new Supabase JWT secret, update Dashboard (active Realtime sessions kicked within ~20 min cache bust)
-2. Update GCP Secret Manager Supabase slot
-3. Rolling deploy Ktor
-4. Audit log all pre-rotation refresh tokens
-
-**Scheduled rotation (Ktor RS256 kid)**: zero-disruption.
-1. Generate new RSA key pair, add as a new kid in JWKS
-2. Configure Ktor to sign with the new kid (gradual rollout 10% then 100%)
-3. Retain old kid in JWKS for 30 days (to cover the refresh token max TTL)
-4. Remove old kid after the retention period
+**RS256 scheduled kid rotation** (zero-disruption): new RSA pair → add kid to JWKS → roll Ktor signing 10% → 100% → retain old kid 30 days (covers refresh-token max TTL) → remove.
 
 ### Anomaly Detection Metrics
 
-- Subscribe rate per `sub`: alert if one user subscribes to >50 conversation channels within 5 minutes
-- JWT with the same `sub` issued from >5 geographic locations within 1 hour
-- JWT verify fail rate spike >1% of total (possible secret compromise or Supabase cache sync lag)
-- RevenueCat webhook signature fail rate: any non-zero should be investigated
-- Alert destinations: Sentry + Slack webhook to admin channel
+Alert (Sentry + Slack admin channel) if: one `sub` subscribes to >50 conversation channels in 5 min; same `sub` issued from >5 geographic locations in 1h; JWT verify fail rate >1% (possible secret compromise / Supabase cache sync lag); RevenueCat webhook signature fail rate non-zero.
 
 ### Client State Machine for Token Refresh
 
-Priority order on 401:
-1. **Ktor JWT expired** (REST 401): use `refresh_token` to call `POST /api/v1/auth/refresh`, returning a new Ktor JWT + new Supabase JWT (single round-trip)
-2. **Supabase JWT expired only** (WSS disconnect): use the valid Ktor JWT to call `GET /api/v1/realtime/token`
-3. **Refresh token expired/invalid**: force re-auth via Google/Apple + attestation
-4. **Both expired together**: path (1) handles it
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/auth/routes/`.
 
-**Preemptive refresh**: when the app wakes / cold starts, check the expiry of both JWTs. If they expire in <5 minutes, refresh asynchronously and non-blocking.
+Priority on 401: (1) Ktor JWT expired (REST) → `POST /api/v1/auth/refresh` returns new Ktor + Supabase JWT in one round-trip. (2) Supabase JWT only (WSS disconnect) → `GET /api/v1/realtime/token` with valid Ktor JWT. (3) Refresh token expired/invalid → force re-auth via Google/Apple + attestation. (4) Both expired → path (1) handles it.
 
-**Mutex to avoid refresh storms**: client uses single-flight pattern (concurrent 401s queue behind a single refresh). Server allows a 30-second overlap window for the same refresh token.
+Preemptive refresh: on app wake / cold start, if either JWT expires in <5 min, refresh async non-blocking. Mutex against refresh storms: client uses single-flight; server allows a 30-second overlap window for the same refresh token.
 
 ### RLS Policy with Regex Guard
 
@@ -101,44 +60,23 @@ Regex-first gate ensures short-circuit AND evaluates regex before cast. Malforme
 
 **Topic format**: `conversation:<uuid>` (string delimiter + canonical UUID format).
 
-**Mandatory test cases in Phase 1**:
-- User who is NOT a participant then deny
-- User whose `left_at` is set then deny
-- Shadow-banned user then deny
-- JWT with `sub` not present in `public.users` then deny (defense)
-- Malformed topic (`conversation:`, `conversation`, no delimiter) then deny via regex
-- Topic with invalid UUID format (`conversation:not-a-uuid`) then deny via regex
-- SQL injection attempt via topic then deny via regex
-- Empty/null topic then deny via regex
+**Mandatory test cases**: non-participant deny; `left_at` set deny; shadow-banned deny; JWT `sub` not in `public.users` deny (defense); malformed topic (no delimiter) deny via regex; invalid UUID format deny via regex; SQL-injection attempt deny via regex; empty/null topic deny via regex.
 
 ### Apple Sign-In Specifics
 
-**Apple Private Relay email**:
-- User selects "Hide My Email" and gets back `xxx@privaterelay.appleid.com`
-- Store `users.email` = relay or real email (treat the same)
-- Column `users.apple_relay_email BOOLEAN`
-- Do not send marketing email to relay addresses (high bounce rate, leads to blacklist)
+**Private Relay email**: user picks "Hide My Email" and gets `xxx@privaterelay.appleid.com`. Store `users.email` = relay or real email (treat the same), with `users.apple_relay_email BOOLEAN`. Do not send marketing email to relay addresses (high bounce rate / blacklists). Batch safeguard: re-check `apple_relay_email` per batch for campaigns >1000 recipients.
 
-**Apple S2S Notification endpoint** (mandatory per Apple Dev Agreement):
-- Endpoint: `POST /internal/apple/s2s-notifications`
-- Verify Apple JWT signature via Apple JWKS, verify `aud` claim = bundle ID
-- Dedup via `transaction_id` (idempotent)
-- Events handled:
-  - `email-disabled` / `email-enabled`: update the `apple_relay_email` flag
-  - `consent-revoked`: user revoked Sign in with Apple, treated as account delete intent, kick sessions + 30-day tombstone grace
-  - `account-delete`: user deleted Apple ID, hard tombstone immediately (Apple-required, no grace)
-- Register the notification endpoint in the Apple Developer Console
-- Batch send safeguard: re-check the `apple_relay_email` flag per batch for campaigns with >1000 recipients
+**Apple S2S endpoint** (mandatory per Apple Dev Agreement): `POST /internal/apple/s2s-notifications`. Verify JWT signature via Apple JWKS, verify `aud` = bundle ID, dedup via `transaction_id`. Events: `email-disabled`/`email-enabled` → update flag; `consent-revoked` → treat as delete intent, kick sessions + 30-day tombstone grace; `account-delete` → hard tombstone immediately (no grace, Apple-required).
 
-**Relay email change detection**: On every sign-in (not signup), the server compares `id_token.email` vs stored `users.email`. On mismatch + `apple_relay_email = TRUE`, update email, log the `apple.relay_email_changed` event, and send an in-app notification + Resend email (user-facing): "Email bayangan Apple kamu sudah diperbarui".
+**Relay email change detection**: on every sign-in (not signup), compare `id_token.email` vs stored. On mismatch + `apple_relay_email = TRUE`, update email, log `apple.relay_email_changed`, send in-app notification + Resend email "Email bayangan Apple kamu sudah diperbarui".
 
 ---
 
 ## Session Management
 
-**Access token (Ktor RS256 JWT)**: TTL 15 minutes, stateless.
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/auth/session/`.
 
-**Refresh token**: TTL 30 days, stateful in Postgres, 1 row per device with `family_id`.
+Access token (Ktor RS256 JWT): TTL 15 min, stateless. Refresh token: TTL 30 days, stateful in Postgres, 1 row per device with `family_id`.
 
 ### Schema
 
@@ -159,54 +97,39 @@ CREATE TABLE refresh_tokens (
 CREATE UNIQUE INDEX refresh_tokens_token_hash_idx ON refresh_tokens (token_hash);
 CREATE INDEX refresh_tokens_family_idx ON refresh_tokens (family_id);
 CREATE INDEX refresh_tokens_user_idx ON refresh_tokens (user_id);
-CREATE INDEX refresh_tokens_family_active_idx 
-    ON refresh_tokens (family_id) WHERE revoked_at IS NULL;
-CREATE INDEX refresh_tokens_expires_idx 
-    ON refresh_tokens (expires_at) WHERE revoked_at IS NULL;
+CREATE INDEX refresh_tokens_family_active_idx ON refresh_tokens (family_id) WHERE revoked_at IS NULL;
+CREATE INDEX refresh_tokens_expires_idx ON refresh_tokens (expires_at) WHERE revoked_at IS NULL;
 ```
 
 ### Rotation Logic (`POST /api/v1/auth/refresh`)
 
-- Valid token (used_at IS NULL or within 30s overlap): issue a new token + mark old `used_at = NOW()`, update `last_used_at` on all uses
-- Valid token but `used_at` is set AND outside the overlap: **reuse detected**:
-  - Revoke the ENTIRE family: `UPDATE refresh_tokens SET revoked_at = NOW() WHERE family_id = ?`
-  - Increment `users.token_version` (kicks all active sessions)
-  - Invalidate Redis cache for that user
-  - Force re-auth via Google/Apple + attestation
-  - Log event: `security.token_reuse_detected` with user_id, family_id, IP, user agent
-- Revoked token: 401, force re-auth
+- Valid token (`used_at IS NULL` or within 30s overlap): issue new token, mark old `used_at = NOW()`, update `last_used_at` on every use.
+- Valid token but `used_at` set AND outside overlap = **reuse detected**: revoke the entire family (`UPDATE refresh_tokens SET revoked_at = NOW() WHERE family_id = ?`), increment `users.token_version` (kicks all active sessions), invalidate Redis cache, force re-auth via Google/Apple + attestation, log `security.token_reuse_detected` with user_id, family_id, IP, UA.
+- Revoked token: 401, force re-auth.
 
-### Cleanup Jobs (Cloud Scheduler calls `/internal/cleanup`)
+### Cleanup + Global Revocation
 
-- Daily: delete `WHERE expires_at < NOW() - INTERVAL '1 day'`
-- Weekly: delete `WHERE last_used_at < NOW() - INTERVAL '90 days'`
-- Rotated token: deleted immediately on successful rotation (part of the flow)
+Cleanup (Cloud Scheduler `/internal/cleanup`): daily `WHERE expires_at < NOW() - INTERVAL '1 day'`; weekly `WHERE last_used_at < NOW() - INTERVAL '90 days'`. Rotated token deleted immediately on successful rotation.
 
-### Instant Global Revocation via `users.token_version`
-
-- JWT payload includes `token_version`
-- On every authenticated request: check JWT `token_version` == DB `token_version`
-- Cached in Redis with TTL 5 minutes, explicit invalidation when incremented
-- Fallback if Redis is down: fall through to direct DB query + circuit breaker alert
+Instant global revocation: JWT carries `token_version`; every authenticated request compares JWT vs DB. Redis cache TTL 5 min, explicit invalidation on increment; Redis down → direct DB query + circuit breaker alert.
 
 ### Revocation Latency per Use Case
 
 | Use Case | Action | Latency |
 |----------|--------|---------|
-| Logout single device | Delete refresh token row | Max 15 minutes |
-| Log out of all devices | Delete all + increment token_version + invalidate cache | Instant (max 5 min cache) |
-| Ban user | Set is_banned + increment token_version + delete tokens | Instant |
-| Suspend user 7 days | Set is_banned + suspended_until + increment token_version + delete tokens | Instant |
-| Delete account | Mark deleted_at + increment + delete tokens | Instant |
+| Logout single device | Delete refresh token row | ≤15 min |
+| Log out of all devices | Delete all + increment token_version + invalidate cache | Instant (≤5 min cache) |
+| Ban / suspend / delete account | Update flag + increment token_version + delete tokens | Instant |
 | Refresh token reuse detected | Revoke family + increment + force re-auth | Instant |
 | Normal token expire | Rotation | 0 (seamless) |
 
-- No conventional logout (WA/Telegram model)
-- Re-auth is required when: first registration, new device, idle >30 days, switching accounts, "log out of all devices", reuse detection
+No conventional logout (WA/Telegram model). Re-auth required on: first registration, new device, idle >30 days, switching accounts, "log out of all devices", reuse detection.
 
 ---
 
 ## Users Schema (Canonical)
+
+> Mirrors V2 (`backend/ktor/src/main/resources/db/migration/V2__auth_foundation.sql`) plus subsequent column-add migrations through V15.
 
 ```sql
 CREATE TABLE users (
@@ -245,16 +168,15 @@ CREATE INDEX users_privacy_flip_idx ON users(privacy_flip_scheduled_at) WHERE pr
 ```
 
 **Notes**:
-- Registration is 18+ only. The `CHECK (date_of_birth <= CURRENT_DATE - INTERVAL '18 years')` constraint is a defense-in-depth backstop behind the application-layer age gate; any insert with a DOB that makes the user younger than 18 is rejected at the DB.
-- `suspended_until`: set together with `is_banned = TRUE` for a time-boxed suspension. A daily worker (`/internal/unban-worker`) flips `is_banned = FALSE` and nulls `suspended_until` once it elapses.
-- `subscription_status` CHECK enforces the 3-state machine documented in `01-Business.md`.
-- `inviter_reward_claimed_at`: lifetime sentinel for the referral system. Set exactly once, when the user's 5th successful referral triggers the inviter grant. Non-null means the inviter has already claimed their lifetime referral reward and can never receive another, regardless of subsequent successful referrals.
-- `username VARCHAR(60)`: the schema ceiling is 60 to accommodate the worst-case auto-generated fallback handle `{adjective}_{noun}_{uuid8hex}`. When a Premium user customizes their username via `PATCH /api/v1/user/username`, the application layer enforces a tighter 30-character cap. The 60-char ceiling is not exposed to end users; they only see auto-generated (≤60) or Premium-custom (≤30).
-- `username_last_changed_at`: enforces the 1-change-per-30-days cooldown for Premium username customization. Set only when a Premium user successfully changes their username; NULL for users still on the auto-generated handle.
-- `privacy_flip_scheduled_at`: set to `NOW() + 72 hours` when a private-profile user downgrades to Free. During the 72h window the user is still `effective private = TRUE`; a daily worker (`/internal/privacy-flip-worker`) flips `private_profile_opt_in = FALSE` and nulls this column once the deadline elapses. Re-subscribing to Premium before the deadline cancels the flip (the worker clears `privacy_flip_scheduled_at` on any `premium_active` transition). See the Privacy Flip Worker section below.
-- `invite_code_prefix VARCHAR(8) NOT NULL UNIQUE`: stable 8-character base32 prefix for the user's invite code. Populated at signup via `base32(HMAC-SHA256(invite-code-secret, user_id.bytes))[0..8]`. The column is indexed UNIQUE so that invite-code → inviter resolution at a referring signup is O(1) instead of scanning all users. In the rare event of an 8-char base32 collision across two new signups in the same transaction batch, the UNIQUE constraint forces a retry with a longer prefix (falling back to a 10-character prefix); the collision rate at 100k users is astronomically low but the retry path is implemented for completeness.
+- 18+ registration only; `CHECK` backstops the application-layer age gate.
+- `suspended_until` set together with `is_banned = TRUE` for time-boxed suspension; daily `/internal/unban-worker` flips back.
+- `subscription_status` CHECK enforces the 3-state machine (`01-Business.md`).
+- `inviter_reward_claimed_at` (DESIGN): lifetime sentinel for future referral system, set on 5th-referral milestone.
+- `username VARCHAR(60)`: ceiling sized for worst-case auto-generated `{adjective}_{noun}_{uuid8hex}`; Premium customization (DESIGN) tightens to a 30-char user-facing cap.
+- `username_last_changed_at` / `privacy_flip_scheduled_at` are DESIGN-reserved columns.
+- `invite_code_prefix`: stable 8-char base32 = `base32(HMAC-SHA256(invite-code-secret, user_id.bytes))[0..8]`, populated at signup, resolves O(1). Implemented in `InviteCodePrefixDeriver.kt`.
 
-**Effective private state** = `private_profile_opt_in = TRUE AND subscription_status IN ('premium_active', 'premium_billing_retry')`. Note: during the 72h privacy-flip window (user downgraded to Free with private profile still on), `private_profile_opt_in` remains TRUE and `subscription_status` is `free`, so effective private resolves to FALSE for the purposes of the formula. The warning-then-flip flow uses `privacy_flip_scheduled_at` to track the worker deadline; the app client short-circuits to "still private" in the UX layer during the 72h grace by checking `privacy_flip_scheduled_at IS NOT NULL AND NOW() < privacy_flip_scheduled_at`. See the Privacy Flip Worker section.
+**Effective private** = `private_profile_opt_in = TRUE AND subscription_status IN ('premium_active', 'premium_billing_retry')`. The 72h privacy-flip-window short-circuit is DESIGN.
 
 ---
 
@@ -271,55 +193,9 @@ CREATE TABLE reserved_usernames (
 );
 
 CREATE INDEX reserved_usernames_source_idx ON reserved_usernames(source);
-
--- Auto-maintain updated_at on UPDATE
-CREATE OR REPLACE FUNCTION reserved_usernames_set_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER reserved_usernames_updated_at_trigger
-BEFORE UPDATE ON reserved_usernames
-FOR EACH ROW EXECUTE FUNCTION reserved_usernames_set_updated_at();
-
--- Block deletion/modification of seed_system rows (belt-and-suspenders; also enforced at admin UI)
-CREATE OR REPLACE FUNCTION reserved_usernames_protect_seed()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF (TG_OP = 'DELETE' AND OLD.source = 'seed_system') THEN
-        RAISE EXCEPTION 'Cannot delete seed_system reserved username: %', OLD.username;
-    END IF;
-    IF (TG_OP = 'UPDATE' AND OLD.source = 'seed_system' AND NEW.source != 'seed_system') THEN
-        RAISE EXCEPTION 'Cannot change source of seed_system reserved username: %', OLD.username;
-    END IF;
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER reserved_usernames_protect_seed_trigger
-BEFORE UPDATE OR DELETE ON reserved_usernames
-FOR EACH ROW EXECUTE FUNCTION reserved_usernames_protect_seed();
 ```
 
-Seeded via Flyway with `source = 'seed_system'` entries: `admin`, `support`, `moderator`, `system`, `nearyou`, `staff`, `official`, `akun_dihapus`, `deleted_user`, and every 1-2 character lowercase string. All entries stored in lowercase; the signup flow normalizes the candidate before the check.
-
-**Immutability**: rows with `source = 'seed_system'` cannot be removed via the Admin Panel (UI guard + DB trigger). Admins can only add or remove rows where `source = 'admin_added'`. This prevents accidental deletion of critical system reservations like `admin` or `akun_dihapus`.
-
-**Premium username customization check**: before accepting a user-supplied custom username, the server runs:
-
-```sql
-SELECT 1 FROM reserved_usernames WHERE username = LOWER(:candidate);
-```
-
-Signup pre-check (for auto-generated candidates):
-```sql
-SELECT 1 FROM reserved_usernames WHERE username = LOWER(:candidate);
-```
-
-On hit, the flow retries with the next candidate in the generation algorithm (signup) or returns a user-facing error "Username ini tidak tersedia" (Premium customization).
+Triggers: auto-maintain `updated_at`; block DELETE/UPDATE on `source = 'seed_system'` rows. Flyway-seeded `seed_system` entries: `admin`, `support`, `moderator`, `system`, `nearyou`, `staff`, `official`, `akun_dihapus`, `deleted_user`, plus every 1-2 char lowercase string. All entries lowercase; signup checks `SELECT 1 FROM reserved_usernames WHERE username = LOWER(:candidate)` and on hit retries the next candidate.
 
 ---
 
@@ -338,11 +214,11 @@ CREATE TABLE rejected_identifiers (
 CREATE INDEX rejected_identifiers_hash_idx ON rejected_identifiers(identifier_hash);
 ```
 
-**Privacy note**: only the hashed Google/Apple identifier is stored, not DOB, not email, not name. The purpose is narrow: prevent a user who declared DOB <18 from retrying signup with a different DOB using the same identifier.
+**Privacy note**: only the hashed Google/Apple identifier is stored — not DOB, email, or name. Purpose: stop a user who declared DOB <18 from retrying signup with a different DOB on the same identifier.
 
-**Signup check**: before creating a users row, verify `NOT EXISTS (SELECT 1 FROM rejected_identifiers WHERE identifier_hash = :hash AND identifier_type = :type)`. On hit, return the same user-facing under-18 rejection message to avoid confirming the state to the user.
+**Signup check**: `NOT EXISTS (SELECT 1 FROM rejected_identifiers WHERE identifier_hash = :hash AND identifier_type = :type)` before users-row insert. On hit, return the same under-18 rejection message (avoid confirming state to the user).
 
-**Retention**: indefinite (anti-abuse). Can be purged on legitimate adult re-verification workflow (support form + manual admin clear).
+Retention: indefinite. Purgeable via legitimate adult re-verification workflow (support form + manual admin clear).
 
 ---
 
@@ -351,69 +227,18 @@ CREATE INDEX rejected_identifiers_hash_idx ON rejected_identifiers(identifier_ha
 Cloud Scheduler daily at 04:00 WIB calls `/internal/unban-worker`:
 
 ```sql
-UPDATE users
-SET is_banned = FALSE,
-    suspended_until = NULL
-WHERE is_banned = TRUE
-  AND suspended_until IS NOT NULL
-  AND suspended_until <= NOW()
-  AND deleted_at IS NULL;
+UPDATE users SET is_banned = FALSE, suspended_until = NULL
+WHERE is_banned = TRUE AND suspended_until IS NOT NULL
+  AND suspended_until <= NOW() AND deleted_at IS NULL;
 ```
 
 Audit log inserted per unban. Permanent bans (`suspended_until IS NULL`) are untouched.
 
 ---
 
-## Privacy Flip Worker
+## Privacy Flip Worker — DESIGN
 
-Handles the 72-hour grace window where a user who had `private_profile_opt_in = TRUE` as a Premium subscriber is downgraded to Free. Per the UX spec, private profile is NOT immediately flipped; the user gets 72 hours to re-subscribe or accept the public switch.
-
-### Trigger (RevenueCat webhook handler)
-
-On a webhook transition that sets `subscription_status = 'free'` (either `EXPIRATION` or a grace-period elapse), the handler runs:
-
-```sql
-UPDATE users
-SET privacy_flip_scheduled_at = COALESCE(privacy_flip_scheduled_at, NOW() + INTERVAL '72 hours')
-WHERE id = :user_id
-  AND private_profile_opt_in = TRUE
-  AND privacy_flip_scheduled_at IS NULL;
-```
-
-The `COALESCE` + `privacy_flip_scheduled_at IS NULL` guard makes the update idempotent (re-processing the same webhook does not push the deadline back).
-
-The handler then inserts a `notifications` row with `type = 'privacy_flip_warning'` and `body_data = {"privacy_flip_scheduled_at": ...}` and sends an FCM push + in-app banner.
-
-### Cancellation (re-subscribe before deadline)
-
-When a webhook transitions `subscription_status` back to `premium_active` before the deadline:
-
-```sql
-UPDATE users
-SET privacy_flip_scheduled_at = NULL
-WHERE id = :user_id
-  AND privacy_flip_scheduled_at IS NOT NULL
-  AND privacy_flip_scheduled_at > NOW();
-```
-
-The in-app banner clears on the next client poll.
-
-### Worker (hourly Cloud Scheduler calls `/internal/privacy-flip-worker`)
-
-```sql
-UPDATE users
-SET private_profile_opt_in = FALSE,
-    privacy_flip_scheduled_at = NULL
-WHERE privacy_flip_scheduled_at IS NOT NULL
-  AND privacy_flip_scheduled_at <= NOW()
-  AND subscription_status = 'free'
-  AND deleted_at IS NULL
-RETURNING id;
-```
-
-The worker runs **hourly** rather than daily because the UX promises "72 hours" not "3 sleeps"; an hourly granularity keeps the user's experience aligned with the banner countdown. Affected user IDs are returned to the worker for cache invalidation (Redis `user:<id>` profile cache busted).
-
-Audit log entry written per flip with `action_type = 'privacy_flip_applied'`, `before_state = {private: true}`, `after_state = {private: false}`, `reason = 'premium_downgraded_grace_expired'`.
+> **Status: DESIGN** (as of 2026-05-07). `/internal/privacy-flip-worker` not mounted; `users.privacy_flip_scheduled_at` reserved in V2. Future proposal will author the worker SQL (flip `private_profile_opt_in = FALSE` once the 72h grace expires) + the trigger SQL on the RevenueCat webhook handler.
 
 ---
 
@@ -423,32 +248,27 @@ Audit log entry written per flip with `action_type = 'privacy_flip_applied'`, `b
 
 The `username VARCHAR(60) NOT NULL UNIQUE` constraint and `users_username_lower_idx` index are defined inline in the `users` table schema above. No additional ALTER needed.
 
-### Atomic Generation Algorithm (server-side, register endpoint)
+### Atomic Generation Algorithm (signup-only)
 
-Used only at signup. Produces an auto-generated username ≤60 chars.
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/auth/signup/UsernameGenerator.kt`. Update both when changing the candidate ladder. Produces ≤60 char username.
 
 ```
 for attempt in 1..5:
-    if attempt <= 2:
-        candidate = "{adj}_{noun}"                    # typically ≤30 chars
-    elif attempt <= 4:
-        candidate = "{adj}_{noun}_{modifier}"         # typically ≤40 chars
-    else:
-        candidate = "{adj}_{noun}_{random_5_digit}"   # typically ≤35 chars
-
+    candidate = "{adj}_{noun}"                    if attempt <= 2  // ≤30 chars
+              | "{adj}_{noun}_{modifier}"         if attempt <= 4  // ≤40 chars
+              | "{adj}_{noun}_{random_5_digit}"   else             // ≤35 chars
     if EXISTS in reserved_usernames(LOWER(candidate)): continue
     if EXISTS in username_history(LOWER(candidate)) AND released_at > NOW(): continue
-    try INSERT INTO users(..., username=candidate) → success, return
+    try INSERT INTO users(..., username=candidate)  // success → return
     catch unique_violation → continue
 
-# Worst-case fallback (≤60 chars, fits the schema ceiling)
-candidate = "{adj}_{noun}_{uuid8hex}"
-INSERT
+# Worst-case fallback (≤60 chars, fits schema ceiling)
+candidate = "{adj}_{noun}_{uuid8hex}"; INSERT
 ```
 
 ### Username History Schema (30-Day Release Hold)
 
-Tracks historical usernames held during the post-change release hold window. Used both for collision check and for impersonation prevention.
+Tracks historical usernames held during the post-change release hold window. Used for collision check + impersonation prevention.
 
 ```sql
 CREATE TABLE username_history (
@@ -465,89 +285,20 @@ CREATE INDEX username_history_released_idx ON username_history(released_at);
 CREATE INDEX username_history_user_idx ON username_history(user_id, changed_at DESC);
 ```
 
-- `released_at = changed_at + INTERVAL '30 days'`
-- A custom username cannot be claimed if it appears in `username_history` with `released_at > NOW()`
-- Row retention: kept indefinitely for audit; only the `released_at > NOW()` guard matters for claim-blocking
-- **Partial index note**: the index on `released_at` is NOT partial (no `WHERE released_at > NOW()` predicate). PostgreSQL rejects partial-index predicates that reference `NOW()` because `NOW()` is `STABLE`, not `IMMUTABLE`. The plain B-tree index is sufficient; queries do the `released_at > NOW()` filter at runtime and the planner uses the index range-scan regardless.
+- `released_at = changed_at + INTERVAL '30 days'`; a custom username cannot be claimed while `released_at > NOW()`.
+- Rows kept indefinitely for audit. The `released_at` index is plain B-tree (PostgreSQL rejects partial-index predicates referencing `NOW()` because `NOW()` is `STABLE` not `IMMUTABLE`).
 
-### Premium Customization Endpoint (`PATCH /api/v1/user/username`)
+### Premium Customization Endpoint — DESIGN
 
-Entry preconditions:
-- `subscription_status IN ('premium_active', 'premium_billing_retry')`
-- Feature flag `premium_username_customization_enabled = TRUE` in Firebase Remote Config
-- `username_last_changed_at IS NULL OR username_last_changed_at <= NOW() - INTERVAL '30 days'`
-- Account not banned / shadow banned
-
-Request body: `{ "new_username": "..." }`
-
-Validation pipeline (server-side, rejection stops on first fail):
-1. Length 3-30 characters
-2. Charset regex `^[a-z0-9][a-z0-9_.]*[a-z0-9_]$` (must start with a letter or digit, may contain letters/digits/underscore/dot in the middle, must end with a letter, digit, or underscore — dots are allowed only in the middle, never at the start or end)
-3. No consecutive dots: application-layer check `!candidate.contains("..")`. The Postgres regex above cannot cleanly forbid consecutive dots in a single anchored pattern; a second check is mandatory (enforced in the validation helper + covered by unit tests).
-4. NOT in `reserved_usernames`
-5. NOT in `username_history` with `released_at > NOW()`
-6. NOT equal to current `users.username` (no-op guard)
-7. NOT matching profanity blocklist or UU ITE keyword list
-
-If step 7 trips the moderation hit threshold, the change is REJECTED upfront with user-facing error, AND a `moderation_queue` row is inserted with `trigger = 'username_flagged'` for admin awareness. Admin can explicitly allow the candidate via an override action if appropriate (resolution `accept_flagged_username`) or confirm the rejection (resolution `reject_flagged_username`).
-
-Transactional flow:
-
-```sql
-BEGIN;
-
--- Re-check cooldown with lock to prevent double-change race
-SELECT username, username_last_changed_at
-FROM users
-WHERE id = :user_id AND deleted_at IS NULL
-FOR UPDATE;
-
--- If username_last_changed_at is too recent: ROLLBACK, return 429
-
--- Insert into username_history (30-day hold starts now)
-INSERT INTO username_history (user_id, old_username, new_username, changed_at, released_at)
-VALUES (:user_id, :current_username, :new_username, NOW(), NOW() + INTERVAL '30 days');
-
--- Apply the change
-UPDATE users
-SET username = :new_username,
-    username_last_changed_at = NOW()
-WHERE id = :user_id;
-
-COMMIT;
-```
-
-On `unique_violation` (sub-microsecond race with another concurrent change or signup): rollback + return 409 CONFLICT with user-facing message "Username ini sudah dipakai, coba lagi sebentar."
-
-### Availability Probe (`GET /api/v1/username/check?candidate=...`)
-
-Non-authoritative helper for UX live-validation:
-- Rate limit 3/day per user (anti-brute-force on probing the reserved list)
-- Returns `{ available: true/false, reason?: "reserved"|"taken"|"on_release_hold"|"invalid_format" }`
-- Result is advisory; the authoritative check happens at PATCH time inside the transaction
-
-### Rate Limit
-
-- Change attempts: 1 successful change per 30 days per user (DB-enforced via `username_last_changed_at`)
-- Failed attempts: 10/hour per user (prevents probing via PATCH)
-- Availability probe: 3/day per user
-
-### Feature Flag
-
-`premium_username_customization_enabled` (Firebase Remote Config, default TRUE) is a kill switch. If flipped to FALSE, the PATCH endpoint returns 503 with user-facing "Fitur ganti username sedang dinonaktifkan sementara. Coba lagi nanti."
+> **Status: DESIGN** (as of 2026-05-07). `PATCH /api/v1/user/username` is not mounted; `users.username_last_changed_at` + `username_history` are reserved. Future proposal will define validation pipeline (3-30 chars, charset regex, no-consecutive-dots, reserved/history collision, profanity/UU ITE check), transactional flow with FOR UPDATE row lock, `premium_username_customization_enabled` kill switch, rate limits (1 successful change / 30 days, 10 failed attempts / h, 3 availability probes / day).
 
 ---
 
 ## Post System Implementation
 
-### Coordinate Storage Policy (Anti-Triangulation, Crypto-Safe)
+### Coordinate Storage Policy + Posts Schema
 
-Posts have 2 geography columns:
-
-- `posts.display_location GEOGRAPHY NOT NULL` (fuzzed up to ~500m via HMAC-derived jitter) for Nearby query + distance render
-- `posts.actual_location GEOGRAPHY NOT NULL` retained for admin analytics + moderation + reverse geocoding
-
-### Posts Schema
+Posts carry 2 geography columns: `display_location` (fuzzed ≤500m via HMAC-derived jitter; Nearby query + distance render) and `actual_location` (admin analytics + moderation + reverse geocoding only). Mirrors V4 + V11/V13 column adds.
 
 ```sql
 CREATE TABLE posts (
@@ -575,6 +326,8 @@ CREATE INDEX posts_author_idx ON posts(author_id, created_at DESC) WHERE deleted
 
 ### Jitter Generation (HMAC-based, non-reversible)
 
+> Mirrors `shared/distance/src/commonMain/kotlin/id/nearyou/distance/JitterEngine.kt`. Update both when changing the derivation.
+
 ```
 JITTER_SECRET = secret from GCP Secret Manager (256-bit random, long-lived)
 jitter_seed = HMAC-SHA256(key=JITTER_SECRET, message=post_id.bytes)
@@ -585,23 +338,17 @@ distance_meters = (bytes_to_uint32(jitter_seed[4..8]) / 2^32) * 500
 display_location = offset_by_bearing(actual_location, bearing_radians, distance_meters)
 ```
 
-**Properties**:
-- Deterministic per `post_id`: same post always renders the same fuzzed location (no averaging attack)
-- Non-reversible without `JITTER_SECRET`: attacker cannot compute the offset from the public `post_id`
-- Distribution: uniform bearing 0-2π, uniform distance 0-500m (not fixed 500m)
+**Properties**: deterministic per `post_id` (same post always fuzzes to the same point — no averaging attack). Non-reversible without `JITTER_SECRET`. Uniform bearing 0-2π, uniform distance 0-500m (not fixed 500m).
 
-**Secret rotation**: long-lived secret. Rotate only if compromise is detected (requires re-fuzzing the entire posts table, expensive but runnable via Cloud Run Jobs). Not scheduled.
+**Secret rotation**: long-lived. Rotate only on compromise (requires re-fuzzing the entire posts table via Cloud Run Jobs). Not scheduled.
 
-### Query Rules (audit every spatial query path via CI lint)
+### Query Rules (CI-lint-audited)
 
-- `ST_DWithin` for timeline Nearby filter uses `display_location`
-- `ST_Distance` for distance rendering uses `display_location`
-- Admin spatial queries for moderation/analytics use `actual_location`
-- Reverse geocoding `city_name` uses `actual_location` (accuracy matters; 500m jitter could cross admin boundaries)
-
-**Interaction with the 5km floor**: the floor is applied after fuzzing at the render step; documented in the `:shared:distance` module tests.
-
-**Performance**: GIST index on `display_location` (second index, alongside the existing `actual_location` index), storage +2x geography. Negligible.
+- `ST_DWithin` Nearby filter + `ST_Distance` rendering use `display_location`.
+- Admin moderation/analytics use `actual_location`.
+- Reverse geocoding `city_name` uses `actual_location` (500m jitter could cross admin boundaries).
+- 5km floor applied after fuzzing at render step (`:shared:distance` tests).
+- GIST index on both columns; storage +2x geography is negligible.
 
 ### Distance Floor + Rounding + Fuzz Order (`renderDistance`)
 
@@ -615,7 +362,7 @@ fun renderDistance(viewer: Location, post: Post, hideDistance: Boolean): String 
 }
 ```
 
-Order matters: fuzz first (crypto-derived jitter), floor second (UX/privacy), round to nearest 1km last (display). Actual 4.5km then fuzz to 4.8km then floor to 5km then round to 5km: user sees "5km", fuzz does not leak. Actual 7.4km fuzz to 7.3km floor unchanged round to "7km". Actual 7.6km fuzz to 7.7km floor unchanged round to "8km".
+Order matters: fuzz first (crypto jitter) → floor second (UX/privacy) → round to nearest 1km last (display). Examples: actual 4.5km → fuzz 4.8km → floor 5km → "5km" (fuzz doesn't leak). Actual 7.4km → fuzz 7.3km → floor unchanged → "7km". Actual 7.6km → fuzz 7.7km → floor unchanged → "8km".
 
 ### Post Edit History (Race-Safe Temporal Versioning)
 
@@ -633,17 +380,14 @@ CREATE UNIQUE INDEX post_edits_temporal_idx ON post_edits(post_id, edited_at);
 CREATE INDEX post_edits_post_id_idx ON post_edits(post_id, edited_at DESC);
 ```
 
-Append-only: each edit is an insert of a new row with a snapshot of the state **before** the edit. Natural ordering via `edited_at DESC`.
-
-**Retention**: kept as long as the parent post exists. Edits are purged only when the parent post is hard-deleted (the `ON DELETE CASCADE` handles it). Rationale: the user-facing "Diedit [relative time]" label + "Riwayat edit" modal must remain coherent for the full lifetime of the post; fixed-time purge would produce empty history modals on old posts.
-
-**Content version display**: computed at query time with `ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY edited_at)`, rendered as user-facing "Versi ke-N".
+Append-only: each edit inserts a new row with the **before-edit** snapshot, ordered by `edited_at DESC`. Retention until parent post hard-delete (cascade). Version label = `ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY edited_at)` rendered as "Versi ke-N".
 
 ### Transactional Atomicity (mandatory)
 
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/post/CreatePostService.kt` and the future post-edit service. Update both when changing the lock+snapshot+update transaction shape.
+
 ```sql
 BEGIN;
-
 SELECT id, content, actual_location, author_id
 FROM posts
 WHERE id = :post_id AND author_id = :user_id
@@ -653,20 +397,19 @@ FOR UPDATE;
 
 INSERT INTO post_edits (post_id, content_snapshot, location_snapshot, edited_at, edited_by)
 SELECT id, content, actual_location, clock_timestamp(), author_id
-FROM posts
-WHERE id = :post_id;
+FROM posts WHERE id = :post_id;
 
-UPDATE posts SET content = :new_content, updated_at = NOW()
-WHERE id = :post_id;
-
+UPDATE posts SET content = :new_content, updated_at = NOW() WHERE id = :post_id;
 COMMIT;
 ```
 
-Application-level retry on `unique_violation` edge case (sub-microsecond collision): rollback + return 409 CONFLICT with user-facing message "Coba lagi sebentar."
+App-level retry on `unique_violation` edge case (sub-microsecond collision): rollback + 409 CONFLICT "Coba lagi sebentar."
 
 ---
 
 ## Follow Schema
+
+> Mirrors V6 (`V6__follows.sql`) and `backend/ktor/src/main/kotlin/id/nearyou/app/follow/FollowService.kt`. Update both when changing the follow/unfollow shape.
 
 ```sql
 CREATE TABLE follows (
@@ -681,16 +424,13 @@ CREATE INDEX follows_follower_idx ON follows(follower_id, created_at DESC);
 CREATE INDEX follows_followee_idx ON follows(followee_id, created_at DESC);
 ```
 
-**Rules**:
-- Block applies bidirectional DELETE on both rows (see Block User Implementation)
-- Following a private-profile user is allowed (server creates the row); visibility of their posts is gated by `follows` EXISTS in the query
-- Follow/unfollow rate limit: 50/hour (see Rate Limiting)
+**Rules**: block applies bidirectional DELETE on both rows. Following a private-profile user is allowed (server creates the row); visibility of their posts is gated by `follows` EXISTS in the query. Follow/unfollow rate limit: 50/hour.
 
 ---
 
 ## Post Likes Schema
 
-<!-- V7 shipped in change post-likes-v7. -->
+> Mirrors V7 (`V7__post_likes.sql`) and `backend/ktor/src/main/kotlin/id/nearyou/app/engagement/LikeService.kt`. V7 shipped in change `post-likes-v7`. Update both when changing the like shape.
 
 ```sql
 CREATE TABLE post_likes (
@@ -712,7 +452,7 @@ Rate limit: Free 10/day + 500/hour burst, Premium unlimited + 500/hour burst (se
 
 ## Post Replies Schema
 
-> V8 shipped in change `post-replies-v8` — schema + POST/GET/DELETE endpoints + `reply_count` on both timelines. The auto-hide trigger (via `reports.target_type = 'reply'`) and rate limiting remain deferred.
+> Mirrors V8 (`V8__post_replies.sql`) and `backend/ktor/src/main/kotlin/id/nearyou/app/engagement/ReplyService.kt`. V8 shipped in change `post-replies-v8` — schema + POST/GET/DELETE endpoints + `reply_count` on both timelines. The auto-hide trigger (via `reports.target_type = 'reply'`) and rate limiting under `reply-rate-limit` are tracked separately.
 
 ```sql
 CREATE TABLE post_replies (
@@ -730,16 +470,16 @@ CREATE INDEX post_replies_post_idx ON post_replies(post_id, created_at DESC) WHE
 CREATE INDEX post_replies_author_idx ON post_replies(author_id, created_at DESC) WHERE deleted_at IS NULL;
 ```
 
-- Flat structure (no nested reply-to-reply threading in MVP)
-- Free 20/day, Premium unlimited
-- Max 280 chars (matches post length)
-- Soft delete only (tombstone label on the parent post's reply list)
-- `is_auto_hidden` flag mirrors the post-level flag and is set by the same 3-unique-reporters auto-hide trigger when `reports.target_type = 'reply'`
-- Block-aware read path: exclude replies from blocked users (both directions) AND exclude replies where `is_auto_hidden = TRUE` unless the viewer is the author
+- Flat structure (no nested reply-to-reply threading in MVP). Max 280 chars (matches post length). Free 20/day, Premium unlimited.
+- Soft delete only (tombstone label on the parent post's reply list).
+- `is_auto_hidden` flag is set by the same 3-unique-reporters auto-hide trigger when `reports.target_type = 'reply'`.
+- Block-aware read path: exclude replies from blocked users (both directions) AND replies where `is_auto_hidden = TRUE` unless the viewer is the author.
 
 ---
 
 ## Reports Schema
+
+> Mirrors V9 (`V9__reports_moderation.sql`). Update both when changing the report shape.
 
 ```sql
 CREATE TABLE reports (
@@ -760,26 +500,15 @@ CREATE TABLE reports (
     UNIQUE (reporter_id, target_type, target_id)
 );
 
--- Note: reporter_id is ON DELETE CASCADE because the column is NOT NULL.
--- When a user hard-deletes their account, their submitted reports are
--- cascade-deleted. This is consistent with the Data Export scope matrix
--- ("Reports submitted by the user" is included in the user's export, so
--- they have a copy pre-deletion) and with the Privacy retention policy
--- (see `06-Security-Privacy.md`).
--- reviewed_by is ON DELETE SET NULL so admin churn does not erase
--- moderation history; the action persists without the admin attribution.
-
 CREATE INDEX reports_status_idx ON reports(status, created_at DESC);
 CREATE INDEX reports_target_idx ON reports(target_type, target_id);
 CREATE INDEX reports_reporter_idx ON reports(reporter_id, created_at DESC);
 ```
 
-**Auto-hide trigger**: when 3 distinct reporters (accounts >7 days old) report the same `(target_type, target_id)`, the server sets:
-- `posts.is_auto_hidden = TRUE` (for target_type = 'post')
-- `post_replies.is_auto_hidden = TRUE` (for target_type = 'reply')
-- inserts a `moderation_queue` row for admin review
+- `reporter_id` ON DELETE CASCADE (column is NOT NULL); on user hard-delete, submitted reports cascade — consistent with the Data Export scope matrix + Privacy retention policy (`06-Security-Privacy.md`).
+- `reviewed_by` ON DELETE SET NULL so admin churn doesn't erase moderation history.
 
-The unique `(reporter_id, target_type, target_id)` prevents the same user from inflating the count via repeat reports.
+**Auto-hide trigger**: when 3 distinct reporters (accounts >7 days old) report the same `(target_type, target_id)`, the server sets `posts.is_auto_hidden = TRUE` (or `post_replies.is_auto_hidden`) and inserts a `moderation_queue` row. The unique `(reporter_id, target_type, target_id)` prevents the same user inflating the count via repeat reports.
 
 ---
 
@@ -819,6 +548,8 @@ The UNIQUE constraint prevents duplicate queue entries for the same item + trigg
 
 ## Notifications Schema (DB-Persisted)
 
+> Mirrors V10 (`V10__notifications.sql`) + `backend/ktor/src/main/kotlin/id/nearyou/app/notifications/NotificationEmitter.kt`. V10 is the canonical authority for the type catalog.
+
 ```sql
 CREATE TABLE notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -844,13 +575,9 @@ CREATE INDEX notifications_user_all_idx
     ON notifications(user_id, created_at DESC);
 ```
 
-- `body_data` stores type-specific JSON (e.g., liked post title, reply excerpt, billing grace end date, privacy flip deadline, redaction reason summary)
-- Retention: 90 days auto-purge via `/internal/cleanup`
-- Delivered via FCM push in parallel; the DB row is the source of truth for the in-app list
+`body_data` stores type-specific JSON (excerpts, billing grace end date, etc.). Retention: 90 days auto-purge via `/internal/cleanup`. Delivered via FCM push in parallel; the DB row is the source of truth for the in-app list.
 
-**Event type catalog**:
-
-The canonical addressing for every notification is `(target_type, target_id)` on the outer row — that column pair is what deep-links and routes to. **`body_data` carries only payload that the outer addressing cannot supply** (excerpts, secondary entity IDs where target alone isn't enough to render, status strings, timestamps). Do NOT duplicate `target_id` inside `body_data`; keys that mirror the outer addressing are redundant and risk drifting. See `V10__notifications.sql` for the shipped column definitions and `NotificationWritePathTest.kt` for the reference emit-site shapes verified under test.
+**Event type catalog**: canonical addressing is `(target_type, target_id)` on the outer row — that column pair is what deep-links route to. `body_data` carries only what the outer pair can't supply (excerpts, secondary entity IDs, status strings, timestamps). Do NOT duplicate `target_id` inside `body_data`. See `V10__notifications.sql` + `NotificationWritePathTest.kt` for shipped shapes.
 
 | Type | Trigger | Actor | `target_type` | Body data |
 |------|---------|-------|---------------|-----------|
@@ -863,14 +590,12 @@ The canonical addressing for every notification is `(target_type, target_id)` on
 | `post_auto_hidden` | 3 reports auto-hid user's post or reply | NULL | `post` or `reply` (dynamic) | `{reason}` |
 | `account_action_applied` | Admin action on user | NULL | NULL | `{action_type, reason, suspended_until}` |
 | `data_export_ready` | Export worker finished | NULL | NULL | `{signed_url, expires_at}` |
-| `chat_message_redacted` | Admin redacted a message in a conversation the user participates in | NULL | `message` | `{conversation_id}` |
+| `chat_message_redacted` | Admin redacted a message the user participates in | NULL | `message` | `{conversation_id}` |
 | `privacy_flip_warning` | Downgrade-to-Free with private profile, flip scheduled | NULL | NULL | `{privacy_flip_scheduled_at}` |
-| `username_release_scheduled` | User's custom username change confirmed; old handle releases at `released_at` | NULL | NULL | `{old_username, released_at}` |
+| `username_release_scheduled` | Custom username change confirmed; old handle releases at `released_at` | NULL | NULL | `{old_username, released_at}` |
 | `apple_relay_email_changed` | Apple S2S `email-disabled`/`email-enabled` event | NULL | NULL | `{new_email_masked}` |
 
-Rationale for `post_liked` / `post_replied` / `post_auto_hidden`: the `(target_type='post', target_id=<post_id>)` outer pair already answers "which post." `body_data` only needs what can't be inferred — an excerpt for readable UI, a `reply_id` for deep-scroll to the specific reply inside a parent post (target points at the *parent*, so the reply's own id has to come from payload), a `reason` string for the auto-hide copy. The earlier catalog duplicated `post_id` inside `body_data` for these three; `post_auto_hidden` additionally covered a `reply` target case where the duplicated `post_id` would have been actively wrong. V10 shipped the correct shape; this table was amended 2026-04-24 to match (see PR [#24](https://github.com/aditrioka/nearyou-id/pull/24) for the audit + amendment commit).
-
-Rationale for `chat_message_redacted`: target_id is the redacted message; `conversation_id` in body_data lets the client route without a second fetch, since the message may no longer be visible (redaction).
+Rationale: outer `(target_type='post', target_id=<post_id>)` answers "which post"; body_data carries only what can't be inferred (excerpt, `reply_id` since target points at the parent, `reason` for auto-hide copy). V10 shipped this; table amended 2026-04-24 (PR [#24](https://github.com/aditrioka/nearyou-id/pull/24)). For `chat_message_redacted`, target_id is the redacted message; `conversation_id` lets the client route without a second fetch.
 
 ---
 
@@ -885,10 +610,7 @@ CREATE TABLE deletion_requests (
     cancelled_at TIMESTAMPTZ,
     executed_at TIMESTAMPTZ,
     source VARCHAR(24) NOT NULL CHECK (source IN (
-        'user',
-        'apple_s2s_consent_revoked',
-        'apple_s2s_account_delete',
-        'admin'
+        'user', 'apple_s2s_consent_revoked', 'apple_s2s_account_delete', 'admin'
     ))
 );
 
@@ -903,19 +625,11 @@ CREATE INDEX deletion_requests_immediate_idx
       AND cancelled_at IS NULL;
 ```
 
-**Source semantics**:
+**Source semantics**: `user` / `admin` / `apple_s2s_consent_revoked` → `NOW() + 30 days`, 30-day cancellable grace. `apple_s2s_account_delete` → `NOW()`, no grace (Apple-required).
 
-| Source | `scheduled_hard_delete_at` | Grace | Trigger |
-|--------|---------------------------|-------|---------|
-| `user` | `NOW() + 30 days` | 30 days (user can cancel) | User-initiated "Hapus Akun" |
-| `admin` | `NOW() + 30 days` | 30 days | Admin-initiated delete |
-| `apple_s2s_consent_revoked` | `NOW() + 30 days` | 30 days | Apple S2S `consent-revoked` (user revoked Sign in with Apple); treated as a standard deletion intent |
-| `apple_s2s_account_delete` | `NOW()` | None (Apple-required) | Apple S2S `account-delete` (user deleted their Apple ID); must be executed promptly |
-
-- On request: insert a row with the scheduled timestamp per the source semantics above.
-- User can cancel during the grace period (only sources with non-zero grace): sets `cancelled_at`. `apple_s2s_account_delete` rows cannot be cancelled.
-- **Immediate-execution path for `apple_s2s_account_delete`**: the Apple S2S handler both inserts the row AND synchronously enqueues a one-shot tombstone+cascade job before responding to Apple. This avoids up-to-24h latency from the daily worker. If the synchronous job fails, the daily worker picks it up as a backstop via `deletion_requests_immediate_idx`.
-- The daily hard-delete worker scans `scheduled_hard_delete_at <= NOW() AND executed_at IS NULL AND cancelled_at IS NULL`, runs tombstone + cascade + deletion log write, sets `executed_at = NOW()`.
+- Cancellation sets `cancelled_at`; `apple_s2s_account_delete` rows cannot be cancelled.
+- **Immediate-execution for `apple_s2s_account_delete`**: the Apple S2S handler inserts the row AND synchronously enqueues a one-shot tombstone+cascade job before responding to Apple. If the sync job fails, the daily worker backstops via `deletion_requests_immediate_idx`.
+- Daily hard-delete worker: scans `scheduled_hard_delete_at <= NOW() AND executed_at IS NULL AND cancelled_at IS NULL`, runs tombstone + cascade + deletion-log write, sets `executed_at = NOW()`.
 
 ---
 
@@ -926,8 +640,8 @@ CREATE TABLE admin_users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL UNIQUE,
     display_name VARCHAR(100) NOT NULL,
-    password_hash TEXT NOT NULL,
-    totp_secret_encrypted BYTEA,
+    password_hash TEXT NOT NULL,                  -- Argon2id
+    totp_secret_encrypted BYTEA,                  -- AES-256, key in GCP Secret Manager
     webauthn_enrolled BOOLEAN NOT NULL DEFAULT FALSE,
     role VARCHAR(16) NOT NULL CHECK (role IN ('owner', 'admin', 'moderator', 'read_only')),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -962,7 +676,6 @@ CREATE TABLE admin_sessions (
 CREATE INDEX admin_sessions_admin_idx ON admin_sessions(admin_id, created_at DESC);
 CREATE INDEX admin_sessions_active_idx ON admin_sessions(expires_at) WHERE revoked_at IS NULL;
 
--- WebAuthn ceremony state (challenge storage for registration + authentication flows)
 CREATE TABLE admin_webauthn_challenges (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     admin_id UUID REFERENCES admin_users(id) ON DELETE CASCADE,
@@ -977,37 +690,23 @@ CREATE INDEX admin_webauthn_challenges_admin_idx ON admin_webauthn_challenges(ad
 CREATE INDEX admin_webauthn_challenges_cleanup_idx ON admin_webauthn_challenges(expires_at) WHERE consumed_at IS NULL;
 ```
 
-- `password_hash`: Argon2id (mandatory)
-- `totp_secret_encrypted`: AES-256 encrypted at rest, key in GCP Secret Manager
-- Solo admin period: row for Oka with `webauthn_enrolled = FALSE` (TOTP required)
-- Before the second admin is onboarded: Oka's row MUST have `webauthn_enrolled = TRUE` and at least one `admin_webauthn_credentials` row
-- Session timeout: 30 minutes idle (enforced via `last_active_at`)
+Solo admin period: Oka's row with `webauthn_enrolled = FALSE` (TOTP required). Before the second admin onboards, Oka's row MUST have `webauthn_enrolled = TRUE` plus at least one `admin_webauthn_credentials` row. Session timeout 30 min idle (via `last_active_at`).
 
-### Admin Session Cookie Mechanism
+### Admin Session Cookie + WebAuthn
 
-The Admin Panel uses classic server-side sessions (not JWT) because it is a stateful Ktor + HTMX app, not an SPA. Cookie mechanics:
+Classic server-side sessions (not JWT), since the Admin Panel is a stateful Ktor + HTMX app.
 
-- **Cookie name**: `__Host-admin_session`
-- **Attributes**: `Secure; HttpOnly; SameSite=Strict; Path=/; Domain=admin.nearyou.id`
-- **Value**: opaque 256-bit random token, base64url encoded (never a user-readable format)
-- **Server storage**: SHA256 of the cookie value is stored in `admin_sessions.session_token_hash` (lookup by hash, plain value never persisted)
-- **CSRF token**: a second 256-bit random token is issued per session, returned in the login response body, and stored in `admin_sessions.csrf_token_hash` (also SHA256 at rest)
-  - Every state-changing request (POST/PATCH/PUT/DELETE) MUST include the CSRF token in a `X-CSRF-Token` header
-  - The Ktor middleware verifies `SHA256(header_value) == admin_sessions.csrf_token_hash`
-  - Missing or mismatched token then 403 + audit log `admin_csrf_violation`
-- **CSRF token rotation**: on every successful login (new session), the CSRF token is regenerated. Within a session the token is stable.
-- **Admin-triggered CSAM handler invocation** (`POST /internal/csam-webhook` from Admin Panel): uses the same `X-CSRF-Token` mechanism, plus an additional session-scope check that the calling session has `role IN ('owner', 'admin')`. Read-only admins cannot invoke.
-- **Rotation on privilege escalation**: any admin action changing `admin_users.role` also rotates the affected admin's session cookies (old session revoked; user re-authenticates).
+- **Cookie** `__Host-admin_session` with `Secure; HttpOnly; SameSite=Strict; Path=/; Domain=admin.nearyou.id`; value = opaque 256-bit random token, base64url encoded. SHA256 stored in `admin_sessions.session_token_hash` (lookup by hash, plain never persisted).
+- **CSRF**: second 256-bit token per session, returned in login response body, SHA256 stored in `admin_sessions.csrf_token_hash`. State-changing requests must include `X-CSRF-Token`; mismatch → 403 + audit log `admin_csrf_violation`. Regenerated on every successful login.
+- **Privilege-escalation rotation**: any change to `admin_users.role` rotates the affected admin's session cookies.
 
-### WebAuthn Challenge Lifecycle
-
-- Challenge is generated at the start of a registration or authentication ceremony, inserted with `expires_at = NOW() + INTERVAL '5 minutes'`
-- On ceremony completion (verify attestation/assertion), the challenge is marked `consumed_at = NOW()`; re-use is rejected via the `consumed_at IS NOT NULL` guard
-- The `admin_webauthn_challenges_cleanup_idx` supports a weekly cleanup job that deletes rows where `expires_at < NOW() - INTERVAL '1 day' AND consumed_at IS NULL` (stale unused challenges)
+WebAuthn challenge: inserted with `expires_at = NOW() + INTERVAL '5 minutes'`; on verify, marked `consumed_at = NOW()`; re-use rejected via `consumed_at IS NOT NULL`. Weekly cleanup deletes rows where `expires_at < NOW() - INTERVAL '1 day' AND consumed_at IS NULL`.
 
 ---
 
 ## Admin Regions Schema
+
+> Mirrors V11/V12 (`V11__admin_regions.sql`, `V12__admin_regions_seed.sql`).
 
 ```sql
 CREATE TABLE admin_regions (
@@ -1027,32 +726,20 @@ CREATE INDEX admin_regions_level_idx ON admin_regions(level);
 CREATE INDEX admin_regions_parent_idx ON admin_regions(parent_id);
 ```
 
-Import script Pre-Phase 1:
-1. Download BPS GeoJSON or OSM extract
-2. Filter to kabupaten_kota level
-3. Add 12-mile maritime buffer for coastal kabupaten (`ST_Buffer` on EPSG:4326 geography, ~22km)
-4. Compute the centroid column
-5. Insert via COPY
-6. Visual spot-check 10 complex kabupaten
+V12 seed: 38 provinces + 514 kabupaten/kota (including all 6 DKI children), polygons simplified to ~5.5 m tolerance + 6-decimal `ST_AsText` precision (33 MB total). Coastal kabupaten (48 of 514) carry a 12 nautical mile (~22 km) maritime buffer. IDs = stable OSM relation IDs. Reproducible re-seed pipeline lives at `dev/scripts/import-admin-regions/`.
 
 ---
 
 ## Timeline Implementation
 
-### Composite Indexes (mandatory)
+### Composite Indexes + Block-Aware Query Patterns
 
 ```sql
-CREATE INDEX posts_timeline_cursor_idx ON posts (created_at DESC, id DESC)
-    WHERE deleted_at IS NULL;
-
-CREATE INDEX posts_nearby_cursor_idx ON posts USING GIST 
-    (display_location, created_at)
-    WHERE deleted_at IS NULL;
+CREATE INDEX posts_timeline_cursor_idx ON posts (created_at DESC, id DESC) WHERE deleted_at IS NULL;
+CREATE INDEX posts_nearby_cursor_idx ON posts USING GIST (display_location, created_at) WHERE deleted_at IS NULL;
 ```
 
-### Query Patterns (block-aware)
-
-**Nearby**:
+**Nearby** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsTimelineRepository.kt`. Update both when changing the canonical query shape:
 ```sql
 SELECT p.* FROM visible_posts p
 WHERE (p.created_at, p.id) < ($cursor_ts, $cursor_id)
@@ -1064,7 +751,7 @@ ORDER BY p.created_at DESC, p.id DESC
 LIMIT 20;
 ```
 
-**Following**:
+**Following** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsFollowingRepository.kt`. Update both when changing the canonical query shape:
 ```sql
 SELECT p.* FROM visible_posts p
 WHERE (p.created_at, p.id) < ($cursor_ts, $cursor_id)
@@ -1076,7 +763,7 @@ ORDER BY p.created_at DESC, p.id DESC
 LIMIT 20;
 ```
 
-**Global** (canonical — verbatim from `JdbcPostsGlobalRepository.kt`, shipped in `global-timeline-with-region-polygons` change):
+**Global** — verbatim from `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsGlobalRepository.kt`, shipped in `global-timeline-with-region-polygons` change. Update both when changing the canonical query shape:
 ```sql
 SELECT p.id,
        p.author_id,
@@ -1103,73 +790,53 @@ SELECT p.id,
  LIMIT 31;  -- page-size 30 + one probe row for next_cursor
 ```
 
-`p.city_name` is populated at INSERT time by the `posts_set_city_tg` BEFORE INSERT trigger (V11) running the 4-step fallback ladder against the `admin_regions` polygon set (V12 seed: 38 provinces + 514 kabupaten/kota). NULL `city_name` (legacy V4 row or polygon-coverage gap) serializes as `""` in the response. The Nearby + Following queries also project `p.city_name` since V11; their canonical shapes in `JdbcPostsTimelineRepository.kt` + `JdbcPostsFollowingRepository.kt` add the column to the SELECT list with no other change.
+`p.city_name` is populated at INSERT by the `posts_set_city_tg` BEFORE INSERT trigger (V11) running the 4-step fallback ladder against the `admin_regions` polygon set (V12). NULL `city_name` (legacy V4 row or polygon-coverage gap) serializes as `""`. Guest Global timeline omits the `user_blocks` subqueries (no viewer identity); guest read-only access is deferred.
 
-Guest Global timeline omits the `user_blocks` subqueries (no viewer identity). Guest read-only access is deferred to the Redis-backed rate-limit change (Phase 1 item 24); the authenticated endpoint shipped first.
+### V11 + V12 Migration History
 
-### V11 + V12 Migration History (admin_regions + reverse-geocode trigger)
-
-`backend/ktor/src/main/resources/db/migration/`:
-- **V11__admin_regions.sql** — schema-only (table + 4 indexes + `posts_set_city_fn` PL/pgSQL function + `posts_set_city_tg` BEFORE INSERT trigger + idempotent `visible_posts` view refresh). No `ALTER TABLE posts` (target columns `city_name TEXT` + `city_match_type VARCHAR(16)` already exist from V4). First spatially-seeded reference table + first BEFORE INSERT trigger in the Flyway history.
-- **V12__admin_regions_seed.sql** — 552 INSERTs (38 provinces + 514 kabupaten/kota including all 6 DKI children). Coastal kabupaten (48 of 514) carry a 12 nautical mile (~22 km) maritime buffer baked into `geom` (applied at import via `ST_Buffer(geom::geometry, 0.198°)` on rows whose centroid is within 50 km of `ST_Boundary(ST_Union(provinces))`). Polygons simplified to ~5.5 m tolerance + 6-decimal `ST_AsText` precision (33 MB total). IDs = stable OSM relation IDs per design Decision 8. Trailing `ST_Multi(ST_CollectionExtract(ST_MakeValid(geom::geometry), 3))::geography` sweep cleans up 3 precision-truncation self-intersections (Karanganyar, Sukoharjo, Buton Selatan); idempotent.
-
-The schema/seed split (V11 schema in Session 1, V12 seed in Session 2) deviated from the original "single migration" design Decision 3; rationale documented in the archived `design.md` Decision 3 amendment. The `admin_regions` empty-table window between V11 deploy and V12 deploy was safe because the trigger's 4-step ladder + the timeline DTOs were both NULL-tolerant. Reproducible re-seed pipeline lives at `dev/scripts/import-admin-regions/`.
+V11 ships schema-only: table + 4 indexes + `posts_set_city_fn` PL/pgSQL + `posts_set_city_tg` BEFORE INSERT trigger + idempotent `visible_posts` view refresh. V12 ships 552 INSERTs (38 provinces + 514 kabupaten/kota); trailing validity sweep cleans 3 precision-truncation self-intersections (Karanganyar, Sukoharjo, Buton Selatan). The schema/seed split deviated from original "single migration" design (rationale in archived `design.md` Decision 3 amendment); the empty-table window was safe because trigger ladder + timeline DTOs were NULL-tolerant.
 
 ### Sliding Window Session Tracking (Server-Side via Redis)
 
-- Client generates a `session_id` (UUID) when the app goes to foreground, sends it via the `X-Session-Id` header
-- Redis key `timeline_offset:{user:<user_id>}:<session_id>` TTL 1 hour (soft cap)
-- Redis key `timeline_rolling:{user:<user_id>}` TTL 1 hour (hard cap, authoritative)
-- When soft cap is reached: empty response + upsell flag
-- When hard cap is reached: empty response + upsell flag (regardless of session_id rotation)
+- Client generates a `session_id` (UUID) when the app goes to foreground, sends it via the `X-Session-Id` header.
+- `timeline_offset:{user:<user_id>}:<session_id>` TTL 1 hour (soft cap, UX nudge).
+- `timeline_rolling:{user:<user_id>}` TTL 1 hour (hard cap, authoritative). Both caps reached: empty response + upsell flag.
 - Guest rolling counter: `timeline_rolling_guest:{jti:<guest_jwt_jti>}` TTL 1 hour, cap 30 posts.
 
-Key format uses hash tag `{scope:<value>}` for Upstash cluster co-location (multi-key ops are safe).
+Key format uses hash tag `{scope:<value>}` for Upstash cluster co-location.
 
 ### Geometry-heavy migration conventions
 
-Any seed migration that ships PostGIS geometry larger than ~5 MB (the V12 admin_regions seed at 33 MB is the precedent) MUST follow these three steps to keep the migration auditable, deterministic, and applies-cleanly:
+Any seed migration shipping PostGIS geometry >5 MB (V12's 33 MB is the precedent) MUST:
 
-1. **Apply `ST_SimplifyPreserveTopology` with a tolerance smaller than the tightest spatial threshold the consumer uses.** Raw OSM/BPS polygons are typically 11mm-precision (vastly over-spec for kabupaten labels). For the `posts_set_city_tg` trigger whose step-2 buffered-match runs at 10m, a 5.5m simplification tolerance is safely under the buffer (any displacement smaller than the buffer is absorbed by the ladder). Per `dev/scripts/import-admin-regions/generate-seed.py:255` (`ST_SimplifyPreserveTopology(geom::geometry, 0.00005)`).
-
-2. **Cap `ST_AsText` precision at the smallest the consumer needs.** PostGIS defaults to 16 decimals (~0.1 mm). 6 decimals (~10 cm at equator) is plenty for any geo feature larger than a backyard and halves WKT byte size. Trade-off: precision-truncation can tip 2-3 borderline polygons into self-intersection on round-trip — handled by step 3.
-
-3. **End the migration with an idempotent validity sweep.** Required final statement:
+1. **`ST_SimplifyPreserveTopology` with tolerance smaller than the consumer's tightest spatial threshold.** V12 uses 5.5 m, safely under the trigger's 10 m buffer (see `dev/scripts/import-admin-regions/generate-seed.py:255`).
+2. **Cap `ST_AsText` precision at consumer's needs.** PostGIS defaults to 16 decimals; 6 decimals (~10 cm) halves WKT byte size and is plenty for any geo feature larger than a backyard.
+3. **Idempotent validity sweep at end of migration:**
    ```sql
    UPDATE <seed_table>
       SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(geom::geometry), 3))::geography
     WHERE NOT ST_IsValid(geom::geometry);
    ```
-   `ST_MakeValid` may return a `GeometryCollection` for self-intersection cases (mixing polygon parts with lines/points where rings cross); `ST_CollectionExtract(..., 3)` keeps only POLYGON parts; `ST_Multi` re-wraps to MULTIPOLYGON to satisfy the column type. Idempotent: a second invocation finds zero invalid rows and updates nothing.
+   `ST_MakeValid` returns a `GeometryCollection` for self-intersections; `ST_CollectionExtract(..., 3)` keeps polygon parts; `ST_Multi` rewraps. Idempotent.
 
-Combined effect on V12: 72 MB → 33 MB at unchanged trigger semantics; 3 precision-truncation self-intersections (Karanganyar, Sukoharjo, Buton Selatan) cleaned by the trailing sweep. The V12 migration header documents the affected row names so future contributors auditing `flyway_schema_history` can correlate.
+Combined V12 effect: 72 MB → 33 MB, unchanged trigger semantics.
 
 ---
 
 ## Search Implementation (PostgreSQL FTS + pg_trgm)
 
-### Setup
+> Mirrors V13 + `backend/ktor/src/main/kotlin/id/nearyou/app/search/SearchService.kt`.
 
-```sql
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- posts.content_tsv GENERATED as defined in Posts Schema above
--- posts_content_tsv_idx GIN + posts_content_trgm_idx GIN
-```
-
-Note: `'simple'` tsvector config because Indonesian stopwords are not available by default in Postgres. Acceptable for MVP. Upgrade path in Month 6+: custom Indonesian dictionary or Meta XLM-R tokenizer service.
-
-### Query Pattern
+V13 ships `CREATE EXTENSION IF NOT EXISTS pg_trgm;` plus GIN indexes (`posts_content_tsv_idx`, `posts_content_trgm_idx`) over the GENERATED `posts.content_tsv`. Uses `'simple'` tsvector — Indonesian stopwords aren't in Postgres core, acceptable for MVP. Month 6+: custom dictionary or XLM-R tokenizer service.
 
 ```sql
 SELECT p.*,
        ts_rank(p.content_tsv, plainto_tsquery('simple', :query)) AS rank
 FROM visible_posts p
 JOIN visible_users u ON p.author_id = u.id
-WHERE (
-        p.content_tsv @@ plainto_tsquery('simple', :query)
+WHERE (p.content_tsv @@ plainto_tsquery('simple', :query)
      OR p.content % :query
-     OR u.username % :query
-      )
+     OR u.username % :query)
   AND p.is_auto_hidden = FALSE
   AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
   AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
@@ -1180,44 +847,28 @@ ORDER BY rank DESC, p.created_at DESC
 LIMIT 20 OFFSET :offset;
 ```
 
-### Rate Limit
-
-60 queries/hour per Premium user. Free tier rejects with 403 + upsell paywall.
-
-### Re-index Trigger
-
-On shadow-ban / unban / block / unblock: application code invalidates any Redis search-result cache (if added at scale). The underlying GIN index is auto-maintained.
+Rate: 60 queries/h per Premium user; Free rejects 403 + upsell paywall. On shadow-ban / unban / block / unblock the app invalidates any Redis search cache; the GIN index is auto-maintained.
 
 ---
 
 ## Direct Messaging Implementation
 
-### Chat Flow (Pre-Swap Period, Months 1-14)
+> Mirrors V15 + `backend/ktor/src/main/kotlin/id/nearyou/app/chat/ChatService.kt`.
+
+### Chat Flow (Pre-Swap, Months 1-14)
 
 ```
-Client A: POST /api/v1/chat/:conversation_id/messages { content }
-  ↓
-Ktor: validates quota, sender is participant, not blocked (either direction)
-  ↓
-Ktor: INSERT INTO chat_messages (persistence)
-  ↓
-Ktor: Supabase Realtime broadcasts via channel identifier "realtime:conversation:<id>" (skipped when sender is shadow-banned)
-  ↓
-Client B (subscribed, passed RLS on the prefix-stripped topic "conversation:<id>"): receives broadcast
-  ↓
-Client B: ACK, render, update UI
-  ↓
-Client B later: fetches history via REST to resync if needed
+A POSTs /api/v1/chat/:conversation_id/messages
+  → Ktor validates quota / participant / not blocked
+  → INSERT INTO chat_messages
+  → Supabase Realtime broadcast on "realtime:conversation:<id>" (skipped if sender shadow-banned)
+B receives broadcast (RLS-checked) → render
+B fetches REST history to resync as needed
 ```
 
-> **Pointers (details deliberately not in the diagram)**:
-> - **Sender shadow-ban**: shadow-banned senders' messages persist in `chat_messages` but the publish step is skipped (invisible-actor model — sender retains their own view; recipients never see the message via WSS or REST). The `GET /messages` read-path filter mirrors this for REST/WSS symmetry. Canonical: [`openspec/specs/chat-realtime-broadcast/spec.md`](../openspec/specs/chat-realtime-broadcast/spec.md) § Publish-side shadow-ban skip.
-> - **Notification fan-out**: the chat-message INSERT and the `notifications` table emit run in the same transaction; post-commit the composite FCM dispatcher fans out to recipient devices. Canonical: [`openspec/specs/in-app-notifications/spec.md`](../openspec/specs/in-app-notifications/spec.md) § chat_message body_data shape.
+Pointers: sender shadow-ban skips publish (invisible-actor model — see [`openspec/specs/chat-realtime-broadcast/spec.md`](../openspec/specs/chat-realtime-broadcast/spec.md)). Chat-message INSERT + `notifications` emit run in the same transaction; post-commit FCM fan-out (see [`openspec/specs/in-app-notifications/spec.md`](../openspec/specs/in-app-notifications/spec.md)).
 
-**Failure handling**:
-- INSERT success + broadcast fail: Ktor retries broadcast 3x with exponential backoff. If still failing, log a warning. Client eventually fetches via REST.
-- Client offline during broadcast: miss. On next app open, fetch delta via REST `GET /api/v1/chat/:conversation_id/messages?after=:last_message_id`.
-- Duplicate broadcast (retry + original both succeed): client dedupes via `message_id` UUID.
+**Failure handling**: INSERT-OK + broadcast-fail → Ktor retries 3x exponential backoff, otherwise client fetches via REST. Offline client → on next open, fetch delta via `GET /api/v1/chat/:conversation_id/messages?after=:last_message_id`. Duplicate broadcast → client dedupes by `message_id` UUID.
 
 ### Conversation Participant Schema (Race-Safe 1:1 Enforcement)
 
@@ -1239,37 +890,29 @@ CREATE TABLE conversation_participants (
     PRIMARY KEY (conversation_id, user_id)
 );
 
-CREATE UNIQUE INDEX conv_slot_unique 
-    ON conversation_participants(conversation_id, slot)
-    WHERE left_at IS NULL;
-
-CREATE INDEX conversation_participants_user_active_idx 
-    ON conversation_participants (user_id) WHERE left_at IS NULL;
-CREATE INDEX conversation_participants_conversation_idx 
-    ON conversation_participants (conversation_id);
+CREATE UNIQUE INDEX conv_slot_unique ON conversation_participants(conversation_id, slot) WHERE left_at IS NULL;
+CREATE INDEX conversation_participants_user_active_idx ON conversation_participants (user_id) WHERE left_at IS NULL;
+CREATE INDEX conversation_participants_conversation_idx ON conversation_participants (conversation_id);
 ```
 
-### Insert Flow (at the Ktor application layer)
+### Insert Flow (Ktor application layer)
 
 ```sql
 BEGIN;
 SELECT pg_advisory_xact_lock(hashtext(:conversation_id::text));
-
 WITH existing AS (
     SELECT slot FROM conversation_participants
     WHERE conversation_id = :conversation_id AND left_at IS NULL
 )
 INSERT INTO conversation_participants (conversation_id, user_id, slot, ...)
-VALUES (:conversation_id, :user_id, 
+VALUES (:conversation_id, :user_id,
         CASE WHEN NOT EXISTS (SELECT 1 FROM existing WHERE slot = 1) THEN 1
              WHEN NOT EXISTS (SELECT 1 FROM existing WHERE slot = 2) THEN 2
-             ELSE NULL END,
-        ...);
-
+             ELSE NULL END, ...);
 COMMIT;
 ```
 
-Partial unique index prevents a 3rd active slot (race-proof). Advisory lock ensures slot assignment is serialized per conversation (no wasted CHECK violation retries).
+Partial unique index prevents a 3rd active slot (race-proof). Advisory lock serializes slot assignment per conversation.
 
 ### Chat Message Schema (Embedded Post)
 
@@ -1296,35 +939,29 @@ CREATE INDEX chat_messages_sender_idx ON chat_messages(sender_id, created_at DES
 CREATE INDEX chat_messages_redacted_idx ON chat_messages(redacted_by, redacted_at DESC) WHERE redacted_at IS NOT NULL;
 ```
 
-- `CHECK` prevents fully empty messages (both text and embed null simultaneously). The third term `embedded_post_snapshot IS NOT NULL` keeps historical rows valid even after the embedded post is hard-deleted and `embedded_post_id` is set to NULL by the FK cascade.
-- Second `CHECK` enforces redaction atomicity: either all three redaction fields are null (normal message) or `redacted_at` + `redacted_by` are both set (admin-redacted). `redaction_reason` is optional free-text.
-- `embedded_post_edit_id ON DELETE SET NULL` handles the case where a post_edits row is cascaded on parent-post hard-delete; the chat row survives with a `NULL` pointer and the snapshot still renders.
-- `redacted_by ON DELETE SET NULL` so admin churn does not erase redaction history; the redaction persists without the admin attribution.
-- **Redaction UX**: when `redacted_at IS NOT NULL`, the client renders the message body as user-facing "Pesan ini telah dihapus oleh moderator." regardless of the original content. The original `content` field stays in the DB for audit; it is not returned to the conversation feed endpoint once redacted. The recipient also receives a `chat_message_redacted` notification (see Notifications Schema below) so their chat list reflects the change on next fetch.
+First CHECK prevents fully empty messages (snapshot term keeps historical rows valid after embedded-post hard-delete — FK cascade nulls `embedded_post_id`). Second CHECK enforces redaction atomicity (all-null OR `redacted_at` + `redacted_by` both set). `embedded_post_edit_id` / `redacted_by` ON DELETE SET NULL preserve history. Redaction UX: client renders "Pesan ini telah dihapus oleh moderator." regardless of original content; recipient receives `chat_message_redacted` notification.
 
 ### Block Enforcement in Chat
 
-Send flow check:
 ```sql
 SELECT 1 FROM user_blocks
-WHERE (blocker_id = :sender AND blocked_id IN (SELECT user_id FROM conversation_participants WHERE conversation_id = :conv_id AND user_id != :sender))
-   OR (blocked_id = :sender AND blocker_id IN (SELECT user_id FROM conversation_participants WHERE conversation_id = :conv_id AND user_id != :sender));
+WHERE (blocker_id = :sender AND blocked_id IN
+       (SELECT user_id FROM conversation_participants WHERE conversation_id = :conv_id AND user_id != :sender))
+   OR (blocked_id = :sender AND blocker_id IN
+       (SELECT user_id FROM conversation_participants WHERE conversation_id = :conv_id AND user_id != :sender));
 ```
 
-Hit then reject 403 with user-facing "Tidak dapat mengirim pesan ke user ini". Existing history remains readable (both parties); only new sends are blocked.
+Hit → 403 "Tidak dapat mengirim pesan ke user ini". Existing history stays readable.
 
 ### Post-Swap Chat Persistence (Month 15+)
 
-See `04-Architecture.md` for the diagram and the Redis Streams approach. Summary:
-
-- `XADD stream:conv:<id> * message_id <uuid> ...` for persistence
-- Consumer groups per conversation, `XAUTOCLAIM` for failover
-- `XTRIM ... MAXLEN ~ 100` to bound memory
-- Client fetches history via REST for older messages
+`04-Architecture.md` covers the Redis Streams approach: `XADD` per message, consumer groups + `XAUTOCLAIM` for failover, `XTRIM ... MAXLEN ~ 100`, REST fetch for older history.
 
 ---
 
 ## Block User Implementation
+
+> Mirrors V5 (`V5__user_blocks.sql`) and `backend/ktor/src/main/kotlin/id/nearyou/app/block/BlockService.kt`. Update both when changing the block-action shape.
 
 ### Schema
 
@@ -1345,35 +982,20 @@ CREATE INDEX user_blocks_blocked_idx ON user_blocks(blocked_id);
 
 ```sql
 BEGIN;
-INSERT INTO user_blocks (blocker_id, blocked_id)
-VALUES (:blocker, :blocked)
-ON CONFLICT DO NOTHING;
-
--- Cascade remove follow relationships bidirectionally
+INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (:blocker, :blocked) ON CONFLICT DO NOTHING;
 DELETE FROM follows
 WHERE (follower_id = :blocker AND followee_id = :blocked)
    OR (follower_id = :blocked AND followee_id = :blocker);
-
 COMMIT;
 ```
 
-### Query Rules (MUST be at repository layer)
-
-- Timeline filter: exclude `author_id` if a block relationship exists in either direction
-- Profile view: 404 if a block relationship exists
-- DM send: reject 403 if a block exists (either direction)
-- Reply visibility: same
-- Search results: same
-
-CI lint rule: detect business queries to `posts`/`users`/`chat_messages`/`post_replies` without a block-exclusion join (except Repository `own-content` path + admin module).
-
-### Rate Limit
-
-30 block/unblock per hour per user (anti-flip-flop).
+Repository-layer query rules: exclude `author_id` from timelines / replies / search if a block exists in either direction; profile view = 404; DM send = 403. Enforced by `BlockExclusionJoinRule` Detekt rule (allowlist: Repository own-content path + admin module). Rate limit 30 block/unblock per hour per user (anti-flip-flop).
 
 ---
 
 ## FCM Token Registration
+
+> Mirrors V14 (`V14__user_fcm_tokens.sql`).
 
 ### Schema
 
@@ -1388,23 +1010,16 @@ CREATE TABLE user_fcm_tokens (
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (user_id, platform, token)
 );
--- Token / app_version length CHECKs are defense-in-depth against a malformed
--- client payload bypassing the route-layer guard. FCM tokens themselves don't
--- approach 4096 chars in practice; the bound is generous to avoid false rejects.
 
 CREATE INDEX user_fcm_tokens_user_idx ON user_fcm_tokens(user_id);
 CREATE INDEX user_fcm_tokens_last_seen_idx ON user_fcm_tokens(last_seen_at);
 ```
 
-### Endpoint
+Token / app_version length CHECKs are defense-in-depth against a malformed client payload bypassing the route-layer guard.
 
-`POST /api/v1/user/fcm-token` with body `{ token, platform, app_version }`. Upsert on `(user_id, platform, token)` unique, **update `last_seen_at = NOW()` on every call** (this is the authoritative freshness signal). Expired token (FCM returns 404/410 on send) then delete the row on the spot.
+### Endpoint + Cleanup
 
-### Cleanup
-
-Two complementary paths:
-- **Expired (on send)**: server-side send result 404/410 triggers immediate `DELETE FROM user_fcm_tokens WHERE user_id = ? AND platform = ? AND token = ?`
-- **Stale (weekly)**: `/internal/cleanup` deletes `WHERE last_seen_at < NOW() - INTERVAL '30 days'`
+`POST /api/v1/user/fcm-token` with `{ token, platform, app_version }`. Upsert on `(user_id, platform, token)` unique; **`last_seen_at = NOW()` updated on every call** (authoritative freshness signal). Expired (on send: FCM 404/410) → immediate row delete. Stale (weekly via `/internal/cleanup`) → delete `WHERE last_seen_at < NOW() - INTERVAL '30 days'`.
 
 ---
 
@@ -1412,18 +1027,21 @@ Two complementary paths:
 
 Server-side fetch via Firebase Admin SDK, cached with TTL 5 minutes in Redis.
 
-Flags:
-- `image_upload_enabled` (boolean, default FALSE): gate for Month 6 launch
-- `attestation_mode` (enum `enforce` | `warn` | `off`, default `enforce`): QA bypass
-- `attestation_bypass_google_ids_sha256` (list<string>): QA whitelist
-- `force_update_min_version` (string): force upgrade floor for the mobile app
-- `search_enabled` (boolean, default TRUE): kill switch if FTS load becomes too heavy
-- `perspective_api_enabled` (boolean, default TRUE): kill switch stopgap
-- `premium_username_customization_enabled` (boolean, default TRUE): kill switch for the Premium username change endpoint if abuse pattern emerges
-- `premium_like_cap_override` (integer, default 10): server-side override of the Free-tier daily like cap. Raise to 20 or 30 without a mobile release if D7/D30 retention data shows the cap is too restrictive (see Decision 28 in `08-Roadmap-Risk.md`).
-- `moderation_profanity_list` (string-array): profanity blocklist; hot-reloaded via the 5-minute Remote Config cache
-- `moderation_uu_ite_list` (string-array): UU ITE keyword list; hot-reloaded via the 5-minute Remote Config cache
-- `moderation_match_threshold` (integer, default 3): number of distinct keyword hits required for a "high score" flag
+**Shipped** (Kotlin reference exists in a `*Service.kt`):
+
+- `premium_like_cap_override` (integer, default 10) — read in `engagement/LikeService.kt`. Coerces non-positive values to default. See Decision 28 in `08-Roadmap-Risk.md`.
+- `premium_reply_cap_override` (integer, default 20, oversized-flag clamp at 10,000) — read in `engagement/ReplyService.kt`.
+- `premium_chat_send_cap_override` (integer, default 50, oversized-value fallback threshold at 10,000) — read in `chat/ChatService.kt`. Values above threshold fall back to default 50, not a clamp.
+- `search_enabled` (boolean, default TRUE) — kill switch read in `search/SearchService.kt`.
+
+**Reserved / DESIGN** (referenced in specs; consumer not yet shipped):
+
+- `image_upload_enabled` (boolean, default FALSE): gate for Month 6 image-upload launch
+- `attestation_mode` (enum `enforce` | `warn` | `off`, default `enforce`) + `attestation_bypass_google_ids_sha256` (list): QA bypass
+- `force_update_min_version` (string): force-upgrade floor for the mobile app
+- `perspective_api_enabled` (boolean, default TRUE): kill switch for the future Perspective API
+- `premium_username_customization_enabled` (boolean, default TRUE): kill switch (see Premium Customization DESIGN stub)
+- `moderation_profanity_list` / `moderation_uu_ite_list` / `moderation_match_threshold`: tied to the Content Moderation Lists DESIGN stub
 
 Client-side: Firebase Remote Config SDK fetches on app launch + foreground. Server and client MUST fetch the same keys.
 
@@ -1437,8 +1055,7 @@ CREATE TABLE subscription_events (
     user_id UUID NOT NULL REFERENCES users(id),
     event_type VARCHAR(32) NOT NULL
         CHECK (event_type IN ('initial_purchase', 'renewal', 'grant', 'cancellation', 'billing_issue', 'expiration')),
-    source VARCHAR(32) NOT NULL
-        CHECK (source IN ('paid', 'referral', 'manual_admin')),
+    source VARCHAR(32) NOT NULL CHECK (source IN ('paid', 'referral', 'manual_admin')),
     revenuecat_event_id TEXT UNIQUE,
     entitlement_start TIMESTAMPTZ,
     entitlement_end TIMESTAMPTZ,
@@ -1453,227 +1070,25 @@ CREATE INDEX subscription_events_source_idx ON subscription_events(source, event
 
 MRR/ARR queries MUST filter `WHERE source = 'paid' AND event_type IN ('initial_purchase', 'renewal')`.
 
-### RevenueCat Webhook Authentication
+### RevenueCat Webhook — DESIGN
 
-Endpoint: `POST /internal/revenuecat-webhook` (NOT behind OIDC because RevenueCat doesn't support OIDC; custom auth is used instead).
-
-Auth layers:
-1. **Authorization Bearer**: header `Authorization: Bearer <shared_secret>` from GCP Secret Manager `revenuecat-webhook-secret`. Reject 401 on mismatch.
-2. **HMAC signature (optional but enabled)**: `X-RevenueCat-Signature` = HMAC-SHA256(body, `revenuecat-webhook-hmac-secret`). Reject 401 on mismatch.
-3. **IP allowlist** (optional layer): restrict to RevenueCat's published IP ranges via Cloud Armor or Ktor middleware.
-4. **Idempotency**: `revenuecat_event_id` UNIQUE constraint prevents double-processing of replays.
-
-Failed signature = audit log + Sentry alert + 401 response (no body).
+> **Status: DESIGN** (as of 2026-05-07). `POST /internal/revenuecat-webhook` is not mounted; secret slots `revenuecat-webhook-secret` + `revenuecat-webhook-hmac-secret` are reserved. Future proposal will define auth layers (Bearer + HMAC + IP allowlist), idempotency via `subscription_events.revenuecat_event_id` UNIQUE, and the event-handler dispatch table.
 
 ---
 
-## Referral System Implementation
+## Referral System — DESIGN
 
-### Schema
-
-```sql
-CREATE TABLE referral_tickets (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    inviter_user_id UUID NOT NULL REFERENCES users(id),
-    invitee_user_id UUID NOT NULL REFERENCES users(id),
-    status VARCHAR(32) NOT NULL DEFAULT 'pending_activity'
-        CHECK (status IN ('pending_activity', 'granted', 'expired', 'voided')),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    activity_checked_at TIMESTAMPTZ,
-    expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '14 days'),
-    UNIQUE (invitee_user_id)
-);
-
-CREATE INDEX referral_tickets_inviter_idx ON referral_tickets(inviter_user_id, created_at DESC);
-CREATE INDEX referral_tickets_pending_idx 
-    ON referral_tickets(status, expires_at) WHERE status = 'pending_activity';
-CREATE INDEX referral_tickets_inviter_granted_idx
-    ON referral_tickets(inviter_user_id) WHERE status = 'granted';
-
-CREATE TABLE granted_entitlements (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id),
-    referral_ticket_id UUID REFERENCES referral_tickets(id),
-    granted_at TIMESTAMPTZ DEFAULT NOW(),
-    duration_days INT NOT NULL,
-    source VARCHAR(32) NOT NULL
-        CHECK (source IN ('referral', 'manual_admin')),
-    grant_role VARCHAR(16) NOT NULL DEFAULT 'invitee'
-        CHECK (grant_role IN ('invitee', 'inviter', 'manual_admin')),
-    revenuecat_grant_id TEXT,
-    UNIQUE (referral_ticket_id, user_id)
-);
-
-CREATE INDEX granted_entitlements_user_idx ON granted_entitlements(user_id, granted_at DESC);
-CREATE UNIQUE INDEX granted_entitlements_inviter_once_idx
-    ON granted_entitlements(user_id)
-    WHERE grant_role = 'inviter';
-```
-
-**Defaults and constraints**:
-- `expires_at` defaults to `created_at + 14 days`, matching the activity gate window.
-- `grant_role` distinguishes invitee-registration rewards from the inviter's lifetime milestone reward. `granted_entitlements_inviter_once_idx` is a partial unique index guaranteeing that at most one row with `grant_role = 'inviter'` can ever exist per user, providing DB-level enforcement of the lifetime cap.
-- The inviter lifetime cap is also tracked by `users.inviter_reward_claimed_at` (sentinel timestamp; non-null means claimed).
-
-### Reward Rules (Canonical)
-
-- **Invitee**: receives 1 grant of 7 days when their ticket reaches `status = 'granted'` (activity gate passed, anti-fingerprint checks passed). One invitee, one grant, tied to their own registration ticket.
-- **Inviter**: receives 1 grant of 7 days in their lifetime, triggered when the inviter's 5th `status = 'granted'` ticket is confirmed. The grant is attached to that 5th ticket.
-- Inviters whose `inviter_reward_claimed_at IS NOT NULL` never receive another grant, even if they continue to refer more users.
-- Invitees continue to receive their 1-week reward regardless of where the inviter is on the 0-5 counter.
-
-### Ticket Creation Flow
-
-Tickets are created at signup, optionally, if the new user supplies an invite code.
-
-**Endpoint**: `POST /api/v1/auth/signup` (the standard signup endpoint) accepts an optional `invite_code` field in the request body.
-
-**Server-side flow**:
-
-1. Standard signup validation passes (attestation, age gate, `rejected_identifiers` pre-check, identifier uniqueness).
-2. `users` row is inserted and the auto-generated username is assigned.
-3. If `invite_code` is present and non-empty:
-   a. Resolve `invite_code` to `inviter_user_id` via the inviter's stable invite-code hash (invite codes are derived deterministically from `user_id` via HMAC + base32 truncation; see Feature Flags note below for the code format).
-   b. Validate the inviter:
-      - inviter exists, `deleted_at IS NULL`, `is_banned = FALSE`, `is_shadow_banned = FALSE`
-      - inviter account age > 30 days (anti new-account farming, matches `01-Business.md` bonus release criteria)
-      - inviter is NOT the just-created invitee (self-invite rejected)
-   c. Validate the invitee vs inviter anti-fingerprint-collision checks:
-      - invitee `device_fingerprint_hash` does NOT match the inviter's in the last 90 days
-      - invitee IP subnet (/24) does NOT match any of the inviter's last 10 login subnets
-      - inviter has not hit the "3 tickets/week" burst rate limit
-   d. On all checks passing, `INSERT INTO referral_tickets` with `status = 'pending_activity'`, `expires_at = NOW() + INTERVAL '14 days'`.
-   e. On any check failing, signup still succeeds but no ticket is created; the invitee is NOT informed of the specific failure reason (privacy + anti-probing). A generic log entry is written.
-4. Invite-code collision (rare; UNIQUE `(invitee_user_id)` on `referral_tickets`): if the just-created user already has a ticket row somehow (replay attack or retry), ON CONFLICT DO NOTHING keeps the first ticket authoritative.
-
-**Worker triggering**: A Cloud Scheduler daily job (`/internal/referral-activity-check`) scans `referral_tickets WHERE status = 'pending_activity' AND expires_at > NOW()` and runs the activity gate check documented below. Expired tickets are flipped to `status = 'expired'` by the same worker.
-
-**Invite-code format**: `INVITE-<8-char-base32>` where the 8 chars are derived from `base32(HMAC-SHA256(INVITE_CODE_SECRET, user_id.bytes))[0..8]`. Stable per user, non-enumerable without `INVITE_CODE_SECRET` (stored in GCP Secret Manager as `invite-code-secret`, generated in Pre-Phase 1). The user sees their own code in Settings and can share via any channel.
-
-**Resolution at signup** (O(1), no full-table scan): the 8-char prefix is also stored in `users.invite_code_prefix VARCHAR(8) NOT NULL UNIQUE`, populated at user-row insert time. Inviter lookup is:
-
-```sql
-SELECT id FROM users
-WHERE invite_code_prefix = :candidate_prefix
-  AND deleted_at IS NULL
-LIMIT 1;
-```
-
-In the extremely rare case of an 8-char base32 collision during concurrent signups (probability ~1e-9 at 100k users), the UNIQUE constraint fails the second insert and the signup flow retries with a 10-character prefix (extended-base32) for the losing row. Retry is capped at 3 attempts before falling back to random UUID suffix.
-
-### Worker Job (Idempotent)
-
-```kotlin
-fun processReferralActivityGate(ticket: ReferralTicket) {
-    if (ticket.expiresAt <= Instant.now()) {
-        markTicketExpired(ticket.id)
-        return
-    }
-    if (!checkActivityGate(ticket.inviteeUserId)) return
-
-    var unlockedInviterReward = false
-
-    database.withTransaction {
-        // 1. Invitee grant (one per ticket; every successful referral)
-        val inviteeGrant = insertGrantedEntitlementOrNull(
-            userId = ticket.inviteeUserId,
-            ticketId = ticket.id,
-            durationDays = 7,
-            source = "referral",
-            grantRole = "invitee"
-        ) ?: return@withTransaction
-
-        markTicketGranted(ticket.id)
-
-        // 2. Inviter milestone check: 5th successful referral, lifetime-once
-        val inviterSuccessfulCount = countGrantedTicketsForInviter(ticket.inviterUserId)
-        val inviterRewardAlreadyClaimed = isInviterRewardClaimed(ticket.inviterUserId)
-
-        if (inviterSuccessfulCount == 5 && !inviterRewardAlreadyClaimed) {
-            val inviterGrant = insertGrantedEntitlementOrNull(
-                userId = ticket.inviterUserId,
-                ticketId = ticket.id,
-                durationDays = 7,
-                source = "referral",
-                grantRole = "inviter"
-            )
-            if (inviterGrant != null) {
-                markInviterRewardClaimed(ticket.inviterUserId) // sets users.inviter_reward_claimed_at = NOW()
-                unlockedInviterReward = true
-            }
-        }
-        // inviterSuccessfulCount < 5: count only, no grant
-        // inviterSuccessfulCount > 5: no grant (cap already consumed or structurally ignored)
-    }
-
-    // RevenueCat dispatch + event logging (outside the DB transaction)
-    revenueCatClient.grantEntitlement(
-        userId = ticket.inviteeUserId,
-        entitlementId = "premium",
-        durationDays = 7,
-        dedupKey = "referral-${ticket.id}-invitee"
-    )
-    insertSubscriptionEvent(
-        userId = ticket.inviteeUserId,
-        eventType = "grant",
-        source = "referral",
-        amountRupiah = 0
-    )
-
-    if (unlockedInviterReward) {
-        revenueCatClient.grantEntitlement(
-            userId = ticket.inviterUserId,
-            entitlementId = "premium",
-            durationDays = 7,
-            dedupKey = "referral-inviter-lifetime-${ticket.inviterUserId}"
-        )
-        insertSubscriptionEvent(
-            userId = ticket.inviterUserId,
-            eventType = "grant",
-            source = "referral",
-            amountRupiah = 0
-        )
-    }
-}
-```
-
-**Helper queries**:
-
-```sql
--- countGrantedTicketsForInviter
-SELECT COUNT(*) FROM referral_tickets
-WHERE inviter_user_id = :inviter_id AND status = 'granted';
-
--- isInviterRewardClaimed
-SELECT inviter_reward_claimed_at IS NOT NULL
-FROM users WHERE id = :inviter_id;
-
--- markInviterRewardClaimed (idempotent: COALESCE preserves first-claim timestamp)
-UPDATE users
-SET inviter_reward_claimed_at = COALESCE(inviter_reward_claimed_at, NOW())
-WHERE id = :inviter_id;
-```
-
-**Idempotency layers**:
-1. `granted_entitlements UNIQUE (referral_ticket_id, user_id)` prevents duplicate grants per ticket/user.
-2. `granted_entitlements_inviter_once_idx` partial unique index prevents more than one `grant_role = 'inviter'` row per user, ever.
-3. `users.inviter_reward_claimed_at` sentinel short-circuits the milestone check before any insert attempt.
-4. RevenueCat `dedupKey` makes the external grant call idempotent on retry.
+> **Status: DESIGN** (as of 2026-05-07). `SignupService.kt` does NOT accept `invite_code`; `referral_tickets` / `granted_entitlements` tables not created; no `/internal/referral-activity-check` worker.
+>
+> Already-shipped support: `users.invite_code_prefix` (populated via `InviteCodePrefixDeriver.kt`, 10-char fallback on collision), `users.inviter_reward_claimed_at` (V2 lifetime sentinel), `subscription_events.source` accepts `'referral'`/`'manual_admin'` (V9), GCP secret slot `invite-code-secret`.
+>
+> Future proposal will define `referral_tickets` + `granted_entitlements` schema (with `granted_entitlements_inviter_once_idx` partial unique index for DB-level lifetime-cap enforcement), activity-gate worker, anti-fingerprint-collision checks at signup, and RevenueCat dispatch.
 
 ---
 
 ## Cache & Rate Limit (Upstash Redis)
 
-### Patterns
-
-- Rate limit counter: `INCR` + `EXPIRE`
-- Hot data cache: user profile, conversation metadata, `token_version`, timeline session counter
-- Attestation cache: recent verdicts TTL 1 hour
-- Geocode cache: TTL 30 days
-- Remote Config cache: TTL 5 minutes
-- Streams (post-swap): chat message persistence + fan-out
-
-### Key Format Standard (for Upstash cluster co-location)
+Rate-limit counter: `INCR` + `EXPIRE`. Hot data cache: user profile, conversation metadata, `token_version`, timeline session counter. TTLs: attestation 1h, geocode 30d, Remote Config 5 min. Streams (post-swap): chat persistence + fan-out. Key format standard (cluster co-location):
 
 ```
 rate:{user:<user_id>}:<action>
@@ -1690,28 +1105,26 @@ remote_config:{flag:<flag_name>}
 geocode:{geocell:<lat2dp>_<lng2dp>}
 ```
 
-Hash tag `{scope:<value>}` ensures same-scope keys map to the same Redis slot. Multi-key ops (MULTI/EXEC, Lua) are safe. CI lint rule rejects raw keys that don't include a hash tag. Note: the global circuit breaker uses `{global:1}` as a singleton scope so the single shared counter still has a stable slot.
+Hash tag `{scope:<value>}` ensures same-scope keys land on the same Redis slot (multi-key ops safe). `RedisHashTagRule` Detekt rule rejects keys without a hash tag. Global circuit breaker uses `{global:1}` as a singleton scope so the shared counter still has a stable slot.
 
 ---
 
 ## Rate Limiting Implementation (4-Layer, Hardened)
 
-> **Layer 2 shipped** via change `like-rate-limit` (`rate-limit-infrastructure` capability) — see `openspec/specs/rate-limit-infrastructure/spec.md` for the canonical contract. Production binding is the Redis-backed `RedisRateLimiter` in `:infra:redis` (single-Lua sliding-window script, hash-tag-formatted keys, `withContext(Dispatchers.IO)` wrap at the call site). The `RateLimiter` interface lives in `:core:domain` so business code depends on the contract, not Lettuce. The `computeTTLToNextReset(userId)` shared function + the hash-tag key format are enforced at every daily-rate-limit call site by `RateLimitTtlRule` and `RedisHashTagRule` Detekt rules. V9's `ReportRateLimiter` (10/hour) is also ported to this infra. **Like rate limit on `POST /api/v1/posts/{post_id}/like`** ships under the same change: 10/day Free + 500/hour burst (both tiers), `premium_like_cap_override` Remote Config flag, idempotent re-like releases the slot. **Reply rate limit on `POST /api/v1/posts/{post_id}/replies`** ships under change `reply-rate-limit` (consumes the same `rate-limit-infrastructure` capability) — see `openspec/specs/post-replies/spec.md` § "Daily rate limit — 20/day Free, unlimited Premium, with WIB stagger" for the canonical contract: 20/day Free, unlimited Premium, daily-only (no burst clause per `02-Product.md:224`), `premium_reply_cap_override` Remote Config flag (default 20, oversized-flag clamp at 10,000, mirrors the like flag's contract), no `releaseMostRecent` escape hatch (no idempotent re-action equivalent on `post_replies` since every successful POST is a real new row). DELETE / GET unaffected. **Chat send rate limit on `POST /api/v1/chat/{conversation_id}/messages`** ships under change `chat-rate-limit` (also consumes `rate-limit-infrastructure`) — see `openspec/specs/chat-conversations/spec.md` § "Daily send-rate cap — 50/day Free, unlimited Premium, with WIB stagger" for the canonical contract: 50/day Free, unlimited Premium, daily-only (no burst clause per `02-Product.md:318`), `premium_chat_send_cap_override` Remote Config flag (default 50, oversized-value fallback threshold at 10,000 — values above the threshold fall back to the default 50, not a clamp value applied to the override), no `releaseMostRecent` escape hatch (every successful POST is a real new row in `chat_messages` since there is no UNIQUE constraint analogous to the like handler's `(post_id, user_id)`). GET `/messages`, GET `/conversations`, and POST `/conversations` are NOT rate-limited at the per-endpoint layer (read-side throttling lives at the session/hourly layer; conversation-create is rare and already serialized by the user-pair advisory lock from chat-foundation). Layer 1 / Layer 3 / Layer 4 remain future work.
+> **Layer 2 shipped** via change `like-rate-limit` (`rate-limit-infrastructure` capability) — see `openspec/specs/rate-limit-infrastructure/spec.md` for the canonical contract. Production binding: Redis-backed `RedisRateLimiter` in `:infra:redis` (single-Lua sliding-window script, hash-tag-formatted keys, `withContext(Dispatchers.IO)` wrap at the call site). `RateLimiter` interface lives in `:core:domain`. `computeTTLToNextReset(userId)` + hash-tag key format enforced by `RateLimitTtlRule` and `RedisHashTagRule` Detekt rules. V9's `ReportRateLimiter` (10/hour) is also ported.
+>
+> Shipped per-endpoint limits:
+> - Like `POST /api/v1/posts/{post_id}/like`: 10/day Free + 500/h burst (both tiers), `premium_like_cap_override` flag, idempotent re-like releases the slot.
+> - Reply `POST /api/v1/posts/{post_id}/replies`: 20/day Free, unlimited Premium, daily-only (no burst per `02-Product.md:224`), `premium_reply_cap_override` flag, no `releaseMostRecent`.
+> - Chat send `POST /api/v1/chat/{conversation_id}/messages`: 50/day Free, unlimited Premium, daily-only, `premium_chat_send_cap_override` flag, no `releaseMostRecent`. GET endpoints + POST `/conversations` are not per-endpoint rate-limited.
+>
+> Layers 1 / 3 / 4 remain future work.
 
 ### Layer 1: Per IP + Attestation-Gated Guest Token + Pre-Issuance Rate Limits
 
-**Guest flow**:
-1. First app open: client collects Play Integrity (Android) or App Attest (iOS)
-2. `POST /api/v1/guest/session` with attestation payload + device fingerprint hash
-3. Server verifies attestation (Google/Apple public key)
-4. Attestation passes then check pre-issuance rate limits (below) then issue short-lived guest JWT (TTL 24 hours, signed server-side, with `jti` claim)
-5. Attestation fails then return 403, block guest flow
-6. Client stores guest JWT in secure storage
-7. Client includes header `Authorization: Guest <jwt>` on guest requests
-8. Rate limit post-issuance: compound key `rate:{jti:<guest_jwt_jti>}:<ip>`, 100 req/min
-9. Re-attestation: when JWT expires, client redoes the flow (no auto-refresh)
+**Guest flow**: client collects Play Integrity (Android) or App Attest (iOS) on first app open → `POST /api/v1/guest/session` with attestation payload + device fingerprint hash → server verifies → attestation passes + pre-issuance limits OK → issue short-lived guest JWT (TTL 24h, with `jti` claim) → client includes `Authorization: Guest <jwt>` on guest requests → post-issuance rate limit on compound key `rate:{jti:<guest_jwt_jti>}:<ip>`, 100 req/min. JWT expiry = re-attestation (no auto-refresh). Attestation failure = 403.
 
-**Pre-issuance rate limits (defense in depth for attestation-bypass + CGNAT flood)**:
+**Pre-issuance rate limits** (defense-in-depth for attestation-bypass + CGNAT flood):
 
 | Layer | Key | Limit | TTL |
 |-------|-----|-------|-----|
@@ -1720,24 +1133,15 @@ Hash tag `{scope:<value>}` ensures same-scope keys map to the same Redis slot. M
 | 1c. Device fingerprint | `rate:guest_issue:{fp:<fp_hash>}` | 5 tokens/hour | 1 hour |
 | 1d. Global circuit breaker | `rate:guest_issue_global:{global:1}` | 10k tokens/min | 1 minute |
 
-**Device fingerprint in request body**:
+**Device fingerprint** (in request body, hashed SHA256 client-side):
 - Android: `Settings.Secure.ANDROID_ID` + app signature hash
 - iOS: `identifierForVendor` + bundle ID hash
-- Hash SHA256 client-side before sending (optional privacy layer)
 
-**CGNAT mitigation**:
-- IP limit hit but fingerprint not yet: allow 1 token + log flag `cgnat_suspected=true`
-- IP limit AND fingerprint limit both hit: block + user-facing error "terlalu banyak permintaan dari jaringan ini, coba WiFi lain atau login"
-- Global circuit breaker: prevents DDoS amplification
+**CGNAT mitigation**: IP limit hit but fingerprint not yet → allow 1 token + log `cgnat_suspected=true`. Both hit → block + user-facing "terlalu banyak permintaan dari jaringan ini, coba WiFi lain atau login". Global circuit breaker prevents DDoS amplification.
 
-**Authenticated user IP baseline**: 1000 req/min/IP (measured off the `CF-Connecting-IP` header when Cloudflare is in front; see "Cloudflare-Fronted IP Extraction" below). This is a Layer 1 baseline that applies to all authenticated traffic in addition to the Layer 2 per-user quotas.
+**Authenticated user IP baseline**: 1000 req/min/IP (measured off `CF-Connecting-IP` via the shipped `ClientIpExtractor` plugin).
 
-**Guest permissions**:
-- Read Global timeline (latest 10 posts)
-- No write access (post, like, reply, chat, follow)
-- No profile view
-
-**Upgrade path**: when the user logs in with Google/Apple + attestation, the guest session token is invalidated and replaced with an authenticated JWT.
+**Guest permissions**: read Global timeline (latest 10 posts) only — no write, no profile view. **Upgrade path**: on Google/Apple sign-in + attestation, the guest token is invalidated and replaced with an authenticated JWT.
 
 ### Layer 2: Per User (with WIB Stagger)
 
@@ -1746,95 +1150,38 @@ Hash tag `{scope:<value>}` ensures same-scope keys map to the same Redis slot. M
 | Post | 10/day Free, unlimited Premium |
 | Reply | 20/day Free, unlimited Premium |
 | Chat | 50/day Free, unlimited Premium |
-| Like | 10/day Free + 500/hour burst, unlimited Premium + 500/hour burst |
-| Follow | 50/hour |
-| Report | 20/hour |
-| Block/Unblock | 30/hour |
-| Search query (Premium) | 60/hour |
+| Like | 10/day Free + 500/h burst (both tiers); Premium otherwise unlimited |
+| Follow | 50/h |
+| Report | 20/h |
+| Block/Unblock | 30/h |
+| Search (Premium) | 60/h |
 | Image upload (Premium, Month 6+) | 50/day + 1/60 sec throttle |
-| Timeline read Free | 150 posts/hour rolling (hard, authoritative), 50/session (soft UX nudge) |
-| Timeline read Guest | 30 posts/hour rolling (hard), 10/session (soft UX nudge) |
-| Username change (Premium) | 1 successful change per 30 days (DB-enforced), 10 failed attempts/hour (anti-probe) |
-| Username availability probe | 3/day per user |
+| Timeline read Free | 150 posts/h rolling (hard); 50/session (soft) |
+| Timeline read Guest | 30 posts/h rolling (hard); 10/session (soft) |
 
-**Timezone reset stagger** (prevents thundering herd at 00:00 WIB):
-- Reset offset per user = `hash(user_id) % 3600` seconds
-- Effective reset window: 00:00 to 01:00 WIB, linearly distributed
-- Redis key TTL = time until `next_00:00_WIB + offset`
-- **Centralized in the shared function** `computeTTLToNextReset(user_id)`, with lint rule enforcing usage at every daily rate limit endpoint (hourly limits do not use this stagger)
+**Timezone reset stagger** (prevents thundering herd at 00:00 WIB): per-user reset offset = `hash(user_id) % 3600` seconds (effective reset window 00:00-01:00 WIB, linearly distributed). Redis key TTL = time until `next_00:00_WIB + offset`. Centralized in `computeTTLToNextReset(user_id)`; `RateLimitTtlRule` Detekt rule enforces usage at every daily-rate-limit endpoint (hourly limits skip the stagger).
 
-**Rejected alternative**: rolling 24h window. UX hard to understand, Redis sliding window complex.
+**Rejected alternative**: rolling 24h window — UX confusing, Redis sliding window complex.
 
 ### Layer 3: Per Google/Apple ID
 
-1 identifier = 1 active account. Sticky ban. The same human signing up with Google + Apple becomes 2 separate accounts (no linking).
+1 identifier = 1 active account. Sticky ban. Same human signing up with Google + Apple = 2 separate accounts (no linking).
 
 ### Layer 4: Per Area (anti local spam)
 
-Max 50 new posts within a 1km radius within 1 hour (via `display_location` spatial query). When the threshold is hit: manual review.
-
-Implementation: Redis counter (INCR + EXPIRE) in Upstash.
+Max 50 new posts in a 1km radius / 1h (via `display_location` spatial query). Threshold hit → manual review. Redis INCR + EXPIRE counter.
 
 ---
 
-## CSAM Detection Archive Schema
+## CSAM Detection Archive — DESIGN
 
-Schema for 90-day preservation (bypasses cascade delete):
-
-```sql
-CREATE TABLE csam_detection_archive (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    cf_match_id TEXT,
-    image_hash TEXT NOT NULL,
-    original_post_id UUID,
-    user_id_at_detection UUID,
-    cf_report_url TEXT,
-    ncmec_report_id TEXT,
-    kominfo_report_id TEXT,
-    kominfo_reported_at TIMESTAMPTZ,
-    source VARCHAR(16) NOT NULL DEFAULT 'admin_manual'
-        CHECK (source IN ('admin_manual', 'cf_worker', 'email_poll')),
-    expires_at TIMESTAMPTZ NOT NULL,
-    encrypted_metadata BYTEA
-);
-
--- Deduplication across handler invocations: same CF match should never archive twice.
--- cf_match_id is UNIQUE when present; image_hash-based fallback covers the legacy
--- case where CF email did not include a match id.
-CREATE UNIQUE INDEX csam_archive_cf_match_unique ON csam_detection_archive(cf_match_id) WHERE cf_match_id IS NOT NULL;
-CREATE UNIQUE INDEX csam_archive_image_hash_unique ON csam_detection_archive(image_hash);
-CREATE INDEX csam_archive_expires_idx ON csam_detection_archive(expires_at);
-CREATE INDEX csam_archive_kominfo_idx ON csam_detection_archive(kominfo_reported_at) WHERE kominfo_reported_at IS NULL;
-CREATE INDEX csam_archive_source_idx ON csam_detection_archive(source, detected_at DESC);
-```
-
-**Deduplication semantics**: handler invocations across the three trigger paths (admin manual, CF Worker, email poll) MUST be idempotent. When inserting:
-
-```sql
-INSERT INTO csam_detection_archive (...)
-VALUES (...)
-ON CONFLICT (image_hash) DO UPDATE
-SET source = CASE
-        WHEN csam_detection_archive.source = 'admin_manual' THEN csam_detection_archive.source
-        ELSE EXCLUDED.source
-    END,
-    cf_match_id = COALESCE(csam_detection_archive.cf_match_id, EXCLUDED.cf_match_id),
-    cf_report_url = COALESCE(csam_detection_archive.cf_report_url, EXCLUDED.cf_report_url)
-RETURNING id;
-```
-
-The `ON CONFLICT` guard ensures the first successful archive (admin-triggered in MVP) wins as the canonical record; later invocations by the Worker path enrich the row but do not reset it.
-
-**Partial index note**: the `expires_at` index is a plain B-tree (no `WHERE expires_at > NOW()` predicate). PostgreSQL rejects partial-index predicates that reference `NOW()` because it is `STABLE`, not `IMMUTABLE`. The purge worker's query filters at runtime; the index covers both the forward-range lookup and the purge-worker's `WHERE expires_at < NOW()` scan.
-
-> See `06-Security-Privacy.md` for Kominfo reporting SOP, encryption strategy (AES-256 with `csam-archive-aes-key` from GCP Secret Manager), and purge worker.
+> **Status: DESIGN** (as of 2026-05-07). No migration ships `csam_detection_archive`; no Kotlin consumes it. Secret slots `csam-archive-aes-key` + `cf-worker-csam-secret` provisioned. Future proposal will define schema (90-day preservation bypassing cascade-delete, `cf_match_id`/`image_hash` UNIQUE for idempotent dedup), AES-256-encrypted metadata column, trigger paths (admin manual / CF Worker / email poll). See `06-Security-Privacy.md` for Kominfo reporting SOP.
 
 ---
 
 ## Admin Actions Log Schema
 
-Canonical version (also referenced from `07-Operations.md`):
+Canonical (also referenced from `07-Operations.md`):
 
 ```sql
 CREATE TABLE admin_actions_log (
@@ -1856,7 +1203,7 @@ CREATE INDEX admin_actions_target_idx ON admin_actions_log(target_type, target_i
 CREATE INDEX admin_actions_type_idx ON admin_actions_log(action_type, created_at DESC);
 ```
 
-Immutable: revoked UPDATE/DELETE at the role level for `admin_app`. Retention 1 year minimum.
+Immutable: UPDATE/DELETE revoked at the role level for `admin_app`. Retention 1 year minimum.
 
 ---
 
@@ -1880,113 +1227,40 @@ WHERE u.deleted_at IS NULL
     AND u.is_shadow_banned = FALSE;
 ```
 
-**Rules for code**:
-- Timeline query: `FROM visible_posts` (not `posts`)
-- User profile query: `FROM visible_users`
-- Counter aggregation (likes, replies): JOIN `visible_users` to exclude banned contributions
-- Chat delivery: filter when consuming from Supabase Realtime broadcast (application-level)
-- Search: `FROM visible_posts` JOIN `visible_users`
-- Notification trigger: consume from `visible_posts`
-- Follower/following list: JOIN `visible_users`
+**Rules for code**: timeline / search use `FROM visible_posts`; user profile uses `FROM visible_users`; like/reply counters JOIN `visible_users`; notifications consume `visible_posts`; follower/following list JOINs `visible_users`; chat delivery filters at the application layer when consuming from Supabase Realtime.
 
-**Exception for own content**: a banned user sees their own content normally. The own-content query path bypasses the view with `WHERE author_id = current_user_id OR viewer_id = current_user_id`. Centralized in the Repository layer.
+**Own-content exception**: a banned user sees their own content normally. The own-content path bypasses the views with `WHERE author_id = current_user_id OR viewer_id = current_user_id`, centralized in the Repository layer.
 
-**CI check (mandatory)**: lint rule / pre-commit hook detects raw `FROM posts` / `FROM users` / `FROM post_replies` in business queries (allowed only in the Repository own-content path + admin module). Prevents leaks in future commits.
+`RawFromPostsRule` Detekt rule detects raw `FROM posts` / `FROM users` / `FROM post_replies` in business queries (allowed only in the Repository own-content path + admin module).
 
 ---
 
-## Cloudflare-Fronted IP Extraction
+## Client IP Extraction
 
-All inbound HTTPS traffic to `api.nearyou.id` and `admin.nearyou.id` transits Cloudflare. Cloud Run sees the Cloudflare edge IP in `X-Forwarded-For`, NOT the real client IP. The real client IP is carried in the `CF-Connecting-IP` header.
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/common/ClientIpExtractor.kt`. Update both when changing the precedence ladder.
 
-### Middleware
+All inbound HTTPS to `api.nearyou.id` / `admin.nearyou.id` transits Cloudflare; Cloud Run sees the CF edge IP in `X-Forwarded-For`. The real client IP is carried in `CF-Connecting-IP`.
 
-A Ktor intercept at the top of the request pipeline extracts the client IP with the following precedence:
+The `ClientIpExtractorPlugin` (top of the request pipeline) resolves IP with this precedence:
+1. `CF-Connecting-IP` header (Cloudflare origin-pull path; production + staging trustworthy).
+2. First entry in `X-Forwarded-For` (fallback for local dev without Cloudflare).
+3. `call.request.origin.remoteHost` (last-resort).
 
-1. `CF-Connecting-IP` header if present (Cloudflare origin-pull path)
-2. First entry in `X-Forwarded-For` if no `CF-Connecting-IP` (local dev + staging where Cloudflare may be absent)
-3. `call.request.origin.remoteHost` as a last-resort fallback
-
-The extracted IP is attached to the request context as `ClientIp` and used by every rate-limit key construction, audit log entry, and `admin_sessions.ip` / `admin_actions_log.ip` write.
-
-### Spoof Protection
-
-Cloudflare sets `CF-Connecting-IP` only on traffic that actually flows through its edge. Direct hits to the Cloud Run URL (`*.run.app`) would bypass Cloudflare entirely, so:
-
-- Cloud Run ingress is set to "Internal and Cloud Load Balancing" + a Cloud Armor policy in front allowing only Cloudflare's published IP ranges. This forces all production traffic through the CF edge and makes `CF-Connecting-IP` trustworthy.
-- Alternatively (simpler, accepted for Phase 1 MVP until Cloud Armor is wired): a Ktor middleware check that `X-Forwarded-For`'s last entry belongs to a known Cloudflare range; reject requests without a CF edge as the last hop.
-
-### Staging Note
-
-`api-staging.nearyou.id` also sits behind Cloudflare. Same extraction logic applies. Local dev (`localhost`) has no Cloudflare and falls through to the remoteHost fallback.
+Stored under `ClientIpAttributeKey` (`AttributeKey<String>("ClientIp")`); consumers read via `call.clientIp`. Used by every rate-limit key, audit log entry, `admin_sessions.ip`, `admin_actions_log.ip`. Direct reads of `X-Forwarded-For` are forbidden by Detekt rule `RawXForwardedForRule`. Staging (`api-staging.nearyou.id`) sits behind Cloudflare; local dev falls through to remoteHost.
 
 ---
 
-## Content Moderation Keyword Lists (Storage + Management)
+## Content Moderation Keyword Lists — DESIGN
 
-Two categories of keyword/pattern lists drive text and username moderation:
-
-- **Profanity blocklist**: ~200-500 entries (Indonesian + common English profanity). Drafted in Pre-Phase 1 via AI + manual review (0.5 day budget).
-- **UU ITE keyword list**: SARA, defamation, incitement patterns. Drafted in Pre-Phase 1 (1 day budget), quarterly review cadence with legal advisor.
-
-### Storage
-
-- **Primary**: Firebase Remote Config string-array parameters `moderation_profanity_list` and `moderation_uu_ite_list`. Version-controlled via the Firebase Remote Config history feature. Editable by admins with audit-logged changes.
-- **Fallback (repo-committed)**: `/backend/src/main/resources/moderation/profanity.default.txt` and `uu_ite.default.txt`. Used when Remote Config fetch fails or the server is cold-starting without network.
-- **Hot-reload**: the same Remote Config 5-minute Redis cache used for feature flags. Key format: `remote_config:{flag:moderation_profanity_list}` etc.
-- **Secret slot**: the signed/integrity-checked version of the list (optional, for defense against Remote Config write compromise) is stored in GCP Secret Manager as `content-moderation-fallback-list` (comma-separated, version-pinned). Used only if a boot-time integrity check against Remote Config fails.
-
-### Loader Mechanism
-
-A single `ModerationListLoader` service wraps list resolution with deterministic fallback order:
-
-1. **Hot path (default)**: read from Redis cache at `remote_config:{flag:moderation_profanity_list}` (TTL 5 min), populated by the Remote Config Redis refresher worker.
-2. **Cache miss**: fetch from Firebase Remote Config directly via the Admin SDK, populate the Redis cache, and return.
-3. **Remote Config unreachable** (network error, quota exceeded): log a WARN-level `moderation.remote_config_unavailable` event to Sentry, increment a circuit breaker counter, and return the repo-committed fallback file contents (read once at boot, held in a `LazyHolder` object for the process lifetime).
-4. **Integrity check**: when the circuit breaker counter exceeds 10 consecutive failures, the loader switches to the `content-moderation-fallback-list` Secret Manager slot as the canonical source; returns to Remote Config after a successful fetch.
-
-**Reload cadence**: the Redis cache TTL (5 minutes) is the effective reload interval. No long-polling or pubsub needed. The Aho-Corasick automaton is rebuilt on cache miss inside the loader (amortized: one build per 5 minutes per service instance).
-
-**Testing**: unit tests cover (a) Remote Config happy path, (b) fallback file path when Remote Config throws, (c) Secret Manager switchover after N failures, (d) automaton rebuild correctness. Integration test verifies that flipping a Remote Config value propagates to the matcher within the cache TTL + 1 minute jitter.
-
-### Matching Engine
-
-- Case-insensitive substring match with word-boundary regex: `\b<keyword>\b` (Unicode aware to handle Indonesian + leetspeak variants)
-- Aho-Corasick automaton built at service start + rebuilt when the cache invalidates
-- Match score = count of distinct keywords hit; threshold for "high score" = 3+ distinct matches (tunable via Remote Config key `moderation_match_threshold`)
-
-### Review Cadence
-
-- UU ITE list: quarterly review with legal advisor (documented as Open Decision 10 in `08-Roadmap-Risk.md`). Changes written via the Admin Panel Feature Flag Admin surface with audit entry.
-- Profanity list: ad-hoc update; admins can add/remove entries via the Admin Panel with audit log.
+> **Status: DESIGN** (as of 2026-05-07). No `ModerationListLoader`, no Aho-Corasick matcher; Remote Config keys `moderation_profanity_list` / `moderation_uu_ite_list` / `moderation_match_threshold` reserved (no Kotlin consumer). Fallback resource files not committed. Secret slot `content-moderation-fallback-list` reserved. Future proposal will define storage layers (Remote Config primary + repo fallback + Secret Manager last-resort), deterministic fallback ladder (Redis 5-min cache → Remote Config → file → Secret Manager), Aho-Corasick matching engine, threshold-based "high score", quarterly UU ITE legal-advisor review.
 
 ---
 
 ## Health Check Implementation
 
-```kotlin
-route("/health") {
-    get("/live") {
-        call.respondText("OK", ContentType.Text.Plain, HttpStatusCode.OK)
-    }
-    get("/ready") {
-        val checks = coroutineScope {
-            listOf(
-                async { checkPostgres() },   // SELECT 1, timeout 500ms
-                async { checkRedis() },      // PING, timeout 200ms
-                async { checkSupabaseRT() }  // GET /rest/v1/, timeout 500ms
-            ).awaitAll()
-        }
-        if (checks.all { it.ok }) {
-            call.respond(HttpStatusCode.OK, mapOf("status" to "ready", "checks" to checks))
-        } else {
-            call.respond(HttpStatusCode.ServiceUnavailable, mapOf("status" to "degraded", "checks" to checks))
-        }
-    }
-}
-```
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/health/`.
 
-Both are rate-limited: 60 req/min/IP (anti-scrape).
+`GET /health/live` returns plain `OK`. `GET /health/ready` runs three checks in parallel — Postgres `SELECT 1` (500ms timeout), Redis `PING` (200ms), Supabase Realtime `GET /rest/v1/` (500ms) — and returns 200 if all OK or 503 with the checks payload otherwise. Both endpoints rate-limited 60 req/min/IP (anti-scrape).
 
 ---
 
@@ -1994,60 +1268,32 @@ Both are rate-limited: 60 req/min/IP (anti-scrape).
 
 ### Spatial Queries
 
-- PostGIS `ST_DWithin` for radius filtering (uses `display_location`)
-- PostGIS `ST_Contains` for reverse geocoding `city_name` (uses `actual_location`)
-- GIST index on geometry columns (posts has dual: display + actual, plus `admin_regions`)
-- Cursor-based pagination avoids OFFSET scan + composite `(created_at, id)` index
-- Exclude soft-deleted + shadow-banned + blocked + auto-hidden users/posts in all queries (via `visible_posts` view + `is_auto_hidden` flag + block subquery)
-
-Performance target: <100ms standard radius query. Dense Jakarta at 100km with 50k MAU + view filter can be slow. Mitigation:
-- Composite index `(created_at DESC, author_id)` on posts
-- Partial index for high-density areas
-- Benchmark mandatory in Phase 2; evaluate pre-materialized timeline (H3 hex) if needed
+- PostGIS `ST_DWithin` for radius filtering (uses `display_location`); `ST_Contains` for reverse geocoding `city_name` (uses `actual_location`).
+- GIST index on geometry columns (posts has dual: display + actual, plus `admin_regions`).
+- Cursor-based pagination + composite `(created_at, id)` index avoids OFFSET scan.
+- Exclude soft-deleted + shadow-banned + blocked + auto-hidden users/posts via `visible_posts` view + `is_auto_hidden` flag + block subquery.
+- Target <100ms for standard radius query. Mitigations for dense Jakarta @ 100km / 50k MAU: composite `(created_at DESC, author_id)` index, partial index for high-density areas, Phase 2 benchmark, pre-materialized timeline (H3 hex) if needed.
 
 ### Security
 
-- JWT validation middleware, RS256 primary + HS256 companion; `token_version` claim compared on every request
-- RLS regex-guarded `split_part` pattern + `auth.jwt()->>'sub'` check + test cases for malformed topics
-- Token version check with Redis cache TTL 5 minutes + DB fallback
-- Input sanitization on every endpoint, length enforcement per content type
-- 4-layer rate limiting (attestation-gated guest + pre-issuance limits, user + WIB stagger, identifier, area)
-- HTTPS enforced; WSS enforced for Supabase Realtime
-- Google/Apple ID hashed in logs
-- Device attestation mandatory (Play Integrity + App Attest) + bypass whitelist via Remote Config
-- Device fingerprinting (correlation signal only)
-- OIDC auth on `/internal/*`
-- RevenueCat webhook: Bearer + HMAC signature
-- Refresh token reuse detection + family revocation
-- CSAM detection via CF Scanning Tool + webhook auto-action + archive + Kominfo report
-- Anomaly detection metrics + Sentry/Slack alerts
-- Age gate 18+ only (UU PDP compliance)
-- `rejected_identifiers` blocklist for under-18 signup bypass prevention
-- HMAC-based jitter for anti-triangulation coordinate fuzzing
-- Backup pg_dump + `age` stream encryption before R2 upload
-- Block filter enforced at repository layer + CI lint
-- Admin panel via scoped `admin_app` DB role (separate credential from main API)
-- Premium username customization: 30-day cooldown + 30-day release hold via `username_history` + profanity/UU ITE moderation check + feature flag kill switch
-- Environment separation: staging and production isolated at every layer (Cloud Run service, Supabase project, Upstash DB, R2 bucket, subdomain, GCP Secret Manager namespace, Firebase project, RevenueCat sandbox)
-- Client IP extracted from `CF-Connecting-IP` with Cloudflare-edge enforcement (Cloud Armor ingress allowlist or XFF last-hop check)
-- Content moderation keyword lists: Firebase Remote Config primary + repo-committed fallback + Aho-Corasick matcher, quarterly UU ITE review with legal advisor
+- JWT validation middleware (RS256 primary + HS256 companion); `token_version` claim compared on every request.
+- RLS regex-guarded `split_part` + `auth.jwt()->>'sub'` check, with malformed-topic test cases.
+- Token version check via Redis 5-minute cache + DB fallback.
+- Input sanitization + length enforcement per content type.
+- 4-layer rate limiting (attestation-gated guest + pre-issuance, user + WIB stagger, identifier, area).
+- HTTPS / WSS enforced. Google/Apple ID hashed in logs.
+- Device attestation mandatory (Play Integrity + App Attest) + bypass whitelist via Remote Config; device fingerprint as correlation signal only.
+- OIDC auth on `/internal/*`. Refresh-token reuse detection + family revocation.
+- Anomaly detection metrics + Sentry/Slack alerts. Age gate 18+ (UU PDP). `rejected_identifiers` blocklist for under-18 bypass prevention.
+- HMAC-based jitter for anti-triangulation. Backup `pg_dump` + `age` stream encryption before R2 upload.
+- Block filter at repository layer + `BlockExclusionJoinRule`. Admin panel via scoped `admin_app` DB role.
+- Environment separation at every layer (Cloud Run, Supabase, Upstash, R2, GCP Secret Manager).
+- Client IP via `CF-Connecting-IP` + shipped `ClientIpExtractor` plugin.
 
 ### Performance
 
-- GIST indexes spatial (dual: display + actual)
-- HikariCP max 20 connections per Ktor instance + Supabase PgBouncer
-- Upstash Redis caching + Streams (post-swap)
-- CTE batching mandatory on timeline endpoint
-- GIN indexes (FTS + trgm) on `posts.content`
-- OTel tracing for latency root-cause analysis
+GIST indexes spatial (dual: display + actual); HikariCP max 20 connections per Ktor instance + Supabase PgBouncer; Upstash Redis caching + Streams (post-swap); CTE batching mandatory on timeline endpoint; GIN indexes (FTS + trgm) on `posts.content`; OTel tracing for latency root-cause.
 
 ### Observability
 
-- Structured JSON logging
-- Metrics: GCP Cloud Monitoring + Supabase dashboard
-- Backend + mobile errors: Sentry KMP unified, dSYM + ProGuard mappings uploaded via CI
-- Traces: OTel SDK to Grafana Cloud (100% head sampling in dev Phase 2, 10% base + 100% error/slow in production)
-- Product analytics: Amplitude funnels + cohorts + retention (consent-gated per UU PDP)
-- DB size alert at 60/75/90% of cap (start Month 3)
-- Security event logs: attestation failures, reuse detection triggers, rate limit hits, RLS denials, JWT verify fail spikes, CSAM detection events, age gate rejections, webhook signature fails, `rejected_identifiers` inserts
-- Health check `/health/ready` monitored by Cloud Run native probe + external uptime check
+Structured JSON logging; metrics via GCP Cloud Monitoring + Supabase dashboard; Sentry KMP unified for backend + mobile errors (dSYM + ProGuard mappings via CI); OTel SDK to Grafana Cloud (100% head sampling dev Phase 2, 10% base + 100% error/slow prod); Amplitude funnels/cohorts/retention (consent-gated per UU PDP); DB size alert at 60/75/90% of cap from Month 3; security event logs cover attestation failures, reuse detection, rate limit hits, RLS denials, JWT verify spikes, age gate rejections, webhook signature fails, `rejected_identifiers` inserts. `/health/ready` monitored by Cloud Run native probe + external uptime check.
