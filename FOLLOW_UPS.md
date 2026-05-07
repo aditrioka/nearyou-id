@@ -7,7 +7,7 @@ Transient working file for findings discovered during a change cycle that are NO
 - **Delete the entry once all its action items are merged.** Do NOT let `triaged` entries linger — if residual work remains, either (a) move it to the canonical doc that owns the topic (e.g., launch-prerequisite tasks → `docs/08-Roadmap-Risk.md` Pre-Launch list, runbook tweaks → `docs/07-Operations.md` Deployment Runbook), or (b) replace the entry with a fresh one scoped to the residual work. Triaged-but-not-deleted entries are how this file rots.
 - Delete the file itself when it has zero entries left.
 - Recreate the file (with this same intro blurb) the next time a finding arises.
-- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-07 (post-triage sweep) found 28 open + 0 triaged; approaching the hard limit. All remaining entries are legitimately outstanding (zero silent-resolutions detected) — the queue drains via `/next-change` promotions or chore-PR migrations rather than deletions.
+- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-08 (post-triage sweep) found 26 open + 0 triaged; below the hard limit. The 2026-05-08 sweep deleted 1 silently-resolved entry (`fcm-firebase-import-boundary-detekt-rule` — covered by `VendorSdkLeakageScanTest`) and migrated 1 entry to canonical docs (`grafana-otlp-token-scope-tightening` → `docs/08-Roadmap-Risk.md` Pre-Launch checklist). Of the 26 remaining entries, 10 are deferred-by-trigger (Phase 3.5 schema, rule of three, user-growth signals, SDK upstream fixes), 9 are OpenSpec-shaped pending promotion via `/next-change`, 1 is in-flight promotion (`rate-limit-ip-hashing`), and 6 are regular-PR-shaped test/doc tightening work.
 
 Format per entry:
 
@@ -75,30 +75,6 @@ Format per entry:
 - [ ] File OpenSpec change `rate-limit-bypass-health-endpoints` that mounts rate-limit middleware on a sub-route subtree excluding `/health/*` (cleanest pattern: `route("/api/v1") { install(RateLimit) { ... } ; ...routes... }` instead of installing globally).
 - [ ] Add regression test asserting `/health/ready` does NOT execute the rate-limit Lua script.
 - [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
-
----
-
-## grafana-otlp-token-scope-tightening
-
-**Discovered during:** `observability-otel-foundation` operator setup at task-execution time — Grafana Cloud's "OpenTelemetry setup wizard" (`https://<stack>.grafana.net/.../otel/instrumentation`) generates API tokens with **bundled scopes** (`metrics:write`, `logs:write`, `traces:write`, `profiles:write`, `stacks:read`) and does NOT expose per-scope toggles in its UI. The token created for staging slot `staging-otel-grafana-otlp-token` is over-privileged vs the `traces:write`-only ideal.
-**Status:** open
-
-**Finding:** Principle-of-least-privilege violation. Token in GCP Secret Manager (mitigated by IAM grants — Cloud Run SA-only access) carries write permissions to metrics + logs + profiles planes we don't use, plus `stacks:read` admin scope we don't need. Blast radius if token leaks: attacker can write garbage to all data planes (not just traces) + read stack metadata. Acceptable for pre-launch staging (synthetic data, no production users), unacceptable for production tag-deploy.
-
-**Specs at fault:** None — the spec at `openspec/specs/observability-otel-foundation/spec.md` (post-archive) is intentionally silent on token scope provisioning (operator concern, not capability behavior).
-**Code at fault:** None — `OtelBootstrap` doesn't care about scope; it just authenticates with whatever credential the slot contains.
-**Docs at fault:** [`docs/10-Setup-Checklist.md`](docs/10-Setup-Checklist.md) § 3.7 mentions "Read+Write trace permissions only — no metric/log scope" but the wizard UI doesn't honor the operator's intent. Doc is aspirationally correct; reality requires custom Access Policy path.
-
-**Impact (if shipped):** Medium pre-launch (GCP Secret Manager IAM is the primary defense; token leak requires GCP credential compromise first). High at production tag-deploy (real user data, regulatory considerations).
-
-**Ambiguity to resolve first:** Whether to apply this to staging slots retroactively or only enforce on production. Recommend: tighten production from day-one (custom Access Policy with `traces:write` only + custom token), leave staging as-is until next regular rotation.
-
-**Action items:**
-- [ ] Before production tag-deploy: navigate to Grafana Cloud Portal (`https://grafana.com/orgs/<org>/access-policies`), create custom Access Policy `nearyou-prod-traces-write-only` with realm = stack `nearyouid`, scope = `traces:write` only.
-- [ ] Generate token from that policy, populate `otel-grafana-otlp-token` slot in `nearyou-production` GCP Secret Manager project.
-- [ ] Optional staging hardening: rotate `staging-otel-grafana-otlp-token` to a custom-policy-generated token at next convenient maintenance window.
-- [ ] Update [`docs/10-Setup-Checklist.md`](docs/10-Setup-Checklist.md) § 3.7 to document the Access Policy path as the canonical token-mint procedure (current OTLP wizard path is convenient-but-over-privileged shortcut).
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after production token rotation.
 
 ---
 
@@ -522,23 +498,6 @@ What's missing: a test that boots `Application.module()` with a test-only overri
 **Action items:**
 - [ ] Add an integration test class `FcmCompositeWiringTest` in `:backend:ktor` that uses `testApplication { application { module() } }` with a Koin override module binding `NotificationDispatcher` to a constructed `FcmAndInAppDispatcher(mockFcm, NoopNotificationDispatcher())`. Drive a like → assert the mock was invoked once per token.
 - [ ] If the override approach proves brittle, fall back to a directly-constructed test surface that bypasses `Application.module()` and exercises only the composite + emit-site service wiring.
-
-## fcm-firebase-import-boundary-detekt-rule
-
-**Discovered during:** `fcm-push-dispatch` apply, design D16 acknowledgement
-**Status:** open
-
-**Finding:** Per `openspec/changes/fcm-push-dispatch/design.md` D16, the `:backend:ktor` module is permitted to import `com.google.firebase.*` strictly for DI-binding signatures, but this rule is currently enforced only at code-review time. As of this change, ZERO `:backend:ktor` files actually import any `com.google.firebase.*` symbol (the `buildFcmComposite(...)` factory in `:infra:fcm` hides the SDK types behind a non-Firebase return shape, narrowing the boundary further than D16 admits). A future contributor could regress this by importing `FirebaseMessaging` into a non-DI file without triggering any CI rule. The static-analysis test `FcmDispatchStructuralTest` covers `NotificationService` + the four emit-site services but not the rest of `:backend:ktor`.
-
-**Specs at fault:** `openspec/specs/fcm-push-dispatch/spec.md` § "`:backend:ktor` Firebase imports are scoped to DI-binding files only" (currently a SHOULD, not enforced)
-**Code at fault:** none — production code respects the boundary
-**Docs at fault:** none
-
-**Impact (if shipped):** Long-term boundary erosion. A `FirebaseMessaging` import sneaking into a route handler or service would couple the request-path code to a vendor SDK, violating the `CLAUDE.md` "No vendor SDK import outside `:infra:*`" invariant — but only at code-review-grade, not CI-grade.
-
-**Action items:**
-- [ ] Add a Detekt rule `FirebaseImportBoundaryRule` in `:lint:detekt-rules` that allowlists `*Module.kt` filenames OR a `@FcmDiBinding` KtAnnotation. Modeled on `RawXForwardedForRule` (which has a similarly tight allowlist).
-- [ ] Update spec scenario "`:backend:ktor` Firebase imports are scoped to DI-binding files only" from SHOULD to SHALL once the rule is in place.
 
 ## chat-message-notification-per-conversation-fcm-batching
 
