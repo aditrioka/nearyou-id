@@ -3,6 +3,10 @@ package id.nearyou.app.post
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.infra.repo.NewPostRow
 import id.nearyou.app.infra.repo.PostRepository
+import id.nearyou.app.moderation.TextModerator
+import id.nearyou.app.moderation.Verdict
+import id.nearyou.data.repository.ModerationQueueRepository
+import id.nearyou.data.repository.ReportTargetType
 import id.nearyou.distance.JitterEngine
 import id.nearyou.distance.LatLng
 import id.nearyou.distance.UuidV7
@@ -13,14 +17,25 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.toJavaUuid
 
 /**
- * Post creation orchestration — length guard → coord envelope → UUIDv7 → HMAC jitter →
- * single-INSERT transaction. The endpoint surface is documented in the `post-creation`
- * capability spec.
+ * Post creation orchestration — length guard → coord envelope → text moderation →
+ * UUIDv7 → HMAC jitter → single-INSERT (+ optional moderation_queue row in same
+ * transaction on Verdict.Flag).
+ *
+ * The text-moderation gate runs AFTER the existing length validation (a 281-char
+ * payload is rejected by the length guard before consuming Redis/Remote Config
+ * bandwidth) AND BEFORE the canonical INSERT (Verdict.Reject prevents the row from
+ * ever existing). See `### Requirement: TextModerator integration is invoked AFTER
+ * existing length and rate-limit gates, BEFORE INSERT` for the call-order contract.
+ *
+ * The endpoint surface is documented in the `post-creation` capability spec; the
+ * moderation gate is added by `content-moderation-keyword-lists`.
  */
 class CreatePostService(
     private val dataSource: DataSource,
     private val posts: PostRepository,
     private val contentGuard: ContentLengthGuard,
+    private val textModerator: TextModerator,
+    private val moderationQueue: ModerationQueueRepository,
     private val jitterSecret: ByteArray,
     private val nowProvider: () -> Instant = Instant::now,
 ) {
@@ -31,6 +46,8 @@ class CreatePostService(
      * Exceptions propagate to the route handler / StatusPages:
      *  - [ContentEmptyException] / [ContentTooLongException] → 400
      *  - [LocationOutOfBoundsException] → 400 `location_out_of_bounds`
+     *  - [ContentModeratedProfanityException] → 400 `content_moderated_profanity`
+     *    (NEW from `content-moderation-keyword-lists`)
      *  - Any DB exception (FK violation on author_id if user was hard-deleted
      *    between auth + INSERT) → 500 via the generic StatusPages handler
      */
@@ -50,14 +67,24 @@ class CreatePostService(
             throw LocationOutOfBoundsException(latitude, longitude)
         }
 
-        // 3. Generate UUIDv7 app-side so the HMAC input is known before INSERT.
+        // 3. Text moderation gate — Reject short-circuits to 400, Flag falls through
+        //    to INSERT + queue row in same tx, Allow falls through to plain INSERT.
+        //    Per call-order spec: AFTER length + envelope, BEFORE INSERT. Coord-envelope
+        //    ordering relative to moderator is unconstrained per the spec scenario
+        //    "Static analysis confirms call order".
+        val verdict = textModerator.moderate(content)
+        if (verdict is Verdict.Reject) {
+            throw ContentModeratedProfanityException(verdict.matchedKeywords)
+        }
+
+        // 4. Generate UUIDv7 app-side so the HMAC input is known before INSERT.
         val kotlinUuid = UuidV7.next()
         val postId = kotlinUuid.toJavaUuid()
 
-        // 4. Fuzz the coordinate deterministically — docs/05 § Coordinate Fuzzing.
+        // 5. Fuzz the coordinate deterministically — docs/05 § Coordinate Fuzzing.
         val display = JitterEngine.offsetByBearing(LatLng(latitude, longitude), kotlinUuid, jitterSecret)
 
-        // 5. Single-INSERT transaction.
+        // 6. Single-INSERT transaction (+ moderation_queue row on Flag).
         dataSource.connection.use { conn ->
             conn.autoCommit = false
             try {
@@ -73,6 +100,13 @@ class CreatePostService(
                         displayLng = display.lng,
                     ),
                 )
+                if (verdict is Verdict.Flag) {
+                    moderationQueue.upsertUuIteKeywordMatchRow(
+                        conn = conn,
+                        targetType = ReportTargetType.POST,
+                        targetId = postId,
+                    )
+                }
                 conn.commit()
             } catch (t: Throwable) {
                 conn.rollback()
@@ -99,6 +133,17 @@ class CreatePostService(
         const val LNG_MAX: Double = 142.0
     }
 }
+
+/**
+ * Thrown when the post content matches the Layer 1 profanity blocklist. Mapped at
+ * the `StatusPages` layer to HTTP 400 with `error.code = "content_moderated_profanity"`
+ * and the canonical Bahasa Indonesia message. The matched-keyword list is captured
+ * here for ops/Sentry but NEVER appears in the HTTP response body (would tip off
+ * bypass attempts) — see `### Requirement: User-facing rejection message is in
+ * Bahasa Indonesia, omits matched keywords`.
+ */
+class ContentModeratedProfanityException(val matchedKeywords: List<String>) :
+    RuntimeException("content matched the profanity blocklist (${matchedKeywords.size} distinct keywords)")
 
 data class CreatedPost(
     val id: UUID,

@@ -247,6 +247,8 @@ class ChatSendRateLimitTest : StringSpec({
                 dispatcher = NoopNotificationDispatcher(),
                 rateLimiter = rateLimiter,
                 remoteConfig = remoteConfig,
+                textModerator = id.nearyou.app.moderation.TestModerationFixtures.ALLOW_ONLY_MODERATOR,
+                moderationQueue = id.nearyou.app.moderation.TestModerationFixtures.SHARED_QUEUE_REPO,
                 clock = clock,
             )
         testApplication {
@@ -1070,6 +1072,8 @@ class ChatSendRateLimitTest : StringSpec({
                     dispatcher = NoopNotificationDispatcher(),
                     rateLimiter = limiter,
                     remoteConfig = NullRemoteConfigChat,
+                    textModerator = id.nearyou.app.moderation.TestModerationFixtures.ALLOW_ONLY_MODERATOR,
+                    moderationQueue = id.nearyou.app.moderation.TestModerationFixtures.SHARED_QUEUE_REPO,
                 )
             // Run 50 limiter-only calls with subscriptionStatus = null. All should be
             // Allowed (Free path, default cap = 50).
@@ -1104,6 +1108,8 @@ class ChatSendRateLimitTest : StringSpec({
                         senderId: UUID,
                         content: String,
                         emitInTx: ((java.sql.Connection, ChatMessageRow, UUID) -> Unit)?,
+                        preInsertHookInTx: ((java.sql.Connection) -> Unit)?,
+                        afterInsertHookInTx: ((java.sql.Connection, ChatMessageRow) -> Unit)?,
                     ): ChatMessageRow {
                         throw RuntimeException("simulated chat-foundation TX rollback")
                     }

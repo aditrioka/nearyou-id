@@ -158,3 +158,29 @@ gcloud secrets add-iam-policy-binding <slot> \
 - production (`nearyou-production` project): to be filled in after first production tag-deploy provisions the project.
 
 Existing rotation procedures (rotating the value on an existing slot) do NOT need this step — IAM is bound per-slot, so only new-slot creation hits this. Precedent: `health-check-endpoints` (PR #54) task 11.1 surfaced this gap when adding the `staging-supabase-url` slot.
+
+## Moderation Runbook
+
+### Updating the keyword wordlists
+
+The text-moderation pipeline (per [`openspec/specs/content-moderation-keyword-lists/spec.md`](../openspec/specs/content-moderation-keyword-lists/spec.md)) reads two operator-managed lists from Firebase Remote Config:
+
+- `moderation_profanity_list` — Layer 1 profanity blocklist (sync REJECT 4xx).
+- `moderation_uu_ite_list` — Layer 2 UU ITE wordlist (sync soft-flag → `moderation_queue` row).
+- `moderation_match_threshold` — distinct-match count required before Layer 2 flags (default 3, runtime-tunable, clamped to `[1, 10000]`).
+
+**Update procedure** (production wordlist edit):
+
+1. Open the Firebase Console for the relevant environment (staging / production).
+2. Navigate to Remote Config → Parameters.
+3. Edit `moderation_profanity_list` (or `moderation_uu_ite_list`) — value is a JSON array of strings, e.g., `["badword1","badword2"]`. Save + Publish.
+4. The 5-min Redis cache TTL elapses; the next moderator call after the elapse refreshes from Remote Config and emits the new list.
+5. Verify the change took effect: post a test sentinel keyword via the relevant API → expect 400 (`content_moderated_profanity`) or 201 + `moderation_queue` row depending on the layer.
+
+**Important:** the quarterly UU ITE legal-advisor review per [`docs/06-Security-Privacy.md:159`](06-Security-Privacy.md) updates BOTH the Remote Config parameter AND the repo-committed [`backend/ktor/src/main/resources/moderation/uu_ite.default.txt`](../backend/ktor/src/main/resources/moderation/uu_ite.default.txt) file (so a Remote Config outage falls back to a recent-and-vetted list via Tier 3 of the loader cascade). The same holds for the profanity list and [`backend/ktor/src/main/resources/moderation/profanity.default.txt`](../backend/ktor/src/main/resources/moderation/profanity.default.txt).
+
+**Tier 4 (`content-moderation-fallback-list` Secret Manager slot)** is a last-resort safety net containing a JSON document `{"profanity":[...],"uu_ite":[...]}` for the catastrophic case where both Remote Config AND the repo file are unavailable. Updating Tier 4 follows the standard "Creating a new GCP Secret Manager slot" + "rotating the value on an existing slot" procedure above.
+
+### Boot-time integrity prime
+
+On `Application.module()` startup, the loader fires `load(ProfanityList)` + `load(UuIteList)` once each in a non-blocking coroutine to prime the Redis cache and verify Tier 3 integrity pre-traffic. A missing or corrupt repo resource surfaces a Sentry WARN with `event=moderation_list_fallback tier=repo_file to=secret_manager` BEFORE the first user-content-write request, instead of degrading the first user's submission.

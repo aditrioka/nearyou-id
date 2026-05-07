@@ -68,8 +68,14 @@ import id.nearyou.app.infra.otel.OtelInstrumentation
 import id.nearyou.app.infra.otel.httpClientWithOtel
 import id.nearyou.app.infra.otel.installKtorServerTelemetry
 import id.nearyou.app.infra.redis.NoOpRateLimiter
+import id.nearyou.app.infra.redis.NoOpRedisStringCache
+import id.nearyou.app.infra.redis.RedisStringCache
 import id.nearyou.app.infra.redis.lettuceRedisProbeFromUrl
+import id.nearyou.app.infra.redis.lettuceRedisStringCacheFromUrl
 import id.nearyou.app.infra.redis.redisRateLimiterFromUrl
+import id.nearyou.app.infra.remoteconfig.RemoteConfigClient
+import id.nearyou.app.infra.remoteconfig.RemoteConfigInitException
+import id.nearyou.app.infra.remoteconfig.firebaseRemoteConfigClient
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcPostAutoHideRepository
@@ -99,14 +105,19 @@ import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
 import id.nearyou.app.infra.supabase.realtime.SupabaseBroadcastChatClient
 import id.nearyou.app.internal.InternalEndpointAuth
+import id.nearyou.app.moderation.CachingModerationListLoader
+import id.nearyou.app.moderation.ModerationList
+import id.nearyou.app.moderation.ModerationListLoader
 import id.nearyou.app.moderation.ReportRateLimiter
 import id.nearyou.app.moderation.ReportService
+import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.reportRoutes
 import id.nearyou.app.notifications.DbNotificationEmitter
 import id.nearyou.app.notifications.NoopNotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.notifications.NotificationService
 import id.nearyou.app.notifications.notificationRoutes
+import id.nearyou.app.post.ContentModeratedProfanityException
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.LocationOutOfBoundsException
 import id.nearyou.app.post.postRoutes
@@ -147,6 +158,7 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.flywaydb.core.Flyway
 import org.koin.dsl.module
@@ -226,6 +238,23 @@ fun Application.module() {
                         mapOf(
                             "code" to "location_out_of_bounds",
                             "message" to "Coordinate is outside the supported region.",
+                        ),
+                ),
+            )
+        }
+        // Layer 1 profanity hit per `content-moderation-keyword-lists` Verdict.Reject.
+        // The matched keyword list intentionally does NOT appear in the response body
+        // — see `### Requirement: User-facing rejection message is in Bahasa Indonesia,
+        // omits matched keywords`. The exception's matchedKeywords field is captured by
+        // the TextModerator's Sentry breadcrumb, NOT by this StatusPages handler.
+        exception<ContentModeratedProfanityException> { call, _ ->
+            call.respond(
+                HttpStatusCode.BadRequest,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "content_moderated_profanity",
+                            "message" to "Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi.",
                         ),
                 ),
             )
@@ -353,17 +382,114 @@ fun Application.module() {
 
     val contentLengthGuard: ContentLengthGuard = installContentLengthGuard()
 
+    // ktorEnv is referenced by the moderation-pipeline scaffolding directly below
+    // and again by the FCM init / chat-realtime wiring further down. Declared here
+    // (above the moderation block) so the moderation-pipeline secret-slot derivation
+    // can reach it; the rest of the file uses the same `val ktorEnv`.
+    val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
+
+    // redisUrl is consumed by the moderation pipeline (Redis cache) AND further down
+    // by the rate-limiter / probe wiring. Resolved once here so the same value backs
+    // both. The conditional rate-limiter wiring later in this file reuses this
+    // variable rather than re-resolving.
+    val redisUrl = secrets.resolve("redis-url")
+
+    // ---- Text-moderation pipeline (content-moderation-keyword-lists) ---------
+    // Wired ABOVE the post / reply / chat services so they can take the
+    // TextModerator as a constructor argument. The loader and moderator are
+    // singletons; their internal Redis cache + Remote Config network costs are
+    // amortized across all moderate(...) calls.
+    //
+    // Test profile binds a no-op Remote Config client + no-op Redis cache so the
+    // moderator falls all the way through to the repo-file Tier 3 (the
+    // `__seed_*_placeholder__` sentinels), producing Verdict.Allow on every call.
+    // Production bootstraps the Firebase Admin SDK Remote Config FirebaseApp.
+    val redisStringCache: RedisStringCache =
+        if (redisUrl != null) {
+            lettuceRedisStringCacheFromUrl(redisUrl)
+        } else {
+            require(ktorEnv != "staging" && ktorEnv != "production") {
+                "Required env var 'REDIS_URL' is unset (env=$ktorEnv) — Redis is a hard startup requirement"
+            }
+            NoOpRedisStringCache()
+        }
+    val remoteConfigClient: RemoteConfigClient =
+        when (ktorEnv) {
+            "test" ->
+                // Test profile: stub client that always returns null. The loader cascades to
+                // Tier 3 (repo file with the seed placeholder), producing Verdict.Allow on
+                // any non-sentinel content. Tests that need specific Reject/Flag behavior
+                // override the Koin binding via test modules.
+                object : RemoteConfigClient {
+                    override fun fetchStringList(parameterName: String): List<String>? = null
+
+                    override fun fetchInt(parameterName: String): Int? = null
+
+                    override fun fetchBoolean(parameterName: String): Boolean? = null
+                }
+            else -> {
+                // Reuse the firebase-admin-sa secret slot already consumed by :infra:fcm —
+                // see openspec/specs/content-moderation-keyword-lists/spec.md
+                // `### Requirement: :infra:remote-config is the sole owner of the Firebase
+                // Remote Config Admin SDK` Scenario "resolves the service-account secret via
+                // the precedent call shape". The secret was already validated in the FCM
+                // boot path above; re-reading it here is fine because the resolver caches
+                // env reads (and the secret value is identical).
+                val rcSlot = secretKey(ktorEnv, "firebase-admin-sa")
+                val rcSecret =
+                    secrets.resolve("firebase-admin-sa")
+                        ?: run {
+                            org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").error(
+                                "event=remote_config_init_failed reason=missing_secret slot={} env={}",
+                                rcSlot,
+                                ktorEnv,
+                            )
+                            error(
+                                "Required secret '$rcSlot' is unset (env=$ktorEnv) — " +
+                                    "Firebase Remote Config requires the same firebase-admin-sa " +
+                                    "service account as :infra:fcm.",
+                            )
+                        }
+                try {
+                    firebaseRemoteConfigClient(rcSecret)
+                } catch (e: RemoteConfigInitException) {
+                    org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").error(
+                        "event=remote_config_init_failed reason=parse_or_credential_error slot={} env={} message={}",
+                        rcSlot,
+                        ktorEnv,
+                        e.message,
+                        e,
+                    )
+                    throw e
+                }
+            }
+        }
+    val moderationListLoader: ModerationListLoader =
+        CachingModerationListLoader(
+            redisCache = redisStringCache,
+            remoteConfigClient = remoteConfigClient,
+            secretResolver = secrets,
+            env = ktorEnv,
+        )
+    val textModerator = TextModerator(loader = moderationListLoader)
+
     val postRepository: PostRepository = JdbcPostRepository()
+    // moderationQueueRepository is a singleton shared by createPostService (Layer 2
+    // soft-flag) and reportService (V9 auto_hide_3_reports). Declared here near the
+    // moderation pipeline scaffolding instead of further down with the report
+    // wiring so both consumers reach it without forward references.
+    val moderationQueueRepository: ModerationQueueRepository = JdbcModerationQueueRepository()
     val createPostService =
         CreatePostService(
             dataSource = dataSource,
             posts = postRepository,
             contentGuard = contentLengthGuard,
+            textModerator = textModerator,
+            moderationQueue = moderationQueueRepository,
             jitterSecret = jitterSecret,
         )
     val userBlockRepository: UserBlockRepository = JdbcUserBlockRepository(dataSource)
     val blockService = BlockService(userBlockRepository)
-    val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
     val notificationRepository: NotificationRepository = JdbcNotificationRepository(dataSource)
     val notificationEmitter: NotificationEmitter = DbNotificationEmitter(notificationRepository)
     val notificationService = NotificationService(notificationRepository)
@@ -449,7 +575,8 @@ fun Application.module() {
     // `staging-redis-url`, but that produced env var lookup `STAGING_REDIS_URL`
     // which Cloud Run never sets — first staging deploy of the like-rate-limit
     // change failed at startup with that exact mismatch.
-    val redisUrl = secrets.resolve("redis-url")
+    // `redisUrl` is resolved earlier in this file (above the moderation pipeline)
+    // and reused here.
     val rateLimiter: RateLimiter =
         if (redisUrl != null) {
             // The factory in `:infra:redis` owns the Lettuce client lifecycle so
@@ -512,6 +639,8 @@ fun Application.module() {
             dispatcher = notificationDispatcher,
             rateLimiter = rateLimiter,
             remoteConfig = remoteConfig,
+            textModerator = textModerator,
+            moderationQueue = moderationQueueRepository,
         )
     val chatRepository = ChatRepository(dataSource)
     val chatService =
@@ -521,6 +650,8 @@ fun Application.module() {
             dispatcher = notificationDispatcher,
             rateLimiter = rateLimiter,
             remoteConfig = remoteConfig,
+            textModerator = textModerator,
+            moderationQueue = moderationQueueRepository,
         )
     // chat-realtime-broadcast wiring per design § D8 (extends `:infra:supabase`).
     // Test profile binds NoopChatRealtimeClient — local tests have no real Supabase
@@ -575,7 +706,6 @@ fun Application.module() {
     val postsGlobalRepository: PostsGlobalRepository = JdbcPostsGlobalRepository(dataSource)
     val globalTimelineService = GlobalTimelineService(postsGlobalRepository)
     val reportRepository: ReportRepository = JdbcReportRepository()
-    val moderationQueueRepository: ModerationQueueRepository = JdbcModerationQueueRepository()
     val postAutoHideRepository: PostAutoHideRepository = JdbcPostAutoHideRepository()
     // Wrap the shared `rateLimiter` (Redis or NoOp/InMemory fallback per the
     // env-aware wiring above) so V9's ReportRateLimiter surface (cap / window /
@@ -644,6 +774,10 @@ fun Application.module() {
                 single<RedisProbe> { redisProbe }
                 single<SupabaseRealtimeProbe> { supabaseProbe }
                 single<RemoteConfig> { remoteConfig }
+                single<RemoteConfigClient> { remoteConfigClient }
+                single<RedisStringCache> { redisStringCache }
+                single<ModerationListLoader> { moderationListLoader }
+                single { textModerator }
                 single { likeService }
                 single<PostReplyRepository> { postReplyRepository }
                 single { replyService }
@@ -706,6 +840,33 @@ fun Application.module() {
         route("/internal") {
             install(InternalEndpointAuth) { verifier = oidcTokenVerifier }
             unbanWorkerRoute(suspensionUnbanWorker)
+        }
+    }
+
+    // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime
+    // exercises Tier 3 fallback per list`). Fires once each for ProfanityList +
+    // UuIteList in a non-blocking coroutine. Primes the Redis cache so first-traffic
+    // requests don't pay the Tier 2/3/4 cascade cost AND surfaces a pre-traffic
+    // Sentry WARN if Tier 3 (the repo `*.default.txt` files) is missing or empty.
+    // The prime is fire-and-forget; cascade failures land in Sentry but never block
+    // startup (fail-open posture per design.md D6).
+    if (ktorEnv != "test") {
+        @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                moderationListLoader.load(ModerationList.ProfanityList)
+                moderationListLoader.load(ModerationList.UuIteList)
+                org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").info(
+                    "event=moderation_loader_boot_prime_complete env={}",
+                    ktorEnv,
+                )
+            } catch (t: Throwable) {
+                org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").warn(
+                    "event=moderation_loader_boot_prime_failed reason={} env={}",
+                    t.javaClass.simpleName,
+                    ktorEnv,
+                )
+            }
         }
     }
 }

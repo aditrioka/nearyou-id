@@ -219,6 +219,8 @@ class ChatRealtimeBroadcastTest : StringSpec({
                 dispatcher = NoopNotificationDispatcher(),
                 rateLimiter = rateLimiter,
                 remoteConfig = NullRemoteConfigBroadcast,
+                textModerator = id.nearyou.app.moderation.TestModerationFixtures.ALLOW_ONLY_MODERATOR,
+                moderationQueue = id.nearyou.app.moderation.TestModerationFixtures.SHARED_QUEUE_REPO,
             )
         testApplication {
             application {
@@ -580,6 +582,8 @@ class ChatRealtimeBroadcastTest : StringSpec({
                         senderId: UUID,
                         content: String,
                         emitInTx: ((java.sql.Connection, ChatMessageRow, UUID) -> Unit)?,
+                        preInsertHookInTx: ((java.sql.Connection) -> Unit)?,
+                        afterInsertHookInTx: ((java.sql.Connection, ChatMessageRow) -> Unit)?,
                     ): ChatMessageRow {
                         throw RuntimeException("simulated rollback")
                     }
@@ -730,8 +734,18 @@ class ChatRealtimeBroadcastTest : StringSpec({
                         senderId: UUID,
                         content: String,
                         emitInTx: ((java.sql.Connection, ChatMessageRow, UUID) -> Unit)?,
+                        preInsertHookInTx: ((java.sql.Connection) -> Unit)?,
+                        afterInsertHookInTx: ((java.sql.Connection, ChatMessageRow) -> Unit)?,
                     ): ChatMessageRow {
-                        val row = super.sendMessage(conversationId, senderId, content, emitInTx)
+                        val row =
+                            super.sendMessage(
+                                conversationId = conversationId,
+                                senderId = senderId,
+                                content = content,
+                                emitInTx = emitInTx,
+                                preInsertHookInTx = preInsertHookInTx,
+                                afterInsertHookInTx = afterInsertHookInTx,
+                            )
                         if (firstCall) {
                             firstCall = false
                             // Mid-request admin flip — happens after auth completed,

@@ -623,3 +623,197 @@ Recommend approach 3 — preserves spec semantics, no spec amendment needed (spe
 - [ ] Amend [`openspec/project.md`](openspec/project.md) § Module Structure entry for `:infra:remote-config` from `DECISION NEEDED` to `SHIPPED` — should land in the same archive PR as `content-moderation-keyword-lists` since the module ships in that change.
 - [ ] These amendments MAY ship as a single follow-up PR (`docs(moderation): align canonical docs with content-moderation-keyword-lists shipped behavior`) or as part of the next routine docs hygiene PR. Item 4 (`openspec/project.md` flip) is preferred to land alongside this change's archive commit since they're causally linked.
 - [ ] Delete this entry once the amendments merge.
+
+---
+
+## firebase-app-extraction
+
+**Discovered during:** `content-moderation-keyword-lists` Phase 3 — scaffolding `:infra:remote-config` while `:infra:fcm` already initializes its own `FirebaseApp` from the same `firebase-admin-sa` secret slot.
+**Status:** open
+
+**Finding:** Both `:infra:fcm` (`FirebaseAdminInit.NEARYOU_FIREBASE_APP_NAME = "nearyou-default"`) and the new `:infra:remote-config` (`FirebaseAdminInitForRemoteConfig.NEARYOU_REMOTE_CONFIG_APP_NAME = "nearyou-rc"`) initialize their own named `FirebaseApp` from the same secret JSON. The two consumers share the secret slot but isolate their lifecycles via the named-app mechanism. A future `:infra:firebase-app` extraction module that owns the `FirebaseApp` init + is depended on by both `:infra:fcm` and `:infra:remote-config` would be the cleanest factoring.
+
+**Specs at fault:** None.
+**Code at fault:** [`infra/fcm/.../FirebaseAdminInit.kt`](infra/fcm/src/main/kotlin/id/nearyou/app/infra/fcm/FirebaseAdminInit.kt), [`infra/remote-config/.../FirebaseAdminInitForRemoteConfig.kt`](infra/remote-config/src/main/kotlin/id/nearyou/app/infra/remoteconfig/FirebaseAdminInitForRemoteConfig.kt).
+**Docs at fault:** None (the duplication is intentional in the current shape).
+
+**Impact (if shipped):** Low — the duplication is small (~50 LOC across both files) and the named-app pattern is already idiomatic. Refactoring a third Firebase consumer arrives, OR when the per-startup-cost of two `GoogleCredentials.fromStream(...)` calls becomes measurable in startup latency budgets.
+
+**Ambiguity to resolve first:** Choose factoring shape — `:infra:firebase-app` exposes a `FirebaseAppRegistry` interface? Or just one shared `FirebaseApp` instance? Same-instance is simpler but breaks the lifecycle-isolation invariant the named-app pattern provides today.
+
+**Action items:**
+- [ ] Defer until a third Firebase consumer arrives (e.g., Firebase Auth, Firestore) OR until the duplication becomes painful in some other dimension.
+- [ ] Delete this entry once the extraction lands.
+
+---
+
+## content-moderation-cache-invalidation-endpoint
+
+**Discovered during:** `content-moderation-keyword-lists` design.md D4 — Cache strategy: Redis 5-min TTL, no explicit invalidation.
+**Status:** open
+
+**Finding:** The moderation list loader uses a 5-minute Redis TTL with NO push-based invalidation. When operators edit the Remote Config wordlist, the change propagates within 5 min max (TTL elapse + next loader call). If operators report this is too stale (Month 3+ data), introduce an OIDC-authed `POST /internal/moderation-list-bust` endpoint that deletes the cache keys.
+
+**Specs at fault:** None.
+**Code at fault:** None — this is a future enhancement, not a bug.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low — 5-min staleness is acceptable for moderation (legal-advisor review is quarterly per [`docs/06-Security-Privacy.md:159`](docs/06-Security-Privacy.md)).
+
+**Ambiguity to resolve first:** Endpoint shape — `POST /internal/moderation-list-bust` (clears all 3 keys) or per-list `?list=profanity`?
+
+**Action items:**
+- [ ] Defer until Month 3+ data shows the 5-min TTL is too stale.
+- [ ] Implement under a new change `text-moderation-cache-invalidation-endpoint` if needed.
+- [ ] Delete this entry once the change merges OR if 5-min TTL proves acceptable indefinitely.
+
+---
+
+## perspective-api-stopgap
+
+**Discovered during:** `content-moderation-keyword-lists` design.md § Goals / Non-Goals — Perspective API integration is explicitly Phase 2 §16 scope, this change provides the boundary.
+**Status:** open
+
+**Finding:** Phase 2 §16 (per [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md)) reserves the Perspective API integration. The current `TextModerator` boundary is the foundation; the Perspective API change adds an async 500ms-timeout fail-open layer + writes `trigger = 'perspective_api_high_score'` (already reserved in `moderation_queue.trigger` enum at V9).
+
+**Specs at fault:** None — Perspective API is intentionally out of scope.
+**Code at fault:** None.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low — keyword-only moderation (Layers 1 + 2) is sufficient for Pre-Launch security review §5. Perspective API adds Layer 3 (toxicity classifier).
+
+**Ambiguity to resolve first:** Implementation shape — Cloud Function (deferred) or in-process async call from `:backend:ktor`? Per `docs/06-Security-Privacy.md:178` the Layer 3 contract is "500ms timeout, fail-open" which is consistent with in-process.
+
+**Action items:**
+- [ ] Build `text-moderation-perspective-api-layer` change when Phase 2 §16 work begins.
+- [ ] Delete this entry once that change ships.
+
+---
+
+## content-write-moderation-detekt-rule
+
+**Discovered during:** `content-moderation-keyword-lists` Phase 10 — Detekt rule was DEFERRED per task 10.4 decision gate.
+**Status:** open
+
+**Finding:** A Detekt rule `ContentWriteRequiresModerationRule` would detect handlers that write user-supplied content to `posts.content` / `post_replies.content` / `chat_messages.content` without going through `TextModerator.moderate(...)`. This is defense-in-depth — the spec call-order requirement is currently enforced by 3 static-source-scan tests (`PostCreationCallOrderTest`, `PostRepliesCallOrderTest`, `ChatModerationCallOrderTest`), but a Detekt rule would catch violations at compile time vs. test time.
+
+**Specs at fault:** None — the static-source-scan tests cover the contract.
+**Code at fault:** None.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low — the static tests are the canonical enforcement; a Detekt rule is belt-and-suspenders. Net new value depends on how often new content-write paths are added.
+
+**Ambiguity to resolve first:** Annotation reasons enumeration — `tombstone`, `admin_redaction`, `seed`. Are there other legitimate exceptions?
+
+**Action items:**
+- [ ] Add `lint/detekt-rules/.../ContentWriteRequiresModerationRule.kt` per the canonical detekt-rule structure (mirror `BlockExclusionJoinRule`, `RawFromPostsRule`, etc.).
+- [ ] Wire the new rule into `lint/detekt-rules` config + the `:lint:detekt-rules` test harness.
+- [ ] Add unit tests covering: handler with moderate-then-INSERT passes, handler without moderate fails, annotated allow-list cases pass, admin path passes.
+- [ ] Delete this entry once the rule lands.
+
+---
+
+## content-moderation-staging-remote-config-priming
+
+**Discovered during:** `content-moderation-keyword-lists` Phase 1 task 1.1 — sanity-checking that staging Firebase Remote Config has the three reserved parameters.
+**Status:** open
+
+**Finding:** The implementation is independent of staging Remote Config priming — the 4-tier loader cascade is unit-tested with mocks, and the production Firebase Remote Config integration is exercised at staging deploy time. Operators MUST prime the staging Remote Config with sentinel values (per tasks.md 11.4) before running the staging smoke script.
+
+**Specs at fault:** None.
+**Code at fault:** None.
+**Docs at fault:** Operations-only — the priming procedure should be documented in [`docs/07-Operations.md`](docs/07-Operations.md) § Moderation Runbook (already added by this change).
+
+**Impact (if shipped):** Low — the loader's Tier 3 fallback (the repo `*.default.txt` placeholder sentinels) ensures the moderator returns `Verdict.Allow` for any non-sentinel content if Remote Config is unprimed. So an unprimed staging environment is functionally fail-open.
+
+**Ambiguity to resolve first:** None.
+
+**Action items:**
+- [ ] Operator: prime staging Firebase Remote Config with the 3 parameters per tasks.md 11.4.
+- [ ] Operator: verify the staging smoke script `dev/scripts/smoke-content-moderation-keyword-lists.sh` runs green.
+- [ ] Delete this entry once staging priming is confirmed.
+
+---
+
+## content-moderation-secret-slot-provisioning
+
+**Discovered during:** `content-moderation-keyword-lists` Phase 1 task 1.2 — sanity-checking that staging GCP Secret Manager has the `staging-content-moderation-fallback-list` slot.
+**Status:** open
+
+**Finding:** The Tier 4 last-resort fallback reads from `secretResolver.resolve("content-moderation-fallback-list")` — this resolves the GCP Secret Manager slot via the env-prefix derivation in `secretKey(env, "content-moderation-fallback-list")` ⇒ `staging-content-moderation-fallback-list` in staging. The slot needs to be created + populated with a JSON document matching the expected shape (`{"profanity":[...],"uu_ite":[...]}`).
+
+**Specs at fault:** None — the spec scenarios verify the cascade independent of slot presence via fixtures.
+**Code at fault:** None.
+**Docs at fault:** Operations procedure — see [`docs/07-Operations.md`](docs/07-Operations.md) § Secret Management Runbook for the standard slot-creation procedure.
+
+**Impact (if shipped):** Low — Tier 4 is the LAST resort. Tier 3 (the repo `*.default.txt` placeholder sentinels) is always present (the JAR ships with these). So an unprovisioned Tier 4 slot is functionally an extra Sentry ERROR per `load()` call, not a runtime failure.
+
+**Ambiguity to resolve first:** None.
+
+**Action items:**
+- [ ] Operator: create `staging-content-moderation-fallback-list` Secret Manager slot per the canonical procedure in [`docs/07-Operations.md`](docs/07-Operations.md).
+- [ ] Operator: populate with a JSON document `{"profanity":[],"uu_ite":[]}` (empty arrays — the sentinel content lives in Remote Config; the slot is purely for the fail-soft cascade).
+- [ ] Delete this entry once the slot is provisioned.
+
+---
+
+## reply-rate-limit-moderator-spy
+
+**Discovered during:** `content-moderation-keyword-lists` Phase 8 task 8.7 — rate-limit-precedence test for the moderator-not-called scenario.
+**Status:** open
+
+**Finding:** The 21st-reply-attempt test in `ReplyRateLimitTest` already verifies the rate-limiter returns 429 (NOT 400-content-moderated). A direct mock-spy assertion that `TextModerator.moderate(...)` is not called for the 21st request would require constructor-level injection of a recording moderator into the existing rate-limit test infrastructure. The static call-order assertion in the existing PostRepliesCallOrderTest already enforces the route-layer ordering structurally.
+
+**Specs at fault:** None.
+**Code at fault:** None — this is test-coverage tightening, not a behavior bug.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low — the route-layer rate-limit gate runs BEFORE the body parse + service.post invocation, so the moderator is structurally never called. The static call-order assertion captures this contract.
+
+**Ambiguity to resolve first:** None.
+
+**Action items:**
+- [ ] Add a `RecordingTextModerator` fixture into `ReplyRateLimitTest` and assert `moderateCallCount == 0` after the 21st attempt.
+- [ ] Delete this entry once the test is added.
+
+---
+
+## chat-block-check-moderator-spy
+
+**Discovered during:** `content-moderation-keyword-lists` Phase 9 task 9.6 — block-check-precedence test.
+**Status:** open
+
+**Finding:** Same shape as `reply-rate-limit-moderator-spy`. The block check inside `ChatRepository.sendMessage` runs BEFORE the `preInsertHookInTx?.invoke(conn)` call (which is where the moderator runs). The static call-order assertion in `ChatModerationCallOrderTest` enforces this ordering structurally. A direct mock-spy assertion would require fixture-injecting a recording moderator into the existing block-check test in `ChatFoundationRouteTest`.
+
+**Specs at fault:** None.
+**Code at fault:** None.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low — same as `reply-rate-limit-moderator-spy`.
+
+**Ambiguity to resolve first:** None.
+
+**Action items:**
+- [ ] Add a `RecordingTextModerator` fixture into the chat block-check test and assert the moderator is not called when blocked.
+- [ ] Delete this entry once the test is added.
+
+---
+
+## vendor-ahocorasick-detekt-guard
+
+**Discovered during:** `content-moderation-keyword-lists` Phase 2 task 2.7 — Detekt-rules guard against introducing a vendor Aho-Corasick library.
+**Status:** open
+
+**Finding:** The spec `### Requirement: :core:domain MUST NOT depend on a vendor Aho-Corasick library` is currently enforced via reviewer attestation + the spec scenario "No vendor Aho-Corasick library on the :core:domain classpath" (which is a structural assertion against the resolved classpath). A Detekt-rules guard at `lint/detekt-rules/...` checking the `:core:domain` `build.gradle.kts` would be defense-in-depth.
+
+**Specs at fault:** None — the spec scenario covers the contract.
+**Code at fault:** None.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low — `:core:domain` currently has only one dependency (`kotlinx-serialization-json`); the surface for accidentally-adding `org.ahocorasick:*` is small. The lint rule is meaningful only after the dependency surface grows.
+
+**Ambiguity to resolve first:** None.
+
+**Action items:**
+- [ ] Add a Detekt rule that scans `:core:domain` `build.gradle.kts` for `org.ahocorasick:*`, `com.hankcs:*` references.
+- [ ] Delete this entry once the rule lands OR if `:core:domain` dep surface stays minimal indefinitely.
