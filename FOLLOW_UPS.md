@@ -307,28 +307,6 @@ The proposed canonical workflow:
 
 ---
 
-## auth-jwt-spec-debt-userprincipal-subscription-status
-
-**Discovered during:** `reply-rate-limit` proposal review (Phase D round 1 — the on-demand `claude.yml` review pass at PR #49 flagged that the reply spec depends on `UserPrincipal.subscriptionStatus` being populated by the auth-jwt plugin, but no spec documents the field). Extended during `chat-realtime-broadcast` Phase 2.6 — the same gap now applies to `UserPrincipal.isShadowBanned: Boolean`, added by that change for the publish-side shadow-ban skip.
-**Status:** open
-
-**Finding:** [`like-rate-limit` task 6.1.1](openspec/changes/archive/2026-04-25-like-rate-limit/tasks.md) added `subscriptionStatus: String` to `UserPrincipal` (populated from `users.subscription_status` by `AuthPlugin.configureUserJwt`) as a **code change with no corresponding spec amendment**. `chat-realtime-broadcast` Phase 2.6 added a second principal field — `isShadowBanned: Boolean`, populated from `users.is_shadow_banned` in the same auth-time SELECT — used by the chat send handler's publish-side shadow-ban skip. Neither [`openspec/specs/auth-jwt/spec.md`](openspec/specs/auth-jwt/spec.md) nor [`openspec/specs/auth-session/spec.md`](openspec/specs/auth-session/spec.md) documents either field. The `like-rate-limit/specs/post-likes/spec.md` § "Daily rate limit" requirement, `reply-rate-limit/specs/post-replies/spec.md` § "Daily rate limit", and now `chat-realtime-broadcast/specs/chat-realtime-broadcast/spec.md` § "Publish-side shadow-ban skip" all rely on these fields being populated; a future maintainer reading the canonical auth-jwt spec will find neither field on the principal and may assume the dependent handlers are buggy.
-
-**Specs at fault:** `openspec/specs/auth-jwt/spec.md`, `openspec/specs/auth-session/spec.md`
-**Code at fault:** None — both fields are correctly populated; the spec is the gap.
-**Docs at fault:** None — `docs/05-Implementation.md` § Auth Session does describe principal contents abstractly but doesn't go field-by-field.
-
-**Impact (if shipped):** Low. Code is correct. Risk is to future-maintainer cognitive load: rate-limit handlers + the chat publish path reference undocumented principal fields; a refactor that adds new fields to `UserPrincipal` may forget existing fields because no spec lists them. The gap accumulates as future changes consume principal-loaded state (post-rate-limit, search-rate-limit, future moderation features, etc.).
-
-**Ambiguity to resolve first:** None. The fix shape is clear: a docs-only OpenSpec change (working name `auth-jwt-principal-fields-documentation` — broader than the original `auth-jwt-principal-subscription-status` so it covers both fields in one go) that adds Requirements to `auth-jwt` spec documenting BOTH `UserPrincipal.subscriptionStatus: String` AND `UserPrincipal.isShadowBanned: Boolean` (loaded from `users.subscription_status` / `users.is_shadow_banned`, populated at JWT issuance via the auth-time `users` row SELECT). No code change needed. Could be batched with similar principal-field documentation tasks if more land later.
-
-**Action items:**
-- [ ] File a docs-only OpenSpec change `auth-jwt-principal-fields-documentation` with ADDED Requirements to `auth-jwt` spec describing BOTH `UserPrincipal.subscriptionStatus: String` AND `UserPrincipal.isShadowBanned: Boolean`.
-- [ ] In the same change, optionally amend `auth-session` spec to cross-reference the principal fields for capability-spanning clarity.
-- [ ] When the Phase 4 RevenueCat webhook handler lands, ensure `EXPIRATION` / cancellation events bump `users.token_version` so JWT re-issuance picks up the new tier (closes the JWT-TTL window risk documented in `reply-rate-limit/design.md` § Premium → Free downgrade window). Confirmed during `reply-rate-limit` apply (task 1.5): the RevenueCat webhook handler **does not yet exist in the backend** — the verification is moot until Phase 4 lands the handler, but should be the first item on the handler's spec checklist.
-
----
-
 ## reports-rate-limit-cap-doc-vs-spec-drift
 
 **Discovered during:** `like-rate-limit` proposal scoping (Phase B step 7 reconciliation pass — checking the V9 in-process limiter port for any drift before reusing its hash-tag key shape as a precedent).
