@@ -4,9 +4,10 @@ Transient working file for findings discovered during a change cycle that are NO
 
 - Add an entry when a finding is real, fixable, but should NOT be silently swept into the current change's scope.
 - Tick the action-item checkboxes as they are completed.
-- Delete the entry once all its action items are merged.
+- **Delete the entry once all its action items are merged.** Do NOT let `triaged` entries linger — if residual work remains, either (a) move it to the canonical doc that owns the topic (e.g., launch-prerequisite tasks → `docs/08-Roadmap-Risk.md` Pre-Launch list, runbook tweaks → `docs/07-Operations.md` Deployment Runbook), or (b) replace the entry with a fresh one scoped to the residual work. Triaged-but-not-deleted entries are how this file rots.
 - Delete the file itself when it has zero entries left.
 - Recreate the file (with this same intro blurb) the next time a finding arises.
+- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-07 found 19 open + 3 triaged (still healthy); the discipline above keeps it that way.
 
 Format per entry:
 
@@ -77,20 +78,6 @@ Format per entry:
 
 ---
 
-## staging-cold-start-flyway-on-startup-cost
-
-**Discovered during:** `observability-otel-foundation` §1.2 baseline measurement (staging cold-start mean ~25s, dominated by `flyway.repair() + flyway.migrate()` on every Cloud Run start; staging-specific simplification per [`Application.kt:243-253`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) + [`deploy-staging.yml:111`](.github/workflows/deploy-staging.yml)).
-**Status:** triaged — docs caveat shipped at `docs/04-Architecture.md` § Flyway Migration Deployment. Awaits production deploy validation.
-
-**Finding:** Staging runs Flyway on cold-start (gated by `RUN_FLYWAY_ON_STARTUP=true`) for pre-launch convenience. Production tag-deploy MUST run migrations via the dedicated `nearyou-migrate-prod` Cloud Run Job (per the canonical deployment plan) and MUST NOT set `RUN_FLYWAY_ON_STARTUP`. The ~7-10s production cold-start estimate is theoretical until the Cloud Run Job split runs end-to-end on a real prod tag-deploy.
-
-**Action items:**
-- [ ] At first production tag-deploy: confirm `RUN_FLYWAY_ON_STARTUP` is NOT set on the production Cloud Run service AND Flyway runs via the dedicated `nearyou-migrate-prod` Cloud Run Job.
-- [ ] Validate the ~7-10s production cold-start estimate against the actual `run.googleapis.com/container/startup_latencies` metric. Use mean-delta (sub-second resolution) rather than p99-bucket-shift (2.5s+ resolution at this range) — see the cold-start measurement caveat in the same `docs/04-Architecture.md` § Flyway Migration Deployment block.
-- [ ] Delete this entry once production validates the ~7-10s estimate.
-
----
-
 ## grafana-otlp-token-scope-tightening
 
 **Discovered during:** `observability-otel-foundation` operator setup at task-execution time — Grafana Cloud's "OpenTelemetry setup wizard" (`https://<stack>.grafana.net/.../otel/instrumentation`) generates API tokens with **bundled scopes** (`metrics:write`, `logs:write`, `traces:write`, `profiles:write`, `stacks:read`) and does NOT expose per-scope toggles in its UI. The token created for staging slot `staging-otel-grafana-otlp-token` is over-privileged vs the `traces:write`-only ideal.
@@ -154,20 +141,6 @@ Format per entry:
 **Action items:**
 - [ ] File OpenSpec change `observability-otel-fcm-traceparent` that (a) refactors `:infra:fcm`'s `buildFcmComposite(...)` to surface the `HttpTransport` hook, (b) ships `TracingHttpTransport` in `:infra:otel`, (c) MODIFIES the `fcm-push-dispatch` spec to require unconditional `traceparent` injection on the FCM Admin SDK's outbound HTTPS request, (d) MODIFIES the `observability-otel-foundation` spec's W3C-propagation requirement to flip the "FCM does NOT carry traceparent" scenario.
 - [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
-
----
-
-## observability-otel-pii-disclosure
-
-**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 cross-doc-impact finding #5 — Grafana Cloud was not yet listed as a third-party data processor under UU PDP article 20–22 disclosure obligations.
-**Status:** triaged — `docs/06-Security-Privacy.md:308` processor list amended (Grafana Cloud added with pseudonymous trace data scope). Privacy Policy publication + legal advisor confirmation remain.
-
-**Finding:** OTel trace export to Grafana Cloud carries pseudonymous personal data (truncated SHA-256 of user UUIDs, parameterized SQL, route patterns). UU PDP (effective 2024) requires explicit disclosure of cross-border data transfers to third-party processors. Pre-launch (no production users yet) softens the immediate risk; the gap MUST close before Public Launch (Week 20 per `docs/08-Roadmap-Risk.md`).
-
-**Action items:**
-- [ ] When the public Privacy Policy is drafted/published, include Grafana Cloud in the third-party processors section using wording aligned with `docs/06-Security-Privacy.md:308`.
-- [ ] Confirm with legal advisor whether truncated SHA-256(uuid) at 64 bits triggers UU PDP article 20–22 cross-border-transfer disclosure obligations; if yes, ensure the Privacy Policy includes the standard disclosure language.
-- [ ] Delete this entry once Privacy Policy publication + legal confirmation land.
 
 ---
 
@@ -270,40 +243,6 @@ The two vocabularies overlap on `timeout` / `connection_refused` / `unknown` and
 - [ ] Refactor `UnbanWorkerRoute.classifyHandlerError` to delegate to it.
 - [ ] Refactor `JdbcPostgresProbe` (and any sibling probes) to delegate to it.
 - [ ] Delete this entry once the extraction lands.
-
----
-
-## staging-smoke-before-archive-skill-codification
-
-**Discovered during:** `reply-rate-limit` `/opsx:apply` Section 6 (the staging smoke step) — surfaced the gap that the prior `like-rate-limit` cycle ran the smoke AFTER squash-merge (auto-deploy from main), which means a deploy-config bug would have already shipped to staging-from-main before being caught.
-**Status:** triaged — 3 of 4 action items shipped in PR [#50](https://github.com/aditrioka/nearyou-id/pull/50); item 4 deferred (rescoped below).
-
-**Finding:** The current skill docs do NOT codify a staging deploy + smoke step before `/opsx:archive`. The `like-rate-limit` precedent ran the smoke as task 9.7 AFTER the archive (post-merge auto-deploy from main), and `tasks.md` 9.7's three follow-up fixes (PR #43 secret-name, PR #44 lazy-connect, GCP slot TLS scheme) all landed AFTER the change had already shipped to staging-from-main. A pre-archive smoke against a manual branch deploy gives us a chance to fix deploy-config bugs BEFORE the one-way-door of squash-merge.
-
-The proposed canonical workflow:
-1. `/next-change` opens the proposal PR (no code → no deploy/smoke).
-2. `/opsx:apply` implements + tests + CI green (as today).
-3. **NEW:** `/opsx:apply` triggers `gh workflow run deploy-staging.yml --ref <branch>` before smoke.
-4. **NEW:** `/opsx:apply` runs the smoke against staging (script lives in the change's tasks.md section 6).
-5. `/opsx:archive` lands doc sync + archive after smoke green.
-
-**Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:**
-- `.claude/skills/openspec-apply-change/SKILL.md` (canonical apply skill) ✅ updated in PR #50.
-- `.claude/commands/opsx/apply.md` (mirror) ✅ updated in PR #50.
-- `openspec/project.md` § Change Delivery Workflow + § Staging deploy timing ✅ updated in PR #50.
-- Optional: brief mention in `CLAUDE.md` § Delivery workflow — not done; low value (the canonical lifecycle doc already has it).
-
-**Impact (if shipped):** Low. The `reply-rate-limit` cycle already exercises this pattern correctly. PR #50 codified it for future cycles.
-
-**Ambiguity to resolve first (item 4 only):** Should `openspec-propose` / `next-change` skill templates default-include a Section 6 smoke-script stub for runtime-impact changes? Tradeoff: pro = the skill author can't forget it; con = bakes a specific tasks.md shape into the template that may not fit every change. Current state: per-change discretion (the skill author writing the propose-time task list decides). The `reply-rate-limit` cycle worked because the user explicitly asked for a Section 6 in the `/next-change` instructions.
-
-**Action items:**
-- [x] Spin up a `chore(skills): codify staging-deploy-before-archive in /opsx:apply` PR after `reply-rate-limit` squash-merges. → PR [#50](https://github.com/aditrioka/nearyou-id/pull/50) merged 2026-04-26T02:26:48Z.
-- [x] In that PR: add a Section 6-equivalent step to `.claude/skills/openspec-apply-change/SKILL.md`. Mirror to `.claude/commands/opsx/apply.md`. → done in #50.
-- [x] Update `openspec/project.md` § Change Delivery Workflow to reflect the new step in the lifecycle table. → done in #50 (§ Staging deploy timing + § Archive timing both updated).
-- [ ] (Deferred — separate follow-up) Decide whether `openspec-propose` / `next-change` templates default-include a Section 6 smoke-script stub for runtime-impact changes. See "Ambiguity to resolve first" above. Spin off as `openspec-propose-default-section-6-smoke` if/when triaged.
 
 ---
 

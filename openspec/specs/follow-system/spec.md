@@ -1,7 +1,9 @@
 # follow-system Specification
 
 ## Purpose
-TBD - created by archiving change following-timeline-with-follow-cascade. Update Purpose after archive.
+
+The follow-system capability provides the social-graph primitives for the platform: the `follows` table plus `POST /api/v1/follows/{user_id}`, `DELETE /api/v1/follows/{user_id}`, and the follower / following list endpoints. Self-follow is rejected at both app-layer and via a DB-level CHECK; mutual-block prevents follows in either direction; follower / following lists are bidirectionally block-excluded against the viewer (not against the profile owner). Blocking a user also deletes follows in both directions inside the same transaction as the `user_blocks` INSERT, so the follow-cascade is atomic and the social graph stays consistent with the block state.
+
 ## Requirements
 ### Requirement: follows table created via Flyway V6
 

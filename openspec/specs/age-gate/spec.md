@@ -1,7 +1,9 @@
 # age-gate Specification
 
 ## Purpose
-TBD - created by archiving change signup-flow. Update Purpose after archive.
+
+The age-gate capability enforces the platform's strict 18+ posture by validating date-of-birth at signup with the comparison inclusive at exactly 18 years and strict below. Rejected identifiers (provider-sub hashes) are persisted in `rejected_identifiers` so the same identity cannot retry signup with a different DOB, defeating DOB-shopping. A DB-level CHECK on `users.date_of_birth` acts as a backstop against application-layer drift, and the rejection response is privacy-preserving so under-18 first-time rejections cannot be distinguished from previously-rejected identifiers.
+
 ## Requirements
 ### Requirement: Strict 18+ DOB check at signup
 

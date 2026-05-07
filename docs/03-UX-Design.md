@@ -2,6 +2,8 @@
 
 User experience flows, copy strategy, onboarding design, empty states, and interaction design decisions.
 
+> **Status (2026-05-07).** This document is **prescriptive UX copy + flow design**, not as-built. As of today, `:mobile:app` is a JetBrains Compose Multiplatform wizard scaffold — none of the screens, flows, or copy strings below are rendered to users. Treat the entire file as forward-looking design that the eventual mobile client will implement. Server contracts referenced (endpoints, error codes, schema columns) match `docs/02-Product.md` § Status tags + `openspec/specs/`. See `openspec/project.md` § Mobile + Admin Status.
+
 ---
 
 ## UX Copy Strategy (Avoid Misinterpretation)

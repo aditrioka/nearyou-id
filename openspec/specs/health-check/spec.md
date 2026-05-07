@@ -1,7 +1,9 @@
 # health-check Specification
 
 ## Purpose
-TBD - created by archiving change health-check-endpoints. Update Purpose after archive.
+
+The health-check capability defines the `/health/live` and `/health/ready` HTTP endpoints that Cloud Run startup + liveness probes and external uptime monitors consume. `/health/live` returns `200 OK` unconditionally as a pure process-alive signal. `/health/ready` runs Postgres, Redis, and Supabase Realtime probes in parallel with per-probe timeouts (500/200/500ms) under a 2-second outer cap, returning `200 {status: "ready"}` only when every dependency is green. Both endpoints are public but rate-limited at 60 req/min/IP via the shared rate-limit infrastructure, and Cloud Run native probes bypass the limit by User-Agent so deploys never self-block.
+
 ## Requirements
 ### Requirement: `/health/live` endpoint returns 200 unconditionally
 

@@ -1,7 +1,9 @@
 # chat-conversations Specification
 
 ## Purpose
-TBD - created by archiving change chat-foundation. Update Purpose after archive.
+
+The chat-conversations capability provides the 1:1 direct-messaging data plane: the `conversations`, `conversation_participants`, and `chat_messages` schema plus the REST endpoints to create-or-return a conversation, list conversations, and list/send messages. A slot-based partial unique index plus advisory locks enforce the 2-active-participant cap; bidirectional block checks gate conversation creation and message send while preserving existing chat history after a block; and shadow-banned senders persist their messages but are filtered from non-banned readers. Length guards (2000 chars on chat content) and a 3-column redaction-atomicity CHECK lock the moderation contract at the schema level.
+
 ## Requirements
 ### Requirement: Conversation schema
 

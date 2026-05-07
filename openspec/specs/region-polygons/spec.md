@@ -1,7 +1,9 @@
 # region-polygons Specification
 
 ## Purpose
-TBD - created by archiving change global-timeline-with-region-polygons. Update Purpose after archive.
+
+The region-polygons capability ships the `admin_regions` reference table (provinces + kabupaten/kota with `geom` and `geom_centroid` columns) and the `posts_set_city_tg` BEFORE INSERT trigger that denormalizes `posts.city_name` + `posts.city_match_type` from `actual_location` at write time. Reverse geocoding runs a 4-step fallback ladder — `ST_Contains` strict → `ST_DWithin(10m)` buffered → `ST_DWithin(50km)` fuzzy → NULL — so floating-point boundary artifacts, coastal posts, and polygon gaps each produce a deterministic outcome. Coastal kabupaten polygons are extended by a 12 nautical mile maritime buffer at import time so posts at sea near the shoreline still match the strict step. The trigger is the second sanctioned reader of `actual_location` after the admin module.
+
 ## Requirements
 ### Requirement: admin_regions table created via Flyway V11
 

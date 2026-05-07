@@ -1,7 +1,9 @@
 # moderation-queue Specification
 
 ## Purpose
-TBD - created by archiving change reports-v9. Update Purpose after archive.
+
+The moderation-queue capability defines the admin-triage table that surfaces content needing human review. Rows carry `(target_type, target_id, trigger)` with the `trigger` enum reserving 7 values (`auto_hide_3_reports`, `perspective_api_high_score`, `uu_ite_keyword_match`, `admin_flag`, `csam_detected`, `anomaly_detection`, `username_flagged`) at V9 for forward-compatibility, even though only the first writer ships now. UNIQUE `(target_type, target_id, trigger)` makes enqueueing idempotent so duplicate triggers do not flood the queue, and the `resolved_by` admin-FK is deliberately deferred until the Phase 3.5 admin-users migration lands.
+
 ## Requirements
 ### Requirement: moderation_queue table created via Flyway V9
 

@@ -29,6 +29,7 @@ This master plan consists of the following domain-focused files:
 | 07 | **07-Operations.md** | Admin panel stack, admin user schema, core features, security (IAP/Cloud Armor/WebAuthn), DB access pattern |
 | 08 | **08-Roadmap-Risk.md** | Development phases (Pre-Phase 1 through Public Launch), development tools & CI lint rules, risk register, open decisions |
 | 09 | **09-Versions.md** | Version Pinning Decisions Log: pin policy, update cadence, rationale per non-default library version |
+| 10 | **10-Setup-Checklist.md** | Operational state tracker: deployed services, secret slots, smoke-test results, [~]/[x] progress markers per environment |
 
 ## Reading Order Suggestions
 

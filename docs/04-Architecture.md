@@ -102,39 +102,74 @@ Redis Streams provide:
 
 ## Dependency Isolation Pattern
 
+> **Status legend** (used throughout this section + the rest of the file):
+> - **shipped** — module/package exists in code today, with PR ref where useful
+> - **partial** — exists but stubbed/incomplete; what's missing called out inline
+> - **DESIGN** — described here as future architecture; not yet scaffolded
+> - **ABANDONED** — explicit kill marker, do not revive without re-deciding
+
+### Currently scaffolded (shipped)
+
 ```
-:core:domain              (pure Kotlin, zero vendor dependencies)
-:core:data                (interface definitions, DTO)
-:shared:distance          (renderDistance logic, JVM + native targets)
-:shared:resources         (Moko Resources strings for UI)
-:infra:supabase           (Supabase implementation)
-:infra:r2                 (Cloudflare R2 implementation)
-:infra:cloudflare-images  (Cloudflare Images + CSAM webhook handler)
-:infra:revenuecat         (RevenueCat implementation, webhook signature verify)
-:infra:redis              (Upstash Redis + Streams implementation)
-:infra:attestation        (Play Integrity + App Attest)
-:infra:resend             (Resend transactional email wrapper)
-:infra:remote-config      (Firebase Remote Config wrapper)
-:infra:otel               (OpenTelemetry tracing)
-:infra:sentry             (Sentry KMP wrapper for Android/iOS/JVM)
-:infra:amplitude          (Amplitude HTTP client wrapper, consent-aware)
-:infra:postgres-neon      (scaffold for backup migration path)
-:infra:ktor-ws            (Ktor WebSocket, develop from Month 14+)
-:backend:ktor             (Ktor routes, DI wiring via Koin)
-:mobile:app               (KMP + Compose Multiplatform)
+:core:domain              shipped — pure Kotlin, zero vendor deps
+:core:data                shipped — interfaces + DTOs
+:shared:tmp               shipped — KMP scaffold placeholder
+:shared:distance          shipped — renderDistance, JVM target + commonMain
+:infra:supabase           shipped — DB, auth, realtime broadcast publish (SupabaseBroadcastChatClient)
+:infra:redis              shipped — Upstash rate limit + cache
+:infra:fcm                shipped — FCM push dispatch (FcmDispatcher 414 LOC + tests)
+:infra:oidc               shipped — internal endpoint OIDC verification
+:infra:otel               shipped — OpenTelemetry tracing (commit f9a78f8, archive 2026-05-07-observability-otel-foundation)
+:backend:ktor             shipped — Ktor routes, DI wiring via Koin
+:mobile:app               partial — KMP wizard scaffold ONLY (see § Mobile Status below)
+:lint:detekt-rules        shipped — 7 custom Detekt rules
 ```
+
+### Planned modules (DESIGN — not yet scaffolded; do NOT `import` from these)
+
+| Module | Status | Trigger to scaffold |
+|---|---|---|
+| `:shared:resources` | DESIGN | Mobile work begins (Moko Resources UI strings) |
+| `:infra:r2` | DESIGN | Image upload feature (Phase 2/3) — Cloudflare R2 (non-image, zero egress) |
+| `:infra:cloudflare-images` | DESIGN | Image upload feature — Cloudflare Images (`img.nearyou.id`) + CSAM webhook handler |
+| `:infra:revenuecat` | DESIGN | Premium subscription billing (webhook signature verify) |
+| `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27) |
+| `:infra:sentry` | DESIGN | Sentry SDK module-isation for Android/iOS/JVM |
+| `:infra:amplitude` | DESIGN | Consent-gated analytics HTTP client |
+| `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
+| `:infra:remote-config` | DECISION NEEDED | DB-backed feature flags already operational (`premium_*_cap_override`); a separate Firebase Remote Config module may be redundant or complementary — needs explicit decision before scaffolding |
+| `:infra:postgres-neon` | ABANDONED | Plan B scaffold not pursued; Supabase PITR is the backup posture |
+| `:infra:ktor-ws` | ABANDONED | Realtime ships via Supabase Broadcast; Ktor WS swap path retired |
+
+### Mobile Status
+
+`:mobile:app` is currently the JetBrains Compose Multiplatform wizard template — `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt` is a single MaterialTheme with a "Click me!" button + greeting from `:shared:tmp`. Zero feature screens, zero auth flow, zero networking, zero Moko Resources usage. **Sections of this doc that describe mobile-side rendering, NSE iOS, App Group setup, push payload handling, etc. are forward-looking design** — they describe contracts the backend already serves, but the consumer side is not yet built.
 
 ### Backend Modules (inside `:backend:ktor`)
 
-- **User module**: authentication, user profile, subscription status, attestation verification, Apple S2S handler, age gate enforcement (18+ only), FCM token registration, analytics consent, suspension unban worker
-- **Post module**: post creation, timeline generation (Nearby + Following + Global), spatial queries, edit history (transactional), search (FTS)
-- **Social module**: follow, like, reply, notification write-path
-- **Chat module**: 1:1 messaging, post embedding with snapshot, conversation management, broadcast orchestration, block enforcement
-- **Media module**: upload validation, Vision Safe Search pre-check, CF Images integration, CSAM webhook handler, feature-flag check (`image_upload_enabled`)
-- **Moderation module**: block, report, shadow ban logic, moderation queue, `rejected_identifiers` check at signup
-- **Admin module**: `/admin/*` routes on a separate subdomain
-- **Internal module**: `/internal/*` routes (OIDC auth)
-- **Health module**: `/health/live`, `/health/ready` (no auth, rate-limited)
+Authoritative list — regenerate from `find backend/ktor/src/main/kotlin/id/nearyou/app -type d -maxdepth 1` if drift suspected.
+
+- **`auth`** (shipped) — JWT verification, signup flow, JWKS, session/refresh, age gate, Apple S2S, realtime token endpoint
+- **`block`** (shipped) — V5; `POST/DELETE/GET /api/v1/blocks` + `BlockExclusionJoinRule` lint enforcement
+- **`chat`** (shipped) — 1:1 messaging, conversation management, broadcast orchestration, block enforcement; V15; 1,828 LOC; the largest single feature area
+- **`common`** (shipped) — shared utilities
+- **`config`** (shipped) — Koin wiring, secret resolution (`secretKey(env, name)`)
+- **`dev`** (shipped) — local-only development helpers
+- **`engagement`** (shipped) — V7 likes + V8 replies + rate-limit (`like-rate-limit`, `reply-rate-limit` archives)
+- **`follow`** (shipped) — V6; `POST/DELETE/GET /api/v1/follows`
+- **`guard`** (shipped) — block / shadow-ban guard helpers used by services
+- **`health`** (shipped) — `/health/live`, `/health/ready` (parallel async dependency probes)
+- **`internal`** (shipped) — `/internal/*` routes under OIDC auth (currently `/internal/unban-worker`; Apple S2S route lives separately)
+- **`lint`** (shipped) — runtime allowlist annotations referenced by Detekt rules
+- **`moderation`** (shipped) — V9 reports/moderation; `POST /api/v1/reports` + rate-limit; admin moderation queue is a 31-LOC stub for future admin UI
+- **`notifications`** (shipped) — V10 in-app notifications; 13-type catalog; read + write paths
+- **`post`** (shipped) — V4 post creation + spatial queries
+- **`search`** (shipped) — V13 Premium search FTS; `GET /api/v1/search` + rate-limit
+- **`timeline`** (shipped) — Nearby / Following / Global timeline endpoints; V11/V12 region polygons
+- **`user`** (shipped) — user profile, V14 FCM token registration
+- **`admin`** (partial) — `SuspensionUnbanWorker` + `UnbanWorkerRoute` ONLY. **No admin UI, no admin REST surface, no `/admin/*` routes.** Admin schema (RLS, `admin_sessions`, `csrf_token_hash`) IS shipped in migrations and Detekt-enforced — but no admin REST/UI consumes it yet. Per `docs/07-Operations.md` § Admin Panel, admin work is deferred to post-MVP.
+
+The **media module** described in earlier drafts (upload validation, Vision Safe Search, CF Images, CSAM webhook) does NOT exist — the entire image-upload + CSAM surface is DESIGN. The **social module** described in earlier drafts has been split into the `block`, `follow`, `engagement`, and `notifications` packages above.
 
 ### Chat Realtime Abstraction
 
@@ -505,11 +540,13 @@ ENTRYPOINT ["/backup.sh"]
 
 ## Push Notification Infrastructure
 
+> **Status (2026-05-07).** Server-side push dispatch is **shipped** (`infra/fcm/` — `FcmDispatcher` 414 LOC + composite + payload builders + 6 tests, 1,292 test LOC). FCM token registration endpoint is **shipped** (V14 + `POST /api/v1/user/fcm-token` in `user/FcmTokenRoutes.kt`). Token cleanup-on-send is **shipped**. **Client-side handling is DESIGN** — the Android preference-check, the iOS NSE, App Group setup, body rewrite, and batching are all forward-looking design until mobile work begins (see `openspec/project.md` § Mobile + Admin Status). The scheduled-cleanup `/internal/cleanup` job described below is also DESIGN — only the immediate on-send cleanup ships today.
+
 ### Platform-Specific Delivery Mode
 
-**Android**: data-only FCM messages. App handles rendering locally with preference check. High priority (`priority: "high"`).
+**Android** (DESIGN — client side): data-only FCM messages. App handles rendering locally with preference check. High priority (`priority: "high"`).
 
-**iOS**: alert push with `mutable-content: 1` + Notification Service Extension (NSE).
+**iOS** (DESIGN — client side): alert push with `mutable-content: 1` + Notification Service Extension (NSE).
 - Rationale: silent push on iOS (`content-available:1` without alert) is aggressively throttled by the system and can be delayed by hours or dropped. Not reliable for chat messaging.
 - Alert push guarantees delivery, with the NSE used to modify the body at runtime based on user preference.
 - The `mutable-content: 1` flag is set on the APNs payload that FCM constructs; the Ktor server specifies it via the FCM Admin SDK `apns.payload.aps.mutableContent = true`.
@@ -529,20 +566,20 @@ Client must re-register when:
 ### Token Cleanup (Two Complementary Paths)
 
 - **Expired tokens (immediate)**: when the server attempts to send a push via FCM and the response is 404/410 (UNREGISTERED or INVALID_ARGUMENT), the specific `(user_id, platform, token)` row is deleted on the spot.
-- **Stale tokens (scheduled)**: weekly `/internal/cleanup` job deletes `WHERE last_seen_at < NOW() - INTERVAL '30 days'`. Guards against tokens that stopped being re-registered without an explicit expiration event.
+- **Stale tokens (scheduled)** — DESIGN: weekly `/internal/cleanup` job deletes `WHERE last_seen_at < NOW() - INTERVAL '30 days'`. Guards against tokens that stopped being re-registered without an explicit expiration event. (Endpoint not yet implemented; only the immediate on-send cleanup above is shipped.)
 
 ### Per-Conversation Batching
 
 - Max 1 push per 10 seconds per conversation
 - Burst merges into user-facing "3 pesan baru dari {username}" (count messages queued in the window)
 
-### iOS NSE Implementation
+### iOS NSE Implementation — DESIGN
 
 - NSE reads preference from App Group shared UserDefaults (suite `group.id.nearyou.shared`)
 - Rewrites body if preference is ON: takes `body_full` from the data payload, truncates to 100 chars
 - Backend sends full content in the `body_full` data field (NSE-only access, not in the default alert body)
 
-### iOS NSE setup checklist (mandatory in iOS Phase 3)
+### iOS NSE setup checklist (mandatory in iOS Phase 3) — DESIGN
 
 - Xcode: App Group capability enabled in both the app target and the NSE target
 - Developer Console: App Group ID registered (`group.id.nearyou.shared`)
@@ -552,7 +589,7 @@ Client must re-register when:
 - Entitlements file: `com.apple.security.application-groups` array
 - Test: push to a physical device, toggle preference, verify body rewrite
 
-### Android Implementation
+### Android Implementation — DESIGN
 
 - App checks preference in local storage before rendering the notification
 - Data-only FCM wakes the app; the app handles display

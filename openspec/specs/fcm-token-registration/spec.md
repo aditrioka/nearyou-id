@@ -1,7 +1,9 @@
 # fcm-token-registration Specification
 
 ## Purpose
-TBD - created by archiving change fcm-token-registration. Update Purpose after archive.
+
+The fcm-token-registration capability defines the `POST /api/v1/user/fcm-token` endpoint and the `user_fcm_tokens` table that store device push tokens for every signed-in user. The endpoint upserts on `(user_id, platform, token)` and refreshes `last_seen_at` on every call so freshness drives both the on-send-failure prune and the future weekly cleanup worker. The `platform` column is constrained to `'android' | 'ios'` and DB-level CHECKs cap token + app_version length as defense-in-depth; raw tokens are never written to logs because they are device-addressed credentials. The UNIQUE per-`(user_id, platform, token)` triple supports both multi-device users and family-shared devices across users.
+
 ## Requirements
 ### Requirement: `user_fcm_tokens` table SHALL store device-scoped FCM push tokens with a UNIQUE `(user_id, platform, token)` constraint
 

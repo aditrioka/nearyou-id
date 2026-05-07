@@ -2,9 +2,13 @@
 
 Internal operational tooling for NearYouID. Covers admin panel stack, feature surface, multi-layer security model, and database access pattern. Related files: `04-Architecture.md` (infrastructure), `05-Implementation.md` (admin-related schemas), `06-Security-Privacy.md` (moderation policies), `08-Roadmap-Risk.md` (build phase 3.5 timeline).
 
+> **Status (2026-05-07).** The Admin Panel is **DESIGN** — Phase 3.5 deferred-to-post-MVP per `08-Roadmap-Risk.md`. The `:backend:ktor` `admin` package contains only `SuspensionUnbanWorker.kt` + `UnbanWorkerRoute.kt` (~189 LOC); there are no `/admin/*` routes, no admin UI, no Pebble templates. Admin schema (`admin_users`, `admin_sessions` + CSRF, `admin_actions_log`, `admin_webauthn_*`) is partly in V2/V9/scattered migrations and the lint invariants (`csrf_token_hash` required, admin-FK `ON DELETE SET NULL`) ARE Detekt-enforced — the data model is partially ready, but no consuming service code exists. Treat the entire § Admin Panel section below as forward-looking design until Phase 3.5 work begins.
+>
+> The § Deployment Runbook and § Secret Management Runbook sections at the bottom of this file ARE shipped — both are battle-tested against real Cloud Run incidents (PR #54). Those runbooks should remain canonical.
+
 ---
 
-## Admin Panel
+## Admin Panel — DESIGN
 
 ### Stack
 

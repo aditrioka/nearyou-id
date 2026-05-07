@@ -6,6 +6,15 @@ Project context for Claude running in Claude Code or the `anthropics/claude-code
 
 **nearyou-id** — location-based social media MVP (Indonesia, 18+ only). Text posts with location, nearby discovery, 1:1 chat, freemium + Premium. Modular monolith on Kotlin Multiplatform. Solo-operator build; pre-launch.
 
+## Mobile + Admin are DESIGN-only (read this before believing docs)
+
+The backend is roughly MVP-ready (15 Flyway migrations, 41 OpenSpec capabilities shipped, Detekt-enforced invariants). The **mobile and admin surfaces are intentionally thin**, and many `docs/*` and `openspec/specs/*` paragraphs describe their future-state contracts in present tense. Treat those paragraphs as DESIGN until proven otherwise.
+
+- **Mobile (`:mobile:app`)** — JetBrains Compose Multiplatform wizard scaffold (4 files, ~95 LOC, single "Click me!" button). No screens, no auth flow, no networking, no Moko Resources usage.
+- **Admin (`backend/ktor/.../admin`)** — `SuspensionUnbanWorker.kt` + `UnbanWorkerRoute.kt` only (~189 LOC). No admin UI, no admin REST surface beyond the `/internal/unban-worker` tick.
+
+Canonical detail + trigger-to-update: `openspec/project.md` § Mobile + Admin Status. Don't author code or specs that assume these surfaces exist beyond what's listed there.
+
 ## Canonical references
 
 Start here, in priority order:
@@ -24,26 +33,31 @@ Before proposing non-trivial changes, skim the relevant doc. Many details (jitte
 
 ## Critical invariants (don't violate these)
 
-These are enforced by CI lint rules. See `openspec/project.md` § "Coding Conventions & CI Lint Rules" for the full list + exact allowlist mechanisms.
+**Canonical for the 16 code-level invariants: [`openspec/project.md`](openspec/project.md) § "Coding Conventions & CI Lint Rules"** (each tied to a Detekt rule, allowlist mechanism, or schema CHECK). Read that section before editing code that might touch any of them. Audit on 2026-05-07 found this list was previously duplicated here verbatim, creating drift risk; trimming to a pointer + summary keeps `openspec/project.md` as the single canonical source for those 16.
 
-- **Shadow-ban safety**: business queries MUST read `visible_posts` / `visible_users`, never raw `FROM posts|users|post_replies|chat_messages`. Raw reads are allowed only in Repository own-content paths, the admin module, and the `ReportService` target-existence helper.
-- **Block enforcement**: authenticated queries touching `posts | visible_posts | users | chat_messages | post_replies` MUST include the bidirectional `user_blocks` NOT-IN join (`blocker_id = :viewer` AND `blocked_id = :viewer`). Enforced by the Detekt rule `BlockExclusionJoinRule`.
-- **Spatial**: non-admin paths MUST use `display_location` (fuzzed), never `actual_location`, for `ST_DWithin` / `ST_Distance`. Exceptions: admin module + the one sanctioned reverse-geocode path (`posts_set_city_tg` trigger, DB-side only).
-- **Client IP**: read via the `clientIp` request-context value (populated from `CF-Connecting-IP`). Direct `X-Forwarded-For` reads are forbidden.
-- **Rate-limit TTL**: call `computeTTLToNextReset(user_id)` for per-user daily WIB-midnight stagger. No hardcoded midnight math.
-- **Redis keys**: must include hash tag `{scope:<value>}` for cluster-safe multi-key ops.
-- **Username writes**: `UPDATE users SET username = ...` is allowed only in signup flow, the single Premium customization transaction, and the admin module. Legitimate writers annotate `// @allow-username-write: signup|customization`.
-- **Privacy-flag writes**: `UPDATE users SET private_profile_opt_in = FALSE` is allowed only in the privacy-flip worker and Settings. Annotate `// @allow-privacy-write: worker|user_settings`.
-- **Content length guards**: input endpoints must length-check (post/reply 280 chars, chat 2000).
-- **Admin sessions**: every `INSERT INTO admin_sessions` must populate `csrf_token_hash`.
-- **Admin-user FKs** on operational tables must use `ON DELETE SET NULL`.
-- **Mobile strings**: no hardcoded UI strings; must go through Moko Resources.
-- **Partial indexes**: no `NOW()` in `WHERE` (non-immutable; PG rejects).
-- **RLS changes**: mandatory test case "JWT `sub` not in `public.users` → deny" on every policy change.
-- **Secrets**: Ktor MUST read via the `secretKey(env, name)` helper. Direct secret-name reads are a lint violation.
-- **No vendor SDK import outside `:infra:*`** — domain/data code depends only on interfaces.
+The 16 code-level invariants cover (high-level summary; for the actual enforcement detail — Detekt rule names, allowlist regex, annotation syntax — read project.md):
+
+- Shadow-ban safety (`visible_*` views, never raw `posts|users|...`)
+- Block enforcement (bidirectional `user_blocks` NOT-IN join via `BlockExclusionJoinRule`)
+- Spatial fuzzing (`display_location` only in non-admin paths)
+- Client IP (`clientIp` request-context, never raw `X-Forwarded-For`)
+- Rate-limit TTL (`computeTTLToNextReset(user_id)`, no hardcoded midnight math)
+- Redis hash tags (`{scope:<value>}` for cluster-safe multi-key ops)
+- Username + privacy-flag write allowlists (annotated comments required)
+- Content length guards (post/reply 280, chat 2000)
+- Admin sessions (`csrf_token_hash` mandatory; admin-user FKs `ON DELETE SET NULL`)
+- Mobile strings via Moko Resources only
+- Partial indexes: no `NOW()` in `WHERE`
+- RLS changes: mandatory "JWT `sub` not in `public.users` → deny" test
+- Secrets via `secretKey(env, name)` helper only
+- No vendor SDK import outside `:infra:*`
+
+**Two CLAUDE.md-only invariants (canonical here, not in project.md)** — these govern how we author *content*, not how we author *code*, so they live with the AI-session entry-point file:
+
 - **Public repository posture**: this repo is source-available under [FSL-1.1-ALv2](LICENSE) — assume external readers in commits, comments, PR bodies, code identifiers. Slot names + GCP project IDs + service-account emails are non-sensitive (matches the existing "secrets in Secret Manager, slot names in source" pattern); never inline real secret values, customer PII, or speculative commercial strategy. When in doubt, surface to the user before committing.
 - **Root README module list is auto-generated** from [`settings.gradle.kts`](settings.gradle.kts) + [`dev/module-descriptions.txt`](dev/module-descriptions.txt). When a change adds a new module, also (a) add a one-line description to `dev/module-descriptions.txt`, then (b) run `dev/scripts/sync-readme.sh --write`. CI runs `--check` (warning-only) to surface drift. See `openspec/project.md` § Documentation Maintenance for the full trigger table.
+
+Drift-detection: if you find yourself wanting to add a new code-level invariant, add it to `openspec/project.md` first; only update the 16-item summary above if it warrants top-of-mind awareness for every AI session. New content/posture-level invariants land here in the "two CLAUDE.md-only" section.
 
 ## Engineering judgment over context budget
 

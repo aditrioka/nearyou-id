@@ -1,7 +1,9 @@
 # post-replies Specification
 
 ## Purpose
-TBD - created by archiving change post-replies-v8. Update Purpose after archive.
+
+The post-replies capability adds threaded replies as the second engagement primitive after likes: the `post_replies` table plus `POST`, `GET`, and `DELETE` under `/api/v1/posts/{post_id}/replies`. The list endpoint reads with shadow-ban exclusion, bidirectional block exclusion on `author_id`, and the `is_auto_hidden = FALSE OR author_id = :viewer` author-bypass filter. Soft-delete is the only delete path (no hard-delete), and DELETE is idempotent `204` so attackers cannot probe for reply existence by who-owns-what. Nearby and Following timelines gain a `reply_count` column on every post via a `LEFT JOIN LATERAL` over `visible_users`; the counter deliberately does not apply per-viewer block exclusion to avoid leaking block state.
+
 ## Requirements
 ### Requirement: post_replies table created via Flyway V8
 

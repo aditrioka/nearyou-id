@@ -68,7 +68,9 @@ Settings > Privasi > "Pengaturan Data" (user-facing). Toggle change takes effect
 
 ---
 
-## Device Attestation
+## Device Attestation — DESIGN
+
+> **Status: DESIGN.** No code today. The `:infra:attestation` module is unscaffolded; signup flow does not invoke Play Integrity / App Attest verification. The `attestation_mode` and `attestation_bypass_google_ids_sha256` Remote Config keys described below do not yet have a consumer in `SignupService.kt`. This section describes the intended posture for when attestation work begins (post-MVP per `docs/08-Roadmap-Risk.md`).
 
 **Mandatory at registration + sensitive operations**:
 
@@ -422,26 +424,33 @@ All internal scheduler endpoints served under `/internal/*` with mandatory OIDC 
 
 ### Covered Endpoints
 
+> **Status (2026-05-07).** Only **2 of the endpoints below are shipped**. The rest are DESIGN — the route is not yet mounted in `Application.kt`. Cross-check against `find backend/ktor/src/main -name "*Routes.kt" -path "*internal*"` if drift suspected.
+
+**Shipped:**
+- Apple S2S notifications (`/internal/apple/s2s-notifications`) — `AppleS2SRoutes.kt`
+- Suspension unban worker (`/internal/unban-worker`, daily) — `admin/UnbanWorkerRoute.kt`
+
+**DESIGN — not yet implemented:**
 - Hard delete worker (`/internal/cleanup`)
 - Image lifecycle cleanup
 - Session purge + refresh token cleanup
 - Reverse geocoding cache warmup
-- Apple S2S notifications (`/internal/apple/s2s-notifications`)
 - CSAM webhook handler (`/internal/csam-webhook`)
 - Granted entitlement activity gate check (daily)
-- Subscription grace period downgrade worker (daily)
+- Subscription grace period downgrade worker (daily, `/internal/privacy-flip-worker`)
 - CSAM archive purge worker (post-90-day)
-- Suspension unban worker (`/internal/unban-worker`, daily)
 - FCM token cleanup (weekly)
 - Notifications purge (weekly, >90 days)
 - Moderation queue / reports archival (weekly)
 - Stream GC (post-swap, weekly)
+- RevenueCat webhook (`/internal/revenuecat-webhook`)
 
-**Exceptions to OIDC** (use alternative auth):
-- RevenueCat webhook (`/internal/revenuecat-webhook`): Bearer token + HMAC signature (vendor doesn't support OIDC). See `05-Implementation.md`.
-- CSAM webhook handler (`/internal/csam-webhook`): invoked via two supported paths, both non-OIDC.
-  - **Admin-triggered (MVP)**: the Admin Panel calls the handler internally using the admin's scoped session + a session-bound CSRF-style token. Since both services share the cluster network, the call never leaves the trust boundary.
-  - **Cloudflare Worker forwarding (Phase 2+)**: the CF Worker signs its POST with a Bearer token pulled from a Worker secret and an HMAC-SHA256 body signature (key in GCP Secret Manager as `cf-worker-csam-secret`). The Ktor handler verifies both before processing. Rate-limited to 100 req/hour per IP (prevents replay amplification).
+**Exceptions to OIDC** (use alternative auth) — **ALL DESIGN as of 2026-05-07**: neither endpoint below is mounted; the auth posture described is the intended future shape, not active code.
+
+- RevenueCat webhook (`/internal/revenuecat-webhook`) — DESIGN: Bearer token + HMAC signature (vendor doesn't support OIDC). See `05-Implementation.md` § RevenueCat Webhook (also tagged DESIGN).
+- CSAM webhook handler (`/internal/csam-webhook`) — DESIGN: when implemented, it will be invoked via two supported paths, both non-OIDC.
+  - **Admin-triggered (MVP)** — DESIGN: the Admin Panel will call the handler internally using the admin's scoped session + a session-bound CSRF-style token. Since both services would share the cluster network, the call never leaves the trust boundary. (Admin Panel itself is DESIGN per `docs/07-Operations.md`.)
+  - **Cloudflare Worker forwarding (Phase 2+)** — DESIGN: the CF Worker will sign its POST with a Bearer token pulled from a Worker secret and an HMAC-SHA256 body signature (key reserved as `cf-worker-csam-secret` in GCP Secret Manager). The Ktor handler will verify both before processing. Rate limit will be 100 req/hour per IP (prevents replay amplification).
 
 **Backup NOT via `/internal/*` endpoint**: backup runs as a standalone Cloud Run Jobs container, not an HTTP endpoint.
 
