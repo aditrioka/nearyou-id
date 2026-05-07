@@ -792,87 +792,24 @@ What's missing: a test that boots `Application.module()` with a test-only overri
 - [ ] Add a Detekt rule `FirebaseImportBoundaryRule` in `:lint:detekt-rules` that allowlists `*Module.kt` filenames OR a `@FcmDiBinding` KtAnnotation. Modeled on `RawXForwardedForRule` (which has a similarly tight allowlist).
 - [ ] Update spec scenario "`:backend:ktor` Firebase imports are scoped to DI-binding files only" from SHOULD to SHALL once the rule is in place.
 
-## chat-realtime-broadcast-publish
+## chat-message-notification-per-conversation-fcm-batching
 
-**Discovered during:** `chat-foundation` apply, scope-deferral discipline (proposal § Out of scope)
+**Discovered during:** `chat-foundation` apply (originally tracked under `chat-message-notification-emit-sites`; reduced to the only remaining open scope after `chat-message-notification` shipped via PR #65).
 **Status:** open
 
-**Finding:** `chat-foundation` ships the data plane (schema + REST endpoints) for 1:1 chat but explicitly defers the Supabase Realtime broadcast layer per [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 2 #9. Without broadcast publish from Ktor, the user-visible product is "1:1 chat with REST polling" — the data plane is correct and shippable for testing, but it is not a real-time chat experience until the publish layer lands. The V2-drafted RLS policy on `realtime.messages` is now installed correctly by V15 (subscriber-side authorization works end-to-end), and the realtime token endpoint shipped in `auth-realtime` is ready, so the only missing piece is the Ktor-side publish that emits a Supabase Realtime broadcast on every successful `chat_messages` INSERT.
+**Finding:** The `chat_message` emit-site + end-to-end FCM dispatch wiring shipped in `chat-message-notification` (PR #65) — every successful chat send produces a `notifications` row AND fans out one FCM push per active recipient token. What did NOT ship is the **per-conversation push batching** behavior described as a Phase 2 chat scope item: when a sender pumps multiple messages into one conversation in quick succession (a typing burst), the receiver currently gets one FCM push per message rather than a single coalesced push for the burst. At MVP scale this is acceptable noise; at scale it becomes a notification-fatigue + FCM quota concern. The `chat_message_redacted` emit-site (the second originally-open item under `chat-message-notification-emit-sites`) is deferred to the Phase 3.5 admin redaction change per `chat-message-notification` proposal § Open Questions Q3 and does NOT need its own follow-up entry — the Phase 3.5 admin work owns it.
 
-**Specs at fault:** None — `openspec/specs/chat-conversations/spec.md` (post-archive) deliberately scopes to REST.
-**Code at fault:** None — REST data plane is complete and correct.
-**Docs at fault:** None — [`docs/04-Architecture.md`](docs/04-Architecture.md) and [`docs/05-Implementation.md`](docs/05-Implementation.md) describe the realtime layer; `chat-foundation` simply doesn't implement it yet.
-
-**Impact (if shipped):** No regression risk — the REST data plane works in isolation. Until broadcast publish ships, clients fall back to REST polling for new messages, which is acceptable for staging-side testing but not for production traffic. The fcm-push-dispatch composite (PR #60) currently has no `chat_message` emit-site to push from; that emit-site is tracked separately in `chat-message-notification-emit-sites`.
-
-**Ambiguity to resolve first:** Publish strategy — Ktor calls Supabase REST `realtime.broadcast` after the chat_messages INSERT commits, OR Ktor uses a Postgres LISTEN/NOTIFY relay that Supabase realtime picks up automatically. The canonical pattern in [`docs/05-Implementation.md` § Chat Flow](docs/05-Implementation.md) is the post-commit REST publish; confirm that hasn't changed before implementing.
-
-**Action items:**
-- [ ] File OpenSpec change `chat-realtime-broadcast` after `chat-foundation` archives. Add an ADDED capability `chat-realtime-broadcast` covering the post-commit publish, the publish-side shadow-ban filter (see `chat-realtime-broadcast-publish-side-shadow-ban-filter`), and the publish-failure-fallback strategy (logged + retry-batch via background job; no client-visible error).
-- [ ] Wire the publish-after-commit hook in `ChatRepository.sendMessage` (or pull it up to a service-level transaction-aware hook) so the publish runs only after successful commit.
-- [ ] Cover the publish path with an integration test against a real Supabase realtime container (or staging integration if a containerized Supabase realtime image isn't available).
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
-
-## chat-rate-limit-50-per-day
-
-**Discovered during:** `chat-foundation` apply, scope-deferral discipline
-**Status:** open
-
-**Finding:** `chat-foundation` does NOT enforce a daily send-rate cap on `POST /api/v1/chat/{id}/messages`. Per [`docs/02-Product.md:318`](docs/02-Product.md), Free-tier users SHALL be capped at 50 messages/day; Premium SHALL be unlimited. The shape is canonical and matches the existing like-rate-limit + reply-rate-limit changes (limiter BEFORE body parse, per-user WIB-midnight TTL via `computeTTLToNextReset(userId)`, `{scope:rate_chat_day}:{user:U}` Redis key, RemoteConfig override `premium_chat_cap_override` for ops dial). The `rate-limit-infrastructure` capability is already shared across like + reply, so the chat extension is mostly route-layer wiring + a service tryRateLimit method.
-
-**Specs at fault:** None — `chat-foundation` is correctly scoped to data plane only.
-**Code at fault:** `backend/ktor/src/main/kotlin/id/nearyou/app/chat/ChatRoutes.kt` (POST handler does not gate on rate-limiter).
-**Docs at fault:** None — `docs/02-Product.md:318` is canonical.
-
-**Impact (if shipped):** Without a daily cap, a Free user can spam an arbitrary number of `POST /api/v1/chat/{id}/messages` calls per day. The data plane has correct length-guard (2000-char) and block enforcement, so spam payloads are bounded per-message; the cap is a fairness + abuse-prevention layer, not a correctness layer. Acceptable to defer for staging-side testing; MUST land before any beta with external users.
-
-**Ambiguity to resolve first:** None — same shape as like-rate-limit + reply-rate-limit.
-
-**Action items:**
-- [ ] File OpenSpec change `chat-rate-limit` after `chat-foundation` archives. ADD a `chat-rate-limit` capability following the like-rate-limit + reply-rate-limit shape: limiter BEFORE body parse, Free-only daily cap (default 50, override via `premium_chat_cap_override`), `{scope:rate_chat_day}:{user:U}` Redis key, per-user WIB-midnight TTL.
-- [ ] Wire the limiter into `ChatRoutes.kt` POST handler at the same ordering position as `ReplyRoutes.kt` uses (auth → UUID validation → limiter → body parse → content guard → repo).
-- [ ] Add `ChatRateLimitTest` mirroring `ReplyRateLimitTest` shape.
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
-
-## chat-message-notification-emit-sites
-
-**Discovered during:** `chat-foundation` apply, fcm-push-dispatch cross-reference
-**Status:** partially closed — `chat-message-notification` change wires the `chat_message` emit-site + end-to-end coverage; `chat_message_redacted` emit + per-conversation FCM batching remain open.
-
-**Finding:** The fcm-push-dispatch composite shipped in PR #60 wires the dispatcher with all four current emit-site services (post_liked, post_replied, follow, etc.) but has NO `chat_message` or `chat_message_redacted` emit-site to push from. `chat-foundation` deliberately defers adding these emit-sites because (a) without the realtime broadcast layer there's no async surface to push from, and (b) the canonical Phase 2 #11 per-conversation FCM push batching depends on the broadcast layer being in place. Once `chat-realtime-broadcast-publish` lands, the chat send path will have a natural emit-site (after the post-commit broadcast publish) where `notifications` table emits + FCM dispatch can be added. The fcm-push-dispatch dispatcher will pick them up automatically once emitted.
-
-**Specs at fault:** None — `chat-foundation` is correctly scoped.
-**Code at fault:** None — pre-existing emit-sites are correct; chat emit-sites are net-new and live in the future change.
+**Specs at fault:** None.
+**Code at fault:** None — current behavior (one push per message) is correct, just unbatched.
 **Docs at fault:** None.
 
-**Impact (if shipped):** No FCM push for chat until both this and `chat-realtime-broadcast-publish` land. In-app notifications via the existing `notifications` table also won't fire for chat-message events until then. Acceptable for the chat-foundation cut (staging testing only); MUST land before any user-visible chat beta.
+**Impact (if shipped):** Low at MVP. Receiver sees N pushes for N rapid messages instead of 1 coalesced push. Premium-chat user experience consideration; not a blocker.
 
-**Ambiguity to resolve first:** Notification body shape for chat — what fields land in `notifications.body_data`? Sender username + content excerpt (truncated to 80 code points like reply excerpt)? Or sender + conversation_id only, with the client fetching content on tap? Decide in the change's design.md.
-
-**Action items:**
-- [x] After `chat-realtime-broadcast-publish` lands, file OpenSpec change `chat-message-notification-emit-sites`. ADD `chat_message` and `chat_message_redacted` notification types in `core/data/.../NotificationType.kt`. Wire the `chat_message` emit in the chat-message send transaction (mirror the `post_replied` + `post_liked` emit-site pattern in ReplyService / LikeService). _Closed by `chat-message-notification` (this branch). `chat_message_redacted` emit is deferred to the Phase 3.5 admin redaction change per `chat-message-notification` proposal § Open Questions Q3._
-- [ ] Add the per-conversation FCM push batching design (Phase 2 #11) — this may be a separate change depending on scope. _Still open. Out of scope for `chat-message-notification`._
-- [x] Cover the emit + dispatch end-to-end against a real Postgres + mocked FCM (mirror `JdbcUserFcmTokenReaderTest` shape). _Closed by `chat-message-notification` — `:backend:ktor` `ChatMessageNotificationTest` covers the emit + composite-dispatcher fan-out; `:infra:fcm` `PushCopyTest` + `PayloadBuildersTest` cover the chat_message push copy + iOS payload._
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges. _Will close fully when the per-conversation FCM batching design is filed._
-
-## chat-realtime-broadcast-publish-side-shadow-ban-filter
-
-**Discovered during:** `chat-foundation` apply, design § D9 reconciliation
-**Status:** open (hard prerequisite for `chat-realtime-broadcast-publish`)
-
-**Finding:** V15 installs the `realtime.messages` RLS policy WITHOUT V2's subscriber-side `is_shadow_banned` clause (per `chat-foundation/design.md` § D9 + `chat-conversations` spec § Requirement: Realtime RLS policy installed with shadow-ban-aware subscriber semantics). The subscriber-side reconciliation is COMPLETE — shadow-banned users retain their own realtime view, consistent with the invisible-actor model. **What remains:** the publish-side filter. When `chat-realtime-broadcast-publish` ships, the publish path SHALL skip emit when `sender.is_shadow_banned = TRUE`, mirroring the read-path inline filter in `GET /api/v1/chat/{id}/messages` per `chat-conversations` spec § Requirement: List-messages endpoint. Without this filter, shadow-banned senders' messages would broadcast normally to non-banned recipients via WSS while being filtered from the REST `GET /messages` path — REST/WSS asymmetry that defeats the invisible-actor model on the realtime surface.
-
-**Specs at fault:** Future `chat-realtime-broadcast` capability (does not exist yet) — must include the publish-side filter requirement.
-**Code at fault:** Future `chat-realtime-broadcast-publish` change must implement the filter.
-**Docs at fault:** None — `chat-foundation/design.md` § D9 documents the deferral; `chat-conversations` spec includes the read-path filter that the publish-side must mirror.
-
-**Impact (if shipped):** Only relevant once `chat-realtime-broadcast-publish` ships. Without the publish-side filter at that point, a shadow-banned user's messages would silently reach non-banned recipients via WSS while being filtered from REST — a privacy hole and shadow-ban-detection oracle (the punished user could ask a non-banned friend "do you see my messages on the websocket?" to detect the shadow-ban state in seconds rather than the canonical 24-48 hour friction window).
-
-**Ambiguity to resolve first:** Implementation site — filter at the publish call (Ktor checks `sender.is_shadow_banned` before invoking the broadcast publish), OR at the broadcast routing layer (Supabase realtime evaluates a server-side filter via the policy or a function). The natural fit is Ktor-side because (a) the sender's shadow-ban state is already loaded as part of the send transaction and (b) the subscriber-side policy was deliberately kept simple per D9.
+**Ambiguity to resolve first:** Batching strategy — debounce-on-send (delay each push by ~3s and merge incoming siblings), OR per-conversation rate-limit (cap pushes per conversation per minute), OR FCM-side notification grouping (Android `setGroup` + iOS `thread-id`). The third option is purely client-display batching, no server change; cheapest. Likely correct first move.
 
 **Action items:**
-- [ ] When `chat-realtime-broadcast-publish` is filed, the proposal MUST include this publish-side filter as part of its scope (NOT as a follow-up to that change).
-- [ ] Cover the filter end-to-end with an integration test: shadow-banned sender A sends to conversation X with non-banned recipient B; assert (a) the row persists, (b) `GET /messages` for B does NOT return the row, (c) the realtime broadcast for `realtime:conversation:X` does NOT carry the row.
+- [ ] When user growth or feedback signals notification fatigue, file OpenSpec change `chat-message-notification-per-conversation-batching`. Most likely shape: client-display grouping (Android `setGroup`, iOS `thread-id` keyed on `conversation_id`) shipped in `:infra:fcm`'s payload builders + minimal spec amendment to `fcm-push-dispatch`.
+- [ ] If client-display grouping proves insufficient: add server-side debounce/coalesce in a separate change.
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
 
 ## compute-ttl-to-next-reset-test-flake
@@ -973,34 +910,6 @@ Recommend approach 3 — preserves spec semantics, no spec amendment needed (spe
 **Action items:**
 - [ ] Amend [`docs/05-Implementation.md:1204`](docs/05-Implementation.md) to distinguish publisher channel identifier (`realtime:conversation:<id>`) from the topic (`conversation:<id>`) the V15 RLS regex evaluates against. Batch with the other Phase 9 docs-only amendments.
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs amendment merges.
-
----
-
-## observability-otel-foundation
-
-**Discovered during:** `chat-realtime-broadcast` Phase 9.5 — `design.md` § D9 + `proposal.md` "Observability deferred" descope of the `chat.realtime.publish` OTel span requirement. Round-3 review surfaced that OTel SDK is not in the project; instrumenting only chat-realtime-broadcast would create a single-instrumented-capability anomaly.
-**Status:** open
-
-**Finding:** `chat-realtime-broadcast` design § D9 descoped the OTel-span observability per [`docs/04-Architecture.md:398`](docs/04-Architecture.md) "mandatory OTel attributes" — adopting OTel here would couple a chat-publish feature change to a project-wide observability foundation (SDK + global tracer + hashed-user-id helper + DI plumbing + retroactive instrumentation across every shipped capability). The `chat-realtime-broadcast` change ships ONLY the structured WARN log on failure; OTel adoption is the future work tracked here.
-
-Gap surface: zero OTel SDK references in [`gradle/libs.versions.toml`](gradle/libs.versions.toml) or [`build-logic/`](build-logic/); no shipped capability (chat-foundation, chat-rate-limit, fcm-push-dispatch, post-likes, post-replies, premium-search) emits OTel spans; "user_id (hashed)" attribute referenced by the architecture doc has no implementation helper on disk.
-
-**Specs at fault:** None — the `chat-realtime-broadcast` spec correctly omits an OTel requirement.
-**Code at fault:** None — pre-foundation; nothing to refactor yet.
-**Docs at fault:** [`docs/04-Architecture.md:398`](docs/04-Architecture.md) describes mandatory OTel attributes as if enforced. Tracked separately by `architecture-doc-otel-mandatory-attributes-clarification`.
-
-**Impact (if shipped):** Low today (structured logs are the de-facto observability surface across all shipped capabilities). Risk: as more capabilities ship, retroactive instrumentation work compounds; the `chat.realtime.publish` span specifically would be useful for alerting on publish-failure rate but is currently approximated via WARN-log-rate alerts.
-
-**Ambiguity to resolve first:** None — the foundation shape is clear from `docs/04-Architecture.md` § Instrumentation priorities + the existing structured-log usage. The change should:
-1. Add OTel SDK + `opentelemetry-sdk-testing` to [`gradle/libs.versions.toml`](gradle/libs.versions.toml).
-2. Wire a global tracer in [`backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt`](backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt).
-3. Introduce a `hashUserIdForTelemetry` helper in [`:core:domain`](core/domain/) (per `docs/04-Architecture.md:398` "user_id (hashed)").
-4. Retroactively instrument call sites with one consistent policy: chat send (`chat.send`), chat publish (`chat.realtime.publish`), fcm send (`fcm.send`), like / reply / search action paths.
-
-**Action items:**
-- [ ] File an OpenSpec change `observability-otel-foundation` per the migration sketch above.
-- [ ] In a follow-on change, retro-add the `chat.realtime.publish` span requirement to the `chat-realtime-broadcast` capability spec (currently descoped in design § D9).
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the foundation change merges.
 
 ---
 
