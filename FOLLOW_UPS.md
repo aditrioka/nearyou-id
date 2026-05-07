@@ -33,6 +33,50 @@ Format per entry:
 
 ---
 
+## rate-limit-key-includes-raw-client-ip
+
+**Discovered during:** `observability-otel-foundation` §8.3 Tempo TraceQL verification at task-execution time — Lettuce/Redis spans for the rate-limit Lua call carry `db.statement = "EVALSHA <hash> 1 {scope:health}:{ip:169.254.169.126} ? ? ? ? ?"`. The `{ip:<value>}` segment is the rate-limit Redis key, and the `<value>` is the client/peer IP read by the rate-limiter. Value appears verbatim in span attributes ingested to Grafana Cloud Tempo.
+**Status:** open
+
+**Finding:** Rate-limit keys use raw client IP for keying. While the IP value observed at staging Cloud Run direct URL is a link-local LB IP (`169.254.169.126`, not a real customer IP), the rate-limiter on production paths via Cloudflare reads `CF-Connecting-IP` which IS a real customer IP — that value would appear in Redis Lua key arguments and leak into `db.statement` Tempo span attributes. PII per UU PDP article 1(15) (IP address is identifying when paired with timestamp).
+
+**Specs at fault:** None directly — `observability-otel-foundation` § "Forbidden span attributes" forbids raw IPs but the rate-limiter's Lua key shape is determined by the `like-rate-limit` / `chat-rate-limit` / `report-rate-limit` capabilities, not the OTel foundation. Those specs do not currently require IP hashing.
+**Code at fault:** `:infra:redis`'s `RedisRateLimiter` Lua-key construction. The exact key shape lives in the rate-limiter scope/key derivation logic; pattern is `{scope:<scope>}:{ip:<raw-ip>}`.
+**Docs at fault:** `docs/05-Implementation.md` rate-limiter key documentation reflects current behavior — would need amendment alongside the code fix.
+
+**Impact (if shipped):** Medium — pre-launch staging-only at the moment, no real customers. High at production launch + Cloudflare-fronted traffic. Trace-data leak of client IP undermines the project's `CF-Connecting-IP` privacy posture on the OTel surface (the request-context `clientIp` value is properly handled in app code per `RawXForwardedForRule` Detekt rule, but the rate-limiter's Lua key bypass leaks it into span attributes regardless).
+
+**Ambiguity to resolve first:** Hash the IP at rate-limit-key construction (truncated SHA-256 like `UserIdHasher`) — what truncation length? 16 hex (matches user.id) probably fine. Or 8 hex. Worth discussion before committing to a key-format change that breaks existing rate-limit slot continuity.
+
+**Action items:**
+- [ ] File OpenSpec change `rate-limit-ip-hashing` that updates `:infra:redis`'s `RedisRateLimiter` to hash `clientIp` to 16-hex truncated SHA-256 before constructing the Lua key.
+- [ ] Pre-existing rate-limit slots become invalid post-rollout (they were keyed by raw IP); this is acceptable for a one-time slot reset at the change rollout window. Document in the change's design.md.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
+
+---
+
+## rate-limit-applies-to-health-endpoints
+
+**Discovered during:** `observability-otel-foundation` §8.3 Tempo TraceQL verification — `GET /health/live` traces show child EVALSHA Lettuce span = the rate-limit Lua script is being executed on health-check requests.
+**Status:** open
+
+**Finding:** The rate-limiter middleware processes `/health/*` paths along with all other routes. Health-check paths should bypass rate-limiting because: (a) Cloud Run's startup probe + liveness probe hit `/health/ready` and `/health/live` repeatedly during deployment; if a deploy coincides with a real rate-limit burst, the probes themselves get throttled and Cloud Run kills the instance, cascading to a deploy failure; (b) probe traffic generates Redis load + consumes the rate-limit slot quota; (c) the rate-limit metric becomes noisier when health probes count toward it.
+
+**Specs at fault:** Each rate-limit capability spec (`like-rate-limit`, `chat-rate-limit`, `report-rate-limit`) — none currently scope-out `/health/*`.
+**Code at fault:** Wherever the rate-limit middleware is installed in `:backend:ktor`'s `Application.kt`. The fix is either (a) install rate-limit middleware on a sub-route subtree that excludes `/health/*`, or (b) add an explicit path-prefix bypass in the rate-limiter itself.
+**Docs at fault:** None — operations docs don't mention this current behavior.
+
+**Impact (if shipped):** Medium — staging cold-start cycling during §7.7 measurement caused 6 of 8 revisions to fail because Supabase pool exhaustion AND health-probe rate-limit interaction may have compounded. Low at steady-state production traffic but real risk during deploy windows.
+
+**Ambiguity to resolve first:** None — the fix is mechanical. Q: should ALL rate limits skip health paths, or only some? Recommend: all (health paths SHOULD always answer regardless of any rate-limit state).
+
+**Action items:**
+- [ ] File OpenSpec change `rate-limit-bypass-health-endpoints` that mounts rate-limit middleware on a sub-route subtree excluding `/health/*` (cleanest pattern: `route("/api/v1") { install(RateLimit) { ... } ; ...routes... }` instead of installing globally).
+- [ ] Add regression test asserting `/health/ready` does NOT execute the rate-limit Lua script.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
+
+---
+
 ## staging-cold-start-flyway-on-startup-cost
 
 **Discovered during:** `observability-otel-foundation` §1.2 baseline measurement at task-execution time — staging Cloud Run cold-start mean = 25.03s (n=32, last 7 days), 8x above the project's <3s p99 SLO from [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 2 §14.

@@ -72,15 +72,33 @@ internal class ForbiddenAttributeStripper(
     companion object {
         /**
          * Forbidden attribute keys per the spec § "Forbidden span attributes".
-         * These are the OTel HTTP semconv keys the Ktor server instrumentation
-         * attaches by default that carry peer-IP data.
+         * These are OTel HTTP / network semconv keys the Ktor server (and
+         * other) instrumentations attach by default that carry peer-IP data.
+         *
+         * The set covers BOTH old (`net.peer.ip`) and new (`network.peer.address`)
+         * OTel semantic-convention names because OTel Java 2.x migrated to
+         * the new HTTP semconv (verified via Tempo on staging deploy of this
+         * very change — the `opentelemetry-ktor-3.0:2.25.0-alpha` instrumentation
+         * emits `network.peer.address` not `net.peer.ip`). Stripping both
+         * names is defense-in-depth across BOM upgrades that may flip the
+         * naming back, OR consumers using older instrumentation libraries.
+         *
+         * NOT stripped: `server.address` / `server.port` (these are the
+         * server's OWN bind info, not client/peer info — not a privacy concern).
          */
         val FORBIDDEN_KEYS: Set<String> =
             setOf(
+                // Client identity (HTTP semconv — same name across old + new).
                 "client.address",
-                "net.peer.ip",
-                "net.sock.peer.addr",
+                "client.port",
                 "http.client_ip",
+                // Peer/network — new semconv (OTel Java 2.x).
+                "network.peer.address",
+                "network.peer.port",
+                // Peer/network — old semconv (kept for backward-compat).
+                "net.peer.ip",
+                "net.peer.port",
+                "net.sock.peer.addr",
                 // Defensive: also strip raw user UUIDs at common typo'd keys
                 // in case a future writer bypasses `UserIdHasher`. The spec's
                 // sentinel-based tests will still catch a value-leak.
