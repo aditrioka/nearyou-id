@@ -163,7 +163,7 @@ GET /health/ready  -> 200 if all dependencies reachable within 2s, else 503
 - Redis PING (timeout 200ms)
 - Supabase Realtime HTTP probe (timeout 500ms)
 
-Public endpoints (no auth) but rate-limited to 60 req/min per IP (prevent abuse). Cloud Run deployed with readiness probe `/health/ready` and liveness probe `/health/live`.
+Public endpoints (no auth) but rate-limited to 60 req/min per IP (prevent abuse). Cloud Run deployed with **startup probe** `/health/ready` (the Cloud Run analog to a Kubernetes readiness probe — gates traffic during boot until the new revision is healthy) and **liveness probe** `/health/live` (continuous post-startup keepalive). Cloud Run does not have a separate `--readiness-probe` flag; the `--startup-probe` flag fills that role.
 
 **Target**: `/health/ready` green >99.9% (accounts for probabilistic tolerance of three parallel dependency checks).
 

@@ -1382,12 +1382,15 @@ CREATE TABLE user_fcm_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     platform VARCHAR(8) NOT NULL CHECK (platform IN ('android', 'ios')),
-    token TEXT NOT NULL,
-    app_version TEXT,
+    token TEXT NOT NULL CHECK (char_length(token) BETWEEN 1 AND 4096),
+    app_version TEXT CHECK (app_version IS NULL OR char_length(app_version) <= 64),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (user_id, platform, token)
 );
+-- Token / app_version length CHECKs are defense-in-depth against a malformed
+-- client payload bypassing the route-layer guard. FCM tokens themselves don't
+-- approach 4096 chars in practice; the bound is generous to avoid false rejects.
 
 CREATE INDEX user_fcm_tokens_user_idx ON user_fcm_tokens(user_id);
 CREATE INDEX user_fcm_tokens_last_seen_idx ON user_fcm_tokens(last_seen_at);

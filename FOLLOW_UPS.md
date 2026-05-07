@@ -273,47 +273,6 @@ The two vocabularies overlap on `timeout` / `connection_refused` / `unknown` and
 
 ---
 
-## fcm-tokens-schema-check-doc-amendment
-
-**Discovered during:** `fcm-token-registration` `/next-change` Phase D round 1 (security-and-invariant sub-agent flagged that the canonical schema lacks DB-level CHECKs on `token` and `app_version` length, recommending defense-in-depth additions).
-**Status:** open
-
-**Finding:** The `fcm-token-registration` change ships with two additive DB-level CHECK constraints (`CHECK (char_length(token) BETWEEN 1 AND 4096)` and `CHECK (app_version IS NULL OR char_length(app_version) <= 64)`) on `user_fcm_tokens` per design D9. These constraints are NOT in the canonical schema at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md). The canonical docs are not wrong — they specify the minimum schema; this change adds belt-and-suspenders that the security review rated as worth-having now while we're touching the schema. The deviation is documented in proposal § What Changes (marked "additive"), spec § Schema (with the deviation note), and design § Reconciliation notes (item 2). The doc still needs to be updated to match the as-shipped schema so a future maintainer reading [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) doesn't conclude the CHECKs are an undocumented production deviation.
-
-**Specs at fault:** None — `openspec/specs/fcm-token-registration/spec.md` (post-archive) will correctly carry the CHECKs.
-**Code at fault:** None — V14 migration carries the CHECKs.
-**Docs at fault:** [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) (FCM Token Registration § Schema block — needs the two CHECKs added).
-
-**Impact (if shipped):** Low. The DB CHECKs work correctly as shipped; risk is to a future maintainer reading the canonical docs and finding the CHECKs missing → spending time looking for them or assuming the production schema diverges. Same-shape fix as the v10 notifications `body_data` doc amendment in PR #24.
-
-**Ambiguity to resolve first:** None. The fix shape is clear: insert two CHECK clauses inside the canonical `CREATE TABLE user_fcm_tokens (...)` block at [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md), and add a one-sentence note explaining the defense-in-depth rationale (mirror the spec's framing).
-
-**Action items:**
-- [ ] After `fcm-token-registration` ships, file a docs-only amendment to [`docs/05-Implementation.md:1376-1389`](docs/05-Implementation.md) adding the two CHECK constraints to the canonical schema block. Standalone docs PR or batched with the next OpenSpec change that touches the FCM section.
-
----
-
-## premium-search-reindex-trigger-doc-divergence
-
-**Discovered during:** `premium-search` `/next-change` Phase D round 1 (general-lens sub-agent flagged that `proposal.md` defers re-index trigger plumbing, but `docs/02-Product.md:282` declares the trigger as live infrastructure).
-**Status:** open
-
-**Finding:** [`docs/02-Product.md:282`](docs/02-Product.md) under § Search (Premium, Month 1+) declares: *"Re-index trigger: async job on every shadow ban / block / unban applied."* No such async job has ever shipped — the project's view-based shadow-ban + GIN-auto-maintenance design (per [`docs/05-Implementation.md:1881`](docs/05-Implementation.md) `Search: FROM visible_posts JOIN visible_users` and [`docs/05-Implementation.md:1189`](docs/05-Implementation.md) "On shadow-ban / unban / block / unblock: application code invalidates any Redis search-result cache (if added at scale)") makes the trigger unnecessary until a Redis search-result cache lands. The `premium-search` proposal explicitly defers the cache to "Month 6+ at scale" and consequently does not implement the trigger either. The doc line is aspirational; the runtime does not implement it.
-
-**Specs at fault:** None — `premium-search/specs/premium-search/spec.md` correctly specifies the view-based safety net + defers cache + trigger together.
-**Code at fault:** None — the design is deliberate.
-**Docs at fault:** [`docs/02-Product.md:282`](docs/02-Product.md) overstates current infrastructure.
-
-**Impact (if shipped):** Low. The Search feature is correct without the trigger (views handle shadow-ban; GIN auto-maintains; no cache exists yet to invalidate). Risk is to a future maintainer reading `02-Product.md:282` and concluding the trigger is missing → spending time looking for it before discovering it was never needed. Also: when the Redis cache eventually lands (Month 6+), the trigger DOES become necessary, and at that point this divergence resolves itself by the canonical infrastructure catching up to the doc claim.
-
-**Ambiguity to resolve first:** None. The fix shape is clear: amend `docs/02-Product.md:282` from `Re-index trigger: async job on every shadow ban / block / unban applied.` to `Re-index trigger (deferred to Month 6+, when the Redis search-result cache lands per docs/05-Implementation.md:1189): async job on every shadow ban / block / unban applied.` Docs-only change, no spec or code impact.
-
-**Action items:**
-- [ ] File a docs-only amendment to `docs/02-Product.md:282` clarifying the deferral. Either as a standalone docs PR OR batched with the next OpenSpec change that touches Phase 2 social-features documentation.
-- [ ] When the Redis search-result cache eventually lands (Month 6+), the trigger requirement becomes a live spec deliverable — at that point, write the `search-result-cache` OpenSpec change with both the cache infrastructure AND the trigger plumbing in the same lifecycle.
-
----
-
 ## staging-smoke-before-archive-skill-codification
 
 **Discovered during:** `reply-rate-limit` `/opsx:apply` Section 6 (the staging smoke step) — surfaced the gap that the prior `like-rate-limit` cycle ran the smoke AFTER squash-merge (auto-deploy from main), which means a deploy-config bug would have already shipped to staging-from-main before being caught.
@@ -393,54 +352,6 @@ The proposed canonical workflow:
 
 ---
 
-## cloud-run-traffic-pinning-after-failed-revisions
-
-**Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 negative-smoke (tasks 11.5/11.6) — observed when recovering from the broken-Redis revision sequence.
-**Status:** open
-
-**Finding:** When a sequence of Cloud Run revisions fails the startup probe (e.g., `nearyou-backend-staging-00050-cwf` → `00051-bxt` → `00052-tpc` during the 11.5 negative smoke), Cloud Run's traffic-routing config can become **pinned** to the last-known-good revision (`00049-bsx` in this case) rather than tracking `LATEST` automatically. Subsequent successful deploys (e.g., the recovery deploy `00053-n6v`) create the new revision but traffic STAYS on the pinned revision until explicitly released.
-
-The fix is one command — `gcloud run services update-traffic <service> --region=<region> --to-latest` — but the gotcha isn't surfaced anywhere in the project's docs or runbooks. A future operator hitting a recovery scenario would see "deploy succeeded, but `/health/ready` from the new revision is unreachable" and might spend time debugging the wrong layer.
-
-Reproduction sequence in this case:
-1. `gcloud run services update --update-secrets=REDIS_URL=staging-redis-url-broken-test:latest` → revision `00051-bxt` created with broken Redis → startup probe fails → Cloud Run keeps traffic on `00049-bsx` (correct gate behavior; this is what 11.5 verifies).
-2. `gcloud run services update --update-secrets=REDIS_URL=staging-redis-url:latest` → revision `00052-tpc` created with correct Redis → ... but Cloud Run had already pinned the traffic config to `00049-bsx` from step 1, so `00052-tpc` doesn't auto-promote even though its config is now valid.
-3. `gh workflow run deploy-staging.yml` → revision `00053-n6v` created with new image + correct config → still doesn't auto-promote (traffic config still pinned).
-4. `gcloud run services update-traffic --to-latest` → traffic config released → `00053-n6v` becomes serving.
-
-**Specs at fault:** None.
-**Code at fault:** None — this is a Cloud Run platform behavior, not an app behavior.
-**Docs at fault:** `docs/07-Operations.md` § Deployment runbook (or wherever the staging-deploy ops live) does not mention the pinning failure mode.
-
-**Impact (if shipped):** Low. The misbehavior is visible (traffic stays on old revision) and the fix is a one-liner. Risk is operator confusion during a real outage recovery — could add 10-15 minutes to MTTR while the operator figures out why a "successful" deploy isn't actually serving.
-
-**Action items:**
-- [ ] Amend `docs/07-Operations.md` § Deployment runbook (or create a new § Recovery from failed-revision sequence) with the failure-mode description + the `update-traffic --to-latest` recovery command. Cite the `health-check-endpoints` 11.5 smoke as the precedent.
-- [ ] Optionally: bake `gcloud run services update-traffic --to-latest` into `deploy-staging.yml` AFTER the `gcloud run deploy` step, as a defensive belt-and-suspenders. Trade-off: extra step in every deploy (slow path) vs. eliminating the gotcha class entirely. Lean towards: amendment first, codification only if the gotcha recurs.
-
----
-
-## gcp-secret-manager-iam-grant-on-new-slot
-
-**Discovered during:** `health-check-endpoints` `/opsx:apply` Section 11 first deploy attempt (task 11.1) — Cloud Run revision creation failed with `Permission denied on secret: projects/.../secrets/staging-supabase-url/versions/latest for Revision service account 27815942904-compute@developer.gserviceaccount.com`.
-**Status:** open
-
-**Finding:** When a new slot is added to GCP Secret Manager (e.g., `staging-supabase-url` in this change), the Cloud Run runtime service account does NOT automatically inherit the IAM bindings of sibling slots. The new slot requires an explicit `roles/secretmanager.secretAccessor` grant — `gcloud secrets add-iam-policy-binding <slot> --member=serviceAccount:<sa> --role=roles/secretmanager.secretAccessor`. This is `gcloud`'s default least-privilege model and is correct security posture, but it's a process gap that surfaces as a confusing "first deploy fails, second works" pattern.
-
-The existing staging runbook in `docs/07-Operations.md` covers secret VALUE rotation (`gcloud secrets versions add ...`) but does NOT cover NEW slot creation IAM. This is the second time the gap surfaced (first was during the original staging environment buildout — slots were bound manually one-off; the runbook was never updated).
-
-**Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:** `docs/07-Operations.md` § Secret rotation runbook — missing "new slot creation" subsection.
-
-**Impact (if shipped):** Low. Per-deploy-attempt time cost is small (one extra failed run + IAM grant + retry = ~10 min). Risk is mostly: future engineer adds a new slot, deploy fails, has to context-switch to figure out the IAM model.
-
-**Action items:**
-- [ ] Amend `docs/07-Operations.md` § Secret rotation runbook with a new subsection "Creating a new staging/prod secret slot": cite the `gcloud secrets create <slot>` + the mandatory `gcloud secrets add-iam-policy-binding <slot> --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor` step, with the runtime SA name documented per environment.
-- [ ] Optionally: Terraform-wrap the secret-creation pattern so the IAM grant is declarative + can't drift. Out of scope for the runbook fix; flag as a Terraform-introduction follow-up if the project ever grows a Terraform module.
-
----
-
 ## tryacquirebykey-ip-derived-uuid-detekt-rule
 
 **Discovered during:** `health-check-endpoints` `/next-change` Phase D round 1 review (security-and-invariant sub-agent lens).
@@ -459,26 +370,6 @@ The existing staging runbook in `docs/07-Operations.md` covers secret VALUE rota
 **Action items:**
 - [ ] After `health-check-endpoints` ships, add a Detekt rule `IpAxisMustUseTryAcquireByKeyRule` to `:lint:detekt-rules` that fires on calls to `RateLimiter.tryAcquire(...)` whose `key` argument matches the regex `\{[^}]*ip:`. Allow-list any legitimate use case (none expected). Wire into Detekt config + add unit tests.
 - [ ] Standalone OpenSpec change `tryacquirebykey-ip-axis-lint` (under `rate-limit-infrastructure` capability MODIFIED) — small spec amendment + Detekt rule + unit tests.
-
----
-
-## health-check-cloud-run-probe-terminology-docs-divergence
-
-**Discovered during:** `health-check-endpoints` `/next-change` Phase B step 7 reconciliation pass — verifying Cloud Run probe flag terminology against canonical docs.
-**Status:** open
-
-**Finding:** [`docs/04-Architecture.md:166`](docs/04-Architecture.md) declares: *"Cloud Run deployed with readiness probe `/health/ready` and liveness probe `/health/live`."* This uses Kubernetes vocabulary, but Cloud Run does not implement a "readiness probe". The Cloud Run-native equivalents are `--startup-probe` (gates traffic during boot — fills the K8s readiness role) and `--liveness-probe` (continuous keepalive after startup). The `health-check-endpoints` spec aligns with Cloud Run-native vocabulary while noting the docs use K8s terminology — but the docs themselves should be amended for clarity.
-
-**Specs at fault:** None — `health-check-endpoints/specs/health-check/spec.md` correctly uses Cloud Run vocabulary while citing the docs divergence.
-**Code at fault:** None — the implementation will use the Cloud Run-native flags `--startup-probe` and `--liveness-probe` per `tasks.md` section 7.
-**Docs at fault:** [`docs/04-Architecture.md:166`](docs/04-Architecture.md) uses K8s "readiness probe" wording.
-
-**Impact (if shipped):** Low. The behavioral contract is correct — a Cloud Run startup probe targeting `/health/ready` does gate traffic during boot, which is what the docs describe semantically. Risk is to a future maintainer reading "readiness probe" in the docs and looking for a non-existent Cloud Run feature, or trying to use a `--readiness-probe` flag that doesn't exist.
-
-**Ambiguity to resolve first:** None. The fix shape is clear: amend [`docs/04-Architecture.md:166`](docs/04-Architecture.md) from `Cloud Run deployed with readiness probe '/health/ready' and liveness probe '/health/live'.` to `Cloud Run deployed with startup probe '/health/ready' (the Cloud Run analog to a Kubernetes readiness probe — gates traffic during boot until the new revision is healthy) and liveness probe '/health/live' (continuous post-startup keepalive).` Docs-only change, no spec or code impact.
-
-**Action items:**
-- [ ] After `health-check-endpoints` ships, file a docs-only amendment to [`docs/04-Architecture.md:166`](docs/04-Architecture.md) clarifying the Cloud Run startup-probe vs K8s-readiness-probe distinction. Standalone docs PR or batched with whichever change next touches `04-Architecture.md`.
 
 ---
 
@@ -786,25 +677,3 @@ Recommend approach 3 — preserves spec semantics, no spec amendment needed (spe
 - [ ] If approach 1: empirically choose a seed that produces ≥999 differing pairs and document why (lock the seed for reproducibility).
 - [ ] If approach 2: amend `rate-limit-infrastructure/spec.md:160` to use a threshold compatible with the math; lower test threshold to match.
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
-
-
----
-
-## pre-phase-1-secret-slot-list-supabase-service-role-key
-
-**Discovered during:** `chat-realtime-broadcast` Phase 1.8 reconciliation — verifying the canonical Pre-Phase 1 secret-slot list at [`docs/08-Roadmap-Risk.md` § Pre-Phase 1 #34](docs/08-Roadmap-Risk.md) (line 51 at this writing) lists `staging-supabase-jwt-secret` but does NOT yet list `staging-supabase-service-role-key` / `supabase-service-role-key` — the slots required by `chat-realtime-broadcast` Phase 7 staging deploy.
-**Status:** open
-
-**Finding:** The chat-realtime-broadcast change adds the GCP Secret Manager slots `staging-supabase-service-role-key` (staging) and `supabase-service-role-key` (prod, deferred until prod deploy) per `chat-realtime-broadcast` design § D7. The canonical Pre-Phase 1 secret-slot list at [`docs/08-Roadmap-Risk.md:51`](docs/08-Roadmap-Risk.md) was last updated when only `supabase-jwt-secret` (HS256-signing for client realtime tokens, per `auth-realtime`) existed; the additive service-role-key slot is not on the list. Slot creation in GCP happens at deploy time (Phase 7 of this change); the docs amendment is purely a documentation hygiene update.
-
-**Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:** [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) § Pre-Phase 1 #34 (line 51).
-
-**Impact (if shipped):** Low. Operational deploy works correctly without the docs amendment (the GCP slot is created via the deploy workflow). Risk is to future-maintainer cognitive load — a future Pre-Phase 1 inventory pass that checks the doc list would not find the slot, potentially treating it as missing infrastructure.
-
-**Ambiguity to resolve first:** None. Append `staging-supabase-service-role-key` and `supabase-service-role-key` to the existing slot list, mirroring the existing `staging-supabase-jwt-secret` shape.
-
-**Action items:**
-- [ ] File a docs-only PR (or batch with the next OpenSpec change touching the Pre-Phase 1 section) amending [`docs/08-Roadmap-Risk.md:51`](docs/08-Roadmap-Risk.md) to include `staging-supabase-service-role-key` and `supabase-service-role-key` in the secret-slot inventory.
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the docs PR merges.

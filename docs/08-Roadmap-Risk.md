@@ -48,7 +48,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
     - Separate Firebase project `nearyou-staging` (FCM + Remote Config)
     - Separate RevenueCat sandbox environment
     - Subdomain DNS: `api-staging.nearyou.id`, `admin-staging.nearyou.id`, `img-staging.nearyou.id`
-    - GCP Secret Manager namespace migration: existing production secrets renamed to reflect implicit `prod-*` prefix going forward (or documented convention); new `staging-*` secret slots created for each category (`staging-ktor-rsa-private-key`, `staging-supabase-jwt-secret`, `staging-revenuecat-webhook-secret`, `staging-jitter-secret`, `staging-age-private-key`, `staging-csam-archive-aes-key`, `staging-admin-app-db-connection-string`, `staging-firebase-admin-sa`, `staging-apns-key-p8`, `staging-resend-api-key`)
+    - GCP Secret Manager namespace migration: existing production secrets renamed to reflect implicit `prod-*` prefix going forward (or documented convention); new `staging-*` secret slots created for each category (`staging-ktor-rsa-private-key`, `staging-supabase-jwt-secret`, `staging-supabase-service-role-key`, `staging-revenuecat-webhook-secret`, `staging-jitter-secret`, `staging-age-private-key`, `staging-csam-archive-aes-key`, `staging-admin-app-db-connection-string`, `staging-firebase-admin-sa`, `staging-apns-key-p8`, `staging-resend-api-key`)
     - CI/CD branching rule: `main` branch auto-deploys staging; git tag `v*` deploys prod (manual approval gate)
     - Mobile build flavors wired: Android `staging` vs `production`, iOS `Staging` vs `Production` xcconfig schemes
     - Staging attestation default: `attestation_mode=off` in the staging Firebase Remote Config (QA accounts bypass enforcement)

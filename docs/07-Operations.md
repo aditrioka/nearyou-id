@@ -102,3 +102,55 @@ Full schema lives in `05-Implementation.md`. Summary for this file:
 - Every destructive / high-impact admin operation writes an `admin_actions_log` row with `admin_id`, `action_type`, `target_type`, `target_id`, `reason`, `before_state`, `after_state`, `ip`, `user_agent`.
 - Immutable at the DB role level (no UPDATE or DELETE allowed for the `admin_app` role).
 - Retention 1 year minimum; queried in-app via the Moderation Actions Log UI.
+
+---
+
+## Deployment Runbook
+
+### Recovery from a failed-revision sequence on Cloud Run
+
+When a sequence of Cloud Run revisions fails the startup probe (e.g., a `--update-secrets` deploy with a wrong slot, then a follow-up fix), Cloud Run's traffic-routing config can become **pinned** to the last-known-good revision rather than tracking `LATEST`. Subsequent successful deploys create new revisions but traffic stays on the pinned revision until explicitly released.
+
+**Symptom**: a successful deploy (image build OK, revision created OK, startup probe green on the new revision) does NOT serve any traffic. `gcloud run services describe <service>` shows the new revision in the revision list, but the `traffic` field still routes 100% to an older revision.
+
+**Recovery (one command)**:
+
+```bash
+gcloud run services update-traffic <service> \
+    --region=<region> \
+    --to-latest
+```
+
+Precedent: `health-check-endpoints` (PR #54) § 11.5 negative-smoke surfaced this failure mode while exercising the broken-Redis revision sequence; recovery from `00049-bsx` to `00053-n6v` required the `--to-latest` release.
+
+---
+
+## Secret Management Runbook
+
+### Creating a new GCP Secret Manager slot
+
+When a new slot is added to a GCP Secret Manager project, the Cloud Run runtime service account does NOT automatically inherit the IAM bindings of sibling slots. The new slot requires an explicit `roles/secretmanager.secretAccessor` grant. Without it, the next deploy fails with `Permission denied on secret: projects/.../secrets/<slot>/versions/latest for Revision service account <sa>@developer.gserviceaccount.com`.
+
+**Procedure**:
+
+```bash
+# 1. Create the slot
+gcloud secrets create <slot> --project=<project>
+
+# 2. Add the value (or pipe via --data-file=-)
+echo -n "<value>" | gcloud secrets versions add <slot> \
+    --project=<project> \
+    --data-file=-
+
+# 3. Grant the Cloud Run runtime SA secretAccessor on the new slot
+gcloud secrets add-iam-policy-binding <slot> \
+    --project=<project> \
+    --member="serviceAccount:<runtime-sa>" \
+    --role=roles/secretmanager.secretAccessor
+```
+
+**Runtime service accounts** (filled per environment as it is provisioned):
+- staging (`nearyou-staging` project): `27815942904-compute@developer.gserviceaccount.com` (default Cloud Run runtime SA).
+- production (`nearyou-production` project): to be filled in after first production tag-deploy provisions the project.
+
+Existing rotation procedures (rotating the value on an existing slot) do NOT need this step — IAM is bound per-slot, so only new-slot creation hits this. Precedent: `health-check-endpoints` (PR #54) task 11.1 surfaced this gap when adding the `staging-supabase-url` slot.
