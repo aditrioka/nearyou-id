@@ -3,9 +3,9 @@ package id.nearyou.app.infra.remoteconfig
 import com.google.firebase.FirebaseApp
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.KeysAndValues
-import com.google.firebase.remoteconfig.ValueSource
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
@@ -78,15 +78,27 @@ class FirebaseServerConfigSource(private val firebaseApp: FirebaseApp) : ConfigS
         return try {
             val template =
                 FirebaseRemoteConfig.getInstance(firebaseApp).getServerTemplate(emptyDefaults)
-            val config = template.evaluate()
-            // ValueSource.STATIC means the parameter is not in the template (no remote
-            // override, no default). Treat as "unset" so the caller's fallback ladder
-            // proceeds. ValueSource.REMOTE / DEFAULT both mean we have a value.
-            if (config.getValueSource(parameterName) == ValueSource.STATIC) {
-                null
-            } else {
-                config.getString(parameterName)
-            }
+            // We bypass `template.evaluate()` and parse `template.toJson()` directly.
+            //
+            // Why: Firebase Admin Java SDK 9.7.0+ has a bug in
+            // `ConditionEvaluator.evaluateConditions(...)`:
+            //
+            //   checkArgument(!conditions.isEmpty(), "List of conditions must not be empty.");
+            //   if (context == null || conditions.isEmpty()) { return ImmutableMap.of(); }
+            //
+            // Line 2 (the early-return) is unreachable because line 1 throws first. Original
+            // intent was clearly that empty conditions return an empty map, but the regression
+            // breaks `evaluate()` for any project that hasn't published a Server template
+            // condition. We can't add a dummy condition operationally without leaving a
+            // booby-trap (any operator deleting it would crash production) — so we bypass
+            // `evaluate()` and read parameter `defaultValue.value` from the template JSON
+            // directly. Our use case has zero per-request condition evaluation (wordlists
+            // are platform-wide), so this is semantically equivalent for us.
+            //
+            // When the SDK fix lands, this bypass becomes equivalent-to-evaluate() and we
+            // can revert to `evaluate()` + `getString()` for cleaner code. The follow-up
+            // entry `firebase-admin-server-template-evaluate-bypass-removal` tracks this.
+            extractParameterFromTemplateJson(template.toJson(), parameterName)
         } catch (t: Throwable) {
             log.warn(
                 "event=remote_config_fetch_failed parameter={} reason={} message={}",
@@ -96,6 +108,39 @@ class FirebaseServerConfigSource(private val firebaseApp: FirebaseApp) : ConfigS
             )
             null
         }
+    }
+
+    /**
+     * Parses the template JSON returned by [com.google.firebase.remoteconfig.ServerTemplate.toJson]
+     * and extracts `parameters.<parameterName>.defaultValue.value` as a raw String.
+     *
+     * Returns null when the parameter is absent OR has only conditional values (no default).
+     * Conditional values are out of scope for this client — our wordlists are platform-wide.
+     *
+     * The JSON shape mirrors the Firebase Remote Config REST API:
+     * ```json
+     * { "parameters": { "<name>": { "defaultValue": { "value": "<raw-string>" }, "valueType": "..." } } }
+     * ```
+     */
+    internal fun extractParameterFromTemplateJson(
+        json: String,
+        parameterName: String,
+    ): String? {
+        if (json.isBlank() || json == "{}") return null
+        val root = JSON.parseToJsonElement(json) as? JsonObject ?: return null
+        val parameters = root["parameters"] as? JsonObject ?: return null
+        val parameter = parameters[parameterName] as? JsonObject ?: return null
+        val defaultValue = parameter["defaultValue"] as? JsonObject ?: return null
+        // ParameterValue can be either { "value": "..." } (Explicit) or
+        // { "useInAppDefault": true } (InAppDefault sentinel). Only Explicit has a usable
+        // value for our bypass; InAppDefault is treated as "unset" to match the evaluate()
+        // semantics.
+        val value = defaultValue["value"] as? JsonPrimitive ?: return null
+        return if (value.isString) value.content else null
+    }
+
+    companion object {
+        private val JSON = Json { ignoreUnknownKeys = true }
     }
 }
 
