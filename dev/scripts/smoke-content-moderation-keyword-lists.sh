@@ -58,20 +58,13 @@ SENTINEL_UUITE_1="sentinel-uuite-1"
 SENTINEL_UUITE_2="sentinel-uuite-2"
 SENTINEL_UUITE_3="sentinel-uuite-3"
 
-# JWT minting helper — reuses the same dev/MintDevJwt main class that the other
-# smoke scripts use. The -t flag emits the access token to stdout.
-mint_jwt() {
-    local user_id="$1"
-    cd "$(dirname "$0")/../.."
-    KTOR_RSA_PRIVATE_KEY="$KTOR_RSA_PRIVATE_KEY" \
-        ./gradlew --quiet :backend:ktor:run \
-            --args="dev-mint-jwt $user_id" 2>/dev/null \
-        | grep -E '^eyJ' | head -1
-}
-
-JWT="$(mint_jwt "$USER_UUID")"
+# JWT minting via the canonical helper script — same approach as smoke-9.7-like-rate-limit.sh.
+# The helper uses the :backend:ktor:mintDevJwt Gradle task, signs with the staging
+# RSA private key (read from KTOR_RSA_PRIVATE_KEY env var), and prints the token to stdout.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+JWT="$("$SCRIPT_DIR/mint-dev-jwt.sh" "$USER_UUID")"
 if [[ -z "$JWT" ]]; then
-    echo "error: failed to mint JWT for user $USER_UUID" >&2
+    echo "error: failed to mint JWT for user $USER_UUID — check KTOR_RSA_PRIVATE_KEY" >&2
     exit 1
 fi
 
