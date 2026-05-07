@@ -57,7 +57,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
     - Username profanity blocklist drafted (AI + manual review, budget 0.5 day)
 36. **Content moderation keyword lists bootstrap**:
     - Firebase Remote Config string-array parameters `moderation_profanity_list` and `moderation_uu_ite_list` created for both staging and production
-    - Repo-committed fallback files at `/backend/src/main/resources/moderation/profanity.default.txt` and `uu_ite.default.txt`
+    - Repo-committed fallback files at `backend/ktor/src/main/resources/moderation/profanity.default.txt` and `uu_ite.default.txt`
     - `moderation_match_threshold` numeric parameter (default 3) for the Aho-Corasick matcher
     - GCP Secret Manager slot `content-moderation-fallback-list` for the integrity-checked fallback (optional Phase 2 hardening)
 37. **Invite-code secret generation**: generate 256-bit random `invite-code-secret` in GCP Secret Manager for deterministic invite-code HMAC derivation

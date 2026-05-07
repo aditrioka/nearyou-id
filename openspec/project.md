@@ -72,7 +72,7 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 | `:infra:sentry` | DESIGN | Sentry SDK module-isation (project configured, not yet modular) |
 | `:infra:amplitude` | DESIGN | Consent-gated analytics |
 | `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
-| `:infra:remote-config` | DECISION NEEDED | DB-backed feature flags already operational (`premium_*_cap_override`); a separate Remote Config module may be redundant |
+| `:infra:remote-config` | SHIPPED | Firebase Remote Config wordlist + threshold delivery for `content-moderation-keyword-lists` (PR #70). DB-backed flags (`premium_*_cap_override`) remain the per-user override surface; Remote Config is the platform-wide tunable surface. |
 | `:infra:postgres-neon` | ABANDONED | Plan B scaffold not pursued; Supabase PITR is the backup posture |
 | `:infra:ktor-ws` | ABANDONED | Realtime ships via Supabase Broadcast (`SupabaseBroadcastChatClient`); Ktor WS path retired |
 

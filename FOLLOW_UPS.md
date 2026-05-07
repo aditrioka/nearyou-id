@@ -7,7 +7,7 @@ Transient working file for findings discovered during a change cycle that are NO
 - **Delete the entry once all its action items are merged.** Do NOT let `triaged` entries linger — if residual work remains, either (a) move it to the canonical doc that owns the topic (e.g., launch-prerequisite tasks → `docs/08-Roadmap-Risk.md` Pre-Launch list, runbook tweaks → `docs/07-Operations.md` Deployment Runbook), or (b) replace the entry with a fresh one scoped to the residual work. Triaged-but-not-deleted entries are how this file rots.
 - Delete the file itself when it has zero entries left.
 - Recreate the file (with this same intro blurb) the next time a finding arises.
-- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-07 found 19 open + 3 triaged (still healthy); the discipline above keeps it that way.
+- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-07 (post-triage sweep) found 28 open + 0 triaged; approaching the hard limit. All remaining entries are legitimately outstanding (zero silent-resolutions detected) — the queue drains via `/next-change` promotions or chore-PR migrations rather than deletions.
 
 Format per entry:
 
@@ -594,35 +594,6 @@ Recommend approach 3 — preserves spec semantics, no spec amendment needed (spe
 - [ ] If approach 1: empirically choose a seed that produces ≥999 differing pairs and document why (lock the seed for reproducibility).
 - [ ] If approach 2: amend `rate-limit-infrastructure/spec.md:160` to use a threshold compatible with the math; lower test threshold to match.
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
-
----
-
-## content-moderation-canonical-doc-amendments
-
-**Discovered during:** `content-moderation-keyword-lists` Phase B step 7 reconciliation pass against canonical docs (`docs/05-Implementation.md`, `docs/06-Security-Privacy.md`, `docs/08-Roadmap-Risk.md`, `openspec/project.md`).
-**Status:** open
-
-**Finding:** Four canonical-doc divergences surfaced when drafting the `content-moderation-keyword-lists` change. The change deliberately keeps proposal/spec/design correct and aligned with the *intended* shipped behaviour; these doc amendments land separately so this change's scope stays bounded and reviewer-focused. None of these blocks shipping the change; all amend canonical docs to match the spec the change ships.
-
-**Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:**
-1. [`docs/06-Security-Privacy.md:158`](docs/06-Security-Privacy.md) — Text Moderation §2 says UU ITE "Higher threshold: 1 match = soft flag to the moderation queue (not auto-hide)." But Pre-Phase 1 §36 ([`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md)) defines `moderation_match_threshold` as a Remote Config parameter with default 3, explicitly tied to "the Aho-Corasick matcher" the change builds. The literal "1 match" wording contradicts the operational threshold (default 3, runtime-tunable). The change honours the Remote Config parameter.
-2. [`docs/06-Security-Privacy.md:180`](docs/06-Security-Privacy.md) — Endpoint Flow code block ends with "If flagged: set is_auto_hidden = TRUE + insert moderation_queue row" which is broad-stroke about the post-INSERT auto-hide path. The change codifies layer-asymmetric semantics: Layer 1 (profanity) sync REJECT pre-INSERT; Layer 2 (UU ITE) sync soft-flag pre-INSERT (no auto-hide); Layer 3 (Perspective API) async post-INSERT auto-hide. The "If flagged" line should clarify it describes the Layer 3 path specifically, distinct from Layers 1 + 2.
-3. [`docs/08-Roadmap-Risk.md:60`](docs/08-Roadmap-Risk.md) — Pre-Phase 1 §36 says "Repo-committed fallback files at `/backend/src/main/resources/moderation/profanity.default.txt` and `uu_ite.default.txt`." Actual repo Gradle layout has `:backend:ktor` at `backend/ktor/`, so the canonical path is `backend/ktor/src/main/resources/moderation/...`. The leading slash + missing `ktor/` segment is doc-stale relative to current module structure (the docs were written when the backend was a top-level `backend/` module and never updated when it became `:backend:ktor` at `backend/ktor/`).
-4. [`openspec/project.md`](openspec/project.md) § Module Structure table — `:infra:remote-config` row reads "DECISION NEEDED: DB-backed feature flags already operational (`premium_*_cap_override`); a separate Remote Config module may be redundant." The `content-moderation-keyword-lists` change resolves the decision by scaffolding the module (the DB-backed flags are per-user override columns, not platform-wide config; Firebase Remote Config IS the right tool for platform-wide tunable config like wordlists, kill switches, attestation mode). Status should flip to "SHIPPED" after the change archives.
-
-**Impact (if shipped):** Low — none of these block the `content-moderation-keyword-lists` change. The risk is canonical-doc drift confusing future readers/contributors who look at the docs without reading the spec. The Pre-Phase 1 §36 path drift (#3) also affects unrelated future moderation runbook authors who might paste the wrong path. The Layer-asymmetry doc gap (#2) is the highest-priority item — operators and reviewers reading `docs/06` first won't learn the actual layer semantics until they read the spec.
-
-**Ambiguity to resolve first:** Item #1: when amending the threshold wording, decide whether to (a) replace "1 match" with "matches the Remote Config-tunable threshold (default 3)", or (b) keep "1 match" wording but add a parenthetical "(historical doc baseline; the runtime parameter `moderation_match_threshold` overrides this, default 3)". (a) is cleaner; (b) preserves the original sentence. Recommend (a).
-
-**Action items:**
-- [ ] Amend [`docs/06-Security-Privacy.md:158`](docs/06-Security-Privacy.md) UU ITE wording to align with `moderation_match_threshold` Remote Config parameter (default 3) — see Ambiguity #1 for option choice.
-- [ ] Amend [`docs/06-Security-Privacy.md:180`](docs/06-Security-Privacy.md) endpoint-flow "If flagged" line to clarify it describes the Layer 3 (Perspective API) post-INSERT auto-hide; Layer 1 is sync REJECT pre-INSERT; Layer 2 is sync INSERT + queue + no auto-hide.
-- [ ] Amend [`docs/08-Roadmap-Risk.md:60`](docs/08-Roadmap-Risk.md) repo-fallback-file path from `/backend/src/main/resources/moderation/...` to `backend/ktor/src/main/resources/moderation/...` (drop leading slash, add `ktor/` segment).
-- [ ] Amend [`openspec/project.md`](openspec/project.md) § Module Structure entry for `:infra:remote-config` from `DECISION NEEDED` to `SHIPPED` — should land in the same archive PR as `content-moderation-keyword-lists` since the module ships in that change.
-- [ ] These amendments MAY ship as a single follow-up PR (`docs(moderation): align canonical docs with content-moderation-keyword-lists shipped behavior`) or as part of the next routine docs hygiene PR. Item 4 (`openspec/project.md` flip) is preferred to land alongside this change's archive commit since they're causally linked.
-- [ ] Delete this entry once the amendments merge.
 
 ---
 
