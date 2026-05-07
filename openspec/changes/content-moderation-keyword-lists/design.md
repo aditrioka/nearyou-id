@@ -165,7 +165,7 @@ Each fallback step emits one Sentry breadcrumb-style event:
 
 Rate-limit Sentry events: at most 1 per loader call (not per cache miss). Use Sentry's built-in deduplication so a sustained Remote Config outage doesn't flood Sentry.
 
-The events listed in the table above describe per-tier *triggers*; per-call deduplication (max 1 event per `load()`) is governed by the spec requirement `### Requirement: Tier-fallback Sentry events emit at most once per load(list) call`. A reader cross-walking design ↔ spec sees the per-tier triggers as cascade-step labels and the at-most-one-event contract as the per-call rate limit on top.
+The events listed in the table above describe per-tier *triggers*; per-call deduplication (max 1 event per `load()`) is governed by the spec requirement ``### Requirement: Tier-fallback Sentry events emit at most once per `load(list)` call``. A reader cross-walking design ↔ spec sees the per-tier triggers as cascade-step labels and the at-most-one-event contract as the per-call rate limit on top.
 
 ### D8 — Endpoint integration order
 
