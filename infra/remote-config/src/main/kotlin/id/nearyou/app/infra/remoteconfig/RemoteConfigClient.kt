@@ -89,9 +89,10 @@ class FirebaseServerConfigSource(private val firebaseApp: FirebaseApp) : ConfigS
             }
         } catch (t: Throwable) {
             log.warn(
-                "event=remote_config_fetch_failed parameter={} reason={}",
+                "event=remote_config_fetch_failed parameter={} reason={} message={}",
                 parameterName,
                 t.javaClass.simpleName,
+                t.message ?: "(no message)",
             )
             null
         }

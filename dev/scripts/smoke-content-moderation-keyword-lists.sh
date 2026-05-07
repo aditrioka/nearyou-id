@@ -108,7 +108,9 @@ echo "=== smoke: POST /api/v1/posts profanity-sentinel ==="
 RESP="$(post_json /api/v1/posts \
     "{\"content\":\"$SENTINEL_PROFANITY hits the blocklist\",\"latitude\":-6.2,\"longitude\":106.8}")"
 STATUS="$(echo "$RESP" | tail -1)"
-BODY="$(echo "$RESP" | head -n -1)"
+# `sed '$d'` deletes the last line (the status code we appended via curl --write-out).
+# POSIX-portable; macOS `head -n -1` doesn't support negative counts.
+BODY="$(echo "$RESP" | sed '$d')"
 assert_status 400 "$STATUS" "profanity post → 400"
 assert_json_field "content_moderated_profanity" "$BODY" ".error.code" "profanity post → error.code"
 
@@ -116,7 +118,9 @@ echo "=== smoke: POST /api/v1/posts UU-ITE-sentinel (3 hits) ==="
 RESP="$(post_json /api/v1/posts \
     "{\"content\":\"$SENTINEL_UUITE_1 plus $SENTINEL_UUITE_2 plus $SENTINEL_UUITE_3\",\"latitude\":-6.2,\"longitude\":106.8}")"
 STATUS="$(echo "$RESP" | tail -1)"
-BODY="$(echo "$RESP" | head -n -1)"
+# `sed '$d'` deletes the last line (the status code we appended via curl --write-out).
+# POSIX-portable; macOS `head -n -1` doesn't support negative counts.
+BODY="$(echo "$RESP" | sed '$d')"
 assert_status 201 "$STATUS" "UU ITE post → 201"
 POST_ID="$(echo "$BODY" | jq -r .id)"
 echo "INFO: created post $POST_ID — operator MUST confirm a moderation_queue row exists with target_id=$POST_ID, trigger='uu_ite_keyword_match' (psql via the Cloud Run JDBC tunnel or Supabase dashboard)."
@@ -125,7 +129,9 @@ echo "=== smoke: POST /api/v1/posts allowed content ==="
 RESP="$(post_json /api/v1/posts \
     "{\"content\":\"halo dunia ini post yang baik dan biasa saja\",\"latitude\":-6.2,\"longitude\":106.8}")"
 STATUS="$(echo "$RESP" | tail -1)"
-BODY="$(echo "$RESP" | head -n -1)"
+# `sed '$d'` deletes the last line (the status code we appended via curl --write-out).
+# POSIX-portable; macOS `head -n -1` doesn't support negative counts.
+BODY="$(echo "$RESP" | sed '$d')"
 assert_status 201 "$STATUS" "allowed post → 201"
 ALLOWED_POST_ID="$(echo "$BODY" | jq -r .id)"
 echo "INFO: allowed post id = $ALLOWED_POST_ID — operator MUST confirm NO moderation_queue row exists for this id."
@@ -135,7 +141,9 @@ echo "=== smoke: POST /api/v1/posts/{post_id}/replies profanity-sentinel ==="
 RESP="$(post_json "/api/v1/posts/$ALLOWED_POST_ID/replies" \
     "{\"content\":\"reply with $SENTINEL_PROFANITY in it\"}")"
 STATUS="$(echo "$RESP" | tail -1)"
-BODY="$(echo "$RESP" | head -n -1)"
+# `sed '$d'` deletes the last line (the status code we appended via curl --write-out).
+# POSIX-portable; macOS `head -n -1` doesn't support negative counts.
+BODY="$(echo "$RESP" | sed '$d')"
 assert_status 400 "$STATUS" "profanity reply → 400"
 assert_json_field "content_moderated_profanity" "$BODY" ".error.code" "profanity reply → error.code"
 
@@ -143,7 +151,9 @@ echo "=== smoke: POST /api/v1/posts/{post_id}/replies UU-ITE-sentinel (3 hits) =
 RESP="$(post_json "/api/v1/posts/$ALLOWED_POST_ID/replies" \
     "{\"content\":\"reply $SENTINEL_UUITE_1 and $SENTINEL_UUITE_2 and $SENTINEL_UUITE_3\"}")"
 STATUS="$(echo "$RESP" | tail -1)"
-BODY="$(echo "$RESP" | head -n -1)"
+# `sed '$d'` deletes the last line (the status code we appended via curl --write-out).
+# POSIX-portable; macOS `head -n -1` doesn't support negative counts.
+BODY="$(echo "$RESP" | sed '$d')"
 assert_status 201 "$STATUS" "UU ITE reply → 201"
 REPLY_ID="$(echo "$BODY" | jq -r .id)"
 echo "INFO: created reply $REPLY_ID — operator MUST confirm a moderation_queue row exists with target_id=$REPLY_ID, target_type='reply', trigger='uu_ite_keyword_match'."
