@@ -162,7 +162,7 @@ End-to-end verified 2026-04-26: pulled credential from Secret Manager → minted
 - Firebase staging project ID: `nearyou-staging` (matches GCP project ID — single ID for all staging infra)
 - Staging Admin SA email: `firebase-adminsdk-fbsvc@nearyou-staging.iam.gserviceaccount.com`
 - Staging Admin SDK credential: GCP Secret Manager `staging-firebase-admin-sa` (project `nearyou-staging`)
-- Pending wiring: `staging-firebase-admin-sa` not yet in `.github/workflows/deploy-staging.yml --set-secrets` — will be added when backend Firebase Admin SDK code lands (separate OpenSpec change introducing `:infra:remote-config` + `:infra:fcm` modules)
+- Wired: `FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest` in `.github/workflows/deploy-staging.yml --set-secrets` (added 2026-04-29 via PR #60 `fcm-push-dispatch`; `:infra:remote-config` consumer landed 2026-05-07 via PR #70 `content-moderation-keyword-lists`)
 - Pending Client template seed: 2 dual-template flags (`image_upload_enabled`, `premium_username_customization_enabled`) need Client-template entries when mobile work starts
 
 ### 3.4 RevenueCat
@@ -219,22 +219,28 @@ End-to-end verified 2026-04-26: pulled credential from Secret Manager → minted
 
 ### 3.7 Grafana Cloud (OTel backend)
 
-- [ ] Signup - https://grafana.com/auth/sign-up/create-user
-- [ ] Pilih Free tier
-- [ ] Create stack `nearyou-staging` (staging) and `nearyou-prod` (production) — one Grafana Cloud project, two stacks
-- [ ] Mint OTLP/HTTP token for each stack with **Read+Write trace permissions only** (no metric/log scope at the `observability-otel-foundation` change). Token format: `<instance-id>:<api-key>` for the OTLP/HTTP `Authorization: Basic` header
-- [ ] Populate GCP Secret Manager slots (verbatim names — match `secretKey(env, ...)` lookups in `:infra:otel`):
-    - `staging-otel-grafana-otlp-endpoint` — staging Tempo OTLP/HTTP endpoint (e.g., `https://tempo-prod-XX-us-central-0.grafana.net/tempo`)
-    - `staging-otel-grafana-otlp-token` — staging HTTP Basic auth credential (base64 of `<instance_id>:<api_token>` from the Grafana OTLP wizard; `OtelBootstrap` prepends `Basic ` scheme)
-    - `otel-grafana-otlp-endpoint` — production Tempo OTLP/HTTP endpoint
-    - `otel-grafana-otlp-token` — production HTTP Basic auth credential (same shape as staging slot)
-- [ ] Confirm IAM: ONLY the staging + production Cloud Run service accounts have `roles/secretmanager.secretAccessor` on these slots — no CI / dev access
-- [ ] Wire env-var bindings in `.github/workflows/deploy-staging.yml` and the production deploy workflow: `OTEL_GRAFANA_OTLP_ENDPOINT=staging-otel-grafana-otlp-endpoint:latest` (staging) and `OTEL_GRAFANA_OTLP_TOKEN=staging-otel-grafana-otlp-token:latest` (staging); unprefixed slot names in production
+OTel foundation shipped 2026-05-07 via PR #66 `observability-otel-foundation` — `:infra:otel` module + OpenTelemetry SDK + auto-instrumentation (Ktor server, JDK/CIO HTTP client, HikariCP, Lettuce) + OTLP/HTTP exporter to Grafana Cloud Tempo. Staging fully wired; production stack + slots pending prod environment buildout.
+
+- [x] Signup - https://grafana.com/auth/sign-up/create-user — done (Free tier)
+- [x] Pilih Free tier — done
+- [~] Create stack `nearyou-staging` (staging) and `nearyou-prod` (production) — one Grafana Cloud project, two stacks. Staging done; prod pending GCP prod project setup.
+- [~] Mint OTLP/HTTP token for each stack with **Read+Write trace permissions only** (no metric/log scope at the `observability-otel-foundation` change). Token format: `<instance-id>:<api-key>` for the OTLP/HTTP `Authorization: Basic` header. Staging token minted via OTLP setup wizard (over-grants `metrics:write` + `logs:write` + `profiles:write` + `stacks:read` — see ⚠️ rotation item below); prod pending.
+- [~] Populate GCP Secret Manager slots (verbatim names — match `secretKey(env, ...)` lookups in `:infra:otel`):
+    - [x] `staging-otel-grafana-otlp-endpoint` v1 — staging Tempo OTLP/HTTP endpoint (e.g., `https://tempo-prod-XX-us-central-0.grafana.net/tempo`). Cloud Run runtime SA granted `secretAccessor`.
+    - [x] `staging-otel-grafana-otlp-token` v1 — staging HTTP Basic auth credential (base64 of `<instance_id>:<api_token>` from the Grafana OTLP wizard; `OtelBootstrap` prepends `Basic ` scheme). Cloud Run runtime SA granted `secretAccessor`.
+    - [ ] `otel-grafana-otlp-endpoint` — production Tempo OTLP/HTTP endpoint (pending)
+    - [ ] `otel-grafana-otlp-token` — production HTTP Basic auth credential (pending; mint from least-privilege Access Policy per ⚠️ below, NOT from the wizard)
+- [~] Confirm IAM: ONLY the staging + production Cloud Run service accounts have `roles/secretmanager.secretAccessor` on these slots — no CI / dev access. Staging Cloud Run runtime SA (`27815942904-compute@developer.gserviceaccount.com`) granted on both staging slots; prod pending.
+- [~] Wire env-var bindings: staging wired in `.github/workflows/deploy-staging.yml --set-secrets` as `OTEL_GRAFANA_OTLP_ENDPOINT=staging-otel-grafana-otlp-endpoint:latest` and `OTEL_GRAFANA_OTLP_TOKEN=staging-otel-grafana-otlp-token:latest` (added in PR #66, 2026-05-07). Production deploy workflow doesn't exist yet.
+- [ ] ⚠️ **Pre-Launch (before prod tag-deploy)**: rotate `otel-grafana-otlp-token` (and optionally `staging-otel-grafana-otlp-token` at next maintenance window) from the OTLP-wizard token to a custom Grafana Cloud Access Policy token (`nearyou-prod-traces-write-only`, realm = stack `nearyouid`, scope = `traces:write` only). The wizard token over-grants `metrics:write` + `logs:write` + `profiles:write` + `stacks:read`. GCP Secret Manager IAM is the primary defense, but the wizard token is unacceptable at production tag-deploy. Canonical: `08-Roadmap-Risk.md` § Pre-Launch (Week 18-20) checklist.
 
 **Notes**:
-- Grafana stack URLs (staging / prod): _________________ / _________________
-- OTel OTLP/HTTP endpoints (staging / prod): _________________ / _________________
-- Cloud Run SA grants verified: [ ] staging  [ ] production
+- Grafana stack URLs (staging / prod): _________________ / _________________ (staging URL embedded in `staging-otel-grafana-otlp-endpoint`; fill in human-readable form here when convenient)
+- Staging OTLP endpoint: GCP Secret Manager `staging-otel-grafana-otlp-endpoint` v1 (project `nearyou-staging`)
+- Staging OTLP token: GCP Secret Manager `staging-otel-grafana-otlp-token` v1 (wizard-minted; rotation to least-privilege Access Policy token tracked above)
+- Prod stack URL / endpoint: _________________ (pending)
+- Cloud Run SA grants verified: [x] staging  [ ] production
+- Pending wiring (prod): all 4 slots above + production deploy workflow
 
 ### 3.8 Amplitude
 
@@ -318,7 +324,7 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
 - [ ] `prod-supabase-jwt-secret` dan `staging-supabase-jwt-secret`
 - [ ] `prod-revenuecat-webhook-bearer` dan `staging-revenuecat-webhook-bearer`
 - [ ] `prod-revenuecat-webhook-hmac` dan `staging-revenuecat-webhook-hmac` (opsional)
-- [~] `prod-firebase-admin-sa` dan `staging-firebase-admin-sa` (JSON file) — staging done 2026-04-26 (`staging-firebase-admin-sa` v1, Cloud Run runtime SA granted secretAccessor); prod pending
+- [~] `prod-firebase-admin-sa` dan `staging-firebase-admin-sa` (JSON file) — staging done 2026-04-26 (`staging-firebase-admin-sa` v1, Cloud Run runtime SA granted secretAccessor) AND wired into `deploy-staging.yml` as `FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest` 2026-04-29 (PR #60 `fcm-push-dispatch`). Consumed by `:infra:fcm` + `:infra:remote-config`. Prod pending.
 - [ ] `prod-apns-p8-key` dan `staging-apns-p8-key` (file content)
 - [~] `prod-resend-api-key` dan `staging-resend-api-key` — staging done 2026-04-27 (`staging-resend-api-key` v1, 36 bytes, Cloud Run runtime SA granted secretAccessor). Free Developer plan key, full-access scope, name `nearyou-staging`. End-to-end smoke test PASSED (Inbox delivery, not Spam). Prod equivalent pending; same Resend account + same key may be reused (env-prefix mirror) OR generate separate `nearyou-prod` key for blast-radius isolation — decide pas prod env setup.
 - [~] `prod-r2-access-key` + `prod-r2-secret` dan staging equivalents — staging done 2026-04-26 with 5 secrets (more granular than original spec): `staging-r2-access-key-id` v1 (32 bytes), `staging-r2-secret-access-key` v1 (64 bytes), `staging-r2-bucket-name` v1 (`nearyou-media-staging`), `staging-r2-endpoint-url` v1, `staging-r2-account-id` v1. All granted secretAccessor to Cloud Run runtime SA. Local credential files deleted post-upload. Prod equivalents pending GCP prod project setup.
@@ -329,6 +335,11 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
 - [~] `staging-sentry-backend-dsn` v1 — granted Cloud Run runtime SA (`27815942904-compute@developer.gserviceaccount.com`) `secretAccessor`. Prod equivalent pending.
 - [~] `staging-sentry-android-dsn` v1 — no Cloud Run grant (mobile DSN consumed by CI build pipeline, not runtime). Prod equivalent pending.
 - [~] `staging-sentry-ios-dsn` v1 — no Cloud Run grant (same reason). Prod equivalent pending.
+
+**OTel Grafana Cloud secrets** (added 2026-05-07 via PR #66 `observability-otel-foundation`; consumed by `:infra:otel` `OtelBootstrap.start(...)`):
+- [~] `staging-otel-grafana-otlp-endpoint` v1 — granted Cloud Run runtime SA `secretAccessor`. Wired in `deploy-staging.yml` as `OTEL_GRAFANA_OTLP_ENDPOINT`. Prod equivalent pending.
+- [~] `staging-otel-grafana-otlp-token` v1 — granted Cloud Run runtime SA `secretAccessor`. Wired in `deploy-staging.yml` as `OTEL_GRAFANA_OTLP_TOKEN`. Wizard-minted (over-grants metrics/logs/profiles/stacks scope); rotation to least-privilege Access Policy token tracked in § 3.7 ⚠️ before prod tag-deploy. Prod equivalent pending.
+
 - [ ] `prod-amplitude-api-key` (dan staging)
 - [ ] `prod-admin-app-db-connection-string` (DB role `admin_app`, separate dari main API)
 - [ ] `prod-main-app-db-connection-string` (DB role `main_app`)
@@ -342,7 +353,7 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
 Per `08-Roadmap-Risk.md`, ini harus locked sebelum build mulai. Canonical decisions log lives in `08-Roadmap-Risk.md` § "Open Decisions" (pattern follows existing entries #4 BPS/OSM, #13 IAP, etc.) — `09-Versions.md` is scoped to library version pins only.
 
 - [x] **IAP vs Cloud Armor + VPN** untuk admin panel — **Resolved 2026-04-26: IAP**. Allowlist `nearyouid.founder@gmail.com`. Full rationale in `08-Roadmap-Risk.md` § Open Decisions #13.
-- [ ] **OTel backend vendor**: Grafana Cloud (default) vs Honeycomb vs Cloud Trace
+- [x] **OTel backend vendor** — **Resolved 2026-05-07: Grafana Cloud Tempo via OTLP/HTTP** (PR #66 `observability-otel-foundation` shipped `:infra:otel` + exporter wired to Grafana Cloud; staging emitting traces). Vendor swap (Honeycomb / Cloud Trace) remains a within-`:infra:otel` change per the module's encapsulation contract. Decision tracked at `08-Roadmap-Risk.md` § Open Decisions #12.
 - [x] **BPS vs OpenStreetMap** untuk polygon kabupaten/kota — **Resolved + shipped: OSM** (`admin_level=4` provinces + `admin_level=5` kabupaten/kota via Overpass API). Already live in staging DB via V12 552-row seed (`global-timeline-with-region-polygons` change). Attribution surfaced in V12 migration header. Full rationale in `08-Roadmap-Risk.md` § Open Decisions #4.
 - [x] **CF Images URL pattern** — **Resolved 2026-04-26: custom subdomain `img.nearyou.id` (prod) + `img-staging.nearyou.id` (staging)**. Standard `imagedelivery.net` retained as emergency fallback. Full rationale in `08-Roadmap-Risk.md` § Open Decisions #32.
 - [x] **CSAM trigger path** — **Resolved 2026-04-26: MVP = admin-triggered manual via Admin Panel; Phase 2+ = Cloudflare Worker auto-forward**. Both paths converge to `/internal/csam-webhook` + same archive row (dedup via `csam_detection_archive.source` column). Migrate triggers documented. Full rationale in `08-Roadmap-Risk.md` § Open Decisions #33.
@@ -390,8 +401,8 @@ Target: 600 kata sifat × 600 kata benda + 100 modifier = 360k+ base kombinasi (
 - [ ] Draft UU ITE keyword list (AI + manual review, 1 hari)
 - [ ] Draft general profanity blocklist (Indonesia + slang)
 - [ ] Draft username-specific profanity filter
-- [ ] Upload ke Firebase Remote Config: `moderation_uu_ite_list`, `moderation_profanity_list`
-- [ ] Also commit fallback files: `/backend/src/main/resources/moderation/uu_ite.default.txt`, `profanity.default.txt`
+- [x] Upload ke Firebase Remote Config Server template: `moderation_uu_ite_list`, `moderation_profanity_list` — done 2026-04-26 (staging Server template Version 1; see § 3.3). Empty JSON arrays — operational seed lists pending dataset work above.
+- [x] Also commit fallback files: `/backend/ktor/src/main/resources/moderation/uu_ite.default.txt`, `profanity.default.txt` — shipped via PR #70 `content-moderation-keyword-lists` (2026-05-07) with placeholder sentinels; operational seed lists land via Firebase Remote Config (Layer 2 of the 4-step fallback ladder), repo files are fail-soft last-resort.
 - [ ] Plan quarterly review cadence (atau on-demand saat regulasi update)
 
 ---
@@ -434,10 +445,10 @@ Target: 600 kata sifat × 600 kata benda + 100 modifier = 360k+ base kombinasi (
 |---------|-------|------|--------|
 | 1. Domain & DNS | 14 | 0 | `[ ]` |
 | 2. Developer Programs | 15 | 0 | `[ ]` |
-| 3. Infrastructure Accounts | 45+ | 26 | `[~]` (Firebase staging + R2 staging + Sentry org/projects/DSNs + Resend domain/key done; CF Images deferred Phase B; sentry-cli auth token deferred to mobile build phase; Cloudflare DNS active for `api-staging`; Supabase + Upstash staging live per inline notes) |
-| 4. Secrets | 22 | 10 partial | `[~]` (`staging-firebase-admin-sa` v1, `staging-r2-{access-key-id,secret-access-key,bucket-name,endpoint-url,account-id}` v1, `staging-sentry-{backend,android,ios}-dsn` v1, `staging-resend-api-key` v1) |
-| 5. Decisions | 9 | 4 | `[~]` (IAP, BPS/OSM, CF Images URL, CSAM trigger — all resolved 2026-04-26; OTel + 4 pricing/quota verifications still open) |
-| 6. Datasets | 4 work items | 0 | `[ ]` |
+| 3. Infrastructure Accounts | 45+ | 33 | `[~]` (Firebase staging + R2 staging + Sentry org/projects/DSNs + Resend domain/key + Grafana Cloud staging stack/token done; CF Images deferred Phase B; sentry-cli auth token deferred to mobile build phase; Cloudflare DNS active for `api-staging`; Supabase + Upstash staging live per inline notes) |
+| 4. Secrets | 22 | 12 partial | `[~]` (`staging-firebase-admin-sa` v1 + wired, `staging-r2-{access-key-id,secret-access-key,bucket-name,endpoint-url,account-id}` v1, `staging-sentry-{backend,android,ios}-dsn` v1, `staging-resend-api-key` v1, `staging-otel-grafana-otlp-{endpoint,token}` v1 + wired) |
+| 5. Decisions | 9 | 5 | `[~]` (IAP, BPS/OSM, CF Images URL, CSAM trigger — all resolved 2026-04-26; OTel vendor — resolved 2026-05-07 as Grafana Cloud Tempo via PR #66; 4 pricing/quota verifications still open) |
+| 6. Datasets | 4 work items | 0.5 | `[~]` (§6.4 Remote Config + fallback files scaffolded via PR #70 with placeholder sentinels; operational seed lists pending; §6.1 / §6.2 / §6.3 still open) |
 | 7. Legal | 6 | 0 | `[ ]` |
 | 8. Verification | 8 | 0 | `[ ]` |
 
