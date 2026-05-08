@@ -3,7 +3,6 @@
 ## Purpose
 
 The observability-otel-foundation capability scaffolds the `:infra:otel` module and wires OpenTelemetry tracing into `:backend:ktor` with auto-instrumentation for the Ktor HTTP server, the JDK / CIO HTTP client, Postgres JDBC via HikariCP, and Redis Lettuce. It defines the mandatory spans and attributes (including the `UserIdHasher` that hashes user UUIDs to 16 hex chars before they can be attached to spans), the forbidden-attributes contract that defends against PII leakage, W3C Trace Context propagation on outbound HTTP, and a `ParentBased(TraceIdRatioBased(0.1))` production sampler with a no-op exporter fallback when secrets are absent. Force-keep promotion (100% errors + 100% slow) is deferred to a follow-up change that deploys an OTel Collector for tail sampling.
-
 ## Requirements
 ### Requirement: `:infra:otel` module is the sole owner of the OTel SDK + vendor exporter
 
@@ -185,7 +184,7 @@ Every manual `withSpan(name, attributes)` invocation SHALL include any caller-pr
 
 NO span produced by `:backend:ktor` SHALL ever carry these attribute keys or values:
 - The raw `user_id` UUID (in any attribute, including custom names like `user_uuid`, `principal`, `actor`, etc.). Use `UserIdHasher.hash(...)` instead.
-- The raw client IP read from `CF-Connecting-IP` or `X-Forwarded-For`. (No truncated form is currently sanctioned; if needed, file a follow-up that introduces an `ip.cidr` truncated attribute.)
+- The raw client IP read from `CF-Connecting-IP` or `X-Forwarded-For`. The sanctioned anonymization shape is `IpHasher.hash(ip)` (16-hex truncated SHA-256, exported from `:infra:otel`) — used by IP-axis rate-limit Redis keys per [`rate-limit-infrastructure/spec.md`](../rate-limit-infrastructure/spec.md). Direct embedding of the raw IP in any span attribute, log field, or Redis key segment is forbidden; the hashed form is the only sanctioned way for IP-derived values to surface in telemetry.
 - The OTel HTTP server / network semconv peer-identity attributes — both OLD-semconv names (`client.address`, `net.peer.ip`, `net.peer.port`, `net.sock.peer.addr`, `http.client_ip`) AND NEW-semconv names (`client.address` unchanged, `network.peer.address`, `network.peer.port`). The OTel Java 2.x instrumentation migrated to the new HTTP semconv (verified at staging soak: `opentelemetry-ktor-3.0:2.25.0-alpha` emits `network.peer.address`); both name sets MUST be stripped to handle BOM upgrades / instrumentation alternates. When running behind Cloudflare these would carry the Cloudflare-edge peer IP (NOT the real client IP, which is sourced via `CF-Connecting-IP`); when on Cloud Run direct URL these carry the internal load-balancer link-local IP — neither shape is acceptable per project posture. The implementation MUST suppress these keys via the SDK pipeline (the canonical mechanism is a `SpanExporter` decorator that strips forbidden keys before delegate export — see [`infra/otel/src/main/kotlin/id/nearyou/app/infra/otel/ForbiddenAttributeStripper.kt`](../../../../../infra/otel/src/main/kotlin/id/nearyou/app/infra/otel/ForbiddenAttributeStripper.kt)).
 - Raw JWT tokens, raw refresh tokens, raw API bearer tokens, raw OAuth client secrets, JWKS contents, raw Supabase service role key.
 - Raw JWT claims (`sub`, `aud`, `iss`, custom claims). The truncated SHA-256 token correlation id pattern from [`internal-endpoint-auth/spec.md:18`](../../../../specs/internal-endpoint-auth/spec.md) is the only sanctioned anonymization shape for token-related identifiers.
@@ -216,6 +215,11 @@ This requirement is enforced at code-review time. A follow-up Detekt rule (`Otel
 - **WHEN** the resulting Ktor server span is exported
 - **THEN** none of the keys `client.address`, `client.port`, `net.peer.ip`, `net.peer.port`, `net.sock.peer.addr`, `http.client_ip`, `network.peer.address`, `network.peer.port` appear on the span AND no attribute value equals `"1.2.3.4"` or the peer IP `E`
 
+#### Scenario: No raw client IP appears in Lua key on EVALSHA span
+- **GIVEN** a request arriving with `CF-Connecting-IP: 1.2.3.4` that triggers an IP-axis rate-limit check (e.g., on `/health/live`) AND a test SpanRecorder captures the Lettuce `EVALSHA` span emitted by the rate-limit Lua call
+- **WHEN** the captured span's `db.statement` attribute is scanned for the literal `"1.2.3.4"` (substring match, dotted-quad)
+- **THEN** the literal does NOT appear AND the `db.statement` value carries the hashed form `{ip:[0-9a-f]{16}}` instead (output of `IpHasher.hash("1.2.3.4")`)
+
 #### Scenario: No raw bearer token appears in any span
 - **GIVEN** an authenticated request whose `Authorization: Bearer <token>` header value is the well-known sentinel `"sentinel-bearer-token-DO-NOT-LEAK"` AND a test SpanRecorder captures every span emitted during the request
 - **WHEN** the captured spans' attribute values, event attribute values, and span names are scanned for the literal sentinel
@@ -232,9 +236,9 @@ This requirement is enforced at code-review time. A follow-up Detekt rule (`Otel
 - **THEN** the literal does NOT appear in any attribute (the server span's `http.route` is the route pattern `"/api/v1/search"` — query strings are not part of the route pattern)
 
 #### Scenario: No raw Redis password appears in `db.connection_string` (Lettuce auto-instrumentation)
-- **GIVEN** the Redis connection URI is `redis://default:<sentinel>@<host>:6379/0` where `<sentinel>` is the well-known string `"sentinel-redis-password-DO-NOT-LEAK"` AND a test SpanRecorder captures every Redis span emitted during a representative cache read
-- **WHEN** the captured Redis spans' attribute values are scanned for the literal sentinel
-- **THEN** the literal does NOT appear in `db.connection_string` or any other attribute (the Lettuce telemetry is configured to either drop the attribute or sanitize the userinfo portion)
+- **GIVEN** the production Lettuce client is configured with a Redis URI `redis://default:<password>@<host>:<port>/0` AND `<password>` is a sentinel `"sentinel-redis-password-DO-NOT-LEAK"` AND a test SpanRecorder captures the `EVALSHA` / `GET` / `PING` Lettuce spans
+- **WHEN** the captured spans' attribute values (including `db.connection_string` if emitted) are scanned for the literal sentinel
+- **THEN** the literal does NOT appear (the Lettuce telemetry is configured to drop or sanitize the userinfo portion of the URI)
 
 ### Requirement: W3C Trace Context propagation on outbound HTTP from `:backend:ktor` (excluding FCM)
 
@@ -302,4 +306,54 @@ Manual span sites (Realtime publish, FCM dispatch, rate-limit Lua call, any futu
 - **GIVEN** a `withSpan("test.op", mapOf("foo" to "bar", "n" to 42))` invocation
 - **WHEN** the span is exported
 - **THEN** the span carries attribute `foo="bar"` AND `n=42`
+
+### Requirement: `IpHasher` SHALL anonymize client IP for span-attribute and rate-limit-key surfaces
+
+`:infra:otel` SHALL expose `IpHasher.hash(ip: String): String` that returns the first 16 hex characters of `SHA-256(ip.toByteArray(StandardCharsets.UTF_8))` (16 hex = 64-bit truncated digest). Every site that constructs an IP-axis Redis key for the `RateLimiter.tryAcquireByKey` overload SHALL go through this helper. Embedding the raw IPv4 dotted-quad or IPv6 colon-delimited literal in the Lua key (which surfaces in Tempo `db.statement` span attributes on the Lettuce `EVALSHA` span AND in the `key=` field of structured logs mandated by [`rate-limit-infrastructure/spec.md`](../rate-limit-infrastructure/spec.md)) is forbidden.
+
+The truncation length and digest function are fixed (changing them is an explicit follow-up change requiring a separate proposal). The shape mirrors `UserIdHasher` ("first 16 hex chars of `SHA-256(...)`"), keeping the operator mental model unified across user/IP/token correlation IDs.
+
+`IpHasher.hash` MUST `require(ip.isNotBlank())` defensively — blank input is a `clientIp` extraction regression and silently collapsing disparate requests to a single shared rate-limit bucket would invert the intent of the limiter. The fail-fast guard makes regressions in `ClientIpExtractor` immediately observable.
+
+`IpHasher` accepts whatever non-blank literal string the caller supplies (the `clientIp` request-context value from `ClientIpExtractor`). It does NOT normalize IPv6 forms (`::1` vs `0:0:0:0:0:0:0:1` vs `2001:DB8::1` vs `2001:db8::1` all hash differently) AND it does NOT trim whitespace (`"1.2.3.4 "` vs `"1.2.3.4"` hash differently — `ClientIpExtractor` is the canonical trim site). Cloudflare's emission shape is deterministic per request-edge, so two semantically-equivalent forms reaching the helper from the same client is not a real-world concern. If a future IPv6 audit shows form-drift causing rate-limit-bypass, normalization can be added without breaking the shape contract.
+
+#### Scenario: Hash is deterministic
+- **GIVEN** an IP literal `I` (e.g., `"1.2.3.4"`)
+- **WHEN** `IpHasher.hash(I)` is invoked twice
+- **THEN** both calls return the identical 16-character hex string
+
+#### Scenario: Hash differs between distinct IPs
+- **GIVEN** two distinct IP literals `I1 != I2` (e.g., `"1.2.3.4"` and `"5.6.7.8"`)
+- **WHEN** `IpHasher.hash(I1)` and `IpHasher.hash(I2)` are computed
+- **THEN** the two return values differ
+
+#### Scenario: Hash output is exactly 16 hex characters
+- **GIVEN** any non-blank IP literal
+- **WHEN** `IpHasher.hash(ip)` is invoked
+- **THEN** the return value matches the regex `^[0-9a-f]{16}$`
+
+#### Scenario: Hash output is exactly 16 hex characters across many random IPv4 addresses
+- **GIVEN** 1000 randomly-generated IPv4 literals (each `<a>.<b>.<c>.<d>` with `0 <= a,b,c,d <= 255`)
+- **WHEN** `IpHasher.hash(ip)` is invoked for each
+- **THEN** every return value matches the regex `^[0-9a-f]{16}$`
+
+#### Scenario: IPv6 input produces 16-hex output
+- **GIVEN** the IPv6 literal `"2001:db8::1"`
+- **WHEN** `IpHasher.hash(ip)` is invoked
+- **THEN** the return value matches the regex `^[0-9a-f]{16}$` (no IPv6-specific path; same shape as IPv4)
+
+#### Scenario: Blank input fails fast
+- **GIVEN** a blank IP literal (`""`, `" "`, `"\t"`, or any string where `ip.isBlank()` is true)
+- **WHEN** `IpHasher.hash(ip)` is invoked
+- **THEN** an `IllegalArgumentException` is thrown (via `require(ip.isNotBlank())`) — defensive guard against a regression in `ClientIpExtractor` that would otherwise collapse disparate requests to one bucket
+
+#### Scenario: Whitespace is not trimmed
+- **GIVEN** the IP literal `"1.2.3.4"` and the same value with trailing whitespace `"1.2.3.4 "`
+- **WHEN** `IpHasher.hash` is invoked on each
+- **THEN** the two return values differ (no implicit trim — `ClientIpExtractor` is the canonical trim site, the hasher is byte-exact on its input)
+
+#### Scenario: IPv6 case sensitivity is preserved
+- **GIVEN** the IPv6 literal `"2001:DB8::1"` and its lowercase form `"2001:db8::1"`
+- **WHEN** `IpHasher.hash` is invoked on each
+- **THEN** the two return values differ (no IPv6 normalization — the design explicitly defers normalization to a future change if needed)
 

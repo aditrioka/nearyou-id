@@ -3,7 +3,6 @@
 ## Purpose
 
 The health-check capability defines the `/health/live` and `/health/ready` HTTP endpoints that Cloud Run startup + liveness probes and external uptime monitors consume. `/health/live` returns `200 OK` unconditionally as a pure process-alive signal. `/health/ready` runs Postgres, Redis, and Supabase Realtime probes in parallel with per-probe timeouts (500/200/500ms) under a 2-second outer cap, returning `200 {status: "ready"}` only when every dependency is green. Both endpoints are public but rate-limited at 60 req/min/IP via the shared rate-limit infrastructure, and Cloud Run native probes bypass the limit by User-Agent so deploys never self-block.
-
 ## Requirements
 ### Requirement: `/health/live` endpoint returns 200 unconditionally
 
@@ -102,9 +101,9 @@ HTTP status alignment: `200 OK` when `status == "ready"`, `503 Service Unavailab
 
 ### Requirement: `/health/*` rate-limit at 60 req/min per IP
 
-Both `/health/live` and `/health/ready` SHALL be rate-limited at 60 requests per minute per client IP via the new `RateLimiter.tryAcquireByKey(key, capacity, ttl)` overload added to the `rate-limit-infrastructure` capability (see the MODIFIED delta in this change's `specs/rate-limit-infrastructure/spec.md`). The limiter is keyed on the client IP read from the `clientIp` request-context value populated by the `client-ip-extraction` capability (also added in this change — see `specs/client-ip-extraction/spec.md`). Direct reads of `X-Forwarded-For` are forbidden per the project critical-invariant in [`CLAUDE.md`](CLAUDE.md) and enforced by the `RawXForwardedForRule` Detekt rule introduced in `client-ip-extraction`. The handler MUST NOT invoke the user-keyed `tryAcquire(userId, ...)` overload with a sentinel UUID — IP-axis call sites use `tryAcquireByKey` exclusively.
+Both `/health/live` and `/health/ready` SHALL be rate-limited at 60 requests per minute per client IP via the `RateLimiter.tryAcquireByKey(key, capacity, ttl)` overload defined in the `rate-limit-infrastructure` capability. The limiter is keyed on the client IP read from the `clientIp` request-context value populated by the `client-ip-extraction` capability. Direct reads of `X-Forwarded-For` are forbidden per the project critical-invariant in [`CLAUDE.md`](CLAUDE.md) and enforced by the `RawXForwardedForRule` Detekt rule introduced in `client-ip-extraction`. The handler MUST NOT invoke the user-keyed `tryAcquire(userId, ...)` overload with a sentinel UUID — IP-axis call sites use `tryAcquireByKey` exclusively.
 
-The Redis key shape MUST follow the hash-tag standard: `{scope:health}:{ip:<addr>}` with a 60-second window. The 60-request capacity applies to the union of `/health/live` and `/health/ready` requests from the same IP — both endpoints share the same bucket.
+The Redis key shape MUST follow the hash-tag standard: `{scope:health}:{ip:<hashed-ip>}` with a 60-second window. The `<hashed-ip>` segment MUST be the result of `IpHasher.hash(call.clientIp)` (16-hex truncated SHA-256, exported from `:infra:otel`) — raw IP literals embedded in the Lua key leak into Tempo span attributes via `db.statement` on the Lettuce `EVALSHA` span and into structured logs via the `key=` field, contradicting the project's `CF-Connecting-IP` privacy posture and exposing real customer IPs at production tag-deploy. The 60-request capacity applies to the union of `/health/live` and `/health/ready` requests from the same IP — both endpoints share the same bucket (the hash function is deterministic per IP, so same client always hashes to same key).
 
 When the cap is exceeded, the response status MUST be `429 Too Many Requests` with a `Retry-After` header containing the seconds until the oldest counted request ages out (matching `Outcome.RateLimited.retryAfterSeconds` from `RateLimiter`).
 
@@ -126,9 +125,17 @@ When the cap is exceeded, the response status MUST be `429 Too Many Requests` wi
 - **WHEN** an IP issues 30 requests to `/health/live` AND 31 requests to `/health/ready` within a 60-second window (61 total)
 - **THEN** the 61st request (regardless of which endpoint) returns `429 Too Many Requests`
 
-#### Scenario: Hash-tag key shape
+#### Scenario: Hash-tag key shape uses hashed IP
 - **WHEN** the rate limiter is invoked for IP `1.2.3.4` on `/health/live`
-- **THEN** the Redis key passed to `tryAcquireByKey` matches the pattern `{scope:health}:{ip:1.2.3.4}` (Redis hash-tag standard, single-slot for cluster-safe MULTI ops) AND the user-keyed `tryAcquire(userId, ...)` overload is NOT invoked (no sentinel-UUID workaround anywhere in the call path)
+- **THEN** the Redis key passed to `tryAcquireByKey` matches the pattern `{scope:health}:{ip:[0-9a-f]{16}}` where the trailing 16-hex segment equals `IpHasher.hash("1.2.3.4")` AND the literal `1.2.3.4` does NOT appear anywhere in the constructed key AND the user-keyed `tryAcquire(userId, ...)` overload is NOT invoked (no sentinel-UUID workaround anywhere in the call path)
+
+#### Scenario: Same IP hashes to same key (rate-limit consistency)
+- **WHEN** the same IP `1.2.3.4` issues two requests to `/health/live` within the 60-second window
+- **THEN** both requests construct the byte-identical Redis key (deterministic hash) AND consume from the same Redis bucket AND the second request observes `Allowed.remaining == 58` (capacity 60, two consumed)
+
+#### Scenario: Distinct IPs hash to distinct keys (rate-limit isolation)
+- **WHEN** IP `1.2.3.4` issues a request to `/health/live` AND IP `5.6.7.8` issues a request to `/health/live`
+- **THEN** the two requests construct DIFFERENT Redis keys (the 16-hex hash differs) AND consume from independent Redis buckets
 
 #### Scenario: Cloud Run probe User-Agent bypasses rate limit
 - **WHEN** a request with `User-Agent: GoogleHC/1.0` arrives at `/health/ready`

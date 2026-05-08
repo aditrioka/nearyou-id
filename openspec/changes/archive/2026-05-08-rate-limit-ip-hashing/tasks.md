@@ -44,13 +44,13 @@
 
 ## 7. Archive
 
-- [ ] 7.1 Run `openspec archive rate-limit-ip-hashing` locally — verify the move from `openspec/changes/` → `openspec/changes/archive/` and the spec sync into `openspec/specs/`.
-- [ ] 7.2 Run `openspec validate --specs rate-limit-infrastructure --strict` and `openspec validate --specs health-check --strict` and `openspec validate --specs observability-otel-foundation --strict` to confirm the post-archive specs are clean.
-- [ ] 7.3 Stage the archive changes (move + spec sync) and commit on the SAME branch with `chore(openspec): archive rate-limit-ip-hashing`.
+- [x] 7.1 Run `openspec archive rate-limit-ip-hashing` locally — verify the move from `openspec/changes/` → `openspec/changes/archive/` and the spec sync into `openspec/specs/`. **Done 2026-05-08:** atomic move + sync via `openspec archive --yes`. Output: `+ 1, ~ 3, - 0, → 0` (1 ADDED requirement to `observability-otel-foundation`; 3 MODIFIED requirements across `health-check`, `observability-otel-foundation`, `rate-limit-infrastructure`).
+- [x] 7.2 Run `openspec validate --specs rate-limit-infrastructure --strict` and `openspec validate --specs health-check --strict` and `openspec validate --specs observability-otel-foundation --strict` to confirm the post-archive specs are clean. **Done 2026-05-08:** all three returned `43 passed, 0 failed`.
+- [x] 7.3 Stage the archive changes (move + spec sync) and commit on the SAME branch with `chore(openspec): archive rate-limit-ip-hashing`.
 - [ ] 7.4 Push the archive commit + update the PR body via `gh pr edit <pr> --body "$(cat <<'EOF' ... EOF)"` to the merge-ready shape per `openspec/project.md` § Change Delivery Workflow.
 - [ ] 7.5 Final squash-merge to `main` after CI green — produces ONE commit on `main` carrying proposal + feat + archive.
 
 ## 8. Post-merge verification (production gate)
 
 - [ ] 8.1 After staging auto-deploy from `main` post-squash, repeat the smoke verification from Section 6 against `main`-deployed staging (`api-staging.nearyou.id`) — confirm Tempo + Cloud Logging surfaces remain clean.
-- [ ] 8.2 Production deployment is OUT OF SCOPE for this change (no production deploy workflow exists yet). When production tag-deploy lands, this change MUST be already-merged AND the smoke from 8.1 MUST be green. Mark this task N/A in the archive commit body.
+- [x] 8.2 Production deployment is OUT OF SCOPE for this change (no production deploy workflow exists yet). When production tag-deploy lands, this change MUST be already-merged AND the smoke from 8.1 MUST be green. Mark this task N/A in the archive commit body. **N/A — no production deploy workflow exists at archive time.** When production deploy lands as a future change, this PR's merge state + Section 8.1 smoke green are the explicit pre-conditions.
