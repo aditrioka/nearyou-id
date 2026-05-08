@@ -1,27 +1,27 @@
 ## 1. Setup
 
-- [ ] 1.1 Confirm working tree is on the `rate-limit-infrastructure-success-path-log` branch (created by `/next-change` Phase C). `git rev-parse --abbrev-ref HEAD` returns `rate-limit-infrastructure-success-path-log`.
-- [ ] 1.2 Confirm the proposal commit (`docs(openspec): propose rate-limit-infrastructure-success-path-log`) plus any review-loop fix commits are the only commits ahead of `origin/main` at the start of implementation. Subsequent feat commits land on this same branch under the one-PR-per-change convention.
-- [ ] 1.3 Confirm `openspec validate rate-limit-infrastructure-success-path-log --strict` passes (re-run if any artifact was edited during proposal-review).
+- [x] 1.1 Confirm working tree is on the `rate-limit-infrastructure-success-path-log` branch (created by `/next-change` Phase C). `git rev-parse --abbrev-ref HEAD` returns `rate-limit-infrastructure-success-path-log`.
+- [x] 1.2 Confirm the proposal commit (`docs(openspec): propose rate-limit-infrastructure-success-path-log`) plus any review-loop fix commits are the only commits ahead of `origin/main` at the start of implementation. Subsequent feat commits land on this same branch under the one-PR-per-change convention.
+- [x] 1.3 Confirm `openspec validate rate-limit-infrastructure-success-path-log --strict` passes (re-run if any artifact was edited during proposal-review).
 
 ## 2. Implementation — `RedisRateLimiter.admit()` success-path log
 
-- [ ] 2.1 Edit [`infra/redis/src/main/kotlin/id/nearyou/app/infra/redis/RedisRateLimiter.kt`](../../../infra/redis/src/main/kotlin/id/nearyou/app/infra/redis/RedisRateLimiter.kt) — locate `admit()` lines 112-164 (existing private method).
-- [ ] 2.2 In the success branch (where `result[0] == 1L`, currently returning `RateLimiter.Outcome.Allowed(remaining = value.toInt())`): before the `return`, emit two distinct `logger.debug` calls under `if (telemetryUserId != null) { ... } else { ... }`:
+- [x] 2.1 Edit [`infra/redis/src/main/kotlin/id/nearyou/app/infra/redis/RedisRateLimiter.kt`](../../../infra/redis/src/main/kotlin/id/nearyou/app/infra/redis/RedisRateLimiter.kt) — locate `admit()` lines 112-164 (existing private method).
+- [x] 2.2 In the success branch (where `result[0] == 1L`, currently returning `RateLimiter.Outcome.Allowed(remaining = value.toInt())`): before the `return`, emit two distinct `logger.debug` calls under `if (telemetryUserId != null) { ... } else { ... }`:
   - User-axis (inside `if`): `logger.debug("event=rate_limit_check user_id={} key={} outcome=allowed remaining={}", telemetryUserId, key, value)`
   - Key-axis (inside `else`): `logger.debug("event=rate_limit_check key={} outcome=allowed remaining={}", key, value)`
-- [ ] 2.3 In the rate-limited branch (where `result[0] != 1L`, currently returning `RateLimiter.Outcome.RateLimited(retryAfterSeconds = value)`): before the `return`, emit two distinct `logger.debug` calls under the same `if (telemetryUserId != null) { ... } else { ... }` conditional:
+- [x] 2.3 In the rate-limited branch (where `result[0] != 1L`, currently returning `RateLimiter.Outcome.RateLimited(retryAfterSeconds = value)`): before the `return`, emit two distinct `logger.debug` calls under the same `if (telemetryUserId != null) { ... } else { ... }` conditional:
   - User-axis (inside `if`): `logger.debug("event=rate_limit_check user_id={} key={} outcome=rate_limited retry_after_seconds={}", telemetryUserId, key, value)`
   - Key-axis (inside `else`): `logger.debug("event=rate_limit_check key={} outcome=rate_limited retry_after_seconds={}", key, value)`
-- [ ] 2.4 The `else` branch placement (Decisions 2 + 5 in design.md + spec scenario "Source-level structural conditional enforces else-branch placement") is structurally enforced by the test in §3.10 below. A copy-paste-error refactor that emits BOTH lines unconditionally outside the if/else (e.g., user-axis line followed by key-axis line, no else) would silently leak `user_id=` on key-axis calls — the structural test is the canonical defense.
-- [ ] 2.5 The fail-soft early-return path (`sync()` returns null at line 118 → returns `Allowed(remaining = capacity)`) MUST NOT emit the new log per spec scenario "Fail-soft early-return path emits no rate_limit_check log". Confirm by reading the diff: the new `logger.debug` calls land inside the `try { ... }` block (after `evalShaWithFallback`), NOT before the `sync()` null-check.
-- [ ] 2.6 Confirm the existing failure-path log block at lines 145-160 remains unchanged (the new success-path log additions are purely additive — do not refactor the existing conditional or extract a shared helper).
-- [ ] 2.7 Confirm no other call sites (`releaseMostRecent`, `evalShaWithFallback`, `sync`) are touched by this change. The file diff should be confined to the `admit()` body's `try { ... }` block. (Per design.md Decision 4: `releaseMostRecent` symmetric coverage is out of scope.)
+- [x] 2.4 The `else` branch placement (Decisions 2 + 5 in design.md + spec scenario "Source-level structural conditional enforces else-branch placement") is structurally enforced by the test in §3.10 below. A copy-paste-error refactor that emits BOTH lines unconditionally outside the if/else (e.g., user-axis line followed by key-axis line, no else) would silently leak `user_id=` on key-axis calls — the structural test is the canonical defense.
+- [x] 2.5 The fail-soft early-return path (`sync()` returns null at line 118 → returns `Allowed(remaining = capacity)`) MUST NOT emit the new log per spec scenario "Fail-soft early-return path emits no rate_limit_check log". Confirm by reading the diff: the new `logger.debug` calls land inside the `try { ... }` block (after `evalShaWithFallback`), NOT before the `sync()` null-check.
+- [x] 2.6 Confirm the existing failure-path log block at lines 145-160 remains unchanged (the new success-path log additions are purely additive — do not refactor the existing conditional or extract a shared helper).
+- [x] 2.7 Confirm no other call sites (`releaseMostRecent`, `evalShaWithFallback`, `sync`) are touched by this change. The file diff should be confined to the `admit()` body's `try { ... }` block. (Per design.md Decision 4: `releaseMostRecent` symmetric coverage is out of scope.)
 
 ## 3. Tests — `RedisRateLimiterTelemetryTest` extension (7 success-path scenarios)
 
-- [ ] 3.1 Edit [`infra/redis/src/test/kotlin/id/nearyou/app/infra/redis/RedisRateLimiterTelemetryTest.kt`](../../../infra/redis/src/test/kotlin/id/nearyou/app/infra/redis/RedisRateLimiterTelemetryTest.kt) — extend the existing `StringSpec` class (do NOT create a new test class; the appender helper extension lives alongside the existing `captureWarnings`).
-- [ ] 3.2 Add a new helper `captureDebugAndWarnings(block: () -> Unit): List<String>` inside the test class body, mirroring the existing `captureWarnings` helper but ALSO saving + lowering + restoring the `RedisRateLimiter` logger level. Implementation pattern:
+- [x] 3.1 Edit [`infra/redis/src/test/kotlin/id/nearyou/app/infra/redis/RedisRateLimiterTelemetryTest.kt`](../../../infra/redis/src/test/kotlin/id/nearyou/app/infra/redis/RedisRateLimiterTelemetryTest.kt) — extend the existing `StringSpec` class (do NOT create a new test class; the appender helper extension lives alongside the existing `captureWarnings`).
+- [x] 3.2 Add a new helper `captureDebugAndWarnings(block: () -> Unit): List<String>` inside the test class body, mirroring the existing `captureWarnings` helper but ALSO saving + lowering + restoring the `RedisRateLimiter` logger level. Implementation pattern:
   ```kotlin
   fun captureDebugAndWarnings(block: () -> Unit): List<String> {
       val logger = LoggerFactory.getLogger(RedisRateLimiter::class.java) as ch.qos.logback.classic.Logger
@@ -44,41 +44,41 @@
   }
   ```
   The teardown MUST be exception-safe (test fixture init failure, assertion failure, test timeout cannot leak DEBUG into subsequent tests in the same JVM).
-- [ ] 3.3 **Test fixture: real-Redis connection mechanism.** Use the same shape as [`RedisRateLimiterIntegrationTest`](../../../infra/redis/src/test/kotlin/id/nearyou/app/infra/redis/RedisRateLimiterIntegrationTest.kt) — connect to `redis://localhost:6379` (CI `redis:7-alpine` service container) inside a database-tagged scenario; pre-clear via UUID-suffixed test keys per `RedisRateLimiterIntegrationTest`'s `freshKey(scope)` precedent. **MUST NOT use `FLUSHDB`** — it would nuke sibling integration tests' fixtures since Kotest may run database-tagged specs in the same JVM. Test-key shape: `{scope:rate_test_day}:{user:<UUID-randomUUID>}` for user-axis, `{scope:test_health}:{ip:<UUID-suffixed-hex16>}` for key-axis (NOT `{scope:rate_like_day}` — using the production scope name in tests would mislead future maintainers about what's being tested).
-- [ ] 3.4 Add scenario "Success-path admit emits rate_limit_check log for tryAcquire with user_id":
+- [x] 3.3 **Test fixture: real-Redis connection mechanism.** Use the same shape as [`RedisRateLimiterIntegrationTest`](../../../infra/redis/src/test/kotlin/id/nearyou/app/infra/redis/RedisRateLimiterIntegrationTest.kt) — connect to `redis://localhost:6379` (CI `redis:7-alpine` service container) inside a database-tagged scenario; pre-clear via UUID-suffixed test keys per `RedisRateLimiterIntegrationTest`'s `freshKey(scope)` precedent. **MUST NOT use `FLUSHDB`** — it would nuke sibling integration tests' fixtures since Kotest may run database-tagged specs in the same JVM. Test-key shape: `{scope:rate_test_day}:{user:<UUID-randomUUID>}` for user-axis, `{scope:test_health}:{ip:<UUID-suffixed-hex16>}` for key-axis (NOT `{scope:rate_like_day}` — using the production scope name in tests would mislead future maintainers about what's being tested).
+- [x] 3.4 Add scenario "Success-path admit emits rate_limit_check log for tryAcquire with user_id":
   - Generate `userId = UUID.randomUUID()`, fresh test key with UUID-suffix.
   - Invoke `tryAcquire(userId, key, capacity = 10, ttl = Duration.ofSeconds(60))` against a fresh bucket inside `captureDebugAndWarnings { ... }`.
   - Assert exactly one captured event has formatted message containing all of `event=rate_limit_check`, `user_id=<userId.toString()>`, `key=<the-passed-key>`, `outcome=allowed`, `remaining=9`. (Format-arg-ordering-resistant — asserting both `user_id=<U>` AND `key=<actual-key>` catches a future maintainer who swaps the two args in the call site.)
-- [ ] 3.5 Add scenario "Success-path admit emits rate_limit_check log for tryAcquireByKey WITHOUT user_id":
+- [x] 3.5 Add scenario "Success-path admit emits rate_limit_check log for tryAcquireByKey WITHOUT user_id":
   - Same context, key-axis test key.
   - Invoke `tryAcquireByKey(key, capacity = 60, ttl = Duration.ofSeconds(60))`.
   - Assert exactly one captured event has formatted message containing `event=rate_limit_check`, `key=<the-passed-key>`, `outcome=allowed`, `remaining=59`.
   - **Strong user_id-absence check**: assert via `forEach { line -> line.contains("user_id=") shouldBe false }` shape (mirroring [`RedisRateLimiterTelemetryTest:97-100`](../../../infra/redis/src/test/kotlin/id/nearyou/app/infra/redis/RedisRateLimiterTelemetryTest.kt) precedent) that EVERY captured DEBUG event omits `user_id=`. Stronger than "exactly one event without user_id" — catches future refactors that emit a second log line unconditionally.
   - Assert no captured event contains `00000000-0000-0000-0000-000000000000`.
-- [ ] 3.6 Add scenario "User-axis rate-limited admit emits rate_limit_check with retry_after_seconds":
+- [x] 3.6 Add scenario "User-axis rate-limited admit emits rate_limit_check with retry_after_seconds":
   - Same context, user-axis test key.
   - Invoke `tryAcquire(userId, key, capacity = 1, ttl = Duration.ofSeconds(60))` twice sequentially. The first returns `Allowed`, the second returns `RateLimited`.
   - Assert the second admit's captured event contains `event=rate_limit_check`, `user_id=<userId>`, `key=<key>`, `outcome=rate_limited`, `retry_after_seconds=<int >= 1>`.
   - Additionally assert the captured `retry_after_seconds` integer value matches the second admit's returned `Outcome.RateLimited.retryAfterSeconds` byte-for-byte (no ±tolerance — they travel through the same admit() return statement).
-- [ ] 3.7 Add scenario "Key-axis rate-limited admit emits rate_limit_check WITHOUT user_id with retry_after_seconds":
+- [x] 3.7 Add scenario "Key-axis rate-limited admit emits rate_limit_check WITHOUT user_id with retry_after_seconds":
   - Same context, key-axis test key.
   - Invoke `tryAcquireByKey(key, capacity = 1, ttl = Duration.ofSeconds(60))` twice sequentially.
   - Assert the second admit's captured event contains `event=rate_limit_check`, `key=<key>`, `outcome=rate_limited`, `retry_after_seconds=<int >= 1>`.
   - Apply the same `forEach` user_id-absence check from §3.5 across all captured events from this admit.
   - This covers the canonical `/health` 60-req/min anti-scrape call site behavior at saturation — the operator's hot-IP triage path.
-- [ ] 3.8 Add scenario "Fail-soft early-return path emits no rate_limit_check log":
+- [x] 3.8 Add scenario "Fail-soft early-return path emits no rate_limit_check log":
   - Use the existing `unreachableUrl = "redis://127.0.0.1:1"` precedent (no real Redis needed; this scenario is NOT database-tagged).
   - Invoke `tryAcquireByKey(key = "{scope:test_fail_soft}:{ip:abc123def4567890}", capacity = 60, ttl = Duration.ofSeconds(60))` inside `captureDebugAndWarnings { ... }`.
   - Assert the admit returns `Outcome.Allowed(remaining = 60)` (the synthetic fail-soft outcome equal to capacity).
   - Assert ZERO captured events contain `event=rate_limit_check` (the new log MUST NOT fire on the early-return path; the existing `event=redis_connect_failed` WARN is the operator signal).
   - Assert AT LEAST ONE captured event contains `event=redis_connect_failed` (preserves the existing fail-soft contract).
-- [ ] 3.9 Add scenario "DEBUG-filtered emission contract — log is opt-in, never load-bearing":
+- [x] 3.9 Add scenario "DEBUG-filtered emission contract — log is opt-in, never load-bearing":
   - Database-tagged (real Redis), key-axis test key.
   - Use a variant helper that attaches the appender at `Level.INFO` (NOT DEBUG) — the new `event=rate_limit_check` DEBUG entries are filtered out by the appender's level.
   - Invoke `tryAcquireByKey(key, capacity = 10, ttl = Duration.ofSeconds(60))`.
   - Assert the admit returns `Allowed(remaining = 9)` (the runtime contract is unchanged regardless of log level).
   - Assert ZERO `event=rate_limit_check` entries captured (proves the log is opt-in via DEBUG enablement; never load-bearing).
-- [ ] 3.10 Extend the existing structural-source test ("RedisRateLimiter source has admit-time log conditional on telemetryUserId") to use a regex match enforcing the if/else branch placement:
+- [x] 3.10 Extend the existing structural-source test ("RedisRateLimiter source has admit-time log conditional on telemetryUserId") to use a regex match enforcing the if/else branch placement:
   - Read the source via the existing working-directory fallback: `java.io.File(sourcePath).takeIf { it.exists() }?.readText() ?: java.io.File("../../$sourcePath").readText()`.
   - Add `Regex.containsMatchIn` assertion for the success-path allowed branch:
     ```kotlin
@@ -90,26 +90,26 @@
   - Add an analogous regex for the rate-limited variant matching `outcome=rate_limited retry_after_seconds=\{\}`.
   - PRESERVE the existing failure-path substring assertions (`event=redis_acquire_failed user_id={} key={} reason={} message={} fail_soft=true` and the key-only variant) AND the existing conditional substring (`if (telemetryUserId != null)`).
   - This catches BOTH (a) consolidated single-format-string refactor (regex's distinct user-axis and key-axis format strings won't both match a single statement) AND (b) copy-paste-error refactor that stacks both lines outside the conditional (regex's `if/else` enforcement won't match unconditional emission).
-- [ ] 3.11 Add scenario "Cross-test pollution prevented via effectiveLevel comparison" — list LAST in the `StringSpec` block (after all DEBUG-bumping scenarios). Use `effectiveLevel` not `level`:
+- [x] 3.11 Add scenario "Cross-test pollution prevented via effectiveLevel comparison" — list LAST in the `StringSpec` block (after all DEBUG-bumping scenarios). Use `effectiveLevel` not `level`:
   - Read `(LoggerFactory.getLogger(RedisRateLimiter::class.java) as ch.qos.logback.classic.Logger).effectiveLevel`.
   - Assert it matches the value observed BEFORE any DEBUG-bumping scenario ran (typically `Level.TRACE` inherited from `<root level="trace">` in `logback.xml`, OR whatever `logback-test.xml` overrides for the test classpath).
   - Note: `level` returns the configured level which may be `null` for inherited-from-root loggers; `effectiveLevel` always resolves via the Logback inheritance chain — `level == null` is NOT a passing condition for "level was restored," so the assertion MUST use `effectiveLevel`.
-- [ ] 3.12 Verify the final test class structure: 3 existing scenarios (`tryAcquire fail-soft log includes the connect-failure event`, `tryAcquireByKey fail-soft log does NOT include user_id field`, `RedisRateLimiter source has admit-time log conditional on telemetryUserId`) + 8 new scenarios from §3.4-§3.11 = 11 total scenarios. Existing 3 are preserved; new 8 added per the spec's enumerated test-coverage requirement.
+- [x] 3.12 Verify the final test class structure: 3 existing scenarios (`tryAcquire fail-soft log includes the connect-failure event`, `tryAcquireByKey fail-soft log does NOT include user_id field`, `RedisRateLimiter source has admit-time log conditional on telemetryUserId`) + 8 new scenarios from §3.4-§3.11 = 11 total scenarios. Existing 3 are preserved; new 8 added per the spec's enumerated test-coverage requirement.
 
 ## 4. Local verification
 
-- [ ] 4.1 Run `./gradlew ktlintCheck` — must pass.
-- [ ] 4.2 Run `./gradlew detekt` — must pass.
-- [ ] 4.3 Pre-condition: ensure local Redis is running for database-tagged tests (`docker compose up -d redis` from `dev/docker-compose.yml`, OR connect to a CI-equivalent local Redis on `localhost:6379`). Without Redis up, the new database-tagged scenarios silently skip per the existing precedent in `RedisRateLimiterIntegrationTest:42-58` — verifying locally requires Redis running.
-- [ ] 4.4 Run `./gradlew :infra:redis:test` — all telemetry test scenarios + existing fail-soft test + integration test must pass.
-- [ ] 4.5 Run `./gradlew :backend:ktor:test` — confirm no downstream test breaks (no rate-limit call site asserts on the absence of the new log events; the `:backend:ktor` test lane must remain green).
-- [ ] 4.6 Run `./gradlew :lint:detekt-rules:test` — confirm no Detekt rule regression (the new `event=rate_limit_check` log additions don't introduce new key-shape violations or hash-tag-rule false positives).
-- [ ] 4.7 Run the combined pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :infra:redis:test :lint:detekt-rules:test` — all green before pushing the implementation commits.
+- [x] 4.1 Run `./gradlew ktlintCheck` — must pass.
+- [x] 4.2 Run `./gradlew detekt` — must pass.
+- [x] 4.3 Pre-condition: ensure local Redis is running for database-tagged tests (`docker compose up -d redis` from `dev/docker-compose.yml`, OR connect to a CI-equivalent local Redis on `localhost:6379`). Without Redis up, the new database-tagged scenarios silently skip per the existing precedent in `RedisRateLimiterIntegrationTest:42-58` — verifying locally requires Redis running.
+- [x] 4.4 Run `./gradlew :infra:redis:test` — all telemetry test scenarios + existing fail-soft test + integration test must pass.
+- [x] 4.5 Run `./gradlew :backend:ktor:test` — confirm no downstream test breaks (no rate-limit call site asserts on the absence of the new log events; the `:backend:ktor` test lane must remain green).
+- [x] 4.6 Run `./gradlew :lint:detekt-rules:test` — confirm no Detekt rule regression (the new `event=rate_limit_check` log additions don't introduce new key-shape violations or hash-tag-rule false positives).
+- [x] 4.7 Run the combined pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :infra:redis:test :lint:detekt-rules:test` — all green before pushing the implementation commits.
 
 ## 5. Spec validate
 
-- [ ] 5.1 Run `openspec validate rate-limit-infrastructure-success-path-log --strict` — must pass with zero failures.
-- [ ] 5.2 Run `openspec status --change rate-limit-infrastructure-success-path-log` — confirm `applyRequires` artifacts (`tasks`) status is `done`.
+- [x] 5.1 Run `openspec validate rate-limit-infrastructure-success-path-log --strict` — must pass with zero failures.
+- [x] 5.2 Run `openspec status --change rate-limit-infrastructure-success-path-log` — confirm `applyRequires` artifacts (`tasks`) status is `done`.
 
 ## 6. Pre-archive staging smoke (re-run §6.5 from `rate-limit-ip-hashing`)
 

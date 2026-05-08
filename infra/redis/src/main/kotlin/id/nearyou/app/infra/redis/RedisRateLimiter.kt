@@ -134,8 +134,36 @@ class RedisRateLimiter(
             val flag = result[0]
             val value = result[1]
             if (flag == 1L) {
+                if (telemetryUserId != null) {
+                    logger.debug(
+                        "event=rate_limit_check user_id={} key={} outcome=allowed remaining={}",
+                        telemetryUserId,
+                        key,
+                        value,
+                    )
+                } else {
+                    logger.debug(
+                        "event=rate_limit_check key={} outcome=allowed remaining={}",
+                        key,
+                        value,
+                    )
+                }
                 RateLimiter.Outcome.Allowed(remaining = value.toInt())
             } else {
+                if (telemetryUserId != null) {
+                    logger.debug(
+                        "event=rate_limit_check user_id={} key={} outcome=rate_limited retry_after_seconds={}",
+                        telemetryUserId,
+                        key,
+                        value,
+                    )
+                } else {
+                    logger.debug(
+                        "event=rate_limit_check key={} outcome=rate_limited retry_after_seconds={}",
+                        key,
+                        value,
+                    )
+                }
                 RateLimiter.Outcome.RateLimited(retryAfterSeconds = value)
             }
         } catch (e: Exception) {
