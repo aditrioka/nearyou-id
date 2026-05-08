@@ -34,28 +34,6 @@ Format per entry:
 
 ---
 
-## rate-limit-applies-to-health-endpoints
-
-**Discovered during:** `observability-otel-foundation` §8.3 Tempo TraceQL verification — `GET /health/live` traces show child EVALSHA Lettuce span = the rate-limit Lua script is being executed on health-check requests.
-**Status:** open
-
-**Finding:** The rate-limiter middleware processes `/health/*` paths along with all other routes. Health-check paths should bypass rate-limiting because: (a) Cloud Run's startup probe + liveness probe hit `/health/ready` and `/health/live` repeatedly during deployment; if a deploy coincides with a real rate-limit burst, the probes themselves get throttled and Cloud Run kills the instance, cascading to a deploy failure; (b) probe traffic generates Redis load + consumes the rate-limit slot quota; (c) the rate-limit metric becomes noisier when health probes count toward it.
-
-**Specs at fault:** Each rate-limit capability spec (`like-rate-limit`, `chat-rate-limit`, `report-rate-limit`) — none currently scope-out `/health/*`.
-**Code at fault:** Wherever the rate-limit middleware is installed in `:backend:ktor`'s `Application.kt`. The fix is either (a) install rate-limit middleware on a sub-route subtree that excludes `/health/*`, or (b) add an explicit path-prefix bypass in the rate-limiter itself.
-**Docs at fault:** None — operations docs don't mention this current behavior.
-
-**Impact (if shipped):** Medium — staging cold-start cycling during §7.7 measurement caused 6 of 8 revisions to fail because Supabase pool exhaustion AND health-probe rate-limit interaction may have compounded. Low at steady-state production traffic but real risk during deploy windows.
-
-**Ambiguity to resolve first:** None — the fix is mechanical. Q: should ALL rate limits skip health paths, or only some? Recommend: all (health paths SHOULD always answer regardless of any rate-limit state).
-
-**Action items:**
-- [ ] File OpenSpec change `rate-limit-bypass-health-endpoints` that mounts rate-limit middleware on a sub-route subtree excluding `/health/*` (cleanest pattern: `route("/api/v1") { install(RateLimit) { ... } ; ...routes... }` instead of installing globally).
-- [ ] Add regression test asserting `/health/ready` does NOT execute the rate-limit Lua script.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
-
----
-
 ## rate-limit-infrastructure-success-path-key-log-drift
 
 **Discovered during:** `rate-limit-ip-hashing` (PR [#74](https://github.com/aditrioka/nearyou-id/pull/74)) Section 6.5 pre-archive smoke verification, 2026-05-08 — task wanted Cloud Logging filter on `key=` field of rate-limit log entries; healthy-state smoke produced zero such entries.
