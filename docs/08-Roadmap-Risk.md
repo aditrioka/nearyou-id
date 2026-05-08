@@ -584,9 +584,9 @@ Quarterly with legal advisor, or on-demand when regulations update. Finalize in 
 
 Lock now or re-evaluate with Month 12 data. Default: plan Month 14, re-confirm in Month 12 with actual cost metrics.
 
-### 12. OTel Vendor Final Decision
+### 12. OTel Vendor Final Decision — ✅ Resolved
 
-Grafana Cloud (recommended default) vs Honeycomb vs Cloud Trace. Pre-Phase 1 decision.
+**Resolved 2026-05-07: Grafana Cloud Tempo via OTLP/HTTP** (shipped in PR [#66](https://github.com/aditrioka/nearyou-id/pull/66) `observability-otel-foundation`). The `:infra:otel` module owns the OTLP exporter wiring; staging stack is live and emitting traces. Honeycomb and Cloud Trace evaluated as alternatives — Grafana Cloud chosen on the strength of its Free tier ceiling for MVP volumes + the Tempo / Loki / Prometheus / Pyroscope unified surface (canonical `gcx` CLI per memory). **Vendor swap remains a within-`:infra:otel` change** per the module's encapsulation contract (Requirement: `:infra:otel` is the sole owner of the OTel SDK + vendor exporter) — the spec deliberately keeps the rest of the codebase vendor-neutral. **Trigger to revisit**: free-tier ceiling breach (currently 50 GB traces/month + 14-day retention), regional latency complaint (Grafana stacks are not in Asia), or compliance regime forcing a single-region data-residency story. See `docs/10-Setup-Checklist.md` § 3.7 for staging credentials + Pre-Launch token rotation to least-privilege Access Policy.
 
 ### 13. IAP vs Cloud Armor Admin Panel — ✅ Resolved
 
