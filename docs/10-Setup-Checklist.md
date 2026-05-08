@@ -106,12 +106,12 @@ Bisa signup berurutan dalam 1-2 sore. Gunakan email dedicated untuk admin NearYo
 
 ### 3.1 Supabase
 
-- [ ] Signup - https://supabase.com
-- [ ] Create project `nearyou-prod` (pilih region Singapore / AWS ap-southeast-1)
-- [ ] Create project `nearyou-staging` (same region)
-- [ ] Save connection string + JWT secret untuk kedua project
+- [x] Signup - https://supabase.com — done (staging project active)
+- [ ] Create project `nearyou-prod` (pilih region Singapore / AWS ap-southeast-1) — pending GCP prod project setup
+- [x] Create project `nearyou-staging` (same region) — done. Staging URL stored in GCP Secret Manager `staging-supabase-url` + `staging-db-url`.
+- [~] Save connection string + JWT secret untuk kedua project — staging done (`staging-db-url` v1, `staging-db-user` v1, `staging-db-password` v1, `staging-supabase-jwt-secret` v1, `staging-supabase-url` v1, `staging-supabase-service-role-key` v1; all wired in `deploy-staging.yml --set-secrets`). Prod equivalents pending.
 - [ ] Prod: stay on Free tier sampai Pre-Launch, lalu upgrade ke Pro ($25/bulan)
-- [ ] Staging: stay on Free tier selamanya (auto-pause setelah 7 hari idle = OK)
+- [x] Staging: stay on Free tier selamanya (auto-pause setelah 7 hari idle = OK) — Free tier active
 
 **Notes**:
 - Prod project URL: _________________
@@ -119,11 +119,11 @@ Bisa signup berurutan dalam 1-2 sore. Gunakan email dedicated untuk admin NearYo
 
 ### 3.2 Upstash (Redis)
 
-- [ ] Signup - https://upstash.com
-- [ ] Create Redis database `nearyou-cache-prod` (region Singapore)
-- [ ] Create Redis database `nearyou-cache-staging`
-- [ ] Save REST URL + REST token untuk masing-masing
-- [ ] **TCP/RESP URL must use `rediss://` scheme (TLS), NOT `redis://`.** Upstash enables TLS on port 6379 by default, but the dashboard's quick-connect string is shown as `redis-cli --tls -u redis://...` which is misleading — the `--tls` flag is what's actually doing the work. Lettuce (`:infra:redis`) parses `redis://` as plain TCP and opens an unencrypted socket; Upstash drops the connection mid-handshake. Symptom is `RedisConnectionException: Connection closed prematurely` in Cloud Run logs and the rate limit silently no-ops via the fail-soft path. Solve at the secret value, not in code: store `rediss://default:<password>@<host>:6379` in `staging-redis-url` and `redis-url` (prod). Precedent: like-rate-limit task 9.7 smoke (2026-04-25) failed exactly this way; archive notes capture the full diagnostic trail.
+- [x] Signup - https://upstash.com — done (staging DB active)
+- [ ] Create Redis database `nearyou-cache-prod` (region Singapore) — pending GCP prod project setup
+- [x] Create Redis database `nearyou-cache-staging` — done
+- [~] Save REST URL + REST token untuk masing-masing — staging done (`staging-redis-url` v1, wired as `REDIS_URL` in `deploy-staging.yml --set-secrets`; consumed by `:infra:redis` Lettuce client). Prod equivalent pending.
+- [x] **TCP/RESP URL must use `rediss://` scheme (TLS), NOT `redis://`.** Upstash enables TLS on port 6379 by default, but the dashboard's quick-connect string is shown as `redis-cli --tls -u redis://...` which is misleading — the `--tls` flag is what's actually doing the work. Lettuce (`:infra:redis`) parses `redis://` as plain TCP and opens an unencrypted socket; Upstash drops the connection mid-handshake. Symptom is `RedisConnectionException: Connection closed prematurely` in Cloud Run logs and the rate limit silently no-ops via the fail-soft path. Solve at the secret value, not in code: store `rediss://default:<password>@<host>:6379` in `staging-redis-url` and `redis-url` (prod). Precedent: like-rate-limit task 9.7 smoke (2026-04-25) failed exactly this way; archive notes capture the full diagnostic trail. **Staging fix applied** — `staging-redis-url` uses `rediss://` scheme; staging deploys + rate-limit infrastructure run cleanly. Apply same scheme to `redis-url` (prod) when minting.
 
 **Notes**:
 - Prod Redis REST URL: _________________
@@ -273,14 +273,15 @@ OTel foundation shipped 2026-05-07 via PR #66 `observability-otel-foundation` �
 
 ### 3.10 GitHub
 
-- [ ] Confirm repo `nearyou-id` sudah siap (sepertinya sudah berdasarkan folder `.github`)
-- [ ] Setup GitHub Actions secrets untuk CI/CD (diisi setelah service credentials tersedia):
-  - [ ] `GCP_SA_KEY` (service account untuk deploy ke Cloud Run)
-  - [ ] `SENTRY_AUTH_TOKEN` (upload ProGuard/dSYM)
-  - [ ] `SUPABASE_DB_URL_STAGING` (untuk Flyway migrate staging)
-  - [ ] `SUPABASE_DB_URL_PROD`
+- [x] Confirm repo `nearyou-id` sudah siap — public, FSL-1.1-ALv2 licensed (per `CLAUDE.md` § Public repository posture); CI workflows live; PR-driven flow enforced
+- [~] Setup GitHub Actions secrets untuk CI/CD:
+  - [x] `GCP_SA_KEY` (service account untuk deploy ke Cloud Run) — wired; staging deploy workflow runs success consistently (5/5 most-recent)
+  - [x] `GCP_PROJECT_ID` + `GCP_REGION` — wired (referenced in `deploy-staging.yml` for Artifact Registry + Cloud Run target). Not in original checklist; tracked here for completeness.
+  - [ ] `SENTRY_AUTH_TOKEN` (upload ProGuard/dSYM) — **deferred** until mobile release build pipeline (Phase 3); see § 3.6 + § 4.2 for full reasoning
+  - [ ] `SUPABASE_DB_URL_STAGING` (untuk Flyway migrate staging) — **NOT NEEDED**: Flyway runs on Cloud Run startup via `RUN_FLYWAY_ON_STARTUP=true` using the `staging-db-*` Secret Manager slots; no separate GH Actions secret required. Strike if/when prod confirms same pattern.
+  - [ ] `SUPABASE_DB_URL_PROD` — same as above; deferred + likely obsolete
   - [ ] Tokens lain sesuai kebutuhan
-- [ ] Setup branch protection untuk `main` (require PR review + CI green)
+- [ ] Setup branch protection untuk `main` (require PR review + CI green) — **server-side ruleset NOT configured** (verified 2026-05-08 via `gh api repos/.../branches/main/protection` → `404 Branch not protected`). Direct push to `main` is currently hook-blocked LOCALLY per `CLAUDE.md`, but anyone with write access (including a future collaborator OR a compromised local) could bypass by pushing without the hook. Action: configure GitHub Ruleset (Settings → Rules) requiring PR + status checks before merging the first secondary admin / collaborator.
 
 ### 3.11 AdMob (bukan blocker sekarang, approval 2-4 minggu)
 
@@ -301,27 +302,35 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
   - Command: `openssl genpkey -algorithm RSA -out prod-ktor-rsa-private.pem -pkeyopt rsa_keygen_bits:4096`
   - Simpan private key di `prod-ktor-rsa-private-key`
   - Public key untuk JWKS endpoint
-- [ ] **Ktor JWT RS256 keypair** (staging) - same process, secret slot `staging-ktor-rsa-private-key`
+- [x] **Ktor JWT RS256 keypair** (staging) - same process, secret slot `staging-ktor-rsa-private-key` v1, wired as `KTOR_RSA_PRIVATE_KEY` in `deploy-staging.yml --set-secrets`
 - [ ] **JITTER_SECRET** (prod) - 256-bit random
   - Command: `openssl rand -base64 32`
   - Slot: `prod-jitter-secret`
   - ⚠️ Long-lived by design, rotation = re-fuzz semua posts
-- [ ] **JITTER_SECRET** (staging) - slot `staging-jitter-secret`
+- [x] **JITTER_SECRET** (staging) - slot `staging-jitter-secret` v1, wired as `JITTER_SECRET` in `deploy-staging.yml --set-secrets`
 - [ ] **age keypair** untuk backup encryption
   - Install `age`: `brew install age` (macOS)
   - Generate: `age-keygen -o backup-key.txt`
   - Public key di-bake ke backup Docker image
   - Private key simpan di `prod-backup-age-private-key`
 - [ ] **CSAM archive AES-256 key** - 256-bit random
-  - Slot: `prod-csam-archive-aes-key` dan `staging-csam-archive-aes-key`
-- [ ] **Invite code secret** - 256-bit random untuk HMAC derivation
-  - Slot: `prod-invite-code-secret` dan `staging-invite-code-secret`
+  - Slot: `prod-csam-archive-aes-key` dan `staging-csam-archive-aes-key` (both pending — no CSAM trigger path live yet on staging)
+- [~] **Invite code secret** - 256-bit random untuk HMAC derivation
+  - Slot: `prod-invite-code-secret` dan `staging-invite-code-secret`. Staging done (`staging-invite-code-secret` v1, wired as `INVITE_CODE_SECRET` in `deploy-staging.yml`); prod pending.
 - [ ] **Admin session cookie signing key** (reserved untuk future signed-cookie mode)
   - Slot: `prod-admin-session-cookie-signing-key` (belum perlu di-generate, reserve slot dulu)
 
 ### 4.2 Third-Party Secrets (simpan hasil dari section 3 di atas)
 
-- [ ] `prod-supabase-jwt-secret` dan `staging-supabase-jwt-secret`
+**Supabase + DB connection secrets** (all wired in `deploy-staging.yml --set-secrets` since 2026-04-22 staging buildout; consumed by HikariCP main pool + Flyway + `:infra:supabase`):
+- [~] `staging-db-url` v1 — Postgres direct connection. Wired as `DB_URL`. Cloud Run runtime SA granted `secretAccessor`. Prod equivalent pending.
+- [~] `staging-db-user` v1 — wired as `DB_USER`. Prod equivalent pending.
+- [~] `staging-db-password` v1 — wired as `DB_PASSWORD`. Prod equivalent pending.
+- [~] `staging-supabase-url` v1 — wired as `SUPABASE_URL` (centralized via Secret Manager though URL itself isn't cryptographically secret — see deploy workflow comment for rationale). Prod equivalent pending.
+- [~] `staging-supabase-jwt-secret` v1 — wired as `SUPABASE_JWT_SECRET`. Prod equivalent pending.
+- [~] `staging-supabase-service-role-key` v1 — wired as `SUPABASE_SERVICE_ROLE_KEY`. Prod equivalent pending.
+- [~] `staging-redis-url` v1 — Upstash Redis (`rediss://` scheme). Wired as `REDIS_URL`; consumed by Lettuce in `:infra:redis`. Prod equivalent pending.
+
 - [ ] `prod-revenuecat-webhook-bearer` dan `staging-revenuecat-webhook-bearer`
 - [ ] `prod-revenuecat-webhook-hmac` dan `staging-revenuecat-webhook-hmac` (opsional)
 - [~] `prod-firebase-admin-sa` dan `staging-firebase-admin-sa` (JSON file) — staging done 2026-04-26 (`staging-firebase-admin-sa` v1, Cloud Run runtime SA granted secretAccessor) AND wired into `deploy-staging.yml` as `FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest` 2026-04-29 (PR #60 `fcm-push-dispatch`). Consumed by `:infra:fcm` + `:infra:remote-config`. Prod pending.
@@ -387,14 +396,16 @@ Target: 600 kata sifat × 600 kata benda + 100 modifier = 360k+ base kombinasi (
 
 ### 6.3 BPS / OSM Kabupaten-Kota Polygons
 
-- [ ] Pilih source (BPS preferred, OSM fallback)
-- [ ] Download dataset
-- [ ] Process: ~500 kabupaten/kota GeoJSON
-- [ ] DKI Jakarta special: 5 kotamadya + Kepulauan Seribu di level kabupaten
-- [ ] Buffer coastal kabupaten +22km untuk maritime extension (12 nautical miles)
-- [ ] Spot-check 10 kabupaten kompleks (Kepulauan Riau, Halmahera, dll)
-- [ ] Import ke Postgres dengan schema `admin_regions` + GIST index
-- [ ] Document attribution di Privacy Policy (kalau OSM)
+Resolved + shipped via PR [#31](https://github.com/aditrioka/nearyou-id/pull/31) (`global-timeline-with-region-polygons`, 2026-04-25). Full dataset live in staging DB; applied to every staging deploy via Flyway-on-startup.
+
+- [x] Pilih source (BPS preferred, OSM fallback) — **OSM** chosen via Open Decision #4 (`08-Roadmap-Risk.md`)
+- [x] Download dataset — Overpass API `area:3600304751` (Indonesia), fetched 2026-04-25 via `dev/scripts/import-admin-regions/fetch-overpass.sh` + `generate-seed.py`
+- [x] Process: ~500 kabupaten/kota GeoJSON — **552 rows** (38 provinces at `admin_level=4` + 514 kabupaten/kota at `admin_level=5`)
+- [x] DKI Jakarta special: 5 kotamadya + Kepulauan Seribu di level kabupaten — covered natively by OSM `admin_level=5` (Jakarta Pusat/Utara/Selatan/Timur/Barat + Kepulauan Seribu); no hand-curation needed
+- [x] Buffer coastal kabupaten +22km untuk maritime extension (12 nautical miles) — 48 of 514 coastal kabupaten carry `ST_Buffer(geom::geometry, 0.198°)` baked into geom at import time; "coastal" defined as centroid within 50 km of national outline
+- [~] Spot-check 10 kabupaten kompleks (Kepulauan Riau, Halmahera, dll) — visual spot-check during PR #31 review; not formally documented per-kabupaten
+- [x] Import ke Postgres dengan schema `admin_regions` + GIST index — V11 schema (PR #29) + V12 seed (PR #31); GIST index on `geom` for spatial queries
+- [~] Document attribution di Privacy Policy (kalau OSM) — attribution surfaced in `V12__admin_regions_seed.sql` migration header + `docs/01-Business.md` legal checklist; Privacy Policy itself doesn't exist yet (§ 7 all `[ ]`), so attribution copy needs to migrate there when Privacy Policy is drafted
 
 ### 6.4 UU ITE / Profanity Wordlist
 
@@ -428,7 +439,7 @@ Target: 600 kata sifat × 600 kata benda + 100 modifier = 360k+ base kombinasi (
 
 ## 8. Post-Setup Verification (Before Phase 1 Starts)
 
-- [ ] Semua secret di-inject ke Cloud Run environment bisa di-read via Secret Manager API
+- [x] Semua secret di-inject ke Cloud Run environment bisa di-read via Secret Manager API — verified by 5+ consecutive successful staging deploys (workflow `deploy-staging.yml` runs Flyway + boots Ktor; failure here would surface as 503 on `/health/ready`). Production verification deferred until prod env exists.
 - [ ] Dari local dev bisa `supabase start` (Supabase CLI)
 - [ ] DNS `nearyou.id` + subdomains resolve benar (dig / nslookup test)
 - [ ] Resend test email berhasil delivered
@@ -445,12 +456,12 @@ Target: 600 kata sifat × 600 kata benda + 100 modifier = 360k+ base kombinasi (
 |---------|-------|------|--------|
 | 1. Domain & DNS | 14 | 0 | `[ ]` |
 | 2. Developer Programs | 15 | 0 | `[ ]` |
-| 3. Infrastructure Accounts | 45+ | 33 | `[~]` (Firebase staging + R2 staging + Sentry org/projects/DSNs + Resend domain/key + Grafana Cloud staging stack/token done; CF Images deferred Phase B; sentry-cli auth token deferred to mobile build phase; Cloudflare DNS active for `api-staging`; Supabase + Upstash staging live per inline notes) |
-| 4. Secrets | 22 | 12 partial | `[~]` (`staging-firebase-admin-sa` v1 + wired, `staging-r2-{access-key-id,secret-access-key,bucket-name,endpoint-url,account-id}` v1, `staging-sentry-{backend,android,ios}-dsn` v1, `staging-resend-api-key` v1, `staging-otel-grafana-otlp-{endpoint,token}` v1 + wired) |
+| 3. Infrastructure Accounts | 45+ | 42 | `[~]` (Firebase staging + R2 staging + Sentry org/projects/DSNs + Resend domain/key + Grafana Cloud staging stack/token + Supabase staging + Upstash staging + GitHub Actions `GCP_SA_KEY`/`GCP_PROJECT_ID`/`GCP_REGION` done; CF Images deferred Phase B; sentry-cli auth token deferred to mobile build phase; branch-protection ruleset NOT yet configured server-side per § 3.10; Cloudflare DNS active for `api-staging`) |
+| 4. Secrets | 29 | 22 partial | `[~]` (`staging-firebase-admin-sa` v1 + wired, `staging-r2-{access-key-id,secret-access-key,bucket-name,endpoint-url,account-id}` v1, `staging-sentry-{backend,android,ios}-dsn` v1, `staging-resend-api-key` v1, `staging-otel-grafana-otlp-{endpoint,token}` v1 + wired, `staging-{ktor-rsa-private-key,jitter-secret,invite-code-secret}` v1 + wired, `staging-{db-url,db-user,db-password,supabase-url,supabase-jwt-secret,supabase-service-role-key,redis-url}` v1 + wired) |
 | 5. Decisions | 9 | 5 | `[~]` (IAP, BPS/OSM, CF Images URL, CSAM trigger — all resolved 2026-04-26; OTel vendor — resolved 2026-05-07 as Grafana Cloud Tempo via PR #66; 4 pricing/quota verifications still open) |
-| 6. Datasets | 4 work items | 0.5 | `[~]` (§6.4 Remote Config + fallback files scaffolded via PR #70 with placeholder sentinels; operational seed lists pending; §6.1 / §6.2 / §6.3 still open) |
+| 6. Datasets | 4 work items | 1.5 | `[~]` (§6.3 polygons shipped via PR #31 — 552 OSM rows + maritime buffer + GIST index live in staging DB; §6.4 RC + fallback files scaffolded via PR #70 with placeholder sentinels; §6.1 word pairs + §6.2 reserved usernames still open) |
 | 7. Legal | 6 | 0 | `[ ]` |
-| 8. Verification | 8 | 0 | `[ ]` |
+| 8. Verification | 8 | 1 | `[~]` (Secret Manager → Cloud Run injection verified via 5+ successful staging deploys; remaining 7 items pending) |
 
 ---
 
