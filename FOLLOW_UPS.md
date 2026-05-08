@@ -7,7 +7,7 @@ Transient working file for findings discovered during a change cycle that are NO
 - **Delete the entry once all its action items are merged.** Do NOT let `triaged` entries linger — if residual work remains, either (a) move it to the canonical doc that owns the topic (e.g., launch-prerequisite tasks → `docs/08-Roadmap-Risk.md` Pre-Launch list, runbook tweaks → `docs/07-Operations.md` Deployment Runbook), or (b) replace the entry with a fresh one scoped to the residual work. Triaged-but-not-deleted entries are how this file rots.
 - Delete the file itself when it has zero entries left.
 - Recreate the file (with this same intro blurb) the next time a finding arises.
-- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-08 (post-triage sweep) found 26 open + 0 triaged; below the hard limit. The 2026-05-08 sweep deleted 1 silently-resolved entry (`fcm-firebase-import-boundary-detekt-rule` — covered by `VendorSdkLeakageScanTest`) and migrated 1 entry to canonical docs (`grafana-otlp-token-scope-tightening` → `docs/08-Roadmap-Risk.md` Pre-Launch checklist). Of the 26 remaining entries, 10 are deferred-by-trigger (Phase 3.5 schema, rule of three, user-growth signals, SDK upstream fixes), 9 are OpenSpec-shaped pending promotion via `/next-change`, 1 is in-flight promotion (`rate-limit-ip-hashing`), and 6 are regular-PR-shaped test/doc tightening work. **2026-05-08 PM update:** `rate-limit-ip-hashing` (PR #74) Section 6.5 pre-archive verification surfaced an inherited spec/code drift in `rate-limit-infrastructure` capability — added `rate-limit-infrastructure-success-path-key-log-drift` entry; total now 27 open + 0 triaged.
+- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-08 (post-triage sweep) found 26 open + 0 triaged; below the hard limit. The 2026-05-08 sweep deleted 1 silently-resolved entry (`fcm-firebase-import-boundary-detekt-rule` — covered by `VendorSdkLeakageScanTest`) and migrated 1 entry to canonical docs (`grafana-otlp-token-scope-tightening` → `docs/08-Roadmap-Risk.md` Pre-Launch checklist). Of the 26 remaining entries, 10 are deferred-by-trigger (Phase 3.5 schema, rule of three, user-growth signals, SDK upstream fixes), 9 are OpenSpec-shaped pending promotion via `/next-change`, 1 is in-flight promotion (`rate-limit-ip-hashing`), and 6 are regular-PR-shaped test/doc tightening work. **2026-05-08 PM update:** `rate-limit-ip-hashing` (PR #74) Section 6.5 pre-archive verification surfaced an inherited spec/code drift in `rate-limit-infrastructure` capability — added `rate-limit-infrastructure-success-path-key-log-drift` entry. Atomically with the PR #74 squash-merge, deleted the resolved `rate-limit-key-includes-raw-client-ip` entry (the work item PR #74 closes). Net: 26 open + 0 triaged (replaced one resolved entry with one new finding).
 
 Format per entry:
 
@@ -31,28 +31,6 @@ Format per entry:
 - [ ] <step>
 - [ ] <step>
 ```
-
----
-
-## rate-limit-key-includes-raw-client-ip
-
-**Discovered during:** `observability-otel-foundation` §8.3 Tempo TraceQL verification at task-execution time — Lettuce/Redis spans for the rate-limit Lua call carry `db.statement = "EVALSHA <hash> 1 {scope:health}:{ip:169.254.169.126} ? ? ? ? ?"`. The `{ip:<value>}` segment is the rate-limit Redis key, and the `<value>` is the client/peer IP read by the rate-limiter. Value appears verbatim in span attributes ingested to Grafana Cloud Tempo.
-**Status:** resolved-in-flight ([PR #74](https://github.com/aditrioka/nearyou-id/pull/74) `rate-limit-ip-hashing`, pre-archive smoke green 2026-05-08; delete this entry at squash-merge per action item 3 below)
-
-**Finding:** Rate-limit keys use raw client IP for keying. While the IP value observed at staging Cloud Run direct URL is a link-local LB IP (`169.254.169.126`, not a real customer IP), the rate-limiter on production paths via Cloudflare reads `CF-Connecting-IP` which IS a real customer IP — that value would appear in Redis Lua key arguments and leak into `db.statement` Tempo span attributes. PII per UU PDP article 1(15) (IP address is identifying when paired with timestamp).
-
-**Specs at fault:** None directly — `observability-otel-foundation` § "Forbidden span attributes" forbids raw IPs but the rate-limiter's Lua key shape is determined by the `like-rate-limit` / `chat-rate-limit` / `report-rate-limit` capabilities, not the OTel foundation. Those specs do not currently require IP hashing.
-**Code at fault:** `:infra:redis`'s `RedisRateLimiter` Lua-key construction. The exact key shape lives in the rate-limiter scope/key derivation logic; pattern is `{scope:<scope>}:{ip:<raw-ip>}`.
-**Docs at fault:** `docs/05-Implementation.md` rate-limiter key documentation reflects current behavior — would need amendment alongside the code fix.
-
-**Impact (if shipped):** Medium — pre-launch staging-only at the moment, no real customers. High at production launch + Cloudflare-fronted traffic. Trace-data leak of client IP undermines the project's `CF-Connecting-IP` privacy posture on the OTel surface (the request-context `clientIp` value is properly handled in app code per `RawXForwardedForRule` Detekt rule, but the rate-limiter's Lua key bypass leaks it into span attributes regardless).
-
-**Ambiguity to resolve first:** Hash the IP at rate-limit-key construction (truncated SHA-256 like `UserIdHasher`) — what truncation length? 16 hex (matches user.id) probably fine. Or 8 hex. Worth discussion before committing to a key-format change that breaks existing rate-limit slot continuity.
-
-**Action items:**
-- [ ] File OpenSpec change `rate-limit-ip-hashing` that updates `:infra:redis`'s `RedisRateLimiter` to hash `clientIp` to 16-hex truncated SHA-256 before constructing the Lua key.
-- [ ] Pre-existing rate-limit slots become invalid post-rollout (they were keyed by raw IP); this is acceptable for a one-time slot reset at the change rollout window. Document in the change's design.md.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
 
 ---
 
