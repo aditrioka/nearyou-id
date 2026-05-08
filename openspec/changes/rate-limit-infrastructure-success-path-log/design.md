@@ -11,8 +11,9 @@ Operationally, the `key=` field is the rate-limit hot-key triage signal — oper
 **Goals:**
 
 - Add a structured success-path log on `RedisRateLimiter.admit()` that operators can filter by `key=`, mirroring the failure-path log shape so the spec's "key= field present, no user_id on key-axis" invariant holds in steady state.
-- Make the existing "tryAcquireByKey omits userId from telemetry" spec scenario non-vacuous in steady state. The scenario's WHEN clause "AND a structured log is emitted" is currently satisfied only on failure paths; this change ADDs requirements that guarantee log emission on success paths too, with the same key-axis user_id-absence invariant. The existing scenario itself is NOT literally modified — it now covers more cases by virtue of more emissions, not by edited wording.
-- Add success-path test coverage to `RedisRateLimiterTelemetryTest` mirroring the existing failure-path coverage — three new scenarios (success/user-axis, success/key-axis, rate-limited).
+- Make the existing "tryAcquireByKey omits userId from telemetry" spec scenario non-vacuous in steady state. The scenario's WHEN clause "AND a structured log is emitted" is currently satisfied only on failure paths; this change ADDs requirements that guarantee log emission on the four Redis-evaluated outcomes (user-axis × success, key-axis × success, user-axis × rate_limited, key-axis × rate_limited) with the same key-axis user_id-absence invariant. The existing scenario itself is NOT literally modified — it now covers more cases by virtue of more emissions, not by edited wording.
+- Explicitly exclude the fail-soft early-return path (Redis unreachable → `Allowed(capacity)`) via a non-emission scenario. The new log MUST NOT fire there; the existing `event=redis_connect_failed` WARN log is the operator signal. The requirement title scopes to "every Redis-evaluated outcome" rather than "every outcome" to make this explicit.
+- Add success-path test coverage to `RedisRateLimiterTelemetryTest` mirroring the existing failure-path coverage — seven new test scenarios (user-axis success, key-axis success, user-axis rate-limited, key-axis rate-limited, fail-soft non-emission, DEBUG-filtered non-emission, source-level structural extension).
 - Re-run the `rate-limit-ip-hashing` §6.5 smoke against the post-amendment staging deploy as a Section 6 pre-archive verification step. Confirm the Cloud Logging filter `event=rate_limit_check AND key:"{ip:"` resolves to the expected hashed-IP shape with no `user_id=` and no raw-IP literal.
 
 **Non-Goals:**
@@ -99,7 +100,7 @@ No migration needed — the change is purely additive at the runtime layer (new 
 2. Implement the `admit()` log additions + extend `RedisRateLimiterTelemetryTest` (via `/opsx:apply` on the same branch).
 3. Run `./gradlew ktlintCheck detekt :backend:ktor:test :infra:redis:test :lint:detekt-rules:test` locally before pushing each implementation commit.
 4. Pre-archive: trigger a manual staging deploy on the change branch via `gh workflow run deploy-staging.yml --ref rate-limit-infrastructure-success-path-log` (per the `/opsx:apply` skill's pre-archive smoke convention). Run the §6.5 smoke (5 sequential `/health/live` requests + Cloud Logging filter on `event=rate_limit_check AND key:"{ip:"` over the smoke window). Confirm 5 hits, hashed-IP form, no `user_id=`, no raw IPv4. Tick the relevant Section 6 task.
-5. Run `openspec validate --specs rate-limit-infrastructure --strict` (43 scenarios should pass post-archive).
+5. Run `openspec validate --specs rate-limit-infrastructure --strict` (56 scenarios should pass post-archive: parent capability currently has 46, this change ADDs 10 across 2 requirements).
 6. `/opsx:archive` pushes the archive commit on the same branch; final squash-merge to `main` produces ONE commit on `main` carrying proposal + feat + archive.
 
 **Rollback**: in the unlikely case the new log entries cause a Cloud Logging cost spike (e.g., a future change accidentally raises the logger level), revert the commit on `main` via a follow-up PR. The change is non-load-bearing for runtime correctness — reverting is safe.
