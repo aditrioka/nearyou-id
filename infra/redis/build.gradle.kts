@@ -16,6 +16,12 @@ dependencies {
     // WARN log output and verify the user_id-omission invariant on
     // tryAcquireByKey (per `health-check-test-coverage-gaps` follow-up).
     testImplementation(libs.logback)
+    // SpanRecorder + OpenTelemetry SDK pulled via `:infra:otel`'s test
+    // fixtures so LettuceSpanCaptureTest can capture the EVALSHA span and
+    // verify the hashed IP-axis Lua-key shape (per
+    // `observability-otel-foundation` MODIFIED scenario "No raw client IP
+    // appears in Lua key on EVALSHA span").
+    testImplementation(testFixtures(projects.infra.otel))
 }
 
 tasks.withType<Test>().configureEach {

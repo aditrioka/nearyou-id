@@ -7,7 +7,7 @@ Transient working file for findings discovered during a change cycle that are NO
 - **Delete the entry once all its action items are merged.** Do NOT let `triaged` entries linger — if residual work remains, either (a) move it to the canonical doc that owns the topic (e.g., launch-prerequisite tasks → `docs/08-Roadmap-Risk.md` Pre-Launch list, runbook tweaks → `docs/07-Operations.md` Deployment Runbook), or (b) replace the entry with a fresh one scoped to the residual work. Triaged-but-not-deleted entries are how this file rots.
 - Delete the file itself when it has zero entries left.
 - Recreate the file (with this same intro blurb) the next time a finding arises.
-- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-08 (post-triage sweep) found 26 open + 0 triaged; below the hard limit. The 2026-05-08 sweep deleted 1 silently-resolved entry (`fcm-firebase-import-boundary-detekt-rule` — covered by `VendorSdkLeakageScanTest`) and migrated 1 entry to canonical docs (`grafana-otlp-token-scope-tightening` → `docs/08-Roadmap-Risk.md` Pre-Launch checklist). Of the 26 remaining entries, 10 are deferred-by-trigger (Phase 3.5 schema, rule of three, user-growth signals, SDK upstream fixes), 9 are OpenSpec-shaped pending promotion via `/next-change`, 1 is in-flight promotion (`rate-limit-ip-hashing`), and 6 are regular-PR-shaped test/doc tightening work.
+- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-08 (post-triage sweep) found 26 open + 0 triaged; below the hard limit. The 2026-05-08 sweep deleted 1 silently-resolved entry (`fcm-firebase-import-boundary-detekt-rule` — covered by `VendorSdkLeakageScanTest`) and migrated 1 entry to canonical docs (`grafana-otlp-token-scope-tightening` → `docs/08-Roadmap-Risk.md` Pre-Launch checklist). Of the 26 remaining entries, 10 are deferred-by-trigger (Phase 3.5 schema, rule of three, user-growth signals, SDK upstream fixes), 9 are OpenSpec-shaped pending promotion via `/next-change`, 1 is in-flight promotion (`rate-limit-ip-hashing`), and 6 are regular-PR-shaped test/doc tightening work. **2026-05-08 PM update:** `rate-limit-ip-hashing` (PR #74) Section 6.5 pre-archive verification surfaced an inherited spec/code drift in `rate-limit-infrastructure` capability — added `rate-limit-infrastructure-success-path-key-log-drift` entry. Atomically with the PR #74 squash-merge, deleted the resolved `rate-limit-key-includes-raw-client-ip` entry (the work item PR #74 closes). Net: 26 open + 0 triaged (replaced one resolved entry with one new finding).
 
 Format per entry:
 
@@ -34,28 +34,6 @@ Format per entry:
 
 ---
 
-## rate-limit-key-includes-raw-client-ip
-
-**Discovered during:** `observability-otel-foundation` §8.3 Tempo TraceQL verification at task-execution time — Lettuce/Redis spans for the rate-limit Lua call carry `db.statement = "EVALSHA <hash> 1 {scope:health}:{ip:169.254.169.126} ? ? ? ? ?"`. The `{ip:<value>}` segment is the rate-limit Redis key, and the `<value>` is the client/peer IP read by the rate-limiter. Value appears verbatim in span attributes ingested to Grafana Cloud Tempo.
-**Status:** open
-
-**Finding:** Rate-limit keys use raw client IP for keying. While the IP value observed at staging Cloud Run direct URL is a link-local LB IP (`169.254.169.126`, not a real customer IP), the rate-limiter on production paths via Cloudflare reads `CF-Connecting-IP` which IS a real customer IP — that value would appear in Redis Lua key arguments and leak into `db.statement` Tempo span attributes. PII per UU PDP article 1(15) (IP address is identifying when paired with timestamp).
-
-**Specs at fault:** None directly — `observability-otel-foundation` § "Forbidden span attributes" forbids raw IPs but the rate-limiter's Lua key shape is determined by the `like-rate-limit` / `chat-rate-limit` / `report-rate-limit` capabilities, not the OTel foundation. Those specs do not currently require IP hashing.
-**Code at fault:** `:infra:redis`'s `RedisRateLimiter` Lua-key construction. The exact key shape lives in the rate-limiter scope/key derivation logic; pattern is `{scope:<scope>}:{ip:<raw-ip>}`.
-**Docs at fault:** `docs/05-Implementation.md` rate-limiter key documentation reflects current behavior — would need amendment alongside the code fix.
-
-**Impact (if shipped):** Medium — pre-launch staging-only at the moment, no real customers. High at production launch + Cloudflare-fronted traffic. Trace-data leak of client IP undermines the project's `CF-Connecting-IP` privacy posture on the OTel surface (the request-context `clientIp` value is properly handled in app code per `RawXForwardedForRule` Detekt rule, but the rate-limiter's Lua key bypass leaks it into span attributes regardless).
-
-**Ambiguity to resolve first:** Hash the IP at rate-limit-key construction (truncated SHA-256 like `UserIdHasher`) — what truncation length? 16 hex (matches user.id) probably fine. Or 8 hex. Worth discussion before committing to a key-format change that breaks existing rate-limit slot continuity.
-
-**Action items:**
-- [ ] File OpenSpec change `rate-limit-ip-hashing` that updates `:infra:redis`'s `RedisRateLimiter` to hash `clientIp` to 16-hex truncated SHA-256 before constructing the Lua key.
-- [ ] Pre-existing rate-limit slots become invalid post-rollout (they were keyed by raw IP); this is acceptable for a one-time slot reset at the change rollout window. Document in the change's design.md.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
-
----
-
 ## rate-limit-applies-to-health-endpoints
 
 **Discovered during:** `observability-otel-foundation` §8.3 Tempo TraceQL verification — `GET /health/live` traces show child EVALSHA Lettuce span = the rate-limit Lua script is being executed on health-check requests.
@@ -74,6 +52,35 @@ Format per entry:
 **Action items:**
 - [ ] File OpenSpec change `rate-limit-bypass-health-endpoints` that mounts rate-limit middleware on a sub-route subtree excluding `/health/*` (cleanest pattern: `route("/api/v1") { install(RateLimit) { ... } ; ...routes... }` instead of installing globally).
 - [ ] Add regression test asserting `/health/ready` does NOT execute the rate-limit Lua script.
+- [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
+
+---
+
+## rate-limit-infrastructure-success-path-key-log-drift
+
+**Discovered during:** `rate-limit-ip-hashing` (PR [#74](https://github.com/aditrioka/nearyou-id/pull/74)) Section 6.5 pre-archive smoke verification, 2026-05-08 — task wanted Cloud Logging filter on `key=` field of rate-limit log entries; healthy-state smoke produced zero such entries.
+**Status:** open
+
+**Finding:** The shipped `openspec/specs/rate-limit-infrastructure/spec.md` § "tryAcquireByKey omits userId from telemetry" scenario reads:
+
+> **WHEN** `tryAcquireByKey(key = "{scope:health}:{ip:1.2.3.4}", capacity = 60, ttl = Duration.ofSeconds(60))` is invoked AND a structured log is emitted
+> **THEN** the log entry includes `key=<key>` AND does NOT include a `user_id` field
+
+The phrasing implies a per-call log line. The current implementation in [`infra/redis/.../RedisRateLimiter.kt`](infra/redis/src/main/kotlin/id/nearyou/app/infra/redis/RedisRateLimiter.kt) `admit()` only emits `key=<key>` on FAILURE paths (`event=redis_acquire_failed key={} ...` at line ~155 and `event=redis_connect_failed ...` at line ~83). Healthy Redis = no `key=` log emitted, so any spec-text reading "filter for key= on rate-limit log entries" is vacuous in steady-state — making the runtime verification path incomplete.
+
+**Specs at fault:** `openspec/specs/rate-limit-infrastructure/spec.md` § "tryAcquireByKey omits userId from telemetry" — the scenario is correct in spirit (verifying user_id absence + key presence) but assumes a success-path log surface that doesn't exist.
+**Code at fault:** `infra/redis/src/main/kotlin/id/nearyou/app/infra/redis/RedisRateLimiter.kt` `admit()` — no success-path structured log emission.
+**Docs at fault:** None directly; `docs/05-Implementation.md` § Rate Limiting Implementation doesn't enumerate per-call log surfaces.
+
+**Impact (if shipped):** Low operationally (no security regression — the key-on-the-wire to Redis IS the hashed form, verified at the production wire-log layer + the `LettuceSpanCaptureTest` unit test). Medium organizationally — the spec/code drift is observable to any future engineer trying to verify rate-limit behavior via Cloud Logging, and the missing success-path log is genuinely useful for operators investigating rate-limit hot-key incidents (e.g., "this IP is at 60/60, what's the user-agent? what's the request volume across the last 60 seconds?"). Inherited from the `health-check-endpoints` ship cycle, not introduced by `rate-limit-ip-hashing`.
+
+**Ambiguity to resolve first:** Should the success-path log be `INFO` or `DEBUG`? `INFO` makes it discoverable in Cloud Logging without log-level changes but adds volume (every rate-limit check, every request that touches a limited path). `DEBUG` keeps volume managed but requires opt-in to surface. Recommendation: `DEBUG` with a structured shape `event=rate_limit_check key={} outcome={} remaining_or_retry_after={}` so operators can selectively enable for incident triage.
+
+**Action items:**
+- [ ] File OpenSpec change `rate-limit-infrastructure-success-path-log` that adds a per-call `event=rate_limit_check key={} outcome={} ...` DEBUG log to `RedisRateLimiter.admit()`.
+- [ ] Amend `openspec/specs/rate-limit-infrastructure/spec.md` § "tryAcquireByKey omits userId from telemetry" scenario wording to match the new log shape (single source-of-truth for both success + failure paths).
+- [ ] Add `RedisRateLimiterTelemetryTest` scenario for the success-path log shape (mirroring the existing failure-path scenarios, asserting `key=<key>` + no `user_id` for `tryAcquireByKey`).
+- [ ] Re-run the smoke verification per `rate-limit-ip-hashing/tasks.md` Section 6.5 against the post-amendment staging deploy; confirm `event=rate_limit_check key={ip:[0-9a-f]{16}}` lands in Cloud Logging.
 - [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
 
 ---
@@ -159,6 +166,7 @@ Format per entry:
 **Action items:**
 - [ ] File OpenSpec change `observability-otel-attribute-detekt-rule` that ships `OtelForbiddenAttributeRule` in `:lint:detekt-rules`, with a forbidden-attribute-keys allowlist + value-regex denylist per the spec contract.
 - [ ] Decide rule scope (cross-cutting vs `:infra:otel`-only) at design time.
+- [ ] **Extend rule scope to enforce `IpHasher.hash` consumption** at every IP-axis Redis-key call site (e.g., the `health-check` capability's `tryAcquireByKey` invocation, plus future Layer 1 pre-issuance buckets). The `rate-limit-ip-hashing` change (PR #74, in flight as of 2026-05-08) introduced the spec convention but explicitly deferred Detekt enforcement to this entry — round-1 review N6. The rule MUST fire on any `tryAcquireByKey(...)` call whose key-literal contains the regex `\{ip:[^h{][^}]*` (anything inside `{ip:...}` that is not 16 hex characters).
 - [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
 
 ---

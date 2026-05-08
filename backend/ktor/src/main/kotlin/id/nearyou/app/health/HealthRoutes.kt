@@ -7,6 +7,7 @@ import id.nearyou.app.core.domain.health.ProbeResult
 import id.nearyou.app.core.domain.health.RedisProbe
 import id.nearyou.app.core.domain.health.SupabaseRealtimeProbe
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
+import id.nearyou.app.infra.otel.IpHasher
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -156,7 +157,14 @@ private fun ProbeResult.toCheck(name: String): HealthCheck = HealthCheck(name = 
  */
 private suspend fun io.ktor.server.routing.RoutingContext.checkRateLimit(rateLimiter: RateLimiter): Boolean {
     if (isProbeUserAgent(call)) return true
-    val key = "{scope:health}:{ip:${call.clientIp}}"
+    // Hashed via IpHasher so the raw IP never reaches the Lettuce
+    // EVALSHA span's db.statement attribute (Tempo) or the rate-limit
+    // log's `key=` field (Cloud Logging) — per
+    // `observability-otel-foundation` spec § "No raw client IP appears in
+    // Lua key on EVALSHA span". Hoisted out of the literal so the
+    // RedisHashTagRule block-interpolation false-positive doesn't fire.
+    val hashedIp = IpHasher.hash(call.clientIp)
+    val key = "{scope:health}:{ip:$hashedIp}"
     val outcome =
         rateLimiter.tryAcquireByKey(
             key = key,

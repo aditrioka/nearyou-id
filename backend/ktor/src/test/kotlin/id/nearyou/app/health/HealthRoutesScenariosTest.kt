@@ -8,6 +8,7 @@ import id.nearyou.app.core.domain.health.RedisProbe
 import id.nearyou.app.core.domain.health.SupabaseRealtimeProbe
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
+import id.nearyou.app.infra.otel.IpHasher
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.longs.shouldBeGreaterThanOrEqual
@@ -15,6 +16,7 @@ import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.maps.shouldNotContainKey
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldMatch
 import io.kotest.matchers.string.shouldNotContain
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -339,30 +341,69 @@ class HealthRoutesScenariosTest : StringSpec({
         }
     }
 
-    "Hash-tag key shape: SpyRateLimiter captures the literal key passed to tryAcquireByKey" {
-        // Spec scenario "Hash-tag key shape" — the rate-limit gate MUST pass
-        // `{scope:health}:{ip:<addr>}` to `tryAcquireByKey`, NEVER fall back to
-        // `tryAcquire(userId, ...)` with a sentinel UUID. SpyRateLimiter records
-        // every call; we assert the captured shape + the absence of any
-        // `tryAcquire` call from the health-route path.
+    "Hash-tag key shape: SpyRateLimiter captures the hashed-IP key passed to tryAcquireByKey" {
+        // Spec scenarios:
+        //  - rate-limit-infrastructure § "IP-axis key shape uses hashed IP, never raw"
+        //  - health-check § "Hash-tag key shape uses hashed IP"
+        //  - health-check § "Same IP hashes to same key (rate-limit consistency)"
         //
-        // Backfilled per `health-check-test-coverage-gaps` follow-up (task 10.12).
+        // The rate-limit gate MUST pass `{scope:health}:{ip:<hashed>}` to
+        // `tryAcquireByKey`, NEVER `{scope:health}:{ip:<raw>}` and NEVER
+        // `tryAcquire(userId, ...)` with a sentinel UUID. SpyRateLimiter
+        // records every call; the assertions below lock the post-hashing
+        // shape AND verify deterministic hashing on a repeat request.
+        //
+        // Originally backfilled per `health-check-test-coverage-gaps`
+        // follow-up (task 10.12); amended for `rate-limit-ip-hashing`.
         val spy = SpyHealthRateLimiter(InMemoryRateLimiter())
         testApplication {
             installRoutes(rateLimiter = spy)
-            client.get("/health/live").status shouldBe HttpStatusCode.OK
+            // Inject CF-Connecting-IP so ClientIpExtractor returns the
+            // known literal "1.2.3.4" — gives us a computable hash to
+            // assert against, and removes the platform-variable
+            // remoteHost dependency from the previous prefix-match.
+            client.get("/health/live") { header("CF-Connecting-IP", "1.2.3.4") }
+                .status shouldBe HttpStatusCode.OK
+            // Second request from the same IP — must hash to the same key
+            // (deterministic) and consume from the same bucket.
+            client.get("/health/live") { header("CF-Connecting-IP", "1.2.3.4") }
+                .status shouldBe HttpStatusCode.OK
         }
-        spy.acquireByKeyCalls.size shouldBe 1
-        // Test client default origin produces a remoteHost-derived clientIp;
-        // assert the prefix that's invariant. The IP segment varies by
-        // platform (testApplication uses "localhost" or a synthetic address),
-        // but the scope prefix MUST always be `{scope:health}:{ip:`.
-        spy.acquireByKeyCalls.first().key.startsWith("{scope:health}:{ip:") shouldBe true
-        spy.acquireByKeyCalls.first().capacity shouldBe 60
-        spy.acquireByKeyCalls.first().ttl shouldBe Duration.ofSeconds(60)
-        // Sentinel-UUID-uncalled invariant: tryAcquire(userId, ...) MUST NOT
-        // be invoked from the health-route path under any circumstance.
+        spy.acquireByKeyCalls.size shouldBe 2
+        val expectedKey = "{scope:health}:{ip:${IpHasher.hash("1.2.3.4")}}"
+        spy.acquireByKeyCalls.forEach { call ->
+            call.key shouldBe expectedKey
+            call.capacity shouldBe 60
+            call.ttl shouldBe Duration.ofSeconds(60)
+            // Anti-PII invariant: the constructed key MUST NOT contain
+            // the raw IPv4 dotted-quad anywhere.
+            call.key.contains("1.2.3.4") shouldBe false
+            // Positive shape check: 16-hex segment after `{ip:` prefix.
+            call.key shouldMatch Regex("""^\{scope:health\}:\{ip:[0-9a-f]{16}\}$""")
+        }
+        // Sentinel-UUID-uncalled invariant: tryAcquire(userId, ...) MUST
+        // NOT be invoked from the health-route path under any circumstance.
         spy.tryAcquireUserCalls.size shouldBe 0
+    }
+
+    "Distinct IPs produce distinct rate-limit keys" {
+        // Spec scenario: health-check § "Distinct IPs hash to distinct
+        // keys (rate-limit isolation)". 1.2.3.4 and 5.6.7.8 MUST hash to
+        // different keys so they consume from independent Redis buckets.
+        val spy = SpyHealthRateLimiter(InMemoryRateLimiter())
+        testApplication {
+            installRoutes(rateLimiter = spy)
+            client.get("/health/live") { header("CF-Connecting-IP", "1.2.3.4") }
+                .status shouldBe HttpStatusCode.OK
+            client.get("/health/live") { header("CF-Connecting-IP", "5.6.7.8") }
+                .status shouldBe HttpStatusCode.OK
+        }
+        spy.acquireByKeyCalls.size shouldBe 2
+        val keyA = spy.acquireByKeyCalls.elementAt(0).key
+        val keyB = spy.acquireByKeyCalls.elementAt(1).key
+        keyA shouldBe "{scope:health}:{ip:${IpHasher.hash("1.2.3.4")}}"
+        keyB shouldBe "{scope:health}:{ip:${IpHasher.hash("5.6.7.8")}}"
+        (keyA == keyB) shouldBe false
     }
 
     "Per-probe timeout boundary: 199ms completion succeeds, 201ms exceeds" {
