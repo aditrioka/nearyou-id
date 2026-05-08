@@ -17,4 +17,20 @@
     <logger name="com.google.firebase" level="INFO"/>
     <logger name="com.google.api.client" level="INFO"/>
     <logger name="com.google.cloud" level="INFO"/>
+    <!-- Pin RedisRateLimiter to INFO so the per-call `event=rate_limit_check`
+         DEBUG log shape from `rate-limit-infrastructure` is opt-in. Without this
+         pin, every admit attempt emits a Cloud Logging entry on every rate-
+         limited request — operationally expensive at production scale (one
+         line per `/api/v1/posts/*/like`, `/api/v1/posts/*/replies`,
+         `/api/v1/chat/*/messages`, `/api/v1/search`, `/api/v1/reports`,
+         `/health/*` request, plus future Layer 1 / Layer 4 paths). Operators
+         raise this logger to DEBUG via a logback config edit + branch-redeploy
+         when triaging a hot-key incident. The failure-path WARN logs
+         (`event=redis_acquire_failed`, `event=redis_connect_failed`) at WARN
+         level continue to fire regardless of this pin — those carry the
+         operator signal for fail-soft + EVALSHA failures.
+
+         Resolves `rate-limit-infrastructure-success-path-log` design.md Open
+         Question Q3 (defensive logger pin before production cutover). -->
+    <logger name="id.nearyou.app.infra.redis.RedisRateLimiter" level="INFO"/>
 </configuration>
