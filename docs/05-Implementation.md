@@ -1096,16 +1096,16 @@ timeline_session:{user:<user_id>}:<session_id>
 timeline_rolling:{user:<user_id>}
 token_version:{user:<user_id>}
 rate:area:{geohash:<geohash5>}
-rate:guest_issue:{ip:<ip>}
+rate:guest_issue:{ip:<hashed-ip>}
 rate:guest_issue:{fp:<fp_hash>}
-rate:guest_issue_day:{ip:<ip>}
+rate:guest_issue_day:{ip:<hashed-ip>}
 rate:guest_issue_global:{global:1}
 stream:conv:{conv:<conversation_id>}
 remote_config:{flag:<flag_name>}
 geocode:{geocell:<lat2dp>_<lng2dp>}
 ```
 
-Hash tag `{scope:<value>}` ensures same-scope keys land on the same Redis slot (multi-key ops safe). `RedisHashTagRule` Detekt rule rejects keys without a hash tag. Global circuit breaker uses `{global:1}` as a singleton scope so the shared counter still has a stable slot.
+Hash tag `{scope:<value>}` ensures same-scope keys land on the same Redis slot (multi-key ops safe). `RedisHashTagRule` Detekt rule rejects keys without a hash tag. Global circuit breaker uses `{global:1}` as a singleton scope so the shared counter still has a stable slot. IP-axis keys use `<hashed-ip>` (= `IpHasher.hash(clientIp)` from `:infra:otel`, first 16 hex of `SHA-256(ip.toByteArray(UTF-8))`) per the convention shipped with the `rate-limit-ip-hashing` change — raw IP literals MUST NOT appear in any rate-limit Lua key (they leak into Tempo `db.statement` span attributes and the `key=` field of structured logs).
 
 ---
 
@@ -1128,8 +1128,8 @@ Hash tag `{scope:<value>}` ensures same-scope keys land on the same Redis slot (
 
 | Layer | Key | Limit | TTL |
 |-------|-----|-------|-----|
-| 1a. IP hard | `rate:guest_issue:{ip:<ip>}` | 10 tokens/hour | 1 hour |
-| 1b. IP daily cap | `rate:guest_issue_day:{ip:<ip>}` | 50 tokens/day | 24 hours |
+| 1a. IP hard | `rate:guest_issue:{ip:<hashed-ip>}` | 10 tokens/hour | 1 hour |
+| 1b. IP daily cap | `rate:guest_issue_day:{ip:<hashed-ip>}` | 50 tokens/day | 24 hours |
 | 1c. Device fingerprint | `rate:guest_issue:{fp:<fp_hash>}` | 5 tokens/hour | 1 hour |
 | 1d. Global circuit breaker | `rate:guest_issue_global:{global:1}` | 10k tokens/min | 1 minute |
 
