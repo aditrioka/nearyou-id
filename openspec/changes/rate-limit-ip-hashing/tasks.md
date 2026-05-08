@@ -27,16 +27,16 @@
 
 ## 5. Commit + push
 
-- [ ] 5.1 Stage only the touched files (`IpHasher.kt`, `IpHasherTest.kt`, the call site `.kt`, the call-site test `.kt`, and any updated `tasks.md` checkbox state). Do NOT `git add -A`.
-- [ ] 5.2 Commit with `feat(rate-limit): hash client IP in rate-limit Lua keys` and a body summarizing: (a) why (PII leak via `db.statement` Tempo span attribute + `key=` log field), (b) what (introduce `IpHasher` + consume at `/health/*` call site), (c) impact (one-time per-IP slot reset at deploy; 60-second TTL means ~1-minute transition).
-- [ ] 5.3 Push to the existing change branch (do NOT open a new PR — the existing `rate-limit-ip-hashing` branch carries the full lifecycle per `openspec/project.md` § Change Delivery Workflow).
-- [ ] 5.4 Update the PR title via `gh pr edit <pr> --title 'feat(rate-limit): rate-limit-ip-hashing'` (retitle from the proposal phase).
-- [ ] 5.5 Update the PR body via `gh pr edit <pr> --body "$(cat <<'EOF' ... EOF)"` to reflect the in-progress implementation phase per the same project doc.
+- [x] 5.1 Stage only the touched files (`IpHasher.kt`, `IpHasherTest.kt`, the call site `.kt`, the call-site test `.kt`, and any updated `tasks.md` checkbox state). Do NOT `git add -A`.
+- [x] 5.2 Commit with `feat(rate-limit): hash client IP in rate-limit Lua keys` and a body summarizing: (a) why (PII leak via `db.statement` Tempo span attribute + `key=` log field), (b) what (introduce `IpHasher` + consume at `/health/*` call site), (c) impact (one-time per-IP slot reset at deploy; 60-second TTL means ~1-minute transition).
+- [x] 5.3 Push to the existing change branch (do NOT open a new PR — the existing `rate-limit-ip-hashing` branch carries the full lifecycle per `openspec/project.md` § Change Delivery Workflow).
+- [x] 5.4 Update the PR title via `gh pr edit <pr> --title 'feat(rate-limit): rate-limit-ip-hashing'` (retitle from the proposal phase).
+- [x] 5.5 Update the PR body via `gh pr edit <pr> --body "$(cat <<'EOF' ... EOF)"` to reflect the in-progress implementation phase per the same project doc.
 
 ## 6. Pre-archive smoke (manual, against branch staging deploy)
 
-- [ ] 6.1 Trigger the staging deploy on the change branch via `gh workflow run deploy-staging.yml --ref rate-limit-ip-hashing` and poll the deploy run until green.
-- [ ] 6.2 Issue 5 sequential requests to `https://api-staging.nearyou.id/health/live` from a single test client. Capture the `traceId` of any one of them via the response header (or via Cloud Logging on the Cloud Run service).
+- [x] 6.1 Trigger the staging deploy on the change branch via `gh workflow run deploy-staging.yml --ref rate-limit-ip-hashing` and poll the deploy run until green. **Done:** run [25534534330](https://github.com/aditrioka/nearyou-id/actions/runs/25534534330) succeeded after first attempt (run 25534444889) hit a transient Docker Hub 502 on `eclipse-temurin:21.0.5_11-jdk-noble` HEAD request — retry green.
+- [x] 6.2 Issue 5 sequential requests to `https://api-staging.nearyou.id/health/live` from a single test client. Capture the `traceId` of any one of them via the response header (or via Cloud Logging on the Cloud Run service). **Done:** 5/5 `HTTP/2 200`, `CF-Connecting-IP: 1.2.3.4`, window `2026-05-08T03:21:19Z – 03:21:22Z` UTC. Cloud Run `x-cloud-trace-context` IDs captured + posted to PR [#74 comment](https://github.com/aditrioka/nearyou-id/pull/74#issuecomment-4403051274). Note: response carries `x-cloud-trace-context` (Cloud Run's GCP trace), not `traceparent`; OTel `traceId` for Tempo lookup will need to be sourced from Cloud Logging MDC or via a Tempo time-window search by `service.name=nearyou-backend-staging` + span-name regex `EVAL.*`.
 - [ ] 6.3 In Grafana Tempo, look up the captured `traceId`. Drill into the inner `EVALSHA` Lettuce span on the `/health/live` request span tree.
 - [ ] 6.4 Inspect the `db.statement` attribute on the `EVALSHA` span. **Assert**: the value contains `{ip:[0-9a-f]{16}}` (hashed form), NOT the raw IPv4 dotted-quad of the test client. Capture a screenshot or paste-text of the attribute value into the PR comment thread for the change.
 - [ ] 6.5 In Cloud Logging, filter for the `key=` field on rate-limit log entries from the same time window. **Assert**: the `key=` value contains the same `{ip:[0-9a-f]{16}}` hashed form, no raw IP literal.
