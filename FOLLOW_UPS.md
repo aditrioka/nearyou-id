@@ -7,7 +7,7 @@ Transient working file for findings discovered during a change cycle that are NO
 - **Delete the entry once all its action items are merged.** Do NOT let `triaged` entries linger — if residual work remains, either (a) move it to the canonical doc that owns the topic (e.g., launch-prerequisite tasks → `docs/08-Roadmap-Risk.md` Pre-Launch list, runbook tweaks → `docs/07-Operations.md` Deployment Runbook), or (b) replace the entry with a fresh one scoped to the residual work. Triaged-but-not-deleted entries are how this file rots.
 - Delete the file itself when it has zero entries left.
 - Recreate the file (with this same intro blurb) the next time a finding arises.
-- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-09 (post-triage sweep) found 23 open + 0 triaged; below the hard limit. The 2026-05-09 sweep deleted 3 silently-resolved entries: `rate-limit-applies-to-health-endpoints` (resolved by `health-check-endpoints` PR #54 — Cloud Run probe UA bypass + dedicated per-IP `{scope:health}` anti-scrape limiter), `rate-limit-infrastructure-success-path-key-log-drift` (resolved by `rate-limit-infrastructure-success-path-log` PR #76, archived 2026-05-08), and `reports-rate-limit-cap-doc-vs-spec-drift` (docs already aligned post-audit-cleanup PR #69 — no `20/hour` references remain). Of the 23 remaining entries, 10 are deferred-by-trigger (Phase 3.5 schema, rule of three, user-growth signals, SDK upstream fixes), 8 are OpenSpec-shaped pending promotion via `/next-change` (1 hand-off this sweep: `compute-ttl-to-next-reset-test-flake` → `harden-compute-ttl-test`), and 5 are regular-PR-shaped test/coverage tightening work (chore-PR scope synthesized this sweep, awaiting explicit user invocation).
+- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-09 (post-triage sweep) found 23 open + 0 triaged; below the hard limit. The 2026-05-09 sweep deleted 3 silently-resolved entries: `rate-limit-applies-to-health-endpoints` (resolved by `health-check-endpoints` PR #54 — Cloud Run probe UA bypass + dedicated per-IP `{scope:health}` anti-scrape limiter), `rate-limit-infrastructure-success-path-key-log-drift` (resolved by `rate-limit-infrastructure-success-path-log` PR #76, archived 2026-05-08), and `reports-rate-limit-cap-doc-vs-spec-drift` (docs already aligned post-audit-cleanup PR #69 — no `20/hour` references remain). Of the 23 entries that remained post-sweep, 10 were deferred-by-trigger (Phase 3.5 schema, rule of three, user-growth signals, SDK upstream fixes), 8 were OpenSpec-shaped pending promotion via `/next-change` (1 hand-off this sweep: `compute-ttl-to-next-reset-test-flake` → `harden-compute-ttl-test`, archived 2026-05-09 in PR #80), and 5 were regular-PR-shaped test/coverage tightening work (chore-PR scope synthesized this sweep, awaiting explicit user invocation). **Post-`harden-compute-ttl-test` archive: 22 open** (10 deferred-by-trigger + 7 OpenSpec-shaped + 5 regular-PR-shaped).
 
 Format per entry:
 
@@ -452,43 +452,6 @@ What's missing: a test that boots `Application.module()` with a test-only overri
 - [ ] When user growth or feedback signals notification fatigue, file OpenSpec change `chat-message-notification-per-conversation-batching`. Most likely shape: client-display grouping (Android `setGroup`, iOS `thread-id` keyed on `conversation_id`) shipped in `:infra:fcm`'s payload builders + minimal spec amendment to `fcm-push-dispatch`.
 - [ ] If client-display grouping proves insufficient: add server-side debounce/coalesce in a separate change.
 - [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
-
-## compute-ttl-to-next-reset-test-flake
-
-**Discovered during:** `chat-foundation` round-2 PR-readiness scan (CI flaked 3 times across the lifecycle on `ComputeTtlToNextResetTest > Different users produce different offsets at high probability`)
-**Status:** open
-
-**Finding:** [`core/domain/src/test/kotlin/id/nearyou/app/core/domain/ratelimit/ComputeTtlToNextResetTest.kt:55-71`](core/domain/src/test/kotlin/id/nearyou/app/core/domain/ratelimit/ComputeTtlToNextResetTest.kt) asserts `(differingPairs >= 999) shouldBe true` over 1000 pairs of `UUID.randomUUID()`. The spec scenario at [`openspec/specs/rate-limit-infrastructure/spec.md:158-160`](openspec/specs/rate-limit-infrastructure/spec.md) prescribes "at least 999 of 1000 random pairs differ" — but the math is over-specified relative to the achievable randomness:
-
-- Per-pair collision probability = 1/3600 (the `hashCode() % 3600` offset bucket).
-- Expected collisions in 1000 pairs ≈ 0.278.
-- Variance ≈ 0.278 → standard deviation ≈ 0.527.
-- P(≥2 collisions) ≈ 3.2% via Poisson approximation.
-
-So the test has a baked-in ~3-4% flake rate even on a perfect hash distribution. Confirmed empirically: 3 flakes in this lifecycle alone (CI runs 25132387140 attempts 1, 2, 3; passed on attempt 4). The test's own KDoc comment at lines 65-69 says "If this ever flakes, the hashCode distribution is the suspect, not the assertion" — that diagnosis is incorrect; the assertion threshold is mathematically too tight.
-
-**Specs at fault:** [`openspec/specs/rate-limit-infrastructure/spec.md:160`](openspec/specs/rate-limit-infrastructure/spec.md) — `Different users different offsets (with high probability)` scenario over-specifies the threshold to "999 of 1000" when ~96-97% of randomized 1000-pair samples meet that bar.
-**Code at fault:** `core/domain/src/test/kotlin/id/nearyou/app/core/domain/ratelimit/ComputeTtlToNextResetTest.kt` — the test as written depends on the spec's tight threshold.
-**Docs at fault:** None — `docs/` doesn't prescribe a specific threshold.
-
-**Impact (if shipped):** Ongoing CI flake at ~3-4% per push. Costs a manual retry click per occurrence (~5-7 min of CI runtime per retry on top of the legitimate test run). Not a correctness regression, not a security issue, not blocking. Has not blocked any feature merge to date — every change has shipped after retry. Pre-launch (no live customers) so reliability cost is low.
-
-**Ambiguity to resolve first:** Three approaches with different trade-offs — pick one in the change's design.md:
-
-1. **Seeded RNG**: replace `UUID.randomUUID()` with `kotlin.random.Random(seed = <empirically-chosen>).nextLong()`-derived UUIDs. Deterministic, zero flake. Trade-off: weakens "random pairs" semantics — we're now testing one specific sample of UUIDs rather than the random distribution. Reasonable since `computeTTLToNextReset` is deterministic and testing one sample with 999/1000 differing IS a valid implementation of the property.
-2. **Loosen threshold + amend spec**: change to ">= 995 of 1000" (P(≥6 collisions) ≈ 0.0001%, effectively zero flake) and amend `rate-limit-infrastructure/spec.md:160` to say "for the vast majority of random pairs" or ">= 99.5%". Preserves random-pair semantics. Spec-level wording change.
-3. **Increase sample size**: 100,000 pairs with threshold 99,500. Variance shrinks relative to threshold by sqrt(100) → P(failure) effectively zero. Preserves random-pair semantics + threshold percentage. Cost: 100x slower test (currently ~50ms; would become ~5s). Acceptable for a test that runs once per CI invocation.
-
-Recommend approach 3 — preserves spec semantics, no spec amendment needed (spec wording could even tighten to "for at least 99.5% of 100,000 random pairs" if desired), test runtime cost is trivial.
-
-**Action items:**
-- [ ] File OpenSpec change `harden-compute-ttl-test` (or similar). Pick approach (recommend 3) in `design.md`. The change MODIFIES the `rate-limit-infrastructure` capability spec (loosens or restates the threshold to match achievable randomness) AND updates the test to match.
-- [ ] If approach 3: bump the `repeat(N)` from 1000 to 100,000; update threshold proportionally; verify test runtime stays under ~5s.
-- [ ] If approach 1: empirically choose a seed that produces ≥999 differing pairs and document why (lock the seed for reproducibility).
-- [ ] If approach 2: amend `rate-limit-infrastructure/spec.md:160` to use a threshold compatible with the math; lower test threshold to match.
-- [ ] Update `FOLLOW_UPS.md` to delete this entry once the change merges.
-
----
 
 ## firebase-admin-server-template-evaluate-bypass-removal
 

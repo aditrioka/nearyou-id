@@ -161,8 +161,8 @@ The returned `Duration` MUST be strictly positive.
 - **THEN** the returned `Duration` for `now2` is exactly 1 second SHORTER than for `now1` (the offset is stable per user)
 
 #### Scenario: Different users different offsets (with high probability)
-- **WHEN** `computeTTLToNextReset(U1, now)` and `computeTTLToNextReset(U2, now)` are called for two distinct random `UUID` values at the same `now`
-- **THEN** for at least 999 of 1000 random pairs, the returned `Duration` values differ by a non-zero amount (`abs(U1.hashCode() % 3600) != abs(U2.hashCode() % 3600)`)
+- **WHEN** `computeTTLToNextReset(U1, now)` and `computeTTLToNextReset(U2, now)` are called for two distinct random `UUID` values at the same `now`, sampled across **100,000** independent random pairs
+- **THEN** for at least **99,500** of those 100,000 pairs (≥ 99.5%), the returned `Duration` values differ by a non-zero amount (`abs(U1.hashCode().toLong()) % 3600L != abs(U2.hashCode().toLong()) % 3600L`). Threshold derivation: with per-pair collision probability `1/3600` (the offset bucket from `ComputeTtlToNextReset.kt:36`), the expected collision count in 100,000 pairs is `λ ≈ 27.78` (`σ ≈ 5.27`); the "≤ 500 collisions" floor sits ~89σ above the mean — failure probability is effectively zero on any reasonable hashCode distribution.
 
 #### Scenario: Offset bounded to `[0, 3600)` seconds
 - **WHEN** `computeTTLToNextReset(U, now)` is called for any 1000 random `U` AND a fixed `now = 2026-01-01T00:00:00Z` (exact UTC midnight = 07:00 WIB)
