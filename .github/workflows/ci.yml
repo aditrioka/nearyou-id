@@ -14,6 +14,15 @@ on:
     # proposal PR before any feat work lands): when EVERY path in the
     # cumulative diff matches, the workflow doesn't fire at all — saving
     # the ~15s `changes` job overhead too.
+    #
+    # ⚠️ Gotcha with the `main-protection` ruleset's required-status-checks
+    # (added 2026-05-09): when this workflow is fully skipped via paths-ignore
+    # (docs-only PR), the required `lint` / `test` / `migrate-supabase-parity`
+    # contexts never report → branch protection BLOCKs merge waiting for
+    # checks that will never arrive. Workaround until a `merge-gate` always-
+    # runs pattern lands: append a tiny non-docs commit to the PR (such as
+    # this very paragraph being added in PR #83) to force a CI run. Long-term
+    # fix tracked separately.
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
