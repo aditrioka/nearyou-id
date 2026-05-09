@@ -6,6 +6,7 @@ import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
+import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.infra.repo.JdbcPostsFollowingRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import io.kotest.core.annotation.Tags
@@ -56,6 +57,7 @@ class FollowingTimelineServiceTest : StringSpec({
     val users = JdbcUserRepository(dataSource)
     val timeline = JdbcPostsFollowingRepository(dataSource)
     val service = FollowingTimelineService(timeline)
+    val rateLimiter = TimelineReadRateLimiter(InMemoryRateLimiter())
 
     fun seedUser(): Pair<UUID, String> {
         val id = UUID.randomUUID()
@@ -212,7 +214,7 @@ class FollowingTimelineServiceTest : StringSpec({
                     )
                 }
                 install(Authentication) { configureUserJwt(keys, users, java.time.Instant::now) }
-                followingTimelineRoutes(service)
+                followingTimelineRoutes(service, rateLimiter)
             }
             block()
         }

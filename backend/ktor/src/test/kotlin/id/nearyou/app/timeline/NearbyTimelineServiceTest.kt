@@ -6,6 +6,7 @@ import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
+import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.infra.repo.JdbcPostsTimelineRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.post.LocationOutOfBoundsException
@@ -59,6 +60,7 @@ class NearbyTimelineServiceTest : StringSpec({
     val users = JdbcUserRepository(dataSource)
     val timeline = JdbcPostsTimelineRepository(dataSource)
     val service = NearbyTimelineService(timeline)
+    val rateLimiter = TimelineReadRateLimiter(InMemoryRateLimiter())
 
     fun seedUser(): Pair<UUID, String> {
         val id = UUID.randomUUID()
@@ -216,7 +218,7 @@ class NearbyTimelineServiceTest : StringSpec({
                     }
                 }
                 install(Authentication) { configureUserJwt(keys, users, java.time.Instant::now) }
-                timelineRoutes(service)
+                timelineRoutes(service, rateLimiter)
             }
             block()
         }

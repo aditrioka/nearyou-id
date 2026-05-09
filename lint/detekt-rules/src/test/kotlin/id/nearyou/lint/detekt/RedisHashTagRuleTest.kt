@@ -120,6 +120,49 @@ class RedisHashTagRuleTest : StringSpec({
         rule.lint(code).shouldBeEmpty()
     }
 
+    // ---- timeline-read-rate-limit positive fixtures (task 3.2) ----
+    // These guard against a future tightening of `RedisHashTagRule`'s strict regex
+    // accidentally regressing the timeline-read-rate-limit keys. The regex pattern
+    // ^\{scope:[^{}]+}:\{[^{}:]+:[^{}]+}$ MUST keep matching both literals.
+
+    "conforming `{scope:rate_timeline_rolling}:{user:U}` literal passes" {
+        val code =
+            """
+            package id.nearyou.app.timeline
+
+            class T {
+                fun key(userId: String): String = "{scope:rate_timeline_rolling}:{user:${'$'}userId}"
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
+    "conforming `{scope:rate_timeline_session}:{session:U__SID}` literal passes" {
+        // The composite axis value `<userId>__<sessionId>` is structurally valid
+        // because the regex's second segment `[^{}:]+:[^{}]+` allows `__` inside
+        // the value half (no braces, no colon). The session-id is encoded INTO
+        // the partition-axis value rather than as a trailing segment so the
+        // strict regex does not need to be relaxed.
+        //
+        // [TimelineReadRateLimiter.sessionKey] follows this rule's KDoc workaround
+        // ("refactor the value computation outside the literal") and builds the
+        // composite axis into a separate string, then interpolates it into the
+        // rate-limit key as a simple-name `$sessionAxisValue`. Mirror that
+        // production form here:
+        val code =
+            """
+            package id.nearyou.app.timeline
+
+            class T {
+                fun key(userId: String, sid: String): String {
+                    val sessionAxisValue = userId + "__" + sid
+                    return "{scope:rate_timeline_session}:{session:${'$'}sessionAxisValue}"
+                }
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
     "non-rate-limit string literal passes (unrelated SQL)" {
         val code =
             """
