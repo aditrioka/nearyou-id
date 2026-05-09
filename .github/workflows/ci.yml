@@ -4,30 +4,21 @@ on:
   pull_request:
     branches:
       - main
-    # Workflow-level `paths-ignore` evaluates the CUMULATIVE PR diff (head vs
-    # base merge-base), so a PR that has any code-touching commit anywhere in
-    # its history will still trigger CI on every push — including pure
-    # docs-tick pushes. The `changes` job below adds a PER-PUSH filter that
-    # gates the heavy jobs when the new commits only touch docs.
+    # NO workflow-level `paths-ignore`. Every PR triggers this workflow so that
+    # the `merge-gate` job at the bottom always reports a status check — that
+    # single `merge-gate` context is what `main-protection` ruleset's required-
+    # status-checks block on. For docs-only PRs the `changes` job emits
+    # `code=false` and the heavy jobs (`lint`/`test`/`migrate-supabase-parity`)
+    # `if`-skip; `merge-gate` then succeeds (skipped-is-OK semantics) so the PR
+    # is mergeable. Cost on docs-only PRs: ~30s ubuntu runner for `changes` +
+    # `merge-gate` only.
     #
-    # This list still serves the all-docs-only-PR case (e.g. an OpenSpec
-    # proposal PR before any feat work lands): when EVERY path in the
-    # cumulative diff matches, the workflow doesn't fire at all — saving
-    # the ~15s `changes` job overhead too.
-    #
-    # ⚠️ Gotcha with the `main-protection` ruleset's required-status-checks
-    # (added 2026-05-09): when this workflow is fully skipped via paths-ignore
-    # (docs-only PR), the required `lint` / `test` / `migrate-supabase-parity`
-    # contexts never report → branch protection BLOCKs merge waiting for
-    # checks that will never arrive. Workaround until a `merge-gate` always-
-    # runs pattern lands: append a tiny non-docs commit to the PR (such as
-    # this very paragraph being added in PR #83) to force a CI run. Long-term
-    # fix tracked separately.
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - '.gitignore'
-      - 'LICENSE'
+    # Prior shape (workflow-level `paths-ignore` for docs-only) deadlocked
+    # against ruleset-required checks: when the workflow was fully skipped, the
+    # required `lint`/`test`/`migrate-supabase-parity` contexts never reported
+    # → branch protection blocked the merge waiting for checks that would never
+    # arrive. PRs #83 and #85 hit this; the `merge-gate` pattern below is the
+    # architectural fix.
 
 # Cancel superseded runs: when a new push lands on the same PR/branch, any
 # in-flight run for a prior commit is aborted to free up runners and avoid
@@ -76,8 +67,9 @@ jobs:
           CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" || true)
           echo "Changed files:"
           echo "$CHANGED"
-          # Code = anything NOT in the docs-only allowlist below.
-          # Mirror the workflow-level paths-ignore so the two stay in sync.
+          # Code = anything NOT in the docs-only allowlist below. This list is
+          # canonical (no workflow-level `paths-ignore` to keep in sync — see
+          # the comment block on `on.pull_request` for the merge-gate pattern).
           CODE=$(echo "$CHANGED" | grep -vE '^(docs/|.*\.md$|\.gitignore$|LICENSE$)' || true)
           if [ -n "$CODE" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
@@ -226,3 +218,34 @@ jobs:
             -user=postgres -password=postgres \
             -locations=filesystem:/flyway/sql \
             migrate
+
+  # Single required-status-check that the `main-protection` ruleset blocks on.
+  # Always runs (`if: always()`) so docs-only PRs — where `lint`/`test`/
+  # `migrate-supabase-parity` correctly skip via the `changes.outputs.code`
+  # gate — still produce a final status. Treats `success` and `skipped` as OK;
+  # fails the gate on `failure` or `cancelled`. The `changes` job is included
+  # so a bug in the per-push docs-only filter (which would skip every heavy
+  # lane silently) cannot pass the gate by accident.
+  merge-gate:
+    needs: [changes, lint, test, migrate-supabase-parity]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs passed or were properly skipped
+        run: |
+          set -euo pipefail
+          echo "changes:                 ${{ needs.changes.result }}"
+          echo "lint:                    ${{ needs.lint.result }}"
+          echo "test:                    ${{ needs.test.result }}"
+          echo "migrate-supabase-parity: ${{ needs.migrate-supabase-parity.result }}"
+          for r in \
+              "${{ needs.changes.result }}" \
+              "${{ needs.lint.result }}" \
+              "${{ needs.test.result }}" \
+              "${{ needs.migrate-supabase-parity.result }}"; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::A required job ended in '$r' — failing merge-gate"; exit 1 ;;
+            esac
+          done
+          echo "merge-gate: all required jobs passed or were properly skipped"
