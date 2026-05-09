@@ -34,57 +34,6 @@ Format per entry:
 
 ---
 
-## rate-limit-applies-to-health-endpoints
-
-**Discovered during:** `observability-otel-foundation` §8.3 Tempo TraceQL verification — `GET /health/live` traces show child EVALSHA Lettuce span = the rate-limit Lua script is being executed on health-check requests.
-**Status:** open
-
-**Finding:** The rate-limiter middleware processes `/health/*` paths along with all other routes. Health-check paths should bypass rate-limiting because: (a) Cloud Run's startup probe + liveness probe hit `/health/ready` and `/health/live` repeatedly during deployment; if a deploy coincides with a real rate-limit burst, the probes themselves get throttled and Cloud Run kills the instance, cascading to a deploy failure; (b) probe traffic generates Redis load + consumes the rate-limit slot quota; (c) the rate-limit metric becomes noisier when health probes count toward it.
-
-**Specs at fault:** Each rate-limit capability spec (`like-rate-limit`, `chat-rate-limit`, `report-rate-limit`) — none currently scope-out `/health/*`.
-**Code at fault:** Wherever the rate-limit middleware is installed in `:backend:ktor`'s `Application.kt`. The fix is either (a) install rate-limit middleware on a sub-route subtree that excludes `/health/*`, or (b) add an explicit path-prefix bypass in the rate-limiter itself.
-**Docs at fault:** None — operations docs don't mention this current behavior.
-
-**Impact (if shipped):** Medium — staging cold-start cycling during §7.7 measurement caused 6 of 8 revisions to fail because Supabase pool exhaustion AND health-probe rate-limit interaction may have compounded. Low at steady-state production traffic but real risk during deploy windows.
-
-**Ambiguity to resolve first:** None — the fix is mechanical. Q: should ALL rate limits skip health paths, or only some? Recommend: all (health paths SHOULD always answer regardless of any rate-limit state).
-
-**Action items:**
-- [ ] File OpenSpec change `rate-limit-bypass-health-endpoints` that mounts rate-limit middleware on a sub-route subtree excluding `/health/*` (cleanest pattern: `route("/api/v1") { install(RateLimit) { ... } ; ...routes... }` instead of installing globally).
-- [ ] Add regression test asserting `/health/ready` does NOT execute the rate-limit Lua script.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
-
----
-
-## rate-limit-infrastructure-success-path-key-log-drift
-
-**Discovered during:** `rate-limit-ip-hashing` (PR [#74](https://github.com/aditrioka/nearyou-id/pull/74)) Section 6.5 pre-archive smoke verification, 2026-05-08 — task wanted Cloud Logging filter on `key=` field of rate-limit log entries; healthy-state smoke produced zero such entries.
-**Status:** open
-
-**Finding:** The shipped `openspec/specs/rate-limit-infrastructure/spec.md` § "tryAcquireByKey omits userId from telemetry" scenario reads:
-
-> **WHEN** `tryAcquireByKey(key = "{scope:health}:{ip:1.2.3.4}", capacity = 60, ttl = Duration.ofSeconds(60))` is invoked AND a structured log is emitted
-> **THEN** the log entry includes `key=<key>` AND does NOT include a `user_id` field
-
-The phrasing implies a per-call log line. The current implementation in [`infra/redis/.../RedisRateLimiter.kt`](infra/redis/src/main/kotlin/id/nearyou/app/infra/redis/RedisRateLimiter.kt) `admit()` only emits `key=<key>` on FAILURE paths (`event=redis_acquire_failed key={} ...` at line ~155 and `event=redis_connect_failed ...` at line ~83). Healthy Redis = no `key=` log emitted, so any spec-text reading "filter for key= on rate-limit log entries" is vacuous in steady-state — making the runtime verification path incomplete.
-
-**Specs at fault:** `openspec/specs/rate-limit-infrastructure/spec.md` § "tryAcquireByKey omits userId from telemetry" — the scenario is correct in spirit (verifying user_id absence + key presence) but assumes a success-path log surface that doesn't exist.
-**Code at fault:** `infra/redis/src/main/kotlin/id/nearyou/app/infra/redis/RedisRateLimiter.kt` `admit()` — no success-path structured log emission.
-**Docs at fault:** None directly; `docs/05-Implementation.md` § Rate Limiting Implementation doesn't enumerate per-call log surfaces.
-
-**Impact (if shipped):** Low operationally (no security regression — the key-on-the-wire to Redis IS the hashed form, verified at the production wire-log layer + the `LettuceSpanCaptureTest` unit test). Medium organizationally — the spec/code drift is observable to any future engineer trying to verify rate-limit behavior via Cloud Logging, and the missing success-path log is genuinely useful for operators investigating rate-limit hot-key incidents (e.g., "this IP is at 60/60, what's the user-agent? what's the request volume across the last 60 seconds?"). Inherited from the `health-check-endpoints` ship cycle, not introduced by `rate-limit-ip-hashing`.
-
-**Ambiguity to resolve first:** Should the success-path log be `INFO` or `DEBUG`? `INFO` makes it discoverable in Cloud Logging without log-level changes but adds volume (every rate-limit check, every request that touches a limited path). `DEBUG` keeps volume managed but requires opt-in to surface. Recommendation: `DEBUG` with a structured shape `event=rate_limit_check key={} outcome={} remaining_or_retry_after={}` so operators can selectively enable for incident triage.
-
-**Action items:**
-- [ ] File OpenSpec change `rate-limit-infrastructure-success-path-log` that adds a per-call `event=rate_limit_check key={} outcome={} ...` DEBUG log to `RedisRateLimiter.admit()`.
-- [ ] Amend `openspec/specs/rate-limit-infrastructure/spec.md` § "tryAcquireByKey omits userId from telemetry" scenario wording to match the new log shape (single source-of-truth for both success + failure paths).
-- [ ] Add `RedisRateLimiterTelemetryTest` scenario for the success-path log shape (mirroring the existing failure-path scenarios, asserting `key=<key>` + no `user_id` for `tryAcquireByKey`).
-- [ ] Re-run the smoke verification per `rate-limit-ip-hashing/tasks.md` Section 6.5 against the post-amendment staging deploy; confirm `event=rate_limit_check key={ip:[0-9a-f]{16}}` lands in Cloud Logging.
-- [ ] Update this `FOLLOW_UPS.md` entry to delete after the change merges.
-
----
-
 ## observability-otel-collector-tail-sampling
 
 **Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 adversarial-lens finding #11 — the round-1 design § D4 force-keep `SpanProcessor` re-emitting via `Tracer.spanBuilder().setNoParent()` is structurally wrong: it creates a fresh root span detached from the original trace, breaking trace_id linkage in Tempo.
@@ -227,29 +176,6 @@ The two vocabularies overlap on `timeout` / `connection_refused` / `unknown` and
 - [ ] Refactor `UnbanWorkerRoute.classifyHandlerError` to delegate to it.
 - [ ] Refactor `JdbcPostgresProbe` (and any sibling probes) to delegate to it.
 - [ ] Delete this entry once the extraction lands.
-
----
-
-## reports-rate-limit-cap-doc-vs-spec-drift
-
-**Discovered during:** `like-rate-limit` proposal scoping (Phase B step 7 reconciliation pass — checking the V9 in-process limiter port for any drift before reusing its hash-tag key shape as a precedent).
-**Status:** open
-
-**Finding:** The shipped `reports` capability enforces a 10/hour cap on `POST /api/v1/reports` ([`openspec/specs/reports/spec.md:170-192`](openspec/specs/reports/spec.md) — Requirement "Rate limit 10 submissions per hour per user", and the corresponding implementation in [`backend/ktor/src/main/kotlin/id/nearyou/app/moderation/ReportRateLimiter.kt`](backend/ktor/src/main/kotlin/id/nearyou/app/moderation/ReportRateLimiter.kt) with `DEFAULT_CAP = 10` at line 83). The canonical Layer 2 rate-limit table in [`docs/05-Implementation.md:1744`](docs/05-Implementation.md) prescribes **20/hour** for reports. The two values disagree by 2x. Both pre-date this change cycle.
-
-**Specs at fault:** `openspec/specs/reports/spec.md` (or canonical docs — TBD)
-**Code at fault:** `backend/ktor/src/main/kotlin/id/nearyou/app/moderation/ReportRateLimiter.kt` (`DEFAULT_CAP = 10`)
-**Docs at fault:** `docs/05-Implementation.md:1744` Layer 2 table
-
-**Impact (if shipped):** Low. The shipped code + spec are internally consistent (10/hour everywhere they appear together). Risk is mostly to future maintainers reading the canonical Layer 2 table and assuming the docs match the code. No user-facing impact unless ops decides to retighten or loosen the cap based on the wrong number.
-
-**Ambiguity to resolve first:** Is the docs Layer 2 table over-stated (V9 deliberately shipped tighter, 10/hour, for early-launch anti-abuse), or did the spec drift below the canonical docs by accident? Both directions have been seen in this project's history (cf. PR #24 v10 notifications body_data audit — Direction Y resolved to "shipped code is correct; docs were over-specified"). A quick review of the V9 PR + design.md + commit history should clarify.
-
-**Action items:**
-- [ ] Triage X vs Y by re-reading the V9 `reports-v9` change's design.md / proposal.md for any explicit rationale on 10/hour vs 20/hour. Search the archived `openspec/changes/archive/2026-04-22-reports-v9/` directory.
-- [ ] If X (docs are canonical, spec drifted low): amend the `reports` spec via a new OpenSpec change `reports-rate-limit-bump-to-20-per-hour`; bump `DEFAULT_CAP` and the spec scenarios from 10→20.
-- [ ] If Y (spec is intentionally tighter, docs over-stated): amend `docs/05-Implementation.md:1744` table value from 20→10; no code/spec change.
-- [ ] In either direction: the `like-rate-limit` change does NOT silently adjust either side — that's a separate ticket.
 
 ---
 
