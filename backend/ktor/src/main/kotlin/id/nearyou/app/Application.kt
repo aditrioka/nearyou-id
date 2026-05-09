@@ -127,6 +127,7 @@ import id.nearyou.app.search.searchRoutes
 import id.nearyou.app.timeline.FollowingTimelineService
 import id.nearyou.app.timeline.GlobalTimelineService
 import id.nearyou.app.timeline.NearbyTimelineService
+import id.nearyou.app.timeline.TimelineReadRateLimiter
 import id.nearyou.app.timeline.followingTimelineRoutes
 import id.nearyou.app.timeline.globalTimelineRoutes
 import id.nearyou.app.timeline.timelineRoutes
@@ -705,6 +706,9 @@ fun Application.module() {
     val followingTimelineService = FollowingTimelineService(postsFollowingRepository)
     val postsGlobalRepository: PostsGlobalRepository = JdbcPostsGlobalRepository(dataSource)
     val globalTimelineService = GlobalTimelineService(postsGlobalRepository)
+    // Per `timeline-read-rate-limit` capability: shared across all three timeline
+    // routes. Stateless above the Redis seam, so a single Koin binding suffices.
+    val timelineReadRateLimiter = TimelineReadRateLimiter(rateLimiter)
     val reportRepository: ReportRepository = JdbcReportRepository()
     val postAutoHideRepository: PostAutoHideRepository = JdbcPostAutoHideRepository()
     // Wrap the shared `rateLimiter` (Redis or NoOp/InMemory fallback per the
@@ -787,6 +791,7 @@ fun Application.module() {
                 single { followingTimelineService }
                 single<PostsGlobalRepository> { postsGlobalRepository }
                 single { globalTimelineService }
+                single { timelineReadRateLimiter }
                 single<ReportRepository> { reportRepository }
                 single<ModerationQueueRepository> { moderationQueueRepository }
                 single<PostAutoHideRepository> { postAutoHideRepository }
@@ -823,9 +828,9 @@ fun Application.module() {
     likeRoutes(likeService)
     replyRoutes(replyService, contentLengthGuard)
     chatRoutes(chatService, contentLengthGuard, chatRealtimeClient)
-    timelineRoutes(nearbyTimelineService)
-    followingTimelineRoutes(followingTimelineService)
-    globalTimelineRoutes(globalTimelineService)
+    timelineRoutes(nearbyTimelineService, timelineReadRateLimiter)
+    followingTimelineRoutes(followingTimelineService, timelineReadRateLimiter)
+    globalTimelineRoutes(globalTimelineService, timelineReadRateLimiter)
     reportRoutes(reportService)
     searchRoutes(searchService)
     notificationRoutes(notificationService)
