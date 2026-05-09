@@ -167,6 +167,8 @@ End-to-end verified 2026-04-26: pulled credential from Secret Manager → minted
 
 ### 3.4 RevenueCat
 
+> **DEFERRED 2026-05-09 (E20 audit)**: signup deferred until Phase 4 IAP webhook backend implementation actively starts. No IAP code in flight, no subscription products to validate, no webhook to test. Signing up now = idle account hygiene burden + premature optimization. **Trigger to revisit**: first OpenSpec change for IAP/subscription module proposed. Items below preserved as future work.
+
 - [ ] Signup - https://www.revenuecat.com
 - [ ] Create project "NearYouID"
 - [ ] Add Google Play app (butuh Play Console setup dulu)
@@ -244,13 +246,20 @@ OTel foundation shipped 2026-05-07 via PR #66 `observability-otel-foundation` �
 
 ### 3.8 Amplitude
 
-- [ ] Signup - https://amplitude.com
-- [ ] Create project "NearYouID"
-- [ ] Pilih Free tier (10M events/month)
-- [ ] Save API key
+> **Multi-agent dialectic 2026-05-09**: 4-perspective pressure-test (pro-vendor / pro-build / compliance / pragmatist) + synthesizer recommended AMEND Decision #31 to default Postgres `product_events` substrate. Founder reviewed and chose to proceed with Amplitude signup since cost is $0 + setup is ~15 min ("siapin biar ready, kayak nyewa kotak surat — kosong sekarang, isi nanti pas ada surat"). Status quo retained on Decision #31; substrate proposal preserved in conversation history if trigger conditions later force re-visit. Item below ticked accordingly.
+
+- [x] Signup - https://amplitude.com — done 2026-05-09 via Google OAuth (`nearyouid.founder@gmail.com`). Plan: Starter (Free, 10M events/month). Org renamed `frosty-paper-787498` → `nearyouid` (matches Sentry/Resend pattern). Org URL: `app.amplitude.com/analytics/nearyouid/...`. Org ID: 428773.
+- [x] Create project "NearYouID" — done 2026-05-09. Single project staging: name kept as auto-generated `default` (Amplitude project name is internal label only, NOT used in API calls — rename non-trivial in current UI, cosmetic-only). Project ID: 814353. URL scheme (mobile): `amp-3c1a065a74bf5472`. Per multi-agent dialectic outcome + CTO-multi-project recommendation: prod project (`nearyou-prod`) deferred until prod environment exists.
+- [x] Pilih Free tier (10M events/month) — done. Starter Plan = Free tier. No payment method on file (avoids accidental upgrade).
+- [x] Save API key — done. Stored in GCP Secret Manager (see § 4.2). 32 bytes alphanumeric (Amplitude standard format). Never touched disk or shell history (clipboard piped directly to `gcloud secrets create`).
 
 **Notes**:
-- Amplitude API key location: _________________
+- Amplitude API key location: GCP Secret Manager `staging-amplitude-api-key` v1 (project `nearyou-staging`, granted to Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com`)
+- Amplitude org slug: `nearyouid`
+- Amplitude org ID: `428773`
+- Staging project ID: `814353`
+- Pending wiring: `staging-amplitude-api-key` not yet in `.github/workflows/deploy-staging.yml --set-secrets` — will be added when backend `:infra:amplitude` module wires SDK init (separate OpenSpec change, per Phase 1 line 89 schedule)
+- Pending Pre-Launch test (`08-Roadmap-Risk.md:339`): "Analytics consent suppression tested (Amplitude opt-out silent)" — gated on `:infra:amplitude` module landing first
 
 ### 3.9 Resend (transactional email)
 
@@ -281,7 +290,7 @@ OTel foundation shipped 2026-05-07 via PR #66 `observability-otel-foundation` �
   - [ ] `SUPABASE_DB_URL_STAGING` (untuk Flyway migrate staging) — **NOT NEEDED**: Flyway runs on Cloud Run startup via `RUN_FLYWAY_ON_STARTUP=true` using the `staging-db-*` Secret Manager slots; no separate GH Actions secret required. Strike if/when prod confirms same pattern.
   - [ ] `SUPABASE_DB_URL_PROD` — same as above; deferred + likely obsolete
   - [ ] Tokens lain sesuai kebutuhan
-- [ ] Setup branch protection untuk `main` (require PR review + CI green) — **server-side ruleset NOT configured** (verified 2026-05-08 via `gh api repos/.../branches/main/protection` → `404 Branch not protected`). Direct push to `main` is currently hook-blocked LOCALLY per `CLAUDE.md`, but anyone with write access (including a future collaborator OR a compromised local) could bypass by pushing without the hook. Action: configure GitHub Ruleset (Settings → Rules) requiring PR + status checks before merging the first secondary admin / collaborator.
+- [x] Setup branch protection untuk `main` — **GitHub Ruleset `main-protection` (id 16164557) active 2026-05-09**. Targets `~DEFAULT_BRANCH` (= `main`). 6 rules: `creation` + `deletion` + `non_fast_forward` + `required_linear_history` + `pull_request` (squash-only merge, 0 required approvals — solo dev) + `required_status_checks` (3 contexts: `lint`, `test`, `migrate-supabase-parity`; `strict_required_status_checks_policy=false` so up-to-date branch not required). No bypass list. Verified via `gh api repos/aditrioka/nearyou-id/rulesets/16164557`. Local pre-push hook (per `CLAUDE.md`) remains as defense-in-depth; ruleset is now the server-side authoritative gate that survives compromised-local / future-collaborator scenarios. Caveat noted at config time: docs-only PR via `paths-ignore` workflow-skip → checks bypassed cleanly; but per-push job-level `if:` skip on mixed PRs may report `skipped` on heavy jobs and block merge — workaround is push 1 no-op code commit or click "Re-run all jobs". Live with it for solo velocity; revisit if friction.
 
 ### 3.11 AdMob (bukan blocker sekarang, approval 2-4 minggu)
 
@@ -313,8 +322,8 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
   - Generate: `age-keygen -o backup-key.txt`
   - Public key di-bake ke backup Docker image
   - Private key simpan di `prod-backup-age-private-key`
-- [ ] **CSAM archive AES-256 key** - 256-bit random
-  - Slot: `prod-csam-archive-aes-key` dan `staging-csam-archive-aes-key` (both pending — no CSAM trigger path live yet on staging)
+- [~] **CSAM archive AES-256 key** - 256-bit random
+  - Slot: `prod-csam-archive-aes-key` (pending) dan `staging-csam-archive-aes-key` v1 (done 2026-05-09; project `nearyou-staging`; generated via `openssl rand -base64 32` piped directly to `gcloud secrets create --data-file=-` so plaintext never touched disk; replication=automatic; labels env=staging,purpose=csam-archive-encryption; verified length 44 bytes = base64(32). Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com` granted `roles/secretmanager.secretAccessor`. NOT yet wired in `deploy-staging.yml --set-secrets` — wire pas CSAM archive writer module landed via OpenSpec change. No CSAM trigger path live yet on staging, so secret idle until consumer ships.)
 - [~] **Invite code secret** - 256-bit random untuk HMAC derivation
   - Slot: `prod-invite-code-secret` dan `staging-invite-code-secret`. Staging done (`staging-invite-code-secret` v1, wired as `INVITE_CODE_SECRET` in `deploy-staging.yml`); prod pending.
 - [ ] **Admin session cookie signing key** (reserved untuk future signed-cookie mode)
@@ -349,7 +358,7 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
 - [~] `staging-otel-grafana-otlp-endpoint` v1 — granted Cloud Run runtime SA `secretAccessor`. Wired in `deploy-staging.yml` as `OTEL_GRAFANA_OTLP_ENDPOINT`. Prod equivalent pending.
 - [~] `staging-otel-grafana-otlp-token` v1 — granted Cloud Run runtime SA `secretAccessor`. Wired in `deploy-staging.yml` as `OTEL_GRAFANA_OTLP_TOKEN`. Wizard-minted (over-grants metrics/logs/profiles/stacks scope); rotation to least-privilege Access Policy token tracked in § 3.7 ⚠️ before prod tag-deploy. Prod equivalent pending.
 
-- [ ] `prod-amplitude-api-key` (dan staging)
+- [~] `prod-amplitude-api-key` (pending) dan `staging-amplitude-api-key` v1 (done 2026-05-09; 32 bytes Amplitude standard format; granted secretAccessor to Cloud Run runtime SA; not yet wired in `deploy-staging.yml --set-secrets` — will be added when `:infra:amplitude` module SDK init lands per Phase 1 schedule). Pipe-from-clipboard upload pattern (`pbpaste | tr -d '\n\r ' | gcloud secrets create`) — plaintext key never touched disk or shell history.
 - [ ] `prod-admin-app-db-connection-string` (DB role `admin_app`, separate dari main API)
 - [ ] `prod-main-app-db-connection-string` (DB role `main_app`)
 - [ ] `prod-flyway-db-connection-string` (DB role `flyway_migrator`, DDL rights)
@@ -376,6 +385,8 @@ Per `08-Roadmap-Risk.md`, ini harus locked sebelum build mulai. Canonical decisi
 ## 6. Datasets (Content Work, Parallel dengan Coding)
 
 ### 6.1 Indonesian Word-Pair Database
+
+> **SCOPE RE-AUDIT 2026-05-09 (E20 audit)**: 600×600 + 100 modifier (= 360k base combinations) likely overengineered for MVP. Cheaper alternative pattern: 50 curated adjective × 50 curated noun × 4-digit numeric suffix = 25M unique combinations with collision-resistant generation, and the curated word lists are 1-day work instead of 3-4 days. Decide scope BEFORE starting full generation+filter+KBBI cross-check work. **Trigger to revisit scope**: when `anonymous_username` generation OpenSpec change is actually proposed — let the actual usage pattern (collision rate target, regeneration triggers, premium customization spec) drive the scope decision rather than pre-planning. Original target preserved below for that future trigger.
 
 Target: 600 kata sifat × 600 kata benda + 100 modifier = 360k+ base kombinasi (36M dengan fallback).
 
@@ -456,8 +467,8 @@ Resolved + shipped via PR [#31](https://github.com/aditrioka/nearyou-id/pull/31)
 |---------|-------|------|--------|
 | 1. Domain & DNS | 14 | 0 | `[ ]` |
 | 2. Developer Programs | 15 | 0 | `[ ]` |
-| 3. Infrastructure Accounts | 45+ | 42 | `[~]` (Firebase staging + R2 staging + Sentry org/projects/DSNs + Resend domain/key + Grafana Cloud staging stack/token + Supabase staging + Upstash staging + GitHub Actions `GCP_SA_KEY`/`GCP_PROJECT_ID`/`GCP_REGION` done; CF Images deferred Phase B; sentry-cli auth token deferred to mobile build phase; branch-protection ruleset NOT yet configured server-side per § 3.10; Cloudflare DNS active for `api-staging`) |
-| 4. Secrets | 29 | 22 partial | `[~]` (`staging-firebase-admin-sa` v1 + wired, `staging-r2-{access-key-id,secret-access-key,bucket-name,endpoint-url,account-id}` v1, `staging-sentry-{backend,android,ios}-dsn` v1, `staging-resend-api-key` v1, `staging-otel-grafana-otlp-{endpoint,token}` v1 + wired, `staging-{ktor-rsa-private-key,jitter-secret,invite-code-secret}` v1 + wired, `staging-{db-url,db-user,db-password,supabase-url,supabase-jwt-secret,supabase-service-role-key,redis-url}` v1 + wired) |
+| 3. Infrastructure Accounts | 45+ | 43 | `[~]` (Firebase staging + R2 staging + Sentry org/projects/DSNs + Resend domain/key + Grafana Cloud staging stack/token + Supabase staging + Upstash staging + GitHub Actions `GCP_SA_KEY`/`GCP_PROJECT_ID`/`GCP_REGION` + branch-protection ruleset `main-protection` (active 2026-05-09 per § 3.10) done; CF Images deferred Phase B; sentry-cli auth token deferred to mobile build phase; Cloudflare DNS active for `api-staging`) |
+| 4. Secrets | 29 | 24 partial | `[~]` (`staging-firebase-admin-sa` v1 + wired, `staging-r2-{access-key-id,secret-access-key,bucket-name,endpoint-url,account-id}` v1, `staging-sentry-{backend,android,ios}-dsn` v1, `staging-resend-api-key` v1, `staging-csam-archive-aes-key` v1 (added 2026-05-09, not yet wired), `staging-amplitude-api-key` v1 (added 2026-05-09, not yet wired), `staging-otel-grafana-otlp-{endpoint,token}` v1 + wired, `staging-{ktor-rsa-private-key,jitter-secret,invite-code-secret}` v1 + wired, `staging-{db-url,db-user,db-password,supabase-url,supabase-jwt-secret,supabase-service-role-key,redis-url}` v1 + wired) |
 | 5. Decisions | 9 | 5 | `[~]` (IAP, BPS/OSM, CF Images URL, CSAM trigger — all resolved 2026-04-26; OTel vendor — resolved 2026-05-07 as Grafana Cloud Tempo via PR #66; 4 pricing/quota verifications still open) |
 | 6. Datasets | 4 work items | 1.5 | `[~]` (§6.3 polygons shipped via PR #31 — 552 OSM rows + maritime buffer + GIST index live in staging DB; §6.4 RC + fallback files scaffolded via PR #70 with placeholder sentinels; §6.1 word pairs + §6.2 reserved usernames still open) |
 | 7. Legal | 6 | 0 | `[ ]` |
