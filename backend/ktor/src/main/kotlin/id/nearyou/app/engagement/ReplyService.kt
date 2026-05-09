@@ -3,6 +3,9 @@ package id.nearyou.app.engagement
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
+import id.nearyou.app.moderation.PerspectiveDispatcherScope
+import id.nearyou.app.moderation.PerspectiveModerator
+import id.nearyou.app.moderation.TargetType
 import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
 import id.nearyou.app.notifications.NotificationEmitter
@@ -21,6 +24,7 @@ import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
 import javax.sql.DataSource
+import kotlin.coroutines.coroutineContext
 
 /**
  * Reply lifecycle: rate-limit gate / create / list / soft-delete.
@@ -61,6 +65,8 @@ class ReplyService(
     private val remoteConfig: RemoteConfig,
     private val textModerator: TextModerator,
     private val moderationQueue: ModerationQueueRepository,
+    private val perspectiveDispatcherScope: PerspectiveDispatcherScope? = null,
+    private val perspectiveModerator: PerspectiveModerator? = null,
     private val clock: () -> Instant = Instant::now,
 ) {
     /**
@@ -125,7 +131,7 @@ class ReplyService(
      * on any path — once a slot is acquired, it stays consumed even if this method
      * throws [PostNotFoundException] or rolls back the transaction.
      */
-    fun post(
+    suspend fun post(
         postId: UUID,
         authorId: UUID,
         content: String,
@@ -181,6 +187,22 @@ class ReplyService(
                 }
             }
         emittedId?.let(dispatcher::dispatch)
+
+        // Layer 3 (Perspective API) async dispatch — fire-and-forget, AFTER the
+        // commit + V10 dispatch. Lives here so a rolled-back reply INSERT never
+        // produces a Layer 3 moderation queue row. Passes `coroutineContext` for
+        // OTel trace context propagation per design.md Decision 13.
+        @Suppress("NAME_SHADOWING")
+        val perspectiveDispatcherScope = perspectiveDispatcherScope
+
+        @Suppress("NAME_SHADOWING")
+        val perspectiveModerator = perspectiveModerator
+        if (perspectiveDispatcherScope != null && perspectiveModerator != null) {
+            perspectiveDispatcherScope.dispatch(coroutineContext) {
+                perspectiveModerator.moderate(TargetType.REPLY, row.id, content)
+            }
+        }
+
         return row
     }
 

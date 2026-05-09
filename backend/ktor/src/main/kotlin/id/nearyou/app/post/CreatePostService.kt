@@ -3,6 +3,9 @@ package id.nearyou.app.post
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.infra.repo.NewPostRow
 import id.nearyou.app.infra.repo.PostRepository
+import id.nearyou.app.moderation.PerspectiveDispatcherScope
+import id.nearyou.app.moderation.PerspectiveModerator
+import id.nearyou.app.moderation.TargetType
 import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
 import id.nearyou.data.repository.ModerationQueueRepository
@@ -13,6 +16,7 @@ import id.nearyou.distance.UuidV7
 import java.time.Instant
 import java.util.UUID
 import javax.sql.DataSource
+import kotlin.coroutines.coroutineContext
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.toJavaUuid
 
@@ -37,6 +41,8 @@ class CreatePostService(
     private val textModerator: TextModerator,
     private val moderationQueue: ModerationQueueRepository,
     private val jitterSecret: ByteArray,
+    private val perspectiveDispatcherScope: PerspectiveDispatcherScope? = null,
+    private val perspectiveModerator: PerspectiveModerator? = null,
     private val nowProvider: () -> Instant = Instant::now,
 ) {
     /**
@@ -52,7 +58,7 @@ class CreatePostService(
      *    between auth + INSERT) → 500 via the generic StatusPages handler
      */
     @OptIn(ExperimentalUuidApi::class)
-    fun create(
+    suspend fun create(
         authorId: UUID,
         rawContent: String?,
         latitude: Double,
@@ -113,6 +119,26 @@ class CreatePostService(
                 throw t
             } finally {
                 conn.autoCommit = true
+            }
+        }
+
+        // Layer 3 (Perspective API) async dispatch — fire-and-forget, BEFORE return.
+        // Lives AFTER the commit so a rolled-back INSERT never produces a Layer 3
+        // moderation queue row. Passing `coroutineContext` propagates the OTel
+        // trace context per design.md Decision 13 — the Layer 3 span is parented
+        // under the originating request span.
+        //
+        // Local shadows of the constructor properties so smart-cast works on the
+        // null check (Kotlin doesn't smart-cast `private val` properties through
+        // a multi-condition `if`).
+        @Suppress("NAME_SHADOWING")
+        val perspectiveDispatcherScope = perspectiveDispatcherScope
+
+        @Suppress("NAME_SHADOWING")
+        val perspectiveModerator = perspectiveModerator
+        if (perspectiveDispatcherScope != null && perspectiveModerator != null) {
+            perspectiveDispatcherScope.dispatch(coroutineContext) {
+                perspectiveModerator.moderate(TargetType.POST, postId, content)
             }
         }
 

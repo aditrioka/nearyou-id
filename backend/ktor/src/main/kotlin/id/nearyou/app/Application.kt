@@ -67,6 +67,8 @@ import id.nearyou.app.infra.otel.OtelBootstrap
 import id.nearyou.app.infra.otel.OtelInstrumentation
 import id.nearyou.app.infra.otel.httpClientWithOtel
 import id.nearyou.app.infra.otel.installKtorServerTelemetry
+import id.nearyou.app.infra.perspective.KtorPerspectiveClient
+import id.nearyou.app.infra.perspective.PerspectiveClient
 import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.redis.NoOpRedisStringCache
 import id.nearyou.app.infra.redis.RedisStringCache
@@ -78,6 +80,7 @@ import id.nearyou.app.infra.remoteconfig.RemoteConfigInitException
 import id.nearyou.app.infra.remoteconfig.firebaseRemoteConfigClient
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
+import id.nearyou.app.infra.repo.JdbcPerspectiveModerationWriter
 import id.nearyou.app.infra.repo.JdbcPostAutoHideRepository
 import id.nearyou.app.infra.repo.JdbcPostLikeRepository
 import id.nearyou.app.infra.repo.JdbcPostReplyRepository
@@ -106,8 +109,13 @@ import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
 import id.nearyou.app.infra.supabase.realtime.SupabaseBroadcastChatClient
 import id.nearyou.app.internal.InternalEndpointAuth
 import id.nearyou.app.moderation.CachingModerationListLoader
+import id.nearyou.app.moderation.CachingPerspectiveConfigLoader
+import id.nearyou.app.moderation.DefaultPerspectiveModerator
 import id.nearyou.app.moderation.ModerationList
 import id.nearyou.app.moderation.ModerationListLoader
+import id.nearyou.app.moderation.PerspectiveConfigLoader
+import id.nearyou.app.moderation.PerspectiveDispatcherScope
+import id.nearyou.app.moderation.PerspectiveModerator
 import id.nearyou.app.moderation.ReportRateLimiter
 import id.nearyou.app.moderation.ReportService
 import id.nearyou.app.moderation.TextModerator
@@ -139,6 +147,7 @@ import id.nearyou.data.repository.ActorUsernameLookup
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationRepository
+import id.nearyou.data.repository.PerspectiveModerationWriter
 import id.nearyou.data.repository.PostAutoHideRepository
 import id.nearyou.data.repository.PostLikeRepository
 import id.nearyou.data.repository.PostReplyRepository
@@ -476,6 +485,55 @@ fun Application.module() {
         )
     val textModerator = TextModerator(loader = moderationListLoader)
 
+    // Layer 3 (Perspective API) async dispatch wiring per the
+    // `text-moderation-perspective-api-layer` capability.
+    //
+    // Test profile: bind `perspectiveModerator = null` and a `forTest` scope. The
+    // dispatch call sites in `CreatePostService` / `ReplyService` no-op on null
+    // collaborators — Layer 1+2 still run, Layer 3 is opt-out. Production fail-fasts
+    // on a missing API key (mirrors the firebase-admin-sa precedent at line 515).
+    val perspectiveDispatcherScope: PerspectiveDispatcherScope = PerspectiveDispatcherScope.production()
+    val perspectiveConfigLoader: PerspectiveConfigLoader =
+        CachingPerspectiveConfigLoader(
+            redisCache = redisStringCache,
+            remoteConfigClient = remoteConfigClient,
+        )
+    val perspectiveModerationWriter: PerspectiveModerationWriter = JdbcPerspectiveModerationWriter(dataSource)
+    val perspectiveModerator: PerspectiveModerator? =
+        when (ktorEnv) {
+            "test" -> null
+            else -> {
+                val perspectiveSecretSlot = secretKey(ktorEnv, "perspective-api-key")
+                val perspectiveApiKey =
+                    secrets.resolve("perspective-api-key")
+                        ?: run {
+                            org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").error(
+                                "event=perspective_init_failed reason=missing_secret slot={} env={}",
+                                perspectiveSecretSlot,
+                                ktorEnv,
+                            )
+                            error(
+                                "Required secret '$perspectiveSecretSlot' is unset (env=$ktorEnv) — " +
+                                    "Perspective API is a hard startup requirement when ktor.environment != 'test'. " +
+                                    "Verify GCP Secret Manager slot exists and is populated.",
+                            )
+                        }
+                val perspectiveClient: PerspectiveClient = KtorPerspectiveClient(apiKey = perspectiveApiKey)
+                DefaultPerspectiveModerator(
+                    client = perspectiveClient,
+                    configLoader = perspectiveConfigLoader,
+                    writer = perspectiveModerationWriter,
+                )
+            }
+        }
+
+    // JVM shutdown hook for the Perspective dispatcher scope (per
+    // `text-moderation-perspective-api-layer/spec.md` § dispatcher-scope shutdown
+    // contract). Drains in-flight dispatches up to 5 seconds; cancelled dispatches
+    // emit `event=perspective_dispatch_drain_exceeded`. New dispatches arriving after
+    // shutdown emit `event=perspective_dispatch_after_shutdown` (silently no-op).
+    Runtime.getRuntime().addShutdownHook(Thread { perspectiveDispatcherScope.shutdown() })
+
     val postRepository: PostRepository = JdbcPostRepository()
     // moderationQueueRepository is a singleton shared by createPostService (Layer 2
     // soft-flag) and reportService (V9 auto_hide_3_reports). Declared here near the
@@ -490,6 +548,8 @@ fun Application.module() {
             textModerator = textModerator,
             moderationQueue = moderationQueueRepository,
             jitterSecret = jitterSecret,
+            perspectiveDispatcherScope = perspectiveDispatcherScope,
+            perspectiveModerator = perspectiveModerator,
         )
     val userBlockRepository: UserBlockRepository = JdbcUserBlockRepository(dataSource)
     val blockService = BlockService(userBlockRepository)
@@ -644,6 +704,8 @@ fun Application.module() {
             remoteConfig = remoteConfig,
             textModerator = textModerator,
             moderationQueue = moderationQueueRepository,
+            perspectiveDispatcherScope = perspectiveDispatcherScope,
+            perspectiveModerator = perspectiveModerator,
         )
     val chatRepository = ChatRepository(dataSource)
     val chatService =
