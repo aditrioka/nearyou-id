@@ -426,6 +426,8 @@ fun Application.module() {
 
                     override fun fetchInt(parameterName: String): Int? = null
 
+                    override fun fetchDouble(parameterName: String): Double? = null
+
                     override fun fetchBoolean(parameterName: String): Boolean? = null
                 }
             else -> {

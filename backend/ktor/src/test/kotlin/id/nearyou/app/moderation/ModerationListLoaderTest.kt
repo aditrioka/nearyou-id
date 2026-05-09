@@ -322,6 +322,8 @@ private class RecordingRemoteConfigClient(
         return ints[parameterName]
     }
 
+    override fun fetchDouble(parameterName: String): Double? = null
+
     override fun fetchBoolean(parameterName: String): Boolean? = null
 }
 

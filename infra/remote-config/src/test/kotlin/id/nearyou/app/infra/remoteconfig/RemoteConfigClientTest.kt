@@ -50,6 +50,48 @@ class RemoteConfigClientTest : StringSpec({
         client.fetchInt("moderation_match_threshold").shouldBeNull()
     }
 
+    "fetchDouble parses double value" {
+        val client = clientWith("perspective_api_high_score_threshold" to "0.85")
+        client.fetchDouble("perspective_api_high_score_threshold") shouldBe 0.85
+    }
+
+    "fetchDouble parses integer-shaped string as double (3 → 3.0)" {
+        val client = clientWith("threshold_int_shaped" to "3")
+        client.fetchDouble("threshold_int_shaped") shouldBe 3.0
+    }
+
+    "fetchDouble returns null for non-numeric" {
+        val client = clientWith("threshold_garbage" to "not-a-number")
+        client.fetchDouble("threshold_garbage").shouldBeNull()
+    }
+
+    "fetchDouble tolerates leading and trailing whitespace (matches fetchInt)" {
+        val client = clientWith("threshold_padded" to "  0.6  ")
+        client.fetchDouble("threshold_padded") shouldBe 0.6
+    }
+
+    "fetchDouble returns null for empty string" {
+        val client = clientWith("threshold_empty" to "")
+        client.fetchDouble("threshold_empty").shouldBeNull()
+    }
+
+    "fetchDouble returns null for missing parameter" {
+        val client = clientWith()
+        client.fetchDouble("threshold_unset").shouldBeNull()
+    }
+
+    "fetchDouble parses negative values (clamping is the consumer's responsibility)" {
+        // The infra layer parses faithfully; the orchestrator at :backend:ktor applies the
+        // [0.0, 1.0] clamp per `text-moderation-perspective-api-layer/spec.md`.
+        val client = clientWith("threshold_negative" to "-0.5")
+        client.fetchDouble("threshold_negative") shouldBe -0.5
+    }
+
+    "fetchDouble parses out-of-range positive values (clamping is the consumer's responsibility)" {
+        val client = clientWith("threshold_oversize" to "1.5")
+        client.fetchDouble("threshold_oversize") shouldBe 1.5
+    }
+
     "fetchBoolean parses true/false case-insensitively" {
         val client =
             clientWith(

@@ -17,6 +17,7 @@
 :infra:fcm | Firebase Cloud Messaging Admin SDK wrapper; production `NotificationDispatcher` impl, per-platform payload builders, on-send token-prune contract.
 :infra:oidc | Google OIDC bearer-token verifier (Auth0 `jwks-rsa` + `java-jwt`) for `/internal/*` endpoints invoked by Cloud Scheduler.
 :infra:otel | OpenTelemetry SDK + OTLP exporter + per-library auto-instrumentation (Ktor server, JDBC, Lettuce, outbound HTTP) for `:backend:ktor`. Owns the `OtelBootstrap.start(env, secrets)` entrypoint, the `withSpan(...)` helper, the `UserIdHasher` helper, and the `SpanRecorder` test fixture.
+:infra:perspective | Google Perspective API HTTP client (Ktor CIO + kotlinx.serialization). Owns the `PerspectiveClient` interface and the `KtorPerspectiveClient` Layer-3 toxicity-classifier binding consumed by `:backend:ktor`'s `PerspectiveModerator`.
 :infra:redis | Lettuce-backed `RateLimiter` + `RedisProbe` implementations; Redis client lifecycle isolated from `:backend:ktor`.
 :infra:remote-config | Firebase Remote Config Admin SDK wrapper; isolates the vendor surface for platform-wide tunable config (moderation wordlists, kill switches, runtime parameters). Owns the `RemoteConfigClient` interface + named-FirebaseApp bootstrap.
 :infra:supabase | Supabase-vendor-specific code: JDBC repos (users, posts, moderation, etc.) backed by HikariCP + Supabase Postgres; Realtime broadcast publish (`SupabaseBroadcastChatClient` per `chat-realtime-broadcast`).

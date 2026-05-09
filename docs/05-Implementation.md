@@ -19,7 +19,7 @@ Two tokens, one primary key pair:
 
 **Third-Party Auth migration path** (~2-3 days when MAU >10k makes it affordable): enable Third-Party Auth in Supabase Dashboard, point at the existing JWKS URL, swap WSS token generation from HS256 to RS256 (same key pair as REST). Zero REST refactor.
 
-**Secrets** (GCP Secret Manager): `ktor-rsa-private-key` (kid rotation via versions), `supabase-jwt-secret`, `apns-key-p8`, `firebase-admin-sa`, `invite-code-secret`, `revenuecat-webhook-secret`(+`-hmac-secret`), `resend-api-key`, `jitter-secret` (256-bit), `backup-age-private-key`, `admin-app-db-connection-string`, `admin-session-cookie-signing-key` (optional). DESIGN-reserved: `csam-archive-aes-key`, `cf-worker-csam-secret`, `content-moderation-fallback-list`. Staging mirrors the list with a `staging-*` prefix.
+**Secrets** (GCP Secret Manager): `ktor-rsa-private-key` (kid rotation via versions), `supabase-jwt-secret`, `apns-key-p8`, `firebase-admin-sa`, `perspective-api-key`, `invite-code-secret`, `revenuecat-webhook-secret`(+`-hmac-secret`), `resend-api-key`, `jitter-secret` (256-bit), `backup-age-private-key`, `admin-app-db-connection-string`, `admin-session-cookie-signing-key` (optional). DESIGN-reserved: `csam-archive-aes-key`, `cf-worker-csam-secret`, `content-moderation-fallback-list`. Staging mirrors the list with a `staging-*` prefix.
 
 **HS256 incident rotation**: new Supabase JWT secret → Dashboard update (Realtime sessions kicked within ~20 min) → GCP slot update → rolling Ktor deploy → audit-log pre-rotation refresh tokens.
 
@@ -1039,7 +1039,9 @@ Server-side fetch via Firebase Admin SDK, cached with TTL 5 minutes in Redis.
 - `image_upload_enabled` (boolean, default FALSE): gate for Month 6 image-upload launch
 - `attestation_mode` (enum `enforce` | `warn` | `off`, default `enforce`) + `attestation_bypass_google_ids_sha256` (list): QA bypass
 - `force_update_min_version` (string): force-upgrade floor for the mobile app
-- `perspective_api_enabled` (boolean, default TRUE): kill switch for the future Perspective API
+- `perspective_api_enabled` (boolean, default TRUE): kill switch for the Perspective API (Layer 3)
+- `perspective_api_high_score_threshold` (number, default 0.8): Layer 3 AutoHide threshold; clamped to `[0.0, 1.0]` on every read; out-of-range falls back to default with Sentry WARN
+- `perspective_api_flag_threshold` (number, default 0.6): Layer 3 FlagOnly band lower bound; clamped to `[0.0, 1.0]`; cross-flag misconfig (`flag > high_score`) reverts to BOTH defaults with Sentry ERROR
 - `premium_username_customization_enabled` (boolean, default TRUE): kill switch (see Premium Customization DESIGN stub)
 - `moderation_profanity_list` / `moderation_uu_ite_list` / `moderation_match_threshold`: tied to the Content Moderation Lists DESIGN stub
 

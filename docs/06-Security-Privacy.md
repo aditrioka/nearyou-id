@@ -160,8 +160,11 @@ Both flows land at `POST /internal/apple/s2s-notifications` (OIDC-exempt, Apple 
 3. **Google Perspective API (dev Phase 2 stopgap)**:
    - Free tier: 1 QPS, adequate for dev Phase 2 volume
    - Attributes: `TOXICITY`, `SEVERE_TOXICITY`, `IDENTITY_ATTACK`, `THREAT`
-   - Score >0.8 = auto-hide (`posts.is_auto_hidden = TRUE`) + queue to `moderation_queue`
-   - Score 0.6-0.8 = flag to `moderation_queue` only
+   - The score compared against the thresholds is the per-call max across all four attributes: `score = max(toxicity, severeToxicity, identityAttack, threat)`. Threshold comparisons are STRICTLY greater-than: boundary value `0.80` falls into the FlagOnly band (NOT AutoHide); `score ≤ 0.6` returns NoAction.
+   - Score `> 0.8` = auto-hide (`posts.is_auto_hidden = TRUE`) + queue to `moderation_queue`
+   - Score `> 0.6` AND `≤ 0.8` = flag to `moderation_queue` only
+   - Thresholds tunable via Firebase Remote Config: `perspective_api_high_score_threshold` (default 0.8), `perspective_api_flag_threshold` (default 0.6). Both clamped to `[0.0, 1.0]` on every read.
+   - User content is sent to a third-party (Google Perspective) for classification — flag for the Pre-Launch Privacy Policy / RoPA update.
    - ID language: partial support (mixed ID/EN), accept imperfection in stopgap
    - Feature flag `perspective_api_enabled` for kill switch
 4. **Month 6+ scope (if MAU >10k)**: dedicated ID-language moderation (Meta XLM-R open model self-host, or Hive Moderation paid)
