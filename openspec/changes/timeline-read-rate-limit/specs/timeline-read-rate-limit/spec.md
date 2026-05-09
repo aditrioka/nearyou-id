@@ -13,9 +13,9 @@ The rolling limiter MUST run BEFORE the timeline DB query. On `RateLimited`, the
 The bucket SHALL be incremented as follows on every Free-tier request that the rolling pre-check admitted:
 
 1. The pre-check itself consumes 1 slot (one `tryAcquire` call returning `Allowed`).
-2. After the timeline DB query returns `N` posts (`0 ≤ N ≤ 30`), the handler issues `min(N - 1, 0).coerceAtLeast(0)` additional `tryAcquire` calls — i.e., zero additional calls if `N ≤ 1`, else `N - 1` parallel best-effort calls. Each succeeds while there is room; once the bucket reaches capacity 150, subsequent calls return `RateLimited` and add nothing.
+2. After the timeline DB query returns `N` posts (`0 ≤ N ≤ 30`), the handler issues `(N - 1).coerceAtLeast(0)` additional `tryAcquire` calls — i.e., zero additional calls if `N ≤ 1`, else `N - 1` parallel best-effort calls. Each call succeeds while the bucket has room; once the bucket reaches capacity 150, subsequent calls return `RateLimited` and add nothing.
 
-The total slots consumed on a single admitted request is therefore `1 + min(N - 1, remaining_capacity_after_pre_check)`. Worst-case over-admission for one request is bounded by `N - 1 ≤ 29` (the per-page cap) — a user at slot 121/150 reading 30 posts ends with bucket = 150, exactly at cap, with the user's NEXT request hard-capped. Concurrent same-user requests amplify this bound by parallelism (see § "Concurrent same-user request bound" below).
+The total slots consumed on a single admitted request is `1 + (number of best-effort calls that returned Allowed)` — at most `1 + (N - 1) = N`, possibly less if the bucket fills mid-batch. Worst-case over-admission for one request is bounded by `N - 1 ≤ 29` (the per-page cap) — a user at slot 121/150 reading 30 posts ends with bucket = 150, exactly at cap, with the user's NEXT request hard-capped. Concurrent same-user requests amplify this bound by parallelism (see § "Concurrent same-user request bound" below).
 
 #### Scenario: 5 page-of-30 reads in an hour (Free) succeed
 - **WHEN** Free-tier caller A successfully reads 5 timeline pages of 30 posts each (= 150 posts) within a 60-minute window across any combination of Nearby/Following/Global, with `X-Session-Id: SID` set on every request
@@ -63,7 +63,7 @@ Premium tier (`subscription_status IN ('premium_active', 'premium_billing_retry'
 
 The session limiter MUST run AFTER the rolling pre-check (per § "Limiter ordering") and only when the rolling pre-check returned `Allowed`. The session pre-check ALWAYS admits the request even on `RateLimited` outcome from `tryAcquire`. The `softCapReached` signal is set when the session pre-check returns `RateLimited` — i.e., the bucket was at 50/50 capacity at the time of the call — and that signal drives `upsell.soft = true` on the response.
 
-Bucket increment matches the rolling bucket: 1 slot consumed at pre-check + `min(N - 1, remaining_capacity)` best-effort additional slots after the response is built. Bucket size is always `≤ 50`.
+Bucket increment matches the rolling bucket: 1 slot consumed at pre-check + `(N - 1).coerceAtLeast(0)` best-effort additional `tryAcquire` calls after the response is built. The Lua sliding-window enforces capacity, so bucket size is always `≤ 50` regardless of how many post-increment calls are issued.
 
 #### Scenario: First 49 reads in a session — no upsell.soft flag
 - **WHEN** Free-tier caller A with `X-Session-Id: SID` (UUID-format) has issued requests totaling 48 posts AND issues a timeline read returning 1 post (49th post-delivery total in the session)
@@ -135,7 +135,7 @@ The timeline route handler SHALL run, in this exact order, on every authenticate
 
 1. Auth (existing `auth-jwt` plugin).
 2. Path / query parameter validation (existing — invalid `cursor`, out-of-envelope, etc.).
-3. **Premium short-circuit**: if `viewer.subscriptionStatus IN ('premium_active', 'premium_billing_retry')`, SKIP both rate-limit buckets entirely (no Redis calls). Proceed directly to step 6.
+3. **Premium short-circuit**: if `viewer.subscriptionStatus IN ('premium_active', 'premium_billing_retry')`, SKIP both rate-limit buckets entirely (no Redis calls). Proceed directly to step 7 (timeline DB query).
 4. **`X-Session-Id` validation** (per § "X-Session-Id header validation"): produce a sanitized session-id (the original value if it passes the regex, else `no-session`).
 5. **Rolling pre-check**: `tryAcquire(userId, "{scope:rate_timeline_rolling}:{user:U}", 150, Duration.ofHours(1))`. On `RateLimited`: return HTTP 200 with `posts=[]`, `next_cursor=null`, `upsell.hard=true`, STOP (do NOT execute the session pre-check, the DB query, or the post-increment).
 6. **Session pre-check** (always admits, advisory only): `tryAcquire(userId, "{scope:rate_timeline_session}:{session:U__<sanitized_sid>}", 50, Duration.ofHours(1))`. The outcome is recorded as `softCapReached: Boolean = (outcome == RateLimited)`. The pre-check NEVER blocks the request.

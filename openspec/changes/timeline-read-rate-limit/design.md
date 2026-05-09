@@ -32,7 +32,7 @@ The Guest path (10/session + 30/hour, keyed by guest JWT `jti`) is **explicitly 
 
 Per [`docs/05-Implementation.md:803`](../../../docs/05-Implementation.md), the canonical key is `timeline_rolling:{user:<user_id>}` — a single user-axis key, NOT three (one-per-endpoint). All three timeline routes (`Nearby`, `Following`, `Global`) consume the same rolling bucket.
 
-**Rationale:** A user's "150 posts/hour" budget should be the cross-tab total, not 450/hour distributed across 3 tabs. The canonical key shape is the source of truth and matches this interpretation. A user pulling 50 posts each on Nearby + Following + Global = 150 → rolling cap reached (or via realistic 30-page increments: 5 mixed-endpoint pages of 30 = 150 → cap reached).
+**Rationale:** A user's "150 posts/hour" budget should be the cross-tab total, not 450/hour distributed across 3 tabs. The canonical key shape is the source of truth and matches this interpretation. With the per-page cap of 30, the realistic cross-tab cap-reach scenario is `2 pages on Nearby (60 posts) + 2 pages on Following (60 posts) + 1 page on Global (30 posts) = 150 → rolling cap reached on the 6th request` (matches the integration test scenario in `tasks.md` task 8.7).
 
 **Alternative considered:** Per-endpoint buckets (`{scope:rate_timeline_rolling}:{scope:nearby}:{user:U}` × 3). Rejected because it 3× the canonical limit without a docs basis and complicates cross-tab anti-abuse.
 
@@ -127,7 +127,7 @@ Both shapes match the strict `RedisHashTagRule` regex `^\{scope:[^{}]+}:\{[^{}:]
 
 **Alternative considered:** Extend `RedisHashTagRule` to allow optional trailing `:<value>` after the strict canonical shape (a regex change in the rate-limit-infrastructure capability). Rejected — would require a MODIFIED rate-limit-infrastructure spec in this same change (scope-creep) AND would complicate the rule for marginal benefit. The composite-axis-value shape is cleaner and uses zero rule changes.
 
-**Alternative considered:** Hash session-id into the entry's nonce (not the key). Rejected — would collapse all sessions for the same user into a single 50-slot bucket, breaking per-session bucket independence (Decision 1's stated cross-tab semantics).
+**Alternative considered:** Hash session-id into the entry's nonce (not the key). Rejected — would collapse all sessions for the same user into a single 50-slot bucket, breaking the per-session-bucket-independence semantics that this Decision 8 establishes (and that the spec's "Session bucket per-session — independent buckets" scenario explicitly requires).
 
 ### Decision 9: Limiter ordering — pre-check before DB, post-increment after response
 
