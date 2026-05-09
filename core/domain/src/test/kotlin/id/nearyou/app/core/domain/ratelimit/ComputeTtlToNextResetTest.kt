@@ -55,19 +55,22 @@ class ComputeTtlToNextResetTest : StringSpec({
     "Different users produce different offsets at high probability" {
         val now = Instant.parse("2026-01-01T00:00:00Z")
         var differingPairs = 0
-        repeat(1000) {
+        repeat(100_000) {
             val u1 = UUID.randomUUID()
             val u2 = UUID.randomUUID()
             val d1 = computeTTLToNextReset(u1, now)
             val d2 = computeTTLToNextReset(u2, now)
             if (d1 != d2) differingPairs++
         }
-        // Spec scenario: at least 999 of 1000. The collision probability per pair
-        // is 1/3600 (offsets share a 3600-bucket space), so the expected collision
-        // count in 1000 pairs is ~0.28; observing >= 999 differing is overwhelmingly
-        // likely on any reasonable hashCode distribution. If this ever flakes, the
-        // hashCode distribution is the suspect, not the assertion.
-        (differingPairs >= 999) shouldBe true
+        // Spec scenario: at least 99,500 of 100,000 pairs differ (>= 99.5%). Sample size
+        // 100,000 with threshold 99,500 puts the assertion ~89σ above the expected
+        // collision count of ~27.78 (Poisson, p = 1/3600 per the
+        // `hashCode().toLong().absoluteValue % 3600L` bucket at ComputeTtlToNextReset.kt:36).
+        // Failure probability is effectively zero (<<10⁻¹⁰⁰) on any reasonable hashCode
+        // distribution. If this ever flakes, the bucket has collapsed to a degenerate
+        // distribution; investigate JVM/UUID hashCode regressions before relaxing the
+        // assertion further.
+        (differingPairs >= 99_500) shouldBe true
     }
 
     "Crossing midnight WIB rolls the window" {
