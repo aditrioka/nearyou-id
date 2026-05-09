@@ -956,7 +956,19 @@ private fun hikari(): HikariDataSource {
             jdbcUrl = url
             username = user
             this.password = password
-            maximumPoolSize = 4
+            // Tight pool to stay well within Postgres's default `max_connections=100`.
+            // ~30 test classes share the same Postgres in CI; cumulative idle pool
+            // footprint is the gating constraint. `minimumIdle=0` lets the pool
+            // release connections when not in use so other classes' tests aren't
+            // starved when this class's scenarios pause between assertions.
+            //
+            // Symptom that motivated the tighten: `UserFcmTokensSchemaTest` failed
+            // CI with `FATAL: sorry, too many clients already` after this class's
+            // 29 scenarios each warmed a 4-connection pool — total cumulative
+            // footprint pushed Postgres over 100 connections at the late-running
+            // FCM schema test's cleanup step.
+            maximumPoolSize = 2
+            minimumIdle = 0
             initializationFailTimeout = -1
         }
     return HikariDataSource(config)
