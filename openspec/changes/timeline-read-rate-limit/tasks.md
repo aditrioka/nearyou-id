@@ -93,3 +93,12 @@
 - [x] 10.3 Confirm no FOLLOW_UPS.md entries are silently resolved by this change — none of the 22 open entries name timeline-read rate limiting; this is a fresh capability landing, not a follow-up promotion.
 
 > **Note on staging deploy + smoke verification**: pre-archive smoke is owned by `/opsx:apply` Section 6 (per [`openspec/project.md`](../../../openspec/project.md) § Staging deploy timing convention). It runs against a manual `deploy-staging.yml` branch deploy + a `dev/scripts/smoke-timeline-read-rate-limit.sh` helper. Do not duplicate the smoke checklist here — `/opsx:apply` will track those steps when the implementation phase begins.
+
+## Pre-archive smoke verification
+
+- [x] Smoke verified 2026-05-09T11:00:16Z on `https://api-staging.nearyou.id` (manual branch deploy run [25599385688](https://github.com/aditrioka/nearyou-id/actions/runs/25599385688) → revision built from `4492459`) for synthetic Free user `990cd6b5-f023-4aac-a7f6-28d1b5e0c0c2`. After the bucket-burning probe + 30-post Global reads, observed:
+  - Request 1–2: 30 posts, no `upsell` (rolling 0→60, session 0→50).
+  - Request 3–4: 30 posts, **`upsell.soft = true`** (session bucket at 50/50; soft cap is non-blocking — posts still returned in full).
+  - Request 5: **`posts = []`, `upsell.hard = true`, HTTP 200, no `Retry-After` header** (rolling cap reached: 30 from probe + 4 × 30 = 150 — the 5th burn-side request hard-caps).
+  - **Limiter is genuinely firing — NOT fail-softing.**
+- [x] Discovery during diagnosis: the FIRST deploy (run [25599051613](https://github.com/aditrioka/nearyou-id/actions/runs/25599051613)) was overridden by an unrelated PR [#83](https://github.com/aditrioka/nearyou-id/pull/83) `docs(setup):` merging to `main` 3 minutes after my deploy completed — the auto-deploy-on-push-to-main workflow rebuilt staging from `main` (without my code) as revision `00107-fhp`, regressing the smoke. Re-triggered staging deploy on the change branch (run [25599385688](https://github.com/aditrioka/nearyou-id/actions/runs/25599385688), ~1 min wall-clock from build cache reuse) and smoke ran green within 1 minute, beating any new main-merge race window. Lesson for future operators: when running pre-archive smoke alongside other open PRs, expect the auto-deploy race and have a re-trigger ready.
