@@ -19,9 +19,9 @@
 
 ## 3. Pre-archive verification
 
-- [ ] 3.1 Re-run `openspec validate harden-compute-ttl-test --strict` after any post-review-feedback amendments. MUST be clean before archive.
-- [ ] 3.2 Verify no production code was touched: `git diff main..<change-branch> -- ':!*.md' ':!openspec/' ':!core/domain/src/test/'` should output nothing. (Test-only + spec-only change.)
-- [ ] 3.3 No staging deploy required (test-only change, no runtime impact, no smoke script needed). Mark Section 4 N/A in the archive commit body per [`openspec/project.md` § Archive timing under the one-PR convention](../../../openspec/project.md).
+- [x] 3.1 Re-run `openspec validate harden-compute-ttl-test --strict` after any post-review-feedback amendments. MUST be clean before archive. **Result: valid (post-implementation re-run).**
+- [x] 3.2 Verify no production code was touched: `git diff main..<change-branch> -- ':!*.md' ':!openspec/' ':!core/domain/src/test/'` should output nothing. (Test-only + spec-only change.) **Result: empty diff confirmed; only test file + tasks.md touched in the implementation commit.**
+- [x] 3.3 No staging deploy required (test-only change, no runtime impact, no smoke script needed). Mark Section 4 N/A in the archive commit body per [`openspec/project.md` § Archive timing under the one-PR convention](../../../openspec/project.md). **Confirmed N/A — no runtime code path changes.**
 
 ## 4. Staging smoke (N/A for this change)
 
