@@ -41,11 +41,12 @@ import kotlinx.serialization.json.Json
  * inspect specific sub-categories if desired.
  *
  * **Engine timeouts** are configured per `text-moderation-perspective-api-layer`
- * design.md Decision 2 — `requestTimeoutMillis = 1500`, `connectTimeoutMillis = 200`,
- * `socketTimeoutMillis = 1500`. Bumped from the original 500ms baseline to cover
- * asia-southeast1 → OpenAI US TTFB (empirical p50 ~600-900ms measured 2026-05-11
- * from Cloud Run Singapore). The orchestrator's `withTimeoutOrNull(1500.ms)` is
- * the outer budget; engine-level timeouts ensure socket close on cancellation.
+ * design.md Decision 2 — `requestTimeoutMillis = 3000`, `connectTimeoutMillis = 200`,
+ * `socketTimeoutMillis = 3000`. Calibrated to cover the bimodal asia-southeast1 →
+ * OpenAI US TTFB distribution (measured 2026-05-11 from Cloud Run Singapore:
+ * ~40% at 550-700ms, ~40% at 1500-1550ms, ~20% gateway-timeout outliers at 15s+).
+ * The orchestrator's `withTimeoutOrNull(3000.ms)` is the outer budget; engine-level
+ * timeouts ensure socket close on cancellation.
  *
  * **Indonesian language**: OpenAI's omni-moderation model explicitly supports
  * Indonesian as a top-tier benchmarked language (per OpenAI's omni-moderation
@@ -180,13 +181,16 @@ class OpenAiModerationClient(
 
     companion object {
         // Engine-level timeouts paired with the orchestrator's
-        // `withTimeoutOrNull(1500.ms)` outer budget per design.md Decision 2 — bumped
-        // from the original 500ms baseline to cover asia-southeast1 → OpenAI US TTFB
-        // (empirical p50 ~600-900ms from Cloud Run Singapore, measured 2026-05-11).
-        // Engine-level timeouts ensure socket close on coroutine cancellation.
-        const val REQUEST_TIMEOUT_MILLIS: Long = 1500L
+        // `withTimeoutOrNull(3000.ms)` outer budget per design.md Decision 2.
+        // 3000ms covers the bimodal asia-southeast1 → OpenAI US TTFB distribution
+        // (measured 2026-05-11 from Cloud Run Singapore: ~40% at 550-700ms,
+        // ~40% at 1500-1550ms, ~20% gateway-timeout outliers at 15s+). Bumped from
+        // the original 500ms (pre-pivot baseline) → 1500ms (initial regional bump)
+        // → 3000ms (covers observed slow path with margin). Engine-level timeouts
+        // ensure socket close on coroutine cancellation.
+        const val REQUEST_TIMEOUT_MILLIS: Long = 3000L
         const val CONNECT_TIMEOUT_MILLIS: Long = 200L
-        const val SOCKET_TIMEOUT_MILLIS: Long = 1500L
+        const val SOCKET_TIMEOUT_MILLIS: Long = 3000L
 
         internal const val ENDPOINT_URL: String = "https://api.openai.com/v1/moderations"
         const val DEFAULT_MODEL: String = "omni-moderation-latest"

@@ -24,7 +24,7 @@ interface ModerationClient {
 
 The implementation SHALL use the Ktor HTTP client (CIO engine, already on the classpath) for the outbound call and `kotlinx.serialization` for JSON parsing. The implementation SHALL NOT pull in OpenAI-vendor SDK libraries.
 
-The Ktor HTTP client SHALL configure CIO `requestTimeoutMillis = 1500`, `connectTimeoutMillis = 200`, AND `socketTimeoutMillis = 1500` so the underlying socket is closed when the orchestrator's `withTimeoutOrNull(1500.ms)` cancels the coroutine. Engine-level timeouts defend against socket-pin under load (per design.md Decision 2).
+The Ktor HTTP client SHALL configure CIO `requestTimeoutMillis = 3000`, `connectTimeoutMillis = 200`, AND `socketTimeoutMillis = 3000` so the underlying socket is closed when the orchestrator's `withTimeoutOrNull(3000.ms)` cancels the coroutine. Engine-level timeouts defend against socket-pin under load (per design.md Decision 2).
 
 The OpenAI API key SHALL be passed into the `OpenAiModerationClient` constructor as a `String` parameter at boot. `:backend:ktor`'s `Application.module()` resolves the API key via `secrets.resolve("openai-api-key")` (bare slot name; mirroring [`Application.kt`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) `secrets.resolve("firebase-admin-sa")` precedent), with `secretKey(env, "openai-api-key")` computed for the diagnostic init log line. `:infra:openai-moderation` SHALL NOT depend on `:backend:ktor`'s `SecretResolver` interface — secret resolution happens at the `:backend:ktor` boundary, mirroring the established `:infra:fcm` / `:infra:remote-config` precedent.
 
@@ -53,7 +53,7 @@ The OpenAI API key SHALL be passed into the `OpenAiModerationClient` constructor
 
 #### Scenario: Ktor HTTP client is configured with engine-level timeouts
 - **WHEN** the `OpenAiModerationClient` HTTP client construction is inspected
-- **THEN** the CIO engine config sets `requestTimeoutMillis = 1500`, `connectTimeoutMillis = 200`, AND `socketTimeoutMillis = 1500` (defense-in-depth against socket-pin under load per design.md Decision 2)
+- **THEN** the CIO engine config sets `requestTimeoutMillis = 3000`, `connectTimeoutMillis = 200`, AND `socketTimeoutMillis = 3000` (defense-in-depth against socket-pin under load per design.md Decision 2)
 
 ### Requirement: `Layer3Moderator` aggregates per-category scores via `maxScore()` and applies canonical thresholds
 
@@ -201,11 +201,11 @@ Cross-flag misconfiguration (`flag_threshold > high_score_threshold`) is detecte
 - **WHEN** the loader writes to Redis after a successful Tier 2 resolution for the kill-switch
 - **THEN** the Redis key written equals exactly `"{scope:layer3_config}:{flag:perspective_api_enabled}"` (vendor-neutral `layer3_config` scope; flag name retains operator-facing `perspective_api_enabled`; matches the `RedisHashTagRule` Detekt expectation)
 
-### Requirement: `Layer3Moderator` invocation has a 1500ms timeout (regional baseline) and fails open
+### Requirement: `Layer3Moderator` invocation has a 3000ms timeout (regional baseline) and fails open
 
-The orchestrator SHALL wrap the `ModerationClient.analyze(content)` call in `withTimeoutOrNull(1500.milliseconds)`. On timeout (return value null), the orchestrator SHALL return `Outcome.NoAction` AND emit a Sentry WARN with `event = "layer3_dispatch_failed"`, `failure_kind = "timeout"`.
+The orchestrator SHALL wrap the `ModerationClient.analyze(content)` call in `withTimeoutOrNull(3000.milliseconds)`. On timeout (return value null), the orchestrator SHALL return `Outcome.NoAction` AND emit a Sentry WARN with `event = "layer3_dispatch_failed"`, `failure_kind = "timeout"`.
 
-**Regional baseline note:** the 1500ms budget is calibrated for `asia-southeast1` Cloud Run deployment → US-hosted OpenAI. Empirical TTFB from Singapore is ~600-900ms p50 (measured 2026-05-11; raw curl from a one-shot Cloud Run Job in the same region as the production service). 1500ms gives ~500ms tail buffer for p95 outliers and JSON parse. A deployment in a US Cloud Run region could safely tighten this to ~500-800ms; deployments in other Asia/EU regions should re-measure before changing. The budget is a constructor parameter (`analyzeTimeoutMillis` on `DefaultLayer3Moderator`); tests assert the canonical default `1500L` on the `ANALYZE_TIMEOUT_MILLIS` companion constant.
+**Regional baseline note:** the 3000ms budget is calibrated for `asia-southeast1` Cloud Run deployment → US-hosted OpenAI. Empirical TTFB from Singapore is **bimodal** (measured 2026-05-11 via raw curl from a one-shot Cloud Run Job in the production region): ~40% fast-path at 550-700ms, ~40% slow-path at 1500-1550ms, ~20% gateway-timeout outliers at 15s+. The 3000ms budget covers the observed slow tail with ~1500ms margin and still bails fast on the 504 outliers (which would otherwise hold coroutine resources for 15s+). The budget evolved through the change lifecycle: 500ms (pre-pivot canonical doc assuming US deployment) → 1500ms (initial post-pivot bump after fast-path measurement) → 3000ms (final, after observing the bimodal slow-path tail at 1500ms). A deployment in a US Cloud Run region could safely tighten this to ~500-800ms; deployments in other Asia/EU regions should re-measure before changing. The budget is a constructor parameter (`analyzeTimeoutMillis` on `DefaultLayer3Moderator`); tests assert the canonical default `3000L` on the `ANALYZE_TIMEOUT_MILLIS` companion constant.
 
 The orchestrator SHALL ALSO return `Outcome.NoAction` (fail-open) on any of:
 - OpenAI Moderation API HTTP 4xx response (auth failure, malformed request, rate limit) — Sentry WARN with `failure_kind = "http_4xx"`, including the integer status code
@@ -217,8 +217,8 @@ The orchestrator SHALL ALSO return `Outcome.NoAction` (fail-open) on any of:
 
 The orchestrator SHALL NOT propagate any non-cancellation exception out of `moderate(...)` — it absorbs every failure mode and returns `Outcome.NoAction`. `CancellationException` SHALL propagate per coroutine convention (so structured cancellation works correctly through the dispatcher scope).
 
-#### Scenario: 1500ms timeout returns NoAction with Sentry WARN
-- **GIVEN** `ModerationClient.analyze(content)` suspends for 1600ms (e.g., simulated by a `delay(1600)` in a test fixture)
+#### Scenario: 3000ms timeout returns NoAction with Sentry WARN
+- **GIVEN** `ModerationClient.analyze(content)` suspends for 3100ms (e.g., simulated by a `delay(3100)` in a test fixture; tests typically use a tighter constructor-tunable `analyzeTimeoutMillis` to keep runtime fast — the boundary semantic is what's asserted, not a hardcoded 3000ms)
 - **WHEN** `moderator.moderate(POST, U, content)` is invoked
 - **THEN** the result equals `Outcome.NoAction` AND exactly one Sentry WARN is emitted with `event = "layer3_dispatch_failed"`, `failure_kind = "timeout"`, `target_type = "post"`, `target_id = "<U>"` AND no vendor response is consumed AND no `moderation_queue` row is written AND no `is_auto_hidden` flip occurs
 

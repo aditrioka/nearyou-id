@@ -23,7 +23,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * Workflow per [moderate]:
  *  1. Read kill-switch via [Layer3ConfigLoader.isEnabled]; on `false` return
  *     `Outcome.NoAction` silently.
- *  2. Wrap [ModerationClient.analyze] in `withTimeoutOrNull(1500.ms)`.
+ *  2. Wrap [ModerationClient.analyze] in `withTimeoutOrNull(3000.ms)`.
  *  3. Aggregate score: per-call max across all categories
  *     (`ModerationScore.maxScore()`). For OpenAI Moderation `omni-moderation-latest`,
  *     this is the max across 13 categories (harassment, hate, illicit, self-harm,
@@ -98,7 +98,7 @@ class DefaultLayer3Moderator(
             return Outcome.NoAction
         }
 
-        // 2. Upstream moderation call with regional-baseline 1500ms budget
+        // 2. Upstream moderation call with regional-baseline 3000ms budget
         //    (constructor-tunable via analyzeTimeoutMillis; see ANALYZE_TIMEOUT_MILLIS).
         val score: ModerationScore =
             try {
@@ -127,7 +127,7 @@ class DefaultLayer3Moderator(
                 emitDispatchFailedWarn(targetType, targetId, FAILURE_KIND_NETWORK, statusCode = null)
                 return Outcome.NoAction
             } ?: run {
-                // withTimeoutOrNull returned null — the 1500ms budget elapsed.
+                // withTimeoutOrNull returned null — the 3000ms budget elapsed.
                 emitDispatchFailedWarn(targetType, targetId, FAILURE_KIND_TIMEOUT, statusCode = null)
                 return Outcome.NoAction
             }
@@ -301,12 +301,18 @@ class DefaultLayer3Moderator(
     }
 
     companion object {
-        // 1500ms regional baseline for asia-southeast1 → OpenAI US. Empirical TTFB
-        // p50 ~600-900ms from Cloud Run Singapore (measured 2026-05-11); 1500ms
-        // gives ~500ms tail buffer for parse + p95 outliers. Fire-and-forget dispatch
-        // means user request time is unaffected regardless. Shutdown drain budget
-        // (5s) still > this. See design.md Decision 2.
-        const val ANALYZE_TIMEOUT_MILLIS: Long = 1500L
+        // 3000ms regional baseline for asia-southeast1 → OpenAI US. Empirical TTFB
+        // shows a BIMODAL distribution from Cloud Run Singapore (measured 2026-05-11):
+        // ~40% fast-path (550-700ms), ~40% slow-path (1500-1550ms), ~20% gateway-
+        // timeout outliers (504 at 15s). A 3000ms budget covers the observed slow
+        // tail with ~1500ms safety margin; still bails fast on the 504 outliers
+        // (which would otherwise hold coroutine resources for 15s+). The bimodal
+        // pattern is likely OpenAI's internal scheduling tier (cold vs. warm pool);
+        // a tighter budget can be revisited post-launch once production traffic
+        // shows a clearer distribution. Fire-and-forget dispatch means user request
+        // time is unaffected. Shutdown drain budget (5s) still > this. See
+        // design.md Decision 2.
+        const val ANALYZE_TIMEOUT_MILLIS: Long = 3000L
 
         // Sentry event names: vendor-agnostic `layer3_*` (clean break from historical
         // `perspective_*` per the vendor-swap amendment in proposal.md; no operator

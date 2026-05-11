@@ -59,23 +59,34 @@ parallel external migrations):
 - Fail-open posture, kill-switch, cross-flag-misconfig fallback, soft-delete
   race handling, no-content-on-Sentry contract, OTel trace propagation.
 
-**Second mid-flight amendment — timeout budget bumped 500 → 1500ms (2026-05-11)**:
+**Second mid-flight amendment — timeout budget bumped 500 → 1500ms → 3000ms (2026-05-11)**:
 
 After the OpenAI swap landed and staging deploy went green, the pre-archive
-smoke surfaced a regional-latency finding: `asia-southeast1` Cloud Run →
-US-hosted OpenAI Moderation API has empirical TTFB p50 ~600-900ms (measured
-via a one-shot `curl` Cloud Run Job in the production region). The original
-500ms budget — written assuming a US deployment per the pre-pivot canonical
-doc — was incompatible with Singapore reality; every dispatch would
-fail-open on timeout, effectively disabling Layer 3 in production. Budget
-bumped to **1500ms** (covers Singapore p95 with ~500ms tail buffer for parse
-+ outliers; constructor-tunable via `analyzeTimeoutMillis` for deployments
-in other regions). Affected files:
+smoke surfaced a regional-latency finding. The budget evolved through TWO
+iterations on the same day:
 
-- `Layer3Moderator.kt`: `ANALYZE_TIMEOUT_MILLIS: Long = 1500L` (was 500L)
-- `OpenAiModerationClient.kt`: `REQUEST_TIMEOUT_MILLIS` + `SOCKET_TIMEOUT_MILLIS = 1500L`
+**Iteration 1 (500 → 1500ms):** A one-shot `curl` Cloud Run Job in the
+production region measured `asia-southeast1` Cloud Run → US-hosted OpenAI
+Moderation API empirical TTFB at ~600-900ms p50 (fast-path only). The
+original 500ms budget — written assuming a US deployment per the pre-pivot
+canonical doc — was incompatible with Singapore reality. Budget bumped to
+1500ms.
+
+**Iteration 2 (1500 → 3000ms):** Smoke retry under the 1500ms budget STILL
+timed out. A second diag job with the actual smoke sentinel content revealed
+a **bimodal** distribution that the fast-path-only first measurement missed:
+~40% fast-path at 550-700ms, **~40% slow-path at 1500-1550ms** (right on
+the 1500ms boundary), ~20% gateway-timeout outliers at 15s+. The 1500ms
+budget was cutting off the slow path. Budget bumped to **3000ms** to cover
+the slow tail with ~1500ms margin; still bails fast on the 504 outliers.
+
+Affected files (all updated in both iterations; this listing reflects the
+final 3000ms state):
+
+- `Layer3Moderator.kt`: `ANALYZE_TIMEOUT_MILLIS: Long = 3000L` (was 500L, then 1500L)
+- `OpenAiModerationClient.kt`: `REQUEST_TIMEOUT_MILLIS` + `SOCKET_TIMEOUT_MILLIS = 3000L`
 - `docs/06-Security-Privacy.md:184`: canonical "Layer 3 budget" line
-- `design.md` Decision 2 + Risks section
+- `design.md` Decision 2 + Risks section + Context vendor-note
 - `specs/text-moderation-perspective-api-layer/spec.md`: timeout requirement + scenarios
 - Tests: `Layer3ModeratorTest` + `Layer3RouteTest` timeout-scenarios use
   100ms test-only budget via the `analyzeTimeoutMillis` constructor param
@@ -83,8 +94,11 @@ in other regions). Affected files:
   hardcoded number)
 
 The dispatch is fire-and-forget so user request time is unaffected; shutdown
-drain budget (5s) still > 1500ms; coroutine resource usage at 100
-dispatches/sec is ~3× the prior baseline but well within capacity.
+drain budget (5s) still > 3000ms; coroutine resource usage at 100
+dispatches/sec is ~6× the original 500ms baseline but well within capacity.
+The bimodal distribution may stabilize under production traffic (connection-
+pool warmth, OpenAI account scheduling tier); tightening the budget post-
+launch is a tuning task.
 - All test coverage (47 unit + 7 writer-integration + 8 service-level integration
   + 11 HTTP-boundary route + 3 structural + 1 endpoint-leakage scan, plus 14
   new OpenAI client tests).
@@ -110,7 +124,7 @@ Now is the right time because: (a) the Layer 1+2 foundation (`TextModerator`, `M
 ## What Changes
 
 - **NEW** `:infra:perspective` Gradle module under `infra/perspective/` owning the Google Perspective API HTTP client (per the project's `:infra:*` vendor-encapsulation pattern). Exposes a `PerspectiveClient` interface returning a plain Kotlin `PerspectiveScore(toxicity, severeToxicity, identityAttack, threat)` data class. API key sourced from a new GCP Secret Manager slot `perspective-api-key` (env-namespaced).
-- **NEW** `PerspectiveConfigLoader` + `PerspectiveModerator` orchestrator in `:backend:ktor` (`id.nearyou.app.moderation`) — `PerspectiveConfigLoader` is the cache layer for the kill-switch + thresholds (4-tier fallback: Redis 5-min cache → Remote Config → static defaults → fail-open; mirrors the `ModerationListLoader` pattern; cache key scope `{scope:perspective_config}:{flag:<flag-name>}`). `PerspectiveModerator` consumes the loader, invokes `PerspectiveClient` with a 500ms `withTimeoutOrNull` budget (bumped to **1500ms** mid-implementation when empirical TTFB from asia-southeast1 → US OpenAI was measured at p50 600-900ms — see design.md Decision 2 + proposal.md § Vendor Swap Amendment), applies the score-threshold mapping (>0.8 → auto-hide + queue; 0.6–0.8 → queue only; ≤0.6 → no action), writes to `moderation_queue` with `trigger = 'perspective_api_high_score'`, and (high-score only) flips `posts.is_auto_hidden = TRUE` (or `post_replies.is_auto_hidden`) — with `AND deleted_at IS NULL` soft-delete guard — in the same SQL transaction as the queue insert.
+- **NEW** `PerspectiveConfigLoader` + `PerspectiveModerator` orchestrator in `:backend:ktor` (`id.nearyou.app.moderation`) — `PerspectiveConfigLoader` is the cache layer for the kill-switch + thresholds (4-tier fallback: Redis 5-min cache → Remote Config → static defaults → fail-open; mirrors the `ModerationListLoader` pattern; cache key scope `{scope:perspective_config}:{flag:<flag-name>}`). `PerspectiveModerator` consumes the loader, invokes `PerspectiveClient` with a 500ms `withTimeoutOrNull` budget (bumped to **3000ms** mid-implementation in two iterations after empirical TTFB measurements from asia-southeast1 → US OpenAI revealed a bimodal distribution; see design.md Decision 2 + proposal.md § Vendor Swap Amendment), applies the score-threshold mapping (>0.8 → auto-hide + queue; 0.6–0.8 → queue only; ≤0.6 → no action), writes to `moderation_queue` with `trigger = 'perspective_api_high_score'`, and (high-score only) flips `posts.is_auto_hidden = TRUE` (or `post_replies.is_auto_hidden`) — with `AND deleted_at IS NULL` soft-delete guard — in the same SQL transaction as the queue insert.
 - **NEW** async dispatch wiring after each successful content INSERT (posts + replies). Mirrors the `:infra:fcm` `FcmDispatcherScope` pattern — long-lived `SupervisorJob`-rooted scope, structured logging on failures, JVM-shutdown drain budget. Fire-and-forget at the call site; the orchestrator owns its own coroutine scope.
 - **NEW** capability spec `text-moderation-perspective-api-layer` covering the orchestrator contract, threshold semantics (max-attribute aggregation), fail-open posture (timeout / 5xx / network error / kill-switch-OFF → no action), idempotent queue write (existing UNIQUE on `(target_type, target_id, trigger)`), atomicity (auto-hide + queue insert in one transaction), async dispatch lifecycle (drain on shutdown), no-user-content-on-Sentry contract.
 - **MODIFIED** `content-moderation-keyword-lists` capability — single requirement amendment clarifying that Layer 3 runs **post-INSERT, async**, NOT through the existing synchronous `TextModerator.moderate(content): Verdict` path. The existing `### Requirement: TextModerator integration is invoked AFTER existing length and rate-limit gates, BEFORE INSERT` gets a sibling clause: "Layer 3 (Perspective API) runs AFTER the INSERT in a separate async dispatcher; see `text-moderation-perspective-api-layer` capability."

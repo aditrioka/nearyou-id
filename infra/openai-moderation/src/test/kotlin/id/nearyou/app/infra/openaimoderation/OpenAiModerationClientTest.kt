@@ -319,14 +319,16 @@ class OpenAiModerationClientTest : StringSpec({
     "engine timeout configuration matches design.md Decision 2 values" {
         // The three constants are part of the public companion object so the values
         // are pinned. Asserting the constants ensures any regression to the values
-        // is caught at compile + test time. The `withTimeoutOrNull(1500.ms)` budget
+        // is caught at compile + test time. The `withTimeoutOrNull(3000.ms)` budget
         // at the orchestrator and the engine-level timeouts here form the
-        // defense-in-depth against socket-pin under load. The 1500ms baseline
-        // covers asia-southeast1 → OpenAI US TTFB p50 ~600-900ms (measured
-        // 2026-05-11) with ~500ms tail buffer for p95 outliers.
-        OpenAiModerationClient.REQUEST_TIMEOUT_MILLIS shouldBe 1500L
+        // defense-in-depth against socket-pin under load. The 3000ms baseline
+        // covers the bimodal asia-southeast1 → OpenAI US TTFB distribution
+        // (measured 2026-05-11: ~40% at 550-700ms, ~40% at 1500-1550ms slow path,
+        // ~20% gateway-timeout outliers at 15s+); 3000ms catches the slow tail
+        // with ~1500ms margin and still bails fast on the 504 outliers.
+        OpenAiModerationClient.REQUEST_TIMEOUT_MILLIS shouldBe 3000L
         OpenAiModerationClient.CONNECT_TIMEOUT_MILLIS shouldBe 200L
-        OpenAiModerationClient.SOCKET_TIMEOUT_MILLIS shouldBe 1500L
+        OpenAiModerationClient.SOCKET_TIMEOUT_MILLIS shouldBe 3000L
     }
 
     "default model is the omni-moderation-latest variant" {
