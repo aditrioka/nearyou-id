@@ -23,7 +23,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * Workflow per [moderate]:
  *  1. Read kill-switch via [Layer3ConfigLoader.isEnabled]; on `false` return
  *     `Outcome.NoAction` silently.
- *  2. Wrap [ModerationClient.analyze] in `withTimeoutOrNull(500.ms)`.
+ *  2. Wrap [ModerationClient.analyze] in `withTimeoutOrNull(1500.ms)`.
  *  3. Aggregate score: per-call max across all categories
  *     (`ModerationScore.maxScore()`). For OpenAI Moderation `omni-moderation-latest`,
  *     this is the max across 13 categories (harassment, hate, illicit, self-harm,
@@ -98,7 +98,8 @@ class DefaultLayer3Moderator(
             return Outcome.NoAction
         }
 
-        // 2. Upstream moderation call with 500ms budget.
+        // 2. Upstream moderation call with regional-baseline 1500ms budget
+        //    (constructor-tunable via analyzeTimeoutMillis; see ANALYZE_TIMEOUT_MILLIS).
         val score: ModerationScore =
             try {
                 withTimeoutOrNull(analyzeTimeoutMillis.milliseconds) {
@@ -126,7 +127,7 @@ class DefaultLayer3Moderator(
                 emitDispatchFailedWarn(targetType, targetId, FAILURE_KIND_NETWORK, statusCode = null)
                 return Outcome.NoAction
             } ?: run {
-                // withTimeoutOrNull returned null — the 500ms budget elapsed.
+                // withTimeoutOrNull returned null — the 1500ms budget elapsed.
                 emitDispatchFailedWarn(targetType, targetId, FAILURE_KIND_TIMEOUT, statusCode = null)
                 return Outcome.NoAction
             }
@@ -300,7 +301,12 @@ class DefaultLayer3Moderator(
     }
 
     companion object {
-        const val ANALYZE_TIMEOUT_MILLIS: Long = 500L
+        // 1500ms regional baseline for asia-southeast1 → OpenAI US. Empirical TTFB
+        // p50 ~600-900ms from Cloud Run Singapore (measured 2026-05-11); 1500ms
+        // gives ~500ms tail buffer for parse + p95 outliers. Fire-and-forget dispatch
+        // means user request time is unaffected regardless. Shutdown drain budget
+        // (5s) still > this. See design.md Decision 2.
+        const val ANALYZE_TIMEOUT_MILLIS: Long = 1500L
 
         // Sentry event names: vendor-agnostic `layer3_*` (clean break from historical
         // `perspective_*` per the vendor-swap amendment in proposal.md; no operator

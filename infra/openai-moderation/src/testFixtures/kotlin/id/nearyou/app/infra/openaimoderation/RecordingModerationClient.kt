@@ -74,7 +74,8 @@ class RecordingModerationClient : ModerationClient {
 
     /**
      * Stage a suspending delay (in milliseconds) before the next response resolves.
-     * Useful for exercising the orchestrator's `withTimeoutOrNull(500.ms)` budget.
+     * Useful for exercising the orchestrator's `withTimeoutOrNull(1500.ms)` budget
+     * (or a test-only shorter override via `analyzeTimeoutMillis` constructor param).
      */
     fun stageDelay(
         delayMillis: Long,

@@ -83,7 +83,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientCN
  *
  * Covers spec tasks 10.1 (testApplication boot), 10.2 (HTTP-level high score),
  * 10.3 (HTTP-level mid score), 10.4 (HTTP-level low score), 10.5 (HTTP-level 5xx
- * failure), 10.6 (HTTP-level 600ms timeout), 10.7 (HTTP-level kill-switch off), and
+ * failure), 10.6 (HTTP-level vendor delay > budget), 10.7 (HTTP-level kill-switch off), and
  * 10.8 (reply path — same shape of tests).
  */
 @Tags("database")
@@ -208,6 +208,10 @@ class Layer3RouteTest : StringSpec({
         isKillSwitchEnabled: Boolean = true,
         highScoreThreshold: Double = 0.8,
         flagThreshold: Double = 0.6,
+        // Optional override so timeout-failure scenarios complete fast (e.g., 100ms)
+        // instead of waiting the 1500ms production default. Non-timeout scenarios
+        // inherit the production constant so their behavior matches reality.
+        timeoutMillis: Long = DefaultLayer3Moderator.ANALYZE_TIMEOUT_MILLIS,
         block: suspend HttpScenarioContext.() -> Unit,
     ) {
         val dispatcher =
@@ -225,6 +229,7 @@ class Layer3RouteTest : StringSpec({
                 client = recordingClient,
                 configLoader = configLoader,
                 writer = perspectiveWriter,
+                analyzeTimeoutMillis = timeoutMillis,
             )
         val createPostService =
             CreatePostService(
@@ -278,6 +283,8 @@ class Layer3RouteTest : StringSpec({
     suspend fun withReplyApp(
         recordingClient: RecordingModerationClient,
         isKillSwitchEnabled: Boolean = true,
+        // Same rationale as withPostApp — see comment there.
+        timeoutMillis: Long = DefaultLayer3Moderator.ANALYZE_TIMEOUT_MILLIS,
         block: suspend HttpScenarioContext.() -> Unit,
     ) {
         val dispatcher =
@@ -295,6 +302,7 @@ class Layer3RouteTest : StringSpec({
                 client = recordingClient,
                 configLoader = configLoader,
                 writer = perspectiveWriter,
+                analyzeTimeoutMillis = timeoutMillis,
             )
         val replyService =
             ReplyService(
@@ -431,21 +439,24 @@ class Layer3RouteTest : StringSpec({
         }
     }
 
-    "10.6 POST /api/v1/posts with 600ms Perspective delay → 201 + timeout fail-open" {
+    "10.6 POST /api/v1/posts with vendor delay exceeding budget → 201 + timeout fail-open" {
         val (_, token) = seedUserAndIssue()
-        // Stage a 600ms delay — exceeds the orchestrator's 500ms withTimeoutOrNull budget.
-        val client = RecordingModerationClient().apply { stageDelay(delayMillis = 600L) }
+        // Stage a 200ms delay against a 100ms test-only budget — exceeds it; the
+        // production default is 1500ms but we use a tight 100ms here so the test
+        // completes in ~100ms instead of waiting 1500ms. The semantic asserted is
+        // "vendor delay > budget → fail-open", not a hardcoded 500/1500ms boundary.
+        val client = RecordingModerationClient().apply { stageDelay(delayMillis = 200L) }
 
-        withPostApp(client) {
+        withPostApp(client, timeoutMillis = 100L) {
             val httpClient = testBuilder.createClient { install(ClientCN) { json() } }
             val resp =
                 httpClient.post("/api/v1/posts") {
                     header(HttpHeaders.Authorization, "Bearer $token")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"content":"slow Perspective","latitude":-6.2,"longitude":106.8}""")
+                    setBody("""{"content":"slow vendor","latitude":-6.2,"longitude":106.8}""")
                 }
-            // Even though Perspective is slow, the HTTP request returns 201 immediately
-            // — Layer 3 is fire-and-forget. The orchestrator's withTimeoutOrNull(500.ms)
+            // Even though the vendor is slow, the HTTP request returns 201 immediately
+            // — Layer 3 is fire-and-forget. The orchestrator's withTimeoutOrNull(budget)
             // ensures the dispatch returns NoAction within the budget.
             resp.status shouldBe HttpStatusCode.Created
             val postId = postIdFromBody(resp.bodyAsText())
@@ -553,19 +564,20 @@ class Layer3RouteTest : StringSpec({
         }
     }
 
-    "10.8 POST /api/v1/posts/{post_id}/replies with 600ms Perspective delay → 201 + timeout fail-open" {
+    "10.8 POST /api/v1/posts/{post_id}/replies with vendor delay exceeding budget → 201 + timeout fail-open" {
         val (_, replierToken) = seedUserAndIssue()
         val (parentAuthorId, _) = seedUserAndIssue()
         val parentPostId = seedParentPost(parentAuthorId)
-        val client = RecordingModerationClient().apply { stageDelay(delayMillis = 600L) }
+        // Stage 200ms delay vs. 100ms test-only budget. Production default is 1500ms.
+        val client = RecordingModerationClient().apply { stageDelay(delayMillis = 200L) }
 
-        withReplyApp(client) {
+        withReplyApp(client, timeoutMillis = 100L) {
             val httpClient = testBuilder.createClient { install(ClientCN) { json() } }
             val resp =
                 httpClient.post("/api/v1/posts/$parentPostId/replies") {
                     header(HttpHeaders.Authorization, "Bearer $replierToken")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"content":"slow Perspective reply"}""")
+                    setBody("""{"content":"slow vendor reply"}""")
                 }
             resp.status shouldBe HttpStatusCode.Created
             val replyId = postIdFromBody(resp.bodyAsText())

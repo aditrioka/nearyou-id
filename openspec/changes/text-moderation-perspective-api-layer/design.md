@@ -4,11 +4,11 @@ The text-moderation pipeline today (per [`openspec/specs/content-moderation-keyw
 
 [`docs/06-Security-Privacy.md:175-180`](../../../docs/06-Security-Privacy.md) prescribes a **third layer** that runs differently from Layers 1+2:
 
-> Layer 3: async post-INSERT toxicity classifier (500ms timeout, fail-open) — score >0.8 → set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed)
+> Layer 3: async post-INSERT toxicity classifier (1500ms timeout regional baseline for asia-southeast1, fail-open) — score >0.8 → set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed)
 
 Three load-bearing distinctions from Layers 1+2:
 - **Asynchronous, post-INSERT.** The user's request returns 201/200 BEFORE the Layer 3 classifier call completes. The classifier runs on a fire-and-forget coroutine.
-- **Network-bound + fail-open.** A 500ms `withTimeoutOrNull` budget means the call may not return at all. Any timeout, network error, 5xx response, or kill-switch-OFF → no action (the row stays as-is).
+- **Network-bound + fail-open.** A 1500ms `withTimeoutOrNull` budget (regional baseline for asia-southeast1 deployment) means the call may not return at all. Any timeout, network error, 5xx response, or kill-switch-OFF → no action (the row stays as-is).
 - **Outcome is mutation, not gating.** Layer 3 cannot reject the request (it's already INSERTed). High-score (>0.8) flips `is_auto_hidden = TRUE` post-hoc. Mid-score (0.6–0.8) writes a queue row only.
 
 This change adds Layer 3 as a NEW capability rather than extending the existing `TextModerator` interface — the synchronous and asynchronous surfaces have different lifetimes, different transaction boundaries, and different failure semantics. Conflating them in one Verdict-shaped abstraction would force every caller to reason about both lifecycles.
@@ -61,7 +61,7 @@ The interface name `ModerationClient` (not `OpenAiClient`) is deliberately vendo
 
 Use the Ktor HTTP client (CIO engine, already on the classpath via `:backend:ktor`) inside `:infra:openai-moderation` to POST to `https://api.openai.com/v1/moderations`. The request body is `{"model": "omni-moderation-latest", "input": "<content>"}`; the API key is sent via the `Authorization: Bearer <api-key>` header (per OpenAI's documented auth pattern). The response body is a JSON object with `results[0].category_scores`, a flat object keyed by OpenAI's 13 category names (e.g., `harassment`, `harassment/threatening`, `hate`, `hate/threatening`, `illicit`, `illicit/violent`, `self-harm`, `self-harm/intent`, `self-harm/instructions`, `sexual`, `sexual/minors`, `violence`, `violence/graphic`). The slash-separated subcategory keys are preserved verbatim in `ModerationScore.categoryScores`.
 
-The HTTP client SHALL configure CIO `requestTimeoutMillis = 500` AND `connectTimeoutMillis = 200` AND `socketTimeoutMillis = 500` to defend against socket-read pinning beyond the orchestrator-level `withTimeoutOrNull(500.ms)` budget. Without engine-level timeouts, a slow socket read can keep the underlying connection in the pool past the coroutine timeout — under sustained load this exhausts the pool. The engine timeouts ensure the socket is closed when the coroutine cancels.
+The HTTP client SHALL configure CIO `requestTimeoutMillis = 1500` AND `connectTimeoutMillis = 200` AND `socketTimeoutMillis = 1500` to defend against socket-read pinning beyond the orchestrator-level `withTimeoutOrNull(1500.ms)` budget. The 1500ms baseline (bumped from the original 500ms in design v1) is calibrated to asia-southeast1 → US OpenAI TTFB (empirical p50 ~600-900ms, measured 2026-05-11 from a raw `curl` in a one-shot Cloud Run Job in the production region). Without engine-level timeouts, a slow socket read can keep the underlying connection in the pool past the coroutine timeout — under sustained load this exhausts the pool. The engine timeouts ensure the socket is closed when the coroutine cancels.
 
 **Why:** The OpenAI Moderation API is a single REST endpoint; pulling in a vendor-specific SDK is unnecessary weight for one call. Ktor client is already on the classpath, supports `kotlinx.serialization` JSON parsing, and integrates cleanly with coroutines. The explicit engine timeouts are defense-in-depth — coroutine cancellation propagates to Ktor's suspending calls, but the underlying socket may hold past the cancellation point unless engine-level timeouts force a close.
 
@@ -109,7 +109,7 @@ The class name `Layer3DispatcherScope` is vendor-neutral (architectural-layer na
 ### Decision 5: Fail-open mechanics — every failure mode → `Outcome.NoAction`
 
 The orchestrator returns `Outcome.NoAction` on:
-- `withTimeoutOrNull` returns null (500ms exceeded)
+- `withTimeoutOrNull` returns null (1500ms regional-baseline budget exceeded)
 - OpenAI Moderation API returns HTTP 4xx (auth failure, malformed request, rate limit) — log Sentry WARN
 - OpenAI Moderation API returns HTTP 5xx (vendor outage) — log Sentry WARN
 - Network exception thrown (DNS fail, TLS handshake fail, connection refused) — log Sentry WARN
@@ -119,7 +119,7 @@ The orchestrator returns `Outcome.NoAction` on:
 
 The orchestrator SHALL NOT propagate any non-cancellation exception out of `moderate(...)`. `CancellationException` SHALL propagate per coroutine convention so structured cancellation works correctly through the dispatcher scope.
 
-**Why:** [`docs/06-Security-Privacy.md:179`](../../../docs/06-Security-Privacy.md) reads "500ms timeout, fail-open". The user's content is already INSERTed; failing the dispatch silently preserves availability. The Layer 1+2 sync gates already ran successfully; Layer 3 is defense-in-depth. A flapping vendor endpoint MUST NOT degrade post-creation latency.
+**Why:** [`docs/06-Security-Privacy.md:179`](../../../docs/06-Security-Privacy.md) reads "1500ms timeout regional baseline for asia-southeast1, fail-open" (originally "500ms" in the pre-pivot doc; updated 2026-05-11 to match the empirical TTFB measurement from the production region). The user's content is already INSERTed; failing the dispatch silently preserves availability. The Layer 1+2 sync gates already ran successfully; Layer 3 is defense-in-depth. A flapping vendor endpoint MUST NOT degrade post-creation latency.
 
 **Sentry deduplication:** Each dispatch failure emits a Sentry breadcrumb-level event keyed on `(failure_kind, layer3_endpoint_host)` so Sentry's built-in dedup suppresses event floods during sustained outages. Mirrors the `ModerationListLoader`'s in-call rate-limit pattern from [`content-moderation-keyword-lists/spec.md`](../../specs/content-moderation-keyword-lists/spec.md) § "Tier-fallback Sentry events emit at most once per `load(list)` call".
 
@@ -234,11 +234,11 @@ Implementation: the call site invokes `layer3DispatcherScope.dispatch(coroutineC
 - **Score threshold sensitivity for Indonesian content** → Mitigation: defaults from canonical doc (>0.8 / >0.6); Remote Config-tunable overrides (`perspective_api_high_score_threshold` / `perspective_api_flag_threshold`) ship in this change so ops can adjust without redeploy. Open Question 2 surfaces the tuning playbook; Open Question 3 surfaces per-category SARA weighting. OpenAI publicly benchmarks Indonesian as top-tier supported in `omni-moderation-latest` — improvement over the prior plan's "partial ID support" caveat.
 - **User content sent to a third-party (OpenAI, hosted in the US) — UU PDP disclosure** → Mitigation: Privacy Policy / RoPA update is a Pre-Launch task; flag in `docs/06-Security-Privacy.md` Privacy section. NOT a code change here, but the proposal calls it out as a downstream prerequisite. UU PDP Pasal 56 (cross-border-transfer disclosure) cross-border-transfer mechanism (SCC / adequacy / consent) requires legal-counsel input before launch.
 - **Cost** → OpenAI Moderation endpoint is free; only constraint is the account-level rate limit + one-time $5 prepaid minimum deposit (idle if only Moderation is used). MVP traffic well within free tier.
-- **Latency budget regression risk** → Mitigation: dispatch is fire-and-forget; the 500ms `withTimeoutOrNull` lives entirely off the request path. The user request returns immediately after the synchronous Layer 1+2 + INSERT.
+- **Latency budget regression risk** → Mitigation: dispatch is fire-and-forget; the 1500ms `withTimeoutOrNull` lives entirely off the request path. The user request returns immediately after the synchronous Layer 1+2 + INSERT. The 1500ms budget (regional baseline for asia-southeast1) is constructor-tunable via `analyzeTimeoutMillis` on `DefaultLayer3Moderator`; deployments in other regions should re-measure baseline TTFB and tune accordingly.
 - **Cross-flag misconfiguration silently inverts band logic** → Mitigation: Decision 11 falls back to defaults + Sentry ERROR.
 - **Kill-switch fail-OPEN undoes operator's disable during Remote Config outage** → Mitigation: Decision 12 emits Sentry ERROR (pages operator).
 - **Orphan queue rows on soft-deleted target** → Mitigation: Decision 8 adds the `AND deleted_at IS NULL` UPDATE guard + race-to-no-op handling.
-- **Socket pinning past coroutine cancellation** → Mitigation: Decision 2 sets explicit Ktor CIO `requestTimeoutMillis = 500` + `socketTimeoutMillis = 500`.
+- **Socket pinning past coroutine cancellation** → Mitigation: Decision 2 sets explicit Ktor CIO `requestTimeoutMillis = 1500` + `socketTimeoutMillis = 1500` (matching the orchestrator budget).
 - **Future vendor swap churn** → Mitigation: the `ModerationClient` interface + `ModerationScore` data class are vendor-neutral (the implementation class `OpenAiModerationClient` and the Ktor wire shape are the only OpenAI-specific surfaces). A future swap (e.g., to Azure AI Content Safety) only changes the implementation class + `:infra:openai-moderation` content; `:backend:ktor` consumers, the orchestrator, the dispatcher scope, the writer, and all tests stay constant. This was validated empirically by the Perspective → OpenAI mid-flight swap that produced this change: the interface stayed; the implementation rewrote.
 
 ## Migration Plan

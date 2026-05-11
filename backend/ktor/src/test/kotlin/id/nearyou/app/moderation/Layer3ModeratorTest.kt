@@ -170,11 +170,16 @@ class Layer3ModeratorTest : StringSpec({
         outcome.score.shouldBeBetween(0.84, 0.86, 0.001)
     }
 
-    "Failure matrix: 500ms timeout returns NoAction (no DB writes)" {
+    "Failure matrix: timeout returns NoAction (no DB writes)" {
+        // Use a tight 100ms test-only budget so the timeout fires fast (vs. waiting
+        // 1500ms production default per scenario). The semantic is "when the vendor
+        // call exceeds the budget, orchestrator returns NoAction" — the specific
+        // budget value is constructor-tunable, so the test asserts the boundary
+        // semantic, not a hardcoded 500ms/1500ms.
         val client =
-            RecordingModerationClient().apply { stageDelay(delayMillis = 600L) }
+            RecordingModerationClient().apply { stageDelay(delayMillis = 200L) }
         val writer = SpyWriter()
-        val moderator = newModerator(client, writer)
+        val moderator = newModerator(client, writer, timeoutMillis = 100L)
 
         runBlocking { moderator.moderate(TargetType.POST, UUID.randomUUID(), "x") } shouldBe Outcome.NoAction
         writer.autoHideCalls shouldBe 0
@@ -403,6 +408,10 @@ private fun newModerator(
     writer: Layer3ModerationWriter,
     high: Double = 0.8,
     flag: Double = 0.6,
+    // Tests use a shorter override (e.g., 100ms) so timeout scenarios complete
+    // in ~100ms instead of waiting the 1500ms production default. Default left
+    // as the production value so non-timeout scenarios behave identically.
+    timeoutMillis: Long = DefaultLayer3Moderator.ANALYZE_TIMEOUT_MILLIS,
 ): DefaultLayer3Moderator {
     val loader =
         FakeConfigLoader(
@@ -414,6 +423,7 @@ private fun newModerator(
         client = client,
         configLoader = loader,
         writer = writer,
+        analyzeTimeoutMillis = timeoutMillis,
     )
 }
 

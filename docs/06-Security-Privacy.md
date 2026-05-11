@@ -181,7 +181,7 @@ POST /api/v1/post
 → Layer 1: profanity blocklist (sync) — match → 400 REJECT pre-INSERT
 → Layer 2: UU ITE category check (sync, threshold per moderation_match_threshold) — match → soft-flag (INSERT proceeds, moderation_queue row inserted, no is_auto_hidden flip)
 → Insert post (Layer 1 + 2 passed)
-→ Layer 3: Perspective API (async post-INSERT, 500ms timeout, fail-open) — score >0.8 → set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed)
+→ Layer 3: OpenAI Moderation API (async post-INSERT, 1500ms timeout regional baseline for asia-southeast1, fail-open) — score >0.8 → set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed). Original Phase 2 §16 plan targeted Google Perspective; vendor pivoted to OpenAI Moderation mid-implementation per `openspec/changes/archive/<timestamp>-text-moderation-perspective-api-layer/proposal.md` § Vendor Swap Amendment. 1500ms budget covers Singapore → OpenAI US TTFB p95 (measured 2026-05-11 baseline 600-900ms p50).
 ```
 
 ### Legal Documentation
