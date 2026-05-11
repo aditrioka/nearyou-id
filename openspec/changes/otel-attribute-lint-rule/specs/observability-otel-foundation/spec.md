@@ -71,13 +71,15 @@ The repo SHALL ship a custom Detekt rule `OtelForbiddenAttributeRule` under `lin
 
 **Tier 1 — forbidden-attribute-key literals (anywhere)**:
 
-The rule MUST fire on any string literal exactly equal to one of the following 22 keys. The list is a SUPERSET of the runtime `ForbiddenAttributeStripper.FORBIDDEN_KEYS` enumeration in [`infra/otel/.../ForbiddenAttributeStripper.kt`](../../../../../infra/otel/src/main/kotlin/id/nearyou/app/infra/otel/ForbiddenAttributeStripper.kt) (the runtime list has 11 entries; the lint list adds 11 more covering symmetric typo-defensive shapes and the canonical spec's JWT-claim attribute keys):
+The rule MUST fire on any string literal exactly equal to one of the following 21 keys. The list is a SUPERSET of the runtime `ForbiddenAttributeStripper.FORBIDDEN_KEYS` enumeration in [`infra/otel/.../ForbiddenAttributeStripper.kt`](../../../../../infra/otel/src/main/kotlin/id/nearyou/app/infra/otel/ForbiddenAttributeStripper.kt) MINUS one documented carve-out (`"user_id"`):
 
-**Group A — exact mirror of `ForbiddenAttributeStripper.FORBIDDEN_KEYS` (11)**:
+**Group A — `ForbiddenAttributeStripper.FORBIDDEN_KEYS` mirror minus the `user_id` carve-out (10)**:
 - HTTP client-identity semconv: `client.address`, `client.port`, `http.client_ip`
 - New OTel-Java-2.x peer semconv: `network.peer.address`, `network.peer.port`
 - Old OTel-Java-1.x peer semconv: `net.peer.ip`, `net.peer.port`, `net.sock.peer.addr`
-- User-id typo-defensive variants: `user_id`, `user_uuid`, `user.uuid` (the sanctioned key is `user.id` with `UserIdHasher.hash(...)` consumption)
+- User-id typo-defensive variants (carve-out applied): `user_uuid`, `user.uuid` (the sanctioned key is `user.id` with `UserIdHasher.hash(...)` consumption)
+
+`"user_id"` from `FORBIDDEN_KEYS` is INTENTIONALLY EXCLUDED from Group A because it appears in 12 production paths today as a SQL column name (`rs.getObject("user_id", UUID::class.java)`), `@SerialName` JSON key, and Ktor route parameter (`call.parameters["user_id"]`) — semantically unrelated to OTel attribute writes. A lint exact-match on `"user_id"` would produce ~12 false positives with no canonical fix. The runtime stripper at `ForbiddenAttributeStripper.FORBIDDEN_KEYS` continues to handle emitted `"user_id"` attributes defensively at export time, AND the integration-test sentinel scenario "No raw user_id appears in any span" covers value-side leakage. See [`design.md`](../../../changes/otel-attribute-lint-rule/design.md) § Decision 3 for the full rationale + the deferred follow-up that would re-introduce `"user_id"` under PSI-context-restricted Mode A enforcement.
 
 **Group B — symmetric typo-defensive underscore variants for HTTP / network semconv keys (8)**:
 - `client_address`, `client_port`, `http_client_ip` (underscore variants of Group A's HTTP client-identity keys)
@@ -87,7 +89,7 @@ The rule MUST fire on any string literal exactly equal to one of the following 2
 **Group C — JWT-claim attribute keys (3)**:
 - `jwt.sub`, `jwt.aud`, `jwt.iss` (per canonical spec § "Forbidden span attributes" bullet 5 — raw JWT claims forbidden on any span)
 
-These keys SHALL NEVER appear as Kotlin string literals outside the path allowlist (next requirement). The Group A subset MUST be a strict superset relationship with the runtime `FORBIDDEN_KEYS` enumeration — the synchronization-guard test (§ "Detekt test coverage" item 11) asserts the lint rule's full Tier 1 list contains every entry in `FORBIDDEN_KEYS`.
+These keys SHALL NEVER appear as Kotlin string literals outside the path allowlist (next requirement). The Group A subset MUST satisfy the relationship `lint Group A.containsAll(FORBIDDEN_KEYS - {"user_id"})` — the synchronization-guard test (§ "Detekt test coverage" item 11) asserts this with a failure message naming both any missing key AND the carve-out rationale.
 
 **Tier 2 — sensitive-value regex patterns (anywhere)**:
 
@@ -109,9 +111,13 @@ The rule MUST fire on any string literal matching one of these high-confidence s
 - **WHEN** a non-allowlisted Kotlin file contains the literal `"jwt.sub"` (e.g., as a setAttribute key)
 - **THEN** the rule fires (raw JWT claims on spans are forbidden per canonical spec § "Forbidden span attributes" bullet 5)
 
-#### Scenario: User-id typo variant `user_id` literal fires
-- **WHEN** a non-allowlisted Kotlin file contains the literal `"user_id"` (Group A typo variant)
+#### Scenario: User-id typo variant `user_uuid` literal fires
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"user_uuid"` (Group A typo-defensive variant)
 - **THEN** the rule fires
+
+#### Scenario: `user_id` literal does NOT fire (carve-out)
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"user_id"` (e.g., `rs.getObject("user_id", UUID::class.java)` or `call.parameters["user_id"]`)
+- **THEN** the rule does NOT fire (Group A explicitly excludes `"user_id"` — see Tier 1 description above; runtime stripper handles defensively at export, sentinel-string regression scenario covers value-side leakage)
 
 #### Scenario: Tier 1 forbidden-attribute key literal in a `mapOf(...)` passed to `withSpan(...)` fires
 - **WHEN** a non-allowlisted Kotlin file contains `withSpan("foo", mapOf("network.peer.address" to clientAddr)) { ... }`
@@ -196,7 +202,7 @@ All four allowlist gates MUST support the detekt-test `lint(String)` synthetic-f
 
 `lint/detekt-rules/src/test/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeLintTest.kt` SHALL cover, at minimum:
 
-1. **Tier 1 Group A positive-fail**: each of the 11 Group A keys triggers from a synthetic non-allowlisted file (one test per key, including the 3 user-id typo variants).
+1. **Tier 1 Group A positive-fail**: each of the 10 Group A keys triggers from a synthetic non-allowlisted file (one test per key — `client.address`, `client.port`, `http.client_ip`, `network.peer.address`, `network.peer.port`, `net.peer.ip`, `net.peer.port`, `net.sock.peer.addr`, `user_uuid`, `user.uuid`). PLUS one explicit positive-pass test for `"user_id"` (the carve-out): rule does NOT fire on a fixture `rs.getObject("user_id", UUID::class.java)` to validate the carve-out behavior.
 2. **Tier 1 Group B positive-fail**: each of the 8 underscore-variant typo-defensive keys triggers (e.g., `"client_address"`, `"network_peer_address"`).
 3. **Tier 1 Group C positive-fail**: each of the 3 JWT-claim keys triggers (`"jwt.sub"`, `"jwt.aud"`, `"jwt.iss"`).
 4. **Tier 1 positive-pass**: `:infra:otel/src/main/` source path allowlist suppresses every Tier 1 key; `:lint:detekt-rules/src/main/` source path allowlist suppresses every Tier 1 key; `/src/test/` path allowlist suppresses across the board.
@@ -206,7 +212,7 @@ All four allowlist gates MUST support the detekt-test `lint(String)` synthetic-f
 8. **Allowlist by path**: `:infra:otel/src/main/` path → no fire; `:lint:detekt-rules/src/main/` path → no fire; `/src/test/` path → no fire on Tier 1/Tier 2 literals; arbitrary `:backend:ktor/src/main/` path → fires.
 9. **Annotation bypass with non-empty reason**: `@AllowForbiddenSpanAttribute("reason")` on function suppresses; on enclosing class suppresses.
 10. **Empty-reason / whitespace-only-reason annotation still fires**: `@AllowForbiddenSpanAttribute("")` does NOT suppress; `@AllowForbiddenSpanAttribute("   ")` does NOT suppress; `@AllowForbiddenSpanAttribute("\t")` does NOT suppress.
-11. **Synchronization guard test**: a test asserting the rule's Tier 1 Group A list contains every entry in `ForbiddenAttributeStripper.FORBIDDEN_KEYS` (regression guard against silent drift). Test failure message MUST name the missing key(s) so the implementer adding to `FORBIDDEN_KEYS` knows exactly what to update.
+11. **Synchronization guard test**: a test asserting the rule's Tier 1 Group A list `containsAll (FORBIDDEN_KEYS - {"user_id"})` — superset relationship with one documented carve-out (regression guard against silent drift). Test failure message MUST name both the missing key(s) AND the carve-out rationale, so the implementer adding to `FORBIDDEN_KEYS` knows whether the new key belongs in Tier 1 or is a similar carve-out case.
 12. **Synthetic-file-harness package-FQN fallback**: package `id.nearyou.lint.detekt.*` is treated as allowlisted source.
 13. **Composition with existing rules**: a fixture that contains both `"actual_location"` (triggering `CoordinateJitterRule`) and `"client.address"` (triggering `OtelForbiddenAttributeRule`) produces exactly 2 findings, one per rule (no double-counting, no cross-suppression). A fixture with `"rate:health:{ip:1.2.3.4}"` triggers both `RedisHashTagRule` (legacy prefix) and `OtelForbiddenAttributeRule` IP-axis mode independently — 2 findings.
 14. **Unrelated string literals**: a non-allowlisted file containing `"Processing request"` / `"INSERT INTO posts ..."` / `"SELECT * FROM users WHERE id = ?"` does NOT fire.

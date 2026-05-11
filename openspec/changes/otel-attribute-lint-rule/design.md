@@ -45,15 +45,32 @@ Visit `KtStringTemplateExpression`, regex-match the expression's source text, pa
 
 **Alternative considered:** Use Detekt's `visitCallExpression` with full type-resolved arg analysis. Rejected — the existing rules use string-template visiting + path-based allowlist and it works; adding type-resolution complexity isn't warranted for the small writer surface today.
 
-### Decision 3: Tier 1 list IS a superset of `ForbiddenAttributeStripper.FORBIDDEN_KEYS` (not exact equal)
+### Decision 3: Tier 1 list IS a superset of `ForbiddenAttributeStripper.FORBIDDEN_KEYS` MINUS the `user_id` carve-out
 
-The rule's Tier 1 list contains 22 keys = 11 from `FORBIDDEN_KEYS` (Group A) + 8 symmetric typo-defensive underscore variants (Group B) + 3 JWT-claim attribute keys (Group C). The synchronization-guard test (spec § "Detekt test coverage" item 11) asserts the lint rule's Tier 1 list `containsAll FORBIDDEN_KEYS` — superset relationship, NOT exact equal. The test message MUST name the missing key(s) on failure.
+The rule's Tier 1 list contains 21 keys = 10 from `FORBIDDEN_KEYS` (Group A — `user_id` carved out) + 8 symmetric typo-defensive underscore variants (Group B) + 3 JWT-claim attribute keys (Group C). The synchronization-guard test (spec § "Detekt test coverage" item 11) asserts the lint rule's Tier 1 list `containsAll (FORBIDDEN_KEYS - {"user_id"})` — superset relationship with one documented carve-out. The test message MUST name both any missing key AND the carve-out rationale on failure.
 
-**Why superset, not exact-equal:** The runtime stripper only handles attrs the dev didn't write (auto-instrumentation peer-identity surface + the user-id typo guards). The lint rule additionally covers symmetric typos a dev might write under `client_address` (underscore not dot — a known typo-bypass vector) and the canonical spec's JWT-claim attribute keys (`jwt.sub`, `jwt.aud`, `jwt.iss`). Asymmetric coverage is correct here: runtime is value-side (auto-instrumentation), lint is key-side (developer writes).
+**Why superset, not exact-equal (general direction):** The runtime stripper handles attrs the dev didn't write (auto-instrumentation peer-identity surface + the user-id typo guards). The lint rule additionally covers symmetric typos a dev might write under `client_address` (underscore not dot — a known typo-bypass vector) and the canonical spec's JWT-claim attribute keys (`jwt.sub`, `jwt.aud`, `jwt.iss`). Asymmetric coverage is correct here: runtime is value-side (auto-instrumentation), lint is key-side (developer writes).
+
+**Why the `user_id` carve-out (specific exception):** Round-2 review audit found `"user_id"` appears as a string literal in 12 production paths used as **SQL column names** (`rs.getObject("user_id", UUID::class.java)`), **@SerialName JSON keys**, and **Ktor route parameters** (`call.parameters["user_id"]`) across `:backend:ktor` chat/follow/block routes and JDBC repositories. These uses are semantically unrelated to OTel attributes — they encode database schema and HTTP-API contracts. A lint rule that fires on ANY `"user_id"` literal would produce ~12 false positives with no canonical fix (the runtime stripper handles defensively, but lint cannot distinguish source-text-call-context without complex PSI walk that breaks Mode B's correct anywhere-firing for hoisted-val literals).
+
+The remaining defensive variants stay in Tier 1:
+- `"user_uuid"` — zero current source-text appearances; the lint rule provides forward-protection if anyone introduces it.
+- `"user.uuid"` — dot-shaped, OTel-attribute-specific; never used as SQL column name or JSON key (SQL/JSON convention uses underscore).
+
+The lost compile-time protection (developer typing `setAttribute("user_id", rawUuid)`) is mitigated by:
+1. Code review (the canonical sanctioned `setAttribute("user.id", UserIdHasher.hash(...))` is conspicuous; `user_id` with underscore in OTel context stands out).
+2. The runtime `ForbiddenAttributeStripper.FORBIDDEN_KEYS` still strips emitted `"user_id"` attributes at export time.
+3. The integration-test sentinel scenario "No raw user_id appears in any span" covers value-side leakage end-to-end.
+
+A future change (deferred follow-up `otel-attribute-rule-psi-context-restricted-mode-a`) could PSI-restrict Tier 1 enforcement to setAttribute-like call contexts, allowing the `user_id` carve-out to be reverted. For MVP, the carve-out is the conservative pragmatic call.
 
 **Alternative considered (exact equal):** Initial proposal locked the lists to exact equality with the synchronization-guard test asserting bidirectional containment. Rejected after multi-lens review — too restrictive; the symmetric typo variants AND the JWT-claim keys are genuine value-add over the runtime list.
 
-**Alternative considered (independent):** Treat the lists as fully independent. Rejected — divergence the OTHER direction (runtime adds a key but lint doesn't) is a real footgun. Superset gives both sides correct enforcement boundaries.
+**Alternative considered (no carve-out, accept ~12 annotation backfills):** Keep `"user_id"` in Tier 1; backfill `@AllowForbiddenSpanAttribute("DB column / JSON key, not OTel attr")` annotations across 12 production sites. Rejected — contradicts the proposal's "zero call-site behavior changes expected today" claim AND adds noise to code unrelated to OTel concerns. The carve-out is cleaner.
+
+**Alternative considered (PSI-context-restricted Mode A now):** Walk PSI parents from the literal to find an enclosing `KtCallExpression` with callee in `{setAttribute, addEvent, put}`, and fire only in that context. Rejected for MVP — adds non-trivial PSI logic, the `put` heuristic has false-positive risk on `Map.put`, and Mode B already correctly fires anywhere (because Mode B's literals are hoisted to vals). Defer to a follow-up that thoroughly designs the PSI restriction.
+
+**Alternative considered (independent):** Treat the lists as fully independent. Rejected — divergence the OTHER direction (runtime adds a key but lint doesn't) is a real footgun. Superset (with documented carve-out) gives both sides correct enforcement boundaries.
 
 ### Decision 4: Tier 2 ships 4 high-confidence value-regex patterns
 
@@ -63,7 +80,7 @@ Patterns shipped in the MVP rule:
 - `redis://[^:]+:[^@/]+@` — Redis URI with explicit userinfo (carries password). Should only appear inside `:infra:redis` config code (allowlisted by `/infra/otel/src/main/` if the Redis URI is constructed there — but more practically, it's allowlisted by `/src/test/` paths).
 - `"kty"\s*:\s*"RSA"\s*,?\s*"n"\s*:` — JWKS RSA-key JSON shape (specific marker: `"kty":"RSA"` followed by `"n":` modulus). Specific enough to avoid false-positives on legitimate JSON-with-`kty` mentions in unrelated contexts (e.g., test fixtures explicitly testing JWKS handling).
 
-Tier 3 stays narrow because every regex is a false-positive risk; the runtime `ForbiddenAttributeStripper` + the sentinel-string regression tests at integration time cover broader value shapes. Future patterns (OAuth `client_secret` shape, AES key base64, raw refresh tokens) can be added in a follow-up change once we have a writer surface that justifies the broader regex risk (see "Explicitly deferred follow-ups" below).
+Tier 2 stays narrow because every regex is a false-positive risk; the runtime `ForbiddenAttributeStripper` + the sentinel-string regression tests at integration time cover broader value shapes. Future patterns (OAuth `client_secret` shape, AES key base64, raw refresh tokens) can be added in a follow-up change once we have a writer surface that justifies the broader regex risk (see "Explicitly deferred follow-ups" below).
 
 **Alternative considered:** Ship a broader regex set covering all categories from the canonical spec. Rejected — the FOLLOW_UPS entry's "Detekt rules built ahead of writers tend to over-fit" caution applies; we'll iterate after the rule sees real-world false-positive feedback.
 
@@ -117,6 +134,7 @@ Out of scope for this change but tracked as new entries in `FOLLOW_UPS.md` at ar
 - **`otel-attribute-rule-value-aware-userid-aliases`**: Add detection of raw user-id under generic-named keys (`principal`, `actor`, `subject`, `owner`). Requires value-aware analysis (firing only when the value resolves to a UUID-shaped literal) to avoid false-positives on auth-domain code. The canonical spec at `observability-otel-foundation/spec.md:186` enumerates these aliases.
 - **`otel-attribute-rule-location-key-patterns`**: Add detection of `*location*` / `*lat*` / `*lng*` / `*coord*` key-name patterns per the canonical spec at `observability-otel-foundation/spec.md:191`. Requires careful regex to avoid false-positives on `display_location` (sanctioned) and overlap with `CoordinateJitterRule` (which handles `actual_location`).
 - **`otel-attribute-rule-opaque-secrets`**: Tier 2 patterns for OAuth `client_secret` values, raw refresh tokens, plaintext passwords. These are opaque strings — any regex over-matches or under-matches. Requires either a known-prefix convention (e.g., OAuth client_secret always starts with a known prefix) or accept that code review remains the canonical defense.
+- **`otel-attribute-rule-psi-context-restricted-mode-a`**: Restrict Mode A enforcement to fire only when the literal appears in a setAttribute-like call context (PSI parent-walk finding `KtCallExpression` with callee identifier `setAttribute` / `addEvent` / `AttributesBuilder.put` / inside `mapOf(...)` passed to `withSpan(...)`). This would allow re-introducing `"user_id"` to Tier 1 Group A (currently carved out due to its prevalence as a SQL column / JSON / route-parameter key) without false-positives on non-OTel uses. Requires careful PSI handling for the `Map.put` false-positive on generic `put` callees and the `mapOf(...) → withSpan(...)` indirection. Defer until either real `setAttribute("user_id", ...)` regression is observed OR a maintainer takes on the PSI-restriction design pass.
 
 ## Risks / Trade-offs
 
