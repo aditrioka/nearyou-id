@@ -610,3 +610,31 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Action items:**
 - [ ] Add a Detekt rule that scans `:core:domain` `build.gradle.kts` for `org.ahocorasick:*`, `com.hankcs:*` references.
 - [ ] Delete this entry once the rule lands OR if `:core:domain` dep surface stays minimal indefinitely.
+
+## production-deploy-workflow-cloud-run-flags-for-layer3
+
+**Discovered during:** Issue [#88](https://github.com/aditrioka/nearyou-id/issues/88) resolution (2026-05-12) — staging investigation established that Cloud Run's default request-based CPU billing makes Layer 3 fire-and-forget dispatch fail-open 100% of the time. Staging deploy workflow was fixed via [PR #96](https://github.com/aditrioka/nearyou-id/pull/96); production deploy workflow does not yet exist.
+**Status:** open
+
+**Finding:** When the production deploy workflow lands (planned per [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Pre-Launch phase), it MUST mirror staging's Cloud Run sizing flags or Layer 3 moderation will fail-open 100% in production. The mandatory flags are:
+- `--no-cpu-throttling` — switches to instance-based CPU billing so background coroutines (fire-and-forget Layer 3 dispatch after the 201 response) actually get CPU. Without this, the dispatch runs on Cloud Run's default ~5% throttled CPU and every async operation (Redis cache, TLS handshake, response parse) takes ~20x longer. Empirically verified in issue #88: identical Redis `isEnabled()` call measured 5-16ms during user request vs 2800-7400ms on background timer (1000x slowdown).
+- `--cpu=2` — JVM headroom for the moderation dispatch + Hikari + OTel SDK; `cpu=1` was insufficient in iter 6 staging tests.
+- `--min-instances=1` — eliminates cold-start of the Layer 3 path (Firebase RC cold init was measured at 14-16s on iter 14).
+- `--memory=512Mi` — sufficient at staging volumes; production should re-evaluate after load testing.
+
+The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security-Privacy.md) (added via [PR #97](https://github.com/aditrioka/nearyou-id/pull/97)) which documents `--no-cpu-throttling` as a hard requirement for any environment running Layer 3.
+
+**Specs at fault:** None — the spec is engine/vendor-neutral about deployment.
+**Code at fault:** None — application code is correct; the issue is purely deployment config.
+**Docs at fault:** `docs/06-Security-Privacy.md:185` covers the requirement after PR #97, but the production deploy workflow file (when authored) needs to reference + apply it.
+
+**Impact (if shipped without these flags):** Layer 3 moderation fails-open ~100% in production. Posts with >0.8 toxicity score escape `is_auto_hidden = TRUE` flagging and reach the global timeline. The moderation_queue stays empty for Layer 3 triggers. Cost saving vs. always-on CPU billing is meaningless if the capability is non-functional.
+
+**Cost trade-off:** Instance-based billing charges for CPU continuously. For a single production instance, roughly ~\$15-30/month additional vs. request-based default. Required to make Layer 3 functional; non-negotiable for any production Layer 3 deployment.
+
+**Ambiguity to resolve first:** None — the staging deploy workflow at [`.github/workflows/deploy-staging.yml:118-128`](.github/workflows/deploy-staging.yml) is the reference implementation; copy-paste with prod secret names + URL substitutions.
+
+**Action items:**
+- [ ] When the production deploy workflow file is authored (separate change), mirror staging's `--cpu=2 --min-instances=1 --no-cpu-throttling --memory=512Mi --concurrency=80 --max-instances=1` flag set.
+- [ ] Add a `merge-gate` check OR a Detekt-style YAML lint that asserts any new `deploy-*.yml` workflow targeting Cloud Run with Layer 3 enabled carries `--no-cpu-throttling`. Or accept this as a manual-review gate per `docs/06-Security-Privacy.md:185`.
+- [ ] Delete this entry once the production deploy workflow ships with the correct flags.
