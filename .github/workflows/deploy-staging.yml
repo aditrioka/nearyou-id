@@ -95,21 +95,24 @@ jobs:
       # `Application.module()`'s `resolveInternalOidcAudience` — missing /
       # blank / non-URL fails-fast before the HTTP server starts so the new
       # revision's startup probe rejects.
-      # `--cpu=2` (was 1) — diagnostic for issue #88, iteration 6. Layer 3
-      # moderation dispatch hits 100% timeout in staging on the body-read step
-      # (`eventLoopGroupProxy-*` thread) even with `--concurrency=1` (iteration 5
-      # / PR #89 ruled out inbound-request contention). Hypothesis narrows to
-      # JVM-internal CPU starvation: the Ktor CIO event loop on `cpu=1`
-      # competes with GC, JIT, Hikari keepalive, OTel auto-instrumentation, and
-      # the `Dispatchers.IO` thread pool for the single vCPU. A second vCPU
-      # gives the event loop headroom AND `Runtime.availableProcessors()`
-      # returns 2 (Ktor CIO sizes its event-loop pool from this). Concurrency
-      # reverted to 80 so this tests `--cpu=2` in isolation against a
-      # production-shaped concurrency setting. If smoke happy-path fires after
-      # this deploy, the production fix is `--cpu=2` (or higher) + headroom for
-      # sustained Layer 3 dispatch volume. If still timeout → next iteration
-      # swaps the Ktor CIO engine to OkHttp (separate thread pool, not on the
-      # Ktor CIO event loop).
+      # `--min-instances=1` (was 0) + `--cpu=2` (already bumped in PR #90) —
+      # diagnostic for issue #88, iteration 7. Iterations 5 (concurrency 80→1,
+      # PR #89) and 6 (cpu 1→2, PR #90) both ruled out inbound contention AND
+      # JVM-wide CPU shortage. Strong remaining hypothesis: every iteration
+      # deploys a new Cloud Run revision → cold-start → the Layer 3 dispatch
+      # path (Ktor HTTP client init, TLS handshake to api.openai.com, response-
+      # body transformer pipeline, kotlinx.io.Source class load, OTel agent
+      # bytecode instrumentation) all hits cold JIT + class-loading on the
+      # first POST after deploy. The Cloud Run startup probe warms only
+      # `/health/*`, not the moderation dispatch path. `--min-instances=1`
+      # keeps one instance warm permanently so the Layer 3 path stays JITed +
+      # instrumented between smoke runs. If smoke happy-path fires after this
+      # deploy → cold-start was the cause; production will also need
+      # `--min-instances=1` (independently desirable for first-request UX). If
+      # still timeout → next iteration swaps the Ktor CIO engine to OkHttp
+      # (code change in :infra:openai-moderation).
+      #
+      # Staging cost: ~\$3-5/mo additional for the always-warm instance.
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${SERVICE}" \
@@ -117,7 +120,7 @@ jobs:
             --region="${{ secrets.GCP_REGION }}" \
             --platform=managed \
             --allow-unauthenticated \
-            --min-instances=0 \
+            --min-instances=1 \
             --max-instances=1 \
             --memory=512Mi \
             --cpu=2 \
