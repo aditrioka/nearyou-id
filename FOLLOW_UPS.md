@@ -527,27 +527,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## perspective-api-stopgap
-
-**Discovered during:** `content-moderation-keyword-lists` design.md § Goals / Non-Goals — Perspective API integration is explicitly Phase 2 §16 scope, this change provides the boundary.
-**Status:** open
-
-**Finding:** Phase 2 §16 (per [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md)) reserves the Perspective API integration. The current `TextModerator` boundary is the foundation; the Perspective API change adds an async 500ms-timeout fail-open layer + writes `trigger = 'perspective_api_high_score'` (already reserved in `moderation_queue.trigger` enum at V9).
-
-**Specs at fault:** None — Perspective API is intentionally out of scope.
-**Code at fault:** None.
-**Docs at fault:** None.
-
-**Impact (if shipped):** Low — keyword-only moderation (Layers 1 + 2) is sufficient for Pre-Launch security review §5. Perspective API adds Layer 3 (toxicity classifier).
-
-**Ambiguity to resolve first:** Implementation shape — Cloud Function (deferred) or in-process async call from `:backend:ktor`? Per `docs/06-Security-Privacy.md:178` the Layer 3 contract is "500ms timeout, fail-open" which is consistent with in-process.
-
-**Action items:**
-- [ ] Build `text-moderation-perspective-api-layer` change when Phase 2 §16 work begins.
-- [ ] Delete this entry once that change ships.
-
----
-
 ## content-write-moderation-detekt-rule
 
 **Discovered during:** `content-moderation-keyword-lists` Phase 10 — Detekt rule was DEFERRED per task 10.4 decision gate.

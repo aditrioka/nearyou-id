@@ -38,6 +38,9 @@ interface RemoteConfigClient {
     /** Returns parsed integer value, or `null` for unset / non-integer / SDK-error cases. */
     fun fetchInt(parameterName: String): Int?
 
+    /** Returns parsed double value, or `null` for unset / non-numeric / SDK-error cases. */
+    fun fetchDouble(parameterName: String): Double?
+
     /** Returns parsed boolean value, or `null` for unset / non-boolean / SDK-error cases. */
     fun fetchBoolean(parameterName: String): Boolean?
 }
@@ -172,6 +175,11 @@ class FirebaseRemoteConfigClient(
     override fun fetchInt(parameterName: String): Int? {
         val raw = configSource.fetchRawString(parameterName) ?: return null
         return raw.trim().toIntOrNull()
+    }
+
+    override fun fetchDouble(parameterName: String): Double? {
+        val raw = configSource.fetchRawString(parameterName) ?: return null
+        return raw.trim().toDoubleOrNull()
     }
 
     override fun fetchBoolean(parameterName: String): Boolean? {

@@ -63,6 +63,8 @@ import id.nearyou.app.infra.fcm.FcmInitException
 import id.nearyou.app.infra.fcm.buildFcmComposite
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
 import id.nearyou.app.infra.oidc.googleJwkProvider
+import id.nearyou.app.infra.openaimoderation.ModerationClient
+import id.nearyou.app.infra.openaimoderation.OpenAiModerationClient
 import id.nearyou.app.infra.otel.OtelBootstrap
 import id.nearyou.app.infra.otel.OtelInstrumentation
 import id.nearyou.app.infra.otel.httpClientWithOtel
@@ -76,6 +78,7 @@ import id.nearyou.app.infra.redis.redisRateLimiterFromUrl
 import id.nearyou.app.infra.remoteconfig.RemoteConfigClient
 import id.nearyou.app.infra.remoteconfig.RemoteConfigInitException
 import id.nearyou.app.infra.remoteconfig.firebaseRemoteConfigClient
+import id.nearyou.app.infra.repo.JdbcLayer3ModerationWriter
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcPostAutoHideRepository
@@ -105,7 +108,12 @@ import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
 import id.nearyou.app.infra.supabase.realtime.SupabaseBroadcastChatClient
 import id.nearyou.app.internal.InternalEndpointAuth
+import id.nearyou.app.moderation.CachingLayer3ConfigLoader
 import id.nearyou.app.moderation.CachingModerationListLoader
+import id.nearyou.app.moderation.DefaultLayer3Moderator
+import id.nearyou.app.moderation.Layer3ConfigLoader
+import id.nearyou.app.moderation.Layer3DispatcherScope
+import id.nearyou.app.moderation.Layer3Moderator
 import id.nearyou.app.moderation.ModerationList
 import id.nearyou.app.moderation.ModerationListLoader
 import id.nearyou.app.moderation.ReportRateLimiter
@@ -136,6 +144,7 @@ import id.nearyou.app.user.JdbcActorUsernameLookup
 import id.nearyou.app.user.JdbcUserFcmTokenReader
 import id.nearyou.app.user.fcmTokenRoutes
 import id.nearyou.data.repository.ActorUsernameLookup
+import id.nearyou.data.repository.Layer3ModerationWriter
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationRepository
@@ -426,6 +435,8 @@ fun Application.module() {
 
                     override fun fetchInt(parameterName: String): Int? = null
 
+                    override fun fetchDouble(parameterName: String): Double? = null
+
                     override fun fetchBoolean(parameterName: String): Boolean? = null
                 }
             else -> {
@@ -474,6 +485,58 @@ fun Application.module() {
         )
     val textModerator = TextModerator(loader = moderationListLoader)
 
+    // Layer 3 (toxicity classifier — OpenAI Moderation API) async dispatch wiring
+    // per the `text-moderation-perspective-api-layer` capability. The change name
+    // retains the historical "perspective" branding from the original proposal;
+    // the vendor pivoted to OpenAI Moderation mid-implementation when Perspective
+    // announced sunset (end-of-2026). See proposal.md § Vendor-swap amendment.
+    //
+    // Test profile: bind `layer3Moderator = null` and a `forTest` scope. The
+    // dispatch call sites in `CreatePostService` / `ReplyService` no-op on null
+    // collaborators — Layer 1+2 still run, Layer 3 is opt-out. Production fail-fasts
+    // on a missing API key (mirrors the firebase-admin-sa precedent).
+    val layer3DispatcherScope: Layer3DispatcherScope = Layer3DispatcherScope.production()
+    val layer3ConfigLoader: Layer3ConfigLoader =
+        CachingLayer3ConfigLoader(
+            redisCache = redisStringCache,
+            remoteConfigClient = remoteConfigClient,
+        )
+    val layer3ModerationWriter: Layer3ModerationWriter = JdbcLayer3ModerationWriter(dataSource)
+    val layer3Moderator: Layer3Moderator? =
+        when (ktorEnv) {
+            "test" -> null
+            else -> {
+                val openAiSecretSlot = secretKey(ktorEnv, "openai-api-key")
+                val openAiApiKey =
+                    secrets.resolve("openai-api-key")
+                        ?: run {
+                            org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").error(
+                                "event=layer3_init_failed reason=missing_secret slot={} env={}",
+                                openAiSecretSlot,
+                                ktorEnv,
+                            )
+                            error(
+                                "Required secret '$openAiSecretSlot' is unset (env=$ktorEnv) — " +
+                                    "OpenAI Moderation API is a hard startup requirement when ktor.environment != 'test'. " +
+                                    "Verify GCP Secret Manager slot exists and is populated.",
+                            )
+                        }
+                val moderationClient: ModerationClient = OpenAiModerationClient(apiKey = openAiApiKey)
+                DefaultLayer3Moderator(
+                    client = moderationClient,
+                    configLoader = layer3ConfigLoader,
+                    writer = layer3ModerationWriter,
+                )
+            }
+        }
+
+    // JVM shutdown hook for the Layer 3 dispatcher scope (per
+    // `text-moderation-perspective-api-layer/spec.md` § dispatcher-scope shutdown
+    // contract). Drains in-flight dispatches up to 5 seconds; cancelled dispatches
+    // emit `event=layer3_dispatch_drain_exceeded`. New dispatches arriving after
+    // shutdown emit `event=layer3_dispatch_after_shutdown` (silently no-op).
+    Runtime.getRuntime().addShutdownHook(Thread { layer3DispatcherScope.shutdown() })
+
     val postRepository: PostRepository = JdbcPostRepository()
     // moderationQueueRepository is a singleton shared by createPostService (Layer 2
     // soft-flag) and reportService (V9 auto_hide_3_reports). Declared here near the
@@ -488,6 +551,8 @@ fun Application.module() {
             textModerator = textModerator,
             moderationQueue = moderationQueueRepository,
             jitterSecret = jitterSecret,
+            layer3DispatcherScope = layer3DispatcherScope,
+            layer3Moderator = layer3Moderator,
         )
     val userBlockRepository: UserBlockRepository = JdbcUserBlockRepository(dataSource)
     val blockService = BlockService(userBlockRepository)
@@ -642,6 +707,8 @@ fun Application.module() {
             remoteConfig = remoteConfig,
             textModerator = textModerator,
             moderationQueue = moderationQueueRepository,
+            layer3DispatcherScope = layer3DispatcherScope,
+            layer3Moderator = layer3Moderator,
         )
     val chatRepository = ChatRepository(dataSource)
     val chatService =

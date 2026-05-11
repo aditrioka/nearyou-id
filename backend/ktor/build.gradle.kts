@@ -19,6 +19,7 @@ dependencies {
     implementation(projects.core.data)
     implementation(projects.infra.fcm)
     implementation(projects.infra.oidc)
+    implementation(projects.infra.openaiModeration)
     implementation(projects.infra.otel)
     implementation(projects.infra.redis)
     implementation(projects.infra.remoteConfig)
@@ -68,6 +69,13 @@ dependencies {
     // SpanRecorder + FailingSpanProcessor test fixtures from `:infra:otel`,
     // consumed by `chat-realtime-broadcast` + `fcm-push-dispatch` pairing tests.
     testImplementation(testFixtures(projects.infra.otel))
+
+    // RecordingModerationClient test fixture from `:infra:openai-moderation`, consumed by
+    // Layer3Moderator + integration tests for the `text-moderation-perspective-api-layer`
+    // capability (vendor pivoted from Perspective → OpenAI mid-implementation; the
+    // capability name retains the historical "perspective" branding per the
+    // proposal.md vendor-swap amendment).
+    testImplementation(testFixtures(projects.infra.openaiModeration))
 
     detektPlugins(projects.lint.detektRules)
 }

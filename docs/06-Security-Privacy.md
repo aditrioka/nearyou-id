@@ -157,13 +157,18 @@ Both flows land at `POST /internal/apple/s2s-notifications` (OIDC-exempt, Apple 
    - Indonesian-specific wordlist, AI + manual review (Pre-Phase 1 budget 1 day)
    - Higher threshold: matches the Remote Config-tunable threshold (`moderation_match_threshold`, default 3) → soft flag to the moderation queue (not auto-hide)
    - Quarterly review cadence with legal advisor
-3. **Google Perspective API (dev Phase 2 stopgap)**:
-   - Free tier: 1 QPS, adequate for dev Phase 2 volume
-   - Attributes: `TOXICITY`, `SEVERE_TOXICITY`, `IDENTITY_ATTACK`, `THREAT`
-   - Score >0.8 = auto-hide (`posts.is_auto_hidden = TRUE`) + queue to `moderation_queue`
-   - Score 0.6-0.8 = flag to `moderation_queue` only
-   - ID language: partial support (mixed ID/EN), accept imperfection in stopgap
-   - Feature flag `perspective_api_enabled` for kill switch
+3. **OpenAI Moderation API (Layer 3 toxicity classifier)**:
+   - Free tier: no per-call cost on the Moderation endpoint; subject to OpenAI's default rate limits (~1000 RPM for free-tier accounts)
+   - **Vendor history**: original capability spec planned Google Perspective API. Mid-implementation Perspective announced sunset (end-of-2026, signups closed Feb 2026). Vendor pivoted to OpenAI Moderation `omni-moderation-latest`. The Firebase Remote Config flag names + capability name + V9 SQL trigger string retain historical "perspective" branding (operator-facing or schema-fixed); the Kotlin code surface + Sentry events + Redis cache scope are vendor-agnostic (`layer3_*`).
+   - Model: `omni-moderation-latest` (GPT-4o-based, multimodal-capable; we only use text)
+   - Categories: `harassment`, `harassment/threatening`, `hate`, `hate/threatening`, `illicit`, `illicit/violent`, `self-harm`, `self-harm/intent`, `self-harm/instructions`, `sexual`, `sexual/minors`, `violence`, `violence/graphic` (13 categories, slash-separated subcategory names preserved as Map keys)
+   - The score compared against the thresholds is the per-call max across all 13 categories: `score = ModerationScore.maxScore() = max(categoryScores.values)`. Threshold comparisons are STRICTLY greater-than: boundary value `0.80` falls into the FlagOnly band (NOT AutoHide); `score ≤ 0.6` returns NoAction.
+   - Score `> 0.8` = auto-hide (`posts.is_auto_hidden = TRUE`) + queue to `moderation_queue` with `trigger = 'perspective_api_high_score'` (V9 enum value retained as historical artifact)
+   - Score `> 0.6` AND `≤ 0.8` = flag to `moderation_queue` only
+   - Thresholds tunable via Firebase Remote Config: `perspective_api_high_score_threshold` (default 0.8), `perspective_api_flag_threshold` (default 0.6). Both clamped to `[0.0, 1.0]` on every read.
+   - User content is sent to a third-party (OpenAI, US-hosted) for classification — flag for the Pre-Launch Privacy Policy / RoPA update. UU PDP cross-border transfer (Pasal 56) requires Tier 2 (SCC / DPA — OpenAI publishes a DPA) OR Tier 3 (explicit consent in signup flow).
+   - Indonesian language: OpenAI omni-moderation explicitly benchmarks Indonesian as a top-performing language alongside Spanish/German/Italian/Polish/Vietnamese/Portuguese/French/Chinese/English (per the model's launch announcement). Step up from Perspective's "partial ID support" caveat.
+   - Feature flag `perspective_api_enabled` for kill switch (flag name historical; toggle controls the OpenAI Moderation dispatch)
 4. **Month 6+ scope (if MAU >10k)**: dedicated ID-language moderation (Meta XLM-R open model self-host, or Hive Moderation paid)
 
 > Keyword list storage, hot-reload mechanism, and matching engine: see `05-Implementation.md` "Content Moderation Keyword Lists". Profanity list is editable by admins via the Admin Panel with audit-logged changes; UU ITE list is reviewed quarterly with the legal advisor.
@@ -176,7 +181,7 @@ POST /api/v1/post
 → Layer 1: profanity blocklist (sync) — match → 400 REJECT pre-INSERT
 → Layer 2: UU ITE category check (sync, threshold per moderation_match_threshold) — match → soft-flag (INSERT proceeds, moderation_queue row inserted, no is_auto_hidden flip)
 → Insert post (Layer 1 + 2 passed)
-→ Layer 3: Perspective API (async post-INSERT, 500ms timeout, fail-open) — score >0.8 → set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed)
+→ Layer 3: OpenAI Moderation API (async post-INSERT, 3000ms timeout regional baseline for asia-southeast1, fail-open) — score >0.8 → set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed). Original Phase 2 §16 plan targeted Google Perspective; vendor pivoted to OpenAI Moderation mid-implementation per `openspec/changes/archive/<timestamp>-text-moderation-perspective-api-layer/proposal.md` § Vendor Swap Amendment. 3000ms budget covers the bimodal Singapore → OpenAI US TTFB distribution (measured 2026-05-11: ~40% at 550-700ms, ~40% at 1500-1550ms slow path, ~20% gateway-timeout outliers at 15s+). Constructor-tunable via `analyzeTimeoutMillis` on `DefaultLayer3Moderator` for non-Singapore deployments.
 ```
 
 ### Legal Documentation
