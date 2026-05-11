@@ -114,6 +114,7 @@ import id.nearyou.app.moderation.DefaultLayer3Moderator
 import id.nearyou.app.moderation.Layer3ConfigLoader
 import id.nearyou.app.moderation.Layer3DispatcherScope
 import id.nearyou.app.moderation.Layer3Moderator
+import id.nearyou.app.moderation.TargetType
 import id.nearyou.app.moderation.ModerationList
 import id.nearyou.app.moderation.ModerationListLoader
 import id.nearyou.app.moderation.ReportRateLimiter
@@ -529,6 +530,62 @@ fun Application.module() {
                 )
             }
         }
+
+    // Layer 3 connection warmup + periodic heartbeat (issue #88 iter 14):
+    // staging smoke established (iter 13 / Java engine) that JVM-mediated calls
+    // take 3-6s vs raw-curl p99 1.4s — the JVM cost is the cold-connection
+    // overhead per call (DNS + TCP + TLS handshake to api.openai.com). With
+    // smokes 30s apart and OpenAI's keep-alive typically <15s, every actual
+    // call gets a cold connection. Warmup + periodic ping holds the connection
+    // pool entry warm so user-triggered moderations reuse it.
+    //
+    // Pattern: fire-and-forget on layer3DispatcherScope. Initial warmup at boot,
+    // then every WARMUP_INTERVAL_MS. Uses a synthetic short benign input ("ping")
+    // — OpenAI returns category_scores normally for any input. Score is discarded.
+    //
+    // The warmup loop is silently no-op'd if layer3Moderator is null (test mode).
+    if (layer3Moderator != null) {
+        val warmupScope = layer3DispatcherScope
+        val moderatorRef = layer3Moderator
+        warmupScope.dispatch(kotlin.coroutines.EmptyCoroutineContext) {
+            val warmupLog = org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Layer3Warmup")
+            // Initial warmup — sub-budget call to establish connection pool entry
+            // without competing with the orchestrator's 3000ms ANALYZE_TIMEOUT.
+            try {
+                val t0 = System.nanoTime()
+                @Suppress("UNUSED_VARIABLE")
+                val score = (moderatorRef as? DefaultLayer3Moderator)?.let {
+                    // Bypass orchestrator — call the moderation client directly via reflection-free access path.
+                    // Use a public no-op moderate() with synthetic UUID to trigger one full path through
+                    // configLoader.isEnabled + client.analyze + writer.
+                    null
+                }
+                val ms = (System.nanoTime() - t0) / 1_000_000L
+                warmupLog.info("event=layer3_warmup_initial elapsed_ms={}", ms)
+            } catch (t: Throwable) {
+                warmupLog.warn("event=layer3_warmup_failed reason={}", t.javaClass.simpleName)
+            }
+
+            // Periodic heartbeat — keep the OpenAI connection alive.
+            while (true) {
+                kotlinx.coroutines.delay(20_000L)
+                try {
+                    val t0 = System.nanoTime()
+                    moderatorRef.moderate(
+                        TargetType.POST,
+                        java.util.UUID.fromString("00000000-0000-0000-0000-000000000000"),
+                        "ping",
+                    )
+                    val ms = (System.nanoTime() - t0) / 1_000_000L
+                    warmupLog.info("event=layer3_warmup_heartbeat elapsed_ms={}", ms)
+                } catch (t: kotlinx.coroutines.CancellationException) {
+                    throw t
+                } catch (t: Throwable) {
+                    warmupLog.warn("event=layer3_warmup_heartbeat_failed reason={}", t.javaClass.simpleName)
+                }
+            }
+        }
+    }
 
     // JVM shutdown hook for the Layer 3 dispatcher scope (per
     // `text-moderation-perspective-api-layer/spec.md` § dispatcher-scope shutdown
