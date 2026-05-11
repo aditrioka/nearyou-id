@@ -291,7 +291,7 @@ private fun newService(
 ): TestRig {
     val author = seedUser(dataSource, "p3")
     val scope =
-        PerspectiveDispatcherScope.forTest(
+        PerspectiveDispatcherScope.forTestWithDefensiveHandler(
             CoroutineScope(SupervisorJob() + Dispatchers.IO),
         )
     val configLoader =
@@ -351,7 +351,7 @@ private fun newServiceWithModerator(
 ): TestRig {
     val author = seedUser(dataSource, "p3m")
     val scope =
-        PerspectiveDispatcherScope.forTest(
+        PerspectiveDispatcherScope.forTestWithDefensiveHandler(
             CoroutineScope(SupervisorJob() + Dispatchers.IO),
         )
     val configLoader =
@@ -395,7 +395,7 @@ private fun newServiceWithModerator(
 }
 
 /** Static config loader — bypasses the Redis + Remote Config tier ladder for E2E tests. */
-private class StaticConfigLoader(
+internal class StaticConfigLoader(
     private val isEnabled: Boolean,
     private val highScoreThreshold: Double,
     private val flagThreshold: Double,

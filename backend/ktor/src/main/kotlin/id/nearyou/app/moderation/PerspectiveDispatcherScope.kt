@@ -1,5 +1,7 @@
 package id.nearyou.app.moderation
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -136,23 +138,68 @@ class PerspectiveDispatcherScope private constructor(
         const val DEFAULT_DRAIN_MILLIS: Long = 5_000L
         const val EVENT_DISPATCH_AFTER_SHUTDOWN: String = "perspective_dispatch_after_shutdown"
         const val EVENT_DISPATCH_DRAIN_EXCEEDED: String = "perspective_dispatch_drain_exceeded"
+        const val EVENT_DISPATCH_UNHANDLED_EXCEPTION: String = "perspective_dispatch_unhandled_exception"
 
         private val log = LoggerFactory.getLogger(PerspectiveDispatcherScope::class.java)
 
         /**
+         * Defense-in-depth [CoroutineExceptionHandler] for the dispatcher scope. The
+         * orchestrator's contract is to absorb every non-cancellation failure and return
+         * `Outcome.NoAction`, so an unhandled exception escaping to the scope's handler
+         * is a contract bug. We log it as ERROR rather than letting it propagate to the
+         * JVM's default uncaught-exception handler (which `kotlinx-coroutines-test`
+         * surfaces as `UncaughtExceptionsBeforeTest` on the next test's start, causing
+         * cross-test pollution in CI).
+         *
+         * `CancellationException` is allowed to propagate per coroutine convention.
+         */
+        private val UNHANDLED_HANDLER: CoroutineExceptionHandler =
+            CoroutineExceptionHandler { _, throwable ->
+                if (throwable is CancellationException) return@CoroutineExceptionHandler
+                log.error(
+                    "event={} error_class={} reason={}",
+                    EVENT_DISPATCH_UNHANDLED_EXCEPTION,
+                    throwable.javaClass.simpleName,
+                    throwable.message ?: "(no message)",
+                    throwable,
+                )
+            }
+
+        /**
          * Production factory. Returns a long-lived scope rooted in `SupervisorJob() +
-         * Dispatchers.IO + CoroutineName("perspective-dispatch")`. Caller wires
-         * `shutdown(...)` into the JVM shutdown hook.
+         * Dispatchers.IO + CoroutineName("perspective-dispatch") + [UNHANDLED_HANDLER]`.
+         * Caller wires `shutdown(...)` into the JVM shutdown hook.
          */
         fun production(): PerspectiveDispatcherScope {
             val scope =
                 CoroutineScope(
-                    SupervisorJob() + Dispatchers.IO + CoroutineName("perspective-dispatch"),
+                    SupervisorJob() +
+                        Dispatchers.IO +
+                        CoroutineName("perspective-dispatch") +
+                        UNHANDLED_HANDLER,
                 )
             return PerspectiveDispatcherScope(scope = scope)
         }
 
-        /** Test factory. The caller supplies the scope; useful with `runTest` + `TestScheduler`. */
+        /**
+         * Test factory. The caller supplies the scope; useful with `runTest` +
+         * `TestScheduler`. Note: callers SHOULD include [UNHANDLED_HANDLER] in the
+         * supplied scope's context if the test relies on the scope to absorb stray
+         * exceptions (e.g., testApplication-based integration tests) — see
+         * [forTestWithDefensiveHandler] below for a pre-wired variant.
+         */
         fun forTest(scope: CoroutineScope): PerspectiveDispatcherScope = PerspectiveDispatcherScope(scope = scope)
+
+        /**
+         * Test factory that pre-installs [UNHANDLED_HANDLER] on the supplied scope's
+         * coroutine context. Use this in testApplication-based integration tests so
+         * any unhandled exception in a dispatched coroutine doesn't leak to the JVM's
+         * default uncaught-exception handler (which would surface as
+         * `UncaughtExceptionsBeforeTest` on a subsequent test's start).
+         */
+        fun forTestWithDefensiveHandler(scope: CoroutineScope): PerspectiveDispatcherScope {
+            val wrappedScope = CoroutineScope(scope.coroutineContext + UNHANDLED_HANDLER)
+            return PerspectiveDispatcherScope(scope = wrappedScope)
+        }
     }
 }

@@ -31,7 +31,7 @@ class PerspectiveDispatcherScopeTest : StringSpec({
         runBlocking {
             val sup = SupervisorJob()
             val scope = CoroutineScope(sup + Dispatchers.Default)
-            val dispatcher = PerspectiveDispatcherScope.forTest(scope)
+            val dispatcher = PerspectiveDispatcherScope.forTestWithDefensiveHandler(scope)
 
             val d2Completed = AtomicInteger(0)
 
@@ -59,7 +59,7 @@ class PerspectiveDispatcherScopeTest : StringSpec({
         runBlocking {
             val sup = SupervisorJob()
             val scope = CoroutineScope(sup + Dispatchers.Default)
-            val dispatcher = PerspectiveDispatcherScope.forTest(scope)
+            val dispatcher = PerspectiveDispatcherScope.forTestWithDefensiveHandler(scope)
 
             val completed = AtomicInteger(0)
 
@@ -98,7 +98,7 @@ class PerspectiveDispatcherScopeTest : StringSpec({
         runBlocking {
             val sup = SupervisorJob()
             val scope = CoroutineScope(sup + Dispatchers.Default)
-            val dispatcher = PerspectiveDispatcherScope.forTest(scope)
+            val dispatcher = PerspectiveDispatcherScope.forTestWithDefensiveHandler(scope)
 
             val started = AtomicInteger(0)
             val finished = AtomicInteger(0)
@@ -127,7 +127,7 @@ class PerspectiveDispatcherScopeTest : StringSpec({
         runBlocking {
             val sup = SupervisorJob()
             val scope = CoroutineScope(sup + Dispatchers.Default)
-            val dispatcher = PerspectiveDispatcherScope.forTest(scope)
+            val dispatcher = PerspectiveDispatcherScope.forTestWithDefensiveHandler(scope)
 
             // Full shutdown — drain budget large enough that no in-flight cancellation occurs.
             dispatcher.shutdown(drainMillis = 100)
