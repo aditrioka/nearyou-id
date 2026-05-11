@@ -2,7 +2,7 @@ package id.nearyou.app.infra.openaimoderation
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.engine.apache5.Apache5
+import io.ktor.client.engine.java.Java
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.headers
@@ -76,7 +76,7 @@ class OpenAiModerationClient(
         if (engine != null) {
             HttpClient(engine) { configure() }
         } else {
-            HttpClient(Apache5) { configure() }
+            HttpClient(Java) { configure() }
         }
 
     /**

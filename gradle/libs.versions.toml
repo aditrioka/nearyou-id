@@ -67,6 +67,7 @@ ktor-clientCore = { module = "io.ktor:ktor-client-core-jvm", version.ref = "ktor
 ktor-clientCio = { module = "io.ktor:ktor-client-cio-jvm", version.ref = "ktor" }
 ktor-clientOkhttp = { module = "io.ktor:ktor-client-okhttp-jvm", version.ref = "ktor" }
 ktor-clientApache5 = { module = "io.ktor:ktor-client-apache5-jvm", version.ref = "ktor" }
+ktor-clientJava = { module = "io.ktor:ktor-client-java-jvm", version.ref = "ktor" }
 ktor-clientContentNegotiation = { module = "io.ktor:ktor-client-content-negotiation-jvm", version.ref = "ktor" }
 ktor-clientMock = { module = "io.ktor:ktor-client-mock-jvm", version.ref = "ktor" }
 

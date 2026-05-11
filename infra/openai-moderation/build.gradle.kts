@@ -24,6 +24,13 @@ dependencies {
     implementation(libs.ktor.clientCio)
     implementation(libs.ktor.clientOkhttp)
     implementation(libs.ktor.clientApache5)
+    // JDK 11+ java.net.http.HttpClient via Ktor's Java engine — iter 13 (#88).
+    // After CIO/OkHttp/Apache5 ALL showed 4-6s analyze() time vs raw-curl p99
+    // of 1.4s, the engine choice itself didn't help. This is the last major
+    // engine variant — uses JDK stdlib HTTP/2 directly, no Apache/OkHttp/Netty
+    // intermediary. If still slow, the issue is in Ktor's pipeline above the
+    // engine layer, not the engine itself.
+    implementation(libs.ktor.clientJava)
     implementation(libs.ktor.clientContentNegotiation)
     implementation(libs.ktor.serializationKotlinxJson)
     implementation(libs.slf4j.api)
