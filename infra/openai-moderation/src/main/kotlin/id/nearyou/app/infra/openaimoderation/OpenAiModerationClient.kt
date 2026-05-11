@@ -87,70 +87,90 @@ class OpenAiModerationClient(
      * orchestrator).
      */
     override suspend fun analyze(content: String): ModerationScore {
-        // Phase instrumentation (issue #88 iter 11): time each step inside analyze()
+        // Phase instrumentation (issue #88 iter 11/12): time each step inside analyze()
         // to narrow down JVM-side overhead. PR #94's per-call timing showed
-        // analyze_ms 4-6s on warm calls vs raw curl p99 of 1.4s. Need to know:
-        // is the slow part the httpClient.post call (connection setup + transport),
-        // bodyAsText (body buffer drain), or parseScore (JSON decode)?
+        // analyze_ms 4-6s on warm calls vs raw curl p99 of 1.4s. The log MUST emit
+        // even on cancellation (withTimeoutOrNull firing) to capture WHERE in the
+        // analyze() pipeline the cancellation hit — `try-finally` ensures the
+        // emission runs regardless of cancellation/exception.
         val tStart = System.nanoTime()
-        val response: HttpResponse =
-            httpClient.post(ENDPOINT_URL) {
-                contentType(ContentType.Application.Json)
-                headers {
-                    append(HttpHeaders.Authorization, "Bearer $apiKey")
-                    append(HttpHeaders.Accept, ContentType.Application.Json.toString())
+        var tAfterPost: Long? = null
+        var tAfterBody: Long? = null
+        var tAfterParse: Long? = null
+        var statusCode = -1
+        var outcome = "in_progress"
+        try {
+            val response: HttpResponse =
+                httpClient.post(ENDPOINT_URL) {
+                    contentType(ContentType.Application.Json)
+                    headers {
+                        append(HttpHeaders.Authorization, "Bearer $apiKey")
+                        append(HttpHeaders.Accept, ContentType.Application.Json.toString())
+                    }
+                    setBody(ModerationRequest(model = model, input = content))
                 }
-                setBody(ModerationRequest(model = model, input = content))
+            tAfterPost = System.nanoTime()
+            statusCode = response.status.value
+            if (!response.status.isSuccess()) {
+                val bodyText =
+                    runCatching { response.bodyAsText() }
+                        .getOrDefault("(unable to read body)")
+                outcome = "http_error"
+                throw ModerationHttpException(status = response.status, body = bodyText)
             }
-        val tAfterPost = System.nanoTime()
-        if (!response.status.isSuccess()) {
-            val bodyText =
-                runCatching { response.bodyAsText() }
-                    .getOrDefault("(unable to read body)")
-            emitAnalyzePhaseLog(response.status.value, tStart, tAfterPost, null, null, "http_error")
-            throw ModerationHttpException(status = response.status, body = bodyText)
+            val rawBody =
+                try {
+                    response.bodyAsText()
+                } catch (t: ModerationHttpException) {
+                    throw t
+                } catch (t: Throwable) {
+                    throw ModerationResponseParseException(
+                        "failed to read response body: ${t.message ?: t.javaClass.simpleName}",
+                        t,
+                    )
+                }
+            tAfterBody = System.nanoTime()
+            val result = parseScore(rawBody)
+            tAfterParse = System.nanoTime()
+            outcome = "ok"
+            return result
+        } catch (t: kotlinx.coroutines.CancellationException) {
+            outcome = "cancelled"
+            throw t
+        } catch (t: ModerationHttpException) {
+            // outcome already set above
+            throw t
+        } catch (t: Throwable) {
+            if (outcome == "in_progress") outcome = "error_${t.javaClass.simpleName}"
+            throw t
+        } finally {
+            val tEnd = System.nanoTime()
+            val postMs = tAfterPost?.let { (it - tStart) / NANOS_PER_MS } ?: -1L
+            val bodyMs =
+                if (tAfterPost != null && tAfterBody != null) {
+                    (tAfterBody!! - tAfterPost!!) / NANOS_PER_MS
+                } else {
+                    -1L
+                }
+            val parseMs =
+                if (tAfterBody != null && tAfterParse != null) {
+                    (tAfterParse!! - tAfterBody!!) / NANOS_PER_MS
+                } else {
+                    -1L
+                }
+            val totalMs = ((tAfterParse ?: tAfterBody ?: tAfterPost ?: tEnd) - tStart) / NANOS_PER_MS
+            val elapsedToEndMs = (tEnd - tStart) / NANOS_PER_MS
+            log.info(
+                "event=openai_analyze_phase status={} outcome={} post_ms={} body_ms={} parse_ms={} total_ms={} elapsed_ms={}",
+                statusCode,
+                outcome,
+                postMs,
+                bodyMs,
+                parseMs,
+                totalMs,
+                elapsedToEndMs,
+            )
         }
-        val rawBody =
-            try {
-                response.bodyAsText()
-            } catch (t: ModerationHttpException) {
-                throw t
-            } catch (t: Throwable) {
-                throw ModerationResponseParseException(
-                    "failed to read response body: ${t.message ?: t.javaClass.simpleName}",
-                    t,
-                )
-            }
-        val tAfterBody = System.nanoTime()
-        val result = parseScore(rawBody)
-        val tAfterParse = System.nanoTime()
-        emitAnalyzePhaseLog(response.status.value, tStart, tAfterPost, tAfterBody, tAfterParse, "ok")
-        return result
-    }
-
-    private fun emitAnalyzePhaseLog(
-        statusCode: Int,
-        tStart: Long,
-        tAfterPost: Long,
-        tAfterBody: Long?,
-        tAfterParse: Long?,
-        outcome: String,
-    ) {
-        val postMs = (tAfterPost - tStart) / NANOS_PER_MS
-        val bodyMs = tAfterBody?.let { (it - tAfterPost) / NANOS_PER_MS } ?: -1L
-        val parseMs = (tAfterBody to tAfterParse).let { (a, b) ->
-            if (a != null && b != null) (b - a) / NANOS_PER_MS else -1L
-        }
-        val totalMs = ((tAfterParse ?: tAfterBody ?: tAfterPost) - tStart) / NANOS_PER_MS
-        log.info(
-            "event=openai_analyze_phase status={} outcome={} post_ms={} body_ms={} parse_ms={} total_ms={}",
-            statusCode,
-            outcome,
-            postMs,
-            bodyMs,
-            parseMs,
-            totalMs,
-        )
     }
 
     override fun close() {
