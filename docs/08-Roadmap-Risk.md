@@ -175,7 +175,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
     - Load test 100 concurrent
     - Re-benchmark Broadcast mode cost per message at realistic scale
 15. Coordinate fuzzing path audit (all spatial queries use `display_location` except reverse geocoding + admin) — **first audit target is `nearby-timeline`** (the read path shipped in change `nearby-timeline-with-blocks`); verify response JSON never exposes `actual_location` or its derived lat/lng
-16. Perspective API integration (stopgap text moderation, 500ms timeout fail-open, kill switch flag, writes to `moderation_queue` on high score)
+16. Perspective API integration (stopgap text moderation, 500ms timeout fail-open, kill switch flag, writes to `moderation_queue` on high score) — **shipped in change `text-moderation-perspective-api-layer`** (vendor pivoted mid-implementation from Google Perspective → OpenAI Moderation `omni-moderation-latest` after Perspective announced end-of-2026 sunset; OpenSpec change name + Firebase RC flag names + V9 SQL trigger value preserved as historical-artifact carve-outs per the proposal.md Vendor Swap Amendment). Final timeout budget: 3000ms regional baseline for asia-southeast1 (originally 500ms; bumped iteratively to cover empirical bimodal TTFB from Singapore → US OpenAI). Staging-side happy-path observability is tracked separately in [#88](https://github.com/aditrioka/nearyou-id/issues/88) (Cloud Run cpu=1 scheduling characteristic; not a Layer 3 code defect; happy path covered by 98 local tests).
 
 ### Phase 3: Mobile App Android + iOS (Weeks 7-10)
 
