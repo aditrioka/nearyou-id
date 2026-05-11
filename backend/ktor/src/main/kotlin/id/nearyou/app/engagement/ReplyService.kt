@@ -3,8 +3,8 @@ package id.nearyou.app.engagement
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
-import id.nearyou.app.moderation.PerspectiveDispatcherScope
-import id.nearyou.app.moderation.PerspectiveModerator
+import id.nearyou.app.moderation.Layer3DispatcherScope
+import id.nearyou.app.moderation.Layer3Moderator
 import id.nearyou.app.moderation.TargetType
 import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
@@ -65,8 +65,8 @@ class ReplyService(
     private val remoteConfig: RemoteConfig,
     private val textModerator: TextModerator,
     private val moderationQueue: ModerationQueueRepository,
-    private val perspectiveDispatcherScope: PerspectiveDispatcherScope? = null,
-    private val perspectiveModerator: PerspectiveModerator? = null,
+    private val layer3DispatcherScope: Layer3DispatcherScope? = null,
+    private val layer3Moderator: Layer3Moderator? = null,
     private val clock: () -> Instant = Instant::now,
 ) {
     /**
@@ -193,13 +193,13 @@ class ReplyService(
         // produces a Layer 3 moderation queue row. Passes `coroutineContext` for
         // OTel trace context propagation per design.md Decision 13.
         @Suppress("NAME_SHADOWING")
-        val perspectiveDispatcherScope = perspectiveDispatcherScope
+        val layer3DispatcherScope = layer3DispatcherScope
 
         @Suppress("NAME_SHADOWING")
-        val perspectiveModerator = perspectiveModerator
-        if (perspectiveDispatcherScope != null && perspectiveModerator != null) {
-            perspectiveDispatcherScope.dispatch(coroutineContext) {
-                perspectiveModerator.moderate(TargetType.REPLY, row.id, content)
+        val layer3Moderator = layer3Moderator
+        if (layer3DispatcherScope != null && layer3Moderator != null) {
+            layer3DispatcherScope.dispatch(coroutineContext) {
+                layer3Moderator.moderate(TargetType.REPLY, row.id, content)
             }
         }
 

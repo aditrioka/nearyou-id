@@ -19,8 +19,8 @@ dependencies {
     implementation(projects.core.data)
     implementation(projects.infra.fcm)
     implementation(projects.infra.oidc)
+    implementation(projects.infra.openaiModeration)
     implementation(projects.infra.otel)
-    implementation(projects.infra.perspective)
     implementation(projects.infra.redis)
     implementation(projects.infra.remoteConfig)
     implementation(projects.infra.supabase)
@@ -70,10 +70,12 @@ dependencies {
     // consumed by `chat-realtime-broadcast` + `fcm-push-dispatch` pairing tests.
     testImplementation(testFixtures(projects.infra.otel))
 
-    // RecordingPerspectiveClient test fixture from `:infra:perspective`, consumed by
-    // PerspectiveModerator + integration tests for the `text-moderation-perspective-api-layer`
-    // capability.
-    testImplementation(testFixtures(projects.infra.perspective))
+    // RecordingModerationClient test fixture from `:infra:openai-moderation`, consumed by
+    // Layer3Moderator + integration tests for the `text-moderation-perspective-api-layer`
+    // capability (vendor pivoted from Perspective → OpenAI mid-implementation; the
+    // capability name retains the historical "perspective" branding per the
+    // proposal.md vendor-swap amendment).
+    testImplementation(testFixtures(projects.infra.openaiModeration))
 
     detektPlugins(projects.lint.detektRules)
 }

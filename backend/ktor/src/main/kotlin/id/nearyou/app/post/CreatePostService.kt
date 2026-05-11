@@ -3,8 +3,8 @@ package id.nearyou.app.post
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.infra.repo.NewPostRow
 import id.nearyou.app.infra.repo.PostRepository
-import id.nearyou.app.moderation.PerspectiveDispatcherScope
-import id.nearyou.app.moderation.PerspectiveModerator
+import id.nearyou.app.moderation.Layer3DispatcherScope
+import id.nearyou.app.moderation.Layer3Moderator
 import id.nearyou.app.moderation.TargetType
 import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
@@ -41,8 +41,8 @@ class CreatePostService(
     private val textModerator: TextModerator,
     private val moderationQueue: ModerationQueueRepository,
     private val jitterSecret: ByteArray,
-    private val perspectiveDispatcherScope: PerspectiveDispatcherScope? = null,
-    private val perspectiveModerator: PerspectiveModerator? = null,
+    private val layer3DispatcherScope: Layer3DispatcherScope? = null,
+    private val layer3Moderator: Layer3Moderator? = null,
     private val nowProvider: () -> Instant = Instant::now,
 ) {
     /**
@@ -132,13 +132,13 @@ class CreatePostService(
         // null check (Kotlin doesn't smart-cast `private val` properties through
         // a multi-condition `if`).
         @Suppress("NAME_SHADOWING")
-        val perspectiveDispatcherScope = perspectiveDispatcherScope
+        val layer3DispatcherScope = layer3DispatcherScope
 
         @Suppress("NAME_SHADOWING")
-        val perspectiveModerator = perspectiveModerator
-        if (perspectiveDispatcherScope != null && perspectiveModerator != null) {
-            perspectiveDispatcherScope.dispatch(coroutineContext) {
-                perspectiveModerator.moderate(TargetType.POST, postId, content)
+        val layer3Moderator = layer3Moderator
+        if (layer3DispatcherScope != null && layer3Moderator != null) {
+            layer3DispatcherScope.dispatch(coroutineContext) {
+                layer3Moderator.moderate(TargetType.POST, postId, content)
             }
         }
 
