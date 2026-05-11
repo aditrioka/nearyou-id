@@ -8,16 +8,22 @@ dependencies {
     api(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.ktor.clientCore)
-    // OkHttp engine for the production HttpClient. The previous CIO engine
-    // caused 80%+ Layer 3 dispatch timeouts in staging (issue #88) — the CIO
-    // event-loop body-read step stretched > 3000ms even for 1KB JSON bodies
-    // under typical Cloud Run sizing. OkHttp uses a dedicated Dispatcher
-    // thread pool (separate from Ktor's selector event loops) so the body-read
-    // is decoupled from Ktor CIO's scheduling. CIO is retained ONLY for
-    // backward source compatibility of `engine: HttpClientEngine? = null`
-    // ctor overloads / tests; tests inject `MockEngine` directly.
+    // Apache5 engine for the production HttpClient — Ktor's own recommendation
+    // for JVM HTTP clients (per ktor.io/docs/http-client-engines.html). Issue
+    // #88 investigation revealed OkHttp (PR #92's prior choice) is documented
+    // as one of the slower Ktor engines (HttpClient init ~2000ms, 3-4x slower
+    // than CIO for body transfer, ~3x slower than Apache for batch requests).
+    // Empirical staging measurement: raw curl from CRJ to OpenAI Moderation
+    // shows p99 1.4s, zero outliers >2s — yet JVM-mediated calls (OkHttp engine
+    // path) timed out >80% at 3000ms. Apache5 supports HTTP/1.1 and HTTP/2,
+    // uses constant thread count regardless of concurrency, and is the engine
+    // recommended for new Ktor projects per the 3.x docs. The Cio and Okhttp
+    // deps are retained for backward source compatibility of any caller that
+    // explicitly injects them via the `engine: HttpClientEngine? = null` ctor
+    // overload; tests use `MockEngine` from `ktor-client-mock`.
     implementation(libs.ktor.clientCio)
     implementation(libs.ktor.clientOkhttp)
+    implementation(libs.ktor.clientApache5)
     implementation(libs.ktor.clientContentNegotiation)
     implementation(libs.ktor.serializationKotlinxJson)
     implementation(libs.slf4j.api)
