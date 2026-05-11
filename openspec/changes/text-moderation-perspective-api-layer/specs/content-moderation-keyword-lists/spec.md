@@ -10,14 +10,14 @@ Every write-path handler that wires `TextModerator.moderate(...)` SHALL run the 
 4. Content length guard (post 280 / reply 280 / chat 2000)
 5. **`TextModerator.moderate(content)`** ← Layer 1 + Layer 2 (synchronous)
 6. INSERT into the relevant table
-7. **`perspectiveDispatcherScope.dispatch(coroutineContext) { perspectiveModerator.moderate(targetType, newRowId, content) }`** ← Layer 3 (asynchronous, fire-and-forget) — applies to `posts` and `post_replies` per the [`text-moderation-perspective-api-layer`](../../../specs/text-moderation-perspective-api-layer/spec.md) capability; does NOT apply to chat as of this change (see that capability's design Open Question 1 for the chat deferral rationale)
+7. **`layer3DispatcherScope.dispatch(coroutineContext) { layer3Moderator.moderate(targetType, newRowId, content) }`** ← Layer 3 (asynchronous, fire-and-forget) — applies to `posts` and `post_replies` per the [`text-moderation-perspective-api-layer`](../../../specs/text-moderation-perspective-api-layer/spec.md) capability; does NOT apply to chat as of this change (see that capability's design Open Question 1 for the chat deferral rationale)
 8. (chat path only) broadcast publish via `ChatRealtimeClient`
 
 This ordering ensures: cheap deterministic checks (length, rate limit, block) reject malformed/abusive requests before invoking the moderator (which has Redis/Remote Config network surface); the moderator runs against already-length-validated content (no content too long to fingerprint); content is moderated before becoming visible.
 
 For `Verdict.Flag`, the `moderation_queue` row SHALL be written in the same SQL transaction as the content INSERT, with `ON CONFLICT (target_type, target_id, trigger) DO NOTHING` for idempotency (per existing [`moderation-queue/spec.md`](../../specs/moderation-queue/spec.md) UNIQUE constraint).
 
-**Layer 3 boundary:** Layer 3 (Perspective API) runs AFTER the synchronous INSERT in a separate async dispatcher (the `PerspectiveDispatcherScope`). Layer 3 is NOT part of the synchronous `Verdict` produced by `TextModerator.moderate(content)`. The synchronous moderator returns `Allow` / `Reject` / `Flag`; the asynchronous Layer 3 produces a separate `Outcome` (`NoAction` / `FlagOnly` / `AutoHide`) per the [`text-moderation-perspective-api-layer`](../../../specs/text-moderation-perspective-api-layer/spec.md) capability. The two surfaces have different lifetimes (synchronous request vs fire-and-forget coroutine), different transaction boundaries (Layer 1+2 share the request transaction; Layer 3 owns its own transaction), and different failure semantics (Layer 1+2 throw or return Allow on loader failure; Layer 3 always fails open via `Outcome.NoAction`).
+**Layer 3 boundary:** Layer 3 (asynchronous toxicity classifier — OpenAI Moderation today, vendor-neutral interface) runs AFTER the synchronous INSERT in a separate async dispatcher (the `Layer3DispatcherScope`). Layer 3 is NOT part of the synchronous `Verdict` produced by `TextModerator.moderate(content)`. The synchronous moderator returns `Allow` / `Reject` / `Flag`; the asynchronous Layer 3 produces a separate `Outcome` (`NoAction` / `FlagOnly` / `AutoHide`) per the [`text-moderation-perspective-api-layer`](../../../specs/text-moderation-perspective-api-layer/spec.md) capability. The two surfaces have different lifetimes (synchronous request vs fire-and-forget coroutine), different transaction boundaries (Layer 1+2 share the request transaction; Layer 3 owns its own transaction), and different failure semantics (Layer 1+2 throw or return Allow on loader failure; Layer 3 always fails open via `Outcome.NoAction`).
 
 #### Scenario: Moderator runs after length guard, before INSERT
 - **WHEN** a write-path handler is statically analyzed for the call order of `contentLengthGuard`, `TextModerator.moderate`, and the canonical INSERT call
@@ -39,20 +39,20 @@ For `Verdict.Flag`, the `moderation_queue` row SHALL be written in the same SQL 
 
 #### Scenario: Layer 3 dispatch fires AFTER the INSERT commit (post path)
 - **WHEN** the `POST /api/v1/posts` handler runs AND `TextModerator.moderate(content)` returns `Verdict.Allow` AND the INSERT into `posts` commits successfully
-- **THEN** within the handler scope, `perspectiveDispatcherScope.dispatch(coroutineContext) { perspectiveModerator.moderate(POST, <new post id>, content) }` is invoked exactly once AFTER the INSERT commit AND BEFORE the response is sent (Layer 3 runs in a fire-and-forget coroutine; the response is not blocked on Perspective)
+- **THEN** within the handler scope, `layer3DispatcherScope.dispatch(coroutineContext) { layer3Moderator.moderate(POST, <new post id>, content) }` is invoked exactly once AFTER the INSERT commit AND BEFORE the response is sent (Layer 3 runs in a fire-and-forget coroutine; the response is not blocked on the vendor)
 
 #### Scenario: Layer 3 dispatch fires AFTER the INSERT commit (reply path)
 - **WHEN** the `POST /api/v1/posts/{post_id}/replies` handler runs AND `TextModerator.moderate(content)` returns `Verdict.Allow` AND the INSERT into `post_replies` commits successfully
-- **THEN** within the handler scope, `perspectiveDispatcherScope.dispatch(coroutineContext) { perspectiveModerator.moderate(REPLY, <new reply id>, content) }` is invoked exactly once AFTER the INSERT commit AND BEFORE the response is sent
+- **THEN** within the handler scope, `layer3DispatcherScope.dispatch(coroutineContext) { layer3Moderator.moderate(REPLY, <new reply id>, content) }` is invoked exactly once AFTER the INSERT commit AND BEFORE the response is sent
 
 #### Scenario: Layer 1 reject prevents Layer 3 dispatch
 - **WHEN** `TextModerator.moderate(content)` returns `Verdict.Reject(matchedKeywords = listOf("badword"))` AND the handler returns HTTP 400
-- **THEN** `perspectiveDispatcherScope.dispatch(coroutineContext) { ... }` is NOT invoked (no row was INSERTed; no target exists to moderate; the handler short-circuits before reaching the dispatch call site — verifiable via mock-spy call count on the dispatcher scope)
+- **THEN** `layer3DispatcherScope.dispatch(coroutineContext) { ... }` is NOT invoked (no row was INSERTed; no target exists to moderate; the handler short-circuits before reaching the dispatch call site — verifiable via mock-spy call count on the dispatcher scope)
 
 #### Scenario: Layer 2 flag still triggers Layer 3 dispatch
 - **WHEN** `TextModerator.moderate(content)` returns `Verdict.Flag(matchedKeywords = listOf("sara1", "sara2", "sara3"))` (Layer 2 writes a queue row with `trigger = 'uu_ite_keyword_match'`) AND the INSERT commits successfully
-- **THEN** `perspectiveDispatcherScope.dispatch(coroutineContext) { ... }` IS invoked AFTER the INSERT commit (Layer 3 runs independently of Layer 2's outcome — both can fire on the same row, producing two queue rows with distinct triggers per [`docs/05-Implementation.md:545`](../../../../../docs/05-Implementation.md))
+- **THEN** `layer3DispatcherScope.dispatch(coroutineContext) { ... }` IS invoked AFTER the INSERT commit (Layer 3 runs independently of Layer 2's outcome — both can fire on the same row, producing two queue rows with distinct triggers per [`docs/05-Implementation.md:545`](../../../../../docs/05-Implementation.md))
 
 #### Scenario: Chat path does NOT invoke Layer 3 dispatch (as of this change)
 - **WHEN** `POST /api/v1/chat/{conversation_id}/messages` runs AND `TextModerator.moderate(content)` returns `Verdict.Allow` AND the INSERT into `chat_messages` commits successfully
-- **THEN** `perspectiveDispatcherScope.dispatch(coroutineContext) { ... }` is NOT invoked (chat-message Layer 3 is explicitly deferred per the `text-moderation-perspective-api-layer` capability design Open Question 1; chat ships Layer 1+2 only as of this change)
+- **THEN** `layer3DispatcherScope.dispatch(coroutineContext) { ... }` is NOT invoked (chat-message Layer 3 is explicitly deferred per the `text-moderation-perspective-api-layer` capability design Open Question 1; chat ships Layer 1+2 only as of this change)
