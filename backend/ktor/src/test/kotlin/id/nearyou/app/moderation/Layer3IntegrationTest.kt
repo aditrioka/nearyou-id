@@ -36,7 +36,7 @@ import javax.sql.DataSource
  *
  * Each scenario:
  *  1. Builds a real `DefaultLayer3Moderator` + `Layer3DispatcherScope` over
- *     a `RecordingModerationClient` (test fixture from `:infra:perspective`) and
+ *     a `RecordingModerationClient` (test fixture from `:infra:openai-moderation`) and
  *     `JdbcLayer3ModerationWriter` against a real Postgres dataSource.
  *  2. Invokes `CreatePostService.create(...)` via `runBlocking`.
  *  3. Calls `dispatcher.shutdown(drainMillis = 5000)` to drain in-flight dispatches —

@@ -46,6 +46,7 @@ COPY core/data/build.gradle.kts core/data/build.gradle.kts
 COPY core/domain/build.gradle.kts core/domain/build.gradle.kts
 COPY infra/fcm/build.gradle.kts infra/fcm/build.gradle.kts
 COPY infra/oidc/build.gradle.kts infra/oidc/build.gradle.kts
+COPY infra/openai-moderation/build.gradle.kts infra/openai-moderation/build.gradle.kts
 COPY infra/otel/build.gradle.kts infra/otel/build.gradle.kts
 COPY infra/redis/build.gradle.kts infra/redis/build.gradle.kts
 COPY infra/remote-config/build.gradle.kts infra/remote-config/build.gradle.kts
@@ -60,6 +61,7 @@ COPY core/data/src core/data/src
 COPY core/domain/src core/domain/src
 COPY infra/fcm/src infra/fcm/src
 COPY infra/oidc/src infra/oidc/src
+COPY infra/openai-moderation/src infra/openai-moderation/src
 COPY infra/otel/src infra/otel/src
 COPY infra/redis/src infra/redis/src
 COPY infra/remote-config/src infra/remote-config/src
