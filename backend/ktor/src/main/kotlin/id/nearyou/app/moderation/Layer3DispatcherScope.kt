@@ -76,8 +76,21 @@ class Layer3DispatcherScope private constructor(
             )
             return null
         }
+        // `parentContext + Dispatchers.IO` — keep OTel trace context + MDC + other
+        // context elements from the caller's coroutine, but FORCE Dispatchers.IO as
+        // the dispatcher. Per issue #88: passing `parentContext` alone leaks the
+        // Ktor server's event-loop dispatcher (`eventLoopGroupProxy-*`) into the
+        // launched coroutine — because Kotlin's `scope.launch(context)` uses
+        // `scope.coroutineContext + context` and the right-side `context` wins for
+        // overlapping elements. The Dispatchers.IO in scope.coroutineContext was
+        // silently overridden by the inbound request's dispatcher. The
+        // Layer 3 dispatch then ran on the inbound event loop, competing with
+        // inbound request handling AND the OpenAI client's body-conversion step;
+        // > 80% of dispatches timed out on the 3000ms budget.
+        // Putting Dispatchers.IO LAST in the launch arg makes it win, restoring
+        // the scope's design intent.
         return try {
-            scope.launch(parentContext) {
+            scope.launch(parentContext + Dispatchers.IO) {
                 block()
             }
         } catch (t: Throwable) {

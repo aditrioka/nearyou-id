@@ -4,6 +4,8 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -11,6 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 
 /**
@@ -149,5 +152,40 @@ class Layer3DispatcherScopeTest : StringSpec({
         dispatcher.isShutdown shouldBe false
         // Cleanup so the test JVM doesn't leak the scope.
         dispatcher.shutdown(drainMillis = 100)
+    }
+
+    // Regression test for issue #88: passing a parent context with a different
+    // dispatcher MUST NOT override the scope's `Dispatchers.IO`. Prior bug
+    // (`scope.launch(parentContext)` without `+ Dispatchers.IO`) silently inherited
+    // the caller's dispatcher — e.g., Ktor server's `eventLoopGroupProxy-*` event
+    // loop — and Layer 3 dispatches ran on the inbound-request thread, competing
+    // with HTTP body reads and timing out ~80% on the 3000ms budget.
+    "dispatch overrides parent context's dispatcher with Dispatchers.IO" {
+        runBlocking {
+            val sup = SupervisorJob()
+            val scope = CoroutineScope(sup + Dispatchers.IO)
+            val dispatcher = Layer3DispatcherScope.forTestWithDefensiveHandler(scope)
+
+            // Use `Dispatchers.Unconfined` as the "parent" dispatcher. If the launch
+            // honors the parent dispatcher (the bug), the block runs unconfined.
+            // If the override works, the block runs on Dispatchers.IO (worker thread
+            // name starts with "DefaultDispatcher-worker-").
+            val observedThreadName = java.util.concurrent.atomic.AtomicReference<String>()
+            val parentContext: CoroutineContext = Dispatchers.Unconfined + CoroutineName("inbound-request-thread")
+
+            val job =
+                dispatcher.dispatch(parentContext) {
+                    observedThreadName.set(Thread.currentThread().name)
+                }
+            job.shouldNotBeNull()
+            job.join()
+
+            // Dispatchers.IO worker thread names follow `DefaultDispatcher-worker-N`
+            // (kotlinx-coroutines unifies IO + Default into one pool with a label).
+            observedThreadName.get() shouldNotBe null
+            observedThreadName.get().startsWith("DefaultDispatcher-worker-") shouldBe true
+
+            sup.cancel()
+        }
     }
 })
