@@ -122,7 +122,7 @@ These docs are amended IN THIS CHANGE because the change introduces the surface 
 - [ ] 14.2 Tail the deploy run; confirm green
 - [ ] 14.3 Verify `staging-perspective-api-key` secret slot is provisioned in GCP Secret Manager (operator-only step; cannot be done by the agent)
 - [ ] 14.4 Verify `perspective_api_enabled = TRUE` in staging Firebase Remote Config (already seeded per Pre-Phase 1 §18; idempotent verification)
-- [ ] 14.5 Smoke: write a staging script `dev/scripts/smoke-text-moderation-perspective-api-layer.sh` that creates a test user, posts a high-toxicity message, polls the staging DB for `is_auto_hidden = TRUE` AND a queue row with `trigger = 'perspective_api_high_score'`
+- [x] 14.5 Smoke: write a staging script `dev/scripts/smoke-text-moderation-perspective-api-layer.sh` that creates a test user, posts a high-toxicity message, polls the staging DB for `is_auto_hidden = TRUE` AND a queue row with `trigger = 'perspective_api_high_score'` — script committed; polls Cloud Logging for `event=perspective_high_score_applied target_id=<post_id>` as the proxy for the DB write (Supabase Postgres is IPv6-only; direct laptop psql isn't reachable per CLAUDE.md memory). Operator runbook reminders for direct DB inspection (Supabase Studio / Cloud Run psql shell) included in the script output.
 - [ ] 14.6 Confirm baseline latency on `POST /api/v1/posts` did not regress (compare p95 against the pre-Layer-3 baseline from the staging dashboard); document delta in the PR body
 - [ ] 14.7 Confirm Sentry surfaces no unexpected ERROR events post-smoke (only the expected WARN events from the timeout/failure test cases, if any were exercised)
 - [ ] 14.8 Tick Section 14 in this `tasks.md` (mark each item complete) and proceed to archive
