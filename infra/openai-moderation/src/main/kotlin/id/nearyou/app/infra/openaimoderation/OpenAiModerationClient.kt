@@ -18,6 +18,7 @@ import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.slf4j.LoggerFactory
 
 /**
  * Production [ModerationClient] implementation backed by the OpenAI Moderation
@@ -69,6 +70,8 @@ class OpenAiModerationClient(
     private val model: String = DEFAULT_MODEL,
     engine: HttpClientEngine? = null,
 ) : ModerationClient, AutoCloseable {
+    private val log = LoggerFactory.getLogger(OpenAiModerationClient::class.java)
+
     private val httpClient: HttpClient =
         if (engine != null) {
             HttpClient(engine) { configure() }
@@ -84,6 +87,12 @@ class OpenAiModerationClient(
      * orchestrator).
      */
     override suspend fun analyze(content: String): ModerationScore {
+        // Phase instrumentation (issue #88 iter 11): time each step inside analyze()
+        // to narrow down JVM-side overhead. PR #94's per-call timing showed
+        // analyze_ms 4-6s on warm calls vs raw curl p99 of 1.4s. Need to know:
+        // is the slow part the httpClient.post call (connection setup + transport),
+        // bodyAsText (body buffer drain), or parseScore (JSON decode)?
+        val tStart = System.nanoTime()
         val response: HttpResponse =
             httpClient.post(ENDPOINT_URL) {
                 contentType(ContentType.Application.Json)
@@ -93,10 +102,12 @@ class OpenAiModerationClient(
                 }
                 setBody(ModerationRequest(model = model, input = content))
             }
+        val tAfterPost = System.nanoTime()
         if (!response.status.isSuccess()) {
             val bodyText =
                 runCatching { response.bodyAsText() }
                     .getOrDefault("(unable to read body)")
+            emitAnalyzePhaseLog(response.status.value, tStart, tAfterPost, null, null, "http_error")
             throw ModerationHttpException(status = response.status, body = bodyText)
         }
         val rawBody =
@@ -110,7 +121,36 @@ class OpenAiModerationClient(
                     t,
                 )
             }
-        return parseScore(rawBody)
+        val tAfterBody = System.nanoTime()
+        val result = parseScore(rawBody)
+        val tAfterParse = System.nanoTime()
+        emitAnalyzePhaseLog(response.status.value, tStart, tAfterPost, tAfterBody, tAfterParse, "ok")
+        return result
+    }
+
+    private fun emitAnalyzePhaseLog(
+        statusCode: Int,
+        tStart: Long,
+        tAfterPost: Long,
+        tAfterBody: Long?,
+        tAfterParse: Long?,
+        outcome: String,
+    ) {
+        val postMs = (tAfterPost - tStart) / NANOS_PER_MS
+        val bodyMs = tAfterBody?.let { (it - tAfterPost) / NANOS_PER_MS } ?: -1L
+        val parseMs = (tAfterBody to tAfterParse).let { (a, b) ->
+            if (a != null && b != null) (b - a) / NANOS_PER_MS else -1L
+        }
+        val totalMs = ((tAfterParse ?: tAfterBody ?: tAfterPost) - tStart) / NANOS_PER_MS
+        log.info(
+            "event=openai_analyze_phase status={} outcome={} post_ms={} body_ms={} parse_ms={} total_ms={}",
+            statusCode,
+            outcome,
+            postMs,
+            bodyMs,
+            parseMs,
+            totalMs,
+        )
     }
 
     override fun close() {
@@ -227,6 +267,8 @@ class OpenAiModerationClient(
                 "violence",
                 "violence/graphic",
             )
+
+        private const val NANOS_PER_MS: Long = 1_000_000L
 
         private val JSON =
             Json {
