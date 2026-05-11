@@ -73,6 +73,13 @@ class DefaultLayer3Moderator(
         targetId: UUID,
         content: String,
     ): Outcome {
+        // Phase timing instrumentation (issue #88): emits structured `event=layer3_phase_timing`
+        // INFO at the end of each dispatch so operators can pinpoint where time
+        // is spent — config load, OpenAI call, writer — without inferring from
+        // gaps between unrelated log lines. Uses monotonic clock (System.nanoTime)
+        // because wall clock can be skewed by NTP corrections mid-call.
+        val tStart = System.nanoTime()
+
         // 1. Kill-switch check. The loader handles its own ERROR emission on Tier-2
         // throw (fail-OPEN to true per design.md Decision 12); the orchestrator just
         // observes the boolean and short-circuits silently when disabled.
@@ -94,6 +101,7 @@ class DefaultLayer3Moderator(
                 )
                 true
             }
+        val tAfterConfig = System.nanoTime()
         if (!enabled) {
             return Outcome.NoAction
         }
@@ -110,27 +118,34 @@ class DefaultLayer3Moderator(
                 // propagate through the dispatcher scope so JVM shutdown drain works.
                 throw t
             } catch (t: ModerationHttpException) {
+                emitPhaseTimings(targetType, targetId, tStart, tAfterConfig, System.nanoTime(), null, outcome = "http_error")
                 emitDispatchFailedWarn(targetType, targetId, classifyHttpStatus(t.status.value), t.status.value)
                 return Outcome.NoAction
             } catch (t: ModerationResponseParseException) {
+                emitPhaseTimings(targetType, targetId, tStart, tAfterConfig, System.nanoTime(), null, outcome = "parse_error")
                 emitDispatchFailedWarn(targetType, targetId, FAILURE_KIND_PARSE, statusCode = null)
                 return Outcome.NoAction
             } catch (t: SerializationException) {
+                emitPhaseTimings(targetType, targetId, tStart, tAfterConfig, System.nanoTime(), null, outcome = "parse_error")
                 emitDispatchFailedWarn(targetType, targetId, FAILURE_KIND_PARSE, statusCode = null)
                 return Outcome.NoAction
             } catch (t: IOException) {
+                emitPhaseTimings(targetType, targetId, tStart, tAfterConfig, System.nanoTime(), null, outcome = "network_error")
                 emitDispatchFailedWarn(targetType, targetId, FAILURE_KIND_NETWORK, statusCode = null)
                 return Outcome.NoAction
             } catch (t: Throwable) {
                 // Treat any other unhandled exception as a network/transport failure
                 // (fail-OPEN). Emit the WARN, return NoAction, do NOT propagate.
+                emitPhaseTimings(targetType, targetId, tStart, tAfterConfig, System.nanoTime(), null, outcome = "network_error")
                 emitDispatchFailedWarn(targetType, targetId, FAILURE_KIND_NETWORK, statusCode = null)
                 return Outcome.NoAction
             } ?: run {
                 // withTimeoutOrNull returned null — the 3000ms budget elapsed.
+                emitPhaseTimings(targetType, targetId, tStart, tAfterConfig, System.nanoTime(), null, outcome = "timeout")
                 emitDispatchFailedWarn(targetType, targetId, FAILURE_KIND_TIMEOUT, statusCode = null)
                 return Outcome.NoAction
             }
+        val tAfterAnalyze = System.nanoTime()
 
         // 3. Aggregate (per-call max across all categories).
         val aggregate = score.maxScore()
@@ -168,8 +183,51 @@ class DefaultLayer3Moderator(
             is Outcome.FlagOnly -> applyFlag(targetType, targetId, outcome.score)
             Outcome.NoAction -> Unit
         }
+        val tEnd = System.nanoTime()
+
+        val outcomeLabel =
+            when (outcome) {
+                is Outcome.AutoHide -> "auto_hide"
+                is Outcome.FlagOnly -> "flag_only"
+                Outcome.NoAction -> "no_action"
+            }
+        emitPhaseTimings(targetType, targetId, tStart, tAfterConfig, tAfterAnalyze, tEnd, outcomeLabel)
 
         return outcome
+    }
+
+    /**
+     * Emits a structured phase-timing INFO log so operators can attribute total dispatch
+     * latency to: config load, OpenAI analyze, DB writer, and (if applicable) post-analyze
+     * threshold resolution. Added in iteration 10 (issue #88) to stop guessing where
+     * JVM-side time is spent. Uses monotonic clock deltas in milliseconds.
+     *
+     * @param tDispatchEnd nullable — null for failure paths that exit before DB writes ran.
+     */
+    private fun emitPhaseTimings(
+        targetType: TargetType,
+        targetId: UUID,
+        tStart: Long,
+        tAfterConfig: Long,
+        tAfterAnalyze: Long,
+        tDispatchEnd: Long?,
+        outcome: String,
+    ) {
+        val configMs = (tAfterConfig - tStart) / NANOS_PER_MS
+        val analyzeMs = (tAfterAnalyze - tAfterConfig) / NANOS_PER_MS
+        val writerMs = tDispatchEnd?.let { (it - tAfterAnalyze) / NANOS_PER_MS }
+        val totalMs = (tDispatchEnd ?: tAfterAnalyze) - tStart
+        log.info(
+            "event={} target_type={} target_id={} outcome={} config_ms={} analyze_ms={} writer_ms={} total_ms={}",
+            EVENT_PHASE_TIMING,
+            targetType.wire,
+            targetId,
+            outcome,
+            configMs,
+            analyzeMs,
+            writerMs ?: -1,
+            totalMs / NANOS_PER_MS,
+        )
     }
 
     private fun applyAutoHide(
@@ -322,6 +380,9 @@ class DefaultLayer3Moderator(
         const val EVENT_FLAG_APPLIED: String = "layer3_flag_applied"
         const val EVENT_KILL_SWITCH_UNAVAILABLE: String = "layer3_kill_switch_unavailable"
         const val EVENT_THRESHOLD_MISCONFIGURED: String = "layer3_threshold_misconfigured"
+        const val EVENT_PHASE_TIMING: String = "layer3_phase_timing"
+
+        private const val NANOS_PER_MS: Long = 1_000_000L
         const val EVENT_SOFT_DELETED_TARGET: String = "layer3_soft_deleted_target_race"
         const val EVENT_DB_WRITE_FAILED: String = "layer3_db_write_failed"
 
