@@ -327,7 +327,7 @@ class OpenAiModerationClientTest : StringSpec({
         // ~20% gateway-timeout outliers at 15s+); 3000ms catches the slow tail
         // with ~1500ms margin and still bails fast on the 504 outliers.
         OpenAiModerationClient.REQUEST_TIMEOUT_MILLIS shouldBe 3000L
-        OpenAiModerationClient.CONNECT_TIMEOUT_MILLIS shouldBe 200L
+        OpenAiModerationClient.CONNECT_TIMEOUT_MILLIS shouldBe 1000L
         OpenAiModerationClient.SOCKET_TIMEOUT_MILLIS shouldBe 3000L
     }
 

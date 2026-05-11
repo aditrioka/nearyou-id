@@ -41,7 +41,7 @@ import kotlinx.serialization.json.Json
  * inspect specific sub-categories if desired.
  *
  * **Engine timeouts** are configured per `text-moderation-perspective-api-layer`
- * design.md Decision 2 — `requestTimeoutMillis = 3000`, `connectTimeoutMillis = 200`,
+ * design.md Decision 2 — `requestTimeoutMillis = 3000`, `connectTimeoutMillis = 1000`,
  * `socketTimeoutMillis = 3000`. Calibrated to cover the bimodal asia-southeast1 →
  * OpenAI US TTFB distribution (measured 2026-05-11 from Cloud Run Singapore:
  * ~40% at 550-700ms, ~40% at 1500-1550ms, ~20% gateway-timeout outliers at 15s+).
@@ -182,14 +182,24 @@ class OpenAiModerationClient(
     companion object {
         // Engine-level timeouts paired with the orchestrator's
         // `withTimeoutOrNull(3000.ms)` outer budget per design.md Decision 2.
-        // 3000ms covers the bimodal asia-southeast1 → OpenAI US TTFB distribution
-        // (measured 2026-05-11 from Cloud Run Singapore: ~40% at 550-700ms,
-        // ~40% at 1500-1550ms, ~20% gateway-timeout outliers at 15s+). Bumped from
-        // the original 500ms (pre-pivot baseline) → 1500ms (initial regional bump)
-        // → 3000ms (covers observed slow path with margin). Engine-level timeouts
-        // ensure socket close on coroutine cancellation.
+        // 3000ms request/socket budget covers the bimodal asia-southeast1 → OpenAI
+        // US TTFB distribution (measured 2026-05-11 from Cloud Run Singapore:
+        // ~40% at 550-700ms, ~40% at 1500-1550ms, ~20% gateway-timeout outliers
+        // at 15s+). Bumped from the original 500ms (pre-pivot baseline) →
+        // 1500ms → 3000ms (covers observed slow path with margin).
+        //
+        // CONNECT_TIMEOUT 1000ms (bumped from 200ms): the original 200ms baseline
+        // was tight for cross-region TLS handshake — Singapore → us-east-1 RTT
+        // alone is ~150ms, plus TLS 1.3 handshake (~200-500ms cold). Production
+        // smoke from the running JVM showed Ktor client wall-clock at 3000-4500ms
+        // (vs. one-shot curl in the same region at 305-1225ms total). The
+        // divergence narrowed to connect-phase overhead under load: Ktor CIO's
+        // connect path treats 200ms as the entire connect budget; exceeding it
+        // appears to add retry/back-off latency before the outer requestTimeout
+        // fires. 1000ms gives the cross-region TLS handshake comfortable headroom.
+        // Engine-level timeouts ensure socket close on coroutine cancellation.
         const val REQUEST_TIMEOUT_MILLIS: Long = 3000L
-        const val CONNECT_TIMEOUT_MILLIS: Long = 200L
+        const val CONNECT_TIMEOUT_MILLIS: Long = 1000L
         const val SOCKET_TIMEOUT_MILLIS: Long = 3000L
 
         internal const val ENDPOINT_URL: String = "https://api.openai.com/v1/moderations"
