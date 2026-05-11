@@ -95,6 +95,17 @@ jobs:
       # `Application.module()`'s `resolveInternalOidcAudience` — missing /
       # blank / non-URL fails-fast before the HTTP server starts so the new
       # revision's startup probe rejects.
+      # `--concurrency=1` (was 80) — diagnostic for issue #88: Layer 3 moderation
+      # dispatch hits 100% timeout in staging because the Ktor CIO event-loop
+      # body-read step on `eventLoopGroupProxy-*` starves for CPU on `--cpu=1`
+      # under multi-in-flight load. With `--concurrency=1` + `--max-instances=1`
+      # the staging JVM handles one request at a time, giving the body-read
+      # coroutine exclusive event-loop access during the Layer 3 fire-and-forget
+      # dispatch. If staging smoke happy-path fires consistently after this
+      # change, the scheduling-starvation hypothesis is confirmed and production
+      # sizing needs proper headroom (NOT 1:1 concurrency — prod traffic
+      # requires multi-in-flight). Staging cost is unchanged (still
+      # max-instances=1, cpu=1, memory=512Mi).
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${SERVICE}" \
@@ -106,7 +117,7 @@ jobs:
             --max-instances=1 \
             --memory=512Mi \
             --cpu=1 \
-            --concurrency=80 \
+            --concurrency=1 \
             --timeout=60 \
             --set-env-vars="KTOR_ENV=staging,RUN_FLYWAY_ON_STARTUP=true,INTERNAL_OIDC_AUDIENCE=https://api-staging.nearyou.id" \
             --set-secrets="DB_URL=staging-db-url:latest,DB_USER=staging-db-user:latest,DB_PASSWORD=staging-db-password:latest,KTOR_RSA_PRIVATE_KEY=staging-ktor-rsa-private-key:latest,JITTER_SECRET=staging-jitter-secret:latest,INVITE_CODE_SECRET=staging-invite-code-secret:latest,SUPABASE_JWT_SECRET=staging-supabase-jwt-secret:latest,SUPABASE_SERVICE_ROLE_KEY=staging-supabase-service-role-key:latest,SUPABASE_URL=staging-supabase-url:latest,REDIS_URL=staging-redis-url:latest,FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest,OPENAI_API_KEY=staging-openai-api-key:latest,OTEL_GRAFANA_OTLP_ENDPOINT=staging-otel-grafana-otlp-endpoint:latest,OTEL_GRAFANA_OTLP_TOKEN=staging-otel-grafana-otlp-token:latest" \
