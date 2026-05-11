@@ -95,24 +95,31 @@ jobs:
       # `Application.module()`'s `resolveInternalOidcAudience` — missing /
       # blank / non-URL fails-fast before the HTTP server starts so the new
       # revision's startup probe rejects.
-      # `--min-instances=1` (was 0) + `--cpu=2` (already bumped in PR #90) —
-      # diagnostic for issue #88, iteration 7. Iterations 5 (concurrency 80→1,
-      # PR #89) and 6 (cpu 1→2, PR #90) both ruled out inbound contention AND
-      # JVM-wide CPU shortage. Strong remaining hypothesis: every iteration
-      # deploys a new Cloud Run revision → cold-start → the Layer 3 dispatch
-      # path (Ktor HTTP client init, TLS handshake to api.openai.com, response-
-      # body transformer pipeline, kotlinx.io.Source class load, OTel agent
-      # bytecode instrumentation) all hits cold JIT + class-loading on the
-      # first POST after deploy. The Cloud Run startup probe warms only
-      # `/health/*`, not the moderation dispatch path. `--min-instances=1`
-      # keeps one instance warm permanently so the Layer 3 path stays JITed +
-      # instrumented between smoke runs. If smoke happy-path fires after this
-      # deploy → cold-start was the cause; production will also need
-      # `--min-instances=1` (independently desirable for first-request UX). If
-      # still timeout → next iteration swaps the Ktor CIO engine to OkHttp
-      # (code change in :infra:openai-moderation).
+      # `--no-cpu-throttling` (iter 15, issue #88 root-cause fix) —
+      # By default Cloud Run only allocates CPU during request handling and
+      # throttles to ~5% CPU between requests. Our Layer 3 dispatch is
+      # fire-and-forget AFTER the 201 response is sent, so the dispatch
+      # coroutine runs on a throttled CPU. Empirical evidence (iter 14 staging
+      # heartbeat data, 2026-05-12): identical Redis-cache `isEnabled()` calls
+      # take 5-16ms when triggered DURING a user request, but 2800-7400ms when
+      # triggered on a background timer. Same code, same Redis, same network —
+      # 1000x slower because of CPU throttling. All 14 prior iterations chased
+      # other hypotheses (engines, dispatcher leak, connection pool, etc.); this
+      # is the actual root cause documented in Cloud Run docs:
+      # https://cloud.google.com/blog/products/serverless/cloud-run-gets-always-on-cpu-allocation
       #
-      # Staging cost: ~\$3-5/mo additional for the always-warm instance.
+      # `--no-cpu-throttling` switches to instance-based CPU allocation: CPU is
+      # available for the entire instance lifecycle including post-response
+      # background work. Cost: ~20-30% more for the staging instance (we pay
+      # for idle CPU too), but it's the architecturally-correct config for
+      # any Cloud Run service doing fire-and-forget async work. Required for
+      # production too — any service using Layer 3 needs this flag.
+      #
+      # Other flags preserved from prior iterations:
+      #   --cpu=2 (PR #90)             — JVM headroom for moderation dispatch
+      #   --min-instances=1 (PR #91)   — eliminate cold-start of Layer 3 path
+      #   --max-instances=1            — Flyway lock safety (existing constraint)
+      #   --concurrency=80             — production-shaped (reverted from PR #89 in PR #90)
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${SERVICE}" \
@@ -124,6 +131,7 @@ jobs:
             --max-instances=1 \
             --memory=512Mi \
             --cpu=2 \
+            --no-cpu-throttling \
             --concurrency=80 \
             --timeout=60 \
             --set-env-vars="KTOR_ENV=staging,RUN_FLYWAY_ON_STARTUP=true,INTERNAL_OIDC_AUDIENCE=https://api-staging.nearyou.id" \
