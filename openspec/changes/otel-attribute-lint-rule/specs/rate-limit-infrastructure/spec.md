@@ -2,62 +2,74 @@
 
 ### Requirement: `OtelForbiddenAttributeRule` fences raw IP literal in `{ip:<value>}` rate-limit-key segments
 
-The `OtelForbiddenAttributeRule` Detekt rule (shipped under the `observability-otel-foundation` capability — see [`observability-otel-foundation/spec.md`](../observability-otel-foundation/spec.md) § "`OtelForbiddenAttributeRule` fences forbidden span-attribute writes") SHALL ALSO fire on any `RateLimiter.tryAcquireByKey(...)` call expression whose first argument resolves to a Kotlin string literal containing an `{ip:<value>}` segment where `<value>` is neither (a) exactly 16 lowercase hexadecimal characters — the canonical `IpHasher.hash` output shape — nor (b) a Kotlin template-string placeholder (`${...}`) that the implementation cannot statically resolve.
+The `OtelForbiddenAttributeRule` Detekt rule (shipped under the `observability-otel-foundation` capability — see [`observability-otel-foundation/spec.md`](../observability-otel-foundation/spec.md) § "`OtelForbiddenAttributeRule` fences forbidden span-attribute writes") SHALL ALSO fire on any Kotlin string literal containing an `{ip:<value>}` segment where `<value>` is none of: (a) exactly 16 lowercase hexadecimal characters (the canonical `IpHasher.hash` output shape), (b) a Kotlin template-string placeholder — simple-name `$<identifier>` OR block-form `${<expression>}` — whose runtime value the implementation cannot statically verify.
+
+**The check is NOT scoped to `tryAcquireByKey(...)` call-context.** Rationale: the canonical production call site at [`backend/ktor/.../health/HealthRoutes.kt:166-170`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/health/HealthRoutes.kt) hoists the literal `val key = "{scope:health}:{ip:$hashedIp}"` BEFORE passing it to `tryAcquireByKey`. The string-template-expression's PSI parent is `KtProperty`, NOT `KtCallExpression(tryAcquireByKey)`. A PSI parent-walk that requires `tryAcquireByKey` as the immediate enclosing call would produce ZERO findings against the real production codebase, defeating the rule's purpose. Firing on any `{ip:<value>}` literal anywhere is the correct enforcement boundary; the path-based allowlist (next requirement) handles test fixtures that legitimately need raw inputs.
 
 **Functional contract** (the authoritative spec; implementation phase selects an equivalent regex / PSI logic):
 1. **PASS** — `{ip:[0-9a-f]{16}}` (exactly 16 lowercase hex chars between the braces).
-2. **PASS** — `{ip:${<placeholder>}}` (the value between the braces is a Kotlin string-template placeholder; the implementation cannot statically verify the placeholder's runtime value, so trust the caller).
-3. **FIRE** — anything else: raw IPv4 dotted-quad (`{ip:1.2.3.4}`), IPv6 colon-delimited (`{ip:[2001:db8::1]}`), 15-hex / 17-hex / uppercase-hex / mixed-case / other-axis-confusing shapes.
+2. **PASS** — `{ip:$<identifier>}` (Kotlin simple-name template — the canonical production shape, e.g., `$hashedIp`).
+3. **PASS** — `{ip:${<expression>}}` (Kotlin block-form template — e.g., `${IpHasher.hash(clientIp)}`).
+4. **FIRE** — anything else: raw IPv4 dotted-quad (`{ip:1.2.3.4}`), IPv6 colon-delimited (`{ip:[2001:db8::1]}`), 15-hex / 17-hex / uppercase-hex / mixed-case / shapes containing colons or dots inside the value.
 
-**Recommended regex** (illustrative; final shape selected at implementation time): `\{ip:(?![0-9a-f]{16}\})(?!\$\{)[^}]*\}` — fires when the value at the position after `{ip:` is NEITHER exactly 16 lowercase hex chars followed by `}` (negative lookahead 1) NOR the start of a Kotlin template placeholder `${` (negative lookahead 2). An equivalent PSI-aware implementation that walks `KtStringTemplateEntry` children to detect `KtSimpleNameStringTemplateEntry` / `KtBlockStringTemplateEntry` and skips the IP-axis check when interpolation is present inside the `{ip:...}` segment is also acceptable.
+**Recommended regex** (illustrative; final shape selected at implementation time): `\{ip:(?![0-9a-f]{16}\})(?!\$)[^}]*\}` — fires when the value at the position after `{ip:` is NEITHER exactly 16 lowercase hex chars followed by `}` (negative lookahead 1, handling clause 1) NOR begins with `$` (negative lookahead 2, handling clauses 2 AND 3 — `$<identifier>` and `${<expression>}` both start with `$`).
 
-This enforcement complements the existing posture-level requirement at [`rate-limit-infrastructure/spec.md`](../rate-limit-infrastructure/spec.md) § "Hash-tag key format standard for rate-limit keys" (which already specifies that the IP-axis value MUST be `IpHasher.hash(clientIp)` output) by adding compile-time enforcement at the call site, rather than relying on reviewer attestation + telemetry-side sentinel-string regression tests.
+#### Scenario: Raw IPv4 literal anywhere fires
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"{scope:health}:{ip:1.2.3.4}"` — bound to a `val`, passed as a method arg, embedded in a log message, anywhere
+- **THEN** the rule fires on that literal
 
-The rule MUST honor the same allowlist as the OTel forbidden-attribute mode (see [`observability-otel-foundation/spec.md`](../observability-otel-foundation/spec.md) § "Allowlist for `OtelForbiddenAttributeRule`"): `:infra:otel` source path, `:lint:detekt-rules` source path, `@AllowForbiddenSpanAttribute("<reason>")` annotation with non-empty reason. There is no separate annotation for the IP-axis mode — one rule, one allowlist surface.
-
-#### Scenario: Raw IPv4 literal in `tryAcquireByKey` key argument fires
-- **WHEN** a non-allowlisted Kotlin file contains `rateLimiter.tryAcquireByKey(key = "{scope:health}:{ip:1.2.3.4}", capacity = 60, ttl = Duration.ofSeconds(60))`
-- **THEN** the rule reports a code smell on the `"{scope:health}:{ip:1.2.3.4}"` literal
-
-#### Scenario: Raw IPv6 literal in `tryAcquireByKey` key argument fires
-- **WHEN** a non-allowlisted Kotlin file contains `rateLimiter.tryAcquireByKey(key = "{scope:health}:{ip:[2001:db8::1]}", capacity = 60, ttl = Duration.ofSeconds(60))`
+#### Scenario: Raw IPv6 literal anywhere fires
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"{scope:health}:{ip:[2001:db8::1]}"`
 - **THEN** the rule fires
 
-#### Scenario: Canonical 16-hex `IpHasher.hash` output in key argument passes
-- **WHEN** a non-allowlisted Kotlin file contains `rateLimiter.tryAcquireByKey(key = "{scope:health}:{ip:abcdef0123456789}", capacity = 60, ttl = Duration.ofSeconds(60))`
+#### Scenario: Canonical 16-hex literal passes
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"{scope:health}:{ip:abcdef0123456789}"`
 - **THEN** the rule does NOT fire on that literal
 
-#### Scenario: `IpHasher.hash(clientIp)` consumption in interpolated key passes
-- **WHEN** a non-allowlisted Kotlin file contains `rateLimiter.tryAcquireByKey(key = "{scope:health}:{ip:${'$'}{IpHasher.hash(clientIp)}}", capacity = 60, ttl = Duration.ofSeconds(60))` (Kotlin template string with the helper consumption inline)
-- **THEN** the rule does NOT fire (the value between `{ip:` and `}` is a Kotlin template-string placeholder `${'$'}{IpHasher.hash(clientIp)}` — passes per the functional contract's clause (b); the implementation cannot statically verify the placeholder's runtime value, so trust the caller)
+#### Scenario: Kotlin simple-name interpolation passes (canonical production shape)
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"{scope:health}:{ip:${'$'}hashedIp}"` where `hashedIp` is a Kotlin identifier — the canonical production shape at `HealthRoutes.kt:167`
+- **THEN** the rule does NOT fire (the value between `{ip:` and `}` begins with `$` — passes per the functional contract's clause (2); the implementation cannot statically verify the identifier's runtime value, so trust the caller)
+
+#### Scenario: Kotlin block-form interpolation passes
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"{scope:health}:{ip:${'$'}{IpHasher.hash(clientIp)}}"` (block-form template with the helper consumption inline)
+- **THEN** the rule does NOT fire (the value between `{ip:` and `}` begins with `${'$'}{` — passes per the functional contract's clause (3))
+
+#### Scenario: 15-hex value fires (off-canonical length)
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"{scope:health}:{ip:abcdef012345678}"` (15 hex chars — one short of canonical)
+- **THEN** the rule fires (the canonical shape is EXACTLY 16 hex chars)
+
+#### Scenario: 17-hex value fires (off-canonical length)
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"{scope:health}:{ip:abcdef01234567890}"` (17 hex chars)
+- **THEN** the rule fires
+
+#### Scenario: Uppercase-hex 16-char value fires (off-canonical case)
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"{scope:health}:{ip:ABCDEF0123456789}"`
+- **THEN** the rule fires (canonical `IpHasher.hash` output is lowercase; uppercase indicates a different source)
 
 #### Scenario: Non-IP-axis key passes (no-op for unrelated axes)
-- **WHEN** a non-allowlisted Kotlin file contains `rateLimiter.tryAcquire(userId, key = "{scope:rate_like_day}:{user:${'$'}userId}", capacity = 10, ttl = Duration.ofSeconds(60))`
-- **THEN** the rule does NOT fire (the key does not contain an `{ip:...}` segment; the IP-axis enforcement is no-op on user-axis or other-axis keys)
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"{scope:rate_like_day}:{user:${'$'}userId}"` — no `{ip:...}` segment present
+- **THEN** the rule's IP-axis check does NOT fire on that literal
 
-#### Scenario: `{ip:...}` literal outside `tryAcquireByKey` call context does NOT fire on the IP-axis check
-- **WHEN** a non-allowlisted Kotlin file contains `val logKey = "{ip:1.2.3.4}"` (not passed to `tryAcquireByKey`)
-- **THEN** the rule's IP-axis mode does NOT fire on that literal (the IP-axis check is scoped to `tryAcquireByKey(...)` call-context per Decision 1 in design.md; the literal `1.2.3.4` separately matches no Tier 1 / Tier 2 OTel forbidden pattern)
-
-#### Scenario: Allowlist by path applies (`:infra:otel` test sources)
-- **WHEN** a file under `/infra/otel/src/test/kotlin/.../IpHasherTest.kt` contains a fixture `rateLimiter.tryAcquireByKey(key = "{scope:test}:{ip:1.2.3.4}", ...)` to verify hashing
-- **THEN** the rule does NOT fire on that literal (the path allowlist suppresses; tests of the hasher itself legitimately need raw inputs)
+#### Scenario: Test-source allowlist applies
+- **WHEN** a file under any `/src/test/` path (e.g., `infra/redis/src/test/kotlin/.../RedisRateLimiterTelemetryTest.kt`, `core/domain/src/test/kotlin/.../RateLimiterTest.kt`, `backend/ktor/src/test/kotlin/.../HealthRoutesScenariosTest.kt`) contains a fixture string `"{scope:health}:{ip:1.2.3.4}"` to verify the limiter's behavior on raw inputs OR a regex-string asserting the canonical shape `"""^\{scope:health\}:\{ip:[0-9a-f]{16}\}${'$'}"""`
+- **THEN** the rule does NOT fire on those literals (the `/src/test/` path allowlist suppresses; tests of the limiter and the canonical-shape assertion legitimately need raw / regex-literal inputs)
 
 ### Requirement: Detekt test coverage for the IP-axis lint mode
 
 The `OtelForbiddenAttributeLintTest` class shipped under the `observability-otel-foundation` capability (see [`observability-otel-foundation/spec.md`](../observability-otel-foundation/spec.md) § "Detekt test coverage for `OtelForbiddenAttributeRule`") SHALL include, in addition to the OTel attribute scenarios, the following IP-axis-mode test cases:
 
-1. **Raw IPv4 in `tryAcquireByKey` key fires**: fixture `rateLimiter.tryAcquireByKey(key = "{scope:health}:{ip:1.2.3.4}", capacity = 60, ttl = Duration.ofSeconds(60))` → rule fires.
-2. **Raw IPv6 in `tryAcquireByKey` key fires**: fixture with `{ip:[2001:db8::1]}` literal → rule fires.
+1. **Raw IPv4 anywhere fires**: fixture `val k = "{scope:health}:{ip:1.2.3.4}"` in a non-`/src/test/` path → rule fires.
+2. **Raw IPv6 anywhere fires**: fixture with `{ip:[2001:db8::1]}` literal in non-test path → rule fires.
 3. **Canonical 16-hex passes**: fixture with `{ip:abcdef0123456789}` literal → rule does NOT fire.
-4. **`IpHasher.hash(clientIp)` interpolated form passes**: fixture with `${'$'}{IpHasher.hash(clientIp)}` placeholder inside the `{ip:...}` segment → rule does NOT fire.
-5. **Non-IP-axis call passes**: fixture with `tryAcquire(userId, "{scope:rate_like_day}:{user:${'$'}userId}", ...)` → no IP-axis-mode fire.
-6. **Non-call-context `{ip:...}` literal**: fixture with `val s = "{ip:1.2.3.4}"` (not passed to a rate-limit method) → IP-axis-mode does NOT fire (the rule is call-context-scoped per Decision 1 in design.md).
-7. **Path allowlist for `:infra:otel` test fixtures**: fixture under simulated `/infra/otel/src/test/.../IpHasherTest.kt` path with raw `{ip:1.2.3.4}` → rule does NOT fire.
-8. **15-hex (not 16) fires**: fixture with `{ip:abcdef012345678}` (15 hex chars) → rule fires (the canonical shape is exactly 16 hex).
-9. **17-hex fires**: fixture with `{ip:abcdef01234567890}` (17 hex chars) → rule fires.
-10. **Uppercase-hex fires**: fixture with `{ip:ABCDEF0123456789}` → rule fires (the canonical shape is lowercase; mirrors `IpHasher.hash` output).
-11. **Composition with `RedisHashTagRule`**: a fixture with `"rate:user:${'$'}userId"` (legacy non-hash-tagged form, NO `{ip:...}` segment) → fires `RedisHashTagRule` (the existing rule) but does NOT fire the new IP-axis mode (separate concerns, no double-fire).
+4. **Simple-name interpolation passes (canonical prod shape)**: fixture `val k = "{scope:health}:{ip:${'$'}hashedIp}"` → rule does NOT fire.
+5. **Block-form interpolation passes**: fixture with `{ip:${'$'}{IpHasher.hash(clientIp)}}` → rule does NOT fire.
+6. **15-hex fires**: fixture with `{ip:abcdef012345678}` → rule fires.
+7. **17-hex fires**: fixture with `{ip:abcdef01234567890}` → rule fires.
+8. **Uppercase-hex fires**: fixture with `{ip:ABCDEF0123456789}` → rule fires.
+9. **Non-IP-axis (user-axis) passes**: fixture with `{scope:rate_like_day}:{user:${'$'}userId}` (no `{ip:...}` segment) → no fire on IP-axis check.
+10. **Test-path allowlist for `/src/test/`**: fixture under simulated `/infra/redis/src/test/.../IpFixturesTest.kt` with raw `{ip:1.2.3.4}` → rule does NOT fire.
+11. **Composition with `RedisHashTagRule` two-way**: a fixture `"rate:user:${'$'}userId"` (legacy non-hash-tagged, NO `{ip:...}` segment) → fires `RedisHashTagRule` but NOT IP-axis check; a fixture `"rate:health:{ip:1.2.3.4}"` (legacy prefix AND raw IP) → fires BOTH rules independently with no cross-suppression.
+12. **Mode B fires on val-hoisted literal (not call-context-restricted)**: fixture `val k = "{scope:health}:{ip:1.2.3.4}"` (literal bound to a property, never passed anywhere) → rule fires (rule is NOT scoped to `tryAcquireByKey` call-context; firing on any `{ip:...}` literal is the canonical behavior per the functional contract above).
 
 #### Scenario: Test class exists and IP-axis cases pass
 - **WHEN** running `./gradlew :lint:detekt-rules:test`

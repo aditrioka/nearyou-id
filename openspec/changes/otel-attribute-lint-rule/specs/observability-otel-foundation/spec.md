@@ -16,7 +16,7 @@ NO span produced by `:backend:ktor` SHALL ever carry these attribute keys or val
 This requirement is enforced via three defense-in-depth layers:
 1. **Runtime stripping** at the SDK export pipeline via `ForbiddenAttributeStripper.kt` for auto-instrumentation peer-identity attrs the developer didn't write.
 2. **Compile-time lint** at developer-written call sites via `OtelForbiddenAttributeRule` (see § "`OtelForbiddenAttributeRule` fences forbidden span-attribute writes" below).
-3. **Integration-test sentinel-string regression** at staging for end-to-end coverage of the 7 high-velocity categories (chat content, post content, search query, IP, JWT, bearer token, Redis password) — see the per-category scenarios below.
+3. **Integration-test sentinel-string regression** at staging for end-to-end coverage of the high-velocity categories (post content, chat content, peer-IP, raw-IP-in-Lua-key, bearer token, JWT claim, search query, Redis password) — see the per-category scenarios below.
 
 #### Scenario: Setting raw user_id on a span is a code-review blocker
 - **GIVEN** a hypothetical PR adds `Span.setAttribute("user.id", userId.toString())` (raw UUID)
@@ -71,51 +71,74 @@ The repo SHALL ship a custom Detekt rule `OtelForbiddenAttributeRule` under `lin
 
 **Tier 1 — forbidden-attribute-key literals (anywhere)**:
 
-The rule MUST fire on any string literal exactly equal to one of the following keys, which mirror the runtime `ForbiddenAttributeStripper.FORBIDDEN_KEYS` enumeration in [`infra/otel/.../ForbiddenAttributeStripper.kt`](../../../../../infra/otel/src/main/kotlin/id/nearyou/app/infra/otel/ForbiddenAttributeStripper.kt) (11 entries):
-- `client.address`, `client.port`, `http.client_ip` (HTTP client-identity semconv keys; same name across old + new semconv)
-- `network.peer.address`, `network.peer.port` (new OTel-Java-2.x peer semconv)
-- `net.peer.ip`, `net.peer.port`, `net.sock.peer.addr` (old OTel-Java-1.x peer semconv, kept for backward-compat across BOM bumps)
-- `user_id`, `user_uuid`, `user.uuid` (defensive: typo-shaped user-id keys; the sanctioned key is `user.id` with `UserIdHasher.hash(...)` consumption, NOT one of these three variants)
+The rule MUST fire on any string literal exactly equal to one of the following 22 keys. The list is a SUPERSET of the runtime `ForbiddenAttributeStripper.FORBIDDEN_KEYS` enumeration in [`infra/otel/.../ForbiddenAttributeStripper.kt`](../../../../../infra/otel/src/main/kotlin/id/nearyou/app/infra/otel/ForbiddenAttributeStripper.kt) (the runtime list has 11 entries; the lint list adds 11 more covering symmetric typo-defensive shapes and the canonical spec's JWT-claim attribute keys):
 
-These keys SHALL NEVER appear as Kotlin string literals outside `:infra:otel`'s own configuration / test-fixture sources and `:lint:detekt-rules`'s own rule + test sources (the only legitimate enumerations of the list as data). The Tier 1 list MUST be a superset of (and stay synchronized with) the runtime `ForbiddenAttributeStripper.FORBIDDEN_KEYS` enumeration; the synchronization guard test (§ "Detekt test coverage for `OtelForbiddenAttributeRule`" item 11) enforces this.
+**Group A — exact mirror of `ForbiddenAttributeStripper.FORBIDDEN_KEYS` (11)**:
+- HTTP client-identity semconv: `client.address`, `client.port`, `http.client_ip`
+- New OTel-Java-2.x peer semconv: `network.peer.address`, `network.peer.port`
+- Old OTel-Java-1.x peer semconv: `net.peer.ip`, `net.peer.port`, `net.sock.peer.addr`
+- User-id typo-defensive variants: `user_id`, `user_uuid`, `user.uuid` (the sanctioned key is `user.id` with `UserIdHasher.hash(...)` consumption)
+
+**Group B — symmetric typo-defensive underscore variants for HTTP / network semconv keys (8)**:
+- `client_address`, `client_port`, `http_client_ip` (underscore variants of Group A's HTTP client-identity keys)
+- `network_peer_address`, `network_peer_port` (underscore variants of the new peer semconv)
+- `net_peer_ip`, `net_peer_port`, `net_sock_peer_addr` (underscore variants of the old peer semconv)
+
+**Group C — JWT-claim attribute keys (3)**:
+- `jwt.sub`, `jwt.aud`, `jwt.iss` (per canonical spec § "Forbidden span attributes" bullet 5 — raw JWT claims forbidden on any span)
+
+These keys SHALL NEVER appear as Kotlin string literals outside the path allowlist (next requirement). The Group A subset MUST be a strict superset relationship with the runtime `FORBIDDEN_KEYS` enumeration — the synchronization-guard test (§ "Detekt test coverage" item 11) asserts the lint rule's full Tier 1 list contains every entry in `FORBIDDEN_KEYS`.
 
 **Tier 2 — sensitive-value regex patterns (anywhere)**:
 
 The rule MUST fire on any string literal matching one of these high-confidence sensitive-value regex patterns:
-- `\-{5}BEGIN [A-Z ]+PRIVATE KEY\-{5}` — RSA / EC / Ed25519 PEM private key marker.
+- `\-{5}BEGIN [A-Z ]+PRIVATE KEY\-{5}` — RSA / EC / Ed25519 PEM private key marker. Never legitimate in source code outside test fixtures.
 - `eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.` — JWT shape (base64url header `eyJ...` + `.` + base64url payload `eyJ...` + trailing `.`).
 - `redis://[^:]+:[^@/]+@` — Redis URI with explicit userinfo (password embedded).
+- `"kty"\s*:\s*"RSA"\s*,?\s*"n"\s*:` — JWKS RSA-key JSON shape (presence of `"kty": "RSA"` followed by `"n":` modulus). Specific enough to avoid false-positives on legitimate JSON-with-`kty` mentions.
 
-#### Scenario: Tier 1 forbidden-attribute key literal fires
+#### Scenario: Group A Tier 1 key literal fires (exact mirror of FORBIDDEN_KEYS)
 - **WHEN** a non-allowlisted Kotlin file contains the literal `"client.address"` (e.g., as `span.setAttribute("client.address", ...)`)
 - **THEN** `OtelForbiddenAttributeRule` reports a code smell on that literal
 
+#### Scenario: Group B Tier 1 key literal fires (typo-defensive underscore variant)
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"client_address"` (underscore variant) — a likely typo-bypass attempt of `client.address`
+- **THEN** the rule fires (the literal IS in Tier 1 Group B)
+
+#### Scenario: Group C Tier 1 key literal fires (JWT-claim attribute)
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"jwt.sub"` (e.g., as a setAttribute key)
+- **THEN** the rule fires (raw JWT claims on spans are forbidden per canonical spec § "Forbidden span attributes" bullet 5)
+
+#### Scenario: User-id typo variant `user_id` literal fires
+- **WHEN** a non-allowlisted Kotlin file contains the literal `"user_id"` (Group A typo variant)
+- **THEN** the rule fires
+
 #### Scenario: Tier 1 forbidden-attribute key literal in a `mapOf(...)` passed to `withSpan(...)` fires
 - **WHEN** a non-allowlisted Kotlin file contains `withSpan("foo", mapOf("network.peer.address" to clientAddr)) { ... }`
-- **THEN** the rule fires on the `"network.peer.address"` literal
+- **THEN** the rule fires on the `"network.peer.address"` literal (`withSpan`'s `mapOf` keys are checked as string literals)
 
 #### Scenario: Tier 2 sensitive-value pattern fires on PEM marker
 - **WHEN** a non-allowlisted Kotlin file contains a string literal containing `-----BEGIN RSA PRIVATE KEY-----`
 - **THEN** the rule fires
 
 #### Scenario: Tier 2 sensitive-value pattern fires on JWT-shaped literal
-- **WHEN** a non-allowlisted Kotlin file contains a string literal matching `"eyJhbGciOiJSUzI1NiI.eyJzdWIiOiJ4eHgi.signature"` (illustrative shape)
+- **WHEN** a non-allowlisted Kotlin file contains a string literal `"eyJhbGciOiJSUzI1NiI.eyJzdWIiOiJ4eHgi.signature"` (illustrative three-segment JWT shape)
 - **THEN** the rule fires
 
 #### Scenario: Tier 2 sensitive-value pattern fires on Redis URI with userinfo
 - **WHEN** a non-allowlisted Kotlin file contains a string literal `"redis://default:my-redis-password@redis.example:6379/0"`
 - **THEN** the rule fires
 
+#### Scenario: Tier 2 sensitive-value pattern fires on JWKS RSA shape
+- **WHEN** a non-allowlisted Kotlin file contains a string literal containing `{"kty":"RSA","n":"...","e":"AQAB"}` (JWKS RSA-key JSON shape)
+- **THEN** the rule fires
+
 #### Scenario: Sanctioned `UserIdHasher.hash` consumption does NOT fire
 - **WHEN** a non-allowlisted Kotlin file contains `span.setAttribute("user.id", UserIdHasher.hash(userId))`
-- **THEN** the rule does NOT fire (the literal `"user.id"` is NOT in Tier 1 — Tier 1 catches typo variants `user_id` / `user_uuid` / `user.uuid`; `user.id` is the sanctioned key paired with the `UserIdHasher.hash(...)` helper consumption)
-
-#### Scenario: Typo-variant `user_id` key literal fires
-- **WHEN** a non-allowlisted Kotlin file contains the literal `"user_id"` (underscore variant) — a likely bypass attempt
-- **THEN** the rule fires (the literal IS in Tier 1; defense-in-depth against typo-shaped bypasses of the canonical `"user.id"` writer)
+- **THEN** the rule does NOT fire (the literal `"user.id"` is NOT in Tier 1 — Tier 1 Group A catches typo variants `user_id` / `user_uuid` / `user.uuid`; `user.id` is the sanctioned key paired with the `UserIdHasher.hash(...)` helper consumption)
 
 #### Scenario: Unrelated string literal does NOT fire
-- **WHEN** a non-allowlisted Kotlin file contains `val msg = "Processing request"`
+- **WHEN** a non-allowlisted Kotlin file contains `val msg = "Processing request"` or `"INSERT INTO posts (...) VALUES (...)"`
 - **THEN** the rule does NOT fire
 
 #### Scenario: Rule registered via NearYouRuleSetProvider
@@ -126,18 +149,23 @@ The rule MUST fire on any string literal matching one of these high-confidence s
 
 The rule SHALL NOT fire in any of these allowed contexts:
 
-1. **`:infra:otel` module sources**: files whose `virtualFilePath` contains `/infra/otel/src/` (both `main/` and `test/`). This module enumerates forbidden keys as DATA (the `FORBIDDEN_KEYS` Set in `ForbiddenAttributeStripper.kt`; sentinel-string test fixtures).
-2. **`:lint:detekt-rules` module sources**: files whose `virtualFilePath` contains `/lint/detekt-rules/src/` (both `main/` and `test/`). The rule itself + its test fixtures necessarily contain the forbidden patterns as DATA / TEST INPUTS.
-3. **Annotation bypass**: enclosing declaration (function, class, property — or any ancestor declaration) annotated `@AllowForbiddenSpanAttribute(reason: String)` with a non-empty reason string. Empty-string-reason silent bypass (`@AllowForbiddenSpanAttribute("")`) is forbidden — the rule MUST fire if the reason is empty (mirroring `@AllowRawRedisKey` / `@AllowDailyTtlOverride` convention).
+1. **Any test source path**: files whose `virtualFilePath` contains `/src/test/` (mirrors `RedisHashTagRule` / `CoordinateJitterRule` precedent). Test fixtures across the codebase legitimately contain raw fixtures (`{ip:1.2.3.4}` for limiter behavior tests at `infra/redis/src/test/`, regex-string canonical-shape assertions at `backend/ktor/src/test/`, etc.).
+2. **`:infra:otel` module main sources**: files whose `virtualFilePath` contains `/infra/otel/src/main/`. This module enumerates forbidden keys as DATA (the `FORBIDDEN_KEYS` Set in `ForbiddenAttributeStripper.kt`).
+3. **`:lint:detekt-rules` module main sources**: files whose `virtualFilePath` contains `/lint/detekt-rules/src/main/`. The rule itself necessarily contains the forbidden patterns as DATA / REGEX CONSTANTS.
+4. **Annotation bypass**: enclosing declaration (function, class, property — or any ancestor declaration) annotated `@AllowForbiddenSpanAttribute(reason: String)` with a non-empty, non-blank reason string. Empty-string or whitespace-only-reason silent bypass (`@AllowForbiddenSpanAttribute("")`, `@AllowForbiddenSpanAttribute("   ")`) is forbidden — the rule MUST fire if the reason is empty or only whitespace (mirroring `RedisHashTagRule`'s `@AllowRawRedisKey` `isNotBlank()` precedent at `RedisHashTagRule.kt:134`).
 
-All three allowlist gates MUST support the detekt-test `lint(String)` synthetic-file harness via package-FQN fallback (mirror the approach in `BlockExclusionJoinRule.isAllowedPath` / `RawXForwardedForRule.isExtractorFile`).
+All four allowlist gates MUST support the detekt-test `lint(String)` synthetic-file harness via package-FQN fallback (mirror the approach in `BlockExclusionJoinRule.isAllowedPath`).
 
-#### Scenario: `:infra:otel` module source passes
+#### Scenario: `/src/test/` source allowlist suppresses
+- **WHEN** a file under any `/src/test/` path contains a literal `"{scope:health}:{ip:1.2.3.4}"` (raw IP) OR `"client.address"` (Tier 1 Group A key) OR `"-----BEGIN RSA PRIVATE KEY-----"` (Tier 2 PEM)
+- **THEN** the rule does NOT fire on any of those literals
+
+#### Scenario: `:infra:otel` main source passes
 - **WHEN** a file under `/infra/otel/src/main/kotlin/.../ForbiddenAttributeStripper.kt` contains a `Set` literal enumerating `"client.address"`, `"net.peer.ip"`, etc.
 - **THEN** the rule does NOT fire on any of those literals
 
-#### Scenario: `:lint:detekt-rules` source passes
-- **WHEN** a file under `/lint/detekt-rules/src/main/kotlin/.../OtelForbiddenAttributeRule.kt` contains the regex constants enumerating the forbidden keys
+#### Scenario: `:lint:detekt-rules` main source passes
+- **WHEN** a file under `/lint/detekt-rules/src/main/kotlin/.../OtelForbiddenAttributeRule.kt` contains the regex constants enumerating the forbidden keys + value patterns
 - **THEN** the rule does NOT fire
 
 #### Scenario: `@AllowForbiddenSpanAttribute` on function with non-empty reason suppresses
@@ -150,7 +178,15 @@ All three allowlist gates MUST support the detekt-test `lint(String)` synthetic-
 
 #### Scenario: `@AllowForbiddenSpanAttribute("")` (empty reason) still fires
 - **WHEN** a function annotated `@AllowForbiddenSpanAttribute("")` contains `"client.address"`
-- **THEN** the rule reports a code smell on that literal (empty-reason silent bypass is rejected)
+- **THEN** the rule reports a code smell on that literal (empty-reason silent bypass is rejected — `isNotBlank()` precedent)
+
+#### Scenario: `@AllowForbiddenSpanAttribute("   ")` (whitespace-only reason) still fires
+- **WHEN** a function annotated `@AllowForbiddenSpanAttribute("   ")` (only whitespace) contains `"client.address"`
+- **THEN** the rule reports a code smell on that literal (whitespace-only-reason silent bypass is rejected — same `isNotBlank()` precedent)
+
+#### Scenario: `@AllowForbiddenSpanAttribute("x")` (single non-blank char) passes
+- **WHEN** a function annotated `@AllowForbiddenSpanAttribute("x")` (single non-blank char) contains `"client.address"`
+- **THEN** the rule does NOT fire (non-blank is sufficient; the rule's job is to require a reason exists, not to assess its quality)
 
 #### Scenario: Synthetic-file-harness via package-FQN fallback
 - **WHEN** the detekt-test `lint(String)` synthetic harness loads a fixture whose package FQN starts with `id.nearyou.lint.detekt` AND the fixture's content has no `virtualFilePath`
@@ -160,17 +196,21 @@ All three allowlist gates MUST support the detekt-test `lint(String)` synthetic-
 
 `lint/detekt-rules/src/test/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeLintTest.kt` SHALL cover, at minimum:
 
-1. **Tier 1 positive-fail**: each of the 11 Tier 1 forbidden-attribute keys (the 8 network-semconv keys + the 3 user-id typo variants) triggers from a synthetic non-allowlisted file (one test per key).
-2. **Tier 1 positive-pass**: `:infra:otel` source path allowlist suppresses every Tier 1 key.
-3. **Tier 2 positive-fail**: each of the 3 Tier 2 regex patterns fires from a synthetic non-allowlisted file (PEM marker; JWT shape; Redis URI with userinfo).
-4. **Sanctioned `UserIdHasher.hash` consumption positive-pass**: `span.setAttribute("user.id", UserIdHasher.hash(userId))` does NOT fire (the literal `"user.id"` is not in Tier 1).
-5. **Allowlist by path**: `:infra:otel` source path → no fire; `:lint:detekt-rules` source path → no fire; arbitrary backend path → fires.
-6. **Annotation bypass with non-empty reason**: `@AllowForbiddenSpanAttribute("reason")` on function suppresses; on enclosing class suppresses.
-7. **Empty-reason annotation still fires**: `@AllowForbiddenSpanAttribute("")` does NOT suppress.
-8. **Synthetic-file-harness package-FQN fallback**: package `id.nearyou.lint.detekt.*` is treated as allowlisted source.
-9. **Composition with existing rules**: a fixture that contains both `"actual_location"` (triggering `CoordinateJitterRule`) and `"client.address"` (triggering `OtelForbiddenAttributeRule`) produces exactly 2 findings, one per rule (no double-counting, no cross-suppression).
-10. **Unrelated string literals**: a non-allowlisted file containing `"Processing request"` / `"INSERT INTO posts ..."` does NOT fire.
-11. **Synchronization guard**: a test that asserts the rule's Tier 1 list contains every entry in `ForbiddenAttributeStripper.FORBIDDEN_KEYS` as a regression guard against silent drift.
+1. **Tier 1 Group A positive-fail**: each of the 11 Group A keys triggers from a synthetic non-allowlisted file (one test per key, including the 3 user-id typo variants).
+2. **Tier 1 Group B positive-fail**: each of the 8 underscore-variant typo-defensive keys triggers (e.g., `"client_address"`, `"network_peer_address"`).
+3. **Tier 1 Group C positive-fail**: each of the 3 JWT-claim keys triggers (`"jwt.sub"`, `"jwt.aud"`, `"jwt.iss"`).
+4. **Tier 1 positive-pass**: `:infra:otel/src/main/` source path allowlist suppresses every Tier 1 key; `:lint:detekt-rules/src/main/` source path allowlist suppresses every Tier 1 key; `/src/test/` path allowlist suppresses across the board.
+5. **Tier 2 positive-fail**: each of the 4 Tier 2 regex patterns fires from a synthetic non-allowlisted file (PEM marker; JWT three-segment shape; Redis URI with userinfo; JWKS RSA shape).
+6. **Tier 2 false-positive negative tests**: legitimate strings that look near a Tier 2 pattern but should NOT fire — e.g., `"eyJfoo"` alone (single segment, not JWT) → no fire; `"redis://host:6379/0"` (no userinfo) → no fire; `"-----BEGIN PUBLIC KEY-----"` (PUBLIC not PRIVATE) → no fire.
+7. **Sanctioned `UserIdHasher.hash` consumption positive-pass**: `span.setAttribute("user.id", UserIdHasher.hash(userId))` does NOT fire.
+8. **Allowlist by path**: `:infra:otel/src/main/` path → no fire; `:lint:detekt-rules/src/main/` path → no fire; `/src/test/` path → no fire on Tier 1/Tier 2 literals; arbitrary `:backend:ktor/src/main/` path → fires.
+9. **Annotation bypass with non-empty reason**: `@AllowForbiddenSpanAttribute("reason")` on function suppresses; on enclosing class suppresses.
+10. **Empty-reason / whitespace-only-reason annotation still fires**: `@AllowForbiddenSpanAttribute("")` does NOT suppress; `@AllowForbiddenSpanAttribute("   ")` does NOT suppress; `@AllowForbiddenSpanAttribute("\t")` does NOT suppress.
+11. **Synchronization guard test**: a test asserting the rule's Tier 1 Group A list contains every entry in `ForbiddenAttributeStripper.FORBIDDEN_KEYS` (regression guard against silent drift). Test failure message MUST name the missing key(s) so the implementer adding to `FORBIDDEN_KEYS` knows exactly what to update.
+12. **Synthetic-file-harness package-FQN fallback**: package `id.nearyou.lint.detekt.*` is treated as allowlisted source.
+13. **Composition with existing rules**: a fixture that contains both `"actual_location"` (triggering `CoordinateJitterRule`) and `"client.address"` (triggering `OtelForbiddenAttributeRule`) produces exactly 2 findings, one per rule (no double-counting, no cross-suppression). A fixture with `"rate:health:{ip:1.2.3.4}"` triggers both `RedisHashTagRule` (legacy prefix) and `OtelForbiddenAttributeRule` IP-axis mode independently — 2 findings.
+14. **Unrelated string literals**: a non-allowlisted file containing `"Processing request"` / `"INSERT INTO posts ..."` / `"SELECT * FROM users WHERE id = ?"` does NOT fire.
+15. **NearYouRuleSetProvider registration**: explicit fixture asserting the rule appears in the returned `RuleSet`.
 
 #### Scenario: Test class exists and passes
 - **WHEN** running `./gradlew :lint:detekt-rules:test`
@@ -178,7 +218,14 @@ All three allowlist gates MUST support the detekt-test `lint(String)` synthetic-
 
 ### Requirement: Detekt run against the backend codebase remains green after rule activation
 
-As of this change, `./gradlew detekt` SHALL pass on the backend + infra + lint modules with `OtelForbiddenAttributeRule` registered and active. Every existing `Span.setAttribute(...)` / `withSpan(...)` / `tryAcquireByKey(...)` call site (sanctioned via `UserIdHasher.hash` / `IpHasher.hash` already) MUST pass the rule. If any pre-existing call site fires the rule, the implementation MUST either fix the call site (preferred — convert to canonical helper consumption) OR add the appropriate path allowlist / annotation. Zero call-site behavior changes expected today (writer surface is 1 `setAttribute` + 1 `tryAcquireByKey`, both already canonical).
+As of this change, `./gradlew detekt` SHALL pass on the backend + infra + lint modules with `OtelForbiddenAttributeRule` registered and active. Every existing `Span.setAttribute(...)` / `withSpan(...)` / IP-axis Redis-key literal call site (sanctioned via `UserIdHasher.hash` / `IpHasher.hash` already, or living in `/src/test/` paths) MUST pass the rule. If any pre-existing call site fires the rule, the implementation MUST either fix the call site (preferred — convert to canonical helper consumption) OR add the appropriate path allowlist / annotation. The implementation MUST audit:
+
+- Production `Span.setAttribute(...)` writers (today: 1 — `AuthPlugin.kt:115`, sanctioned).
+- Production `withSpan(name, mapOf(...))` writers (today: 2 — `ChatRoutes.kt:354` with safe keys, `FcmDispatcher.kt:159` with safe keys).
+- Production `AttributesBuilder.put(...)` writers (today: in `:infra:otel/src/main/` — allowlisted by path).
+- Production `tryAcquireByKey(...)` first-arg literals (today: 1 — `HealthRoutes.kt:166-170`, sanctioned via `IpHasher.hash`).
+
+All four surfaces today pass the rule by construction. The audit is a task-level check; the rule MUST not fire on any of them.
 
 #### Scenario: Detekt green post-merge
 - **WHEN** running `./gradlew detekt` after this change merges
