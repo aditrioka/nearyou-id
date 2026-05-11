@@ -21,6 +21,7 @@ class NearYouRuleSetProvider : RuleSetProvider {
                 RateLimitTtlRule(config),
                 RedisHashTagRule(config),
                 RawXForwardedForRule(config),
+                OtelForbiddenAttributeRule(config),
             ),
         )
 
