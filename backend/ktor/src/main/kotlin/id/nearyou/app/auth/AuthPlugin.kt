@@ -107,9 +107,13 @@ internal fun AuthenticationConfig.configureUserJwt(
                     // (16 hex chars). The raw UUID is NEVER set; `:infra:otel`'s
                     // `UserIdHasher` is the only sanctioned anonymization path.
                     // /internal/* requests authenticated by Cloud Scheduler OIDC do
-                    // NOT pass through this plugin — they do NOT get `user.id`
-                    // (the `service.account.id` shape is deferred to the
-                    // `internal-endpoint-auth-otel-attributes` follow-up).
+                    // NOT pass through this plugin — they get `service.account.id`
+                    // via the mirror writer at `InternalEndpointAuth.kt`. Contract
+                    // shipped by the `internal-endpoint-auth-otel-attributes`
+                    // capability; the server-span-level mutual exclusion with
+                    // `user.id` is enforced structurally via route-scoped plugin
+                    // installation. See `openspec/specs/internal-endpoint-auth/spec.md`
+                    // § "Requirement: /internal server spans carry service.account.id".
                     try {
                         io.opentelemetry.api.trace.Span.current()
                             .setAttribute("user.id", id.nearyou.app.infra.otel.UserIdHasher.hash(user.id))
