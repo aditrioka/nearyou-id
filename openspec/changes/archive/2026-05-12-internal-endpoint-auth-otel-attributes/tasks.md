@@ -57,8 +57,8 @@
 ## 6. Spec + docs sync
 
 - [x] 6.1 Run `openspec validate internal-endpoint-auth-otel-attributes --strict` — ensure validation passes.
-- [ ] 6.2 At `/opsx:archive` time: delete the [`FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) entry `internal-endpoint-auth-otel-attributes` (lines ~79–96) — its scope is fully fulfilled by this change. If `FOLLOW_UPS.md` becomes empty after this deletion (unlikely given the other open entries), also delete the file itself per its intro-blurb convention.
-- [ ] 6.3 Verify by grep that no other `docs/**` or `openspec/specs/**` cross-reference points at the deleted FOLLOW_UPS entry: `grep -rn "internal-endpoint-auth-otel-attributes" docs/ openspec/specs/` post-archive.
+- [x] 6.2 FOLLOW_UPS.md entry `internal-endpoint-auth-otel-attributes` deleted at archive time (previously at lines 79–96); the file retains its other open entries.
+- [x] 6.3 Post-archive grep on `docs/` + `openspec/specs/` is clean — the only pre-archive reference was the deferral prose at `openspec/specs/observability-otel-foundation/spec.md:152`, which the MODIFIED delta replaces during `openspec archive` sync.
 - [x] 6.4 Added `service.account.id` to `docs/04-Architecture.md` § Observability Stack "Mandatory attributes" bullet (line 437) — `/internal/*` is now enumerated alongside the UserPrincipal-backed `user.id` attribute. `docs/06-Security-Privacy.md` does not enumerate per-attribute observability surface (verified by grep), so no amendment needed there.
 
 ## 7. Pre-archive smoke

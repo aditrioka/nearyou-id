@@ -76,27 +76,6 @@ Format per entry:
 
 ---
 
-## internal-endpoint-auth-otel-attributes
-
-**Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 cross-doc-impact finding #1 — the new capability's `user.id` requirement implicitly contradicts itself for `/internal/*` requests authenticated via Cloud Scheduler service-account OIDC, which have no `users` row to hash.
-**Status:** open
-
-**Finding:** The `observability-otel-foundation` capability spec mandates `user.id` "when the request is authenticated" — but `/internal/*` requests are OIDC-authenticated by service accounts with no `users` row. The same spec forbids raw JWT claims (`sub`, `aud`, `iss`) on spans, blocking the obvious "use the OIDC sub" workaround. The foundation change resolves this by carving out `/internal/*` from the `user.id` requirement and deferring a sanctioned `service.account.id` shape (truncated SHA-256 of OIDC `sub`, mirroring the [`internal-endpoint-auth/spec.md:18`](openspec/specs/internal-endpoint-auth/spec.md) WARN-log token-correlation-id pattern) to this follow-up.
-
-**Specs at fault:** `openspec/specs/internal-endpoint-auth/spec.md` — currently has no positive requirement on span attributes for `/internal/*` requests.
-**Code at fault:** None.
-**Docs at fault:** None.
-
-**Impact (if shipped without follow-up):** Low. `/internal/*` server spans still carry `http.route` + `http.status_code` (auto-instrumentation), so operator-side dashboards work. Missing piece is principal-correlation: an operator looking at a slow `/internal/unban-worker` span can't easily correlate it to a specific Cloud Scheduler invocation. The truncated-SHA-256 `sub` correlation id is already in the WARN-log surface ([`internal-endpoint-auth/spec.md:18`](openspec/specs/internal-endpoint-auth/spec.md)), so log-trace correlation works; only span-attribute query-by-correlation is missing.
-
-**Ambiguity to resolve first:** Whether `service.account.id` is the right OTel semconv name (the standard exists at OTel semconv as `cloud.account.id` / `gcp.client_id` / similar — verify the most-aligned name before settling).
-
-**Action items:**
-- [ ] File OpenSpec change `internal-endpoint-auth-otel-attributes` that (a) MODIFIES the `internal-endpoint-auth` spec to require a sanctioned `service.account.id` (or whatever semconv name turns out aligned) attribute on `/internal/*` server spans, (b) populates it via truncated SHA-256(`sub` claim) per the existing WARN-log pattern, (c) MODIFIES the `observability-otel-foundation` capability spec's `user.id` requirement to flip the "does NOT apply to `/internal/*`" carve-out (or to coexist; design decision in the follow-up).
-- [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
-
----
-
 ## otel-attribute-rule-value-aware-userid-aliases
 
 **Discovered during:** `otel-attribute-lint-rule` design § "Explicitly deferred follow-ups" (multi-lens Phase D review surfaced the gap between the canonical spec's value-semantic forbidden list and the shipped lint rule's key-name-only enforcement).
