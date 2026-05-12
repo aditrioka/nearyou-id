@@ -22,6 +22,7 @@ class NearYouRuleSetProvider : RuleSetProvider {
                 RedisHashTagRule(config),
                 RawXForwardedForRule(config),
                 OtelForbiddenAttributeRule(config),
+                IpAxisMustUseTryAcquireByKeyRule(config),
             ),
         )
 
