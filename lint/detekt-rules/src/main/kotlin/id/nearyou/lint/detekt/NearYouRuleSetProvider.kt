@@ -23,6 +23,7 @@ class NearYouRuleSetProvider : RuleSetProvider {
                 RawXForwardedForRule(config),
                 OtelForbiddenAttributeRule(config),
                 IpAxisMustUseTryAcquireByKeyRule(config),
+                ContentWriteRequiresModerationRule(config),
             ),
         )
 
