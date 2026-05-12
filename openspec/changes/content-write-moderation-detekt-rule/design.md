@@ -66,13 +66,13 @@ A Detekt rule shifts enforcement to compile-time at every content-write call sit
 
 ### Decision 4: Annotation-bypass — `@AllowContentWriteWithoutModeration("<reason>")` with reason-vocabulary enforcement
 
-**Choice:** Introduce annotation `@AllowContentWriteWithoutModeration("<reason>")` (placed alongside the existing `@AllowDailyTtlOverride` / `@AllowRawRedisKey` / `@AllowForbiddenSpanAttribute` / `@AllowUsernameWrite` annotations — verify location during apply; likely `:lint:detekt-rules`'s annotation source set or `:core:domain`'s `Annotations.kt`). The annotation accepts a single string argument enumerated as one of: `"tombstone"` (admin-driven content tombstone replacement), `"admin_redaction"` (Phase 3.5 admin chat-message redaction with system-controlled replacement string), `"seed"` (Flyway seed migrations / test fixtures populating content directly).
+**Choice:** Introduce annotation `@AllowContentWriteWithoutModeration("<reason>")` (placed alongside the existing canonical 3 in-project bypass annotations: `@AllowDailyTtlOverride`, `@AllowRawRedisKey`, `@AllowForbiddenSpanAttribute` — verified by `grep -rn "AllowDailyTtlOverride\|AllowRawRedisKey\|AllowForbiddenSpanAttribute" core/ lint/` at proposal time; verify the canonical location during apply; likely `:lint:detekt-rules`'s annotation source set or `:core:domain`'s `Annotations.kt`). The annotation accepts a single string argument enumerated as one of: `"tombstone"` (admin-driven content tombstone replacement), `"admin_redaction"` (Phase 3.5 admin chat-message redaction with system-controlled replacement string), `"seed"` (Flyway seed migrations / test fixtures populating content directly).
 
 The rule MUST enforce `reason.isNotBlank()` (mirror precedent: `RateLimitTtlRule`'s `@AllowDailyTtlOverride` enforcement at `RateLimitTtlRule.kt:160-180`). An empty-string reason fails the rule with a message instructing the contributor to provide a documented reason.
 
 **Rationale:**
 
-- Mirror the established annotation-bypass pattern from 3+ existing rules. Consistency reduces cognitive load for contributors who hit the lint failure.
+- Mirror the established annotation-bypass pattern from the canonical 3 in-project bypass annotations: `@AllowDailyTtlOverride` (used by `RateLimitTtlRule`), `@AllowRawRedisKey` (used by `RedisHashTagRule`), `@AllowForbiddenSpanAttribute` (used by `OtelForbiddenAttributeRule`). Verified by `grep -rn "AllowDailyTtlOverride\|AllowRawRedisKey\|AllowForbiddenSpanAttribute" core/ lint/` at proposal time. Consistency reduces cognitive load for contributors who hit the lint failure.
 - The 3-value reason enumeration covers all known legitimate carve-outs identified during `content-moderation-keyword-lists` design (per the FOLLOW_UPS entry's "Annotation reasons enumeration" question). A future legitimate exception (rare) would extend the enum + amend the rule.
 - The non-blank-reason enforcement prevents `@Suppress`-style bypass without justification; future readers see WHY the carve-out exists.
 
@@ -91,7 +91,33 @@ The package-FQN fallback is required because Detekt's test harness `lint(String)
 
 **Choice:** The provider-registration assertion is a Kotest block named `"rule registered in NearYouRuleSetProvider"` co-located inside `ContentWriteRequiresModerationLintTest.kt`. Mirror the verified just-shipped pattern at [`OtelForbiddenAttributeLintTest.kt:807-812`](../../../lint/detekt-rules/src/test/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeLintTest.kt) (and earlier `RedisHashTagRuleTest.kt:244` + `RateLimitTtlRuleTest.kt:242`). There is **no separate `NearYouRuleSetProviderTest.kt` file** in the project; each rule's test file owns its own registration assertion.
 
-### Decision 7: Coordination with PR [#100](https://github.com/aditrioka/nearyou-id/pull/100)
+### Decision 7a: Soundness gaps — PSI walk has known blind spots (acknowledged, not fixed)
+
+**Choice:** Document two soundness gaps in the PSI-walk approach that the rule does NOT close. Accept the gaps as known limitations.
+
+1. **Conditional moderator call**: a function shaped `if (cond) textModerator.moderate(content); insertContent(content)` would PSI-pass the rule (the moderate call PSI-precedes the insert), but at runtime the moderate call may not execute. Mitigation: code-review for non-canonical conditional patterns; the existing 3 integration tests catch the end-to-end behaviour for the canonical 3 paths.
+2. **Helper-extracted moderator call**: a function shaped `private fun guardedModerate(content) = textModerator.moderate(content); fun handler() { guardedModerate(content); insertContent(content) }` would NOT PSI-pass — the inner `moderate` call is in `guardedModerate`'s body, not the handler's body, and the rule's PSI walk is function-local. Mitigation: contributors hitting this pattern can either inline the moderate call OR add the `@AllowContentWriteWithoutModeration` annotation with a documented reason.
+
+The gaps are accepted because adding cross-function flow analysis would require Detekt type-resolution mode (which the existing 7 rules deliberately avoid) and produce diminishing returns — both gaps are catchable by the existing 3 integration tests at end-to-end runtime.
+
+### Decision 7b: Annotation target — `FUNCTION` only (not class/property)
+
+**Choice:** `@AllowContentWriteWithoutModeration` is annotated `@Target(AnnotationTarget.FUNCTION)` only.
+
+**Rationale:** The rule's annotation-bypass walk-up (Section 2 step 2.6) only checks `function.annotationEntries`. Widening the target to `CLASS` or `PROPERTY` would require a more elaborate PSI walk-up to find class-level annotations covering all member functions. Out of scope for this change. If a future contributor needs class-level bypass (e.g., an entire admin module exempt from moderation), they can either annotate each function individually OR file a follow-up change to widen the target + extend the PSI walk.
+
+### Decision 8: Detekt source-scope limitation — accepted as known coverage gap
+
+**Choice:** Accept that the project Detekt invocation only scans `:backend:ktor` per [`build-logic/src/main/kotlin/nearyou.ktor.gradle.kts:20`](../../../build-logic/src/main/kotlin/nearyou.ktor.gradle.kts) (`source.setFrom(files("src/main/kotlin"))`). Do NOT extend the Detekt source-set scope to `:infra:supabase` as part of this change. Document the asymmetric coverage profile explicitly in the spec (see `specs/content-moderation-keyword-lists/spec.md` § "Effective coverage scope" added by this change).
+
+**Rationale:**
+
+- **Same precedent as `IpAxisMustUseTryAcquireByKeyRule`** (PR [#100](https://github.com/aditrioka/nearyou-id/pull/100) Decision 8): all 7 existing rules accept the same `:backend:ktor`-only source scope; extending it would be a separate cross-cutting change that this proposal deliberately does not attempt.
+- **Asymmetric coverage is real, but partial-coverage > zero-coverage.** The rule catches the `posts.create(...)` and `replies.insertInTx(...)` and `repository.sendMessage(...)` call sites at the SERVICE layer (in `:backend:ktor`); it misses the SQL-literal sites at the Repository layer in `:infra:supabase`. The service-layer call sites are where the moderation contract is structurally enforced (the moderate call is invoked by the service before delegating to the Repository); the Repository-layer SQL literals are downstream of the contract — even if a future contributor introduces a new SQL INSERT into `:infra:supabase`, the contract-violation surface is at the service layer (the Service that calls the new Repository method) which IS in `:backend:ktor` and IS scanned.
+- **Trade-off accepted**: a future contributor who skips the service layer entirely and writes directly to `:infra:supabase` from another module would NOT be caught. Mitigation: this pattern doesn't exist in the codebase today + is unidiomatic for the project's repository architecture; if regression actually surfaces, a follow-up change MAY extend the Detekt source-set scope.
+- **Extending to `:infra:supabase` would also benefit OTHER invariant rules** (e.g., a future spec-driven rule for raw-SQL safety). Logging this as a follow-up rather than baking it into this proposal keeps the change focused.
+
+### Decision 9: Coordination with PR [#100](https://github.com/aditrioka/nearyou-id/pull/100)
 
 **Choice:** This change is the would-be 8th rule, but PR #100 (`IpAxisMustUseTryAcquireByKeyRule`) is also queued as the 8th rule. Whichever change merges to `main` second will need to rebase its `NearYouRuleSetProvider` edit to position the new entry as the 9th. Trivial conflict resolution (1-line addition vs 1-line addition; both can coexist as 8th + 9th). No spec-level conflict (PR #100 modifies `rate-limit-infrastructure`; this change modifies `content-moderation-keyword-lists` — disjoint capabilities).
 
