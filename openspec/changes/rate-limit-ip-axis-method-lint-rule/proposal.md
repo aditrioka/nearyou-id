@@ -42,7 +42,7 @@ Direct trigger: [`FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) entry `tryacquirebykey
 
 ## Impact
 
-- **Code**: ~120 LOC for `IpAxisMustUseTryAcquireByKeyRule.kt` + KDoc; ~280 LOC for `IpAxisMustUseTryAcquireByKeyLintTest` covering the ~13 fixture scenarios above; 1-line update to `NearYouRuleSetProvider` (rule list extension); the Kotest registration block is co-located inside the new lint-test file (no separate `NearYouRuleSetProviderTest.kt` file exists or needs to). No project Detekt config edit required (per the default-active pattern documented above).
+- **Code**: ~120 LOC for `IpAxisMustUseTryAcquireByKeyRule.kt` + KDoc; ~350 LOC for `IpAxisMustUseTryAcquireByKeyLintTest` covering the 17 fixture scenarios in `specs/rate-limit-infrastructure/spec.md` § "Detekt test coverage"; 1-line update to `NearYouRuleSetProvider` (rule list extension); the Kotest registration block is co-located inside the new lint-test file (no separate `NearYouRuleSetProviderTest.kt` file exists or needs to). No project Detekt config edit required (per the default-active pattern documented above).
 - **Schema / APIs / Dependencies**: none.
 - **Out of scope (explicit)**:
   - Runtime span-attribute / log-line stripping. The existing structured-log scenario "tryAcquireByKey omits userId from telemetry" + the existing `OtelForbiddenAttributeRule` (which already fences raw IP literals in `{ip:<value>}` segments) remain the runtime backstops.
