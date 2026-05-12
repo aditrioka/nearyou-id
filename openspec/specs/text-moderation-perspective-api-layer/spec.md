@@ -1,7 +1,10 @@
 # text-moderation-perspective-api-layer Specification
 
 ## Purpose
-TBD - created by archiving change text-moderation-perspective-api-layer. Update Purpose after archive.
+
+The `text-moderation-perspective-api-layer` capability owns the asynchronous post-INSERT classifier layer (Layer 3) of the multi-layer text-moderation pipeline. Layer 1+2 (keyword-based blocklist + UU ITE wordlist, synchronous, see [`content-moderation-keyword-lists`](../content-moderation-keyword-lists/spec.md)) handle deterministic vocabulary-matched cases; Layer 3 catches what tokenization cannot — novel slurs, identity attacks, threats wrapped in benign vocabulary — by calling the OpenAI Moderation API (`omni-moderation-latest`) through a vendor-neutral `ModerationClient` interface, in a fire-and-forget coroutine AFTER each successful `posts` / `post_replies` INSERT. Score-threshold-driven outcomes map to `Outcome.AutoHide` (max-category score > 0.8 — auto-hides the row + writes a `moderation_queue` row with `trigger = 'perspective_api_high_score'` in one SQL transaction), `Outcome.FlagOnly` (0.6–0.8 — queue row only), or `Outcome.NoAction` (≤ 0.6 plus any timeout / 5xx / network failure / kill-switch-OFF, per the fail-open posture).
+
+This capability closes the canonical multi-layer moderation contract at [`docs/06-Security-Privacy.md:153`](../../../docs/06-Security-Privacy.md) and the Pre-Launch security-review §5 "Perspective API kill switch tested" gate. Vendor pivot context: the change originally targeted Google Perspective API (per its historical name); Perspective announced end-of-2026 sunset mid-implementation, the project pivoted to OpenAI Moderation, and the historical name + V9 `moderation_queue.trigger = 'perspective_api_high_score'` enum + Firebase Remote Config parameter names (`perspective_api_*`) are preserved as documented debt — operator-facing or schema-fixed, renaming would require parallel external migrations (see the archived change's § "What is preserved as historical artifact"). The Firebase Remote Config `perspective_api_enabled` kill switch + structured `event=layer3_*` Sentry breadcrumbs (which NEVER carry user content) let operators disable Layer 3 without redeploy when the vendor degrades or cost budgets shift.
 ## Requirements
 ### Requirement: `:infra:openai-moderation` is the sole owner of the OpenAI Moderation API client
 
