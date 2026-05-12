@@ -549,29 +549,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## content-write-moderation-detekt-rule
-
-**Discovered during:** `content-moderation-keyword-lists` Phase 10 — Detekt rule was DEFERRED per task 10.4 decision gate.
-**Status:** open
-
-**Finding:** A Detekt rule `ContentWriteRequiresModerationRule` would detect handlers that write user-supplied content to `posts.content` / `post_replies.content` / `chat_messages.content` without going through `TextModerator.moderate(...)`. This is defense-in-depth — the spec call-order requirement is currently enforced by 3 static-source-scan tests (`PostCreationCallOrderTest`, `PostRepliesCallOrderTest`, `ChatModerationCallOrderTest`), but a Detekt rule would catch violations at compile time vs. test time.
-
-**Specs at fault:** None — the static-source-scan tests cover the contract.
-**Code at fault:** None.
-**Docs at fault:** None.
-
-**Impact (if shipped):** Low — the static tests are the canonical enforcement; a Detekt rule is belt-and-suspenders. Net new value depends on how often new content-write paths are added.
-
-**Ambiguity to resolve first:** Annotation reasons enumeration — `tombstone`, `admin_redaction`, `seed`. Are there other legitimate exceptions?
-
-**Action items:**
-- [ ] Add `lint/detekt-rules/.../ContentWriteRequiresModerationRule.kt` per the canonical detekt-rule structure (mirror `BlockExclusionJoinRule`, `RawFromPostsRule`, etc.).
-- [ ] Wire the new rule into `lint/detekt-rules` config + the `:lint:detekt-rules` test harness.
-- [ ] Add unit tests covering: handler with moderate-then-INSERT passes, handler without moderate fails, annotated allow-list cases pass, admin path passes.
-- [ ] Delete this entry once the rule lands.
-
----
-
 ## reply-rate-limit-moderator-spy
 
 **Discovered during:** `content-moderation-keyword-lists` Phase 8 task 8.7 — rate-limit-precedence test for the moderator-not-called scenario.
