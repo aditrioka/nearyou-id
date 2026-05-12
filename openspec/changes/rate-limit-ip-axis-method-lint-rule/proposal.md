@@ -1,0 +1,53 @@
+## Why
+
+The `rate-limit-infrastructure` capability spec already enforces — at runtime / log level — the convention that IP-axis rate-limit buckets MUST go through `RateLimiter.tryAcquireByKey(key, capacity, ttl)`, never `tryAcquire(userId, key, capacity, ttl)`. The existing scenario "tryAcquireByKey omits userId from telemetry" forbids the literal sentinel UUID `00000000-0000-0000-0000-000000000000` from the structured-log surface, which catches the most obvious bypass shape. But a future maintainer could still bypass the contract by deriving a UUID from the IP at runtime — for example, `tryAcquire(UUID.nameUUIDFromBytes(ip.toByteArray()), "{scope:foo}:{ip:hashed}", ...)` — and the existing scenarios would not fire. The runtime backstop catches the literal sentinel; nothing today catches the derived-UUID shape, and nothing today catches the more general invariant ("if your key has an `ip:` axis, you should not be calling `tryAcquire`"). A Detekt rule firing at every `RateLimiter.tryAcquire(...)` call site whose key contains `{...ip:...}` closes the regression vector mechanically — sibling to the just-shipped `OtelForbiddenAttributeRule` (PR [#99](https://github.com/aditrioka/nearyou-id/pull/99)) and to `RawFromPostsRule`, `BlockExclusionJoinRule`, `RedisHashTagRule`, `RawXForwardedForRule`, `RateLimitTtlRule`, and `CoordinateJitterRule` (the seven existing project Detekt rules).
+
+Direct trigger: [`FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) entry `tryacquirebykey-ip-derived-uuid-detekt-rule` (status: open). The trigger condition stated in that entry — "After `health-check-endpoints` ships" — was met by [PR #54](https://github.com/aditrioka/nearyou-id/pull/54). The 2026-05-10 audit blurb at the top of `FOLLOW_UPS.md` explicitly classifies this entry as one of the "7 OpenSpec-shaped pending promotion via `/next-change`" entries, signalling it is ready for an OpenSpec change rather than a regular PR.
+
+## What Changes
+
+- Add `IpAxisMustUseTryAcquireByKeyRule.kt` in `lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/` — a Detekt `Rule` that fires on `KtCallExpression`s whose callee short name is `tryAcquire` AND whose `key` argument (the second positional argument, or the named argument `key =`) is a Kotlin `KtStringTemplateExpression` whose flat textual content matches the regex `\{[^}]*ip:`. The fire location is the `key`-argument expression.
+- Register `IpAxisMustUseTryAcquireByKeyRule` in `lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/NearYouRuleSetProvider.kt`.
+- Wire the new rule into the project Detekt config (`config/detekt/detekt.yml` or wherever the eight existing rules are enabled — verify the canonical location during apply).
+- Ship `IpAxisMustUseTryAcquireByKeyLintTest` covering the following fixture scenarios:
+  - **A — Positive (rule fires):**
+    1. `tryAcquire(userId, "{scope:health}:{ip:abc123def4567890}", capacity, ttl)` — IP-axis literal under the wrong method.
+    2. `tryAcquire(UUID.nameUUIDFromBytes(ip.toByteArray()), "{scope:foo}:{ip:abc123def4567890}", capacity, ttl)` — IP-derived UUID + IP-axis key (the regression vector that motivates this change).
+    3. `tryAcquire(UUID.fromString("00000000-0000-0000-0000-000000000000"), "{scope:foo}:{ip:abc123def4567890}", capacity, ttl)` — literal sentinel UUID + IP-axis key (the runtime-backstop's compile-time complement).
+    4. `tryAcquire(userId, "{scope:foo}:{ip:$hashedIp}", capacity, ttl)` — Kotlin template-string interpolation in the value position; the rule still fires because the `ip:` axis-key shape is statically present regardless of the value's runtime resolution.
+    5. Named-argument form: `tryAcquire(userId = u, key = "{scope:foo}:{ip:abc}", capacity = 10, ttl = ttl)` — fires (named arg parses identically).
+  - **B — Negative (rule does NOT fire):**
+    1. `tryAcquireByKey("{scope:health}:{ip:abc123def4567890}", capacity, ttl)` — correct method for IP axis; pass-through.
+    2. `tryAcquire(userId, "{scope:like}:{user:U}", capacity, ttl)` — user-axis key; no `ip:` segment.
+    3. `tryAcquire(userId, "{scope:foo}:{geocell:abc}", capacity, ttl)` — non-IP non-user axis; no `ip:` segment. (Note: this is currently an unsupported shape per the spec — `tryAcquireByKey` is the right method for any non-user axis — but this rule's scope is intentionally narrow to `ip:` only. See `design.md` § Decision 3.)
+    4. `someOtherClass.tryAcquire(...)` where the callee is NOT `RateLimiter.tryAcquire` (e.g., a `Semaphore.tryAcquire(...)` from `java.util.concurrent`) — does NOT fire. The rule disambiguates via callee short-name + the receiver's apparent type heuristic (`KtSimpleNameExpression` callee whose containing class is `RateLimiter`); precise type-resolution is NOT required because the false-positive surface is small (the only short-name collision in the project is `Semaphore.tryAcquire`, which has no `String` second argument and would not pass the `key`-argument shape gate anyway).
+  - **C — Allowlist:**
+    1. Test source under `**/src/test/**` is allowlisted — fixture call sites that intentionally exercise the wrong-method path (e.g., `RedisRateLimiterTelemetryTest`, future regression fixtures) do not fire. Mirrors the existing project pattern (`OtelForbiddenAttributeRule` allows `/src/test/`, `/infra/otel/src/main/`, `/lint/detekt-rules/src/main/`; `RawFromPostsRule` allows Repository own-content paths).
+  - **D — Composition:**
+    1. A single line that triggers `IpAxisMustUseTryAcquireByKeyRule` AND `OtelForbiddenAttributeRule` (Tier 2 IP-axis Mode B for raw IPv4 in the value position) — for example, `tryAcquire(userId, "{scope:foo}:{ip:1.2.3.4}", capacity, ttl)` — produces TWO independent findings, one per rule. No cross-suppression.
+  - **E — Provider registration:**
+    1. `NearYouRuleSetProviderTest` (extend the existing test class, mirroring how `OtelForbiddenAttributeRule` registration was asserted in [PR #99](https://github.com/aditrioka/nearyou-id/pull/99)) asserts that `provider.instance(Config.empty()).rules` contains an instance of `IpAxisMustUseTryAcquireByKeyRule`.
+- MODIFY `rate-limit-infrastructure` capability spec — ADD a new requirement that the IP-axis method-choice contract is mechanically guarded at compile time by the `IpAxisMustUseTryAcquireByKeyRule` Detekt rule, with allowlist mechanism and fire conditions. The MODIFIED requirement is additive; no existing scenarios change. The closing prose around the existing "tryAcquireByKey omits userId from telemetry" scenario is amended to acknowledge the new compile-time defence layer alongside the existing runtime/log-level defence — matching the three-layer defence-in-depth phrasing introduced by `otel-attribute-lint-rule` (PR [#99](https://github.com/aditrioka/nearyou-id/pull/99)) on the `observability-otel-foundation` spec.
+- DELETE the `tryacquirebykey-ip-derived-uuid-detekt-rule` entry from [`FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) at archive time — its scope is fully fulfilled by this change.
+
+## Capabilities
+
+### New Capabilities
+
+(none — this change adds enforcement to an existing capability)
+
+### Modified Capabilities
+
+- `rate-limit-infrastructure`: gains a lint-rule requirement enforcing that `RateLimiter.tryAcquire(userId, key, capacity, ttl)` MUST NOT be invoked with a `key` argument containing the `{ip:...}` axis segment. The IP-axis is the canonical use case for `tryAcquireByKey(key, capacity, ttl)`, the axis-agnostic entry point introduced in `health-check-endpoints` (PR [#54](https://github.com/aditrioka/nearyou-id/pull/54)).
+
+## Impact
+
+- **Code**: ~120 LOC for `IpAxisMustUseTryAcquireByKeyRule.kt` + KDoc; ~250 LOC for `IpAxisMustUseTryAcquireByKeyLintTest` covering the ~10 fixture scenarios above; 1-line update to `NearYouRuleSetProvider`; 1-line addition to the project Detekt config to enable the rule cross-cuttingly; 1-line extension to `NearYouRuleSetProviderTest`.
+- **Schema / APIs / Dependencies**: none.
+- **Out of scope (explicit)**:
+  - Runtime span-attribute / log-line stripping. The existing structured-log scenario "tryAcquireByKey omits userId from telemetry" + the existing `OtelForbiddenAttributeRule` (which already fences raw IP literals in `{ip:<value>}` segments) remain the runtime backstops.
+  - Runtime-constructed `key` values (e.g., `tryAcquire(userId, "{scope:foo}:{ip:" + hashedIp + "}", ...)` where the `{ip:...}` substring is split across concatenated string fragments). The Detekt rule visits Kotlin string literals (KtStringTemplateExpression flat content); runtime concatenation is not visible. This is acceptable because (a) the canonical project pattern is hash-tag literals like `"{scope:foo}:{ip:$hashedIp}"` (template-string form, which IS visible to the rule) — the concatenation pattern is rare-to-nonexistent — and (b) the existing `RedisHashTagRule` Detekt rule already enforces the hash-tag literal-form convention at every Redis-key construction site, so the rule's input shape is already constrained to literals.
+  - Other axes that could in theory be wrongly bucketed via `tryAcquire` (geocell, fingerprint, global circuit-breaker, generic). The rule's scope is intentionally narrow to `ip:` because the IP-axis is the only axis that has a documented production call-site (`/health/*` anti-scrape via `health-check-endpoints`) and a known regression vector in the FOLLOW_UPS history. Extending the rule to fire on any non-`user:` axis under `tryAcquire` would force an over-broad design conversation that this change deliberately defers. A future change MAY extend the rule to additional axes if a second axis ships a non-trivial `tryAcquireByKey` call site (rule of three).
+  - Mobile-side enforcement. Out of scope until the mobile rate-limit path lands (mobile is currently DESIGN per [`openspec/project.md`](../../../openspec/project.md) § Mobile + Admin Status).
+  - SQL migration file scanning. Detekt visits Kotlin PSI; `.sql` files are reviewed in PR.
+  - Backfill of `@Suppress("IpAxisMustUseTryAcquireByKey")` annotations onto existing test fixtures. The broad `**/src/test/**` path allowlist covers all current call sites; an annotation-bypass mechanism is NOT introduced in this change because no production call site needs to bypass the rule (every legitimate IP-axis use case should go through `tryAcquireByKey`). If a future legitimate exception arises, an annotation can be added then per the same pattern as `@AllowForbiddenSpanAttribute` (used by `OtelForbiddenAttributeRule`).
