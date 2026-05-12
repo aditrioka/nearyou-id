@@ -6,14 +6,16 @@ Project context for Claude running in Claude Code or the `anthropics/claude-code
 
 **nearyou-id** — location-based social media MVP (Indonesia, 18+ only). Text posts with location, nearby discovery, 1:1 chat, freemium + Premium. Modular monolith on Kotlin Multiplatform. Solo-operator build; pre-launch.
 
-## Mobile + Admin are DESIGN-only (read this before believing docs)
+## Mobile + Admin scaffolding is the current priority (as of 2026-05-12)
 
-The backend is roughly MVP-ready (15 Flyway migrations, 41 OpenSpec capabilities shipped, Detekt-enforced invariants). The **mobile and admin surfaces are intentionally thin**, and many `docs/*` and `openspec/specs/*` paragraphs describe their future-state contracts in present tense. Treat those paragraphs as DESIGN until proven otherwise.
+The backend is roughly MVP-ready (15 Flyway migrations, 41 OpenSpec capabilities shipped, Detekt-enforced invariants). The **MVP-readiness gap is now on the mobile + admin side** — those are the surfaces a real user (or moderator) actually touches, and shipping a usable MVP requires them. Until further notice, `/next-change` and any new OpenSpec work SHOULD target Phase 3 (mobile) + Phase 3.5 (admin) scaffolding picks; backend hardening continues only when there's a real blocker (security invariant gap, pre-launch test requirement, dependency for the mobile/admin work itself), not as the default.
+
+**Current state (descriptive, still accurate):**
 
 - **Mobile (`:mobile:app`)** — JetBrains Compose Multiplatform wizard scaffold (4 files, ~95 LOC, single "Click me!" button). No screens, no auth flow, no networking, no Moko Resources usage.
-- **Admin (`backend/ktor/.../admin`)** — `SuspensionUnbanWorker.kt` + `UnbanWorkerRoute.kt` only (~189 LOC). No admin UI, no admin REST surface beyond the `/internal/unban-worker` tick.
+- **Admin (`backend/ktor/.../admin`)** — `SuspensionUnbanWorker.kt` + `UnbanWorkerRoute.kt` only (~189 LOC). No admin UI, no admin REST surface beyond the `/internal/unban-worker` tick. Admin schema (`admin_users`, `admin_sessions`, `admin_actions_log`, etc.) is NOT yet shipped — Phase 3.5 admin-users migration is the precondition for several backend invariants and follow-ups.
 
-Canonical detail + trigger-to-update: `openspec/project.md` § Mobile + Admin Status. Don't author code or specs that assume these surfaces exist beyond what's listed there.
+**Forward direction.** Many `docs/02-Product.md` / `docs/03-UX-Design.md` / `docs/07-Operations.md` paragraphs describe mobile + admin contracts in present tense — those are **the spec source for what to scaffold next**, NOT "treat as DESIGN, don't touch." Canonical next-step menu (first 5 scaffold changes per surface, kebab-case, ready to feed into `/next-change`) + the trigger-to-flip-back-to-balanced-priority lives at [`openspec/project.md`](openspec/project.md) § Mobile + Admin Scaffolding Priority. Read that menu before defaulting to another backend hardening pick.
 
 ## Canonical references
 
