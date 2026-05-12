@@ -125,16 +125,16 @@ Redis Streams provide:
 :lint:detekt-rules        shipped — 7 custom Detekt rules
 ```
 
-### Planned modules (DESIGN — not yet scaffolded; do NOT `import` from these)
+### Planned modules (DESIGN unless marked SCAFFOLD NEXT — do NOT `import` from `DESIGN` rows)
 
 | Module | Status | Trigger to scaffold |
 |---|---|---|
-| `:shared:resources` | DESIGN | Mobile work begins (Moko Resources UI strings) |
+| `:shared:resources` | SCAFFOLD NEXT | Mobile #2 (`shared-resources-moko-bootstrap`) per [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority |
 | `:infra:r2` | DESIGN | Image upload feature (Phase 2/3) — Cloudflare R2 (non-image, zero egress) |
 | `:infra:cloudflare-images` | DESIGN | Image upload feature — Cloudflare Images (`img.nearyou.id`) + CSAM webhook handler |
 | `:infra:revenuecat` | DESIGN | Premium subscription billing (webhook signature verify) |
 | `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27) |
-| `:infra:sentry` | DESIGN | Sentry SDK module-isation for Android/iOS/JVM |
+| `:infra:sentry` | SCAFFOLD NEXT | Follow-up `infra-sentry-kmp-module-isation` (split from Mobile #1 if scaffold scope grows; see [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority menu Mobile #1) |
 | `:infra:amplitude` | DESIGN | Consent-gated analytics HTTP client |
 | `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
 | `:infra:remote-config` | DECISION NEEDED | DB-backed feature flags already operational (`premium_*_cap_override`); a separate Firebase Remote Config module may be redundant or complementary — needs explicit decision before scaffolding |
@@ -540,7 +540,7 @@ ENTRYPOINT ["/backup.sh"]
 
 ## Push Notification Infrastructure
 
-> **Status (2026-05-07).** Server-side push dispatch is **shipped** (`infra/fcm/` — `FcmDispatcher` 414 LOC + composite + payload builders + 6 tests, 1,292 test LOC). FCM token registration endpoint is **shipped** (V14 + `POST /api/v1/user/fcm-token` in `user/FcmTokenRoutes.kt`). Token cleanup-on-send is **shipped**. **Client-side handling is DESIGN** — the Android preference-check, the iOS NSE, App Group setup, body rewrite, and batching are all forward-looking design until mobile work begins (see `openspec/project.md` § Mobile + Admin Status). The scheduled-cleanup `/internal/cleanup` job described below is also DESIGN — only the immediate on-send cleanup ships today.
+> **Status (2026-05-07).** Server-side push dispatch is **shipped** (`infra/fcm/` — `FcmDispatcher` 414 LOC + composite + payload builders + 6 tests, 1,292 test LOC). FCM token registration endpoint is **shipped** (V14 + `POST /api/v1/user/fcm-token` in `user/FcmTokenRoutes.kt`). Token cleanup-on-send is **shipped**. **Client-side handling is the spec source for mobile push scaffolding** — the Android preference-check, the iOS NSE, App Group setup, body rewrite, and batching are described below as the contracts the future mobile-push change will implement (see [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority for the change-by-change menu). The scheduled-cleanup `/internal/cleanup` job described below is also DESIGN — only the immediate on-send cleanup ships today.
 
 ### Platform-Specific Delivery Mode
 

@@ -2,7 +2,7 @@
 
 User experience flows, copy strategy, onboarding design, empty states, and interaction design decisions.
 
-> **Status (2026-05-07).** This document is **prescriptive UX copy + flow design**, not as-built. As of today, `:mobile:app` is a JetBrains Compose Multiplatform wizard scaffold — none of the screens, flows, or copy strings below are rendered to users. Treat the entire file as forward-looking design that the eventual mobile client will implement. Server contracts referenced (endpoints, error codes, schema columns) match `docs/02-Product.md` § Status tags + `openspec/specs/`. See `openspec/project.md` § Mobile + Admin Status.
+> **Status (2026-05-12).** This document is **the spec source for mobile UX scaffolding work** — prescriptive UX copy + flow design that the next 5+ mobile OpenSpec changes implement. As of today, `:mobile:app` is still the JetBrains Compose Multiplatform wizard scaffold; the screens, flows, and copy strings below are not yet rendered to users, but they are the canonical reference proposals should cite when scaffolding each surface. Server contracts referenced (endpoints, error codes, schema columns) match `docs/02-Product.md` § Status tags + `openspec/specs/`. See [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority for the change-by-change menu that consumes this document as its spec input.
 
 ---
 

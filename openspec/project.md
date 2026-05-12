@@ -57,7 +57,7 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 :infra:oidc               (internal endpoint OIDC verification)
 :infra:otel               (OpenTelemetry tracing — wired 2026-05-07)
 :backend:ktor             (routes + Koin wiring)
-:mobile:app               (KMP — currently JetBrains wizard scaffold; see § Mobile + Admin Status below)
+:mobile:app               (KMP — currently JetBrains wizard scaffold; see § Mobile + Admin Scaffolding Priority below)
 :lint:detekt-rules        (custom Detekt rules)
 ```
 
@@ -65,32 +65,58 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 
 | Module | Status | Trigger to scaffold |
 |---|---|---|
-| `:shared:resources` | DESIGN | Mobile work begins (Moko Resources UI strings) |
+| `:shared:resources` | SCAFFOLD NEXT | Mobile #2 (`shared-resources-moko-bootstrap`) per § Mobile + Admin Scaffolding Priority menu |
 | `:infra:r2` + `:infra:cloudflare-images` | DESIGN | Image upload feature (Phase 2/3) |
 | `:infra:revenuecat` | DESIGN | Premium subscription billing |
 | `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27, not yet modular) |
-| `:infra:sentry` | DESIGN | Sentry SDK module-isation (project configured, not yet modular) |
+| `:infra:sentry` | SCAFFOLD NEXT | Follow-up `infra-sentry-kmp-module-isation` (split from Mobile #1 if scaffold scope grows; see § Mobile + Admin Scaffolding Priority menu Mobile #1) |
 | `:infra:amplitude` | DESIGN | Consent-gated analytics |
 | `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
 | `:infra:remote-config` | SHIPPED | Firebase Remote Config wordlist + threshold delivery for `content-moderation-keyword-lists` (PR #70). DB-backed flags (`premium_*_cap_override`) remain the per-user override surface; Remote Config is the platform-wide tunable surface. |
 | `:infra:postgres-neon` | ABANDONED | Plan B scaffold not pursued; Supabase PITR is the backup posture |
 | `:infra:ktor-ws` | ABANDONED | Realtime ships via Supabase Broadcast (`SupabaseBroadcastChatClient`); Ktor WS path retired |
 
-Backend modules inside `:backend:ktor` (regenerate from `find backend/ktor/src/main/kotlin/id/nearyou/app -type d -maxdepth 1` if drift suspected): `auth`, `block`, `chat`, `common`, `config`, `dev`, `engagement`, `follow`, `guard`, `health`, `internal`, `lint`, `moderation`, `notifications`, `post`, `search`, `timeline`, `user`, `admin`. The `admin` package contains only `SuspensionUnbanWorker` + `UnbanWorkerRoute` — see § Mobile + Admin Status. Details + `ChatRealtimeClient` interface in [`docs/04-Architecture.md`](../docs/04-Architecture.md).
+Backend modules inside `:backend:ktor` (regenerate from `find backend/ktor/src/main/kotlin/id/nearyou/app -type d -maxdepth 1` if drift suspected): `auth`, `block`, `chat`, `common`, `config`, `dev`, `engagement`, `follow`, `guard`, `health`, `internal`, `lint`, `moderation`, `notifications`, `post`, `search`, `timeline`, `user`, `admin`. The `admin` package contains only `SuspensionUnbanWorker` + `UnbanWorkerRoute` — see § Mobile + Admin Scaffolding Priority. Details + `ChatRealtimeClient` interface in [`docs/04-Architecture.md`](../docs/04-Architecture.md).
 
 Rule: **no vendor SDK import outside `:infra:*`**. Domain/data code depends only on interfaces.
 
 ---
 
-## Mobile + Admin Status (as of 2026-05-07)
+## Mobile + Admin Scaffolding Priority (as of 2026-05-12)
 
-These two surfaces are intentionally thin in the current code; docs/specs that mention them mostly describe future-state contracts. **AI agents reading specs/docs that mention mobile UI or admin endpoints should treat them as DESIGN, not as-built, until this section is updated.**
+These two surfaces are intentionally thin in the current code; many `docs/*` and `openspec/specs/*` paragraphs describe their future-state contracts in present tense. **As of 2026-05-12, scaffolding them is the project's MVP-readiness gap** — those paragraphs are the spec source for what to scaffold next, and `/next-change` SHOULD bias toward mobile + admin scaffolding picks until both surfaces are usable end-to-end. Backend hardening continues only when it's a real blocker (security invariant gap, pre-launch test requirement, dependency for the scaffolding work), not as the default pick. The shift from "DESIGN-only" framing happened on 2026-05-12 after recognizing that the prior framing was creating a self-perpetuating backend-only bias incompatible with the "usable MVP" goal.
 
-**Mobile (`:mobile:app`).** Currently the JetBrains Compose Multiplatform wizard template — `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt` is a single MaterialTheme with a "Click me!" button + greeting from `:shared:tmp`. **Zero feature screens, zero auth flow, zero networking, zero Moko Resources usage.** Specs that mention mobile UI (e.g., `distance-rendering` consumer side, `auth-realtime` consumer side, in-app notification rendering) describe future-state contracts the backend already serves. Until mobile work begins, treat any mobile claim in `docs/02-Product.md`, `docs/03-UX-Design.md`, or `docs/04-Architecture.md` as forward-looking design.
+**Mobile (`:mobile:app`).** Currently the JetBrains Compose Multiplatform wizard template — `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt` is a single MaterialTheme with a "Click me!" button + greeting from `:shared:tmp`. Zero feature screens, zero auth flow, zero networking, zero Moko Resources usage. The mobile-side contracts in [`docs/02-Product.md`](../docs/02-Product.md), [`docs/03-UX-Design.md`](../docs/03-UX-Design.md), and [`docs/04-Architecture.md`](../docs/04-Architecture.md) are the spec source for the scaffolding work — read those sections when authoring a mobile change rather than starting from scratch.
 
-**Admin (`:backend:ktor` `admin` package).** Currently 2 files (`SuspensionUnbanWorker.kt` + `UnbanWorkerRoute.kt`, ~189 LOC). No admin UI, no admin REST endpoints beyond the `/internal/unban-worker` tick. The admin features listed in `docs/07-Operations.md` § Admin Panel are deferred to post-MVP. Admin schema (RLS for `service_role`, `admin_sessions` CSRF requirement, `csrf_token_hash` invariant, admin-user FK `ON DELETE SET NULL` invariant) IS shipped in migrations and enforced by Detekt rules — but no admin REST/UI surface consumes it yet.
+**Admin (`:backend:ktor` `admin` package).** Currently 2 files (`SuspensionUnbanWorker.kt` + `UnbanWorkerRoute.kt`, ~189 LOC). No admin UI, no admin REST endpoints beyond the `/internal/unban-worker` tick. The admin schema (RLS for `service_role`, `admin_sessions` CSRF requirement, `csrf_token_hash` invariant, admin-user FK `ON DELETE SET NULL` invariant) is enforced by Detekt rules but the schema itself has NOT shipped yet — the Phase 3.5 admin-users migration is deferred per the explicit comments in V9 (`reports.reviewed_by`, `moderation_queue.reviewed_by` carry "FK to admin_users(id) ... deferred to the Phase 3.5 admin-users migration" markers). Admin features listed in [`docs/07-Operations.md`](../docs/07-Operations.md) § Admin Panel are the spec source for scaffolding work.
 
-**Trigger to update this section:** when any non-trivial mobile screen or admin REST endpoint lands, update the bullet above and remove the affected DESIGN tags from the docs/specs sections that describe it.
+### Next-step menu — first 5 scaffold changes per surface
+
+These are the natural next `/next-change` picks. Each is spec-driven (mapped to existing `docs/*` paragraphs), kebab-case (no `-v<N>` suffix per § Change Delivery Workflow), and intentionally small in scope so it ships one-PR-per-change without spec drift. Interleave mobile and admin — both surfaces should progress in parallel.
+
+**Mobile scaffolding:**
+
+| # | Change name | What it ships | Unblocks |
+|---|---|---|---|
+| 1 | `mobile-app-scaffold-replace-wizard` | Real Compose Multiplatform app structure: navigation (Voyager / Decompose / vanilla state-based — decide in `design.md`), Koin DI, app theme. Replaces the "Click me!" wizard scaffold. NO networking, NO auth, NO features. Both Android + iOS targets must still build. **Sentry KMP wiring MAY split out as a focused follow-up `infra-sentry-kmp-module-isation` if scaffold scope grows beyond ~300 LOC** — decide during proposal phase; default-include if it fits, default-split if it adds a full `:infra:sentry` module + dSYM upload + iOS framework reconfig. | Everything else mobile |
+| 2 | `shared-resources-moko-bootstrap` | Scaffold `:shared:resources` Gradle module with Moko Resources plugin; add 8-10 foundational strings (`app_name`, `error_generic`, `cta_continue`, etc.). Mobile app consumes from this module. Verifies Detekt's "no hardcoded UI strings" lint passes against the scaffolded strings. | Any screen with text |
+| 3 | `mobile-auth-google-signin-flow` | Pure DIY Google Sign-In wrapper (expect/actual), calls backend `POST /api/v1/auth/signin/google`, stores RS256 JWT (Keychain on iOS, EncryptedSharedPreferences on Android), Ktor client interceptor for the auth header. **Sign-in path only — for users with existing accounts.** The signup-new-user path (which requires age gate) is Mobile #4; until #4 ships, Mobile #3 returns the user to the sign-in screen if backend reports "no account exists" for the verified Google ID. First end-to-end working flow. | All authenticated screens |
+| 4 | `mobile-age-gate-screen` | Signup-new-user flow: DOB picker UI + 18+ enforcement, calls backend signup endpoint with DOB, handles under-18 rejection (relies on backend `rejected_identifiers` blocklist per Phase 1 §3). Composes with Mobile #3's auth screen — after Google ID verification, if no account exists, route to this age-gate-then-signup flow instead of sign-in. | Real signup flow (account creation) |
+| 5 | `mobile-nearby-timeline-screen` | First product screen — calls `GET /api/v1/timeline/nearby`, renders `DistanceRenderer` output from `:shared:distance`, pull-to-refresh, empty / loading / error states. | First demoable product flow + the §15 fuzzing audit |
+
+**Admin scaffolding:**
+
+| # | Change name | What it ships | Unblocks |
+|---|---|---|---|
+| 1 | `admin-schema-bootstrap` | Flyway migration for `admin_users`, `admin_sessions`, `admin_actions_log`, `admin_webauthn_credentials`, `admin_webauthn_challenges`. Backfills the FK columns currently nullable in `reports.reviewed_by`, `moderation_queue.resolved_by`. Schema-only — NO admin UI, NO admin business logic. | `suspension-unban-worker-audit-log-after-phase-3.5` follow-up + every admin REST/UI change |
+| 2 | `admin-panel-ktor-htmx-bootstrap` | Scaffold the admin module's Ktor route subtree (`Application.admin()` extension), Pebble or Freemarker template engine, HTMX client wired, basic layout serving a "hello admin" page. No auth gate yet. | Every admin UI feature |
+| 3 | `admin-login-argon2-totp` | Login endpoint with Argon2id password verification + TOTP (mandatory per solo-admin period), sets `__Host-admin_session` cookie with `csrf_token_hash`, login UI page. First end-to-end admin flow. | Every admin action requiring auth |
+| 4 | `admin-actions-log-viewer` | Read-only audit log viewer (paginated table, filter by action type / admin / date range, immutable display — UPDATE/DELETE revoked at `admin_app` role). First admin business feature. | Every other admin write action (audit trail dependency) |
+| 5 | `admin-suspend-unban-user-action` | Admin action to suspend / unban a user, writes to `admin_actions_log`, wires the existing suspension worker to admin-triggered manual unban. First admin write action. | Moderation workflow MVP |
+
+### Trigger to flip this section back to balanced priority
+
+When BOTH `mobile-nearby-timeline-screen` (Mobile #5) AND `admin-actions-log-viewer` (Admin #4) have squash-merged to `main`, re-evaluate. The trigger is objective — verify by `git log --oneline | grep -E "(mobile-nearby-timeline-screen|admin-actions-log-viewer)"` returning two matches. At that point the project moves back into balanced mode where `/next-change` picks from whatever has the highest impact (more mobile features, more admin features, or Phase 4 premium / billing). Update this section's date stamp + switch the priority language at that boundary. Notes on the trigger choice: these two specific changes deliver the "first usable screen" (mobile timeline rendering real backend data) and "first usable feature" (admin can authenticate + see the audit trail) milestones; reaching them confirms both surfaces have crossed the threshold from "structural scaffold" to "actually doing the thing." Until then, defaulting to a mobile/admin scaffolding pick is the right move.
 
 ---
 
