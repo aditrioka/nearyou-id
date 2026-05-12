@@ -39,9 +39,9 @@
 ## 6. Spec + docs sync
 
 - [x] 6.1 Run `openspec validate rate-limit-ip-axis-method-lint-rule --strict` — ensure validation passes.
-- [ ] 6.2 At `/opsx:archive` time: delete the [`FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) entry `tryacquirebykey-ip-derived-uuid-detekt-rule` (lines ~246–263) — its scope is fully fulfilled by this change. If `FOLLOW_UPS.md` becomes empty after this deletion, also delete the file itself per the convention in its intro blurb.
-- [ ] 6.3 Verify no other `docs/**` or `openspec/specs/**` cross-reference points at the deleted `FOLLOW_UPS.md` entry by grepping for `tryacquirebykey-ip-derived-uuid` and `IpAxisMustUseTryAcquireByKey` after archive — fix any orphan references.
+- [x] 6.2 At `/opsx:archive` time: delete the [`FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) entry `tryacquirebykey-ip-derived-uuid-detekt-rule` (lines ~246–263) — its scope is fully fulfilled by this change. If `FOLLOW_UPS.md` becomes empty after this deletion, also delete the file itself per the convention in its intro blurb.
+- [x] 6.3 Verify no other `docs/**` or `openspec/specs/**` cross-reference points at the deleted `FOLLOW_UPS.md` entry by grepping for `tryacquirebykey-ip-derived-uuid` and `IpAxisMustUseTryAcquireByKey` after archive — fix any orphan references.
 
 ## 7. Pre-archive smoke
 
-- [ ] 7.1 N/A — this is a docs + lint-rule change with no runtime impact (per the Pre-archive smoke convention in [`openspec/project.md`](../../../openspec/project.md) § Staging deploy timing: "For docs-only / refactor-only changes, skip step 2-3 and go straight to archive"). Mark Section 7 N/A in the archive commit body.
+- [x] 7.1 N/A — this is a docs + lint-rule change with no runtime impact (per the Pre-archive smoke convention in [`openspec/project.md`](../../../openspec/project.md) § Staging deploy timing: "For docs-only / refactor-only changes, skip step 2-3 and go straight to archive"). Mark Section 7 N/A in the archive commit body.
