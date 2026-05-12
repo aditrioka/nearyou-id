@@ -30,12 +30,13 @@ Proposals land as their own PRs (branch name = change name) and get reviewed bef
    - Run `git log --oneline -20` for recent direction and the V-number sequence
 
 2. **Identify the next change.** Cross-reference:
+   - **Phase-balance check (read FIRST):** check [`openspec/project.md`](../../../openspec/project.md) § Mobile + Admin Scaffolding Priority. If that section is active (i.e., its "Trigger to flip this section back" condition has NOT yet fired — verify by `git log --oneline | grep -E "(mobile-nearby-timeline-screen|admin-actions-log-viewer)"` returning fewer than 2 matches), the next-step menu listed there SHOULD be the default source of `/next-change` picks. Backend hardening picks are still valid when they're real blockers (security invariant gap, pre-launch test requirement, dependency for the scaffolding work itself), but the menu is the default; only override with explicit justification surfaced to the user. The Phase-balance check exists specifically to counter the historical pattern (pre-2026-05-12) where `/next-change` always picked backend because that's what recent commits looked like.
    - The next unshipped version (V-number) in `docs/09-Versions.md`
    - Open roadmap items in `docs/08-Roadmap-Risk.md` not yet represented in `openspec/specs/`
    - Anything in the other docs (business, product, UX, architecture, security, ops, setup) that describes planned work without a matching archived change
    - Risks or gaps called out in docs that warrant a dedicated change
 
-   If multiple candidates exist, pick the one that's the natural next step given the dependency order implied by the roadmap and recent commits. Briefly note the runners-up so the user can redirect.
+   If multiple candidates exist, pick the one that's the natural next step given the dependency order implied by the roadmap and recent commits, **AND honor the Phase-balance check**. Briefly note the runners-up so the user can redirect.
 
 3. **Present the recommendation.** Show the user:
    - **Proposed change name** (kebab-case, descriptive — no `-v<N>` suffix, see `openspec/project.md` § Change Delivery Workflow).

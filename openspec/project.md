@@ -57,7 +57,7 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 :infra:oidc               (internal endpoint OIDC verification)
 :infra:otel               (OpenTelemetry tracing — wired 2026-05-07)
 :backend:ktor             (routes + Koin wiring)
-:mobile:app               (KMP — currently JetBrains wizard scaffold; see § Mobile + Admin Status below)
+:mobile:app               (KMP — currently JetBrains wizard scaffold; see § Mobile + Admin Scaffolding Priority below)
 :lint:detekt-rules        (custom Detekt rules)
 ```
 
@@ -65,18 +65,18 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 
 | Module | Status | Trigger to scaffold |
 |---|---|---|
-| `:shared:resources` | DESIGN | Mobile work begins (Moko Resources UI strings) |
+| `:shared:resources` | SCAFFOLD NEXT | Mobile #2 (`shared-resources-moko-bootstrap`) per § Mobile + Admin Scaffolding Priority menu |
 | `:infra:r2` + `:infra:cloudflare-images` | DESIGN | Image upload feature (Phase 2/3) |
 | `:infra:revenuecat` | DESIGN | Premium subscription billing |
 | `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27, not yet modular) |
-| `:infra:sentry` | DESIGN | Sentry SDK module-isation (project configured, not yet modular) |
+| `:infra:sentry` | SCAFFOLD NEXT | Follow-up `infra-sentry-kmp-module-isation` (split from Mobile #1 if scaffold scope grows; see § Mobile + Admin Scaffolding Priority menu Mobile #1) |
 | `:infra:amplitude` | DESIGN | Consent-gated analytics |
 | `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
 | `:infra:remote-config` | SHIPPED | Firebase Remote Config wordlist + threshold delivery for `content-moderation-keyword-lists` (PR #70). DB-backed flags (`premium_*_cap_override`) remain the per-user override surface; Remote Config is the platform-wide tunable surface. |
 | `:infra:postgres-neon` | ABANDONED | Plan B scaffold not pursued; Supabase PITR is the backup posture |
 | `:infra:ktor-ws` | ABANDONED | Realtime ships via Supabase Broadcast (`SupabaseBroadcastChatClient`); Ktor WS path retired |
 
-Backend modules inside `:backend:ktor` (regenerate from `find backend/ktor/src/main/kotlin/id/nearyou/app -type d -maxdepth 1` if drift suspected): `auth`, `block`, `chat`, `common`, `config`, `dev`, `engagement`, `follow`, `guard`, `health`, `internal`, `lint`, `moderation`, `notifications`, `post`, `search`, `timeline`, `user`, `admin`. The `admin` package contains only `SuspensionUnbanWorker` + `UnbanWorkerRoute` — see § Mobile + Admin Status. Details + `ChatRealtimeClient` interface in [`docs/04-Architecture.md`](../docs/04-Architecture.md).
+Backend modules inside `:backend:ktor` (regenerate from `find backend/ktor/src/main/kotlin/id/nearyou/app -type d -maxdepth 1` if drift suspected): `auth`, `block`, `chat`, `common`, `config`, `dev`, `engagement`, `follow`, `guard`, `health`, `internal`, `lint`, `moderation`, `notifications`, `post`, `search`, `timeline`, `user`, `admin`. The `admin` package contains only `SuspensionUnbanWorker` + `UnbanWorkerRoute` — see § Mobile + Admin Scaffolding Priority. Details + `ChatRealtimeClient` interface in [`docs/04-Architecture.md`](../docs/04-Architecture.md).
 
 Rule: **no vendor SDK import outside `:infra:*`**. Domain/data code depends only on interfaces.
 
@@ -98,17 +98,17 @@ These are the natural next `/next-change` picks. Each is spec-driven (mapped to 
 
 | # | Change name | What it ships | Unblocks |
 |---|---|---|---|
-| 1 | `mobile-app-scaffold-replace-wizard` | Real Compose Multiplatform app structure: navigation (Voyager / Decompose / vanilla state-based — decide in `design.md`), Koin DI, app theme, Sentry KMP wired via `:infra:sentry` module-isation. Replaces the "Click me!" wizard scaffold. NO networking, NO auth, NO features. Both Android + iOS targets must still build. | Everything else mobile |
+| 1 | `mobile-app-scaffold-replace-wizard` | Real Compose Multiplatform app structure: navigation (Voyager / Decompose / vanilla state-based — decide in `design.md`), Koin DI, app theme. Replaces the "Click me!" wizard scaffold. NO networking, NO auth, NO features. Both Android + iOS targets must still build. **Sentry KMP wiring MAY split out as a focused follow-up `infra-sentry-kmp-module-isation` if scaffold scope grows beyond ~300 LOC** — decide during proposal phase; default-include if it fits, default-split if it adds a full `:infra:sentry` module + dSYM upload + iOS framework reconfig. | Everything else mobile |
 | 2 | `shared-resources-moko-bootstrap` | Scaffold `:shared:resources` Gradle module with Moko Resources plugin; add 8-10 foundational strings (`app_name`, `error_generic`, `cta_continue`, etc.). Mobile app consumes from this module. Verifies Detekt's "no hardcoded UI strings" lint passes against the scaffolded strings. | Any screen with text |
-| 3 | `mobile-auth-google-signin-flow` | Pure DIY Google Sign-In wrapper (expect/actual), calls backend `POST /api/v1/auth/signin/google`, stores RS256 JWT (Keychain on iOS, EncryptedSharedPreferences on Android), Ktor client interceptor for the auth header. First end-to-end working flow. | All authenticated screens |
-| 4 | `mobile-age-gate-screen` | DOB picker UI + 18+ enforcement at signup, calls backend signup endpoint with DOB, handles under-18 rejection (relies on backend `rejected_identifiers` blocklist per Phase 1 §3). | Real signup flow |
+| 3 | `mobile-auth-google-signin-flow` | Pure DIY Google Sign-In wrapper (expect/actual), calls backend `POST /api/v1/auth/signin/google`, stores RS256 JWT (Keychain on iOS, EncryptedSharedPreferences on Android), Ktor client interceptor for the auth header. **Sign-in path only — for users with existing accounts.** The signup-new-user path (which requires age gate) is Mobile #4; until #4 ships, Mobile #3 returns the user to the sign-in screen if backend reports "no account exists" for the verified Google ID. First end-to-end working flow. | All authenticated screens |
+| 4 | `mobile-age-gate-screen` | Signup-new-user flow: DOB picker UI + 18+ enforcement, calls backend signup endpoint with DOB, handles under-18 rejection (relies on backend `rejected_identifiers` blocklist per Phase 1 §3). Composes with Mobile #3's auth screen — after Google ID verification, if no account exists, route to this age-gate-then-signup flow instead of sign-in. | Real signup flow (account creation) |
 | 5 | `mobile-nearby-timeline-screen` | First product screen — calls `GET /api/v1/timeline/nearby`, renders `DistanceRenderer` output from `:shared:distance`, pull-to-refresh, empty / loading / error states. | First demoable product flow + the §15 fuzzing audit |
 
 **Admin scaffolding:**
 
 | # | Change name | What it ships | Unblocks |
 |---|---|---|---|
-| 1 | `admin-schema-bootstrap` | Flyway migration for `admin_users`, `admin_sessions`, `admin_actions_log`, `admin_webauthn_credentials`, `admin_webauthn_challenges`. Backfills the FK columns currently nullable in `reports.reviewed_by`, `moderation_queue.reviewed_by`. Schema-only — NO admin UI, NO admin business logic. | `suspension-unban-worker-audit-log-after-phase-3.5` follow-up + every admin REST/UI change |
+| 1 | `admin-schema-bootstrap` | Flyway migration for `admin_users`, `admin_sessions`, `admin_actions_log`, `admin_webauthn_credentials`, `admin_webauthn_challenges`. Backfills the FK columns currently nullable in `reports.reviewed_by`, `moderation_queue.resolved_by`. Schema-only — NO admin UI, NO admin business logic. | `suspension-unban-worker-audit-log-after-phase-3.5` follow-up + every admin REST/UI change |
 | 2 | `admin-panel-ktor-htmx-bootstrap` | Scaffold the admin module's Ktor route subtree (`Application.admin()` extension), Pebble or Freemarker template engine, HTMX client wired, basic layout serving a "hello admin" page. No auth gate yet. | Every admin UI feature |
 | 3 | `admin-login-argon2-totp` | Login endpoint with Argon2id password verification + TOTP (mandatory per solo-admin period), sets `__Host-admin_session` cookie with `csrf_token_hash`, login UI page. First end-to-end admin flow. | Every admin action requiring auth |
 | 4 | `admin-actions-log-viewer` | Read-only audit log viewer (paginated table, filter by action type / admin / date range, immutable display — UPDATE/DELETE revoked at `admin_app` role). First admin business feature. | Every other admin write action (audit trail dependency) |
@@ -116,7 +116,7 @@ These are the natural next `/next-change` picks. Each is spec-driven (mapped to 
 
 ### Trigger to flip this section back to balanced priority
 
-When **mobile reaches "first usable screen" state** (user can sign in + see a real timeline screen — roughly after Mobile #5) AND **admin reaches "first usable feature" state** (moderator can sign in + see the audit log — roughly after Admin #4), re-evaluate. At that point the project moves back into balanced mode where `/next-change` picks from whatever has the highest impact (more mobile features, more admin features, or Phase 4 premium / billing). Update this section's date stamp + switch the priority language at that boundary. Until then, defaulting to a mobile/admin scaffolding pick is the right move.
+When BOTH `mobile-nearby-timeline-screen` (Mobile #5) AND `admin-actions-log-viewer` (Admin #4) have squash-merged to `main`, re-evaluate. The trigger is objective — verify by `git log --oneline | grep -E "(mobile-nearby-timeline-screen|admin-actions-log-viewer)"` returning two matches. At that point the project moves back into balanced mode where `/next-change` picks from whatever has the highest impact (more mobile features, more admin features, or Phase 4 premium / billing). Update this section's date stamp + switch the priority language at that boundary. Notes on the trigger choice: these two specific changes deliver the "first usable screen" (mobile timeline rendering real backend data) and "first usable feature" (admin can authenticate + see the audit trail) milestones; reaching them confirms both surfaces have crossed the threshold from "structural scaffold" to "actually doing the thing." Until then, defaulting to a mobile/admin scaffolding pick is the right move.
 
 ---
 
