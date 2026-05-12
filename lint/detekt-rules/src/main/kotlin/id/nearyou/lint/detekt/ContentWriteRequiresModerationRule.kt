@@ -252,6 +252,16 @@ class ContentWriteRequiresModerationRule(config: Config = Config.empty) : Rule(c
 
         private val ALLOWED_REASONS: Set<String> = setOf("tombstone", "admin_redaction", "seed")
 
+        /**
+         * SQL-INSERT-with-content-column pattern. The `[^)]*` between the table-name and
+         * `\bcontent\b` is intentional and load-bearing: it stops at the FIRST `)` so that
+         * `INSERT INTO posts (id, view_count) VALUES (?, ?)` does NOT match (the `content`
+         * literal would have to appear inside the column list, before the closing `)`).
+         * If a future contributor changes `[^)]*` to `.*?`, an unrelated `content` token
+         * anywhere later in the SQL (e.g., a stored-procedure call inside VALUES) would
+         * produce a false positive. The non-content-column negative scenario in
+         * `ContentWriteRequiresModerationLintTest` locks this behaviour.
+         */
         private val INSERT_CONTENT_PATTERN: Regex =
             Regex(
                 """\bINSERT\s+INTO\s+(?:posts|post_replies|chat_messages)\b[^)]*\bcontent\b""",
