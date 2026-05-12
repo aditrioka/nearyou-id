@@ -77,6 +77,18 @@ val InternalEndpointAuth =
             try {
                 val claims = verifier.verify(token)
                 call.attributes.put(OidcSubjectKey, claims.sub)
+                try {
+                    io.opentelemetry.api.trace.Span.current()
+                        .setAttribute(
+                            "service.account.id",
+                            id.nearyou.app.infra.otel.ServiceAccountIdHasher.hash(claims.sub),
+                        )
+                } catch (_: Throwable) {
+                    // Span recording failure MUST NOT block authentication —
+                    // observability is a side-effect surface. Per spec
+                    // § "Best-effort write silently no-ops on helper throw"
+                    // + § "Best-effort write silently no-ops on SpanProcessor failure".
+                }
             } catch (e: OidcVerificationException.AudienceMismatch) {
                 logRejection("audience_mismatch", "Bearer", token)
                 respondUnauthorized(call, ERROR_AUDIENCE_MISMATCH)

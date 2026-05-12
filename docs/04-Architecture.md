@@ -434,7 +434,7 @@ GCP Cloud Run (Jakarta) + Supabase (AWS Singapore) + Upstash + Cloudflare: per D
 
 **Instrumentation priorities**:
 - **Mandatory spans**: HTTP request on Ktor, Supabase API calls, Redis calls, PostGIS spatial queries, CF Images calls, Resend API calls
-- **Mandatory attributes**: `user_id` (hashed), `endpoint`, `db.statement` (parameterized), `supabase.realtime.channel`, `cloud.region` — see [`openspec/specs/observability-otel-foundation/spec.md`](../openspec/specs/observability-otel-foundation/spec.md) for the full enforced attribute contract (including the forbidden-attributes list)
+- **Mandatory attributes**: `user_id` (hashed; UserPrincipal-backed `/api/v1/*` requests), `service.account.id` (hashed OIDC `sub`; Cloud-Scheduler-OIDC-backed `/internal/*` requests), `endpoint`, `db.statement` (parameterized), `supabase.realtime.channel`, `cloud.region` — see [`openspec/specs/observability-otel-foundation/spec.md`](../openspec/specs/observability-otel-foundation/spec.md) for the full enforced attribute contract (including the forbidden-attributes list)
 - **Trace context propagation**: W3C Trace Context on all outbound HTTP
 
 ### Sentry KMP (unified crash + error reporting)
