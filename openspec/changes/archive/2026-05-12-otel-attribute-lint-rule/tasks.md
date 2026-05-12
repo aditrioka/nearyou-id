@@ -59,13 +59,13 @@
 
 ## 5. FOLLOW_UPS.md hygiene
 
-- [ ] 5.1 At archive time, delete `FOLLOW_UPS.md` item 4 (`observability-otel-attribute-detekt-rule`) — its full scope is fulfilled by this change.
-- [ ] 5.2 At archive time, ADD four new `FOLLOW_UPS.md` entries for the deliberately-deferred scope (per `design.md` § "Explicitly deferred follow-ups"):
-  - `otel-attribute-rule-value-aware-userid-aliases` — add detection of raw user-id under generic-named keys (`principal`, `actor`, `subject`, `owner`) via value-aware analysis.
-  - `otel-attribute-rule-location-key-patterns` — add detection of `*location*` / `*lat*` / `*lng*` / `*coord*` key-name patterns with tight regex avoiding `display_location` false-positive and `CoordinateJitterRule` overlap.
-  - `otel-attribute-rule-opaque-secrets` — Tier 2 patterns for OAuth `client_secret` values, raw refresh tokens, plaintext passwords (requires either known-prefix convention or accepting code-review as canonical defense).
+- [x] 5.1 Deleted `FOLLOW_UPS.md` entry `observability-otel-attribute-detekt-rule` — full scope fulfilled by this change.
+- [x] 5.2 Added four new `FOLLOW_UPS.md` entries for the deliberately-deferred scope:
+  - `otel-attribute-rule-value-aware-userid-aliases` — value-aware detection of raw user-id under generic-named keys (`principal`, `actor`, `subject`, `owner`).
+  - `otel-attribute-rule-location-key-patterns` — `*location*` / `*lat*` / `*lng*` / `*coord*` key-name pattern enforcement with `display_location` carve-out and no overlap with `CoordinateJitterRule`.
+  - `otel-attribute-rule-opaque-secrets` — Tier 2 patterns for OAuth `client_secret`, raw refresh tokens, plaintext passwords (requires either known-prefix convention or accepting code-review as canonical defense).
   - `otel-attribute-rule-psi-context-restricted-mode-a` — PSI-context-restricted Mode A enforcement that fires only in setAttribute-like call sites; would allow re-introducing `"user_id"` to Tier 1 Group A (currently carved out — see Decision 3).
-- [ ] 5.3 Verify other related FOLLOW_UPS items NOT folded in remain intact: item 7 (`tryacquirebykey-ip-derived-uuid-detekt-rule`) covers a different invariant (method choice, not key shape) and stays open.
+- [x] 5.3 Verified — `tryacquirebykey-ip-derived-uuid-detekt-rule` entry remains intact in `FOLLOW_UPS.md` (covers method-choice invariant, not key shape; stays open as a separate scope).
 
 ## 6. Pre-archive smoke (N/A for lint-only change)
 
@@ -73,8 +73,8 @@
 
 ## 7. Archive (same branch, same PR)
 
-- [ ] 7.1 `openspec archive otel-attribute-lint-rule` — lands the spec deltas into `openspec/specs/observability-otel-foundation/spec.md` and `openspec/specs/rate-limit-infrastructure/spec.md` permanently, and moves `openspec/changes/otel-attribute-lint-rule/` under `archive/<date>-otel-attribute-lint-rule/`.
-- [ ] 7.2 `openspec validate --specs observability-otel-foundation --strict` green.
-- [ ] 7.3 `openspec validate --specs rate-limit-infrastructure --strict` green.
-- [ ] 7.4 PR title retitle via `gh pr edit <pr> --title 'feat(lint): otel-attribute-lint-rule'` (or equivalent conventional prefix). Body updated to merge-ready shape with final test counts + spec-delta summary + post-merge confirmation that `OtelForbiddenAttributeRule` is active.
-- [ ] 7.5 Single squash-merge to `main` at end-of-lifecycle.
+- [x] 7.1 `openspec archive otel-attribute-lint-rule --yes` ran — landed the spec deltas (+4 ADDED + ~1 MODIFIED in `observability-otel-foundation`; +2 ADDED in `rate-limit-infrastructure`); moved the change directory to `openspec/changes/archive/2026-05-12-otel-attribute-lint-rule/`.
+- [x] 7.2 `openspec validate --specs observability-otel-foundation --strict` green — 45 spec items passed, 0 failed.
+- [x] 7.3 `openspec validate --specs rate-limit-infrastructure --strict` green — 45 spec items passed, 0 failed.
+- [x] 7.4 PR [#99](https://github.com/aditrioka/nearyou-id/pull/99) already retitled to `feat(lint): otel-attribute-lint-rule` during the `/opsx:apply` phase. Body will be refreshed to merge-ready shape (with archive-complete status, post-archive confirmation, post-merge tasks) as part of the archive commit push.
+- [ ] 7.5 Single squash-merge to `main` at end-of-lifecycle — owner: user (after CI green on this archive commit).

@@ -97,26 +97,90 @@ Format per entry:
 
 ---
 
-## observability-otel-attribute-detekt-rule
+## otel-attribute-rule-value-aware-userid-aliases
 
-**Discovered during:** `observability-otel-foundation` design § D10 (deferred from this change) + reinforced by round-3 adversarial finding #9 (forbidden categories with no enforcement mechanism).
+**Discovered during:** `otel-attribute-lint-rule` design § "Explicitly deferred follow-ups" (multi-lens Phase D review surfaced the gap between the canonical spec's value-semantic forbidden list and the shipped lint rule's key-name-only enforcement).
 **Status:** open
 
-**Finding:** The `observability-otel-foundation` spec § "Forbidden span attributes" lists ~12 categories of forbidden attributes (raw user_id, raw IPs, raw JWT claims, raw bearer tokens, raw post/chat/search content, raw `actual_location`, raw Redis credentials, JWKS contents, plaintext passwords, OAuth client secrets, Supabase service role key, peer-IP attributes from auto-instrumentation). Sentinel-string regression tests cover ~7 of those categories on the `:backend:ktor` side. The remaining 5 categories (raw OAuth client secret, JWKS contents, plaintext passwords, raw `actual_location` GIS coordinates, raw refresh tokens) have no automated enforcement — they're code-review-only. A Detekt rule (`OtelForbiddenAttributeRule`) that scans `Span.setAttribute(...)` / `addEvent(...)` call sites against the forbidden-attributes contract would close the gap. Deferred from this change because (a) Detekt rules built ahead of writers tend to over-fit, (b) the writer surface stabilizes after `:infra:otel` lands.
+**Finding:** The canonical spec at [`openspec/specs/observability-otel-foundation/spec.md:186`](openspec/specs/observability-otel-foundation/spec.md) enumerates raw `user_id` UUID under generic-named keys (`principal`, `actor`, `subject`, `owner`) as forbidden by semantics. The shipped `OtelForbiddenAttributeRule` (PR [#99](https://github.com/aditrioka/nearyou-id/pull/99)) intentionally does NOT include `principal` / `actor` / `subject` / `owner` in Tier 1 because key-name-exact-match alone would block legitimate auth-domain code (e.g., `setAttribute("principal", principalRole)` with a non-UUID value). Closing the gap requires value-aware analysis: fire only when the value-arg expression resolves to a UUID-shaped literal (regex `[0-9a-f-]{36}`) OR a `UUID`-typed variable.
 
-**Specs at fault:** None — the spec correctly defers the rule per design § D10.
-**Code at fault:** None — the rule scaffold doesn't exist yet.
+**Specs at fault:** None — `observability-otel-foundation/spec.md:186` correctly enumerates the value-semantic forbidden set; lint coverage is the gap.
+**Code at fault:** [`lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt) — `TIER_1_GROUP_A` omits these aliases by design (see KDoc § "Why value-aware user-id alias detection is deferred").
 **Docs at fault:** None.
 
-**Impact (if shipped without follow-up):** Low at MVP scale. The 7 sentinel-string scenarios that DO ship cover the highest-velocity surfaces (chat content, post content, search query, IP, JWT, bearer token, Redis password). The 5 uncovered categories have no current writer that would attempt to set them; risk is regression rather than active leak. Code review remains the primary defense in the interim.
+**Impact (if shipped):** Low at MVP scale. No current writer in `:backend:ktor` / `:infra:*` sets these keys with a raw UUID; risk is regression rather than active leak. Runtime `ForbiddenAttributeStripper.FORBIDDEN_KEYS` does not enumerate these either — they're solely a code-review-defended surface today. Integration-test sentinel scenario "No raw user_id appears in any span" (value-side) gives backstop coverage.
 
-**Ambiguity to resolve first:** Detekt rule scope — should it lint at every `Span.setAttribute` call site, or only inside `:infra:otel`? The former is the right enforcement boundary but increases false-positive risk on legitimate test fixtures.
+**Ambiguity to resolve first:** Value-resolution strategy. Options: (a) PSI-only heuristic — walk the value-arg expression to identify UUID-shaped literals or `UUID.toString()` / `userId.toString()` patterns; (b) Detekt full type-resolution mode — use compile-classpath info to detect `UUID`-typed variables. Option (a) is lighter and matches existing rules' approach; option (b) is more precise but adds build-graph complexity. Decide at design time.
 
 **Action items:**
-- [ ] File OpenSpec change `observability-otel-attribute-detekt-rule` that ships `OtelForbiddenAttributeRule` in `:lint:detekt-rules`, with a forbidden-attribute-keys allowlist + value-regex denylist per the spec contract.
-- [ ] Decide rule scope (cross-cutting vs `:infra:otel`-only) at design time.
-- [ ] **Extend rule scope to enforce `IpHasher.hash` consumption** at every IP-axis Redis-key call site (e.g., the `health-check` capability's `tryAcquireByKey` invocation, plus future Layer 1 pre-issuance buckets). The `rate-limit-ip-hashing` change (PR #74, in flight as of 2026-05-08) introduced the spec convention but explicitly deferred Detekt enforcement to this entry — round-1 review N6. The rule MUST fire on any `tryAcquireByKey(...)` call whose key-literal contains the regex `\{ip:[^h{][^}]*` (anything inside `{ip:...}` that is not 16 hex characters).
-- [ ] Update this `FOLLOW_UPS.md` entry to delete once the change merges.
+- [ ] File OpenSpec change `otel-attribute-rule-value-aware-userid-aliases` that extends `OtelForbiddenAttributeRule` with value-aware analysis for `principal` / `actor` / `subject` / `owner` keys; fires only when the value-arg expression resolves to a UUID-shaped literal OR a `UUID`-typed variable.
+- [ ] Validate the chosen value-resolution strategy against `setAttribute("principal", "system")` (string role) — must NOT fire.
+- [ ] Delete this `FOLLOW_UPS.md` entry once the change merges.
+
+---
+
+## otel-attribute-rule-location-key-patterns
+
+**Discovered during:** `otel-attribute-lint-rule` design § "Explicitly deferred follow-ups" — spec mandate vs lint coverage gap.
+**Status:** open
+
+**Finding:** The canonical spec at [`openspec/specs/observability-otel-foundation/spec.md:191`](openspec/specs/observability-otel-foundation/spec.md) mandates forbidding any attribute key matching `*location*` / `*lat*` / `*lng*` / `*coord*` unless explicitly sanctioned. The shipped `OtelForbiddenAttributeRule` does NOT enumerate these patterns — Tier 1 is exact-match key strings only. A substring-match would false-positive on `display_location` (the sanctioned key from the `coordinate-jitter` capability, projected by every non-admin read path per `docs/05-Implementation.md`) and would overlap with `CoordinateJitterRule` (which already enforces `actual_location` in `KtStringTemplateExpression`s).
+
+**Specs at fault:** None — `observability-otel-foundation/spec.md:191` correctly mandates the patterns; lint coverage is the gap.
+**Code at fault:** [`lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt) — Tier 1 does not include any `*location*` / `*lat*` / `*lng*` / `*coord*` regex.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low at MVP. `CoordinateJitterRule` already covers `actual_location` literals in Kotlin source (PR-shipped 2026-04, see [`CoordinateJitterRule.kt`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/CoordinateJitterRule.kt)); `display_location` is the sanctioned key. Active leak risk is near-zero for the MVP writer surface, but a future maintainer setting `span.setAttribute("geo.lat", lat)` or `span.setAttribute("user.coord", coords)` would not trip any current automated check.
+
+**Ambiguity to resolve first:** Pattern shape that excludes `display_location` and avoids overlap with `CoordinateJitterRule`. Candidate: `\b(?!display_)([a-z_]*(location|lat|lng|coord)[a-z_]*)\b` (negative-lookahead carve-out for `display_`). Plus the same path-allowlist (`/infra/otel/src/main/`, `/lint/detekt-rules/src/main/`, `/src/test/`) and `@AllowForbiddenSpanAttribute` annotation bypass. Decide composition: a new Tier or a sub-mode of existing Tier 1?
+
+**Action items:**
+- [ ] File OpenSpec change `otel-attribute-rule-location-key-patterns` that adds `*location*` / `*lat*` / `*lng*` / `*coord*` key-name pattern enforcement to `OtelForbiddenAttributeRule`, with `display_location` carve-out and a regression test asserting no overlap with `CoordinateJitterRule` (each rule fires independently, no cross-suppression).
+- [ ] Delete this `FOLLOW_UPS.md` entry once the change merges.
+
+---
+
+## otel-attribute-rule-opaque-secrets
+
+**Discovered during:** `otel-attribute-lint-rule` design § Decision 4 + "Explicitly deferred follow-ups" — Tier 2 narrowed to 4 high-confidence patterns; broader opaque-secret patterns deferred.
+**Status:** open
+
+**Finding:** The shipped `OtelForbiddenAttributeRule` Tier 2 contains 4 high-confidence value-regex patterns: PEM private-key marker, JWT three-segment shape, Redis URI with userinfo, JWKS RSA-key JSON shape. The canonical spec at [`openspec/specs/observability-otel-foundation/spec.md`](openspec/specs/observability-otel-foundation/spec.md) § "Forbidden span attributes" additionally enumerates OAuth `client_secret` values, raw refresh tokens, and plaintext password fields as forbidden-by-semantics. These are opaque strings without distinguishing markers — any value-regex would over-match (firing on coincidentally-shaped legitimate data) or under-match (missing real secrets that don't fit the regex). Tier 2 stays narrow per Decision 4: "wrong-positives are worse than wrong-negatives here".
+
+**Specs at fault:** None — `observability-otel-foundation/spec.md` correctly enumerates the forbidden categories; the runtime `ForbiddenAttributeStripper` plus integration-test sentinel-string regression scenarios cover the production output path; compile-time lint coverage of opaque-secret VALUES is the residual gap.
+**Code at fault:** [`lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt) — Tier 2 patterns intentionally narrow.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low. No current writer attempts to set these. Code review + the sentinel-string regression scenarios at integration time (which scan ALL span attribute values for sentinel literals injected at request boundary) remain the canonical defense for these categories.
+
+**Ambiguity to resolve first:** Pattern strategy. Options: (a) known-prefix conventions — e.g., the OAuth client used by `internal-endpoint-auth` may issue `client_secret` values with a stable prefix; verify with the auth-flow design; (b) accept that code review remains canonical and amend the spec's "Forbidden span attributes" closing prose to make code-review-only an explicit defense layer for opaque-secret categories. Option (a) is the higher-leverage outcome IF a stable prefix exists; option (b) is the honest fallback otherwise.
+
+**Action items:**
+- [ ] Decide pattern strategy by inspecting the actual OAuth `client_secret` / refresh-token formats used by the production auth flow (Supabase, GCP OIDC) — does any have a stable prefix that would yield a high-confidence regex?
+- [ ] Per the chosen strategy: file OpenSpec change `otel-attribute-rule-opaque-secrets` to either extend Tier 2 with prefix-anchored patterns OR amend the canonical spec to acknowledge code-review-only enforcement for these categories.
+- [ ] Delete this `FOLLOW_UPS.md` entry once the change merges (or the spec amendment lands).
+
+---
+
+## otel-attribute-rule-psi-context-restricted-mode-a
+
+**Discovered during:** `otel-attribute-lint-rule` design § Decision 3 — the `"user_id"` carve-out rationale + Phase D round-2 multi-lens review (security lens flagged the carve-out as a residual gap).
+**Status:** open
+
+**Finding:** The shipped `OtelForbiddenAttributeRule` carves out `"user_id"` from Tier 1 Group A because the string literal appears in ~12 production paths today as SQL column name (`rs.getObject("user_id", UUID::class.java)`), `@SerialName` JSON key, and Ktor route parameter (`call.parameters["user_id"]`) across `:backend:ktor` chat / follow / block routes and JDBC repositories. These uses are semantically unrelated to OTel span attribute writes; exact-match enforcement would produce ~12 false positives with no canonical fix today. A PSI-context-restricted Mode A enforcement that fires only when the literal appears in a setAttribute-like call context (PSI parent-walk finding a `KtCallExpression` with callee identifier `setAttribute` / `addEvent` / `AttributesBuilder.put` / inside a `mapOf(...)` argument passed to `withSpan(...)`) would allow re-introducing `"user_id"` to Tier 1 Group A without false-positives on SQL / JSON / route-param uses.
+
+**Specs at fault:** None — [`openspec/specs/observability-otel-foundation/spec.md`](openspec/specs/observability-otel-foundation/spec.md) § Tier 1 Group A correctly documents the carve-out + rationale + this deferred follow-up.
+**Code at fault:** [`lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt) — `TIER_1_GROUP_A` omits `"user_id"` (see KDoc § "user_id carve-out").
+**Docs at fault:** None.
+
+**Impact (if shipped):** Low. The runtime `ForbiddenAttributeStripper.FORBIDDEN_KEYS` still defensively strips emitted `"user_id"` attributes at export; the integration-test sentinel scenario "No raw user_id appears in any span" (value-side) covers leakage end-to-end. Lint coverage of the developer-written half of this specific key is the residual gap — a developer typing `setAttribute("user_id", userId.toString())` would not trip any compile-time check, only the runtime stripper.
+
+**Ambiguity to resolve first:** PSI walk design. Two sub-issues: (i) the `Map.put(...)` false-positive — generic `put` callees from `kotlin.collections.MutableMap` should NOT trigger the rule, only the OTel `AttributesBuilder.put` (decide whether to restrict by callee short-name + heuristic argument shape, or by Detekt full type-resolution to disambiguate); (ii) the `mapOf(...) → withSpan(...)` indirection — the literal `"user_id"` inside `mapOf("user_id" to ...)` has PSI parent `KtValueArgument` inside `mapOf`, NOT inside `withSpan`'s call expression directly. The PSI walk needs to handle the two-step parent chain (literal → mapOf KtCallExpression → withSpan KtCallExpression).
+
+**Action items:**
+- [ ] File OpenSpec change `otel-attribute-rule-psi-context-restricted-mode-a` that adds PSI-context-restricted Mode A enforcement firing only in setAttribute-like call sites; the change MODIFIES Tier 1 Group A to re-introduce `"user_id"` (or adds a new tier with PSI restriction scoped to `"user_id"`).
+- [ ] Validate against the 12 pre-existing `"user_id"` literal sites (SQL columns / `@SerialName` JSON / Ktor route params) — none should fire under the PSI-restricted mode (regression test asserts each existing site passes).
+- [ ] Delete this `FOLLOW_UPS.md` entry once the change merges.
 
 ---
 
