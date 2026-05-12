@@ -8,7 +8,7 @@ The `rate-limit-infrastructure` capability already has THREE layers of defence a
 
 The gap that this change closes is **the compile-time method-choice axis**: nothing today fires when the WRONG method is used with a CORRECTLY-shaped IP key. A future maintainer can write `tryAcquire(UUID.nameUUIDFromBytes(ip.toByteArray()), "{scope:foo}:{ip:abc123def4567890}", capacity, ttl)` — the IP value is properly hashed (passes `OtelForbiddenAttributeRule`), the literal sentinel UUID is not used (passes the structured-log scenario), but the call still bypasses the architectural intent: the IP-axis bucket goes through the user-keyed method, the per-call telemetry mistakenly logs an IP-derived `user_id`, and the visible code shape no longer signals "this is an IP-axis call site." The pattern is small enough to slip through code review and large enough to silently re-introduce the tech debt that `health-check-endpoints` (PR [#54](https://github.com/aditrioka/nearyou-id/pull/54)) explicitly factored out.
 
-A focused fourth-layer Detekt rule closes the gap mechanically. It mirrors the structural shape of the existing eight rules in [`lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/`](../../../lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/): `BlockExclusionJoinRule`, `CoordinateJitterRule`, `OtelForbiddenAttributeRule`, `RateLimitTtlRule`, `RawFromPostsRule`, `RawXForwardedForRule`, `RedisHashTagRule`, plus the `NearYouRuleSetProvider`. The naming convention adopted is `<RuleName>Rule.kt` for the rule + `<RuleName>LintTest.kt` for the test fixture set.
+A focused fourth-layer Detekt rule closes the gap mechanically. It mirrors the structural shape of the existing **seven** rules in [`lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/`](../../../lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/): `BlockExclusionJoinRule`, `CoordinateJitterRule`, `OtelForbiddenAttributeRule`, `RateLimitTtlRule`, `RawFromPostsRule`, `RawXForwardedForRule`, `RedisHashTagRule` (verified by `ls lint/detekt-rules/src/main/kotlin/.../*Rule.kt | wc -l` = 7), plus the `NearYouRuleSetProvider`. The new rule will be the **8th**. The naming convention adopted is `<RuleName>Rule.kt` for the rule + `<RuleName>LintTest.kt` for the test fixture set.
 
 ## Goals / Non-Goals
 
@@ -91,22 +91,58 @@ A focused fourth-layer Detekt rule closes the gap mechanically. It mirrors the s
 
 **Trade-off accepted:** if a genuine production exception arises (currently unimaginable), the contributor will need to file a follow-up change adding the annotation, modifying the rule, and amending this design doc's Decision 5. That escalation is the desired behaviour — the cost matches the architectural surprise.
 
-### Decision 6: Test-source path allowlist via `**/src/test/**`
+### Decision 6: Test-source path allowlist via `**/src/test/**`, plus the package-FQN fallback (see Decision 9)
 
-**Choice:** The rule short-circuits (`return` early) on any `KtFile` whose `virtualFilePath` contains `/src/test/`. This mirrors the existing path-allowlist pattern from `OtelForbiddenAttributeRule` (allows `/src/test/` + `/infra/otel/src/main/` + `/lint/detekt-rules/src/main/`) and `RawFromPostsRule` (allows admin module paths).
+**Choice:** The rule short-circuits (`return` early) on any `KtFile` whose `virtualFilePath` contains `/src/test/`. The allowlist is supplemented by a package-FQN fallback for `id.nearyou.lint.detekt.*` (Decision 9) — together these cover both real test sources AND Detekt-test-harness synthetic files. This mirrors the existing pattern from `OtelForbiddenAttributeRule.isAllowedPath()` at [`OtelForbiddenAttributeRule.kt:179-187`](../../../lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt).
 
 **Rationale:**
 
-- Test fixtures (e.g., `RedisRateLimiterTelemetryTest`, `RateLimiterTest`, the new `IpAxisMustUseTryAcquireByKeyLintTest` itself) need to construct fixture call sites that intentionally exercise the wrong-method path to verify the rule fires. The path allowlist is the canonical mechanism.
-- Production code paths — `:backend:ktor` (any sub-package), `:infra:redis`, `:infra:otel`, `:core:domain` — are NOT allowlisted; the rule fires on any `tryAcquire(..., "{...ip:...}", ...)` call in those paths, which is the desired behaviour.
-- Why NOT additionally allowlist `:lint:detekt-rules/src/main/` (as `OtelForbiddenAttributeRule` does): the lint-rule source itself is a fixture-construction site for the rule's KDoc examples — but the rule under design here does NOT embed live `tryAcquire` calls in its KDoc (the KDoc references the regex literal, not Kotlin syntax). The narrower allowlist (`**/src/test/**` only) is sufficient for this rule and avoids the precedent of "every new rule allowlists its own source path."
-- Why NOT additionally allowlist `**/dev/scripts/**` (or other dev-only paths): those are not Kotlin sources Detekt scans by default — the project Detekt config scopes to module sourceSets only.
+- Test fixtures (e.g., `RedisRateLimiterTelemetryTest`, `RateLimiterTest`, the new `IpAxisMustUseTryAcquireByKeyLintTest` itself) need to construct fixture call sites that intentionally exercise the wrong-method path to verify the rule fires. The path-based allowlist is the canonical mechanism.
+- Production code paths in scanned modules (`:backend:ktor` per Decision 8) are NOT allowlisted; the rule fires on any `tryAcquire(..., "{...ip:...}", ...)` call there, which is the desired behaviour.
+- The package-FQN fallback (Decision 9) is required because Detekt's test harness `lint(String)` overload synthesises files with no `virtualFilePath` — the path-based check fails on synthetic fixtures, and without the FQN fallback every positive-case test would silently pass. Adopt the OtelForbiddenAttributeRule pattern verbatim.
+- Why NOT additionally allowlist `/infra/otel/src/main/` (as `OtelForbiddenAttributeRule` does): the OTel rule allows that path because `IpHasher.hash` and `ForbiddenAttributeStripper` legitimately use the literals the rule fences. The IP-axis-method rule has no analogous legitimate-construction site in `:infra:otel` (the `:infra:otel` module does not contain `RateLimiter` consumer call sites). The narrower path allowlist (`**/src/test/**` plus FQN fallback) is sufficient for this rule's threat model.
+- Why NOT additionally allowlist `**/dev/scripts/**` (or other dev-only paths): those are not Kotlin sources Detekt scans by default — per Decision 8 the project Detekt config scopes to module sourceSets only.
 
-### Decision 7: NearYouRuleSetProviderTest extension matches the just-shipped pattern
+### Decision 7: Provider-registration assertion lives co-located inside the lint-test file (mirroring the actual just-shipped pattern)
 
-**Choice:** The provider-registration assertion lives in `NearYouRuleSetProviderTest` (extending the existing class shipped under `otel-attribute-lint-rule`) — one new test method asserting `provider.instance(Config.empty()).rules.any { it is IpAxisMustUseTryAcquireByKeyRule }`.
+**Choice:** The provider-registration assertion is a Kotest block named `"rule registered in NearYouRuleSetProvider"` co-located inside `IpAxisMustUseTryAcquireByKeyLintTest.kt` itself. The block constructs a fresh provider, materialises the rule set, and asserts `rules.map { it::class.simpleName }.contains("IpAxisMustUseTryAcquireByKeyRule")`. There is **no separate `NearYouRuleSetProviderTest.kt` file** — the project does not use that pattern.
 
-**Rationale:** Mirror precedent — `OtelForbiddenAttributeRule` registration was asserted exactly this way in PR [#99](https://github.com/aditrioka/nearyou-id/pull/99). Keeps the project Detekt-ruleset test surface consistent.
+**Verified precedent**: the just-shipped `otel-attribute-lint-rule` (PR [#99](https://github.com/aditrioka/nearyou-id/pull/99)) ships its registration assertion at [`OtelForbiddenAttributeLintTest.kt:807-812`](../../../lint/detekt-rules/src/test/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeLintTest.kt) using exactly this in-file pattern. Two earlier rules use the identical pattern — `RedisHashTagRuleTest.kt:244` and `RateLimitTtlRuleTest.kt:242`. A `find lint -name "NearYouRuleSetProviderTest*"` returns zero matches; an earlier draft of this design doc cited a non-existent file as the precedent (caught in Phase D round-1 multi-lens review and corrected here).
+
+**Pattern shape** (copy-paste-friendly per OtelForbiddenAttributeLintTest:807):
+
+```kotlin
+"rule registered in NearYouRuleSetProvider" {
+    val provider = NearYouRuleSetProvider()
+    val ruleSet = provider.instance(io.gitlab.arturbosch.detekt.api.Config.empty)
+    val rules = ruleSet.rules.map { it::class.simpleName }
+    rules.contains("IpAxisMustUseTryAcquireByKeyRule") shouldBe true
+}
+```
+
+Note `Config.empty` is a property (no parens), not `Config.empty()` — the precedent at OtelForbiddenAttributeLintTest:809 uses the property form.
+
+### Decision 8: Detekt source scope is `:backend:ktor` only — accepted as the right enforcement boundary
+
+**Choice:** Accept that the project Detekt invocation only scans `:backend:ktor`'s `src/main/kotlin` per [`build-logic/src/main/kotlin/nearyou.ktor.gradle.kts:20`](../../../build-logic/src/main/kotlin/nearyou.ktor.gradle.kts) (`source.setFrom(files("src/main/kotlin"))`). Do NOT extend the Detekt source scope to other modules as part of this change. Document the gap explicitly in `proposal.md` § Out of scope and accept the trade-off.
+
+**Rationale:**
+
+- The canonical call-site surface for `RateLimiter.tryAcquire(...)` is `:backend:ktor` — route handlers (`:backend:ktor`'s `health`, `engagement`, `chat`, `timeline`, `moderation` packages) and the service classes those routes consume. `:infra:redis` and `:core:domain` DEFINE the `RateLimiter` interface + implementations but do not call it themselves (a definition-site `override fun tryAcquire(...)` is not a call).
+- Extending the Detekt source scope to additional modules (`:infra:redis`, `:core:domain`, `:shared:*`) would require coordinated changes to `build-logic/src/main/kotlin/nearyou.kotlin.jvm.gradle.kts` (which currently does NOT apply Detekt at all — only ktlint) AND would expand the project Detekt run's wall-clock by an undetermined amount (no current data on per-module scan time).
+- The other 7 existing rules accept the identical scope today. Generalising the source scope is a separate cross-cutting change that this proposal deliberately does not attempt.
+
+**Trade-off accepted:** if a future maintainer adds a wrapper method to `:infra:redis` that calls `RateLimiter.tryAcquire` for an IP key (security-and-invariant lens noted this as a possible regression site), the rule will NOT fire. Mitigation: (a) such a wrapper method would be visible in PR review, (b) the runtime structured-log scenario "tryAcquireByKey omits userId from telemetry" continues to surface the leak at production-log inspection time, (c) a future change can extend the Detekt source scope if regression actually surfaces. Documented as a known gap in `proposal.md` § Out of scope.
+
+### Decision 9: Adopt the package-FQN allowlist fallback (mirror OtelForbiddenAttributeRule)
+
+**Choice:** The path-based allowlist (`/src/test/`) is supplemented by a package-FQN fallback: any `KtFile` whose `packageFqName` equals `id.nearyou.lint.detekt` OR begins with `id.nearyou.lint.detekt.` is also allowlisted.
+
+**Rationale:**
+
+- Detekt's test harness `lint(String)` overload synthesises files with no `virtualFilePath` populated — the `/src/test/` path check returns false on synthetic test fixtures. Without the package-FQN fallback, every positive-case fixture in `IpAxisMustUseTryAcquireByKeyLintTest` would be allowlisted-suppressed (since lint-rule sources live at `id.nearyou.lint.detekt`), preventing the rule from ever firing in the test harness.
+- The verified precedent: `OtelForbiddenAttributeRule.isAllowedPath()` at [`OtelForbiddenAttributeRule.kt:179-187`](../../../lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt) implements both checks: the path-based allowlist (3 entries) AND a package-FQN fallback for `id.nearyou.lint.detekt.*`. `RedisHashTagRule.kt:118-120` and `RateLimitTtlRule.kt` use the same package-FQN fallback. This is the canonical project pattern.
+- The fallback is symmetric: it allows the lint rule's KDoc examples / synthetic-test fixtures to use IP-axis literals without firing the rule on itself, AND it allows the test harness to construct positive-case fixtures whose package happens to be `id.nearyou.lint.detekt` (the default Kotest fixture package).
 
 ## Risks / Trade-offs
 
@@ -117,7 +153,9 @@ A focused fourth-layer Detekt rule closes the gap mechanically. It mirrors the s
 | Rule fires on a future `tryAcquire(userId, "{scope:foo}:{ip:abc}", ...)` call site that legitimately wants both user-axis and IP-axis bucketing in the same call | No such pattern exists today — the per-axis design is one bucket per call. If a future change introduces multi-axis bucketing, this rule's failure forces the design conversation through the OpenSpec channel. Acceptable. |
 | `key`-argument literal is split via concatenation: `tryAcquire(userId, "{scope:foo}:" + ipSegment, capacity, ttl)` | The rule's `KtStringTemplateExpression`-only match does NOT detect concatenation. Mitigation: `RedisHashTagRule` already enforces literal-form keys at the construction site, so concatenation is independently blocked. The two rules combine to close the loophole. Out of scope for this rule per § Out of scope in `proposal.md`. |
 | Rule scope (narrow `ip:` only) misses a future `tryAcquire(userId, "{scope:foo}:{geocell:abc}", ...)` regression | Decision 3 trade-off explicitly accepted. The rule's KDoc carries a TODO documenting the future-extension path; the test fixture set's negative case B.3 (`{geocell:abc}` passes) is the regression-test placeholder for when the scope widens. |
-| Adding a 9th Detekt rule increases the per-PR Detekt runtime | Each rule is O(1) per PSI visit; project Detekt runtime is dominated by file-walk + config parsing, not by per-rule logic. Empirical baseline: `OtelForbiddenAttributeRule` (the most recent rule, with regex Tier 1 + Tier 2 + IP-axis Mode B) added <100ms to the project Detekt run (per PR [#99](https://github.com/aditrioka/nearyou-id/pull/99) CI logs). The new rule is significantly simpler (one regex check, no tiering) — expected addition: <20ms. Acceptable. |
+| Adding an 8th Detekt rule increases the per-PR Detekt runtime | Each rule is O(1) per PSI visit; project Detekt runtime is dominated by file-walk + config parsing, not by per-rule logic. Empirical baseline: `OtelForbiddenAttributeRule` (the most recent rule, with regex Tier 1 + Tier 2 + IP-axis Mode B) added <100ms to the project Detekt run (per PR [#99](https://github.com/aditrioka/nearyou-id/pull/99) CI logs). The new rule is significantly simpler (one regex check, no tiering) — expected addition: <20ms. Acceptable. |
+| Detekt source scope `:backend:ktor`-only misses regressions added in `:infra:redis` / `:core:domain` / `:shared:*` | Decision 8 trade-off explicitly accepted: canonical call sites for `RateLimiter.tryAcquire(...)` live in `:backend:ktor`; runtime structured-log surface continues as backstop; future change can extend source scope if regression surfaces. Documented in `proposal.md` § Out of scope. |
+| Val-extraction bypass: `val k = "{scope:foo}:{ip:hashed}"; tryAcquire(userId, k, ...)` evades the rule | Acknowledged in `proposal.md` § Out of scope; partial-only backstop via `OtelForbiddenAttributeRule` (fires on raw IP value-shapes at val-declaration but NOT on properly-hashed values). Mitigation: code review for non-canonical patterns; the canonical production shape (literal directly to `tryAcquireByKey`) does not exhibit val-extraction; a future change MAY add a val-declaration-site rule if regression surfaces. |
 
 ## Open Questions
 

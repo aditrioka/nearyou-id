@@ -4,9 +4,15 @@
 
 The `:lint:detekt-rules` module SHALL ship a Detekt `Rule` named `IpAxisMustUseTryAcquireByKeyRule` that fires on any `KtCallExpression` whose callee short name is `tryAcquire` AND whose `key` argument is a Kotlin `KtStringTemplateExpression` whose flat textual content matches the regex `\{[^}]*ip:`. The `key` argument MAY appear positionally (index 1) OR as the named argument `key = ...`; both shapes MUST be handled. The fire location SHALL point to the `key`-argument PSI element (the string literal), not the enclosing call. The error message SHALL include a recommended fix: "Use `RateLimiter.tryAcquireByKey(key, capacity, ttl)` for IP-axis bucketing — `tryAcquire(userId, key, ...)` is the user-axis entry point."
 
-The rule SHALL be registered in `lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/NearYouRuleSetProvider.kt` and SHALL be enabled in the project Detekt config so it applies cross-cuttingly to every Kotlin source set under `:backend:ktor`, `:core:domain`, `:infra:*`, `:shared:*`, and any future module that depends on `:core:domain` (the source of the `RateLimiter` interface).
+The rule SHALL be registered in `lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/NearYouRuleSetProvider.kt`. No edit to the project Detekt config (`backend/ktor/config/detekt/detekt.yml`) is required — the canonical config currently enumerates only 2 of the 7 existing rules (`RawFromPostsRule` + `BlockExclusionJoinRule`); the other 5 are active by default after `NearYouRuleSetProvider` registration. The new rule follows the same default-active pattern.
 
-The rule SHALL short-circuit (return early without firing) on any `KtFile` whose `virtualFilePath` contains the substring `/src/test/`. This path-based test-source allowlist mirrors the precedent set by `OtelForbiddenAttributeRule`.
+The rule's effective enforcement scope MATCHES the project Detekt source-set configuration. As of this change that scope is `:backend:ktor`'s `src/main/kotlin` only (per [`build-logic/src/main/kotlin/nearyou.ktor.gradle.kts:20`](../../../../../build-logic/src/main/kotlin/nearyou.ktor.gradle.kts) `source.setFrom(files("src/main/kotlin"))`). Other modules (`:core:domain`, `:infra:redis`, `:infra:otel`, `:shared:*`, `:lint:detekt-rules`) are NOT scanned today. The canonical call-site surface for `RateLimiter.tryAcquire(...)` is `:backend:ktor`; `:infra:redis` and `:core:domain` define the interface but do not consume it. A future change MAY extend the Detekt source scope to additional modules if a regression risk surfaces there.
+
+The rule SHALL short-circuit (return early without firing) on any `KtFile` whose:
+- `virtualFilePath` contains the substring `/src/test/` (path-based test-source allowlist), OR
+- `packageFqName` equals `id.nearyou.lint.detekt` OR begins with `id.nearyou.lint.detekt.` (package-FQN fallback covering Detekt-test-harness synthetic files whose `virtualFilePath` is null).
+
+This dual-allowlist pattern mirrors `OtelForbiddenAttributeRule.isAllowedPath()` at [`OtelForbiddenAttributeRule.kt:179-187`](../../../../../lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeRule.kt). Without the package-FQN fallback every positive-case fixture in `IpAxisMustUseTryAcquireByKeyLintTest` would silently pass (the `lint(String)` test overload synthesises files with `virtualFilePath = null`).
 
 The rule SHALL NOT introduce an annotation-bypass mechanism (no `@AllowIpAxisOnTryAcquire` or equivalent). The standard Detekt `@Suppress("IpAxisMustUseTryAcquireByKey")` mechanism remains available as the per-call escape hatch (consistent with every other rule in the project ruleset); code-review is the canonical defence against `@Suppress` misuse.
 
@@ -57,8 +63,8 @@ This requirement complements — and does NOT replace — the existing `### Requ
 - **THEN** both rules fire independently AND each finding is reported separately AND there is no cross-suppression between them
 
 #### Scenario: Rule registered via NearYouRuleSetProvider
-- **WHEN** the test `NearYouRuleSetProviderTest.providerExposesIpAxisRule` invokes `NearYouRuleSetProvider().instance(Config.empty()).rules`
-- **THEN** the returned list contains exactly one `IpAxisMustUseTryAcquireByKeyRule` instance
+- **WHEN** the Kotest block `"rule registered in NearYouRuleSetProvider"` co-located inside `IpAxisMustUseTryAcquireByKeyLintTest.kt` invokes `NearYouRuleSetProvider().instance(Config.empty)` (note: `Config.empty` is a property, not a method call) AND maps `ruleSet.rules.map { it::class.simpleName }`
+- **THEN** the resulting list contains the string `"IpAxisMustUseTryAcquireByKeyRule"` (mirrors the precedent at [`OtelForbiddenAttributeLintTest.kt:807-812`](../../../../../lint/detekt-rules/src/test/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeLintTest.kt) — the registration block lives inside each rule's own `*LintTest.kt`, NOT in a separate `NearYouRuleSetProviderTest.kt` file)
 
 ### Requirement: Detekt test coverage for `IpAxisMustUseTryAcquireByKeyRule`
 
@@ -75,11 +81,16 @@ The `:lint:detekt-rules` module SHALL ship a Kotest test class `IpAxisMustUseTry
 9. **Negative — Semaphore short-name collision**: fixture `semaphore.tryAcquire(1, TimeUnit.SECONDS)` → zero findings (argument-shape gate rejects).
 10. **Allowlist — test-source path**: fixture identical to (1) BUT placed under simulated `/infra/redis/src/test/.../IpFixturesTest.kt` → zero findings (path allowlist suppresses).
 11. **Composition — IP-axis rule + OtelForbiddenAttributeRule**: fixture `RateLimiter.tryAcquire(userId, "{scope:foo}:{ip:1.2.3.4}", 10, ttl)` → produces TWO independent findings (one per rule), no cross-suppression. The test runs BOTH rules against the same fixture and asserts both finding-IDs appear in the output.
-12. **Provider registration**: extend `NearYouRuleSetProviderTest` with a method `providerExposesIpAxisRule()` asserting `provider.instance(Config.empty()).rules.any { it is IpAxisMustUseTryAcquireByKeyRule }`. (This case lives in `NearYouRuleSetProviderTest`, not `IpAxisMustUseTryAcquireByKeyLintTest` — same precedent as the OTel rule's registration test.)
+12. **Provider registration**: a Kotest block named `"rule registered in NearYouRuleSetProvider"` co-located inside `IpAxisMustUseTryAcquireByKeyLintTest.kt` asserting `NearYouRuleSetProvider().instance(Config.empty).ruleSet.rules.map { it::class.simpleName }.contains("IpAxisMustUseTryAcquireByKeyRule")`. Mirrors the actual just-shipped pattern at [`OtelForbiddenAttributeLintTest.kt:807-812`](../../../../../lint/detekt-rules/src/test/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeLintTest.kt) (and `RedisHashTagRuleTest.kt:244` + `RateLimitTtlRuleTest.kt:242`) — there is **no separate `NearYouRuleSetProviderTest.kt` file** in the project; each rule's test file owns its own registration assertion.
+13. **Block-form template `${...}` interpolation fires**: fixture `RateLimiter.tryAcquire(userId, "{scope:foo}:{ip:${'$'}{IpHasher.hash(clientIp)}}", 10, ttl)` (Kotlin block-form template — the `${IpHasher.hash(clientIp)}` shape) → exactly one finding (the regex `\{[^}]*ip:` matches at the OUTER `{ip:` position regardless of inner-block content; the rule is method-choice not value-shape).
+14. **Triple-quoted string fires**: fixture `RateLimiter.tryAcquire(userId, """{scope:foo}:{ip:abc123def4567890}""", 10, ttl)` (triple-quoted string literal containing the IP-axis key) → exactly one finding. The implementation MUST handle both single-quoted and triple-quoted `KtStringTemplateExpression` shapes uniformly via the rule's flat-content extraction.
+15. **Chained-call shape fires** (canonical production form): fixture `rateLimiter.tryAcquire(userId, "{scope:foo}:{ip:abc123def4567890}", 10, ttl)` where `rateLimiter` is a `RateLimiter` field/property (the `KtCallExpression` is wrapped in a `KtDotQualifiedExpression`) → exactly one finding. Confirms task 1.5's `KtSimpleNameExpression` callee check correctly handles the dot-receiver shape (the receiver lives on the outer `KtDotQualifiedExpression`; the inner `KtCallExpression.calleeExpression` remains a `KtSimpleNameExpression`).
+16. **3-rule composition**: fixture `RateLimiter.tryAcquire(userId, "rate:health:{ip:1.2.3.4}", 10, ttl)` — a single line that triggers `IpAxisMustUseTryAcquireByKeyRule` (wrong method) + `OtelForbiddenAttributeRule` IP-axis Mode B (raw IPv4 in `{ip:...}` value) + `RedisHashTagRule` (legacy non-hash-tagged `rate:` prefix). Asserts all three finding-IDs appear in the captured findings list, no cross-suppression.
+17. **Path allowlist non-allowlisted companion**: fixture (1) under simulated non-allowlisted production path `backend/ktor/src/main/kotlin/id/nearyou/app/SomeService.kt` → exactly one finding (paired with case 10's allowlisted-suppresses to lock both sides of the allowlist behavior; mirror precedent from [`OtelForbiddenAttributeLintTest.kt:683-696`](../../../../../lint/detekt-rules/src/test/kotlin/id/nearyou/lint/detekt/OtelForbiddenAttributeLintTest.kt)).
 
 #### Scenario: Test class exists and all positive cases fire
 - **WHEN** running `./gradlew :lint:detekt-rules:test`
-- **THEN** `IpAxisMustUseTryAcquireByKeyLintTest` is discovered AND every positive-case fixture (1, 2, 3, 4, 5) produces exactly one finding AND the finding's reported message includes the recommended-fix text mentioning `tryAcquireByKey`
+- **THEN** `IpAxisMustUseTryAcquireByKeyLintTest` is discovered AND every positive-case fixture (1, 2, 3, 4, 5, 13, 14, 15, 17) produces exactly one finding under `IpAxisMustUseTryAcquireByKeyRule` AND each finding's reported message includes the recommended-fix text mentioning `tryAcquireByKey`
 
 #### Scenario: All negative cases pass
 - **WHEN** running `./gradlew :lint:detekt-rules:test`
@@ -93,9 +104,29 @@ The `:lint:detekt-rules` module SHALL ship a Kotest test class `IpAxisMustUseTry
 - **WHEN** fixture (11) is run against BOTH `IpAxisMustUseTryAcquireByKeyRule` AND `OtelForbiddenAttributeRule` in the same Detekt invocation
 - **THEN** the output contains exactly one finding from each rule (two findings total) AND neither rule suppresses the other AND the two finding-IDs (`IpAxisMustUseTryAcquireByKey` and `OtelForbiddenAttribute`) both appear in the captured findings list
 
-#### Scenario: Provider registration test discovered
+#### Scenario: Provider registration block discovered inside the lint-test file
 - **WHEN** running `./gradlew :lint:detekt-rules:test`
-- **THEN** `NearYouRuleSetProviderTest.providerExposesIpAxisRule` is discovered AND passes (the rule is exposed via `NearYouRuleSetProvider`)
+- **THEN** the Kotest block `"rule registered in NearYouRuleSetProvider"` inside `IpAxisMustUseTryAcquireByKeyLintTest.kt` is discovered AND passes (the rule's simpleName appears in the materialised `RuleSet`); mirrors the actual project pattern, not a fabricated `NearYouRuleSetProviderTest.kt` file
+
+#### Scenario: Block-form template `${...}` interpolation fires
+- **WHEN** a non-allowlisted Kotlin file contains the call `RateLimiter.tryAcquire(userId, "{scope:foo}:{ip:${'$'}{IpHasher.hash(clientIp)}}", 10, ttl)` (block-form template with the helper consumption inline — the value-shape that `OtelForbiddenAttributeRule` IP-axis Mode B explicitly passes per its own clause 3)
+- **THEN** the rule fires (the rule is method-choice not value-shape; `tryAcquireByKey` is the canonical method even for block-form-templated values)
+
+#### Scenario: Triple-quoted string fires
+- **WHEN** a non-allowlisted Kotlin file contains the call `RateLimiter.tryAcquire(userId, """{scope:foo}:{ip:abc123def4567890}""", 10, ttl)` (triple-quoted string literal)
+- **THEN** the rule fires (triple-quoted `KtStringTemplateExpression` is handled identically to single-quoted; the implementation extracts flat content via `removeSurrounding("\"\"\"")` or equivalent)
+
+#### Scenario: Chained-call shape fires (canonical production form)
+- **WHEN** a non-allowlisted Kotlin file contains the call `rateLimiter.tryAcquire(userId, "{scope:foo}:{ip:abc123def4567890}", 10, ttl)` where `rateLimiter` is a `RateLimiter` property
+- **THEN** the rule fires (`KtCallExpression.calleeExpression` of the inner call remains `KtSimpleNameExpression "tryAcquire"` regardless of the outer `KtDotQualifiedExpression` receiver shape)
+
+#### Scenario: 3-rule composition produces three independent findings
+- **WHEN** a non-allowlisted Kotlin file contains `RateLimiter.tryAcquire(userId, "rate:health:{ip:1.2.3.4}", 10, ttl)` — a line that violates THREE rules: `IpAxisMustUseTryAcquireByKeyRule` (wrong method) + `OtelForbiddenAttributeRule` IP-axis Mode B (raw IPv4) + `RedisHashTagRule` (legacy `rate:` prefix without hash tag) — and all three rules are run together
+- **THEN** the captured findings list contains exactly three findings (one per rule) AND no rule suppresses another
+
+#### Scenario: Path-allowlist non-allowlisted companion fires
+- **WHEN** the same fixture as the test-source allowlist scenario above is placed under a simulated NON-allowlisted production path (e.g., `backend/ktor/src/main/kotlin/id/nearyou/app/SomeService.kt`)
+- **THEN** the rule fires (paired with the allowlisted-suppresses scenario above to lock both sides of the allowlist; without this companion, a regression where the allowlist always returned true would still pass the test suite)
 
 #### Scenario: Project Detekt run includes the rule
 - **WHEN** running `./gradlew detekt` against the full project codebase (post-implementation)
