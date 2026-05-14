@@ -4,9 +4,7 @@
 
 This spec defines the Gradle module layout and naming for the NearYouID project.
 See `docs/04-Architecture.md § Dependency Isolation Pattern` for the broader target layout this scaffold grows into.
-
 ## Requirements
-
 ### Requirement: Mobile app module path
 
 The Gradle module for the mobile (KMP + Compose) application SHALL be registered as `:mobile:app`, located at `mobile/app/`, with namespace `id.nearyou.app`.
@@ -40,8 +38,12 @@ A placeholder shared module SHALL exist at `:shared:tmp` (directory `shared/tmp/
 - **THEN** `:shared:tmp` is included and resolves to directory `shared/tmp/`
 
 #### Scenario: Existing consumers updated
-- **WHEN** inspecting `mobile/app/build.gradle.kts` and `backend/ktor/build.gradle.kts`
-- **THEN** their dependency on the shared module is expressed as `projects.shared.tmp`
+- **WHEN** inspecting `backend/ktor/build.gradle.kts`
+- **THEN** its dependency on the shared module is expressed as `projects.shared.tmp`
+
+#### Scenario: Mobile module has migrated off the scratch placeholder
+- **WHEN** inspecting `mobile/app/build.gradle.kts`
+- **THEN** the file does NOT declare any dependency on `projects.shared.tmp`; the wizard's `Greeting` boilerplate is no longer consumed by `:mobile:app`
 
 ### Requirement: Core domain module
 
@@ -73,12 +75,9 @@ A pure-Kotlin module SHALL exist at `:core:data` (directory `core/data/`) contai
 
 ### Requirement: Whole-project build is green
 
-`./gradlew build` SHALL succeed across all modules listed in `settings.gradle.kts` with no library dependencies added beyond what the wizard already declared.
+`./gradlew build` SHALL succeed across all modules listed in `settings.gradle.kts`.
 
 #### Scenario: Top-level build
 - **WHEN** running `./gradlew build` from the repository root
 - **THEN** the build completes with exit code 0 and no module-resolution errors are reported
 
-#### Scenario: No new library dependencies
-- **WHEN** comparing `gradle/libs.versions.toml` before and after this change
-- **THEN** no entries are added or removed
