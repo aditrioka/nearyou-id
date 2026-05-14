@@ -637,3 +637,88 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 - [ ] When the production deploy workflow file is authored (separate change), mirror staging's `--cpu=2 --min-instances=1 --no-cpu-throttling --memory=512Mi --concurrency=80 --max-instances=1` flag set.
 - [ ] Add a `merge-gate` check OR a Detekt-style YAML lint that asserts any new `deploy-*.yml` workflow targeting Cloud Run with Layer 3 enabled carries `--no-cpu-throttling`. Or accept this as a manual-review gate per `docs/06-Security-Privacy.md:185`.
 - [ ] Delete this entry once the production deploy workflow ships with the correct flags.
+
+## infra-sentry-kmp-module-isation
+
+**Discovered during:** `mobile-app-scaffold-replace-wizard` design.md Decision 5 — Sentry KMP wiring was explicitly carved out of the scaffold change per the [`openspec/project.md`](openspec/project.md) § Mobile + Admin Scaffolding Priority menu Mobile #1 ("Sentry KMP wiring MAY split out as a focused follow-up `infra-sentry-kmp-module-isation` if scaffold scope grows beyond ~300 LOC").
+**Status:** open
+
+**Finding:** [`docs/04-Architecture.md`](docs/04-Architecture.md) § Observability Stack → Sentry KMP names `:infra:sentry` as the canonical module for unified Android + iOS + backend Sentry SDK wiring (with the `SentryProvider expect/actual` snippet documented inline). The module does NOT yet exist in `settings.gradle.kts`; the table in `docs/04-Architecture.md` § Dependency Isolation Pattern marks it `SCAFFOLD NEXT` for this follow-up. Scaffolding it requires: a new Gradle module + convention plugin alignment + `gradle/libs.versions.toml` Sentry SDK pins (Android Sentry SDK + Sentry KMP wrapper) + dSYM upload CI step (iOS) + ProGuard mapping upload CI step (Android) + iOS framework reconfig + GCP Secret Manager DSN slot wiring (`staging-sentry-dsn` + prod).
+
+**Specs at fault:** None — the spec for `:infra:sentry` lands with this follow-up.
+**Code at fault:** None — placeholder absent by design.
+**Docs at fault:** None — `docs/04-Architecture.md` § Observability Stack → Sentry KMP already prescribes the API surface.
+
+**Impact (if shipped):** Closes the "no crash reporting wired" gap for the mobile app — Android + iOS crashes go to Sentry with proper symbolication. Backend already has Sentry Java wired (see `:backend:ktor` config); the follow-up unifies the dashboard.
+
+**Ambiguity to resolve first:** Sentry KMP SDK choice — Sentry's official SDK has improved KMP support since 2024; verify the latest stable supports Compose Multiplatform + Kotlin 2.3.x at proposal time.
+
+**Action items:**
+- [ ] File OpenSpec change `infra-sentry-kmp-module-isation` that scaffolds `:infra:sentry`, wires Sentry KMP SDK + per-platform initializers, adds dSYM + ProGuard mapping upload CI steps, provisions GCP Secret Manager DSN slots.
+- [ ] Update `docs/04-Architecture.md` § Dependency Isolation Pattern table to flip `:infra:sentry` from `SCAFFOLD NEXT` to `shipped` once the change archives.
+- [ ] Delete this entry once the change merges.
+
+---
+
+## mobile-ios-ci-link-task
+
+**Discovered during:** `mobile-app-scaffold-replace-wizard` design.md Decision 6 + tasks.md Section 9 — iOS framework link CI was explicitly deferred because [`.github/workflows/ci.yml`](.github/workflows/ci.yml) does NOT currently run on a macOS runner (the project's CI is Linux-only), and wiring this up requires a paid macOS runner + Pod install step + codesign infrastructure for any future archive task.
+**Status:** open
+
+**Finding:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) `lint` / `test` / `migrate-supabase-parity` jobs all run on `ubuntu-latest`. There is no Linux-side way to invoke `:mobile:app:linkDebugFrameworkIosSimulatorArm64` because Kotlin/Native's iOS targets require Xcode + the macOS SDK. Until iOS CI lands, iOS build regressions can only be caught by the author running `./gradlew :mobile:app:linkDebugFrameworkIosSimulatorArm64` locally on macOS during each mobile change's lifecycle. The `mobile-app-scaffold-replace-wizard` change verifies iOS locally per task 8.2 — every subsequent mobile change (#2-5) MUST do the same.
+
+**Specs at fault:** None — `mobile-app-scaffold` spec requirement "Android and iOS targets build green" includes both targets, but the scenario "iOS framework link passes locally" is explicitly local-only because CI doesn't run it.
+**Code at fault:** None — the production code builds correctly on iOS; CI just doesn't verify it.
+**Docs at fault:** None.
+
+**Impact (if shipped):** iOS build silently regresses between mobile changes if an author forgets to verify iOS locally. Risk grows as Mobile #2-5 land features that aren't structurally identical across Android + iOS (e.g., expect/actual splits). Currently mitigated by the convention that every mobile change author MUST run iOS locally before pushing — but that's a soft enforcement.
+
+**Ambiguity to resolve first:** Runner cost vs frequency. GitHub Actions macOS minutes are ~10x the cost of Linux minutes. Options: (a) macOS runner on every mobile-touching PR, (b) macOS runner only on PRs that touch `mobile/**` or `iosApp/**` via path filter, (c) macOS runner only on PRs whose title matches `feat(mobile)` / `fix(mobile)`. Decide at proposal time.
+
+**Action items:**
+- [ ] File regular PR (not OpenSpec — pure CI infra) `ci/mobile-ios-link-task` that adds a `mobile-ios-link` job to `.github/workflows/ci.yml` running on `macos-14` (or whichever Xcode-bundled runner is current), invoking `./gradlew :mobile:app:linkDebugFrameworkIosSimulatorArm64`. Wire path filter to `mobile/**` + `iosApp/**` + `gradle/libs.versions.toml` + `settings.gradle.kts` to bound cost.
+- [ ] Update the `merge-gate` job's required-status-check matrix to include `mobile-ios-link` so the iOS build is mandatory at merge time on mobile-touching PRs.
+- [ ] Delete this entry once the workflow change merges.
+
+---
+
+## mobile-theme-light-dark-direct-test
+
+**Discovered during:** `mobile-app-scaffold-replace-wizard` design.md Decision 7 + round-1 review test-coverage lens finding — the scaffold ships `kotlin.test`-only test posture; direct light/dark color-scheme assertions require the Compose UI test runner (`compose.uiTest` / `runComposeUiTest`), which was deferred because wiring that runner adds Gradle config + dependency entries + a learning-curve overhead that wasn't justified for two scaffold-stage assertions.
+**Status:** open
+
+**Finding:** [`mobile-app-scaffold/spec.md` Requirement "Material 3 theme follows system preference"](openspec/specs/mobile-app-scaffold/spec.md) has two scenarios ("Light mode applies light color scheme" + "Dark mode applies dark color scheme") that are only verified by manual visual smoke on Android (`./gradlew :mobile:app:assembleDebug` + launch) and iOS (Xcode simulator) today. The actual `MaterialTheme.colorScheme` resolution is a 3-line if/else in [`mobile/app/src/commonMain/kotlin/id/nearyou/app/theme/NearYouTheme.kt`](mobile/app/src/commonMain/kotlin/id/nearyou/app/theme/NearYouTheme.kt) so the regression risk is genuinely low, but a future refactor that breaks the system-preference lookup (e.g., by hardcoding `darkTheme = false`) would not trip any CI assertion.
+
+**Specs at fault:** None — the scenarios are correctly testable; the test runner just isn't wired.
+**Code at fault:** None.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Future-refactor regression vector. Compose UI test runner naturally lands alongside Mobile #5 (`mobile-nearby-timeline-screen`) because that change ships actually-testable rendering logic (timeline list, empty / loading / error states); this follow-up may fold in there.
+
+**Ambiguity to resolve first:** Whether to wire `compose.uiTest` as a standalone follow-up OR fold into Mobile #5. Recommendation: fold into Mobile #5 because the timeline screen needs the runner anyway and there's no value to wiring it earlier just for the theme scenarios.
+
+**Action items:**
+- [ ] When Mobile #5 (`mobile-nearby-timeline-screen`) is proposed, its `proposal.md` MUST acknowledge wiring `compose.uiTest` and add tasks to verify the two theme color-scheme scenarios alongside the timeline-screen tests.
+- [ ] Delete this entry once Mobile #5 ships with `compose.uiTest` wired + the theme scenarios assertion-tested.
+
+---
+
+## mobile-negative-requirement-ci-grep
+
+**Discovered during:** `mobile-app-scaffold-replace-wizard` round-1 review test-coverage lens finding B3 — six negative-requirement grep scenarios in `mobile-app-scaffold/spec.md` (no Ktor client, no ad-hoc HTTP, no auth identifiers, no FCM identifiers, no hardcoded API URLs, no backend/infra module deps) declare "WHEN grepping ... THEN no matches" but no CI step / Detekt rule enforces them.
+**Status:** open
+
+**Finding:** [`mobile-app-scaffold/spec.md` Requirement "Scaffold does not introduce networking, auth, or feature behavior"](openspec/specs/mobile-app-scaffold/spec.md) has six negative-grep scenarios. A future PR that adds `io.ktor:ktor-client-core` to `mobile/app/build.gradle.kts` or sneaks in `signIn` / `fcmToken` / `nearyou\.id` hardcoded URL references would ship green today — none of the existing CI lanes catch these. The canonical defense pattern in this project is a Detekt rule (see [`RawFromPostsRule`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/RawFromPostsRule.kt), [`BlockExclusionJoinRule`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/BlockExclusionJoinRule.kt), [`RedisHashTagRule`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/RedisHashTagRule.kt)) but extending Detekt to scan `:mobile:app` requires extending the Detekt source-set configuration (currently scoped to `:backend:ktor`'s `src/main/kotlin` only per [`build-logic/src/main/kotlin/nearyou.ktor.gradle.kts:20`](build-logic/src/main/kotlin/nearyou.ktor.gradle.kts)).
+
+**Specs at fault:** [`mobile-app-scaffold/spec.md`](openspec/specs/mobile-app-scaffold/spec.md) — six scenarios are spec'd but not enforced.
+**Code at fault:** None — the scaffold itself does NOT contain any forbidden identifier; the gap is enforcement against future regressions.
+**Docs at fault:** None.
+
+**Impact (if shipped without enforcement):** Mobile #3 (Google Sign-In) is the first change that legitimately adds auth identifiers — at that point the spec scenarios become moot for the mobile module's commonMain surface (auth lives in a dedicated namespace). The window of risk is the period before Mobile #3 ships. Specifically: Mobile #2 (`shared-resources-moko-bootstrap`) is a docs/strings-only change with no real auth-identifier risk; a coincidental violation is improbable but not impossible without a CI grep.
+
+**Ambiguity to resolve first:** Detekt source-set extension cost. Options: (a) extend Detekt to scan `:mobile:app` `src/commonMain/kotlin` only — clean, mirrors backend pattern; (b) add a one-off shell script run in CI that greps `mobile/app/src/{commonMain,androidMain,iosMain}` — simpler but less integrated; (c) accept the gap until Mobile #3 ships and the negative requirements become obsolete.
+
+**Action items:**
+- [ ] File OpenSpec change `mobile-negative-requirement-detekt-rule` that adds a Detekt rule `MobileScaffoldNegativeRequirementsRule` to `:lint:detekt-rules`, scanning `:mobile:app` `src/commonMain/kotlin` for the six forbidden identifier patterns enumerated in the spec scenarios. Wire the Detekt source-set extension in `build-logic`.
+- [ ] Delete this entry once the rule ships AND Mobile #3's `proposal.md` updates the `mobile-app-scaffold` spec's negative requirements to acknowledge auth identifiers now belong to dedicated namespaces.
+

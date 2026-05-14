@@ -12,7 +12,7 @@ The backend is roughly MVP-ready (15 Flyway migrations, 41 OpenSpec capabilities
 
 **Current state (descriptive, still accurate):**
 
-- **Mobile (`:mobile:app`)** — JetBrains Compose Multiplatform wizard scaffold (4 files, ~95 LOC, single "Click me!" button). No screens, no auth flow, no networking, no Moko Resources usage.
+- **Mobile (`:mobile:app`)** — production-shaped Compose Multiplatform scaffold (Voyager navigation + Koin DI + Material 3 light/dark theme + placeholder `HomeScreen`) per the `mobile-app-scaffold-replace-wizard` change. No feature screens beyond the placeholder, no auth flow, no networking, no Moko Resources usage — those land in Mobile #2-#5.
 - **Admin (`backend/ktor/.../admin`)** — `SuspensionUnbanWorker.kt` + `UnbanWorkerRoute.kt` only (~189 LOC). No admin UI, no admin REST surface beyond the `/internal/unban-worker` tick. Admin schema (`admin_users`, `admin_sessions`, `admin_actions_log`, etc.) is NOT yet shipped — Phase 3.5 admin-users migration is the precondition for several backend invariants and follow-ups.
 
 **Forward direction.** Many `docs/02-Product.md` / `docs/03-UX-Design.md` / `docs/07-Operations.md` paragraphs describe mobile + admin contracts in present tense — those are **the spec source for what to scaffold next**, NOT "treat as DESIGN, don't touch." Canonical next-step menu (first 5 scaffold changes per surface, kebab-case, ready to feed into `/next-change`) + the trigger-to-flip-back-to-balanced-priority lives at [`openspec/project.md`](openspec/project.md) § Mobile + Admin Scaffolding Priority. Read that menu before defaulting to another backend hardening pick.

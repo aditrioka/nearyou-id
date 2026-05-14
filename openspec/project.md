@@ -57,7 +57,7 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 :infra:oidc               (internal endpoint OIDC verification)
 :infra:otel               (OpenTelemetry tracing — wired 2026-05-07)
 :backend:ktor             (routes + Koin wiring)
-:mobile:app               (KMP — currently JetBrains wizard scaffold; see § Mobile + Admin Scaffolding Priority below)
+:mobile:app               (KMP — Voyager nav + Koin DI + Material 3 theme + HomeScreen placeholder; see § Mobile + Admin Scaffolding Priority below)
 :lint:detekt-rules        (custom Detekt rules)
 ```
 
@@ -65,7 +65,7 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 
 | Module | Status | Trigger to scaffold |
 |---|---|---|
-| `:shared:resources` | SCAFFOLD NEXT | Mobile #2 (`shared-resources-moko-bootstrap`) per § Mobile + Admin Scaffolding Priority menu |
+| `:shared:resources` | SCAFFOLD NEXT | Mobile #2 (`shared-resources-moko-bootstrap`) per § Mobile + Admin Scaffolding Priority menu (also folds brand theme color/typography tokens per `mobile-app-scaffold-replace-wizard` design.md Decision 3) |
 | `:infra:r2` + `:infra:cloudflare-images` | DESIGN | Image upload feature (Phase 2/3) |
 | `:infra:revenuecat` | DESIGN | Premium subscription billing |
 | `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27, not yet modular) |
@@ -86,7 +86,7 @@ Rule: **no vendor SDK import outside `:infra:*`**. Domain/data code depends only
 
 These two surfaces are intentionally thin in the current code; many `docs/*` and `openspec/specs/*` paragraphs describe their future-state contracts in present tense. **As of 2026-05-12, scaffolding them is the project's MVP-readiness gap** — those paragraphs are the spec source for what to scaffold next, and `/next-change` SHOULD bias toward mobile + admin scaffolding picks until both surfaces are usable end-to-end. Backend hardening continues only when it's a real blocker (security invariant gap, pre-launch test requirement, dependency for the scaffolding work), not as the default pick. The shift from "DESIGN-only" framing happened on 2026-05-12 after recognizing that the prior framing was creating a self-perpetuating backend-only bias incompatible with the "usable MVP" goal.
 
-**Mobile (`:mobile:app`).** Currently the JetBrains Compose Multiplatform wizard template — `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt` is a single MaterialTheme with a "Click me!" button + greeting from `:shared:tmp`. Zero feature screens, zero auth flow, zero networking, zero Moko Resources usage. The mobile-side contracts in [`docs/02-Product.md`](../docs/02-Product.md), [`docs/03-UX-Design.md`](../docs/03-UX-Design.md), and [`docs/04-Architecture.md`](../docs/04-Architecture.md) are the spec source for the scaffolding work — read those sections when authoring a mobile change rather than starting from scratch.
+**Mobile (`:mobile:app`).** Ships a production-shaped Compose Multiplatform scaffold (Voyager navigation + Koin DI + Material 3 theme + placeholder `HomeScreen`) per the `mobile-app-scaffold-replace-wizard` change. Zero feature screens beyond the placeholder, zero auth flow, zero networking, zero Moko Resources usage — those land in Mobile #2-#5 per the menu below. The mobile-side contracts in [`docs/02-Product.md`](../docs/02-Product.md), [`docs/03-UX-Design.md`](../docs/03-UX-Design.md), and [`docs/04-Architecture.md`](../docs/04-Architecture.md) are the spec source for the next four scaffolding changes — read those sections when authoring each rather than starting from scratch.
 
 **Admin (`:backend:ktor` `admin` package).** Currently 2 files (`SuspensionUnbanWorker.kt` + `UnbanWorkerRoute.kt`, ~189 LOC). No admin UI, no admin REST endpoints beyond the `/internal/unban-worker` tick. The admin schema (RLS for `service_role`, `admin_sessions` CSRF requirement, `csrf_token_hash` invariant, admin-user FK `ON DELETE SET NULL` invariant) is enforced by Detekt rules but the schema itself has NOT shipped yet — the Phase 3.5 admin-users migration is deferred per the explicit comments in V9 (`reports.reviewed_by`, `moderation_queue.reviewed_by` carry "FK to admin_users(id) ... deferred to the Phase 3.5 admin-users migration" markers). Admin features listed in [`docs/07-Operations.md`](../docs/07-Operations.md) § Admin Panel are the spec source for scaffolding work.
 
