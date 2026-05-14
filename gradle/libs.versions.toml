@@ -33,6 +33,13 @@ opentelemetry-instrumentation-bom = "2.25.0-alpha"
 slf4j = "2.0.16"
 material3 = "1.10.0-alpha05"
 postgresql-jdbc = "42.7.7"
+# Voyager pinned to 1.1.0-beta03 because it is the only Voyager release with explicit
+# Koin 4.x support. The 1.0.1 stable line (Dec 2024) predates Koin 4.0.0 (Aug 2024) and
+# the `voyager-koin` integration in 1.0.1 binds Koin 3.x APIs that conflict with the
+# project's `koin = "4.1.0"` pin. Pre-stable pins are precedented in this project
+# (material3 alpha, OTel alpha BOMs, semconv RC). Re-evaluate when Voyager cuts a
+# stable 1.1.0 — track at the `mobile-app-scaffold-replace-wizard` archive notes.
+voyager = "1.1.0-beta03"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -77,6 +84,12 @@ kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.
 koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
 koin-ktor = { module = "io.insert-koin:koin-ktor", version.ref = "koin" }
 koin-loggerSlf4j = { module = "io.insert-koin:koin-logger-slf4j", version.ref = "koin" }
+koin-compose = { module = "io.insert-koin:koin-compose", version.ref = "koin" }
+koin-composeViewmodel = { module = "io.insert-koin:koin-compose-viewmodel", version.ref = "koin" }
+
+# Voyager: KMP navigation framework + Koin integration. See § `voyager` pin rationale.
+voyager-navigator = { module = "cafe.adriel.voyager:voyager-navigator", version.ref = "voyager" }
+voyager-koin = { module = "cafe.adriel.voyager:voyager-koin", version.ref = "voyager" }
 
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 flyway-databasePostgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
