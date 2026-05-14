@@ -54,15 +54,15 @@ The `App()` composable SHALL host a navigation framework (declared in `design.md
 
 ### Requirement: Koin DI initialized once per process
 
-The `:mobile:app` module SHALL initialize Koin via a commonMain `initKoin(additionalConfig: KoinAppDeclaration? = null)` helper. The helper SHALL register a `mobileModule` Koin module (defined in commonMain as `mobileModule = module { }`) that subsequent changes extend with bindings. The helper SHALL be idempotent: invoking `initKoin()` after Koin is already started SHALL be a no-op (guarded via `getKoinOrNull()`). Android SHALL invoke `initKoin()` from its entry path (e.g., `MainActivity.onCreate` before the first `setContent`). iOS SHALL invoke `initKoin()` via a top-level Kotlin shim (commonMain, callable from Swift) wired into the Swift `@main` / `AppDelegate` lifecycle.
+The `:mobile:app` module SHALL initialize Koin via a commonMain `initKoin(additionalConfig: KoinAppDeclaration? = null)` helper. The helper SHALL register a `mobileModule` Koin module (defined in commonMain as `mobileModule = module { }`) that subsequent changes extend with bindings. The helper SHALL be idempotent: invoking `initKoin()` after Koin is already started SHALL be a no-op (guarded via `getKoinOrNull()`). Android SHALL invoke `initKoin()` from its entry path (e.g., `MainActivity.onCreate` before the first `setContent`). iOS SHALL invoke `initKoin()` via a top-level Kotlin shim (commonMain, callable from Swift) wired into the Swift app-launch path — specifically the `init()` block of the SwiftUI `@main` `iOSApp` struct, invoked before the `WindowGroup` scene body builds (see `design.md` Decision 2 for the rationale; if a UIKit `AppDelegate` is introduced in a later change, the same shim moves into `AppDelegate.application(_:didFinishLaunchingWithOptions:)`).
 
 #### Scenario: Android invokes initKoin at startup
 - **WHEN** inspecting Android entry-point code (`MainActivity` or an `Application` subclass if introduced)
 - **THEN** `initKoin()` is invoked at least once during app startup before the first `setContent { App() }` call
 
 #### Scenario: iOS invokes initKoin via Swift-callable shim
-- **WHEN** inspecting iOS entry-point code
-- **THEN** a top-level Kotlin function (commonMain, callable from Swift such as `fun doInitKoin()`) is declared, and the Swift `@main` / `AppDelegate` path is documented to invoke it at app launch
+- **WHEN** inspecting iOS entry-point code (`iosApp/iosApp/iOSApp.swift`)
+- **THEN** a top-level Kotlin function (commonMain, callable from Swift such as `fun doInitKoin()`) is declared, and the Swift `iOSApp` struct's `init()` block invokes it before the `WindowGroup { ContentView() }` scene body runs (or, if a UIKit `AppDelegate` is later introduced, the same shim is invoked from `AppDelegate.application(_:didFinishLaunchingWithOptions:)`)
 
 #### Scenario: mobileModule placeholder is registered
 - **WHEN** inspecting the commonMain Koin module file (e.g., `MobileModule.kt`)

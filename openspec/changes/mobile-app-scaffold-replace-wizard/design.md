@@ -27,7 +27,7 @@ Solo-operator velocity context: the project's principal author (Adi/Oka) is one 
 - No Sentry KMP wiring (split as follow-up `infra-sentry-kmp-module-isation` per project.md menu carve-out).
 - No brand-specific theme tokens (colors, typography) — default Material 3 palette is sufficient for the scaffold.
 - No actual product feature behavior (negative requirement enforced in the spec).
-- No iOS CI wiring (Section 6 follow-up task; verify iOS locally during this change's lifecycle).
+- No iOS CI wiring (`tasks.md` Section 9 task 9.2 — `FOLLOW_UPS.md` entry `mobile-ios-ci-link-task`; verify iOS locally during this change's lifecycle).
 - No changes to `:backend:ktor`'s `:shared:tmp` reference — `:backend:ktor` continues to use `projects.shared.tmp`; only `:mobile:app` detaches.
 
 ## Decisions
@@ -103,14 +103,14 @@ Solo-operator velocity context: the project's principal author (Adi/Oka) is one 
 - Adding `:infra:sentry` requires: new Gradle module + convention plugin alignment + `gradle/libs.versions.toml` Sentry SDK pins + dSYM upload CI step + ProGuard mapping upload CI step + iOS framework reconfig + Secret Manager DSN slot wiring. That's a meaningful chunk on its own.
 - Keeping the scaffold change focused on app-structure concerns (theme, nav, DI) preserves a clean one-PR review surface. Sentry follow-up can land any time after this PR squash-merges.
 
-### Decision 6: iOS CI — **defer to Section 6 follow-up task, verify locally during this change**
+### Decision 6: iOS CI — **defer to `FOLLOW_UPS.md` entry, verify locally during this change**
 
-**Choice:** Do NOT block this change on CI running iOS framework link tasks. Verify iOS locally during implementation (via Xcode or `./gradlew :mobile:app:linkPodDebugFrameworkIosSimulatorArm64`). Add a Section 6 follow-up task to enable iOS CI later.
+**Choice:** Do NOT block this change on CI running iOS framework link tasks. Verify iOS locally during implementation (via Xcode or `./gradlew :mobile:app:linkPodDebugFrameworkIosSimulatorArm64`). `tasks.md` Section 9 task 9.2 opens a `FOLLOW_UPS.md` entry `mobile-ios-ci-link-task` to enable iOS CI later.
 
 **Rationale:**
 - [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) does NOT currently run iOS framework link tasks (Linux runner; iOS toolchain absent). Wiring this up requires a macOS runner (paid GitHub Actions minutes), a Pod install step, and codesign infrastructure for any future archive task.
 - That's a meaningful CI chunk on its own; bundling it with this scaffold inflates the PR.
-- The `/next-change` skill instruction explicitly authorizes this deferral: "if iOS CI is not yet wired, do NOT block this change on it — open a Section 6 follow-up task to enable iOS CI later, and verify the iOS build locally instead."
+- The `/next-change` skill instruction explicitly authorizes this deferral pattern ("if iOS CI is not yet wired, do NOT block this change on it — open a follow-up task to enable iOS CI later, and verify the iOS build locally instead") — the skill's reference to "Section 6 follow-up task" maps in this change to `tasks.md` Section 9 task 9.2 (the section number depends on each change's tasks.md layout).
 - Risk window: iOS build can silently regress between this change and the iOS-CI follow-up. Mitigation: the author verifies iOS locally on every push during this change's lifecycle, and every subsequent mobile change verifies iOS locally before pushing the implementation commits.
 
 ### Decision 7: Test posture — **`kotlin.test` smoke + idempotency assertion; Compose UI test runner deferred to Mobile #5+**
@@ -158,7 +158,7 @@ mobile/app/src/commonMain/kotlin/id/nearyou/app/
 
 - **Voyager's iOS state-restoration is less proven than Decompose's.** → Mitigation: at scaffold scope there's no state worth restoring. If real screens later need rigorous state restoration, a swap-from-Voyager is mechanical (one file per screen) and qualifies as its own change.
 - **Koin double-initialization in Compose previews / unit tests.** → Mitigation: guard `initKoin()` with `if (getKoinOrNull() == null) { ... }`. Document the pattern in the `KoinInit.kt` KDoc.
-- **iOS build silently regresses between this change and the iOS-CI follow-up.** → Mitigation: author verifies iOS locally on every push during this change's lifecycle; Section 6 follow-up to wire iOS CI is opened the moment this change archives.
+- **iOS build silently regresses between this change and the iOS-CI follow-up.** → Mitigation: author verifies iOS locally on every push during this change's lifecycle; `FOLLOW_UPS.md` entry `mobile-ios-ci-link-task` (created via `tasks.md` Section 9 task 9.2) is opened the moment this change archives.
 - **Scope drift mid-implementation** ("let me just add login while I'm here"). → Mitigation: the negative requirement in the capability spec ("Scaffold does not introduce networking, auth, or feature behavior") gives the reviewer + author a clear line to police; multi-lens sub-agent review in Phase D catches violations.
 - **Default Material 3 palette looks generic.** → Mitigation: this is intentional and time-boxed — brand theme tokens are a defined follow-up. Document the limitation in the placeholder screen's KDoc so a casual demo viewer understands.
 - **Voyager-Koin module versioning drift from core Koin pin (4.1.0).** → Mitigation: pin `voyager-koin` to a version that explicitly supports Koin 4.x at implementation time; cross-check the Voyager release notes during `/opsx:apply`.
@@ -167,7 +167,7 @@ mobile/app/src/commonMain/kotlin/id/nearyou/app/
 ## Migration Plan
 
 - **No runtime migration needed.** Pure mobile-side code change; no DB schema, no API contract change, no infrastructure provisioning, no backend deploy.
-- **Pre-archive smoke** (per [`openspec/project.md`](../../project.md) § Change Delivery Workflow → Staging deploy timing): SKIP. This change has no backend or staging-deployed runtime impact; mark Section 6 N/A for the staging-deploy steps in `tasks.md` and document in the archive commit body.
+- **Pre-archive smoke** (per [`openspec/project.md`](../../project.md) § Change Delivery Workflow → Staging deploy timing): SKIP. This change has no backend or staging-deployed runtime impact; `tasks.md` does NOT include a staging-deploy section (Section 8 covers Android + iOS local-build verification only, which is the equivalent gate for a mobile-only change). The archive commit body will document the staging-deploy-not-applicable status.
 - **Local verification gates** (must pass before push):
   - `./gradlew :mobile:app:assembleDebug` (Android assembly).
   - `./gradlew :mobile:app:linkPodDebugFrameworkIosSimulatorArm64` OR Xcode-side iOS framework link (iOS assembly).
