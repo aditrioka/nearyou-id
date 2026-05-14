@@ -56,7 +56,7 @@ Solo-operator velocity context: the project's principal author (Adi/Oka) is one 
 
 ### Decision 2: Koin DI startup pattern — **commonMain `initKoin()` helper + platform call sites**
 
-**Choice:** Define an `initKoin(additionalConfig: KoinAppDeclaration? = null)` helper in commonMain that calls `startKoin { modules(mobileModule) }`. Android invokes it from `MainActivity.onCreate` BEFORE the first `setContent { App() }`. iOS invokes it from a top-level Kotlin function (commonMain) — `fun doInitKoin() = initKoin()` — that's callable from Swift `@main` / `AppDelegate.application(_:didFinishLaunchingWithOptions:)`.
+**Choice:** Define an `initKoin(additionalConfig: KoinAppDeclaration? = null)` helper in commonMain that calls `startKoin { modules(mobileModule) }`. Android invokes it from `MainActivity.onCreate` BEFORE the first `setContent { App() }`. iOS invokes it from a top-level Kotlin function (commonMain) — `fun doInitKoin() = initKoin()` — that's callable from Swift. The Swift call site is the `init()` of the `iOSApp` struct in [`iosApp/iosApp/iOSApp.swift`](../../../iosApp/iosApp/iOSApp.swift), invoked **before** the `WindowGroup { ContentView() }` body builds. This ordering matters because [`ContentView.swift`](../../../iosApp/iosApp/ContentView.swift) bridges through `UIViewControllerRepresentable` to the KMP-side `MainViewController()` (which returns `ComposeUIViewController { App() }`); if Koin is uninitialized when `App()` first composes, any `koinInject` lookup added by a future change throws. The two-layer iOS bridge (Swift `iOSApp.init()` initializes Koin → Swift `ContentView` exposes `UIViewControllerRepresentable` → KMP `MainViewController()` returns `ComposeUIViewController { App() }`) is the canonical pre-`/opsx:apply` integration shape and the implementer MUST verify all three layers wire correctly before pushing.
 
 **Alternatives considered:**
 
@@ -72,13 +72,13 @@ Solo-operator velocity context: the project's principal author (Adi/Oka) is one 
 
 **Trade-off accepted:** Android `MainActivity.onCreate` is invoked once per activity instance, not once per process. If the user backgrounds + relaunches the app (process retained), `onCreate` may not re-fire — so init-from-`onCreate` is technically lazy-per-activity, not eager-per-process. Mitigation: `startKoin { ... }` is itself idempotent against a second call to `getKoinOrNull()`; we guard with `if (getKoinOrNull() == null) startKoin { ... }`. This is good enough for scaffold purposes; revisit when Mobile #3 lands and the auth flow has real init concerns.
 
-### Decision 3: Theme — **default Material 3 light/dark, system-preference-driven**
+### Decision 3: Theme — **default Material 3 light/dark, system-preference-driven; brand tokens fold into Mobile #2**
 
-**Choice:** Define a `NearYouTheme(content: @Composable () -> Unit)` wrapper in commonMain (`mobile/app/src/commonMain/kotlin/id/nearyou/app/theme/NearYouTheme.kt`). The wrapper picks between `lightColorScheme()` (default Material 3 light) and `darkColorScheme()` (default Material 3 dark) based on `isSystemInDarkTheme()`. The `App()` composable wraps the navigation host in `NearYouTheme { ... }`.
+**Choice:** Define a `NearYouTheme(content: @Composable () -> Unit)` wrapper in commonMain (`mobile/app/src/commonMain/kotlin/id/nearyou/app/theme/NearYouTheme.kt`). The wrapper picks between `lightColorScheme()` (default Material 3 light) and `darkColorScheme()` (default Material 3 dark) based on `isSystemInDarkTheme()`. The `App()` composable wraps the navigation host in `NearYouTheme { ... }`. **Brand-specific color and typography tokens are explicitly deferred — and SHALL fold into Mobile #2 (`shared-resources-moko-bootstrap`)** alongside Moko Resources, not into a separate `mobile-brand-theme-tokens` change. Rationale: Moko Resources is the natural home for design tokens (colors, typography), and bundling avoids fragmenting brand scaffolding across two follow-ups. Mobile #2's eventual proposal MUST acknowledge this scope expansion when drafted.
 
 **Alternatives considered:**
 
-- **Custom brand-color tokens** (`primary = Color(0xFF...)`, etc.). Out of scope per the proposal's negative scope. Defer to a `mobile-brand-theme-tokens` follow-up or fold into `shared-resources-moko-bootstrap` (Mobile #2) if Moko Resources also owns design tokens.
+- **Custom brand-color tokens** (`primary = Color(0xFF...)`, etc.) inline in this scaffold change. Out of scope — keeps the scaffold focused on app structure rather than visual design decisions. Fold into Mobile #2 per the choice above.
 - **MaterialTheme directly with no wrapper.** Works for one screen; doesn't scale for theme switching, dynamic-color support, or accessibility settings. The `NearYouTheme` wrapper is the standard pattern Compose apps grow into; spending five LOC now is cheaper than refactoring every screen later.
 - **Dynamic Material You (Android 12+) `dynamicLightColorScheme(context)`.** Tempting for Android, but requires runtime-context plumbing and breaks the commonMain abstraction (Material You is Android-only). Defer until brand theming is decided.
 
@@ -113,11 +113,19 @@ Solo-operator velocity context: the project's principal author (Adi/Oka) is one 
 - The `/next-change` skill instruction explicitly authorizes this deferral: "if iOS CI is not yet wired, do NOT block this change on it — open a Section 6 follow-up task to enable iOS CI later, and verify the iOS build locally instead."
 - Risk window: iOS build can silently regress between this change and the iOS-CI follow-up. Mitigation: the author verifies iOS locally on every push during this change's lifecycle, and every subsequent mobile change verifies iOS locally before pushing the implementation commits.
 
-### Decision 7: Test posture — **smoke test only**
+### Decision 7: Test posture — **`kotlin.test` smoke + idempotency assertion; Compose UI test runner deferred to Mobile #5+**
 
-**Choice:** Keep one Compose Multiplatform commonTest smoke test that asserts `App()` composes without throwing. Drop the wizard's `ComposeAppCommonTest.kt` if its assertion is anchored to the "Click me!" button. Add `HomeScreenTest.kt` asserting the placeholder renders.
+**Choice:** Use `kotlin.test` assertions for all scaffold tests; do NOT wire the Compose UI test runner (`compose.uiTest` / `runComposeUiTest`) in this change. Delete the wizard's `ComposeAppCommonTest.kt`. Add two `commonTest` files: (a) `HomeScreenTest.kt` asserts `App()` composition runs without throwing; (b) `KoinInitTest.kt` asserts `initKoin()` is idempotent (two sequential invocations return the same Koin instance, no exception thrown). The light/dark color-scheme direct assertion is deferred to a follow-up because it requires Compose UI test runner wiring and the implementation (a 3-line `if/else` selecting between `lightColorScheme()` and `darkColorScheme()` based on `isSystemInDarkTheme()`) is low enough risk that visual verification during local Android + iOS smoke is acceptable for scaffold scope.
 
-**Rationale:** The negative requirement guards against feature behavior, so there's little business logic to test. A smoke test confirms the structural wiring (Koin init + nav host + theme + placeholder screen) composes. Heavy navigation-state tests defer to Mobile #5+ when real screens exist.
+**Rationale:**
+- The negative requirement guards against feature behavior, so there's little business logic to test. Smoke + idempotency are the two non-trivial assertions that warrant a test today.
+- Wiring `compose.uiTest` adds Gradle config, dependency entries, and a learning-curve overhead that's not justified for two assertions. Mobile #5 (first real screen + state) is the natural moment to wire the Compose UI test runner because that change ships actually-testable rendering logic.
+- The follow-up entry `mobile-theme-light-dark-direct-test` (added to `FOLLOW_UPS.md` in this change's Section 9) tracks the deferred theme assertion explicitly.
+
+**Alternatives considered:**
+
+- **Wire `compose.uiTest` in this change** to enable theme color-scheme direct assertion. Rejected — too much CI/Gradle infrastructure for two scaffold-stage assertions. Mobile #5 ships this naturally.
+- **No tests at all (just verify Android + iOS build green).** Rejected — the idempotency guard in `initKoin()` is exactly the kind of invisible-on-refactor logic that needs a unit test, and the smoke test costs ~10 LOC.
 
 ### Decision 8: `:shared:tmp` retention — **leave the module intact; only detach `:mobile:app`'s dependency**
 
@@ -168,7 +176,10 @@ mobile/app/src/commonMain/kotlin/id/nearyou/app/
 
 ## Open Questions
 
-- **Exact Voyager version pin.** Resolve during `/opsx:apply` against the latest stable release at implementation time; record in the Version Pinning Decisions Log.
-- **Whether to retain the wizard's `ComposeAppCommonTest.kt` or replace it.** Resolve during `/opsx:apply` — if the wizard test asserts on the "Click me!" button, replace; if it's a no-op skeleton, replace anyway for clarity.
-- **Whether Android needs an `Application` class for the scaffold or `MainActivity.onCreate` is sufficient.** Resolve during `/opsx:apply` — start with `MainActivity.onCreate` (simpler); add `Application` if a concrete need surfaces (e.g., FCM service registration when Mobile #3 lands).
+- **Exact Voyager version pin.** Resolve during `/opsx:apply` against the latest stable release at implementation time; record in the Version Pinning Decisions Log. Cross-check the chosen Voyager release notes for Koin-4.x compatibility.
 - **iOS version-string source.** Resolve during `/opsx:apply` — hardcode `"v1.0"` for the scaffold (good enough for the placeholder); plumb through `Bundle.main.infoDictionary["CFBundleShortVersionString"]` via Kotlin/Native interop in a later change if version strings become user-facing.
+
+Resolved during proposal review (no longer open):
+
+- ~~Whether Android needs an `Application` class for the scaffold or `MainActivity.onCreate` is sufficient~~. **Resolved by Decision 2 trade-off paragraph** — start with `MainActivity.onCreate` plus `getKoinOrNull()` idempotency guard; add `Application` if a concrete need surfaces (e.g., FCM service registration when Mobile #3 lands). Not an open question; documented in Decision 2.
+- ~~Whether to retain the wizard's `ComposeAppCommonTest.kt` or replace it~~. **Resolved by Decision 7** — delete the wizard test file outright (it asserts on the "Click me!" button); replace with `HomeScreenTest.kt` + `KoinInitTest.kt` per Decision 7's test posture. Tracked by `tasks.md` Section 6 + Section 7.

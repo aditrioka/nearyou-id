@@ -2,15 +2,19 @@
 
 ### Requirement: Shared App entry composable
 
-The `:mobile:app` module SHALL expose a single `App()` `@Composable` function in commonMain (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt`). Both platform entry points — Android `MainActivity` and iOS `MainViewController` — SHALL invoke `App()` verbatim and SHALL NOT render UI of their own beyond the framework integration call (`setContent { App() }` on Android, `ComposeUIViewController { App() }` on iOS). All composable UI logic SHALL live in commonMain.
+The `:mobile:app` module SHALL expose a single `App()` `@Composable` function in commonMain (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt`). The Android platform entry (`MainActivity`) SHALL invoke `App()` directly via `setContent { App() }`. The iOS platform path is a two-layer bridge: a Kotlin `MainViewController()` function in `iosMain` returns `ComposeUIViewController { App() }`, and the Swift host (`iosApp/iosApp/ContentView.swift` exposing a `UIViewControllerRepresentable` wrapper that the Swift `@main` `iOSApp` struct consumes via `WindowGroup { ContentView() }`) instantiates the KMP-side `MainViewController()` and presents it. All `@Composable` UI logic SHALL live in commonMain — neither platform entry SHALL render its own UI beyond the framework-integration call and any Koin-init glue.
 
 #### Scenario: Android entry calls App() from commonMain
 - **WHEN** inspecting `mobile/app/src/androidMain/kotlin/id/nearyou/app/MainActivity.kt`
 - **THEN** the `onCreate` body contains `setContent { App() }` (or an equivalent thin wrapper) and contains no `@Composable` UI declarations of its own beyond `App()` and any Koin-init glue
 
-#### Scenario: iOS entry calls App() from commonMain
+#### Scenario: iOS KMP-bridge ViewController calls App() from commonMain
 - **WHEN** inspecting `mobile/app/src/iosMain/kotlin/id/nearyou/app/MainViewController.kt`
-- **THEN** the file returns `ComposeUIViewController { App() }` (or an equivalent thin wrapper) and contains no `@Composable` UI declarations of its own beyond `App()` and any Koin-init glue
+- **THEN** the file returns `ComposeUIViewController { App() }` (or an equivalent thin wrapper) and contains no `@Composable` UI declarations of its own beyond `App()`
+
+#### Scenario: iOS Swift host bridges to the KMP ViewController
+- **WHEN** inspecting `iosApp/iosApp/iOSApp.swift` and `iosApp/iosApp/ContentView.swift`
+- **THEN** the Swift entry-point chain (`@main` `iOSApp` → `WindowGroup` → `ContentView`) ultimately instantiates the KMP-side `MainViewController()` (via `UIViewControllerRepresentable` or equivalent SwiftUI bridge) and contains no SwiftUI views that render product UI of their own beyond the bridge
 
 #### Scenario: Greeting from :shared:tmp is removed from mobile
 - **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt`
@@ -70,23 +74,33 @@ The `:mobile:app` module SHALL initialize Koin via a commonMain `initKoin(additi
 
 ### Requirement: Scaffold does not introduce networking, auth, or feature behavior
 
-The `:mobile:app` module commonMain SHALL NOT contain Ktor HTTP-client setup, authentication-flow wiring, FCM token registration, or any feature-specific business logic. All such concerns ship in later mobile changes per [`openspec/project.md`](../../../project.md) § Mobile + Admin Scaffolding Priority (#2 Moko Resources, #3 Google Sign-In, #4 age gate, #5 first product screen, and beyond).
+The `:mobile:app` module commonMain SHALL NOT contain Ktor HTTP-client setup, ad-hoc HTTP usage, authentication-flow wiring, FCM token registration, hardcoded API base URLs, or any feature-specific business logic. All such concerns ship in later mobile changes per [`openspec/project.md`](../../../project.md) § Mobile + Admin Scaffolding Priority (#2 Moko Resources, #3 Google Sign-In, #4 age gate, #5 first product screen, and beyond).
+
+The negative scenarios below use case-insensitive grep patterns intentionally broadened to cover common identifier shapes. They are NOT exhaustive — the canonical defense against scope drift is the spec requirement itself, with grep as a CI-time backstop. Implementers SHOULD treat additions to mobile sources that match the spirit (auth flow, FCM token handling, ad-hoc network calls, hardcoded API hostnames) as requirement violations even if the specific identifier shape escapes a literal grep.
 
 #### Scenario: No Ktor client dependency in mobile build
 - **WHEN** inspecting `mobile/app/build.gradle.kts`
 - **THEN** no `io.ktor:ktor-client-*` artifact is declared as an `implementation` / `api` / `commonMainImplementation` dependency of the mobile module
 
+#### Scenario: No ad-hoc HTTP usage in mobile sources
+- **WHEN** grepping `mobile/app/src/commonMain`, `mobile/app/src/androidMain`, and `mobile/app/src/iosMain` for any of the following identifiers (case-insensitive): `URLConnection`, `HttpURLConnection`, `URLSession`, `NSURLSession`, `okhttp3`, `OkHttpClient`, `WebSocket`, `WebSocketClient`
+- **THEN** no matches are found in mobile-module sources (the Compose Multiplatform runtime's internal HTTP usage in transitive deps is permitted; this scenario targets first-party scaffold code only)
+
 #### Scenario: No authentication code in mobile sources
-- **WHEN** grepping `mobile/app/src/commonMain`, `mobile/app/src/androidMain`, and `mobile/app/src/iosMain` for any of the following identifiers (case-insensitive): `signIn`, `GoogleId`, `AppleAuth`, `googleSignIn`, `appleSignIn`, `JwtToken`, `RefreshToken`, `authToken`
+- **WHEN** grepping `mobile/app/src/commonMain`, `mobile/app/src/androidMain`, and `mobile/app/src/iosMain` for any of the following identifiers (case-insensitive): `signIn`, `sign_in`, `signin`, `GoogleId`, `googleSignIn`, `google_sign_in`, `AppleAuth`, `appleSignIn`, `apple_sign_in`, `JwtToken`, `JWT_TOKEN`, `jwt_token`, `RefreshToken`, `refresh_token`, `authToken`, `auth_token`, `accessToken`, `access_token`, `idToken`, `id_token`, `Authenticator`, `oauthClient`, `loginClient`, `loginFlow`
 - **THEN** no matches are found in mobile-module sources
 
 #### Scenario: No FCM-token registration code in mobile sources
-- **WHEN** grepping `mobile/app/src/commonMain`, `mobile/app/src/androidMain`, and `mobile/app/src/iosMain` for any of the following identifiers (case-insensitive): `FirebaseMessaging`, `fcmToken`, `registerFcmToken`, `fcm-token`
+- **WHEN** grepping `mobile/app/src/commonMain`, `mobile/app/src/androidMain`, and `mobile/app/src/iosMain` for any of the following identifiers (case-insensitive): `FirebaseMessaging`, `fcmToken`, `fcm_token`, `registerFcmToken`, `register_fcm_token`, `messaging.token`, `pushToken`, `push_token`, `notificationToken`, `notification_token`
 - **THEN** no matches are found in mobile-module sources
 
-#### Scenario: No backend module dependencies
+#### Scenario: No hardcoded API base URLs in mobile sources
+- **WHEN** grepping `mobile/app/src/commonMain`, `mobile/app/src/androidMain`, and `mobile/app/src/iosMain` for any of the following patterns (case-insensitive): `nearyou\.id`, `api-staging`, `api\.nearyou`, `admin-staging`, `admin\.nearyou`, `img-staging`, `img\.nearyou`
+- **THEN** no matches are found in mobile-module sources (hardcoded API hostnames belong in environment-aware config that lands alongside the first networking change, Mobile #3)
+
+#### Scenario: No backend or infra module dependencies
 - **WHEN** inspecting `mobile/app/build.gradle.kts`
-- **THEN** no `projects.backend.*` or `projects.infra.*` dependency is declared
+- **THEN** the file contains no `projects.backend.*` / `projects.infra.*` Gradle-module-accessor references AND no `project(":backend:..."` / `project(":infra:..."` legacy-syntax references; neither form may smuggle a backend or infra module into the mobile dependency graph
 
 ### Requirement: Android and iOS targets build green
 
