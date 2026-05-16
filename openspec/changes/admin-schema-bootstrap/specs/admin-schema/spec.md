@@ -46,6 +46,16 @@ The column comments documenting `Argon2id` (`password_hash`) and `AES-256, key i
 - **WHEN** an INSERT into `admin_users` omits the `is_active` column
 - **THEN** the resulting row has `is_active = TRUE`
 
+#### Scenario: password_hash NOT NULL rejects NULL inserts
+
+- **WHEN** an INSERT into `admin_users` is attempted with `password_hash` omitted (or explicitly NULL), all other required columns valid
+- **THEN** Postgres rejects the insert with a `not_null_violation` (SQLState `23502`) error
+
+#### Scenario: display_name NOT NULL rejects NULL inserts
+
+- **WHEN** an INSERT into `admin_users` is attempted with `display_name` omitted (or explicitly NULL), all other required columns valid
+- **THEN** Postgres rejects the insert with a `not_null_violation` error
+
 ### Requirement: Migration creates `admin_webauthn_credentials` with CASCADE on admin deletion
 
 The migration SHALL create the `admin_webauthn_credentials` table with the column shape matching [`docs/05-Implementation.md:652-661`](../../../../../docs/05-Implementation.md) verbatim:
@@ -102,7 +112,7 @@ CREATE INDEX admin_sessions_admin_idx  ON admin_sessions(admin_id, created_at DE
 CREATE INDEX admin_sessions_active_idx ON admin_sessions(expires_at) WHERE revoked_at IS NULL;
 ```
 
-The `csrf_token_hash TEXT NOT NULL` column is the schema-layer counterpart of the `AdminSessionCsrfTokenRule` Detekt invariant declared in [`openspec/project.md`](../../../../../openspec/project.md) § Coding Conventions & CI Lint Rules ("Admin sessions: every `INSERT INTO admin_sessions` must populate `csrf_token_hash`"). Shipping `NOT NULL` at the DB level makes the invariant a defense-in-depth: even a Detekt-allowlist-violating writer is blocked at the schema layer.
+The `csrf_token_hash TEXT NOT NULL` column is the schema-layer enforcement of the `csrf_token_hash` invariant documented at [`openspec/project.md`](../../../../../openspec/project.md) § Coding Conventions & CI Lint Rules ("Admin sessions: every `INSERT INTO admin_sessions` must populate `csrf_token_hash`"). No Detekt rule for this invariant ships today (verified by inspecting `lint/detekt-rules/src/main/kotlin/` 2026-05-17); the V16 `NOT NULL` constraint is the first concrete enforcement. A future Detekt rule layered on top would catch a NULL writer at compile time instead of at insert time.
 
 The `admin_sessions_active_idx` partial index uses `WHERE revoked_at IS NULL` — an immutable predicate. It MUST NOT be rewritten with `NOW()` or any volatile function in the WHERE clause (per [`openspec/project.md`](../../../../../openspec/project.md) § Coding Conventions: "Partial indexes: no `NOW()` in `WHERE`").
 
@@ -130,6 +140,21 @@ The `admin_sessions_active_idx` partial index uses `WHERE revoked_at IS NULL` �
 
 - **WHEN** the integration-test Kotest spec queries `pg_indexes WHERE schemaname = 'public' AND tablename = 'admin_sessions'`
 - **THEN** the result includes index names `admin_sessions_admin_idx` AND `admin_sessions_active_idx` (in addition to the primary-key index)
+
+#### Scenario: expires_at NOT NULL rejects NULL inserts
+
+- **WHEN** an INSERT into `admin_sessions` is attempted with `expires_at` omitted (or explicitly NULL), all other required columns valid
+- **THEN** Postgres rejects the insert with a `not_null_violation` error (session-expiry safety: a NULL expires_at would imply an immortal session)
+
+#### Scenario: ip NOT NULL rejects NULL inserts
+
+- **WHEN** an INSERT into `admin_sessions` is attempted with `ip` omitted (or explicitly NULL)
+- **THEN** Postgres rejects the insert with a `not_null_violation` error (audit-trail integrity: every session row carries the originating IP)
+
+#### Scenario: Active partial index is on `expires_at`, not another column
+
+- **WHEN** the integration-test Kotest spec queries `pg_indexes WHERE indexname = 'admin_sessions_active_idx'`
+- **THEN** the returned `indexdef` includes `(expires_at)` AS the index column expression (verifies the column choice, not just the partial predicate)
 
 ### Requirement: Migration creates `admin_webauthn_challenges` with ceremony CHECK + consumed-guard partial index
 
@@ -173,6 +198,16 @@ The `admin_webauthn_challenges_cleanup_idx` partial index uses `WHERE consumed_a
 
 - **WHEN** an INSERT into `admin_webauthn_challenges` is attempted with `admin_id` omitted, `challenge` set, `ceremony = 'registration'`, `expires_at = NOW() + INTERVAL '5 minutes'`
 - **THEN** the insert succeeds (admin_id NULL is valid for registration pre-binding)
+
+#### Scenario: ceremony NOT NULL rejects NULL inserts
+
+- **WHEN** an INSERT into `admin_webauthn_challenges` is attempted with `ceremony` omitted
+- **THEN** Postgres rejects the insert with a `not_null_violation` error
+
+#### Scenario: expires_at NOT NULL rejects NULL inserts
+
+- **WHEN** an INSERT into `admin_webauthn_challenges` is attempted with `expires_at` omitted
+- **THEN** Postgres rejects the insert with a `not_null_violation` error (replay-window safety: a NULL `expires_at` would mean the challenge never times out, defeating the 5-min TTL design)
 
 ### Requirement: Migration creates `admin_actions_log` as audit-trail-preserving by design
 
@@ -223,43 +258,10 @@ Immutability of `admin_actions_log` is enforced **at the DB role level** (UPDATE
 - **WHEN** an attempt is made to DELETE the `admin_users` row
 - **THEN** the DELETE fails with a `foreign_key_violation` (SQLState `23503`) error, preserving the audit row
 
-### Requirement: Migration backfills three deferred operational-table FKs to `admin_users(id) ON DELETE SET NULL`
+#### Scenario: admin_id FK rejects INSERT pointing to non-existent admin
 
-The migration SHALL convert the three nullable UUID columns currently annotated "deferred to the Phase 3.5 admin-users migration" into validated foreign keys via `ADD CONSTRAINT … NOT VALID + VALIDATE CONSTRAINT`:
-
-1. `reports.reviewed_by` ([V9:71-73](../../../../../backend/ktor/src/main/resources/db/migration/V9__reports_moderation.sql))
-2. `moderation_queue.resolved_by` ([V9:108-111](../../../../../backend/ktor/src/main/resources/db/migration/V9__reports_moderation.sql))
-3. `chat_messages.redacted_by` ([V15:96-99](../../../../../backend/ktor/src/main/resources/db/migration/V15__chat_foundation.sql))
-
-Each FK MUST use `ON DELETE SET NULL` (per the [`openspec/project.md`](../../../../../openspec/project.md) § Coding Conventions invariant: "Admin-user FKs on operational tables must use `ON DELETE SET NULL`"). The `NOT VALID + VALIDATE CONSTRAINT` pattern is chosen over plain `ADD CONSTRAINT` per the V9 deferral comment's prescription — even though all rows are NULL today and validation is constant-time, the pattern matters for future operational consistency when these columns carry data.
-
-For each constraint, the migration SHALL also delete the obsolete SQL `COMMENT` text marking the column as "deferred to the Phase 3.5 admin-users migration" by issuing a fresh `COMMENT ON COLUMN` statement that describes the now-shipped FK relationship (e.g., `'FK to admin_users(id) ON DELETE SET NULL — set NULL when the reviewing admin's row is deleted.'`).
-
-#### Scenario: reports.reviewed_by FK exists post-migration
-
-- **WHEN** the integration-test Kotest spec queries `information_schema.table_constraints` for `reports` with `constraint_type = 'FOREIGN KEY'`
-- **THEN** a constraint exists referencing `admin_users(id)` on column `reviewed_by` with `ON DELETE SET NULL` AND its `is_validated` (or equivalent) status is true
-
-#### Scenario: moderation_queue.resolved_by FK exists post-migration
-
-- **WHEN** the integration-test Kotest spec queries `information_schema.table_constraints` for `moderation_queue`
-- **THEN** a FK constraint exists on `resolved_by` referencing `admin_users(id)` with `ON DELETE SET NULL`, fully validated
-
-#### Scenario: chat_messages.redacted_by FK exists post-migration
-
-- **WHEN** the integration-test Kotest spec queries `information_schema.table_constraints` for `chat_messages`
-- **THEN** a FK constraint exists on `redacted_by` referencing `admin_users(id)` with `ON DELETE SET NULL`, fully validated
-
-#### Scenario: Admin deletion sets reports.reviewed_by to NULL
-
-- **GIVEN** an `admin_users` row exists AND a `reports` row exists with `reviewed_by` referencing that admin
-- **WHEN** the `admin_users` row is removed via the application-layer soft-delete path (i.e., `is_active = FALSE` flag; the schema-level FK rejection demonstrated above means actual DELETE is blocked by the `admin_actions_log` FK)
-- **THEN** the `reports.reviewed_by` is NOT affected (the `is_active = FALSE` is an application-layer flag and does not trigger SET NULL); this scenario documents the behavioral contract — the SET NULL clause activates only on a true row DELETE (e.g., a separate test path that temporarily removes the `admin_actions_log` constraint, or a future hard-delete scenario)
-
-#### Scenario: Deferred-comment text is replaced
-
-- **WHEN** the integration-test Kotest spec queries the column comment (`pg_description` joined to `pg_attribute`) on `reports.reviewed_by`
-- **THEN** the comment text does NOT contain the substring `'deferred to the Phase 3.5 admin-users migration'` AND describes the now-shipped FK
+- **WHEN** an INSERT into `admin_actions_log` is attempted with `admin_id` set to a random UUID that does NOT exist in `admin_users(id)`, all other required columns valid
+- **THEN** Postgres rejects the insert with a `foreign_key_violation` (SQLState `23503`) error referencing the `admin_actions_log_admin_id_fkey` constraint (catches the common writer mistake of emitting an audit row before the admin row exists or against a typo'd admin_id)
 
 ### Requirement: `admin_app` role REVOKE / GRANT statements are explicitly out of scope
 

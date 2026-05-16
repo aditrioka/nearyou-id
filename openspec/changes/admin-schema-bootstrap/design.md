@@ -1,6 +1,6 @@
 ## Context
 
-The admin panel is the Phase 3.5 MVP-readiness gap. Three existing operational tables (`reports`, `moderation_queue`, `chat_messages`) carry nullable UUID columns with explicit "deferred to the Phase 3.5 admin-users migration" markers in their V9/V15 deployment comments. The `csrf_token_hash` requirement and the "admin-user FK `ON DELETE SET NULL`" invariant are both Detekt-enforced today, but neither has shipping schema to validate against. A long-standing FOLLOW_UPS entry (`suspension-unban-worker-audit-log-after-phase-3.5`) blocks on the admin schema reaching `main`.
+The admin panel is the Phase 3.5 MVP-readiness gap. Three existing operational tables (`reports`, `moderation_queue`, `chat_messages`) carry nullable UUID columns with explicit "deferred to the Phase 3.5 admin-users migration" markers in their V9/V15 deployment comments. The `csrf_token_hash` requirement and the "admin-user FK `ON DELETE SET NULL`" invariant are both documented in [`openspec/project.md`](../../../openspec/project.md) § Coding Conventions, but neither has a shipping Detekt rule yet (verified 2026-05-17: `lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/` contains no rule targeting `csrf_token_hash` or admin-FK ON DELETE clauses) — both are code-review-only invariants today. The V16 migration is the first concrete enforcement surface. A long-standing FOLLOW_UPS entry (`suspension-unban-worker-audit-log-after-phase-3.5`) blocks on the admin schema reaching `main`.
 
 The canonical schema is fully specified in [`docs/05-Implementation.md`](../../../docs/05-Implementation.md) § Admin Users Schema (lines 636-703) + § Admin Actions Log Schema (lines 1184-1208) — five tables, three FK backfills, two partial indexes, three secondary indexes. The work is mechanical: one Flyway migration + schema-level integration tests. The design decisions in this document are about **where to draw the scope boundary**, not about schema shape (which is verbatim from the docs).
 
@@ -10,7 +10,7 @@ The canonical schema is fully specified in [`docs/05-Implementation.md`](../../.
 
 - Ship the five admin tables (`admin_users`, `admin_webauthn_credentials`, `admin_sessions`, `admin_webauthn_challenges`, `admin_actions_log`) verbatim against [`docs/05-Implementation.md`](../../../docs/05-Implementation.md) — column shapes, CHECK constraints, indexes, FK clauses, and partial-index predicates.
 - Backfill the three deferred operational-table FKs (`reports.reviewed_by`, `moderation_queue.resolved_by`, `chat_messages.redacted_by`) to `admin_users(id) ON DELETE SET NULL` using the `NOT VALID + VALIDATE CONSTRAINT` pattern.
-- Validate the `AdminSessionCsrfTokenRule` Detekt invariant by shipping `csrf_token_hash TEXT NOT NULL` at the DB layer (defense-in-depth).
+- Enforce the documented `csrf_token_hash` invariant (per [`openspec/project.md`](../../../openspec/project.md) § Coding Conventions: *"Admin sessions: every `INSERT INTO admin_sessions` must populate `csrf_token_hash`"*) at the DB layer by shipping `csrf_token_hash TEXT NOT NULL`. The schema layer is the first concrete enforcement; a future Detekt rule can layer on top.
 - Provide schema-level Kotest coverage: column shapes, CHECK behavior, FK behavior, UNIQUE behavior, and partial-index existence.
 - Unblock `suspension-unban-worker-audit-log-after-phase-3.5` and Admin #2 / Admin #3 in the scaffolding menu.
 
@@ -57,7 +57,7 @@ ALTER TABLE <table>
 **Rationale:**
 
 - The V9 deferral comment explicitly prescribes this pattern: *"will ADD CONSTRAINT ... NOT VALID + VALIDATE"* ([V9:20-21](../../../backend/ktor/src/main/resources/db/migration/V9__reports_moderation.sql:20)). Following the documented expected shape avoids any "why did you deviate?" reviewer round.
-- The pattern matters for **future** operational consistency — `ADD CONSTRAINT NOT VALID` takes a brief `ShareRowExclusiveLock`, while `VALIDATE CONSTRAINT` takes a weaker `ShareUpdateExclusiveLock` that allows concurrent reads and INSERTs. Plain `ADD CONSTRAINT` takes the stronger `AccessExclusiveLock` blocking all reads/writes during the full-table scan.
+- The pattern matters for **future** operational consistency. Plain `ADD CONSTRAINT FOREIGN KEY` in Postgres holds `ShareRowExclusiveLock` on the referencing table **during the validating full-table scan** — that lock allows concurrent reads but blocks concurrent writes (INSERT/UPDATE/DELETE) for the duration of the scan. The `NOT VALID + VALIDATE CONSTRAINT` split defers the full-table scan to a later operation that runs under `ShareUpdateExclusiveLock`, which blocks neither reads nor writes (only concurrent DDL). For a real-data table the difference between "writes blocked for a few seconds" and "no traffic impact" is meaningful.
 - All three columns are 100% NULL today, so validation is constant-time either way. The pattern is preserved for the **operational shape** the docs prescribed, not for current performance.
 
 **Alternatives considered:**
@@ -147,7 +147,7 @@ ALTER TABLE <table>
 
 - **Risk:** Future hard-delete of an `admin_users` row that has `admin_actions_log` references will be rejected at the schema layer (D3), surfacing as a `foreign_key_violation` SQLState `23503` to any caller attempting the hard delete. → **Mitigation:** intentional — application-layer code must use `is_active = FALSE` flag-flip per the audit-trail-preservation design. The error message is clear and the rejection is the desired behavior. Documented in D3.
 
-- **Risk:** Shipping `csrf_token_hash NOT NULL` before any admin code exists means the schema enforces a constraint that no application path satisfies today. → **Mitigation:** zero rows exist, so the NOT NULL has no immediate enforcement target. The Admin #2 / Admin #3 implementations will need to populate it on every session insert from day one, matching the `AdminSessionCsrfTokenRule` Detekt invariant.
+- **Risk:** Shipping `csrf_token_hash NOT NULL` before any admin code exists means the schema enforces a constraint that no application path satisfies today. → **Mitigation:** zero rows exist, so the NOT NULL has no immediate enforcement target. The Admin #2 / Admin #3 implementations will need to populate it on every session insert from day one, matching the documented `csrf_token_hash` invariant. A future Detekt rule layered on top would catch a NULL writer at compile time instead of at insert time.
 
 - **Risk:** The deferred operational concerns (`admin_app` REVOKE, RLS policies, sentinel seed, auth-bypass guard CHECK) form a cluster of follow-up work. → **Mitigation:** each is documented explicitly:
   - REVOKE → runbook step landing with Admin #2.
