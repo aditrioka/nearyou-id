@@ -54,6 +54,7 @@ These tests pre-date V16 and assert "no FK" / "deferred" against the three colum
 - [ ] 5.11 Scenario coverage for spec Requirement 8 (no RLS enablement): `pg_class.relrowsecurity` is FALSE for all five admin tables; ALSO verify `pg_policies` returns zero rows for the five admin tables (no policy DDL attached, even if not enabled)
 - [ ] 5.12 Scenario coverage for the three MODIFIED-delta `*_fkey` scenarios (reports.reviewed_by, moderation_queue.resolved_by, chat_messages.redacted_by) — each: FK exists with `confdeltype = 'n'` (ON DELETE SET NULL) AND `convalidated = true` AND the column's `pg_description` no longer contains "deferred"
 - [ ] 5.13 Scenario coverage for the SET NULL behavior on `reports.reviewed_by`: insert a fixture admin row with no audit-log references (so the schema-level FK doesn't block hard-delete), insert a fixture reports row referencing that admin, hard-DELETE the admin row, assert the reports row's `reviewed_by` is now NULL (matches the reports MODIFIED-delta "Admin row hard-DELETE SETs reports.reviewed_by to NULL" scenario)
+- [ ] 5.14 Scenario coverage for the chat-conversations MODIFIED-delta additions: (a) `embedded_post_edit_id FK remains deferred post-V16` — assert `pg_constraint` query for chat_messages returns no FK row for that column (still deferred); (b) `redacted_by FK rejects INSERT with bogus admin_id` — assert INSERT with random UUID for `redacted_by` (plus `redacted_at` set to satisfy the atomicity CHECK) fails with SQLState 23503
 
 ## 6. Local verification
 
