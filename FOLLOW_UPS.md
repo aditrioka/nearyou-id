@@ -166,7 +166,7 @@ Format per entry:
 ## admin-app-revoke-staging-and-prod
 
 **Discovered during:** `admin-schema-bootstrap` `/opsx:apply` Section 7 — direct psql to staging Supabase was blocked by Supabase's IPv6-only direct-Postgres host (the dev environment is IPv4-only). The V16 Flyway migration shipped successfully via Cloud Run Jobs, but the `admin_app` REVOKE statements per [`docs/05-Implementation.md:1208`](docs/05-Implementation.md) and [`docs/07-Operations.md` § Data Access Pattern](docs/07-Operations.md) are operational (NOT Flyway-managed per `admin-schema-bootstrap/design.md` D4) and were NOT applied during the deploy.
-**Status:** open
+**Status:** open — **bundled with `admin_app`-role-provisioning task**. Verified 2026-05-17 via one-shot Cloud Run Job (`dev-revoke-admin-app`, postgres:16-alpine + `dev/scripts/promote-staging-user.sh` pattern, since deleted): staging Supabase returns `ERROR: role "admin_app" does not exist`. Pre-Phase 1 #28 (the `admin_app` role provisioning) hasn't run yet. The REVOKE itself is therefore deferred to land alongside the role CREATE — the action item below now points at the bundle, not a standalone REVOKE.
 
 **Finding:** [`docs/05-Implementation.md:1208`](docs/05-Implementation.md) states `admin_actions_log` immutability "is enforced at the role level for `admin_app`" (UPDATE/DELETE revoked). [`docs/07-Operations.md` § Data Access Pattern](docs/07-Operations.md) prescribes the same. The V16 migration deliberately excludes role-level REVOKE/GRANT statements per [`admin-schema-bootstrap/design.md`](openspec/changes/archive/2026-05-17-admin-schema-bootstrap/design.md) D4 (Supabase Console is the canonical surface for role permissions; including `REVOKE ... FROM admin_app` in Flyway would fail in the integration-test Postgres which doesn't provision `admin_app`). The REVOKE landing is therefore an operational follow-up.
 
@@ -183,11 +183,12 @@ REVOKE UPDATE, DELETE ON admin_actions_log FROM admin_app;
 Apply via Supabase Console → SQL Editor on each environment. If `admin_app` role doesn't yet exist (Pre-Phase 1 #28 not run), this errors with "role admin_app does not exist" — in that case, defer to the `admin_app`-role-provisioning task and bundle the REVOKE alongside the role CREATE.
 
 **Action items:**
-- [ ] Apply `REVOKE UPDATE, DELETE ON admin_actions_log FROM admin_app` against staging Supabase via Supabase Console SQL Editor (or via Cloud Run-side psql)
-- [ ] Once production is provisioned, apply the same REVOKE against production Supabase
-- [ ] Record the REVOKE in the deployment runbook at [`docs/07-Operations.md`](docs/07-Operations.md) § Data Access Pattern (or the new admin-app provisioning runbook the Admin #2 lifecycle will introduce)
-- [ ] Block Admin #2 squash-merge until at minimum the staging REVOKE has landed (the runbook step in Admin #2's tasks.md should call this out as a gate)
-- [ ] Delete this `FOLLOW_UPS.md` entry once both staging + production REVOKEs are applied AND the runbook records them
+- [ ] Provision the `admin_app` Postgres role in staging Supabase per [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Pre-Phase 1 #28: `CREATE ROLE admin_app NOLOGIN; GRANT <scoped table+column perms per docs/07-Operations.md § Data Access Pattern>; REVOKE UPDATE, DELETE ON admin_actions_log FROM admin_app;`. Apply via Supabase Console SQL Editor or via the same `dev/scripts/promote-staging-user.sh` Cloud-Run-Job pattern adapted for role DDL.
+- [ ] Store the staging `admin_app` connection string in GCP Secret Manager slot `staging-admin-app-db-connection-string` (the slot name prescribed by Pre-Phase 1 #28).
+- [ ] Once production is provisioned, apply the same role CREATE + GRANT + REVOKE against production Supabase + store `admin-app-db-connection-string` (unprefixed).
+- [ ] Record the role-provisioning + REVOKE procedure in the deployment runbook at [`docs/07-Operations.md`](docs/07-Operations.md) § Data Access Pattern (or a new admin-app provisioning runbook the Admin #2 lifecycle will introduce — Admin #2's `tasks.md` SHOULD call this out as a gate).
+- [ ] Block Admin #2 squash-merge until at minimum the staging `admin_app` role exists AND the REVOKE has landed (Admin #2 is the first consumer of the `admin_app` connection string).
+- [ ] Delete this `FOLLOW_UPS.md` entry once the staging + production roles + REVOKEs are applied AND the runbook records them.
 
 ---
 
