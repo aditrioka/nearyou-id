@@ -7,7 +7,7 @@ import java.sql.DriverManager
 /**
  * Project-wide test bootstrap. Runs once at the start of the test JVM; idempotent.
  *
- * 1. **Postgres / Flyway** — runs Flyway V1..V13 migrations if a reachable Postgres
+ * 1. **Postgres / Flyway** — runs Flyway V1..V16 migrations if a reachable Postgres
  *    is on `DB_URL` (falling back to the local dev compose default). Individual
  *    integration tests assume a previously-migrated schema and `INSERT INTO users`
  *    directly without running Flyway themselves; in CI with a fresh service

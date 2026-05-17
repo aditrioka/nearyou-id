@@ -3,7 +3,6 @@
 ## Purpose
 
 The reports capability ships the user-facing Report submission surface: `POST /api/v1/reports`, the `reports` table with UNIQUE `(reporter_id, target_type, target_id)`, and the auto-hide coupling that flips `is_auto_hidden = TRUE` on a post or reply when 3 distinct reporters with accounts older than 7 days have reported the same target inside the same DB transaction. The endpoint is JWT-required, validates target existence (without applying block-exclusion — reporting blocked or shadow-banned users is valid), rejects self-reports, returns `409 reports.duplicate` on UNIQUE collision, and is rate-limited at 10 submissions/hour per user. Auto-hide also enqueues an idempotent `auto_hide_3_reports` row in `moderation_queue` for admin review.
-
 ## Requirements
 ### Requirement: reports table created via Flyway V9
 
@@ -17,7 +16,7 @@ A migration `V9__reports_moderation.sql` SHALL create the `reports` table verbat
 - `status VARCHAR(16) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'actioned', 'dismissed'))`
 - `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
 - `reviewed_at TIMESTAMPTZ` (nullable)
-- `reviewed_by UUID` (nullable; **NO FK** — deferred to the Phase 3.5 admin-users migration)
+- `reviewed_by UUID` (nullable; FK to `admin_users(id) ON DELETE SET NULL` shipped via the V16 `admin-schema-bootstrap` migration; the FK is validated via `ADD CONSTRAINT ... NOT VALID + VALIDATE CONSTRAINT` per the deferral comment's prescription)
 - `UNIQUE (reporter_id, target_type, target_id)`
 
 Plus three indexes:
@@ -25,7 +24,7 @@ Plus three indexes:
 - `reports_target_idx ON reports(target_type, target_id)`
 - `reports_reporter_idx ON reports(reporter_id, created_at DESC)`
 
-The `reviewed_by` column MUST carry a `COMMENT ON COLUMN` recording its deferred FK target (`admin_users(id) ON DELETE SET NULL`). The Phase 3.5 admin-users migration will add the constraint via `ALTER TABLE ... ADD CONSTRAINT ... NOT VALID` + `VALIDATE CONSTRAINT`.
+The `reviewed_by` column carries a `COMMENT ON COLUMN` describing its FK to `admin_users(id) ON DELETE SET NULL`. The V9 migration shipped the column with a deferral comment ("deferred to the Phase 3.5 admin-users migration"); V16 replaces that comment with the now-shipped FK description.
 
 #### Scenario: Migration runs cleanly from V8
 - **WHEN** Flyway runs `V9__reports_moderation.sql` against a DB at V8
@@ -59,13 +58,18 @@ The `reviewed_by` column MUST carry a `COMMENT ON COLUMN` recording its deferred
 - **WHEN** a `users` row is hard-deleted (e.g. via the tombstone worker when no other RESTRICT FKs block)
 - **THEN** every `reports` row referencing that user as `reporter_id` is cascade-deleted in the same transaction
 
-#### Scenario: reviewed_by has no FK constraint in V9
-- **WHEN** querying `information_schema.referential_constraints` for the `reports` table
-- **THEN** no row is returned for `reviewed_by` (the column exists as a plain UUID)
+#### Scenario: reviewed_by FK exists post-V16 and is validated
+- **WHEN** the integration-test Kotest spec queries `pg_constraint` for `reports` with `contype = 'f'` AND `conname = 'reports_reviewed_by_fkey'`
+- **THEN** exactly one row is returned with `confrelid` referencing `admin_users` AND `confdeltype = 'n'` (`ON DELETE SET NULL`) AND `convalidated = true`
 
-#### Scenario: reviewed_by column carries deferred-FK documentation
+#### Scenario: reviewed_by deferred-comment text removed post-V16
 - **WHEN** querying `pg_description` for the `reviewed_by` column of `reports`
-- **THEN** the comment mentions `admin_users(id)` AND the phrase `deferred`
+- **THEN** the comment does NOT contain the substring `'deferred to the Phase 3.5 admin-users migration'` AND describes the now-shipped FK relationship (mentions `admin_users(id)` AND `SET NULL`)
+
+#### Scenario: Admin row hard-DELETE SETs reports.reviewed_by to NULL
+- **GIVEN** an `admin_users` row exists with no `admin_actions_log` references (e.g., a freshly inserted test-fixture admin) AND a `reports` row exists with `reviewed_by` referencing that admin
+- **WHEN** the `admin_users` row is hard-deleted
+- **THEN** the `reports.reviewed_by` column on that row is updated to NULL atomically by the FK's ON DELETE SET NULL action
 
 ### Requirement: POST /api/v1/reports endpoint exists
 

@@ -219,21 +219,52 @@ class ChatFoundationRouteTest : StringSpec({
         }
     }
 
+    val redactionAdminIds = mutableListOf<UUID>()
+
+    // Pre-V16 redactMessage took a user UUID; post-V16 redacted_by is FK to
+    // admin_users so we seed a throwaway admin internally and ignore the param.
+    @Suppress("UNUSED_PARAMETER")
     fun redactMessage(
         messageId: UUID,
         redactor: UUID,
         reason: String? = "spam",
     ) {
+        // Post-V16: chat_messages.redacted_by is a validated FK to admin_users(id).
+        // Seed a throwaway admin row to satisfy the FK; clean it up at session end via
+        // cleanupRedactionAdmins().
+        val adminId = UUID.randomUUID()
         dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO admin_users (id, email, display_name, password_hash, role)
+                VALUES (?, ?, 'Test Redactor', 'argon2id-placeholder', 'moderator')
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, adminId)
+                ps.setString(2, "redaction-$adminId@test.local")
+                ps.executeUpdate()
+            }
             conn.prepareStatement(
                 "UPDATE chat_messages SET redacted_at = NOW(), redacted_by = ?, redaction_reason = ? WHERE id = ?",
             ).use { ps ->
-                ps.setObject(1, redactor)
+                ps.setObject(1, adminId)
                 ps.setString(2, reason)
                 ps.setObject(3, messageId)
                 ps.executeUpdate()
             }
         }
+        redactionAdminIds.add(adminId)
+    }
+
+    fun cleanupRedactionAdmins() {
+        if (redactionAdminIds.isEmpty()) return
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("DELETE FROM admin_users WHERE id = ANY(?)").use { ps ->
+                ps.setArray(1, conn.createArrayOf("uuid", redactionAdminIds.toTypedArray()))
+                ps.executeUpdate()
+            }
+        }
+        redactionAdminIds.clear()
     }
 
     fun chatRowEmbedColumns(messageId: UUID): Triple<String?, String?, String?> {
@@ -302,6 +333,9 @@ class ChatFoundationRouteTest : StringSpec({
                 }
             }
         }
+        // Throwaway admin rows seeded by redactMessage() — chat_messages referencing them
+        // were just deleted above, so the FK from redacted_by has no dependents left.
+        cleanupRedactionAdmins()
     }
 
     suspend fun withChat(block: suspend io.ktor.server.testing.ApplicationTestBuilder.() -> Unit) {

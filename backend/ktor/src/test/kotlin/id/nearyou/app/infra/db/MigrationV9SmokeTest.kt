@@ -22,10 +22,14 @@ import java.util.UUID
  *  - UNIQUE constraints fire SQLSTATE 23505 on duplicate inserts.
  *  - All 5 indexes exist with documented column orders.
  *  - `reports.reporter_id` FK has `delete_rule = 'CASCADE'`.
- *  - Deferred-FK columns (`reports.reviewed_by`, `moderation_queue.resolved_by`,
- *    `reports.target_id`, `moderation_queue.target_id`) have zero referential
- *    constraints.
- *  - `reviewed_by` / `resolved_by` comments mention `admin_users` AND `deferred`.
+ *  - `reports.target_id` and `moderation_queue.target_id` remain plain UUID
+ *    with no FK (polymorphic reference: target may be post / user / chat_message).
+ *  - `reviewed_by` / `resolved_by` comments mention `admin_users` AND no longer
+ *    mention `deferred` (V16 admin-schema-bootstrap backfilled both FKs via
+ *    ADD CONSTRAINT ... NOT VALID + VALIDATE CONSTRAINT and replaced the
+ *    deferred-FK COMMENT text). The FK-presence assertions live in the V16
+ *    schema spec; the comment-replacement assertions are retained here to
+ *    detect any future drift on V9-era columns.
  *  - CASCADE behavior: deleting a user cascades to their reports rows.
  *  - `flyway_schema_history` contains versions 1..9.
  *  - `priority` column default is 5.
@@ -525,7 +529,15 @@ class MigrationV9SmokeTest : StringSpec({
         }
     }
 
-    "deferred-FK columns have zero referential constraints" {
+    // V9 originally shipped reviewed_by + resolved_by with NO FK (deferred to Phase 3.5).
+    // V16 (admin-schema-bootstrap) backfilled both via ADD CONSTRAINT ... NOT VALID +
+    // VALIDATE CONSTRAINT. The "zero referential constraints" assertion that V9 originally
+    // owned has migrated to the per-target MODIFIED-delta specs (reports / moderation-queue)
+    // and the V16 schema spec — both columns now carry validated FKs to admin_users(id).
+    // The target_id columns remain plain UUIDs by design (target is a polymorphic
+    // reference into posts / users / chat_messages — no single FK target exists).
+
+    "target_id columns remain plain UUID with no FK (polymorphic reference)" {
         DriverManager.getConnection(url, user, password).use { conn ->
             val query =
                 """
@@ -538,9 +550,7 @@ class MigrationV9SmokeTest : StringSpec({
                    AND kcu.column_name = ?
                 """.trimIndent()
             listOf(
-                "reports" to "reviewed_by",
                 "reports" to "target_id",
-                "moderation_queue" to "resolved_by",
                 "moderation_queue" to "target_id",
             ).forEach { (table, col) ->
                 conn.prepareStatement(query).use { ps ->
@@ -555,7 +565,7 @@ class MigrationV9SmokeTest : StringSpec({
         }
     }
 
-    "reviewed_by comment mentions admin_users AND deferred" {
+    "reviewed_by comment mentions admin_users AND no longer mentions deferred (post-V16)" {
         DriverManager.getConnection(url, user, password).use { conn ->
             conn.prepareStatement(
                 """
@@ -569,13 +579,13 @@ class MigrationV9SmokeTest : StringSpec({
                     rs.next() shouldBe true
                     val comment = rs.getString(1) ?: ""
                     comment.contains("admin_users") shouldBe true
-                    comment.contains("deferred") shouldBe true
+                    comment.lowercase().contains("deferred") shouldBe false
                 }
             }
         }
     }
 
-    "resolved_by comment mentions admin_users AND deferred" {
+    "resolved_by comment mentions admin_users AND no longer mentions deferred (post-V16)" {
         DriverManager.getConnection(url, user, password).use { conn ->
             conn.prepareStatement(
                 """
@@ -589,7 +599,7 @@ class MigrationV9SmokeTest : StringSpec({
                     rs.next() shouldBe true
                     val comment = rs.getString(1) ?: ""
                     comment.contains("admin_users") shouldBe true
-                    comment.contains("deferred") shouldBe true
+                    comment.lowercase().contains("deferred") shouldBe false
                 }
             }
         }

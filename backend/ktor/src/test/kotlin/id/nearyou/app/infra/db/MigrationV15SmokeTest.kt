@@ -22,9 +22,16 @@ import java.sql.DriverManager
  *     conversation_participants + 3 on chat_messages).
  *   - Four CHECK constraints exist (slot ∈ {1,2}, empty-message guard, redaction
  *     atomicity 3-column coupling).
- *   - Deferred-FK columns `chat_messages.redacted_by` and
- *     `chat_messages.embedded_post_edit_id` have NO FK referential constraints
- *     and carry COMMENT ON COLUMN markers documenting the deferred targets.
+ *   - `chat_messages.embedded_post_edit_id` remains a deferred-FK column with
+ *     NO FK referential constraint and a COMMENT ON COLUMN marker documenting
+ *     the deferred `post_edits(id)` target (the future post-edit-history change
+ *     will ship that table).
+ *   - `chat_messages.redacted_by` was DEFERRED at V15 but V16 (admin-schema-
+ *     bootstrap) backfilled the FK to `admin_users(id)` and replaced the
+ *     comment text. The V15 smoke now asserts only the comment-replacement
+ *     side (admin_users mentioned + deferred no longer mentioned); FK-presence
+ *     assertions live in the V16 schema spec + chat-conversations MODIFIED
+ *     delta.
  *   - When the `realtime` schema exists (Supabase), the
  *     `participants_can_subscribe` policy is installed on `realtime.messages`
  *     AND its body does NOT contain the `is_shadow_banned` clause that V2
@@ -283,7 +290,14 @@ class MigrationV15SmokeTest : StringSpec({
         }
     }
 
-    "deferred-FK columns redacted_by + embedded_post_edit_id have no referential constraint" {
+    // V15 originally shipped redacted_by + embedded_post_edit_id with NO FK (both deferred).
+    // V16 (admin-schema-bootstrap) backfilled chat_messages.redacted_by → admin_users(id);
+    // the FK-presence assertion lives in the V16 schema spec + chat-conversations MODIFIED
+    // delta. embedded_post_edit_id remains deferred (target table post_edits ships with the
+    // future post-edit-history change). The remaining V15-owned assertion: that embedded_-
+    // post_edit_id still has no FK.
+
+    "embedded_post_edit_id has no referential constraint (still deferred)" {
         DriverManager.getConnection(url, user, password).use { conn ->
             conn.createStatement().use { st ->
                 st.executeQuery(
@@ -294,19 +308,18 @@ class MigrationV15SmokeTest : StringSpec({
                       JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
                      WHERE t.relname = 'chat_messages'
                        AND c.contype = 'f'
-                       AND a.attname IN ('redacted_by', 'embedded_post_edit_id')
+                       AND a.attname = 'embedded_post_edit_id'
                     """.trimIndent(),
                 ).use { rs ->
                     val fkCols = mutableSetOf<String>()
                     while (rs.next()) fkCols.add(rs.getString(1))
-                    // Neither column should appear in any FK constraint.
                     fkCols shouldBe emptySet()
                 }
             }
         }
     }
 
-    "deferred-FK columns carry COMMENT ON COLUMN markers" {
+    "redacted_by comment mentions admin_users AND no longer mentions deferred (post-V16)" {
         DriverManager.getConnection(url, user, password).use { conn ->
             conn.createStatement().use { st ->
                 st.executeQuery(
@@ -323,9 +336,14 @@ class MigrationV15SmokeTest : StringSpec({
                     val comment = rs.getString(1)
                     comment shouldNotBe null
                     comment shouldContain "admin_users"
-                    comment.lowercase() shouldContain "deferred"
+                    (comment.lowercase().contains("deferred")) shouldBe false
                 }
             }
+        }
+    }
+
+    "embedded_post_edit_id comment still mentions post_edits AND deferred (post-V16)" {
+        DriverManager.getConnection(url, user, password).use { conn ->
             conn.createStatement().use { st ->
                 st.executeQuery(
                     """

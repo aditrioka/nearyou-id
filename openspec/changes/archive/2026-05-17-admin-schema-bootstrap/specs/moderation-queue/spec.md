@@ -1,9 +1,5 @@
-# moderation-queue Specification
+## MODIFIED Requirements
 
-## Purpose
-
-The moderation-queue capability defines the admin-triage table that surfaces content needing human review. Rows carry `(target_type, target_id, trigger)` with the `trigger` enum reserving 7 values (`auto_hide_3_reports`, `perspective_api_high_score`, `uu_ite_keyword_match`, `admin_flag`, `csam_detected`, `anomaly_detection`, `username_flagged`) at V9 for forward-compatibility, even though only the first writer ships now. UNIQUE `(target_type, target_id, trigger)` makes enqueueing idempotent so duplicate triggers do not flood the queue, and the `resolved_by` admin-FK is deliberately deferred until the Phase 3.5 admin-users migration lands.
-## Requirements
 ### Requirement: moderation_queue table created via Flyway V9
 
 Migration `V9__reports_moderation.sql` SHALL create the `moderation_queue` table verbatim-aligned with `docs/05-Implementation.md` §789–814 with columns:
@@ -81,44 +77,3 @@ The `resolved_by` column carries a `COMMENT ON COLUMN` describing its FK to `adm
 #### Scenario: resolved_by deferred-comment text removed post-V16
 - **WHEN** querying `pg_description` for the `resolved_by` column of `moderation_queue`
 - **THEN** the comment does NOT contain the substring `'deferred to the Phase 3.5 admin-users migration'` AND describes the now-shipped FK relationship (mentions `admin_users(id)` AND `SET NULL`)
-
-### Requirement: V9 writes auto_hide_3_reports rows only
-
-The V9 change ships exactly one writer into `moderation_queue`: the reports auto-hide path (see `reports` capability). That path MUST insert rows with `trigger = 'auto_hide_3_reports'`. No other trigger value is written by V9 code. Future changes (Phase 2 Perspective API, Phase 3.5 admin-flag, Phase 4 CSAM / anomaly / username-flagged) introduce their own writers.
-
-#### Scenario: Only auto_hide_3_reports rows written in V9
-- **WHEN** the V9-era codebase is fully deployed and `moderation_queue` has been populated
-- **THEN** every row's `trigger` column equals `'auto_hide_3_reports'`
-
-#### Scenario: No writer path exists for the other 6 trigger values in V9
-- **WHEN** searching the `backend/ktor/src/main/kotlin/id/nearyou/app/moderation/` tree for inserts into `moderation_queue`
-- **THEN** all insert statements use the literal `'auto_hide_3_reports'` as the `trigger` value (no parameterized path reaching other enum values from V9 code)
-
-### Requirement: Idempotent insert via ON CONFLICT DO NOTHING
-
-The reports auto-hide writer MUST use `INSERT INTO moderation_queue (target_type, target_id, trigger) VALUES (?, ?, 'auto_hide_3_reports') ON CONFLICT (target_type, target_id, trigger) DO NOTHING`. Repeat submissions that cross the threshold again (e.g., 4th, 5th reporter, or a racing concurrent submission) MUST NOT produce duplicate queue rows.
-
-#### Scenario: Second auto-hide attempt on same target is a no-op
-- **WHEN** the threshold has already been crossed (queue row exists) AND a 4th aged reporter submits
-- **THEN** the `INSERT ... ON CONFLICT DO NOTHING` succeeds as a no-op AND `SELECT COUNT(*) FROM moderation_queue WHERE target_type = ? AND target_id = ? AND trigger = 'auto_hide_3_reports'` returns exactly 1
-
-#### Scenario: Concurrent race — both INSERTs attempt, only one row persists
-- **WHEN** two concurrent reports both cross the threshold on the same target (tx A and tx B)
-- **THEN** exactly one `moderation_queue` row exists for that (target_type, target_id, 'auto_hide_3_reports') tuple AND neither transaction fails
-
-### Requirement: Priority stays at default for V9 writes
-
-V9 MUST NOT customize `priority` on auto-hide inserts; the default value of 5 is authoritative. Future changes MAY introduce tiered priorities (e.g., CSAM writes with `priority = 1`), but V9 does not.
-
-#### Scenario: auto_hide_3_reports rows have priority = 5
-- **WHEN** querying `SELECT priority FROM moderation_queue WHERE trigger = 'auto_hide_3_reports'`
-- **THEN** every returned row has `priority = 5`
-
-### Requirement: No reader endpoint in V9
-
-V9 MUST NOT expose any admin or user-facing endpoint that reads `moderation_queue`. The Phase 3.5 admin panel owns that reader. V9 code is a write-only producer.
-
-#### Scenario: No GET endpoint for moderation_queue
-- **WHEN** the V9-era backend is fully deployed
-- **THEN** no route matches `GET /admin/moderation-queue` or any V9-introduced route that returns `moderation_queue` rows
-

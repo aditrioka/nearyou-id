@@ -163,10 +163,38 @@ Format per entry:
 
 ---
 
+## admin-app-revoke-staging-and-prod
+
+**Discovered during:** `admin-schema-bootstrap` `/opsx:apply` Section 7 — direct psql to staging Supabase was blocked by Supabase's IPv6-only direct-Postgres host (the dev environment is IPv4-only). The V16 Flyway migration shipped successfully via Cloud Run Jobs, but the `admin_app` REVOKE statements per [`docs/05-Implementation.md:1208`](docs/05-Implementation.md) and [`docs/07-Operations.md` § Data Access Pattern](docs/07-Operations.md) are operational (NOT Flyway-managed per `admin-schema-bootstrap/design.md` D4) and were NOT applied during the deploy.
+**Status:** open
+
+**Finding:** [`docs/05-Implementation.md:1208`](docs/05-Implementation.md) states `admin_actions_log` immutability "is enforced at the role level for `admin_app`" (UPDATE/DELETE revoked). [`docs/07-Operations.md` § Data Access Pattern](docs/07-Operations.md) prescribes the same. The V16 migration deliberately excludes role-level REVOKE/GRANT statements per [`admin-schema-bootstrap/design.md`](openspec/changes/archive/2026-05-17-admin-schema-bootstrap/design.md) D4 (Supabase Console is the canonical surface for role permissions; including `REVOKE ... FROM admin_app` in Flyway would fail in the integration-test Postgres which doesn't provision `admin_app`). The REVOKE landing is therefore an operational follow-up.
+
+**Specs at fault:** None — `openspec/specs/admin-schema/spec.md` (post-archive) Requirement 6 correctly enumerates GRANT/REVOKE as out of scope for V16.
+**Code at fault:** None — V16 is environment-portable by design (verified by spec scenario "Migration applies cleanly without admin_app role" + by the successful CI integration-test runs against a vanilla Postgres without admin_app).
+**Docs at fault:** None — both [`docs/05-Implementation.md:1208`](docs/05-Implementation.md) and [`docs/07-Operations.md`](docs/07-Operations.md) correctly describe the end state; the operational gap is the REVOKE not yet being applied to staging Supabase.
+
+**Impact (if shipped):** Operationally low until Admin #2 / Admin #3 ship. Today zero admin rows exist and zero admin code writes audit rows, so the absence of role-level REVOKE has no exploitable surface. Once Admin #3 lands the first admin-login flow and Admin #4 lands the audit-log viewer, the REVOKE becomes load-bearing — a compromised `admin_app` connection without the REVOKE could mutate `admin_actions_log` (defeating the immutability invariant). Pre-condition for any production admin code: REVOKE applied to both staging AND production Supabase.
+
+**Ambiguity to resolve first:** None. SQL is straightforward:
+```sql
+REVOKE UPDATE, DELETE ON admin_actions_log FROM admin_app;
+```
+Apply via Supabase Console → SQL Editor on each environment. If `admin_app` role doesn't yet exist (Pre-Phase 1 #28 not run), this errors with "role admin_app does not exist" — in that case, defer to the `admin_app`-role-provisioning task and bundle the REVOKE alongside the role CREATE.
+
+**Action items:**
+- [ ] Apply `REVOKE UPDATE, DELETE ON admin_actions_log FROM admin_app` against staging Supabase via Supabase Console SQL Editor (or via Cloud Run-side psql)
+- [ ] Once production is provisioned, apply the same REVOKE against production Supabase
+- [ ] Record the REVOKE in the deployment runbook at [`docs/07-Operations.md`](docs/07-Operations.md) § Data Access Pattern (or the new admin-app provisioning runbook the Admin #2 lifecycle will introduce)
+- [ ] Block Admin #2 squash-merge until at minimum the staging REVOKE has landed (the runbook step in Admin #2's tasks.md should call this out as a gate)
+- [ ] Delete this `FOLLOW_UPS.md` entry once both staging + production REVOKEs are applied AND the runbook records them
+
+---
+
 ## suspension-unban-worker-audit-log-after-phase-3.5
 
 **Discovered during:** `suspension-unban-worker` `/next-change` Phase B step 7 reconciliation pass — verifying the canonical "Audit log inserted per unban" line at [`docs/05-Implementation.md:363`](docs/05-Implementation.md) against the current Flyway migration set.
-**Status:** open
+**Status:** open — **schema dependency landed 2026-05-17 via `admin-schema-bootstrap` (PR [#107](https://github.com/aditrioka/nearyou-id/pull/107))**, ready to file `system-actor-and-worker-audit-rows`
 
 **Finding:** [`docs/05-Implementation.md:363`](docs/05-Implementation.md) prescribes an audit row per unban against `admin_actions_log`, but **the `admin_actions_log` and `admin_users` tables have not shipped yet**. They are deferred to the Phase 3.5 admin-panel build per the explicit comments in [`backend/ktor/src/main/resources/db/migration/V9__reports_moderation.sql:20,73,111`](backend/ktor/src/main/resources/db/migration/V9__reports_moderation.sql) (analogous columns `reports.reviewed_by` and `moderation_queue.reviewed_by` carry the marker *"FK to admin_users(id) ON DELETE SET NULL — deferred to the Phase 3.5 admin-users migration"*). The `suspension-unban-worker` change ships the worker + structured INFO logs in the interim and explicitly defers audit-row writes to a follow-up after Phase 3.5 lands the schema. See `suspension-unban-worker/design.md` § D3 for the full rationale.
 
