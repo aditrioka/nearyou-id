@@ -3,7 +3,6 @@
 ## Purpose
 
 The moderation-queue capability defines the admin-triage table that surfaces content needing human review. Rows carry `(target_type, target_id, trigger)` with the `trigger` enum reserving 7 values (`auto_hide_3_reports`, `perspective_api_high_score`, `uu_ite_keyword_match`, `admin_flag`, `csam_detected`, `anomaly_detection`, `username_flagged`) at V9 for forward-compatibility, even though only the first writer ships now. UNIQUE `(target_type, target_id, trigger)` makes enqueueing idempotent so duplicate triggers do not flood the queue, and the `resolved_by` admin-FK is deliberately deferred until the Phase 3.5 admin-users migration lands.
-
 ## Requirements
 ### Requirement: moderation_queue table created via Flyway V9
 
@@ -17,7 +16,7 @@ Migration `V9__reports_moderation.sql` SHALL create the `moderation_queue` table
 - `priority SMALLINT NOT NULL DEFAULT 5`
 - `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
 - `resolved_at TIMESTAMPTZ` (nullable)
-- `resolved_by UUID` (nullable; **NO FK** — deferred to the Phase 3.5 admin-users migration)
+- `resolved_by UUID` (nullable; FK to `admin_users(id) ON DELETE SET NULL` shipped via the V16 `admin-schema-bootstrap` migration; the FK is validated via `ADD CONSTRAINT ... NOT VALID + VALIDATE CONSTRAINT`)
 - `notes TEXT` (nullable)
 - `UNIQUE (target_type, target_id, trigger)`
 
@@ -25,7 +24,7 @@ Plus two indexes:
 - `moderation_queue_status_idx ON moderation_queue(status, priority, created_at)`
 - `moderation_queue_target_idx ON moderation_queue(target_type, target_id)`
 
-The `resolved_by` column MUST carry a `COMMENT ON COLUMN` recording its deferred FK target (`admin_users(id) ON DELETE SET NULL`). The Phase 3.5 admin-users migration will add the constraint via `ALTER TABLE ... ADD CONSTRAINT ... NOT VALID` + `VALIDATE CONSTRAINT` (mirrors the `reports.reviewed_by` pattern).
+The `resolved_by` column carries a `COMMENT ON COLUMN` describing its FK to `admin_users(id) ON DELETE SET NULL`. The V9 migration shipped the column with a deferral comment ("deferred to the Phase 3.5 admin-users migration"); V16 replaces that comment with the now-shipped FK description (mirrors the `reports.reviewed_by` pattern).
 
 #### Scenario: Table created in same migration as reports
 - **WHEN** Flyway runs `V9__reports_moderation.sql` against a DB at V8
@@ -75,13 +74,13 @@ The `resolved_by` column MUST carry a `COMMENT ON COLUMN` recording its deferred
 - **WHEN** querying `pg_indexes WHERE tablename = 'moderation_queue'`
 - **THEN** the result contains `moderation_queue_status_idx` AND `moderation_queue_target_idx`
 
-#### Scenario: resolved_by has no FK constraint in V9
-- **WHEN** querying `information_schema.referential_constraints` for the `moderation_queue` table
-- **THEN** no row is returned for `resolved_by` (the column exists as a plain UUID)
+#### Scenario: resolved_by FK exists post-V16 and is validated
+- **WHEN** the integration-test Kotest spec queries `pg_constraint` for `moderation_queue` with `contype = 'f'` AND `conname = 'moderation_queue_resolved_by_fkey'`
+- **THEN** exactly one row is returned with `confrelid` referencing `admin_users` AND `confdeltype = 'n'` (`ON DELETE SET NULL`) AND `convalidated = true`
 
-#### Scenario: resolved_by column carries deferred-FK documentation
+#### Scenario: resolved_by deferred-comment text removed post-V16
 - **WHEN** querying `pg_description` for the `resolved_by` column of `moderation_queue`
-- **THEN** the comment mentions `admin_users(id)` AND the phrase `deferred`
+- **THEN** the comment does NOT contain the substring `'deferred to the Phase 3.5 admin-users migration'` AND describes the now-shipped FK relationship (mentions `admin_users(id)` AND `SET NULL`)
 
 ### Requirement: V9 writes auto_hide_3_reports rows only
 
