@@ -886,9 +886,23 @@ class ChatSendRateLimitTest : StringSpec({
     "scenario 24 — admin redaction does NOT release a daily slot" {
         val (sender, tok) = seedUser()
         val (recipient, _) = seedUser()
-        val (adminUid, _) = seedUser() // stand-in admin user (FK on `users` is satisfied)
+        // Post-V16: chat_messages.redacted_by is a validated FK to admin_users(id),
+        // so the redactor must be a real admin row, not a stand-in user.
+        val redactionAdminId = UUID.randomUUID()
         val conv = createConv(sender, recipient)
         try {
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    """
+                    INSERT INTO admin_users (id, email, display_name, password_hash, role)
+                    VALUES (?, ?, 'Test Redactor', 'argon2id-placeholder', 'moderator')
+                    """.trimIndent(),
+                ).use { ps ->
+                    ps.setObject(1, redactionAdminId)
+                    ps.setString(2, "scenario24-$redactionAdminId@test.local")
+                    ps.executeUpdate()
+                }
+            }
             val limiter = InMemoryRateLimiter()
             val firstId = AtomicReference<UUID>()
             withChat(rateLimiter = limiter) {
@@ -905,7 +919,7 @@ class ChatSendRateLimitTest : StringSpec({
                 conn.prepareStatement(
                     "UPDATE chat_messages SET redacted_at = NOW(), redacted_by = ? WHERE id = ?",
                 ).use { ps ->
-                    ps.setObject(1, adminUid)
+                    ps.setObject(1, redactionAdminId)
                     ps.setObject(2, firstId.get())
                     ps.executeUpdate()
                 }
@@ -917,7 +931,14 @@ class ChatSendRateLimitTest : StringSpec({
                 postSend(tok, conv).status shouldBe HttpStatusCode.TooManyRequests
             }
         } finally {
-            cleanup(sender, recipient, adminUid)
+            cleanup(sender, recipient)
+            // chat_messages was just deleted by cleanup() — FK has no dependents.
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("DELETE FROM admin_users WHERE id = ?").use { ps ->
+                    ps.setObject(1, redactionAdminId)
+                    ps.executeUpdate()
+                }
+            }
         }
     }
 

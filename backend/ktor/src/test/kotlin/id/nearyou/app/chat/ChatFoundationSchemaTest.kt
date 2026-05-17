@@ -256,11 +256,23 @@ class ChatFoundationSchemaTest : StringSpec({
     "5.4: redaction atomicity CHECK accepts redacted_at + redacted_by + NULL reason" {
         val u1 = seedUser()
         val u2 = seedUser()
-        // Borrow u2 as the surrogate "admin" id since `redacted_by` ships without an FK in V15.
+        // Post-V16 (admin-schema-bootstrap): chat_messages.redacted_by is a validated FK
+        // to admin_users(id). Seed a throwaway admin row for the redaction write.
+        val redactionAdminId = UUID.randomUUID()
         var convId: UUID? = null
         try {
             val msgId: UUID
             dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    """
+                    INSERT INTO admin_users (id, email, display_name, password_hash, role)
+                    VALUES (?, ?, 'Test Admin 5.4', 'argon2id-placeholder', 'moderator')
+                    """.trimIndent(),
+                ).use { ps ->
+                    ps.setObject(1, redactionAdminId)
+                    ps.setString(2, "admin-5.4-$redactionAdminId@test.local")
+                    ps.executeUpdate()
+                }
                 convId = insertConversation(conn, u1)
                 insertParticipant(conn, convId!!, u1, slot = 1)
                 insertParticipant(conn, convId!!, u2, slot = 2)
@@ -280,7 +292,7 @@ class ChatFoundationSchemaTest : StringSpec({
                     conn.prepareStatement(
                         "UPDATE chat_messages SET redacted_at = NOW(), redacted_by = ?, redaction_reason = NULL WHERE id = ?",
                     ).use { ps ->
-                        ps.setObject(1, u2)
+                        ps.setObject(1, redactionAdminId)
                         ps.setObject(2, msgId)
                         ps.executeUpdate()
                     }
@@ -292,7 +304,7 @@ class ChatFoundationSchemaTest : StringSpec({
                     ps.executeQuery().use { rs ->
                         rs.next() shouldBe true
                         (rs.getTimestamp(1) != null) shouldBe true
-                        rs.getObject(2, UUID::class.java) shouldBe u2
+                        rs.getObject(2, UUID::class.java) shouldBe redactionAdminId
                         rs.getString(3) shouldBe null
                     }
                 }
@@ -300,6 +312,14 @@ class ChatFoundationSchemaTest : StringSpec({
         } finally {
             convId?.let { cleanupConversation(it) }
             cleanupUsers(u1, u2)
+            // Clean up the throwaway admin row (chat_messages were already deleted by
+            // cleanupConversation above, so the FK has no dependents).
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("DELETE FROM admin_users WHERE id = ?").use { ps ->
+                    ps.setObject(1, redactionAdminId)
+                    ps.executeUpdate()
+                }
+            }
         }
     }
 

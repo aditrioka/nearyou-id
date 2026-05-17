@@ -841,6 +841,9 @@ class ChatMessageNotificationTest : StringSpec({
         val (sender, tok) = seedUser()
         val (recipient, recipientTok) = seedUser()
         val conv = createConv(sender, recipient)
+        // Post-V16: chat_messages.redacted_by is a validated FK to admin_users(id),
+        // so we need a real admin row to satisfy the FK when simulating redaction below.
+        val redactionAdminId = UUID.randomUUID()
         try {
             val recorder = RecordingNotificationEmitter(delegate = realDbEmitter)
             withChat(emitter = recorder) { _, _ ->
@@ -855,9 +858,19 @@ class ChatMessageNotificationTest : StringSpec({
             val mid = recorder.invocations.single().targetId
             dataSource.connection.use { conn ->
                 conn.prepareStatement(
+                    """
+                    INSERT INTO admin_users (id, email, display_name, password_hash, role)
+                    VALUES (?, ?, 'Test Admin', 'argon2id-placeholder-not-verified', 'moderator')
+                    """.trimIndent(),
+                ).use { ps ->
+                    ps.setObject(1, redactionAdminId)
+                    ps.setString(2, "admin-redaction-$redactionAdminId@test.local")
+                    ps.executeUpdate()
+                }
+                conn.prepareStatement(
                     "UPDATE chat_messages SET redacted_at = NOW(), redacted_by = ?, content = ? WHERE id = ?",
                 ).use { ps ->
-                    ps.setObject(1, sender) // any UUID — admin_users FK is deferred
+                    ps.setObject(1, redactionAdminId)
                     ps.setString(2, "REDACTED-DIFFERENT-CONTENT")
                     ps.setObject(3, mid)
                     ps.executeUpdate()
@@ -874,6 +887,15 @@ class ChatMessageNotificationTest : StringSpec({
             }
         } finally {
             cleanup(sender, recipient)
+            // Clean up the throwaway admin row used to satisfy the redacted_by FK.
+            // chat_messages was already deleted by cleanup() above, so the FK has no
+            // dependent rows; admin DELETE is unconditional.
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("DELETE FROM admin_users WHERE id = ?").use { ps ->
+                    ps.setObject(1, redactionAdminId)
+                    ps.executeUpdate()
+                }
+            }
         }
     }
 
