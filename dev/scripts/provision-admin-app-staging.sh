@@ -95,6 +95,23 @@ if ! gcloud secrets describe "$PASSWORD_SLOT" --project="$PROJECT" >/dev/null 2>
     exit 2
 fi
 
+# Cloud Run Job CREATE requires the runtime SA to have secretAccessor on
+# every slot bound via --set-secrets — at create time, not execute time
+# (gcloud validates the IAM upfront per docs/07-Operations.md § Secret
+# Management Runbook). The flyway_migrator password slot was granted long
+# ago in Pre-Phase 1; the admin_app password slot was just created and
+# needs the grant here so the job below can bind it.
+RUNTIME_SA="27815942904-compute@developer.gserviceaccount.com"
+echo "==> Pre-flight: granting secretAccessor on $PASSWORD_SLOT to $RUNTIME_SA..."
+gcloud secrets add-iam-policy-binding "$PASSWORD_SLOT" \
+    --project="$PROJECT" \
+    --member="serviceAccount:$RUNTIME_SA" \
+    --role=roles/secretmanager.secretAccessor \
+    --quiet >/dev/null 2>&1 || {
+    echo "WARNING: IAM bind on $PASSWORD_SLOT failed — verify slot exists + caller has secretmanager.admin role" >&2
+    exit 2
+}
+
 # Resolve the flyway_migrator DSN (the role with DDL privileges to CREATE ROLE).
 DB_URL="$(gcloud secrets versions access latest --secret="$URL_SLOT" --project="$PROJECT" 2>/dev/null)"
 DB_USER="$(gcloud secrets versions access latest --secret="$USER_SLOT" --project="$PROJECT" 2>/dev/null)"
@@ -248,17 +265,16 @@ SELECT 'admin_app provisioned + grants applied + immutability REVOKE in place' A
 PROVISION_SQL
 )
 
-# Verify no commas in the SQL (gcloud --args trap).
-if echo "$SQL" | grep -q ','; then
-    echo "ERROR: provisioning SQL contains commas — gcloud --args will split. Aborting." >&2
+# The SQL is passed via --set-env-vars (NOT --args), so gcloud's comma-split
+# rule for --args doesn't apply here. Commas in SQL (e.g., `REVOKE UPDATE,
+# DELETE ON …`) are fine. The env-vars delimiter we override below is `~`
+# (not `@` — the DSN contains `@` between user and host).
+
+# Sanity-check the delimiter character doesn't collide with values.
+if [[ "$FLYWAY_DSN" == *"~"* ]] || [[ "$SQL" == *"~"* ]]; then
+    echo "ERROR: DSN or SQL contains '~' which collides with the env-vars delimiter. Pick a different delimiter." >&2
     exit 3
 fi
-
-# Set the admin_app.password session GUC via PGOPTIONS so the DO $$ block
-# can read it without baking the password into the SQL text or the job spec.
-# The password is injected via --set-secrets (Cloud Run runtime mount),
-# never visible in `gcloud run jobs describe` output.
-PGOPTIONS_CMD='-c admin_app.password=$ADMIN_APP_PW'
 
 gcloud run jobs delete "$JOB_NAME" --region="$REGION" --project="$PROJECT" --quiet 2>/dev/null || true
 
@@ -271,7 +287,7 @@ gcloud run jobs create "$JOB_NAME" \
     --args="-c" \
     --args="PGOPTIONS=\"-c admin_app.password=\$ADMIN_APP_PW\" psql \"\$DSN\" -v ON_ERROR_STOP=1 -c \"\$SQL\"" \
     --set-secrets="ADMIN_APP_PW=$PASSWORD_SLOT:latest,PGPASSWORD=$FLYWAY_PASSWORD_SLOT:latest" \
-    --set-env-vars="^@^DSN=$FLYWAY_DSN@SQL=$SQL" \
+    --set-env-vars="^~^DSN=$FLYWAY_DSN~SQL=$SQL" \
     --max-retries=0 \
     --task-timeout=120s \
     --quiet >/dev/null
