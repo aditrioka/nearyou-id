@@ -751,3 +751,82 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 - [ ] File OpenSpec change `mobile-negative-requirement-detekt-rule` that adds a Detekt rule `MobileScaffoldNegativeRequirementsRule` to `:lint:detekt-rules`, scanning `:mobile:app` `src/commonMain/kotlin` for the six forbidden identifier patterns enumerated in the spec scenarios. Wire the Detekt source-set extension in `build-logic`.
 - [ ] Delete this entry once the rule ships AND Mobile #3's `proposal.md` updates the `mobile-app-scaffold` spec's negative requirements to acknowledge auth identifiers now belong to dedicated namespaces.
 
+## mobile-hardcoded-strings-detekt-rule
+
+**Discovered during:** `shared-resources-moko-bootstrap` `/opsx:apply` Section 8.6 ([PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — implementing the "no hardcoded UI strings" verification step revealed that the convention from [`openspec/project.md`](openspec/project.md) § Coding Conventions ("Mobile strings: ... must go through Moko Resources") is NOT currently enforced by any Detekt rule. Lint registry `lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/NearYouRuleSetProvider.kt` registers 9 backend-focused rules, none for hardcoded UI strings.
+**Status:** open
+
+**Finding:** Mobile #2 ships an explicit grep verification step in `tasks.md` Section 8.6 as an interim backstop. The grep scans `:mobile:app` `src/{commonMain,androidMain,iosMain}` for `Text("...")` literal patterns not routed through `stringResource(MR.strings.X)` or `MR.strings.X.desc().localized()`, with a `// hardcoded-string-allow: <reason>` annotation escape hatch. This is a coarse heuristic — false positives possible on `Text(...)` literals in test fixtures or debug prints. A proper Detekt rule would: (a) restrict to Compose-UI call contexts (PSI walk verifies the literal is the value argument of a known UI-text surface like `Text()`, `Button()` body slot, `contentDescription`, `TopAppBar.title`, etc.), (b) recognize the same `MR.strings` escape paths, (c) enumerate the allowlist annotation. Authoring the rule in Mobile #2 itself would have been scope creep against the project's one-rule-per-change Detekt precedent (`RateLimitTtlRule` in `like-rate-limit`, `CoordinateJitterRule` in `coordinate-jitter-lint-rule`, `RawFromPostsRule` in early backend changes, etc.).
+
+**Specs at fault:** None — `openspec/specs/shared-resources/spec.md` § "No hardcoded UI strings in :mobile:app verified by grep (Detekt rule deferred)" correctly enumerates the deferral and the upgrade scope.
+**Code at fault:** None — `lint/detekt-rules/` correctly contains zero rules for this concern (the convention has lived as a project doc + grep step only). The gap is enforcement, not incorrect enforcement.
+**Docs at fault:** None — [`openspec/project.md`](openspec/project.md) § Coding Conventions correctly lists the convention.
+
+**Impact (if shipped):** Low at MVP. Mobile #2 grep step (`tasks.md` Section 8.6) is the canonical check today. A future mobile change author could bypass the convention with a hardcoded literal, and the bypass would only be caught if (a) they run the grep step locally per `tasks.md` template, OR (b) a code-review reviewer spots it. As more mobile feature changes accumulate (Mobile #3 auth, #4 age gate, #5 timeline), the gap widens — each new screen is an opportunity for a hardcoded literal to slip in.
+
+**Ambiguity to resolve first:** PSI-walk shape. Two approaches: (a) AST visitor that pattern-matches against known Compose UI text-rendering surfaces explicitly (allowlist of `Text` / `Button` body / `contentDescription` / etc.); (b) more general: any `String` literal value-arg passed to a `@Composable` function — broader but risks false positives on legitimate use (e.g., test composables that accept a string). Option (a) is the safer starting point, matching `RawFromPostsRule`'s pattern-allowlist approach.
+
+**Action items:**
+- [ ] File OpenSpec change `mobile-hardcoded-strings-detekt-rule` that authors `MobileHardcodedUiStringRule` in `:lint:detekt-rules` (PSI walk pattern-matching the Compose UI text-rendering call sites enumerated above). Wire the Detekt source-set extension in `build-logic` to scan `:mobile:app` `src/{commonMain,androidMain,iosMain}/kotlin`. Honor the `// hardcoded-string-allow: <reason>` annotation. Author `:lint:detekt-rules:test` coverage modeled on existing rule tests.
+- [ ] In the same change: amend `openspec/specs/shared-resources/spec.md` § "No hardcoded UI strings ... verified by grep" to reflect that the Detekt rule now exists; remove the grep step from `mobile-hardcoded-strings-detekt-rule`'s `tasks.md` Section 8.6 (or keep as redundant local-dev fast check).
+- [ ] Delete this entry once the rule + its CI integration ships.
+
+## mobile-theme-light-dark-direct-test
+
+**Discovered during:** `mobile-app-scaffold-replace-wizard` archive (Mobile #1 design Decision 7). Re-confirmed still applicable post-`shared-resources-moko-bootstrap` ([PR #116](https://github.com/aditrioka/nearyou-id/pull/116)): although Mobile #2 wired `compose-ui-test` at `:shared:resources` (verified via `ColorSchemeExtensionsTest`), the `:mobile:app` module's `HomeScreenTest` still uses kotlin.test-only instantiation-smoke assertions.
+**Status:** open
+
+**Finding:** Mobile #1 design Decision 7 deferred direct Compose UI tests of the `NearYouTheme` light/dark rendering. Mobile #2's testing surface partially addresses this — `ColorSchemeExtensionsTest` exercises `runComposeUiTest` for the brand-resources module — but `:mobile:app`'s `HomeScreenTest` does not yet assert e.g. `NearYouTheme { Text("Hello") }` resolves to the correct light-vs-dark color in composition.
+
+**Specs at fault:** None.
+**Code at fault:** `mobile/app/src/commonTest/kotlin/id/nearyou/app/HomeScreenTest.kt` ships 2 kotlin.test smoke assertions only.
+**Docs at fault:** None.
+
+**Impact (if shipped without):** Low at MVP. The `NearYouColorSchemeTest` regression test in `:shared:resources` catches drift in the actual ColorScheme values. The gap is composition-level — a future refactor of `NearYouTheme` that accidentally swaps light/dark schemes (e.g., `if (darkTheme) NearYouColorScheme.light else NearYouColorScheme.dark`) would compile, all `:shared:resources` tests would pass, but the rendered theme would be wrong. Detection would happen at the cold-start visual check (task 8.10 in any mobile change) — manual, not CI-gated.
+
+**Ambiguity to resolve first:** None. The Mobile #2 wiring pattern (add `libs.compose.ui.test` to commonTest deps + write `runComposeUiTest { setContent { NearYouTheme { ... } } }` assertions) directly applies. Mobile #5 (`mobile-nearby-timeline-screen`) is the natural moment since it ships the first real product surface that benefits from UI-level theme assertions.
+
+**Action items:**
+- [ ] When Mobile #5 lands (or sooner if a NearYouTheme refactor is in scope): add `libs.compose.ui.test` to `:mobile:app` commonTest deps. Author `:mobile:app/src/commonTest/kotlin/.../NearYouThemeTest.kt` using the `runComposeUiTest` pattern from `:shared:resources/.../ColorSchemeExtensionsTest.kt`.
+- [ ] Cover at minimum: light scheme MaterialTheme.colorScheme.primary == #1E4FD6, dark scheme primary == #B3C5FF, NearYouColors.light vs .dark resolves correctly via the LocalNearYouColors CompositionLocal wired by NearYouTheme.
+- [ ] Delete this entry once the test lands.
+
+## mobile-ios-ci-link-task
+
+**Discovered during:** `mobile-app-scaffold-replace-wizard` archive (Mobile #1 design Decision 6). Re-confirmed post-`shared-resources-moko-bootstrap`: `.github/workflows/ci.yml` still has no macOS runner; the iOS framework link step is verified locally only.
+**Status:** open
+
+**Finding:** A regression that breaks the iOS link target (e.g., a Kotlin source incompatibility with the iOS compiler, a Moko Resources iOS-specific code-gen bug, an `expect/actual` mismatch in commonMain) would NOT be caught by CI until a developer's local macOS gate runs. Mobile #2 added `:shared:resources:iosSimulatorArm64Test` as a load-bearing test surface — without CI coverage, a regression here lands silently until the next mobile-side developer runs the local gate.
+
+**Specs at fault:** None.
+**Code at fault:** `.github/workflows/ci.yml` — no `macos-latest` runner job.
+**Docs at fault:** None.
+
+**Impact (if shipped without):** Medium for mobile-active changes. Backend-only PRs are unaffected. Mobile-side PRs ship green from CI but may break locally on the next macOS dev environment. As mobile work increases (Mobile #3/#4/#5), the frequency of CI-green/local-broken events compounds.
+
+**Ambiguity to resolve first:** GitHub Actions macOS-runner cost. macOS minutes are billed at 10× the Linux rate on the free tier. A naive "run on every push" approach is cost-prohibitive; a path-filter trigger (only when `mobile/**` or `shared/**` paths change) keeps the spend bounded.
+
+**Action items:**
+- [ ] When GitHub Actions macOS-runner budget is acceptable: add a `ios-link` job to `.github/workflows/ci.yml` with `runs-on: macos-latest`. Run `./gradlew :mobile:app:linkDebugFrameworkIosSimulatorArm64 :shared:resources:iosSimulatorArm64Test`. (Note: NOT `linkPodDebugFrameworkIosSimulatorArm64` — Mobile #1 doesn't apply CocoaPods, the canonical task is the non-Pod variant per `shared-resources-moko-bootstrap` design.md migration plan.) Gate on path filter `mobile/**` OR `shared/**` to avoid burning macOS minutes on backend-only PRs.
+- [ ] Delete this entry once the CI job ships.
+
+## compose-components-resources-dependency-cleanup
+
+**Discovered during:** `shared-resources-moko-bootstrap` `/opsx:apply` ([PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — surfaced while choosing between Moko Resources and Compose Multiplatform Resources for the brand-resources module.
+**Status:** open
+
+**Finding:** `gradle/libs.versions.toml` declares `compose-components-resources` (from `org.jetbrains.compose.components:components-resources`, pinned via the existing `composeMultiplatform = "1.10.3"` ref) at line 60. Grep across `:mobile:app` + all `:shared:*` + all `:infra:*` finds zero consumers — neither the Kotlin source nor any `build.gradle.kts` `implementation(libs.compose.components.resources)` reference exists. Mobile #2 (`shared-resources-moko-bootstrap`) ships Moko Resources for the brand-resources surface instead, per [`openspec/project.md`](openspec/project.md) § Coding Conventions invariant "Mobile strings: ... must go through Moko Resources." The `compose-components-resources` declaration is now dead code (likely a leftover from the JetBrains Compose Multiplatform wizard scaffold that Mobile #1 replaced).
+
+**Specs at fault:** None.
+**Code at fault:** `gradle/libs.versions.toml` line 60 — `compose-components-resources` library coordinate has no consumer.
+**Docs at fault:** None.
+
+**Impact (if shipped without removing):** Zero runtime impact (unused libs.versions.toml entries are inert). The cost is documentation noise — a future maintainer might assume the project uses Compose Multiplatform Resources and try to wire it up against the existing pin, only to discover it conflicts with Moko Resources (parallel `Res.X` and `MR.X` accessors generated for the same fonts/images would create import ambiguity).
+
+**Ambiguity to resolve first:** None. Removal is a single-line edit + verifying no transitive consumer.
+
+**Action items:**
+- [ ] File a focused cleanup PR (NOT an OpenSpec change — pure dependency hygiene, no behavior change) that removes `compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }` from `gradle/libs.versions.toml` line 60. Run `./gradlew dependencies | grep -i "components-resources"` to verify no resolved usage. Verify CI still green.
+- [ ] Delete this entry once the cleanup PR merges.
+
+

@@ -65,7 +65,7 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 
 | Module | Status | Trigger to scaffold |
 |---|---|---|
-| `:shared:resources` | SCAFFOLD NEXT | Mobile #2 (`shared-resources-moko-bootstrap`) per § Mobile + Admin Scaffolding Priority menu (also folds brand theme color/typography tokens per `mobile-app-scaffold-replace-wizard` design.md Decision 3) |
+| `:shared:resources` | shipped | Mobile #2 (`shared-resources-moko-bootstrap`, [PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — Moko Resources `MR` codegen + `NearYouColorScheme` (light + mechanically-derived dark, 30+ M3 roles) + `NearYouColors` extension-property surface (coral location pin, amber Premium badge, semantic success/warning/link) wired via `LocalNearYouColors` CompositionLocal + `NearYouTypography` (Plus Jakarta Sans variable) + brand logo variants + 10 foundational Bahasa Indonesia strings |
 | `:infra:r2` + `:infra:cloudflare-images` | DESIGN | Image upload feature (Phase 2/3) |
 | `:infra:revenuecat` | DESIGN | Premium subscription billing |
 | `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27, not yet modular) |

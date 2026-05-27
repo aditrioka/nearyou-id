@@ -15,9 +15,10 @@ import androidx.compose.ui.graphics.Color
  * intentional — a silent default would mask missing-theme bugs at composition
  * sites that legitimately need the brand accents.
  */
-val LocalNearYouColors = staticCompositionLocalOf<NearYouColors> {
-    error("NearYouTheme not applied — wrap your composition in NearYouTheme { ... } to access brand color extensions.")
-}
+val LocalNearYouColors =
+    staticCompositionLocalOf<NearYouColors> {
+        error("NearYouTheme not applied — wrap your composition in NearYouTheme { ... } to access brand color extensions.")
+    }
 
 // Reserved-purpose brand accents (per design.md Decision 2)
 

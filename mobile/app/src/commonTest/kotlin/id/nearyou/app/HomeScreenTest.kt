@@ -1,7 +1,6 @@
 package id.nearyou.app
 
 import id.nearyou.app.screens.home.HomeScreen
-import id.nearyou.resources.MR
 import kotlin.test.Test
 import kotlin.test.assertTrue
 

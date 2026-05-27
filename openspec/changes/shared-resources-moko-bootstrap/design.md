@@ -327,7 +327,7 @@ grep -rEn 'Text\(\s*"[^"]+"' mobile/app/src/commonMain/ mobile/app/src/androidMa
 
 This is a scaffold change with **zero runtime impact** — no backend deploys, no database migrations, no live-user behavior change. The migration is purely build-time:
 
-1. **Pre-merge** — `./gradlew :mobile:app:assembleDebug` + `:mobile:app:linkPodDebugFrameworkIosSimulatorArm64` (the canonical iOS link task per Mobile #1's `mobile-app-scaffold` spec § "Android and iOS targets build green") + `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:check :shared:resources:test` all green on the change branch.
+1. **Pre-merge** — `./gradlew :mobile:app:assembleDebug` + `:mobile:app:linkDebugFrameworkIosSimulatorArm64` (the canonical iOS link task — the non-Pod variant since Mobile #1 doesn't apply CocoaPods) + `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:check :shared:resources:test` all green on the change branch.
 2. **Squash-merge** to `main` — staging auto-deploys via `.github/workflows/deploy-staging.yml`, but the change has zero backend impact so the deploy is effectively a no-op (the only artifacts the backend cares about are unchanged). Mobile artifacts are not auto-deployed; QA testers pull the staging flavor from Firebase App Distribution / TestFlight internal as usual.
 3. **Post-merge** — local dev verification: clone fresh, run `./gradlew :mobile:app:assembleDebug` + open in Android Studio + run on emulator → confirm `HomeScreen` renders with brand colors + Plus Jakarta Sans + the in-app logo; toggle system dark mode + confirm dark scheme + dark logo variant render.
 

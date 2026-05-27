@@ -12,7 +12,6 @@ import kotlin.test.assertEquals
  * Pure-Kotlin assertions — no Compose UI test runner required.
  */
 class NearYouColorSchemeTest {
-
     // === LIGHT scheme — Material 3 30+ standard roles ===
 
     @Test

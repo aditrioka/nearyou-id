@@ -129,7 +129,7 @@ Redis Streams provide:
 
 | Module | Status | Trigger to scaffold |
 |---|---|---|
-| `:shared:resources` | SCAFFOLD NEXT | Mobile #2 (`shared-resources-moko-bootstrap`) per [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority |
+| `:shared:resources` | shipped | Mobile #2 (`shared-resources-moko-bootstrap`, [PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — Moko Resources `MR` accessors + `NearYouColorScheme` + `NearYouTypography` + `NearYouColors` CompositionLocal extension surface + brand logos + Bahasa Indonesia strings. Consumed by `:mobile:app`'s `NearYouTheme` + `HomeScreen`. |
 | `:infra:r2` | DESIGN | Image upload feature (Phase 2/3) — Cloudflare R2 (non-image, zero egress) |
 | `:infra:cloudflare-images` | DESIGN | Image upload feature — Cloudflare Images (`img.nearyou.id`) + CSAM webhook handler |
 | `:infra:revenuecat` | DESIGN | Premium subscription billing (webhook signature verify) |

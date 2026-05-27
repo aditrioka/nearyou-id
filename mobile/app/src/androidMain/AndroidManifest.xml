@@ -17,6 +17,26 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          Dormant alternate launcher icon (blue-on-white) per
+          shared-resources-moko-bootstrap design.md Decision 7. Disabled by
+          default; ready for a future user-selectable icon-theme feature that
+          flips this alias on while disabling MainActivity's launcher entry.
+        -->
+        <activity-alias
+            android:name=".MainActivityAlt"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_alt"
+            android:roundIcon="@mipmap/ic_launcher_alt"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
 
 </manifest>
