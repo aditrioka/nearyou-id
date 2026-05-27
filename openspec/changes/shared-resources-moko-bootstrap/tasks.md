@@ -15,7 +15,7 @@
 - [ ] 2.4 Add a one-line description to [`dev/module-descriptions.txt`](../../../dev/module-descriptions.txt) for `:shared:resources` using the **pipe-separated** format documented in the file header: `:shared:resources | Brand color, typography, logo, and string resources via Moko Resources` (one entry per line, pipe `|` as field separator, no pipes inside the description).
 - [ ] 2.5 Run `dev/scripts/sync-readme.sh --write` to regenerate the root [`README.md`](../../../README.md) § What's in this repo block between the `<!-- AUTOGEN:modules:start -->` / `<!-- AUTOGEN:modules:end -->` sentinels. Verify the new `:shared:resources` row is rendered.
 - [ ] 2.6 Run `./gradlew :shared:resources:tasks` to verify the module is recognized by Gradle without errors.
-- [ ] 2.7 Run `./gradlew :mobile:app:processDebugResources` to verify the Android `R` class merge between `:mobile:app` and `:shared:resources` does NOT produce a `R class duplication` error — namespace collision check per spec scenario "AGP merge step does not report R-class collision."
+- [ ] 2.7 _(Namespace collision verification deferred to task 8.9 — at THIS point in the dependency chain, `:mobile:app` has not yet declared a dep on `:shared:resources` (that happens in task 7.1) and `:shared:resources` has no resources populated yet (those land in 4.1, 5.1–5.2, 5.5–5.7). Running `:mobile:app:processDebugResources` here would be vacuous OR fail for unrelated reasons. The check moves to task 8.9 where the dep + resources are both in place.)_
 
 ## 3. Brand color tokens — `NearYouColorScheme` + extensions
 

@@ -33,7 +33,7 @@ The `:shared:resources` module SHALL expose a `NearYouColorScheme` object (or eq
 - **WHEN** inspecting `shared/resources/src/commonMain/kotlin/id/nearyou/resources/theme/NearYouColorScheme.kt` (or equivalent commonMain path)
 - **THEN** `NearYouColorScheme.light.primary` resolves to `Color(0xFF1E4FD6)` AND `NearYouColorScheme.light.onPrimary` resolves to `Color(0xFFFFFFFF)`
 
-#### Scenario: NearYouColorScheme.light defines all required Material 3 1.3.x roles
+#### Scenario: NearYouColorScheme.light defines all required Material 3 ColorScheme roles
 
 - **WHEN** inspecting `NearYouColorScheme.light`
 - **THEN** the `ColorScheme` is constructed with explicit values for ALL of: `primary`, `onPrimary`, `primaryContainer`, `onPrimaryContainer`, `inversePrimary`, `secondary`, `onSecondary`, `secondaryContainer`, `onSecondaryContainer`, `tertiary`, `onTertiary`, `tertiaryContainer`, `onTertiaryContainer`, `background`, `onBackground`, `surface`, `onSurface`, `surfaceVariant`, `onSurfaceVariant`, `surfaceTint`, `inverseSurface`, `inverseOnSurface`, `error`, `onError`, `errorContainer`, `onErrorContainer`, `outline`, `outlineVariant`, `scrim`, `surfaceBright`, `surfaceDim`, `surfaceContainerLowest`, `surfaceContainerLow`, `surfaceContainer`, `surfaceContainerHigh`, `surfaceContainerHighest`
@@ -56,7 +56,7 @@ The `:shared:resources` module SHALL expose a `NearYouColorScheme` object (or eq
 #### Scenario: NearYouColorScheme.light outline meets M3 3:1 contrast guideline
 
 - **WHEN** inspecting `NearYouColorScheme.light.outline`
-- **THEN** the value resolves to `Color(0xFF79747E)` (the M3 default outline tone, which passes WCAG 4.05:1 against `surface = #FFFFFF` per [`design.md`](../../design.md) Decision 9), NOT the palette author's `Color(0xFFD9DDE5)` value (1.36:1, fails) and NOT the earlier proposal value `Color(0xFF9CA3AF)` (2.54:1, also fails); the palette author's `Color(0xFFD9DDE5)` is preserved on `outlineVariant` instead (purely decorative, no contrast requirement)
+- **THEN** the value resolves to `Color(0xFF79747E)` (the M3 default outline tone, which passes WCAG 4.5:1 against `surface = #FFFFFF` per [`design.md`](../../design.md) Decision 9), NOT the palette author's `Color(0xFFD9DDE5)` value (1.36:1, fails) and NOT the earlier proposal value `Color(0xFF9CA3AF)` (2.54:1, also fails); the palette author's `Color(0xFFD9DDE5)` is preserved on `outlineVariant` instead (purely decorative, no contrast requirement)
 
 #### Scenario: NearYouColorScheme.light scrim is correctly encoded
 

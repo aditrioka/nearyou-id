@@ -20,7 +20,7 @@ Today's date: 2026-05-28. Phase-balance check: scaffolding priority is active (0
 
 - Ship `:shared:resources` as a scaffolded Gradle module with Moko Resources plugin configured for commonMain + Android + iOS targets.
 - Replace Mobile #1's vanilla Material 3 defaults with brand color + typography tokens consumed from `:shared:resources`, so `NearYouTheme` renders the actual NearYouID brand.
-- Close the "hardcoded UI strings" gap in `:mobile:app` by routing all UI text through Moko Resources, validating Detekt's existing lint rule against the first real consumption surface.
+- Close the "hardcoded UI strings" gap in `:mobile:app` by routing all UI text through Moko Resources, verified via an explicit grep step (the Detekt rule for this invariant doesn't yet exist in `:lint:detekt-rules` — see Decision 10 for the grep-based approach + the new `FOLLOW_UPS.md` entry tracking the eventual rule).
 - Bundle both in-app logo variants (light + dark) selectable via `isSystemInDarkTheme()`.
 - Ship the app launcher icon as platform-native assets (Android adaptive icon + iOS Asset Catalog), separate from Moko Resources.
 - Provide a coherent dark color scheme (mechanically derived from primary) so the first user to system-toggle dark mode doesn't see an off-brand vanilla-purple palette.
@@ -33,7 +33,7 @@ Today's date: 2026-05-28. Phase-balance check: scaffolding priority is active (0
 - **Sentry KMP module-isation.** Already split as `infra-sentry-kmp-module-isation` per Mobile #1 design.md Decision 5.
 - **Feature screens, networking, auth, FCM.** Mobile #3/#4/#5+ own these. This change strictly extends the scaffold with brand tokens — the negative invariants in the existing `mobile-app-scaffold` spec (no networking, no auth, no FCM, no hardcoded URLs, no backend/infra deps) remain in force.
 - **iOS `PrivacyInfo.xcprivacy` finalization.** Pre-Phase 1 task 33 + Phase 3 iOS block.
-- **Detekt rule changes.** The "no hardcoded UI strings" rule already exists per [`openspec/project.md`](../../project.md) § Coding Conventions; this change merely validates it against the first real Moko Resources consumption — no new lint rule is authored here.
+- **Authoring the "no hardcoded UI strings" Detekt rule.** The rule is a convention in [`openspec/project.md`](../../project.md) § Coding Conventions but does NOT exist in `:lint:detekt-rules` (Mobile #1 deferred it as `mobile-negative-requirement-ci-grep`). This change ships a grep-based verification (Decision 10) + tracks the rule upgrade as a separate follow-up — authoring the rule here would be scope creep against the project's one-rule-per-change Detekt precedent (`RateLimitTtlRule` in `like-rate-limit`, `CoordinateJitterRule` in `coordinate-jitter-lint-rule`, etc.).
 
 ## Decisions
 
@@ -233,10 +233,10 @@ In-app brand logos (consumed inside the running app's UI) DO live in `:shared:re
 |---|---|---|---|
 | Palette author's value | `#D9DDE5` | 1.36:1 | No |
 | Earlier proposal value (now rejected) | `#9CA3AF` | 2.54:1 | No — borderline but FAILS |
-| **M3 default outline tone (this Decision)** | `#79747E` | **4.05:1** | **Yes** |
-| Even darker option | `#6F7079` | 4.50:1 | Yes |
+| **M3 default outline tone (this Decision)** | `#79747E` | **4.5:1** | **Yes** |
+| Even darker option | `#6F7079` | 5.0:1 | Yes |
 
-The earlier proposal value `#9CA3AF` was incorrectly cited as "~2.9:1 (borderline pass)" — the actual computed ratio is 2.54:1, which fails M3's 3:1 threshold. `#79747E` is the M3 default outline color and passes cleanly at 4.05:1; using it preserves palette intent (a neutral grey) while honoring the accessibility spec.
+The earlier proposal value `#9CA3AF` was incorrectly cited as "~2.9:1 (borderline pass)" — the actual computed ratio is 2.54:1, which fails M3's 3:1 threshold. `#79747E` is the M3 default outline color and passes cleanly at 4.5:1; using it preserves palette intent (a neutral grey) while honoring the accessibility spec.
 
 **Alternatives considered:**
 
@@ -286,31 +286,6 @@ grep -rEn 'Text\(\s*"[^"]+"' mobile/app/src/commonMain/ mobile/app/src/androidMa
 
 **Trade-off accepted:** Grep is a coarser tool than a proper Detekt rule (false positives possible on string literals that happen to live in `Text(...)` for non-UI purposes, e.g., test fixtures, log labels, debug prints). The grep heuristic above excludes `// hardcoded-string-allow:` annotated lines to give an explicit escape hatch for the rare legitimate case. Until the Detekt rule lands, treat any annotation as a code-review smell.
 
-## Risks / Trade-offs
-
-| Risk | Mitigation |
-|---|---|
-| Mechanically derived dark palette looks off-brand or low-contrast in real-world rendering | Surface derived values in `design.md` (above) for user override during proposal review; track hand-tuned dark as `mobile-dark-palette-tuning` follow-up; document the trade-off in `proposal.md` § Out of Scope |
-| Outline color override (`#79747E` M3 default instead of palette's `#D9DDE5`) deviates from claude.ai/design output without user explicit OK | Decision 9 documents the rationale (palette value fails 1.36:1 vs M3's 3:1 requirement) + alternatives (including the rejected `#9CA3AF` borderline value); user can override during proposal review |
-| Plus Jakarta Sans variable `.ttf` doesn't load on iOS via Moko Resources due to font-format quirk | `NearYouTypography` declares `FontFamily.SansSerif` as fallback so text still renders; if it surfaces, fall back to bundling static `.ttf` per weight (small diff) |
-| `material3 = "1.3.x"` stable lacks a future API the next mobile change needs | Bump to `1.4.x` stable in the change that adds the new component; low risk because 1.3 → 1.4 is non-breaking by semver |
-| Re-exported logo SVGs lose visual fidelity vs source (e.g., introduced rendering artifacts) | Tasks.md prescribes hex-only `sed` substitution, no path/stroke restructuring; visual diff verified during build verification step |
-| Android adaptive icon foreground glyph extraction (removing bg rect, isolating polylines) introduces shape error | Tasks.md prescribes vector drawable creation from the modified SVG with explicit coordinate preservation; visual verification step renders the launcher icon on a fresh Android emulator |
-| iOS Asset Catalog generation script (`generate-ios-app-icons.sh`) requires `rsvg-convert`, blocking iOS-side build for devs without it | Script falls back to `pdftocairo` (typically bundled with macOS `poppler` via Homebrew); generated PNGs committed to the repo so the script doesn't need to run on every build |
-| Moko Resources plugin version drift introduces breaking changes for `MR.images.*` / `MR.strings.*` consumption shape | Pin specific version in `gradle/libs.versions.toml` with Version Pinning Decisions Log entry; future bumps go through the Dependabot/Renovate flow with explicit review |
-| Detekt no-hardcoded-strings rule produces false positives on legitimate Moko Resources call sites | If discovered during build verification, file separately as a `:lint:detekt-rules` bug-fix change; do not bypass with `@Suppress` (would defeat the invariant); confirm before merging |
-| `surfaceVariant` (`#EEF0F4`) and `tertiary` (`#E8EAEF`) being near-identical neutrals confuses Material 3 default widgets that distinguish them visually | Acceptable trade-off — both roles are intentionally muted to honor the palette author's reserved-purpose constraint; brand-specific UI uses extension properties for color expression |
-
-## Migration Plan
-
-This is a scaffold change with **zero runtime impact** — no backend deploys, no database migrations, no live-user behavior change. The migration is purely build-time:
-
-1. **Pre-merge** — `./gradlew :mobile:app:assembleDebug` + `:mobile:app:linkDebugFrameworkIosArm64` + `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` all green on the change branch.
-2. **Squash-merge** to `main` — staging auto-deploys via `.github/workflows/deploy-staging.yml`, but the change has zero backend impact so the deploy is effectively a no-op (the only artifacts the backend cares about are unchanged). Mobile artifacts are not auto-deployed; QA testers pull the staging flavor from Firebase App Distribution / TestFlight internal as usual.
-3. **Post-merge** — local dev verification: clone fresh, run `./gradlew :mobile:app:assembleDebug` + open in Android Studio + run on emulator → confirm `HomeScreen` renders with brand colors + Plus Jakarta Sans + the in-app logo; toggle system dark mode + confirm dark scheme + dark logo variant render.
-
-**No rollback plan** beyond standard git revert — there is no live user surface to roll back.
-
 ### Decision 11: Ship Android 13+ themed-icon `monochrome` drawable in this change
 
 **Choice:** Include `drawable/ic_launcher_monochrome.xml` (vector drawable of just the hexagon glyph in solid black) as part of this change, referenced by the `<monochrome>` attribute on `mipmap-anydpi-v26/ic_launcher.xml`. Android 13+ system uses this to render a wallpaper-tinted variant when the user enables themed icons.
@@ -332,6 +307,31 @@ This is a scaffold change with **zero runtime impact** — no backend deploys, n
 
 - **Place at top level for visual consistency with `:shared:tmp` / `:shared:distance`.** Breaks Cloud Run JDK-only builder. Rejected.
 - **Make `:shared:resources` JVM-only too** (drop Android target). Defeats the entire purpose — Moko Resources requires platform-specific targets to generate `R.class`-equivalents.
+
+## Risks / Trade-offs
+
+| Risk | Mitigation |
+|---|---|
+| Mechanically derived dark palette looks off-brand or low-contrast in real-world rendering | Surface derived values in `design.md` (above) for user override during proposal review; track hand-tuned dark as `mobile-dark-palette-tuning` follow-up; document the trade-off in `proposal.md` § Out of Scope |
+| Outline color override (`#79747E` M3 default instead of palette's `#D9DDE5`) deviates from claude.ai/design output without user explicit OK | Decision 9 documents the rationale (palette value fails 1.36:1 vs M3's 3:1 requirement) + alternatives (including the rejected `#9CA3AF` borderline value); user can override during proposal review |
+| Plus Jakarta Sans variable `.ttf` doesn't load on iOS via Moko Resources due to font-format quirk | `NearYouTypography` declares `FontFamily.SansSerif` as fallback so text still renders; if it surfaces, fall back to bundling static `.ttf` per weight (small diff) |
+| The existing `material3 = "1.10.0-alpha05"` pin's alpha line introduces an unannounced breaking change before this scaffold lands | Risk is inherited from Mobile #1's existing pin, not introduced by this change. Any breaking change surfaces at build verification (tasks 8.1–8.5) — escalate to the project's Version Pinning Decisions Log review (`docs/09-Versions.md`) + author a dedicated `material3-version-bump` change if a downgrade or fresh pin is required. |
+| Re-exported logo SVGs lose visual fidelity vs source (e.g., introduced rendering artifacts) | Tasks.md prescribes hex-only `sed` substitution, no path/stroke restructuring; visual diff verified during build verification step |
+| Android adaptive icon foreground glyph extraction (removing bg rect, isolating polylines) introduces shape error | Tasks.md prescribes vector drawable creation from the modified SVG with explicit coordinate preservation; visual verification step renders the launcher icon on a fresh Android emulator |
+| iOS Asset Catalog generation script (`generate-ios-app-icons.sh`) requires `rsvg-convert`, blocking iOS-side build for devs without it | Script falls back to `pdftocairo` (typically bundled with macOS `poppler` via Homebrew); generated PNGs committed to the repo so the script doesn't need to run on every build |
+| Moko Resources plugin version drift introduces breaking changes for `MR.images.*` / `MR.strings.*` consumption shape | Pin specific version in `gradle/libs.versions.toml` with Version Pinning Decisions Log entry; future bumps go through the Dependabot/Renovate flow with explicit review |
+| Grep-based no-hardcoded-strings verification (Decision 10) produces false positives on legitimate `Text(...)` literals in test fixtures / log labels / debug prints | The grep heuristic excludes `// hardcoded-string-allow: <reason>` annotated lines as an explicit escape hatch; treat any annotation as a code-review smell. False positives surfacing in CI are addressed by either (a) routing the legitimate string through Moko Resources, (b) annotating with the allow comment, or (c) bringing the case to the eventual `mobile-hardcoded-strings-detekt-rule` follow-up that will replace grep with a proper Detekt rule. |
+| `surfaceVariant` (`#EEF0F4`) and `tertiary` (`#E8EAEF`) being near-identical neutrals confuses Material 3 default widgets that distinguish them visually | Acceptable trade-off — both roles are intentionally muted to honor the palette author's reserved-purpose constraint; brand-specific UI uses extension properties for color expression |
+
+## Migration Plan
+
+This is a scaffold change with **zero runtime impact** — no backend deploys, no database migrations, no live-user behavior change. The migration is purely build-time:
+
+1. **Pre-merge** — `./gradlew :mobile:app:assembleDebug` + `:mobile:app:linkPodDebugFrameworkIosSimulatorArm64` (the canonical iOS link task per Mobile #1's `mobile-app-scaffold` spec § "Android and iOS targets build green") + `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:check :shared:resources:test` all green on the change branch.
+2. **Squash-merge** to `main` — staging auto-deploys via `.github/workflows/deploy-staging.yml`, but the change has zero backend impact so the deploy is effectively a no-op (the only artifacts the backend cares about are unchanged). Mobile artifacts are not auto-deployed; QA testers pull the staging flavor from Firebase App Distribution / TestFlight internal as usual.
+3. **Post-merge** — local dev verification: clone fresh, run `./gradlew :mobile:app:assembleDebug` + open in Android Studio + run on emulator → confirm `HomeScreen` renders with brand colors + Plus Jakarta Sans + the in-app logo; toggle system dark mode + confirm dark scheme + dark logo variant render.
+
+**No rollback plan** beyond standard git revert — there is no live user surface to roll back.
 
 ## Open Questions
 
