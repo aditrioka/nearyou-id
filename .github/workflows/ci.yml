@@ -118,6 +118,34 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew ktlintCheck detekt
+      # Vendored static-asset integrity check — fail-fasts on file/hash drift
+      # AND on inventory drift (catches NEW files added without an
+      # SHA256SUMS entry). Pinned per admin-panel-ktor-htmx-bootstrap
+      # design.md Decision 2 "Vendored file provenance" + Security lens
+      # finding N4 (PR #115 step-8 review). HTMX is not a JVM dep so
+      # Dependabot doesn't see it; advisories tracked via
+      # bigskysoftware/htmx GitHub releases watch.
+      # No untrusted input — static checks against checked-in files.
+      - name: Verify vendored static-asset integrity + inventory
+        working-directory: backend/ktor/src/main/resources/admin/static
+        run: |
+          set -euo pipefail
+          # 1) Hash check — verify every recorded file matches its SHA256.
+          sha256sum -c htmx.min.js.SHA256SUMS
+          # 2) Inventory check — verify the directory contains exactly the
+          #    files listed in SHA256SUMS (plus the SHA256SUMS file itself).
+          #    Catches accidentally- or maliciously-vendored extra files that
+          #    `sha256sum -c` would silently pass through.
+          listed=$(awk '{print $2}' htmx.min.js.SHA256SUMS | sort)
+          actual=$(find . -maxdepth 1 -type f ! -name '*.SHA256SUMS' -printf '%P\n' | sort)
+          if [ "$listed" != "$actual" ]; then
+            echo "::error::admin/static inventory drift"
+            echo "  listed in SHA256SUMS:"
+            echo "$listed" | sed 's/^/    /'
+            echo "  actually on disk:"
+            echo "$actual" | sed 's/^/    /'
+            exit 1
+          fi
 
   # NOTE: a standalone `build: ./gradlew assemble` job used to live here. It was
   # redundant with `test` (which compiles all main code as a prerequisite to
