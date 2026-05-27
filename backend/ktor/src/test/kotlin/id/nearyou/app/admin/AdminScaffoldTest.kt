@@ -179,7 +179,7 @@ class AdminScaffoldTest : StringSpec({
     }
 
     // ----------------- Req 4 Sc 2 (negative case) -----------------
-    "Per-request WARN log does NOT fire on non-/admin/* requests" {
+    "Per-request WARN log does NOT fire on non-/admin/* requests OR on /admin/static/*" {
         val appender = attachLogCapture()
         try {
             testApplication {
@@ -193,11 +193,19 @@ class AdminScaffoldTest : StringSpec({
                         }
                     }
                 }
+                // Path #1: completely non-admin route — verifies the
+                // path-prefix scoping (3802843 fix lock-in).
                 client.get("/throwaway-non-admin").status shouldBe HttpStatusCode.OK
+                // Path #2: /admin/static/* asset — verifies the static-asset
+                // exemption clause. Per-request WARN log is noise-suppressed
+                // for static-asset GETs since they have no business surface,
+                // just serve the vendored HTMX file.
+                client.get("/admin/static/htmx.min.js").status shouldBe HttpStatusCode.OK
             }
-            // ZERO per-request `admin_route_hit` lines should appear. The
-            // bootstrap `admin_module_mounted` line is fine (one-time at boot)
-            // — filter for the per-request shape specifically.
+            // ZERO per-request `admin_route_hit` lines should appear from
+            // EITHER of the two requests above. The bootstrap
+            // `admin_module_mounted` line is fine (one-time at boot) —
+            // filter for the per-request shape specifically.
             val perRequestEvents =
                 appender.list
                     .filter { it.level == Level.WARN }

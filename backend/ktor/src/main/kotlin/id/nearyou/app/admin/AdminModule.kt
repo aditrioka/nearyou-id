@@ -41,6 +41,21 @@ fun Application.admin() {
     // suggests `ktor.deployment.environment` but the project's actual config
     // key (per application.conf line 9 + Application.kt usages) is
     // `ktor.environment`. Using the project-canonical key.
+    //
+    // Default = "dev" (NOT "production" as Application.kt uses on lines
+    // 190, 399). The asymmetry is deliberate for test ergonomics: the
+    // testApplication-based mount tests pass `application { admin() }`
+    // without an explicit `environment {}` block, so this default is what
+    // the test reads. Production safety is preserved because (a)
+    // application.conf line 9 hardcodes `environment = "production"` so
+    // boot always supplies the property — the default never fires in real
+    // deploys; (b) the bootstrap WARN log emitted by this function makes
+    // the resolved env value observable in Sentry; (c) spec Req 5 Sc 1
+    // explicitly tests the production-guard with `MapApplicationConfig
+    // ("ktor.environment" to "production")`, exercising the production
+    // path without relying on the inline default. Round-1 code-correctness
+    // review (PR #115 step 8.2) flagged this as a non-blocking nit; this
+    // comment is the resolution.
     val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "dev"
 
     // Decision 6: KTOR_ENV != "production" mount guard. Defense-in-depth at
