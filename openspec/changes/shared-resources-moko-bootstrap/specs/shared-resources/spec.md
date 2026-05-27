@@ -1,3 +1,7 @@
+## Purpose
+
+The `:shared:resources` capability provides the canonical brand-asset surface for the Compose Multiplatform mobile app, bundling Material 3 color tokens (`NearYouColorScheme` light + HCT-derived dark + reserved-purpose extension properties for location pin / Premium badge / semantic success / warning / link), typography (`NearYouTypography` built on Plus Jakarta Sans, Indonesian foundry, OFL-licensed), in-app brand logo variants (light/dark theme-switchable via `isSystemInDarkTheme()`), and the foundational Bahasa Indonesia string catalog via Moko Resources (`MR.strings.*`, `MR.images.*`, `MR.fonts.*`). It satisfies the [`openspec/project.md`](../../project.md) § Coding Conventions invariant "Mobile strings: no hardcoded UI strings; must go through Moko Resources" and unblocks every subsequent mobile capability that needs branded UI surfaces (Mobile #3 auth, Mobile #4 age gate, Mobile #5 nearby timeline, and every later product screen). Brand `secondary`/`tertiary` Material 3 roles are mapped to neutral surfaceVariant tones (NOT to coral/amber) so default M3 widgets stay visually coherent; coral + amber are surgically exposed as `ColorScheme.locationPin` / `.premiumBadge` extension properties per the palette author's reserved-purpose constraint.
+
 ## ADDED Requirements
 
 ### Requirement: Shared resources Gradle module exists with Moko Resources plugin

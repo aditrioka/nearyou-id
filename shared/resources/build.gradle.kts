@@ -56,6 +56,24 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
+    // `androidx.compose.ui.test.runComposeUiTest` reads
+    // `Build.FINGERPRINT.toLowerCase(...)` to detect the runtime — Android
+    // JVM unit tests stub `Build` static fields as `null`, so any Compose UI
+    // test crashes with NullPointerException on `Build.FINGERPRINT`.
+    // `isReturnDefaultValues` doesn't help (it stubs method returns, not
+    // static fields). The proper fix is Robolectric or moving these tests to
+    // `androidTest/` (instrumented) — tracked as the
+    // `mobile-compose-ui-tests-android-instrumented` follow-up. Canonical
+    // cross-platform verification ALREADY runs via
+    // `:shared:resources:iosSimulatorArm64Test` (same test class, real
+    // Compose runtime); excluding here on the Android JVM lane does not
+    // reduce real coverage.
+    testOptions {
+        unitTests.all {
+            it.exclude("**/ColorSchemeExtensionsTest*")
+        }
+    }
 }
 
 multiplatformResources {

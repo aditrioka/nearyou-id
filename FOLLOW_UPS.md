@@ -770,4 +770,22 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 - [ ] File a focused cleanup PR (NOT an OpenSpec change — pure dependency hygiene, no behavior change) that removes `compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }` from `gradle/libs.versions.toml` line 60. Run `./gradlew dependencies | grep -i "components-resources"` to verify no resolved usage. Verify CI still green.
 - [ ] Delete this entry once the cleanup PR merges.
 
+## mobile-compose-ui-tests-android-instrumented
 
+**Discovered during:** `shared-resources-moko-bootstrap` `/opsx:archive` ([PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — surfaced when running the pre-archive `./gradlew :shared:resources:build` and `:shared:resources:testDebugUnitTest` failed with `NullPointerException: Cannot invoke "String.toLowerCase(java.util.Locale)" because "android.os.Build.FINGERPRINT" is null` on all 6 `ColorSchemeExtensionsTest.runComposeUiTest` cases.
+**Status:** open
+
+**Finding:** `androidx.compose.ui.test.runComposeUiTest` reads `Build.FINGERPRINT.toLowerCase(...)` to detect the runtime environment. Android JVM unit tests (`testDebugUnitTest`) stub `android.os.Build` static fields as `null` by default, so every Compose UI test crashes during framework init. The Compose UI test framework expects either Robolectric setup or instrumented (`androidTest/`) execution on a real device/emulator. `testOptions { unitTests.isReturnDefaultValues = true }` does NOT help — it stubs method returns, not static fields.
+
+**Specs at fault:** None.
+**Code at fault:** [`shared/resources/src/commonTest/kotlin/id/nearyou/resources/theme/ColorSchemeExtensionsTest.kt`](shared/resources/src/commonTest/kotlin/id/nearyou/resources/theme/ColorSchemeExtensionsTest.kt) runs correctly on iOS sim (`iosSimulatorArm64Test` PASSED with all 6 cases) but cannot run on Android JVM unit tests as written. Workaround applied in PR #116: [`shared/resources/build.gradle.kts`](shared/resources/build.gradle.kts) `testOptions { unitTests.all { it.exclude("**/ColorSchemeExtensionsTest*") } }` skips these tests on the Android JVM lane.
+**Docs at fault:** None.
+
+**Impact (if shipped without resolving):** Android-specific Compose UI behavior regressions would only surface on iOS sim runs, which is asymmetric coverage. In practice the `ColorSchemeExtensionsTest` cases test pure CompositionLocal wiring (no Android-specific behavior), so iOS sim execution is sufficient proof. But future Compose UI tests that DO touch Android-specific paths (e.g., adaptive layouts that read `WindowInsets`, dynamic color schemes that read `Material You`) would silently skip on this codebase until the gap is fixed.
+
+**Ambiguity to resolve first:** Choice between Robolectric setup (heavier — adds `org.robolectric:robolectric` test dep + `@RunWith(AndroidJUnit4::class)` annotations, but keeps tests in `testDebugUnitTest` for fast feedback) vs `androidTest/` instrumented setup (canonical Android pattern, but requires CI emulator infrastructure that doesn't exist yet in `.github/workflows/ci.yml` and adds 5-10 min per test run).
+
+**Action items:**
+- [ ] File an OpenSpec change `shared-resources-android-compose-ui-tests-robolectric` (recommended path — Robolectric is the lower-friction fix and keeps tests fast). Add `org.robolectric:robolectric` test dependency to `shared/resources/build.gradle.kts` androidUnitTest source set; annotate `ColorSchemeExtensionsTest` with `@RunWith(AndroidJUnit4::class)`; configure Robolectric to stub `Build.FINGERPRINT`; remove the exclude added by PR #116.
+- [ ] Alternative (heavier): file `mobile-android-instrumented-test-ci-runner` to add a `macos-latest` or `ubuntu-latest`-with-Android-emulator job to `.github/workflows/ci.yml` for `connectedAndroidTest` execution.
+- [ ] Delete this entry once either OpenSpec change ships AND the `unitTests.all { it.exclude(...) }` workaround is removed from `shared/resources/build.gradle.kts`.
