@@ -178,6 +178,36 @@ class AdminScaffoldTest : StringSpec({
         }
     }
 
+    // ----------------- Req 4 Sc 2 (negative case) -----------------
+    "Per-request WARN log does NOT fire on non-/admin/* requests" {
+        val appender = attachLogCapture()
+        try {
+            testApplication {
+                application {
+                    admin()
+                    // Wire a throwaway non-admin route so we have a 200-returning
+                    // path outside /admin/* to exercise.
+                    routing {
+                        get("/throwaway-non-admin") {
+                            call.respond(HttpStatusCode.OK, "ok")
+                        }
+                    }
+                }
+                client.get("/throwaway-non-admin").status shouldBe HttpStatusCode.OK
+            }
+            // ZERO per-request `admin_route_hit` lines should appear. The
+            // bootstrap `admin_module_mounted` line is fine (one-time at boot)
+            // — filter for the per-request shape specifically.
+            val perRequestEvents =
+                appender.list
+                    .filter { it.level == Level.WARN }
+                    .filter { it.formattedMessage.contains("admin_route_hit") }
+            perRequestEvents.size shouldBe 0
+        } finally {
+            detachLogCapture(appender)
+        }
+    }
+
     // ----------------- Req 5 Sc 1 -----------------
     "KTOR_ENV=production mount guard prevents /admin/ registration" {
         val appender = attachLogCapture()

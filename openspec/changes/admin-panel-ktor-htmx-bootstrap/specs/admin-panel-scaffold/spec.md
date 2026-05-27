@@ -66,13 +66,14 @@ The system SHALL serve `/admin/*` routes without an authentication gate in this 
 - **THEN** the response status SHALL be 200
 - **AND** the response body SHALL be the rendered admin index page (per the first requirement)
 
-#### Scenario: Unauthenticated-scaffold WARN log emitted on every admin route hit
+#### Scenario: Unauthenticated-scaffold WARN log emitted on admin route hits (and only those)
 
-- **WHEN** any request hits an `/admin/*` route (including the index page and the static-asset routes)
+- **WHEN** any request hits an `/admin/*` route (the index page; static-asset routes MAY be exempt to reduce log noise)
 - **THEN** the application SHALL emit at least one WARN-level log line for that request
 - **AND** the log line SHALL contain the substring `admin-login-argon2-totp`
 - **AND** the log line SHALL contain the phrase `unauthenticated scaffold` (or grammatically-equivalent phrasing — implementation MAY choose the exact wording as long as both required substrings are present)
 - **AND** the log line's emission point SHALL be one of: (i) a route-level interceptor in `Application.admin()`, or (ii) a once-per-process module-mount log emitted at application bootstrap (in which case the per-request mode is NOT required, and the test asserts the bootstrap log instead)
+- **AND** the per-request emission shape SHALL NOT fire on non-`/admin/*` requests (e.g., `/health/live`, `/api/v1/posts`, the unauthenticated subtree's WARN signal must not pollute logs for unrelated routes). Implementation note: Ktor's `intercept(ApplicationCallPipeline.Plugins)` placed inside a `route("/admin")` block still fires globally because the phase belongs to the Application pipeline; an explicit path-prefix check inside the interceptor is required to scope the emission. Discovered during pre-archive staging smoke for PR #115.
 
 ### Requirement: Production mount guard via `KTOR_ENV` check
 

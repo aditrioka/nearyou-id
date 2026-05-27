@@ -79,11 +79,21 @@ fun Application.admin() {
             // static-asset GETs to reduce noise — they have no business
             // surface, just serve a vendored JS file.
             //
+            // IMPORTANT: `intercept(ApplicationCallPipeline.Plugins)` inside a
+            // `route("/admin")` block STILL fires globally on every request
+            // (the phase belongs to the Application pipeline, not the Route
+            // pipeline). The explicit `path.startsWith("/admin/")` check is
+            // load-bearing — without it, the WARN fires on `/health/live` +
+            // every other route too, generating 30s/probe-cycle log spam in
+            // Cloud Run. Discovered during pre-archive staging smoke (PR #115).
+            //
             // Contains the same required substrings as the bootstrap log
             // above so log-capture tests can match either emission shape.
             intercept(ApplicationCallPipeline.Plugins) {
                 val path = call.request.local.uri
-                if (!path.startsWith("/admin/static/")) {
+                val isAdminPath = path == "/admin" || path.startsWith("/admin/")
+                val isStaticAsset = path.startsWith("/admin/static/")
+                if (isAdminPath && !isStaticAsset) {
                     log.warn(
                         "event=admin_route_hit path={} posture=unauthenticated_scaffold auth_gate_lands_in=admin-login-argon2-totp",
                         path,
