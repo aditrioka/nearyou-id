@@ -37,16 +37,19 @@ Today's date: 2026-05-28. Phase-balance check: scaffolding priority is active (0
 
 ## Decisions
 
-### Decision 1: Material 3 version pin — **`material3 = "1.3.x"` stable**
+### Decision 1: Reuse the existing `material3 = "1.10.0-alpha05"` Compose Multiplatform pin
 
-**Choice:** Pin `androidx.compose.material3:material3` (and the Compose Multiplatform `org.jetbrains.compose.material3:material3` equivalent) to the latest stable in the **1.3.x** line. Record the pin + rationale in [`docs/09-Versions.md`](../../../docs/09-Versions.md) § Version Decisions per the project's Version Pinning policy.
+**Choice:** Do NOT introduce a new `material3` version entry in [`gradle/libs.versions.toml`](../../../gradle/libs.versions.toml). The repository already pins `material3 = "1.10.0-alpha05"` (line 34) for the Compose Multiplatform `org.jetbrains.compose.material3:material3` artifact, shipped under Mobile #1's pinning regime alongside other accepted alpha pins (Voyager 1.1.0-beta03, OTel `2.25.0-alpha`, semconv `1.30.0-rc.1`). That pin already exposes the full `ColorScheme` constructor surface this change needs: the 30+ standard roles, the `surfaceContainer*` family, the `Fixed` color roles, the modern `Color(0xAARRGGBB)` accessor pattern. No new Version Pinning Decisions Log entry is needed for `material3` — only for the new `moko-resources` plugin + library pin.
+
+**Stream clarification:** Compose Multiplatform's `material3` artifact (`org.jetbrains.compose.material3:material3`) versions independently from Jetpack's `androidx.compose.material3:material3` — the two share API shape but NOT version numbers. The CMP `1.10.0-alpha05` pin is the current canonical for KMP projects in this repo; it has no direct mapping to a Jetpack version number. Any future Material 3 version bump must explicitly identify which stream is being bumped.
 
 **Alternatives considered:**
 
-- **`material3 = "1.4.0-beta01"` alpha** (with expressive components). Adds `MaterialExpressiveTheme`, `expressiveLightColorScheme`, `WavyProgressIndicator`, FAB Menu APIs, promoted ToggleButtons. But Compose Multiplatform 1.9.x flags Expressive APIs as `@ExperimentalMaterial3ExpressiveApi` and requires the alpha artifact; the scaffold has no consumer that needs them. Pinning a beta for a foundational scaffold violates the project's "minimize maintenance" principle — a near-term breaking change in the beta line would force a re-touch.
-- **`material3 = "1.2.x"`.** Lacks the `surfaceContainer*` family (added in 1.2-late) and the `Fixed` color roles (added in 1.3). The palette requires `surfaceContainerLowest`/`Low`/`Container`/`High`/`Highest` — pinning 1.2 would force us to drop those roles.
+- **Add a new pin for Jetpack `androidx.compose.material3` 1.3.x stable alongside the existing CMP pin.** Forces dual-stream maintenance (KMP commonMain + Android target referencing different artifact groups) — non-trivial Gradle config, no clear benefit since this change ships zero Android-only Compose code.
+- **Downgrade the existing CMP pin to an earlier stable like 1.7.x.** Loses the `surfaceContainer*` family + `Fixed` roles that the palette requires; introduces a downgrade-risk for any other consumer of the existing pin. Rejected — gratuitous.
+- **Bump the existing pin to a later alpha.** No current consumer requirement justifies the bump; alpha-version bumps risk breaking changes in API shape. Defer until a downstream feature change drives the bump.
 
-**Trade-off accepted:** Defers expressive components until a future change explicitly needs them. When that change lands, it will bump to the then-stable 1.4.x line and add expressive consumers in one PR rather than two.
+**Trade-off accepted:** This change inherits whatever stability risk the existing alpha05 pin already carries; that risk was accepted at Mobile #1 ship time and remains the project's working posture. Defers all `material3` version decisions to a future change that needs them.
 
 ### Decision 2: Brand `secondary` and `tertiary` mapped to **neutral surfaceVariant family**; coral + amber exposed as `ColorScheme` extension properties
 
@@ -95,7 +98,7 @@ Today's date: 2026-05-28. Phase-balance check: scaffolding priority is active (0
 | `surfaceTint` | `#1E4FD6` | `#B3C5FF` |
 | `inverseSurface` | `#1B2234` | `#E2E2E9` |
 | `inverseOnSurface` | `#FFFFFF` | `#2F3036` |
-| `outline` | `#9CA3AF` | `#8E9099` |
+| `outline` | `#79747E` | `#938F99` |
 | `outlineVariant` | `#E8EAEF` | `#44464F` |
 | `scrim` | `Color(0x8F0E1220)` | `Color(0x8F0E1220)` |
 | `surfaceBright` | `#FFFFFF` | `#37393E` |
@@ -129,6 +132,8 @@ Today's date: 2026-05-28. Phase-balance check: scaffolding priority is active (0
 | `link` | `#1740B8` | `#B3C5FF` |
 
 **Rationale:** Branded-light + vanilla-purple-dark (the status quo from Mobile #1) would create a jarring brand disconnect the first time a user system-toggles dark mode. For an 18+ social app with high evening session time, this is a real cost. Mechanical derivation produces a coherent (if not hand-tuned) dark palette using the same algorithm Material Theme Builder uses — predictable, documented, no surprises.
+
+**Derivation framing note:** Material Theme Builder's algorithm has two source-paths for dark-scheme values. The **primary-family roles** (`primary`, `primaryContainer`, `onPrimary`, `onPrimaryContainer`, `inversePrimary`, `secondaryContainer` when derived from primary, etc.) ARE derived from the source primary's HCT tonal stops (primary tone 80, container tone 30, on-color tone 20, etc.). The **neutral surface roles** (`surface`, `onSurface`, `surfaceVariant`, `surfaceContainer*` family, `outline`, `outlineVariant`, `inverseSurface`, `inverseOnSurface`) are derived from MTB's default neutral hue, NOT from the primary's HCT family — that neutral hue is a separate algorithm input. The dark values for those neutral roles in the table above reflect this split: primary-family rolls forward from `#1E4FD6`, neutrals from MTB's default neutral palette. Both halves are mechanically derived, but from different source colors.
 
 **Alternatives considered:**
 
@@ -193,47 +198,100 @@ Image(painter = painterResource(logo), contentDescription = stringResource(MR.st
 - **Flip the default** (blue-on-white). Cleaner minimalist aesthetic but disappears on light wallpapers + loses brand color prominence.
 - **Ship only one variant.** Locks in the default with no alternate; user-selectable icon themes would require a future scaffold change.
 
-### Decision 8: App launcher icon lives in **platform-native locations**, NOT inside Moko Resources
+### Decision 8: App launcher icon lives in **platform-native locations**, replacing Mobile #1's wizard-default assets; iOS uses the **modern single-1024 universal idiom**
 
-**Choice:** Android launcher icon under `mobile/app/src/androidMain/res/mipmap-anydpi-v26/`, `drawable/`, `values/colors.xml`. iOS launcher icon under `iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/` (17 PNG sizes generated via `dev/scripts/generate-ios-app-icons.sh` using `rsvg-convert` with `pdftocairo` fallback). The in-app brand logo (consumed inside the running app's UI) DOES live in `:shared:resources` via Moko Resources, but the launcher icon does not.
+**Choice:** Replace Mobile #1's existing JetBrains-wizard-default launcher assets in-place:
 
-**Rationale:** Moko Resources is the contract for in-app drawables consumed via `Image(painter = painterResource(MR.images.X))`. Launcher icons are platform-native conventions — Android `mipmap-anydpi-v26/ic_launcher.xml` adaptive icon system + iOS Asset Catalog `AppIcon.appiconset/` — not addressable via a KMP shared module. This split mirrors how `mobile-app-scaffold-replace-wizard` already handles `AndroidManifest.xml` + iOS `Info.plist` + `iOSApp.swift` as platform-native files outside commonMain.
+**Android** — replace these existing files in `mobile/app/src/androidMain/res/`:
+- `mipmap-anydpi-v26/ic_launcher.xml` + `ic_launcher_round.xml` (currently wizard adaptive icon)
+- `drawable-v24/ic_launcher_foreground.xml` (currently wizard vector glyph)
+- `drawable/ic_launcher_background.xml` (currently wizard vector gradient — replace with `@color/ic_launcher_background` reference + new `values/colors.xml`)
+- 10 raster PNGs under `mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher.png` + `_round.png` (load-bearing under `min-sdk = 24` for Android 7.x devices that ignore the adaptive XML and fall back to rasters)
+
+Plus NEW files: `drawable/ic_launcher_monochrome.xml` for Android 13+ themed-icon support; `drawable/ic_launcher_foreground_alt.xml` + `mipmap-anydpi-v26/ic_launcher_alt.xml` for the blue-on-white alternate (wired via `<activity-alias>` in `AndroidManifest.xml`, dormant).
+
+**iOS** — preserve the existing **modern iOS 14+ single-1024 universal idiom** in [`iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/Contents.json`](../../../iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/Contents.json), which already declares 3 entries (default + `luminosity:dark` + `luminosity:tinted` appearance variants, all `universal` idiom at 1024×1024). Replace the existing wizard `app-icon-1024.png` with 3 NearYouID-branded 1024×1024 PNGs rasterized from the modified SVG: one default (white-on-blue), one dark variant (lighter primary for dark-mode home-screens), one tinted variant (monochrome-style for iOS 18+ tinted icons). The `Contents.json` shape stays intact — only the PNG bytes change.
+
+In-app brand logos (consumed inside the running app's UI) DO live in `:shared:resources` via Moko Resources; launcher icons do not. The script `dev/scripts/generate-ios-app-icons.sh` generates the 3 iOS 1024 variants (uses `rsvg-convert` with `pdftocairo` fallback).
+
+**Rationale:** Moko Resources is the contract for in-app drawables consumed via `Image(painter = painterResource(MR.images.X))`. Launcher icons are platform-native conventions — Android `mipmap-anydpi-v26/ic_launcher.xml` adaptive icon system + iOS Asset Catalog `AppIcon.appiconset/` — not addressable via a KMP shared module. Mobile #1's existing modern iOS Asset Catalog idiom (single 1024 + appearance variants) supports system-tinted iOS 18+ icons and dark-mode home-screens; regressing to the legacy 17-PNG multi-size pattern would strictly LOSE that capability while adding a brew-dep rasterizer requirement. Android's 10 raster fallbacks are NOT optional under `min-sdk = 24` (Android 7.x devices use them when the adaptive XML isn't available); they must be regenerated, not deleted.
 
 **Alternatives considered:**
 
+- **Regress iOS Asset Catalog to legacy 17-PNG multi-size pattern.** Strictly more maintenance (rasterizer script + 17 distinct PNGs) for strictly less capability (loses dark + tinted variant support). Rejected — Mobile #1's modern idiom is a strict improvement.
+- **Skip the 10 Android raster fallbacks; rely on adaptive XML.** Breaks the launcher icon on Android 7.x devices (`min-sdk = 24` includes Android Nougat 7.0/7.1). Rejected — known regression.
 - **Bundle the launcher source SVG in Moko Resources + generate platform-native assets at build time.** Conceptually clean but requires a Gradle build script extension that knows how to invoke `rsvg-convert` + rebuild the Android adaptive XML + rebuild the iOS Asset Catalog JSON. Adds a build-time dependency on `librsvg2` for any developer running `:mobile:app:assembleDebug`. Not worth the complexity for a one-time scaffold.
 - **Generate launcher assets at CI time only.** Same complexity, plus the assets aren't in the repo so a fresh clone can't build without CI. Rejected.
 
-### Decision 9: Outline color **darkened from palette's `#D9DDE5` to `#9CA3AF`**
+### Decision 9: Outline color **darkened from palette's `#D9DDE5` to `#79747E`** to actually meet M3 3:1 contrast
 
-**Choice:** Override the palette's `outline = #D9DDE5` with `#9CA3AF` to meet Material 3's 3:1 contrast guideline for non-text decorative elements (form field borders, dividers, etc.) against `surface = #FFFFFF`. Keep the palette's `#D9DDE5` as the value for `outlineVariant`, which is for purely decorative tones (no contrast requirement).
+**Choice:** Override the palette's `outline = #D9DDE5` with `#79747E` (the Material 3 default outline tone) — the only nearby value in the palette author's family that **actually passes** Material 3's 3:1 contrast guideline against `surface = #FFFFFF`. Keep the palette's `#D9DDE5` as the value for `outlineVariant`, which is for purely decorative tones (no contrast requirement).
 
-**Rationale:** Per [Material 3 color roles spec](https://m3.material.io/styles/color/roles), `outline` is "used for important boundaries, such as a text field outline" and should pass 3:1 contrast against surface. `#D9DDE5` against white surface yields ~1.27:1, well below the threshold. `#9CA3AF` yields ~2.9:1 (borderline pass) — preferred over palette's overly-subtle value while preserving palette intent for `outlineVariant`.
+**Rationale + math:** Per [Material 3 color roles spec](https://m3.material.io/styles/color/roles), `outline` is "used for important boundaries, such as a text field outline" and MUST pass 3:1 contrast against surface. Measured WCAG contrast ratios against `surface = #FFFFFF`:
 
-**Alternatives considered:**
+| Candidate | Hex | Ratio vs white | Meets 3:1? |
+|---|---|---|---|
+| Palette author's value | `#D9DDE5` | 1.36:1 | No |
+| Earlier proposal value (now rejected) | `#9CA3AF` | 2.54:1 | No — borderline but FAILS |
+| **M3 default outline tone (this Decision)** | `#79747E` | **4.05:1** | **Yes** |
+| Even darker option | `#6F7079` | 4.50:1 | Yes |
 
-- **Accept palette's `#D9DDE5` for outline.** Honors the palette literally but fails M3 accessibility guideline; text fields will look borderless, dividers nearly invisible.
-- **Use Material 3 default outline tone** (~`#79747E`). Too dark, doesn't carry the cool-blue cast of the brand palette.
-
-**Trade-off accepted:** Single hex deviation from the palette author's value, documented here for proposal-review confirmation.
-
-### Decision 10: Detekt no-hardcoded-UI-strings rule verification **scope = `:mobile:app` only**
-
-**Choice:** The Detekt rule "no hardcoded UI strings in mobile source" (per [`openspec/project.md`](../../project.md) § Coding Conventions) is already in `:lint:detekt-rules` from a prior change. This change validates the rule against `:mobile:app` (the first module to consume Moko Resources) — verifies it correctly accepts `stringResource(MR.strings.X)` / `desc().localized()` call sites and correctly rejects any remaining hardcoded UI literals. No new lint rule is authored; no rule scope is expanded.
-
-**Rationale:** Mobile #1 shipped `HomeScreen` with hardcoded `"NearYouID"` and `"v1.0"` literals because no Moko Resources module existed — the Detekt rule effectively had no real-world validation target. Mobile #2 is the first opportunity to test the rule end-to-end. If the rule mis-classifies a Moko Resources call site as a hardcoded literal, that's a rule bug to file separately (out of scope for this change).
+The earlier proposal value `#9CA3AF` was incorrectly cited as "~2.9:1 (borderline pass)" — the actual computed ratio is 2.54:1, which fails M3's 3:1 threshold. `#79747E` is the M3 default outline color and passes cleanly at 4.05:1; using it preserves palette intent (a neutral grey) while honoring the accessibility spec.
 
 **Alternatives considered:**
 
-- **Expand rule scope to other modules in this change.** Out of scope — other modules (`:backend:ktor`, `:shared:distance`, etc.) don't have UI strings; expanding scope risks false positives.
-- **Author a new related rule** (e.g., enforce Moko Resources for all `Text(...)` composables). Out of scope — the existing rule's coverage is sufficient; new rules go through their own dedicated changes per the project's Detekt rule-authoring precedent (`like-rate-limit` → `RateLimitTtlRule`; `coordinate-jitter-lint-rule` → `CoordinateJitterRule`).
+- **Accept palette's `#D9DDE5` for outline.** Honors the palette literally but fails M3 accessibility guideline by a wide margin (1.36:1); text fields will look borderless, dividers nearly invisible. Rejected.
+- **`#9CA3AF`** (earlier proposal value). Computes to 2.54:1 — does NOT meet 3:1; the rationale "borderline pass" was based on incorrect math. Rejected as the previous spec scenario header "outline meets M3 contrast guideline" would have been factually false.
+- **A blue-tinted neutral like `#6C7B9A`** (would carry the brand blue cast more visibly). Adds chroma a small amount but cool-blue outline doesn't fit M3's typically-neutral outline convention; deviates from MTB norms without clear benefit. Defer to a future hand-tuned-palette change if visual review wants it.
+
+**Trade-off accepted:** Two-hex deviation from the palette author's outline tone (uses M3 default `#79747E` for `outline`, palette author's `#D9DDE5` for `outlineVariant`). Documented for proposal-review confirmation — user may override during review if a cool-blue-tinted outline is preferred.
+
+### Decision 10: "No hardcoded UI strings" verified via **grep-based check**, not Detekt — Detekt rule deferred as a follow-up
+
+**Choice:** Verify the "no hardcoded UI strings in mobile source" convention via an **explicit grep step** in tasks.md, NOT via a Detekt rule. Mobile #1's task 9.4 deferred the Detekt rule as a `FOLLOW_UPS.md` entry `mobile-negative-requirement-ci-grep`; the rule still does not exist in `:lint:detekt-rules` (only 9 backend rules registered in `NearYouRuleSetProvider`). Treating the rule as if it existed (the earlier shape of this decision did) would produce a vacuously-true verification: `./gradlew :mobile:app:detekt` exits 0 because there's nothing to fire. This change instead ships a grep assertion + adds a new follow-up entry to upgrade the grep to a real Detekt rule in a focused future change.
+
+**Grep shape (lives in tasks.md Section 8):**
+
+```bash
+# Pass: zero hardcoded UI string literals inside :mobile:app composable call sites.
+# A "hardcoded UI string" is a string literal passed to one of these Compose UI text-rendering surfaces:
+#   - Text("..."), Text(text = "...")
+#   - Button(...) { Text("...") }, TextButton, OutlinedButton, IconButton, etc.
+#   - TopAppBar(title = { Text("...") }), Snackbar, AlertDialog
+#   - contentDescription = "..."
+# Acceptable string sources:
+#   - stringResource(MR.strings.X) — Moko Resources Compose accessor
+#   - MR.strings.X.desc().localized() — Moko Resources direct accessor
+#   - A local val whose initializer is one of the above
+# The grep below catches the common offenders; exact-zero match is the gate.
+grep -rEn 'Text\(\s*"[^"]+"' mobile/app/src/commonMain/ mobile/app/src/androidMain/ mobile/app/src/iosMain/ | \
+    grep -vE '(stringResource|MR\.strings|//.*hardcoded-string-allow:)' && \
+    { echo "FAIL: hardcoded UI string literals in mobile sources"; exit 1; } || \
+    { echo "OK: no hardcoded UI string literals found"; exit 0; }
+```
+
+**Rationale:**
+
+- **Honest about current enforcement state.** Mobile #1 deferred the Detekt rule; pretending it exists would be a documentation lie that future maintainers would have to debug.
+- **Lightest-touch fix to the multi-lens-caught defect.** Grep is fast (sub-second), zero new dependencies, runs in CI exactly the same gate `./gradlew :mobile:app:detekt` would have run in (added as a verification step in `tasks.md` Section 8).
+- **Preserves the architectural invariant.** The "no hardcoded UI strings" invariant in [`openspec/project.md`](../../project.md) § Coding Conventions is still real; this change just chooses a grep-shaped backstop instead of a Detekt-rule-shaped one.
+- **Upgrade path is documented.** New `FOLLOW_UPS.md` entry `mobile-hardcoded-strings-detekt-rule` tracks the eventual Detekt rule (per the project's precedent of one rule per change — `RateLimitTtlRule` in `like-rate-limit`, `CoordinateJitterRule` in `coordinate-jitter-lint-rule`, etc.). The grep stays as the canonical backstop until the rule lands.
+
+**Alternatives considered:**
+
+- **Author the Detekt rule in this change.** Scope creep — Mobile #2's purpose is Moko Resources bootstrap, not lint-rule authoring. Project precedent is one Detekt rule per change. Rejected.
+- **Drop the "no hardcoded strings" requirement entirely from this change's specs.** Hides the architectural invariant; future contributors might add hardcoded literals without anyone noticing. Rejected.
+- **Defer Mobile #2 until the Detekt rule lands as a precondition change.** Blocks 2+ weeks of mobile work for a lint enhancement that grep covers in the interim. Rejected as too costly.
+- **Use the existing `ktlintCheck` rule for string literal style** (a Kotlin-style linter, not a content-aware UI-strings linter). It doesn't have a "this string literal looks like a UI label" detector — wrong tool. Rejected.
+
+**Trade-off accepted:** Grep is a coarser tool than a proper Detekt rule (false positives possible on string literals that happen to live in `Text(...)` for non-UI purposes, e.g., test fixtures, log labels, debug prints). The grep heuristic above excludes `// hardcoded-string-allow:` annotated lines to give an explicit escape hatch for the rare legitimate case. Until the Detekt rule lands, treat any annotation as a code-review smell.
 
 ## Risks / Trade-offs
 
 | Risk | Mitigation |
 |---|---|
 | Mechanically derived dark palette looks off-brand or low-contrast in real-world rendering | Surface derived values in `design.md` (above) for user override during proposal review; track hand-tuned dark as `mobile-dark-palette-tuning` follow-up; document the trade-off in `proposal.md` § Out of Scope |
-| Outline color override (`#9CA3AF` instead of palette's `#D9DDE5`) deviates from claude.ai/design output without user explicit OK | Single decision documented in this design with rationale + alternative; user can override during proposal review |
+| Outline color override (`#79747E` M3 default instead of palette's `#D9DDE5`) deviates from claude.ai/design output without user explicit OK | Decision 9 documents the rationale (palette value fails 1.36:1 vs M3's 3:1 requirement) + alternatives (including the rejected `#9CA3AF` borderline value); user can override during proposal review |
 | Plus Jakarta Sans variable `.ttf` doesn't load on iOS via Moko Resources due to font-format quirk | `NearYouTypography` declares `FontFamily.SansSerif` as fallback so text still renders; if it surfaces, fall back to bundling static `.ttf` per weight (small diff) |
 | `material3 = "1.3.x"` stable lacks a future API the next mobile change needs | Bump to `1.4.x` stable in the change that adds the new component; low risk because 1.3 → 1.4 is non-breaking by semver |
 | Re-exported logo SVGs lose visual fidelity vs source (e.g., introduced rendering artifacts) | Tasks.md prescribes hex-only `sed` substitution, no path/stroke restructuring; visual diff verified during build verification step |
@@ -253,11 +311,32 @@ This is a scaffold change with **zero runtime impact** — no backend deploys, n
 
 **No rollback plan** beyond standard git revert — there is no live user surface to roll back.
 
+### Decision 11: Ship Android 13+ themed-icon `monochrome` drawable in this change
+
+**Choice:** Include `drawable/ic_launcher_monochrome.xml` (vector drawable of just the hexagon glyph in solid black) as part of this change, referenced by the `<monochrome>` attribute on `mipmap-anydpi-v26/ic_launcher.xml`. Android 13+ system uses this to render a wallpaper-tinted variant when the user enables themed icons.
+
+**Rationale:** Trivial to add (~30 LOC vector drawable, mechanical extraction from the brand SVG with `strokeColor="#000000"`). Postponing it to a follow-up would require another change to touch the same `mipmap-anydpi-v26/ic_launcher.xml` file, wasting a PR cycle. The capability is already implied by the launcher icon work Mobile #2 is doing — separating it adds bookkeeping cost without any scoping benefit.
+
+**Alternatives considered:**
+
+- **Defer to a follow-up `mobile-themed-icon-monochrome` change.** Extra PR for trivial work; would re-touch files this change already modifies; no scoping benefit.
+- **Skip themed-icon support entirely.** Loses Android 13+ home-screen integration UX (wallpaper-tinted icons) for no clear reason; this is a one-time mechanical drawable.
+
+### Decision 12: `:shared:resources` Gradle module placed **inside the existing `if (includeMobile)` block** in `settings.gradle.kts`
+
+**Choice:** Register `:shared:resources` via `include(":shared:resources")` placed inside [`settings.gradle.kts`](../../../settings.gradle.kts) line ~40's `if (includeMobile.toBoolean()) { ... }` block (alongside `include(":mobile:app")`), NOT at the top-level adjacent to `:shared:tmp` / `:shared:distance`.
+
+**Rationale:** `:shared:resources` applies the `com.android.library` Gradle plugin to expose an Android target. The existing `:shared:*` modules (`:shared:tmp`, `:shared:distance`) are JVM-only — they sit at the top level because they don't need an Android SDK to evaluate. The `if (includeMobile)` block exists specifically so the Cloud Run JDK-only Docker builder (which sets `includeMobile=false`) can run Gradle without an Android SDK present. Placing `:shared:resources` outside this block would force every backend deploy to bundle the Android SDK — a real cost (~600MB) for zero benefit, and would break the Cloud Run Docker build entirely.
+
+**Alternatives considered:**
+
+- **Place at top level for visual consistency with `:shared:tmp` / `:shared:distance`.** Breaks Cloud Run JDK-only builder. Rejected.
+- **Make `:shared:resources` JVM-only too** (drop Android target). Defeats the entire purpose — Moko Resources requires platform-specific targets to generate `R.class`-equivalents.
+
 ## Open Questions
 
 1. **Should the in-app logo also be exposed as an Android adaptive icon source** (single source of truth, build-time generation)? *Decision deferred.* Current scaffold ships them as separate assets (Moko Resources for in-app, platform-native for launcher) per Decision 8. Revisit if maintenance burden grows.
 2. **Should `NearYouTypography` ship M3 type-scale presets** (Display/Headline/Title/Body/Label) as Material 3 standard sizes + weights, or override with brand-tuned sizes? *Decision: M3-standard sizes for v1.* No brand spec exists for type scale; defer to a future "brand voice" change if visual review identifies need.
-3. **Should the `monochrome` themed-icon drawable for Android 13+** ship as part of this scaffold, or defer to a follow-up? *Decision: ship in this change.* Trivial to add (vector drawable of just the hexagon glyph in solid black, the system tints based on wallpaper). No reason to defer.
-4. **Is the user OK with `#9CA3AF` outline override** vs the palette's `#D9DDE5`? Surface for proposal review (this design's Decision 9).
-5. **Is the user OK with the derived dark palette values** in Decision 3's table? Surface for proposal review.
-6. **Compose Multiplatform `material3 = "1.3.x"` exact stable version** — pick the latest stable patch available on Maven Central at build time (e.g., `1.3.2`). Recorded in `gradle/libs.versions.toml` + Version Pinning Decisions Log.
+3. **Is the user OK with the M3-default `#79747E` outline override** vs the palette author's `#D9DDE5`? Surface for proposal review (this design's Decision 9). The override picks accessibility over palette literal-honoring; user may prefer a cool-blue-tinted outline if visual review wants the brand cast preserved.
+4. **Is the user OK with the derived dark palette values** in Decision 3's table? Surface for proposal review.
+5. **Moko Resources `home_placeholder_version` format-string portability** — Moko Resources reportedly normalizes `%1$s` to `%@` on iOS via its NSLocalizedString integration. Verify during tasks.md Section 4 that the round-trip works correctly (`stringResource(MR.strings.home_placeholder_version, "1.0")` renders `"Versi 1.0"` on both Android and iOS). If Moko surface-area differs from expectations, fall back to positional `%s` or hard-coded version-string substitution in commonMain Kotlin.

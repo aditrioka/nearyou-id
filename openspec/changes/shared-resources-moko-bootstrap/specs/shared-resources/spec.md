@@ -46,17 +46,17 @@ The `:shared:resources` module SHALL expose a `NearYouColorScheme` object (or eq
 #### Scenario: NearYouColorScheme.light maps M3 secondary to a neutral, not coral
 
 - **WHEN** inspecting `NearYouColorScheme.light.secondary`
-- **THEN** the value resolves to `Color(0xFFEEEFF4)` (or the documented surfaceVariant family neutral), explicitly NOT `Color(0xFFFF7A5C)` (coral) — per [`design.md`](../../design.md) Decision 2
+- **THEN** the value resolves to `Color(0xFFEEF0F4)` (the surfaceVariant family neutral per [`design.md`](../../design.md) Decision 3 table), explicitly NOT `Color(0xFFFF7A5C)` (coral) — per [`design.md`](../../design.md) Decision 2
 
 #### Scenario: NearYouColorScheme.light maps M3 tertiary to a neutral
 
 - **WHEN** inspecting `NearYouColorScheme.light.tertiary`
 - **THEN** the value resolves to the documented neutral stop (per [`design.md`](../../design.md) Decision 3 table), explicitly NOT `Color(0xFFF4B740)` (amber) — per [`design.md`](../../design.md) Decision 2
 
-#### Scenario: NearYouColorScheme.light outline meets M3 contrast guideline
+#### Scenario: NearYouColorScheme.light outline meets M3 3:1 contrast guideline
 
 - **WHEN** inspecting `NearYouColorScheme.light.outline`
-- **THEN** the value resolves to `Color(0xFF9CA3AF)` (the contrast-adjusted value per [`design.md`](../../design.md) Decision 9), NOT the palette author's `Color(0xFFD9DDE5)` value (which is preserved on `outlineVariant` instead)
+- **THEN** the value resolves to `Color(0xFF79747E)` (the M3 default outline tone, which passes WCAG 4.05:1 against `surface = #FFFFFF` per [`design.md`](../../design.md) Decision 9), NOT the palette author's `Color(0xFFD9DDE5)` value (1.36:1, fails) and NOT the earlier proposal value `Color(0xFF9CA3AF)` (2.54:1, also fails); the palette author's `Color(0xFFD9DDE5)` is preserved on `outlineVariant` instead (purely decorative, no contrast requirement)
 
 #### Scenario: NearYouColorScheme.light scrim is correctly encoded
 
@@ -160,64 +160,138 @@ The `:shared:resources` module SHALL provide a foundational set of Bahasa Indone
 - **WHEN** reading the `<string name="home_placeholder_version">` value
 - **THEN** the text contains exactly one `%1$s` placeholder (or `%s` if Moko Resources uses positional-only substitution) so the rendered version string can be supplied at composition time
 
-### Requirement: App launcher icon ships as platform-native assets with white-on-blue default
+### Requirement: App launcher icon replaces wizard-default assets with NearYouID-branded variants
 
-The `:mobile:app` module SHALL ship the Android adaptive launcher icon at `mobile/app/src/androidMain/res/mipmap-anydpi-v26/ic_launcher.xml` + `ic_launcher_round.xml`, with the foreground = white hexagon glyph vector drawable and background = `@color/ic_launcher_background` referencing `#1E4FD6` in `mobile/app/src/androidMain/res/values/colors.xml`. The `:mobile:app` module SHALL also ship the iOS launcher icon at `iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/` with all 17 required PNG sizes derived from the white-on-blue source SVG. A blue-on-white alternate Android variant SHALL ship at `mipmap-anydpi-v26/ic_launcher_alt.xml` referencing a blue-on-white foreground + white background, wired via an `<activity-alias>` in `AndroidManifest.xml` ready for a future user-selectable icon-theme feature. Android 13+ themed-icon support SHALL be enabled via the `<monochrome>` attribute on `ic_launcher.xml`.
+The `:mobile:app` module SHALL ship NearYouID-branded launcher icons by **replacing in-place** Mobile #1's existing JetBrains-wizard-default launcher assets (no file additions to net-new mipmap locations). Both platforms maintain their existing structural conventions — Android uses adaptive icon + raster fallbacks; iOS uses the modern single-1024 universal Asset Catalog idiom (NOT the legacy multi-size pattern).
 
-#### Scenario: Android adaptive icon files are present
+**Android** SHALL ship: (a) replaced `mipmap-anydpi-v26/ic_launcher.xml` + `ic_launcher_round.xml` adaptive icons with foreground = white hexagon glyph vector drawable + background = `@color/ic_launcher_background` (`#1E4FD6` in `values/colors.xml`); (b) replaced `drawable/ic_launcher_background.xml` (Mobile #1 shipped a wizard vector gradient there — this change converts it to a color reference) + replaced `drawable-v24/ic_launcher_foreground.xml` (Mobile #1 shipped the wizard vector); (c) regenerated 10 raster fallback PNGs in `mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher.png` + `ic_launcher_round.png` (LOAD-BEARING under `min-sdk = 24` for Android 7.x devices that ignore the adaptive XML); (d) NEW `drawable/ic_launcher_monochrome.xml` for the Android 13+ themed-icon `<monochrome>` attribute; (e) NEW blue-on-white alternate (`drawable/ic_launcher_foreground_alt.xml` + `mipmap-anydpi-v26/ic_launcher_alt.xml`) wired via dormant `<activity-alias>` in `AndroidManifest.xml`.
+
+**iOS** SHALL ship: replaced `iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png` with 3 NearYouID-branded 1024×1024 PNG variants (default + `luminosity:dark` + `luminosity:tinted`) rasterized from the modified SVG via `dev/scripts/generate-ios-app-icons.sh` (which uses `rsvg-convert` with `pdftocairo` fallback). The existing `Contents.json` shape (modern iOS 14+ single-size universal idiom with appearance variants) is preserved — only the PNG bytes change.
+
+#### Scenario: Android adaptive icon files retain their existing paths
 
 - **WHEN** inspecting `mobile/app/src/androidMain/res/mipmap-anydpi-v26/`
-- **THEN** the directory contains both `ic_launcher.xml` AND `ic_launcher_round.xml` AND `ic_launcher_alt.xml`
+- **THEN** the directory contains `ic_launcher.xml` AND `ic_launcher_round.xml` (both replaced in-place — same filenames as Mobile #1) AND a NEW `ic_launcher_alt.xml` for the blue-on-white alternate
 
 #### Scenario: Android adaptive icon background is brand primary
 
 - **WHEN** inspecting `mobile/app/src/androidMain/res/values/colors.xml`
 - **THEN** the file contains `<color name="ic_launcher_background">#1E4FD6</color>`
 
-#### Scenario: Android adaptive icon foreground vector drawable is present
+#### Scenario: Android adaptive icon foreground vector drawable is replaced and monochrome glyph is present
 
-- **WHEN** inspecting `mobile/app/src/androidMain/res/drawable/`
-- **THEN** the directory contains `ic_launcher_foreground.xml` (vector drawable rendering the white hexagon glyph) AND a `monochrome` glyph drawable referenced by `ic_launcher.xml`'s `<monochrome>` attribute
+- **WHEN** inspecting `mobile/app/src/androidMain/res/drawable/` and `drawable-v24/`
+- **THEN** `drawable-v24/ic_launcher_foreground.xml` exists (replaced in-place from Mobile #1's wizard default, rendering the white hexagon glyph) AND `drawable/ic_launcher_monochrome.xml` exists (NEW, referenced by `ic_launcher.xml`'s `<monochrome>` attribute for Android 13+ themed-icon support)
 
-#### Scenario: iOS Asset Catalog has the required icon sizes
+#### Scenario: Android raster fallback PNGs are regenerated for legacy Android 7.x
+
+- **WHEN** inspecting `mobile/app/src/androidMain/res/mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/`
+- **THEN** each density directory contains both `ic_launcher.png` AND `ic_launcher_round.png` (10 PNGs total — replaced in-place from Mobile #1's wizard defaults), each rasterized at the density-appropriate resolution from the modified white-on-blue brand SVG
+
+#### Scenario: iOS Asset Catalog preserves modern single-1024 universal idiom
+
+- **WHEN** inspecting `iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/Contents.json`
+- **THEN** the file declares 3 entries with `idiom = "universal"`, `size = "1024x1024"`, `platform = "ios"` — one default + one with `appearance = "luminosity" / value = "dark"` + one with `appearance = "luminosity" / value = "tinted"`; the `Contents.json` shape matches Mobile #1's shipped structure (only the PNG bytes change)
+
+#### Scenario: iOS launcher icon PNG is replaced with NearYouID brand variants
 
 - **WHEN** inspecting `iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/`
-- **THEN** the directory contains a valid `Contents.json` plus PNG files covering at minimum the Apple-required sizes (20pt @ 2x/3x, 29pt @ 2x/3x, 40pt @ 2x/3x, 60pt @ 2x/3x, 76pt @ 1x/2x, 83.5pt @ 2x, 1024pt @ 1x) — 17 PNGs total
+- **THEN** `app-icon-1024.png` is present (replaced from Mobile #1's wizard default, rasterized from the modified brand SVG) AND 2 additional 1024×1024 PNGs corresponding to the `luminosity:dark` and `luminosity:tinted` Contents.json entries are present
 
-#### Scenario: iOS icon generation script is present
+#### Scenario: iOS icon generation script is present and supports both rasterizers
 
-- **WHEN** inspecting `dev/scripts/`
-- **THEN** an executable `generate-ios-app-icons.sh` script exists, invoking `rsvg-convert` (with `pdftocairo` fallback) against the source SVG to produce all required iOS Asset Catalog sizes
+- **WHEN** inspecting `dev/scripts/generate-ios-app-icons.sh`
+- **THEN** the script is executable AND auto-detects either `rsvg-convert` (preferred) or `pdftocairo` (fallback) AND produces exactly 3 1024×1024 PNGs (default + dark + tinted variants) AND fails with a clear error if neither rasterizer is available
 
-### Requirement: Material 3 version pinned to stable 1.3.x
+### Requirement: Reuse existing Compose Multiplatform material3 pin; add only moko-resources pin
 
-The repository SHALL pin `material3` (Compose Multiplatform variant `org.jetbrains.compose.material3:material3` or Jetpack Compose variant `androidx.compose.material3:material3`) to a specific stable 1.3.x version in [`gradle/libs.versions.toml`](../../../../gradle/libs.versions.toml). The version pin SHALL be recorded in [`docs/09-Versions.md`](../../../../docs/09-Versions.md) § Version Decisions per the project's Version Pinning policy.
+The repository SHALL NOT introduce a new `material3` version pin in [`gradle/libs.versions.toml`](../../../../gradle/libs.versions.toml). The existing pin `material3 = "1.10.0-alpha05"` (`org.jetbrains.compose.material3:material3`, Compose Multiplatform stream) is reused as-is — it already exposes the full `ColorScheme` constructor surface this change requires. The repository SHALL add new `moko-resources` plugin + library entries with a Version Pinning Decisions Log entry in [`docs/09-Versions.md`](../../../../docs/09-Versions.md) per the project's Version Pinning policy.
 
-#### Scenario: material3 is pinned in libs.versions.toml
+#### Scenario: Existing material3 pin is preserved untouched
 
 - **WHEN** inspecting `gradle/libs.versions.toml`
-- **THEN** the `[versions]` section contains an entry of the form `material3 = "1.3.X"` where X is a specific patch number (e.g., `"1.3.2"`), AND a corresponding `[libraries]` entry references that version via `version.ref`
+- **THEN** the `[versions]` section contains exactly one `material3` entry valued `"1.10.0-alpha05"` (preserved from Mobile #1's shipped state) AND no new `material3-jetpack` / `material3-android` / similar Jetpack-stream variant entry has been added
 
-#### Scenario: Version Pinning Decisions Log has a corresponding entry
+#### Scenario: moko-resources is pinned in libs.versions.toml
+
+- **WHEN** inspecting `gradle/libs.versions.toml`
+- **THEN** the `[versions]` section contains a `moko-resources` entry with a specific version (latest stable), AND `[libraries]` entries exist for both `moko-resources` and `moko-resources-compose`, AND a `[plugins]` entry exists for the `dev.icerock.mobile.multiplatform-resources` Gradle plugin
+
+#### Scenario: Version Pinning Decisions Log has a moko-resources entry
 
 - **WHEN** inspecting `docs/09-Versions.md` § Version Decisions table
-- **THEN** the table contains a row for `material3` listing the pinned version, pin date (2026-05-28), rationale (per [`design.md`](../../design.md) Decision 1), and next review date
+- **THEN** the table contains a row for `moko-resources` listing the pinned version, pin date (2026-05-28), rationale (per [`design.md`](../../design.md) Decision 1 reference to the new module's Moko Resources dependency), and next review date
 
-#### Scenario: material3 1.4-alpha is not pulled in
+#### Scenario: No Version Pinning Decisions Log entry is added for material3
 
-- **WHEN** running `./gradlew :mobile:app:dependencies --configuration releaseRuntimeClasspath` (or equivalent multiplatform variant)
-- **THEN** no resolved `material3` artifact has a version on the `1.4.X` line (no `-alpha`, no `-beta`, no `-rc`) — Material 3 1.4-alpha expressive components are explicitly out of scope per [`design.md`](../../design.md) Decision 1
+- **WHEN** inspecting `docs/09-Versions.md` § Version Decisions table
+- **THEN** no NEW row is added for `material3` (the existing pin is preserved untouched, so no decision is being recorded here) — per [`design.md`](../../design.md) Decision 1 the existing alpha05 pin is reused, not re-decided
 
-### Requirement: Detekt no-hardcoded-UI-strings rule passes against :mobile:app
+### Requirement: No hardcoded UI strings in :mobile:app verified by grep (Detekt rule deferred)
 
-After this change is applied, the existing Detekt "no hardcoded UI strings in mobile source" rule (per [`openspec/project.md`](../../project.md) § Coding Conventions) SHALL pass cleanly against `:mobile:app` — every UI string in `mobile/app/src/commonMain/`, `mobile/app/src/androidMain/`, and `mobile/app/src/iosMain/` SHALL be sourced via Moko Resources (`MR.strings.<name>.desc().localized()` or platform equivalents), with no remaining hardcoded UI string literals.
+After this change is applied, the "no hardcoded UI strings in mobile source" convention from [`openspec/project.md`](../../project.md) § Coding Conventions SHALL be verified via an **explicit grep step** documented in this change's `tasks.md` Section 8 — NOT via a Detekt rule (the rule does not yet exist in `:lint:detekt-rules` and was deferred at Mobile #1 as the `FOLLOW_UPS.md` entry `mobile-negative-requirement-ci-grep`). Every UI string in `mobile/app/src/commonMain/`, `mobile/app/src/androidMain/`, and `mobile/app/src/iosMain/` SHALL be sourced via Moko Resources (`MR.strings.<name>.desc().localized()` or `stringResource(MR.strings.X)` Compose accessor), with no remaining hardcoded UI string literals. The future upgrade to a real Detekt rule SHALL be tracked as a separate follow-up entry in `FOLLOW_UPS.md`.
 
-#### Scenario: Detekt lint passes on :mobile:app
+#### Scenario: Grep verification reports zero hardcoded UI string literals
 
-- **WHEN** running `./gradlew :mobile:app:detekt` from the repository root after this change is applied
-- **THEN** the task completes with exit code 0 — no violation of the "no hardcoded UI strings" rule is reported
+- **WHEN** running the documented grep step from `tasks.md` Section 8 against `mobile/app/src/commonMain/`, `mobile/app/src/androidMain/`, and `mobile/app/src/iosMain/`
+- **THEN** the grep finds zero offending matches (i.e., zero `Text("...")` / `Text(text = "...")` / `contentDescription = "..."` literal-string call sites that are not flowing through `stringResource(MR.strings.X)` or `MR.strings.X.desc().localized()` or an explicitly annotated `// hardcoded-string-allow:` line); the grep exit code is 0
 
-#### Scenario: No bare UI string literals in mobile sources
+#### Scenario: FOLLOW_UPS.md tracks the Detekt rule upgrade
 
-- **WHEN** grepping `mobile/app/src/commonMain`, `mobile/app/src/androidMain`, and `mobile/app/src/iosMain` for `Text("` followed by any non-`MR` / non-`stringResource` literal
-- **THEN** no matches are found in first-party scaffold code (Compose runtime / framework internals are exempt; this targets app code only)
+- **WHEN** inspecting `FOLLOW_UPS.md` (in the repository root) after this change is applied
+- **THEN** the file contains an entry named `mobile-hardcoded-strings-detekt-rule` (or equivalent kebab-case identifier) noting that the grep-based verification in this change should eventually be replaced by a `:lint:detekt-rules` rule modeled on the existing `RawFromPostsRule` / `BlockExclusionJoinRule` precedent
+
+### Requirement: ColorScheme extension properties throw outside NearYouTheme scope
+
+If a composable accesses `MaterialTheme.colorScheme.locationPin` (or any other NearYouColors-backed extension property) without being wrapped in a `NearYouTheme { ... }` provider, the extension property SHALL throw a clear runtime error rather than silently returning a default value. The `staticCompositionLocalOf<NearYouColors>` declaration in `ColorSchemeExtensions.kt` SHALL use `error("NearYouTheme not applied")` as the default-value lambda, NOT a fabricated default `NearYouColors` instance.
+
+#### Scenario: Accessing locationPin outside NearYouTheme throws
+
+- **WHEN** a `commonTest` runs `runComposeUiTest { setContent { Text("${MaterialTheme.colorScheme.locationPin}") } }` (no `NearYouTheme` wrapper)
+- **THEN** the composition fails with an `IllegalStateException` whose message contains "NearYouTheme not applied" (or equivalent), proving that the absent `CompositionLocal` provider raises a loud error instead of returning a silent default
+
+### Requirement: Plus Jakarta Sans falls back to FontFamily.SansSerif at runtime when font loading fails
+
+The `NearYouTypography` `FontFamily` declaration SHALL include `FontFamily.SansSerif` as the LAST fallback entry (after the Plus Jakarta Sans `Font` declarations), so a runtime font-load failure (rare — the .ttf is bundled, not network-fetched) produces visible text in the platform sans-serif rather than empty glyphs. The fallback's position-as-last is mandatory: placing it first would silently never use Plus Jakarta Sans even when the .ttf loads successfully.
+
+#### Scenario: FontFamily declaration places SansSerif as the LAST fallback
+
+- **WHEN** inspecting `shared/resources/src/commonMain/kotlin/id/nearyou/resources/theme/NearYouTypography.kt`
+- **THEN** the `FontFamily(...)` constructor's argument list ends with `FontFamily.SansSerif` (or a `Font(...)` declaration backed by `FontFamily.SansSerif`); all Plus Jakarta Sans `Font(MR.fonts.plus_jakarta_sans.*)` entries precede it
+
+### Requirement: home_placeholder_version format substitution renders correctly at runtime
+
+The `MR.strings.home_placeholder_version` string with format placeholder (declared as `Versi %1$s` in `strings.xml`) SHALL render `"Versi 1.0"` (or whatever runtime version is supplied) when invoked via `stringResource(MR.strings.home_placeholder_version, "1.0")` on both Android and iOS targets. The XML-level shape assertion (`%1$s` placeholder present) is necessary but not sufficient — a separate runtime test SHALL exercise the substitution to catch subtle Moko-vs-Android format-string differences.
+
+#### Scenario: Runtime substitution test renders Versi 1.0
+
+- **WHEN** a `commonTest` invokes `stringResource(MR.strings.home_placeholder_version, "1.0")` from inside a Compose UI test composition (or platform-equivalent on Android: `MR.strings.home_placeholder_version.toString(Resources, "1.0")`; on iOS: the equivalent Moko Resources accessor)
+- **THEN** the returned string equals `"Versi 1.0"` exactly (NOT `"Versi %1$s"` literal); the runtime substitution works on both platforms
+
+### Requirement: shared:resources namespace does not collide with mobile:app
+
+The `:shared:resources` module's Android library `namespace` SHALL be set to `id.nearyou.resources` (or any string that is NOT `id.nearyou.app`), so the merged Android `R.class` produced when `:mobile:app` consumes `:shared:resources` does not collide. The R-class generation merges resource namespaces; collision causes a fatal `R.class` merge error at the AGP merge step.
+
+#### Scenario: Android namespace declaration is distinct from :mobile:app
+
+- **WHEN** inspecting `shared/resources/build.gradle.kts` `android { namespace = ... }` block
+- **THEN** the namespace value is `"id.nearyou.resources"` (or any other string distinct from `:mobile:app`'s `id.nearyou.app` namespace per its existing `build.gradle.kts`)
+
+#### Scenario: AGP merge step does not report R-class collision
+
+- **WHEN** running `./gradlew :mobile:app:processDebugResources` (which merges `:shared:resources`'s resources into `:mobile:app`'s)
+- **THEN** the task completes with exit 0 — no `R class duplication` / `resource merge conflict` error is reported
+
+### Requirement: Moko app_name string coexists with platform-native Android strings.xml app_name
+
+`:shared:resources` SHALL declare `app_name` in its Moko Resources `strings.xml` (for in-app Compose consumption via `stringResource(MR.strings.app_name)`). The pre-existing platform-native Android resource `mobile/app/src/androidMain/res/values/strings.xml` `<string name="app_name">NearYouID</string>` (referenced by `AndroidManifest.xml` `android:label`) SHALL be PRESERVED in place — Android requires it for the launcher label and cannot consume Moko Resources from the manifest. These two `app_name` resources are intentional parallel surfaces (Moko = in-app UI; platform-native = launcher label); both SHALL hold the same text content (`"NearYouID"`) so the user experience is consistent.
+
+#### Scenario: Platform-native Android app_name is preserved
+
+- **WHEN** inspecting `mobile/app/src/androidMain/res/values/strings.xml`
+- **THEN** the file still contains `<string name="app_name">NearYouID</string>` — this change does NOT remove the platform-native string (the `AndroidManifest.xml` `android:label="@string/app_name"` reference would break otherwise)
+
+#### Scenario: Both app_name resources hold identical text
+
+- **WHEN** comparing `mobile/app/src/androidMain/res/values/strings.xml` `app_name` AND `shared/resources/src/commonMain/moko-resources/MR/base/strings.xml` `app_name`
+- **THEN** both resolve to the exact same text value `"NearYouID"`; drift would produce a confusing UX where the launcher label and in-app brand identifier diverge
