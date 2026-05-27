@@ -8,7 +8,7 @@ The system SHALL expose an admin-panel route subtree under the `/admin/*` URL na
 
 - **WHEN** a client sends `GET /admin/` to the `:backend:ktor` deployable
 - **THEN** the response status SHALL be 200
-- **AND** the response body SHALL contain text identifying the page as the admin index (e.g., a "hello admin" heading or equivalent identifier — exact content authored at implementation time)
+- **AND** the response body SHALL contain text identifying the page as the admin index (e.g., a "Admin Panel" heading or equivalent identifier — exact content authored at implementation time)
 - **AND** the response body SHALL be rendered HTML produced by the templating engine chosen in `design.md` Decision 1 (not a raw string written via `respondText`)
 
 #### Scenario: Unmapped admin routes return 404
@@ -31,7 +31,7 @@ The system SHALL provide a base layout template under `src/main/resources/templa
 
 - **WHEN** `GET /admin/` is served
 - **THEN** the rendered HTML SHALL contain the header, navigation stub, and footer markup defined by the base layout template
-- **AND** the rendered HTML SHALL contain the index-page-specific content block (the "hello admin" body)
+- **AND** the rendered HTML SHALL contain the index-page-specific content block (the "Admin Panel" body)
 - **AND** template rendering SHALL complete without throwing a template-engine exception (asserted indirectly by the 200 status on the request)
 
 ### Requirement: HTMX is available as the client interaction layer
