@@ -1,9 +1,9 @@
 ---
 name: next-change
-description: Pick the next OpenSpec change for nearyou-id, scaffold the proposal, push for auto-review (Claude sub-agents + qodo), and iterate on feedback before handing off to /opsx:apply.
+description: Pick the next OpenSpec change for nearyou-id, scaffold the proposal, open a draft PR for in-session sub-agent review, and hand off to /opsx:apply (qodo runs later, against the implementation diff only).
 ---
 
-Figure out what should be built next for nearyou-id, kick off an OpenSpec proposal for it, push it for auto-review (Claude + qodo), and iterate on the combined feedback — all in one skill.
+Figure out what should be built next for nearyou-id, kick off an OpenSpec proposal for it, open the PR as a **draft** for in-session sub-agent review, iterate on feedback, and hand off to `/opsx:apply`. The PR stays draft through proposal review + implementation; qodo only fires once `/opsx:apply` marks the PR ready, against the full implementation diff. This keeps qodo's free-tier quota from being burned on docs-only proposal commits.
 
 ## Context
 
@@ -11,12 +11,11 @@ This project (nearyou-id) is built incrementally via OpenSpec changes. The roadm
 
 **Same-PR convention (canonical for this skill).** Under the one-PR-per-change convention from [`openspec/project.md`](../../../openspec/project.md) § Change Delivery Workflow, the PR opened by this skill carries the FULL change lifecycle: proposal-review (this skill) → implementation (`/opsx:apply`) → archive (`/opsx:archive`), all on the SAME branch, squash-merged ONCE at end-of-lifecycle. PR title evolves via `gh pr edit` as scope progresses. NEVER open a new PR per phase or per review round.
 
-**Review channels (canonical for this skill).** Two complementary channels run in parallel:
+**Review channel (canonical for this skill).** Proposal-phase review is sub-agent-only:
 
-- **qodo** (auto, GitHub-side) — runs via the qodo GitHub App (installed at repo level). Posts as `qodo-code-review` with structured inline comments + top-level summary. ~1 min wall-clock typical, free-tier quota capped.
 - **Sub-agent** (in-session, skill-driven) — `general-purpose` sub-agent invoked from this skill, CLAUDE.md-aware. Catches in-session bias that self-review misses (stale references, allowlist gaps, spec/code drift). 2–4 min wall-clock typical per dispatch.
 
-The legacy auto-Claude-review Action was retired post-PR [#36](https://github.com/aditrioka/nearyou-id/pull/36); sub-agent review in-session replaces it.
+**Why no qodo here.** The PR opened by this skill is a **draft** (`gh pr create --draft`), and qodo's GitHub App skips draft PRs by default (it listens on `opened` / `ready_for_review` for non-draft state). qodo does NOT review proposal markdown — it only reviews the implementation diff, triggered when `/opsx:apply` runs `gh pr ready` at the end of implementation. Rationale: qodo's free-tier quota is precious, and its structured-code-review heuristics produce low-signal output against pure-markdown proposal commits. The legacy auto-Claude-review Action was retired post-PR [#36](https://github.com/aditrioka/nearyou-id/pull/36); sub-agent review in-session replaces it.
 
 ## Steps
 
@@ -102,7 +101,7 @@ Commit message: `docs(openspec): propose <change-name>` with a short body (1–3
 
 ```bash
 git push -u origin <change-name>
-gh pr create --title "docs(openspec): propose <change-name>" --body "$(cat <<'EOF'
+gh pr create --draft --title "docs(openspec): propose <change-name>" --body "$(cat <<'EOF'
 ## Summary
 <one-paragraph summary from proposal.md § Why + § What Changes>
 
@@ -116,26 +115,31 @@ gh pr create --title "docs(openspec): propose <change-name>" --body "$(cat <<'EO
 - **New:** <list from proposal>
 - **Modified:** <list from proposal>
 
+## Status
+**Draft PR — proposal phase.** This PR stays draft through proposal review + implementation. `/opsx:apply` marks it ready-for-review at the end of implementation, which is when qodo's auto-review fires (against the full implementation diff, not proposal markdown).
+
 ## Review
-Proposal-only PR. Qodo review feedback is triaged in-session: safe-apply nits land as follow-up commits on this branch; scope-level feedback is surfaced to the user before merging.
+Proposal-phase review is sub-agent-only (in-session, CLAUDE.md-aware). Findings are triaged in-session: safe-apply nits land as follow-up commits on this branch; scope-level feedback is surfaced to the user before handoff to `/opsx:apply`.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```
 
-Capture the PR number + URL from the `gh pr create` output for subsequent steps.
+The `--draft` flag is load-bearing: it suppresses qodo's auto-review for the proposal phase (see Context § Review channel). Capture the PR number + URL from the `gh pr create` output for subsequent steps.
 
-### Phase D — Iterate on reviews
+### Phase D — Iterate on sub-agent review
 
-**D.1 — Spawn sub-agent review + wait for qodo (parallel).**
+The PR is a draft, so qodo is suppressed and will not review proposal commits. This phase is sub-agent-only. qodo review fires later — `/opsx:apply` marks the PR ready at the end of implementation, which is when qodo first sees the change.
+
+**D.1 — Spawn sub-agent review.**
 
 Triage proposal complexity first:
 
 - **Trivial**: ≤1 `### Requirement:` ADDED, no schema migration, no new algorithm, no security surface touched. → ONE general-lens sub-agent.
 - **Non-trivial**: anything else, OR when uncertain. → FOUR parallel lens sub-agents.
 
-Lens dispatch (non-trivial) — invoke `general-purpose` sub-agents in parallel, each with PR URL + change name + "read CLAUDE.md § Reviewing a PR before reviewing" + structured-report-under-600-words ask grouped by severity:
+Lens dispatch (non-trivial) — invoke `general-purpose` sub-agents in parallel (one message, multiple Agent tool calls), each with PR URL + change name + "read CLAUDE.md § Reviewing a PR before reviewing" + structured-report-under-600-words ask grouped by severity:
 
 - **general** — overall design coherence, scope creep, missing docs, dependency-order sanity.
 - **security-and-invariant** — CLAUDE.md critical-invariants list, allowlist gaps, RLS, rate-limit math, secret reads, block/shadow-ban joins.
@@ -146,43 +150,28 @@ Each lens catches findings the others miss — PR [#37](https://github.com/aditr
 
 **Round 2 regression scan (optional, after round-1 fixes are pushed)** — dispatch ONE sub-agent with prompt: "did the round-1 fixes introduce orphan refs or break previously-correct scenarios?" PR #37 round 2 surfaced 6 stale references the round-1 sweep missed.
 
-**qodo polling (parallel)** — schedule `ScheduleWakeup` with `delaySeconds: 120` to give qodo its 2-min window. On wake-up, poll:
+**D.2 — Read sub-agent findings.** Build a findings list:
 
-```bash
-gh pr view <pr-number> --json comments,reviews \
-  --jq '{qodo: {
-           comments: [.comments[] | select(.author.login | test("qodo"; "i"))],
-           reviews:  [.reviews[]  | select(.author.login | test("qodo"; "i"))]
-         }}'
-```
-
-If qodo absent at 120s, reschedule with `delaySeconds: 90` (up to 3 reschedules). If still absent after 6 min total, see Recovery § qodo-silence.
-
-Do NOT poll qodo in a tight loop. Use `ScheduleWakeup` between checks.
-
-**D.2 — Read both channels' outputs.** Build a merged findings list:
-
-- Tag each finding with its source (`sub-agent` / `qodo`).
-- Deduplicate: if both flag the same `file:line` with overlapping meaning, keep one entry with both sources listed.
 - Classify by severity: **blocking** (bug / invariant violation / rule violation / incorrectness) vs **non-blocking** (suggestion / nit / question / style).
-- If a channel says "LGTM / no material findings," note that but still process the other's findings.
+- Deduplicate findings that flag the same `file:line` with overlapping meaning across lens dispatches.
+- If a lens says "LGTM / no material findings," note that but still process the other lenses' findings.
 
-Sub-agent findings come as prose in your tool-result context; qodo's inline comments need manual patch per suggestion. You judge severity + surface to user.
+Sub-agent findings come as prose in your tool-result context. You judge severity + surface to user.
 
 **D.3 — Present findings to user via `AskUserQuestion`.** Concise digest (1–2 sentences per finding, citing `file:line` when present) grouped by blocking vs non-blocking. Options:
 
-- **Apply blocking fixes; keep non-blocking as-is (Recommended)** — Claude (this skill) edits artifacts, re-runs `--strict`, commits + pushes; loop back to D.1 for new push.
+- **Apply blocking fixes; keep non-blocking as-is (Recommended)** — Claude (this skill) edits artifacts, re-runs `--strict`, commits + pushes; loop back to D.1 for new sub-agent pass.
 - **Apply all findings (blocking + non-blocking)** — same as above but address non-blocking too.
 - **Ignore review; hand off to `/opsx:apply`** — skip fixes, proceed to implementation. Record skipped findings in PR description for visibility.
 - **Pause — user reviews PR manually** — stop here; user re-invokes `/opsx:apply` or `/next-change` when ready.
 
-**D.4 — On "apply" options: edit → validate → commit → push → loop.** Make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply review feedback to <change-name>` (list the fixes in the commit body), push to the SAME branch. After the push re-triggers qodo, loop back to D.1.
+**D.4 — On "apply" options: edit → validate → commit → push → loop.** Make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply review feedback to <change-name>` (list the fixes in the commit body), push to the SAME branch. The PR is still draft, so qodo will not run. Loop back to D.1 for another sub-agent pass.
 
 **Same-PR iteration rule.** New commits land on the existing PR — do NOT open a new PR per review round (see Context § same-PR convention). Precedent: PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) carried 3 commits during proposal-review phase (initial + round-1 feedback + round-2 sweep) without title/body change.
 
 **Iteration cap: 2 rounds total.** On cap-hit, `AskUserQuestion` with these options:
 
-- **Stop iterating; merge proposal as-is** — record remaining findings in PR body so they're visible at squash-merge time.
+- **Stop iterating; hand off to `/opsx:apply`** — accept remaining non-blocking findings; record them in PR body for visibility at squash-merge time. PR stays draft until `/opsx:apply` marks it ready.
 - **Abandon this proposal** — close PR, pick a different change via re-invoking this skill.
 - **Promote to `/openspec-explore`** — recurring findings signal scope confusion better handled in explore mode than via patch loop.
 
@@ -197,9 +186,9 @@ Sub-agent findings come as prose in your tool-result context; qodo's inline comm
 
 - **`openspec-propose` returns partial output** — verify all four artifacts (`proposal.md`, `design.md`, `specs/`, `tasks.md`) exist before B.2. If any missing, re-invoke `openspec-propose` with an explicit ask for the missing artifact rather than improvising it inline.
 - **`git push` fails (network / auth)** — surface the full error to the user. Do NOT retry blindly. Common cause: SSH key not loaded or `gh` auth expired; ask user to run `ssh-add` or `gh auth refresh`.
-- **`gh pr create` fails because PR already exists for this branch** — `gh pr view <change-name>` to confirm. If a PR exists, you've likely re-invoked the skill on an in-flight change (or a parallel `/next-change` session beat you to it). Surface to user; do not force-create.
+- **`gh pr create --draft` fails because PR already exists for this branch** — `gh pr view <change-name>` to confirm. If a PR exists, you've likely re-invoked the skill on an in-flight change (or a parallel `/next-change` session beat you to it). Surface to user; do not force-create.
+- **PR opened as non-draft by mistake (forgot `--draft`)** — convert immediately: `gh pr ready --undo <pr-number>`. If qodo already auto-posted a review against proposal markdown in the gap, leave it as-is (one-shot; `pull_request.synchronize` on a now-draft PR won't re-trigger) and add a one-line note to the PR body: "qodo's initial review fired against proposal markdown by accident — disregard; canonical qodo review will run when `/opsx:apply` marks the PR ready." Continue with Phase D as normal.
 - **Pre-commit hook fails** — NEVER `--no-verify`. Diagnose the underlying issue (usually ktlint or Detekt). Fix, re-stage, create a NEW commit (do NOT amend — per CLAUDE.md).
-- **qodo silence beyond 6 min total** — proceed with sub-agent findings alone. Add a line to PR body: "qodo did not respond within timeout; review based on sub-agent dispatch only." Do not block the loop on qodo.
 - **Validation fails after applying review feedback** — fix the new `--strict` error before committing. Do not push a broken validation; that defeats the iteration loop's purpose.
 
 ## Notes
