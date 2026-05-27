@@ -3,7 +3,7 @@ name: next-change
 description: Pick the next OpenSpec change for nearyou-id, scaffold the proposal, open a draft PR for in-session sub-agent review, and hand off to /opsx:apply (qodo runs later, against the implementation diff only).
 ---
 
-Figure out what should be built next for nearyou-id, kick off an OpenSpec proposal for it, open the PR as a **draft** for in-session sub-agent review, iterate on feedback, and hand off to `/opsx:apply`. The PR stays draft through proposal review + implementation; qodo only fires once `/opsx:apply` marks the PR ready, against the full implementation diff. This keeps qodo's free-tier quota from being burned on docs-only proposal commits.
+Figure out what should be built next for nearyou-id, kick off an OpenSpec proposal for it, open the PR as a **draft** for in-session sub-agent review, iterate on feedback, and hand off to `/opsx:apply`. The PR stays draft through proposal review + implementation; qodo only fires once `/opsx:apply` step 8 posts `/review` as a PR comment, against the full implementation diff. This keeps qodo's 30-reviews-per-Git-org-per-month free-tier quota from being burned on docs-only proposal commits or intermediate feat commits.
 
 ## Context
 
@@ -15,7 +15,7 @@ This project (nearyou-id) is built incrementally via OpenSpec changes. The roadm
 
 - **Sub-agent** (in-session, skill-driven) — `general-purpose` sub-agent invoked from this skill, CLAUDE.md-aware. Catches in-session bias that self-review misses (stale references, allowlist gaps, spec/code drift). 2–4 min wall-clock typical per dispatch.
 
-**Why no qodo here.** The PR opened by this skill is a **draft** (`gh pr create --draft`), and qodo's GitHub App skips draft PRs by default (it listens on `opened` / `ready_for_review` for non-draft state). qodo does NOT review proposal markdown — it only reviews the implementation diff, triggered when `/opsx:apply` runs `gh pr ready` at the end of implementation. Rationale: qodo's free-tier quota is precious, and its structured-code-review heuristics produce low-signal output against pure-markdown proposal commits. The legacy auto-Claude-review Action was retired post-PR [#36](https://github.com/aditrioka/nearyou-id/pull/36); sub-agent review in-session replaces it.
+**Qodo dashboard prerequisite.** The Qodo dashboard at https://app.qodo.ai/configurations?tab=code-review is configured **Manual only** for both Code review trigger + PR summary trigger. This means qodo NEVER auto-fires on PR events — neither on `opened`, `ready_for_review`, nor `synchronize`. The only way qodo posts a review is when someone explicitly posts `/review` (or `/describe` for summary) as a PR comment. This skill therefore does NOT need to gate qodo via draft state — qodo is silent by default at every PR event. The `--draft` flag is still used (Phase C) for human UX (work-in-progress signal + prevents accidental merge), and as belt-and-suspenders against future dashboard config drift back to "Published PRs" (which still skips drafts). qodo's only invocation in the OpenSpec lifecycle is the `/review` comment posted by `/opsx:apply` step 8 against the full implementation diff. Rationale: Qodo free tier caps at **30 reviews per Git organization per month** (per [their docs](https://docs.qodo.ai/subscription-plans)); Manual mode + one `/review` per change keeps each OpenSpec change to exactly 1 review at step 8, making 30/month → ~30 changes/month sustainable. The legacy auto-Claude-review Action was retired post-PR [#36](https://github.com/aditrioka/nearyou-id/pull/36); sub-agent review in-session replaces it.
 
 ## Steps
 
@@ -116,7 +116,7 @@ gh pr create --draft --title "docs(openspec): propose <change-name>" --body "$(c
 - **Modified:** <list from proposal>
 
 ## Status
-**Draft PR — proposal phase.** This PR stays draft through proposal review + implementation. `/opsx:apply` marks it ready-for-review at the end of implementation, which is when qodo's auto-review fires (against the full implementation diff, not proposal markdown).
+**Draft PR — proposal phase.** This PR stays draft through proposal review + implementation. `/opsx:apply` marks it ready-for-review at the end of implementation. qodo's review fires when `/opsx:apply` step 8 posts `/review` as a PR comment (Qodo dashboard is Manual mode — see Context).
 
 ## Review
 Proposal-phase review is sub-agent-only (in-session, CLAUDE.md-aware). Findings are triaged in-session: safe-apply nits land as follow-up commits on this branch; scope-level feedback is surfaced to the user before handoff to `/opsx:apply`.
@@ -126,11 +126,11 @@ EOF
 )"
 ```
 
-The `--draft` flag is load-bearing: it suppresses qodo's auto-review for the proposal phase (see Context § Review channel). Capture the PR number + URL from the `gh pr create` output for subsequent steps.
+The `--draft` flag is for human UX (work-in-progress signal + prevents accidental merge) and as belt-and-suspenders against dashboard config drift back to "Published PRs". The actual qodo gate is the Manual-mode dashboard config + the `/review` comment posted by `/opsx:apply` step 8 — see Context § Qodo dashboard prerequisite. Capture the PR number + URL from the `gh pr create` output for subsequent steps.
 
 ### Phase D — Iterate on sub-agent review
 
-The PR is a draft, so qodo is suppressed and will not review proposal commits. This phase is sub-agent-only. qodo review fires later — `/opsx:apply` marks the PR ready at the end of implementation, which is when qodo first sees the change.
+qodo never auto-fires (Qodo dashboard is Manual mode — see Context). No `/review` comment is posted in the proposal phase, so qodo stays silent through all proposal-review iteration regardless of how many commits land. This phase is sub-agent-only. qodo's only invocation in the lifecycle is the `/review` comment posted by `/opsx:apply` step 8 against the full implementation diff.
 
 **D.1 — Spawn sub-agent review.**
 
@@ -165,7 +165,7 @@ Sub-agent findings come as prose in your tool-result context. You judge severity
 - **Ignore review; hand off to `/opsx:apply`** — skip fixes, proceed to implementation. Record skipped findings in PR description for visibility.
 - **Pause — user reviews PR manually** — stop here; user re-invokes `/opsx:apply` or `/next-change` when ready.
 
-**D.4 — On "apply" options: edit → validate → commit → push → loop.** Make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply review feedback to <change-name>` (list the fixes in the commit body), push to the SAME branch. The PR is still draft, so qodo will not run. Loop back to D.1 for another sub-agent pass.
+**D.4 — On "apply" options: edit → validate → commit → push → loop.** Make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply review feedback to <change-name>` (list the fixes in the commit body), push to the SAME branch. Qodo stays silent (Manual mode + no `/review` posted yet). Loop back to D.1 for another sub-agent pass.
 
 **Same-PR iteration rule.** New commits land on the existing PR — do NOT open a new PR per review round (see Context § same-PR convention). Precedent: PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) carried 3 commits during proposal-review phase (initial + round-1 feedback + round-2 sweep) without title/body change.
 
@@ -187,7 +187,7 @@ Sub-agent findings come as prose in your tool-result context. You judge severity
 - **`openspec-propose` returns partial output** — verify all four artifacts (`proposal.md`, `design.md`, `specs/`, `tasks.md`) exist before B.2. If any missing, re-invoke `openspec-propose` with an explicit ask for the missing artifact rather than improvising it inline.
 - **`git push` fails (network / auth)** — surface the full error to the user. Do NOT retry blindly. Common cause: SSH key not loaded or `gh` auth expired; ask user to run `ssh-add` or `gh auth refresh`.
 - **`gh pr create --draft` fails because PR already exists for this branch** — `gh pr view <change-name>` to confirm. If a PR exists, you've likely re-invoked the skill on an in-flight change (or a parallel `/next-change` session beat you to it). Surface to user; do not force-create.
-- **PR opened as non-draft by mistake (forgot `--draft`)** — convert immediately: `gh pr ready --undo <pr-number>`. If qodo already auto-posted a review against proposal markdown in the gap, leave it as-is (one-shot; `pull_request.synchronize` on a now-draft PR won't re-trigger) and add a one-line note to the PR body: "qodo's initial review fired against proposal markdown by accident — disregard; canonical qodo review will run when `/opsx:apply` marks the PR ready." Continue with Phase D as normal.
+- **Qodo posts on the proposal PR unexpectedly (auto-review, not in response to `/review`)** — the Qodo dashboard config at https://app.qodo.ai/configurations?tab=code-review has likely drifted from "Manual only" back to "Published PRs" (or to a mode that auto-fires on draft). Verify both Code review trigger + PR summary trigger are still "Manual only"; flip back if needed. The `--draft` flag is belt-and-suspenders for the "Published PRs" case (drafts still skipped) but not for an "All PRs incl. draft" mode. If qodo already burned a quota review on proposal markdown, accept it (one-shot) and continue Phase D — no canonical action needed beyond restoring the config.
 - **Pre-commit hook fails** — NEVER `--no-verify`. Diagnose the underlying issue (usually ktlint or Detekt). Fix, re-stage, create a NEW commit (do NOT amend — per CLAUDE.md).
 - **Validation fails after applying review feedback** — fix the new `--strict` error before committing. Do not push a broken validation; that defeats the iteration loop's purpose.
 
