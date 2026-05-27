@@ -50,11 +50,11 @@ The system SHALL load the HTMX JavaScript library on every admin page. The deliv
 - **AND** the response `Content-Type` SHALL be either `application/javascript` OR `text/javascript` (per Ktor's `staticResources` default for `.js` extensions — the test SHALL accept either value as success)
 - **AND** the response body SHALL be the vendored HTMX library contents
 
-#### Scenario: Path-traversal attempts under the static prefix return 404
+#### Scenario: Path-traversal attempts under the static prefix are rejected (4xx)
 
-- **WHEN** a client sends `GET /admin/static/../../some-other-resource` (or any request whose path includes `..` segments that would escape the configured `admin/static` classpath prefix)
-- **THEN** the response status SHALL be 404
-- **AND** no classpath resource outside the `admin/static` prefix SHALL be served (Ktor's `staticResources` handler sanitizes `..` segments via `getResource` lookups that do not resolve relative path segments)
+- **WHEN** a client sends a request whose path includes `..` segments that would escape the configured `admin/static` classpath prefix (e.g., `GET /admin/static/../../some-other-resource` raw OR `GET /admin/static/%2E%2E/config` URL-encoded)
+- **THEN** the response status SHALL be in the 4xx range — either 404 Not Found (raw `..` normalized client-side or by Ktor's routing layer; the path falls through to no route) OR 400 Bad Request (URL-encoded `%2E%2E` rejected by Ktor's URL parser as a malformed-path security guard, which is a stricter posture than 404)
+- **AND** no classpath resource outside the `admin/static` prefix SHALL be served (Ktor's `staticResources` handler uses classpath `getResource` lookups that do not resolve relative path segments, AND Ktor's URL parser rejects encoded-traversal attempts upstream of the static handler)
 
 ### Requirement: Admin subtree does NOT require authentication in this change
 

@@ -1,6 +1,7 @@
 package id.nearyou.app
 
 import id.nearyou.app.admin.SuspensionUnbanWorker
+import id.nearyou.app.admin.admin
 import id.nearyou.app.admin.unbanWorkerRoute
 import id.nearyou.app.auth.installAuth
 import id.nearyou.app.auth.jwks.jwksRoutes
@@ -914,6 +915,14 @@ fun Application.module() {
             unbanWorkerRoute(suspensionUnbanWorker)
         }
     }
+
+    // /admin/* — admin-panel-ktor-htmx-bootstrap scaffold (Admin #2). Mounted via
+    // an Application extension function so the eventual extraction to a separate
+    // Cloud Run service for admin.nearyou.id (per docs/07-Operations.md § Stack)
+    // is mechanical. Internally gated by KTOR_ENV != "production" — production
+    // exposure is structurally impossible until Admin #3 (admin-login-argon2-totp)
+    // lifts the guard alongside landing the auth gate.
+    admin()
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime
     // exercises Tier 3 fallback per list`). Fires once each for ProfanityList +

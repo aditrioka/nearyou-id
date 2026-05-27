@@ -1,0 +1,8 @@
+{% extends "layout.peb" %}
+
+{% block title %}Admin Panel — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Admin Panel</h2>
+<p>This is the scaffold landing page. Authentication, audit log viewer, and admin actions land in subsequent Admin changes.</p>
+{% endblock %}

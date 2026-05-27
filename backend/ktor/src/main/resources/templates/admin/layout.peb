@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}NearYouID Admin{% endblock %}</title>
+    <script src="/admin/static/htmx.min.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>NearYouID Admin Panel</h1>
+    </header>
+    <nav>
+        <ul>
+            <li><a href="#">Reports (stub)</a></li>
+            <li><a href="#">Users (stub)</a></li>
+            <li><a href="#">Audit log (stub)</a></li>
+        </ul>
+    </nav>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <footer>
+        <p>NearYouID admin scaffold — auth lands in admin-login-argon2-totp.</p>
+    </footer>
+</body>
+</html>

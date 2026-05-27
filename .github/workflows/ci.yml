@@ -118,6 +118,15 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew ktlintCheck detekt
+      # Vendored HTMX integrity check — fail-fasts on file/hash drift between
+      # the recorded SHA256 and the actual on-disk file. Pinned per
+      # admin-panel-ktor-htmx-bootstrap design.md Decision 2 "Vendored file
+      # provenance". HTMX is not a JVM dep so Dependabot doesn't see it;
+      # advisories tracked via bigskysoftware/htmx GitHub releases watch.
+      # No untrusted input — static `sha256sum -c` against a checked-in file.
+      - name: Verify vendored HTMX integrity
+        working-directory: backend/ktor/src/main/resources/admin/static
+        run: sha256sum -c htmx.min.js.SHA256SUMS
 
   # NOTE: a standalone `build: ./gradlew assemble` job used to live here. It was
   # redundant with `test` (which compiles all main code as a prerequisite to
