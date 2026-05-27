@@ -122,16 +122,17 @@ Implement tasks from an OpenSpec change.
 
    This step runs ONLY when all tasks are complete AND smoke is green (or smoke is N/A for non-runtime changes). If implementation is still in progress or smoke failed, skip to step 9 (status display); do NOT mark the PR ready prematurely.
 
-   The PR has been a draft since `/next-change` opened it — that suppressed qodo through proposal review + implementation. Now that the implementation is functionally done, we mark the PR ready so qodo reviews the full implementation diff once, before `/opsx:archive` runs.
+   The PR has been a draft since `/next-change` opened it (UX signal: work-in-progress, prevents accidental merge). Qodo dashboard is Manual mode (see `next-change` § Context), so qodo did NOT auto-fire on any prior commits — proposal, feat, or otherwise. Now that the implementation is functionally done, we (a) mark the PR ready for human reviewers, and (b) explicitly invoke qodo via `/review` comment so it reviews the full implementation diff exactly once, before `/opsx:archive` runs.
 
-   **8.1 — Mark the PR ready for review.**
+   **8.1 — Mark PR ready (UX) + invoke qodo via `/review` comment.**
 
    ```bash
    PR=$(gh pr list --head "<change-name>" --state open --json number --jq '.[0].number')
    gh pr ready "$PR"
+   gh pr comment "$PR" --body "/review"
    ```
 
-   This converts draft → ready and fires qodo's `ready_for_review` event (qodo posts ~1 min later). If `gh pr ready` reports the PR is already ready (e.g., user un-drafted earlier), proceed silently — qodo already ran on the prior push.
+   `gh pr ready` is a UX signal only — PR moves out of draft so human reviewers know implementation is done. It does NOT trigger qodo (Manual mode). The `gh pr comment "/review"` is the actual qodo trigger; qodo posts the review ~1 min later. If `gh pr ready` reports the PR is already ready (e.g., user un-drafted earlier), proceed silently and still post `/review` — each invocation re-reviews the current PR state, so this is safe even if a prior `/review` ran.
 
    **8.2 — Spawn sub-agent review (parallel to qodo).**
 
@@ -147,7 +148,7 @@ Implement tasks from an OpenSpec change.
    - **code-correctness** — bugs, edge cases, race conditions, null-handling, off-by-one, transaction boundaries, error propagation.
    - **test-coverage** — missing scenarios from `tasks.md`, untested edge cases, integration-test surface, fixture seeding correctness.
 
-   Sub-agents typically take 2–4 min; qodo posts ~1 min after `gh pr ready`. By the time sub-agents return, qodo is usually already done.
+   Sub-agents typically take 2–4 min; qodo posts ~1 min after the `/review` comment in 8.1. By the time sub-agents return, qodo is usually already done.
 
    **8.3 — Collect qodo output.**
 
@@ -175,7 +176,7 @@ Implement tasks from an OpenSpec change.
 
    Concise digest (1–2 sentences per finding, citing `file:line`) grouped by blocking vs non-blocking. Options:
 
-   - **Apply blocking fixes; keep non-blocking as-is (Recommended)** — edit, run relevant tests + `openspec validate <change-name> --strict`, commit + push. If changes touch runtime, re-run smoke (step 7) before continuing. Loop back to 8.2 — push re-triggers qodo (`synchronize` event on a non-draft PR).
+   - **Apply blocking fixes; keep non-blocking as-is (Recommended)** — edit, run relevant tests + `openspec validate <change-name> --strict`, commit + push. If changes touch runtime, re-run smoke (step 7) before continuing. **Re-post `/review`** (`gh pr comment "$PR" --body "/review"`) — Manual mode means push does NOT re-trigger qodo automatically; explicit re-invocation is required for qodo to review the new state. Loop back to 8.2.
    - **Apply all findings (blocking + non-blocking)** — same as above, address non-blocking too.
    - **Ignore review; hand off to `/opsx:archive`** — skip fixes. Record skipped findings in PR description for visibility at squash-merge time.
    - **Pause — user reviews PR manually** — stop here; user re-invokes `/opsx:apply` or `/opsx:archive` when ready.
@@ -185,7 +186,7 @@ Implement tasks from an OpenSpec change.
    - **Stop iterating; hand off to `/opsx:archive`** — record remaining non-blocking findings in PR body.
    - **Surface to user for manual triage** — pause; user decides.
 
-   **Same-PR iteration rule.** Review-feedback commits land on the existing PR (now non-draft). Do NOT open a new PR per review round. Per `openspec/project.md` § Change Delivery Workflow — single squash-merge at end-of-lifecycle.
+   **Same-PR iteration rule.** Review-feedback commits land on the existing PR (now non-draft). Each iteration round needs a fresh `/review` comment to re-invoke qodo (Manual mode = no auto-trigger on push). Do NOT open a new PR per review round. Per `openspec/project.md` § Change Delivery Workflow — single squash-merge at end-of-lifecycle.
 
 9. **On completion or pause, show status**
 
@@ -270,12 +271,12 @@ This skill supports the "actions on a change" model:
 
 When this skill is invoked for a change that already has an open proposal PR (the typical case after `/next-change`), commit and push feat work to the **existing change branch** — the one `/next-change` opened, branch name = change name. Do NOT create a new feat branch and do NOT open a new PR. The same PR carries proposal → review iteration → feat → archive commits through to a single squash-merge.
 
-**PR is draft for most of /opsx:apply.** `/next-change` opens the PR with `--draft` so qodo's auto-review is suppressed during proposal-phase iteration. `/opsx:apply` keeps the PR draft through implementation — qodo still doesn't review feat commits as they land. Only at step 8 (after all tasks + smoke), this skill runs `gh pr ready` to mark the PR ready-for-review, which is the single moment qodo runs against the full implementation diff. Do NOT mark the PR ready earlier (e.g., on first feat commit); doing so triggers qodo against a partial implementation and burns its free-tier quota for low-signal output.
+**Qodo gate is the `/review` comment, not draft state.** Qodo dashboard is configured **Manual only** at https://app.qodo.ai/configurations?tab=code-review for both Code review trigger + PR summary trigger. Qodo NEVER auto-fires on PR events (opened / ready_for_review / synchronize) — only when someone posts `/review` (or `/describe`) as a comment. `/next-change` opens the PR with `--draft` for human UX (work-in-progress signal + prevents accidental merge) and `/opsx:apply` keeps it draft through implementation. At step 8 (after all tasks + smoke), this skill runs `gh pr ready` (UX: PR out of draft) AND posts `gh pr comment "/review"` (qodo trigger). Do NOT post `/review` earlier (e.g., on first feat commit); doing so burns a review on a partial implementation and exhausts the 30-reviews-per-Git-org-per-month free-tier quota faster ([qodo docs](https://docs.qodo.ai/subscription-plans)).
 
 After feat commits land (any commit — title can change early, draft state stays):
 - Update the existing PR's title from `docs(openspec): propose <change-name>` to `feat(<area>): <change-name>` (or matching conventional-commit prefix). Use `gh pr edit <pr-number> --title "..."`. This is purely cosmetic; safe to run after the first feat commit.
 - Update the PR body to reflect the implementation now included (add a "Migrations" / "Tests" / "Capabilities-shipped" section as appropriate). Use `gh pr edit <pr-number> --body "..."`.
 
-If the change has no open PR yet (e.g., the user invoked apply directly without going through `/next-change`), create the change branch from `main` (branch name = change name), commit the feat work, and open the unified-lifecycle PR with `--draft` (`gh pr create --draft ...`) so qodo doesn't fire on incomplete implementation. The proposal commits will follow on the same branch when the user returns to scaffold them; step 8 marks the PR ready at end-of-implementation as normal. This bypass-`/next-change` path is rare.
+If the change has no open PR yet (e.g., the user invoked apply directly without going through `/next-change`), create the change branch from `main` (branch name = change name), commit the feat work, and open the unified-lifecycle PR with `--draft` (`gh pr create --draft ...`) for human UX consistency. Under Manual mode the `--draft` flag doesn't gate qodo (qodo skips everything by default), but the draft state is still the right shape during implementation. The proposal commits will follow on the same branch when the user returns to scaffold them; step 8 marks the PR ready + posts `/review` at end-of-implementation as normal. This bypass-`/next-change` path is rare.
 
 Per `openspec/project.md` § Change Delivery Workflow ("Sequence per OpenSpec change — one PR carries the full lifecycle"). Pre-PR-#37 archives ran the OLD 3-PR shape; PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) (`like-rate-limit`) was the first change to ship under the new one-PR convention. PR [#38](https://github.com/aditrioka/nearyou-id/pull/38) is the docs PR that codified the convention after the fact.
