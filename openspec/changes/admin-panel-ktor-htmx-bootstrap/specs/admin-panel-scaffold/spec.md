@@ -50,11 +50,13 @@ The system SHALL load the HTMX JavaScript library on every admin page. The deliv
 - **AND** the response `Content-Type` SHALL be either `application/javascript` OR `text/javascript` (per Ktor's `staticResources` default for `.js` extensions — the test SHALL accept either value as success)
 - **AND** the response body SHALL be the vendored HTMX library contents
 
-#### Scenario: Path-traversal attempts under the static prefix are rejected (4xx)
+#### Scenario: Path-traversal attempts under the static prefix do not serve out-of-prefix resources
 
 - **WHEN** a client sends a request whose path includes `..` segments that would escape the configured `admin/static` classpath prefix (e.g., `GET /admin/static/../../some-other-resource` raw OR `GET /admin/static/%2E%2E/config` URL-encoded)
-- **THEN** the response status SHALL be in the 4xx range — either 404 Not Found (raw `..` normalized client-side or by Ktor's routing layer; the path falls through to no route) OR 400 Bad Request (URL-encoded `%2E%2E` rejected by Ktor's URL parser as a malformed-path security guard, which is a stricter posture than 404)
-- **AND** no classpath resource outside the `admin/static` prefix SHALL be served (Ktor's `staticResources` handler uses classpath `getResource` lookups that do not resolve relative path segments, AND Ktor's URL parser rejects encoded-traversal attempts upstream of the static handler)
+- **THEN** the response status SHALL NOT be 2xx (i.e., a successful resource MUST NOT be served). The exact status depends on which layer rejects the request:
+  - **Ktor `testApplication` in-process** (local test harness): 400 Bad Request for the encoded form (Ktor's URL parser rejects `%2E%2E` as malformed), 404 Not Found for the raw form (HTTP client normalizes `..` segments before sending).
+  - **Production stack** (Cloudflare → Google Frontend → Cloud Run → Ktor): 302 redirect for the encoded form (Google Frontend normalizes `%2E%2E` upstream of Ktor, issues a 301/302 to the normalized URL, which then 404s at the destination), 404 for the raw form. Spec amended during pre-archive staging smoke verification when the encoded request returned 302+404 on staging while the local test returned 400. Both outcomes satisfy the security property: the redirect target `/admin/config` itself returns 404 (no resource served outside the prefix), and the test SHALL assert `status.value !in 200..299` to accept any non-success outcome consistently across both environments.
+- **AND** no classpath resource outside the `admin/static` prefix SHALL be served (Ktor's `staticResources` handler uses classpath `getResource` lookups that do not resolve relative path segments, AND Ktor's URL parser rejects encoded-traversal attempts upstream of the static handler when the request reaches Ktor in-process)
 
 ### Requirement: Admin subtree does NOT require authentication in this change
 

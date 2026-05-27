@@ -48,7 +48,7 @@ Stakeholder posture: solo-operator pre-launch build. This is Admin #2 in the [`o
 
 **Choice: vendored HTMX file at `backend/ktor/src/main/resources/admin/static/htmx.min.js`, served via Ktor's static-resource handler at `/admin/static/htmx.min.js`.**
 
-**Rationale.** HTMX is ~13KB minified — small enough that vendoring has negligible repo size impact. Vendoring gives us:
+**Rationale.** HTMX is ~50KB minified raw / ~14KB gzipped for the current 2.x line (figure originally drafted as "~13KB minified" referenced HTMX 1.x; corrected during /opsx:apply step-8 general review when the actual vendored HTMX 2.0.4 measured 50917 bytes raw on disk). Still small enough that vendoring has negligible repo size impact. Vendoring gives us:
 1. **No external dependency at request time** — admin pages render even if the CDN is down or blocked by network policy. Important because the admin panel is the ops surface that gets used DURING incidents.
 2. **No version drift** — the vendored file is git-pinned at a known SHA. A CDN reference would either pin a version (achieving the same effect but with extra latency + a CSP exception) or fetch "latest" (a supply-chain risk we explicitly avoid per the project's `:infra:*` isolation pattern).
 3. **No CSP exception needed** — when CSP is added in a later change (likely alongside Admin #3 auth), we can `script-src 'self'` instead of `script-src 'self' https://unpkg.com`. One fewer entry on the trusted-origins allowlist.

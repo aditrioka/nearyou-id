@@ -109,8 +109,14 @@ fun Application.admin() {
                 val isAdminPath = path == "/admin" || path.startsWith("/admin/")
                 val isStaticAsset = path.startsWith("/admin/static/")
                 if (isAdminPath && !isStaticAsset) {
+                    // path is quoted to harden against log-injection spoof-by-
+                    // position if a future Ktor / Netty change relaxes URL
+                    // parsing (today: CRLF in path → Ktor 404s; encoded
+                    // CRLF → survives as literal but quoting prevents
+                    // forging adjacent key=value pairs). Security lens
+                    // recommendation from PR #115 step-8 review.
                     log.warn(
-                        "event=admin_route_hit path={} posture=unauthenticated_scaffold auth_gate_lands_in=admin-login-argon2-totp",
+                        "event=admin_route_hit path=\"{}\" posture=unauthenticated_scaffold auth_gate_lands_in=admin-login-argon2-totp",
                         path,
                     )
                 }

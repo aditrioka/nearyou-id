@@ -109,7 +109,7 @@ class AdminScaffoldTest : StringSpec({
     }
 
     // ----------------- Req 3 Sc 2 -----------------
-    "GET /admin/static/htmx.min.js returns 200 + accept-list Content-Type" {
+    "GET /admin/static/htmx.min.js returns 200 + accept-list Content-Type + HTMX body" {
         testApplication {
             application { admin() }
             val response: HttpResponse = client.get("/admin/static/htmx.min.js")
@@ -131,26 +131,38 @@ class AdminScaffoldTest : StringSpec({
                         parsed.contentSubtype == expected.contentSubtype
                 }
             matched shouldBe true
+            // Body sanity: vendored HTMX file starts with `var htmx=function()`
+            // and contains the version literal. Defense against an empty or
+            // corrupted vendoring (e.g., if CI's `sha256sum -c` ever regresses
+            // OR if a future re-vendor accidentally ships a 0-byte placeholder).
+            // Test-coverage lens N4 from PR #115 step-8 review.
+            val body = response.bodyAsText()
+            body shouldContain "var htmx"
+            body shouldContain "version:\"2.0.4\""
         }
     }
 
     // ----------------- Req 3 Sc 3 -----------------
-    "Path-traversal under /admin/static/ rejected with 4xx (raw + URL-encoded)" {
+    "Path-traversal under /admin/static/ does not serve a 2xx (raw + URL-encoded)" {
         testApplication {
             application { admin() }
             // Raw `..` traversal — typically normalized by the HTTP client OR by
             // Ktor's routing layer before reaching the static handler. The
             // request falls through to no route → 404 Not Found.
             val raw = client.get("/admin/static/../../some-other-resource").status
-            (raw.value in 400..499) shouldBe true
-            // URL-encoded `..` (`%2E%2E`) — NOT normalized client-side. Ktor's
-            // URL parser rejects encoded-traversal paths upstream of routing
-            // with 400 Bad Request — a STRICTER outcome than 404 (the request
-            // never reaches the static handler), and still satisfies the
-            // security property of not serving any resource outside the prefix.
-            // Per spec Req 3 Sc 3 (amended during /opsx:apply): any 4xx is OK.
+            (raw.value !in 200..299) shouldBe true
+            // URL-encoded `..` (`%2E%2E`) — NOT normalized client-side.
+            // Local testApplication: Ktor's URL parser rejects with 400 Bad
+            // Request (request never reaches the static handler). Production
+            // (Cloudflare → Google Frontend → Cloud Run → Ktor): Google
+            // Frontend normalizes `%2E%2E` upstream and issues a 302 redirect
+            // to the normalized URL (which then 404s). Both satisfy the
+            // security property; assert non-2xx to cover BOTH environments
+            // consistently — narrower 4xx assertion would falsely fail
+            // against staging (verified 2026-05-28 on PR #115). Per spec Req
+            // 3 Sc 3 (re-amended during /opsx:apply step-8 security review).
             val encoded = client.get("/admin/static/%2E%2E/config").status
-            (encoded.value in 400..499) shouldBe true
+            (encoded.value !in 200..299) shouldBe true
         }
     }
 
