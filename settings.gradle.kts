@@ -39,6 +39,7 @@ dependencyResolutionManagement {
 val includeMobile: String = (providers.gradleProperty("includeMobile").orNull ?: "true")
 if (includeMobile.toBoolean()) {
     include(":mobile:app")
+    include(":shared:resources")
 }
 include(":backend:ktor")
 include(":shared:tmp")

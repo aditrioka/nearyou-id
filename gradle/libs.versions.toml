@@ -32,6 +32,7 @@ opentelemetry-bom = "1.51.0"
 opentelemetry-instrumentation-bom = "2.25.0-alpha"
 slf4j = "2.0.16"
 material3 = "1.10.0-alpha05"
+moko-resources = "0.26.4"
 postgresql-jdbc = "42.7.7"
 # Voyager pinned to 1.1.0-beta03 because it is the only Voyager release with explicit
 # Koin 4.x support. The 1.0.1 stable line (Dec 2024) predates Koin 4.0.0 (Aug 2024) and
@@ -59,6 +60,7 @@ compose-material3 = { module = "org.jetbrains.compose.material3:material3", vers
 compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
 compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "composeMultiplatform" }
+compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "composeMultiplatform" }
 logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 ktor-serverCore = { module = "io.ktor:ktor-server-core-jvm", version.ref = "ktor" }
@@ -129,6 +131,14 @@ auth0-jwksRsa = { module = "com.auth0:jwks-rsa", version.ref = "auth0-jwksRsa" }
 
 firebase-admin = { module = "com.google.firebase:firebase-admin", version.ref = "firebase-admin" }
 
+# Moko Resources: KMP resource codegen (strings / images / fonts) for :shared:resources.
+# Introduced by `shared-resources-moko-bootstrap` change (Mobile #2). Per
+# `openspec/project.md` § Coding Conventions invariant "Mobile strings: no hardcoded
+# UI strings; must go through Moko Resources." See `docs/09-Versions.md` § Version
+# Decisions for the pin rationale.
+moko-resources = { module = "dev.icerock.moko:resources", version.ref = "moko-resources" }
+moko-resources-compose = { module = "dev.icerock.moko:resources-compose", version.ref = "moko-resources" }
+
 # Build-logic plugin coordinates (used by precompiled script plugins via raw module strings)
 gradlePlugin-kotlin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
 gradlePlugin-android = { module = "com.android.tools.build:gradle", version.ref = "agp" }
@@ -153,3 +163,4 @@ kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref =
 kotlinxSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ktor = { id = "io.ktor.plugin", version.ref = "ktor" }
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint-plugin" }
+mokoResources = { id = "dev.icerock.mobile.multiplatform-resources", version.ref = "moko-resources" }

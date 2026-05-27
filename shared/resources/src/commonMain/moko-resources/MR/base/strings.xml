@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NearYouID</string>
+    <string name="error_generic">Ada yang salah. Coba lagi sebentar.</string>
+    <string name="cta_continue">Lanjut</string>
+    <string name="cta_cancel">Batal</string>
+    <string name="cta_retry">Coba lagi</string>
+    <string name="cta_close">Tutup</string>
+    <string name="loading">Sedang memuat…</string>
+    <string name="empty_state_generic">Belum ada konten.</string>
+    <string name="home_placeholder_title">NearYouID</string>
+    <string name="home_placeholder_version" formatted="true">Versi %1$s</string>
+</resources>

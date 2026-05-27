@@ -250,14 +250,19 @@ If a composable accesses `MaterialTheme.colorScheme.locationPin` (or any other N
 - **WHEN** a `commonTest` runs `runComposeUiTest { setContent { Text("${MaterialTheme.colorScheme.locationPin}") } }` (no `NearYouTheme` wrapper)
 - **THEN** the composition fails with an `IllegalStateException` whose message contains "NearYouTheme not applied" (or equivalent), proving that the absent `CompositionLocal` provider raises a loud error instead of returning a silent default
 
-### Requirement: Plus Jakarta Sans falls back to FontFamily.SansSerif at runtime when font loading fails
+### Requirement: Plus Jakarta Sans falls back to platform sans-serif when font loading fails
 
-The `NearYouTypography` `FontFamily` declaration SHALL include `FontFamily.SansSerif` as the LAST fallback entry (after the Plus Jakarta Sans `Font` declarations), so a runtime font-load failure (rare — the .ttf is bundled, not network-fetched) produces visible text in the platform sans-serif rather than empty glyphs. The fallback's position-as-last is mandatory: placing it first would silently never use Plus Jakarta Sans even when the .ttf loads successfully.
+The `NearYouTypography` function SHALL defensively return vanilla `Typography()` (which platforms render in their native sans-serif) when `MR.fonts.plus_jakarta_sans.asFont()` returns null at runtime (rare — the .ttf is bundled, not network-fetched). Compose's `FontFamily(vararg Font)` constructor does NOT accept a `FontFamily` (e.g., `FontFamily.SansSerif`) as a fallback element — chaining fallback FontFamilies isn't part of Compose's public API. The defensive `if (brandFont == null) return Typography()` early-return is the canonical pattern for this contract.
 
-#### Scenario: FontFamily declaration places SansSerif as the LAST fallback
+#### Scenario: NearYouTypography defensively returns vanilla Typography when Plus Jakarta Sans fails to load
 
 - **WHEN** inspecting `shared/resources/src/commonMain/kotlin/id/nearyou/resources/theme/NearYouTypography.kt`
-- **THEN** the `FontFamily(...)` constructor's argument list ends with `FontFamily.SansSerif` (or a `Font(...)` declaration backed by `FontFamily.SansSerif`); all Plus Jakarta Sans `Font(MR.fonts.plus_jakarta_sans.*)` entries precede it
+- **THEN** the function body contains an early-return guard: `if (brandFont == null) return Typography()` (or equivalent Elvis/expression-body form), placed BEFORE the `FontFamily(brandFont)` construction; this ensures missing-font scenarios produce text in the platform's native sans-serif rather than throwing or rendering empty glyphs
+
+#### Scenario: Successful font load applies Plus Jakarta Sans to all Material 3 type roles
+
+- **WHEN** inspecting the `Typography(...)` returned by `nearYouTypography()` when `asFont()` succeeds
+- **THEN** all 13 Material 3 type roles (`displayLarge` through `labelSmall`) have `fontFamily` set to `FontFamily(brandFont)`; the Material 3 type-scale sizes + weights from `Typography()` defaults are preserved via `.copy(fontFamily = family)`
 
 ### Requirement: home_placeholder_version format substitution renders correctly at runtime
 

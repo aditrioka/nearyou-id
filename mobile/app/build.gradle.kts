@@ -42,6 +42,9 @@ kotlin {
             implementation(libs.koin.composeViewmodel)
             implementation(libs.voyager.navigator)
             implementation(libs.voyager.koin)
+            implementation(projects.shared.resources)
+            implementation(libs.moko.resources)
+            implementation(libs.moko.resources.compose)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
