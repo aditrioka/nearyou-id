@@ -28,8 +28,8 @@ import id.nearyou.resources.MR
 fun nearYouTypography(): Typography {
     val brandFont = MR.fonts.plus_jakarta_sans.asFont()
     if (brandFont == null) {
-        // Defensive fallback per design.md Decision 5: rare runtime font-load
-        // failure → platform sans-serif via vanilla Material 3 Typography().
+        // Defensive fallback per design.md Decision 5: missing font → platform
+        // sans-serif via vanilla Material 3 Typography().
         return Typography()
     }
     val family = FontFamily(brandFont)

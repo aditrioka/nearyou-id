@@ -75,6 +75,7 @@
 				4B02018E24C0687482126658 /* Sources */,
 				A3A5A98F636E8E98D572CCB9 /* Frameworks */,
 				07CB68C6AE9E9D1897464CB9 /* Resources */,
+				B5C6D7E8F9A0B1C2D3E4F507 /* Copy Moko Resources Bundle */,
 			);
 			buildRules = (
 			);
@@ -153,6 +154,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping Gradle build task invocation due to OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED environment variable set to \\\"YES\\\"\"\n  exit 0\nfi\ncd \"$SRCROOT/..\"\n./gradlew :mobile:app:embedAndSignAppleFrameworkForXcode\n";
+		};
+		B5C6D7E8F9A0B1C2D3E4F507 /* Copy Moko Resources Bundle */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Moko Resources Bundle";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Moko Resources 0.24+ manual bundle copy workaround.\n# The canonical `copyFrameworkResourcesToApp` gradle task no longer exists in\n# 0.24+ (see https://github.com/icerockdev/moko-resources/issues/792).\n# Static frameworks place their resource bundle inside the framework dir, but\n# Xcode does NOT auto-copy nested bundles from statically-linked frameworks\n# into the .app. This phase manually copies the bundle from the Kotlin\n# framework output dir to the .app's resources at\n# $CONTENTS_FOLDER_PATH/$BUNDLE_NAME.\nBUNDLE_NAME=\"NearYouID.shared:resources.bundle\"\nSRC=\"$BUILT_PRODUCTS_DIR/ComposeApp.framework/$BUNDLE_NAME\"\nDEST=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/$BUNDLE_NAME\"\nif [ -d \"$SRC\" ]; then\n  echo \"Copying Moko Resources bundle: $SRC -> $DEST\"\n  rm -rf \"$DEST\"\n  cp -R \"$SRC\" \"$DEST\"\nelse\n  echo \"warning: Moko Resources bundle not found at $SRC\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
