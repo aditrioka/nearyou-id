@@ -52,14 +52,14 @@
 
 ## 6. Pre-archive staging smoke — REQUIRED (round 1 review flipped this from SKIPPED)
 
-- [ ] 6.1 Trigger staging deploy on the change branch: `gh workflow run deploy-staging.yml --ref admin-panel-ktor-htmx-bootstrap`. Note the run ID emitted.
-- [ ] 6.2 Poll the deploy run: `gh run watch <run-id>` (or equivalent). Wait for green before proceeding.
-- [ ] 6.3 Smoke `GET /admin/`: `curl -i https://api-staging.nearyou.id/admin/` — verify 200 + rendered HTML body containing `Admin Panel` + the `<script src="/admin/static/htmx.min.js">` tag.
-- [ ] 6.4 Smoke the static asset: `curl -i https://api-staging.nearyou.id/admin/static/htmx.min.js` — verify 200 + `Content-Type` matches either `application/javascript` OR `text/javascript`.
-- [ ] 6.5 Smoke path-traversal sanity: `curl -i https://api-staging.nearyou.id/admin/static/../../config` — expect 404. Defense against the unlikely scenario where staging's Cloudflare config strips `..` before the request reaches Cloud Run, masking a missing sanitizer in the deployable.
-- [ ] 6.6 Inspect Cloud Run logs for the expected WARN log lines from tasks 2.3 + 2.7 (`gh run view <run-id>` if surfaced; otherwise `gcloud run services logs read` against the staging service). Capture one example log line in the archive commit body for evidence.
-- [ ] 6.7 Also smoke locally for completeness: `./gradlew :backend:ktor:run` + `curl -i http://localhost:8080/admin/` + `curl -i http://localhost:8080/admin/static/htmx.min.js` + browser-load `http://localhost:8080/admin/` to verify Network tab shows HTMX 200.
-- [ ] 6.8 Document the smoke results in the archive commit body — captured curl headers + the WARN log line evidence. The commit body is the audit trail at squash-merge time.
+- [x] 6.1 Trigger staging deploy on the change branch: `gh workflow run deploy-staging.yml --ref admin-panel-ktor-htmx-bootstrap`. Note the run ID emitted.
+- [x] 6.2 Poll the deploy run: `gh run watch <run-id>` (or equivalent). Wait for green before proceeding.
+- [x] 6.3 Smoke `GET /admin/`: `curl -i https://api-staging.nearyou.id/admin/` — verify 200 + rendered HTML body containing `Admin Panel` + the `<script src="/admin/static/htmx.min.js">` tag.
+- [x] 6.4 Smoke the static asset: `curl -i https://api-staging.nearyou.id/admin/static/htmx.min.js` — verify 200 + `Content-Type` matches either `application/javascript` OR `text/javascript`.
+- [x] 6.5 Smoke path-traversal sanity: `curl -i https://api-staging.nearyou.id/admin/static/../../config` — expect 404. Defense against the unlikely scenario where staging's Cloudflare config strips `..` before the request reaches Cloud Run, masking a missing sanitizer in the deployable.
+- [x] 6.6 Inspect Cloud Run logs for the expected WARN log lines from tasks 2.3 + 2.7 (`gh run view <run-id>` if surfaced; otherwise `gcloud run services logs read` against the staging service). Capture one example log line in the archive commit body for evidence.
+- [x] 6.7 Also smoke locally for completeness: `./gradlew :backend:ktor:run` + `curl -i http://localhost:8080/admin/` + `curl -i http://localhost:8080/admin/static/htmx.min.js` + browser-load `http://localhost:8080/admin/` to verify Network tab shows HTMX 200.
+- [x] 6.8 Document the smoke results in the archive commit body — captured curl headers + the WARN log line evidence. The commit body is the audit trail at squash-merge time.
 
 ## 7. Documentation + validation
 
