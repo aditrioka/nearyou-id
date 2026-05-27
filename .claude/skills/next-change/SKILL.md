@@ -1,182 +1,211 @@
 ---
 name: next-change
-description: Determine the next OpenSpec change to work on for nearyou-id by reading docs/, openspec/specs/, openspec/changes/archive/, and recent commits — then hand off to openspec-propose to scaffold the proposal, push it to a remote branch for auto-review (Claude as primary + qodo as complementary), and iterate on the review feedback before asking whether to proceed to apply.
+description: Pick the next OpenSpec change for nearyou-id, scaffold the proposal, push for auto-review (Claude sub-agents + qodo), and iterate on feedback before handing off to /opsx:apply.
 ---
 
-Figure out what should be built next for nearyou-id, kick off an OpenSpec proposal for it, push it for auto-review (Claude + qodo), and iterate on the combined review feedback — all in one skill.
+Figure out what should be built next for nearyou-id, kick off an OpenSpec proposal for it, push it for auto-review (Claude + qodo), and iterate on the combined feedback — all in one skill.
 
 ## Context
 
-This project (nearyou-id) is built incrementally via OpenSpec changes. Each change follows a pattern visible in the commit history:
+This project (nearyou-id) is built incrementally via OpenSpec changes. The roadmap lives in [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) and [`docs/09-Versions.md`](../../../docs/09-Versions.md). Already-shipped work is reflected in [`openspec/specs/`](../../../openspec/specs/) (current authoritative specs) and [`openspec/changes/archive/`](../../../openspec/changes/archive/) (completed changes).
 
-- `feat(<area>): <what> (V<N>)` — implementation commit
-- `docs(openspec): archive <change-name> and sync specs` — change gets archived after merge
+**Same-PR convention (canonical for this skill).** Under the one-PR-per-change convention from [`openspec/project.md`](../../../openspec/project.md) § Change Delivery Workflow, the PR opened by this skill carries the FULL change lifecycle: proposal-review (this skill) → implementation (`/opsx:apply`) → archive (`/opsx:archive`), all on the SAME branch, squash-merged ONCE at end-of-lifecycle. PR title evolves via `gh pr edit` as scope progresses. NEVER open a new PR per phase or per review round.
 
-The roadmap lives in `docs/08-Roadmap-Risk.md` and `docs/09-Versions.md`. Already-shipped work is reflected in:
-- `openspec/specs/` — current authoritative specs
-- `openspec/changes/archive/` — completed changes
+**Review channels (canonical for this skill).** Two complementary channels run in parallel:
 
-Proposals land as their own PRs (branch name = change name) and get reviewed before the user decides whether to move into implementation. Two review channels run in parallel: (a) the qodo GitHub App auto-posts on every PR push (zero skill effort), and (b) for self-authored proposals — i.e., almost everything this skill produces — the skill spawns a `general-purpose` sub-agent for an independent CLAUDE.md-aware pass (the auto-Claude-review GitHub Action was retired post-PR #36 because its OAuth/quota failure rate made the signal unreliable; sub-agent review runs in-session, no GitHub round-trip, and the dispatching is captured here so it's not skipped). This skill drives that loop end-to-end.
+- **qodo** (auto, GitHub-side) — runs via the qodo GitHub App (installed at repo level). Posts as `qodo-code-review` with structured inline comments + top-level summary. ~1 min wall-clock typical, free-tier quota capped.
+- **Sub-agent** (in-session, skill-driven) — `general-purpose` sub-agent invoked from this skill, CLAUDE.md-aware. Catches in-session bias that self-review misses (stale references, allowlist gaps, spec/code drift). 2–4 min wall-clock typical per dispatch.
+
+The legacy auto-Claude-review Action was retired post-PR [#36](https://github.com/aditrioka/nearyou-id/pull/36); sub-agent review in-session replaces it.
 
 ## Steps
 
 ### Phase A — Pick the next change
 
-1. **Gather full context in parallel** (use multiple tool calls in one message):
-   - Read **every file in `docs/`** (00-README through whatever latest numbered file exists). Don't pre-filter — business/product/UX/architecture/security/ops context all feed into scope and sequencing decisions.
-   - Read `openspec/project.md`
-   - List `openspec/specs/` and `openspec/changes/archive/` to see what's already shipped
-   - Read any in-progress change in `openspec/changes/` (anything not under `archive/`) — if one exists, that's likely the current focus, not a new proposal
-   - Run `git log --oneline -20` for recent direction and the V-number sequence
+**A.0 — Phase-balance check (run FIRST, before anything else).** Read [`openspec/project.md`](../../../openspec/project.md) § Mobile + Admin Scaffolding Priority. If that section is active (verify via `git log --oneline | grep -E "(mobile-nearby-timeline-screen|admin-actions-log-viewer)"` returning fewer than 2 matches), the next-step menu listed there is the DEFAULT source of picks. Backend hardening picks are still valid only when they're real blockers (security invariant gap, pre-launch test requirement, scaffolding-work dependency). Override only with explicit user-facing justification. This check exists to counter the historical pattern where `/next-change` always picked backend because recent commits looked backend-heavy.
 
-2. **Identify the next change.** Cross-reference:
-   - **Phase-balance check (read FIRST):** check [`openspec/project.md`](../../../openspec/project.md) § Mobile + Admin Scaffolding Priority. If that section is active (i.e., its "Trigger to flip this section back" condition has NOT yet fired — verify by `git log --oneline | grep -E "(mobile-nearby-timeline-screen|admin-actions-log-viewer)"` returning fewer than 2 matches), the next-step menu listed there SHOULD be the default source of `/next-change` picks. Backend hardening picks are still valid when they're real blockers (security invariant gap, pre-launch test requirement, dependency for the scaffolding work itself), but the menu is the default; only override with explicit justification surfaced to the user. The Phase-balance check exists specifically to counter the historical pattern (pre-2026-05-12) where `/next-change` always picked backend because that's what recent commits looked like.
-   - The next unshipped version (V-number) in `docs/09-Versions.md`
-   - Open roadmap items in `docs/08-Roadmap-Risk.md` not yet represented in `openspec/specs/`
-   - Anything in the other docs (business, product, UX, architecture, security, ops, setup) that describes planned work without a matching archived change
-   - Risks or gaps called out in docs that warrant a dedicated change
+**A.1 — Gather full context in parallel** (multiple tool calls in one message):
 
-   If multiple candidates exist, pick the one that's the natural next step given the dependency order implied by the roadmap and recent commits, **AND honor the Phase-balance check**. Briefly note the runners-up so the user can redirect.
+- Read **every file in `docs/`** (00-README through latest numbered file). Don't pre-filter — business/product/UX/architecture/security/ops context all feed into scope and sequencing.
+- Read [`openspec/project.md`](../../../openspec/project.md).
+- List [`openspec/specs/`](../../../openspec/specs/) and [`openspec/changes/archive/`](../../../openspec/changes/archive/).
+- Read any in-progress change in [`openspec/changes/`](../../../openspec/changes/) (non-archive). If one exists, that's likely the current focus, not a new proposal.
+- Run `git log --oneline -20` for direction and the V-number sequence.
 
-3. **Present the recommendation.** Show the user:
-   - **Proposed change name** (kebab-case, descriptive — no `-v<N>` suffix, see `openspec/project.md` § Change Delivery Workflow).
-   - **One-paragraph summary** of what it does and why it's next.
-   - **Source** — which doc/version/roadmap item this comes from.
+**A.2 — Identify the next change.** Cross-reference:
 
-4. **Confirm before scaffolding.** Use `AskUserQuestion` to ask whether to proceed with this change or pick a different one. Do not skip this — the user may want to pivot. The user's answer here authorizes the rest of Phases B–D (branch, push, PR, review loop) without further confirmation.
+- The next unshipped version (V-number) in `docs/09-Versions.md`.
+- Open roadmap items in `docs/08-Roadmap-Risk.md` not yet represented in `openspec/specs/`.
+- Anything in other docs (business, product, UX, architecture, security, ops, setup) describing planned work without a matching archived change.
+- Risks or gaps called out in docs that warrant a dedicated change.
+
+If multiple candidates exist, pick the one that's the natural next step given dependency order from the roadmap and recent commits, AND honor A.0. Briefly note runners-up so the user can redirect.
+
+**A.3 — Present the recommendation.** Show the user:
+
+- **Proposed change name** (kebab-case, descriptive — no `-v<N>` suffix, see project.md § Change Delivery Workflow).
+- **One-paragraph summary** of what it does and why it's next.
+- **Source** — which doc/version/roadmap item this comes from.
+
+**A.4 — Confirm before scaffolding.** Use `AskUserQuestion` with these options: proceed with this pick, pick a different candidate, or abort entirely (clean exit before any branch/scaffold work). Do not skip. The user's answer authorizes the rest of Phases B–D without further confirmation.
 
 ### Phase B — Scaffold the proposal
 
-5. **Hand off to `openspec-propose`.** Invoke the `openspec-propose` skill with the change name and a description derived from the docs. That skill will scaffold `proposal.md`, `design.md`, `specs/`, and `tasks.md`.
+**B.1 — Hand off to `openspec-propose`.** Invoke the skill with the change name and a description derived from the docs. It scaffolds `proposal.md`, `design.md`, `specs/`, and `tasks.md`. Verify all four artifacts exist before continuing — see Recovery § partial-output for handling.
 
-6. **Validate before pushing.** Run `openspec validate <change-name> --strict`. If it fails, fix the artifact(s) it flagged before proceeding. Do NOT push an invalid change.
+**B.2 — Validate before pushing.** Run `openspec validate <change-name> --strict`. If it fails, fix the flagged artifact(s) before proceeding. Do NOT push an invalid change.
 
-7. **Reconciliation pass against canonical docs.** Before pushing, diff every non-trivial claim in `proposal.md` / `design.md` / `specs/**` against the canonical sources it cites.
+**B.3 — Reconciliation pass against canonical docs.** Diff every non-trivial claim in `proposal.md` / `design.md` / `specs/**` against the canonical sources it cites.
 
-   Procedure:
-   - Build a list of every `docs/<file>` or `openspec/specs/<capability>` reference the proposal makes (grep for `docs/` and capability names).
-   - Re-read the specific **sections** cited (not just skim). Pay particular attention to: schema column names, CHECK constraints, algorithms, fallback ladders, quotas/limits, default values, enum vocabularies.
-   - For each non-trivial claim in the proposal (new column, new algorithm step, deferred-vs-included scope line), locate the canonical source and verify exact alignment.
+Procedure:
 
-   For each divergence found, classify and act:
-   - **(a) Proposal is under-specified / diverges from canonical docs → fix the proposal.** Amend `proposal.md` / `design.md` / `specs/**` to match the canonical source. Re-run `openspec validate --strict`. Commit the amendment before pushing. Example: canonical docs prescribe a 4-step fallback ladder; proposal specs step 1 only → amend proposal to include all 4 steps.
-   - **(b) Proposal is correct; canonical docs are stale or wrong → DO NOT rewrite docs as part of this change.** Log a follow-up item in `FOLLOW_UPS.md` at repo root (create file if it doesn't exist — see the Notes section for format). Keep the proposal as-is.
-   - **(c) Ambiguous or best-practice judgment call → surface to user via `AskUserQuestion`** with the options (align proposal to docs / amend docs to proposal / hybrid compromise). Do not silently decide.
+- Build a list of every `docs/<file>` or `openspec/specs/<capability>` reference the proposal makes (grep for `docs/` and capability names).
+- Re-read the specific **sections** cited (not just skim). Pay particular attention to: schema column names, CHECK constraints, algorithms, fallback ladders, quotas/limits, default values, enum vocabularies.
+- For each non-trivial claim in the proposal (new column, new algorithm step, deferred-vs-included scope line), locate the canonical source and verify exact alignment.
 
-   **Target: zero silent divergence at push time.** If you catch yourself thinking "close enough, ship it," re-read this step.
+For each divergence found, classify and act:
 
-   **Why this exists:** without an explicit reconciliation pass, proposals shipped fast tend to skim canonical docs once, write spec based on skim, and accumulate silent divergence that only surfaces mid-implementation (see PRs [#18](https://github.com/aditrioka/nearyou-id/pull/18) / [#19](https://github.com/aditrioka/nearyou-id/pull/19) — the `global-timeline` divergence incident that motivated this step — and PR [#24](https://github.com/aditrioka/nearyou-id/pull/24), the v10 notifications spillover audit that followed).
+- **(a) Proposal diverges from canonical → fix the proposal.** Amend `proposal.md` / `design.md` / `specs/**` to match the canonical source. Re-run `--strict`. Commit the amendment before pushing.
+- **(b) Proposal is correct; docs are stale → log to `FOLLOW_UPS.md`.** Do NOT rewrite docs as part of this change. Keep the proposal as-is.
+- **(c) Ambiguous → surface to user via `AskUserQuestion`** with options (align proposal to docs / amend docs to proposal / hybrid). Don't silently decide.
+
+**Heuristic for (a) vs (b):**
+
+- Canonical doc cites a specific PR/version/spec as its source-of-truth → bucket (a) (proposal is wrong).
+- Canonical doc last touched >6 months ago AND proposal cites recent merged work → bucket (b) (docs are stale).
+- Neither signal clear → bucket (c) (surface to user).
+
+**Target: zero silent divergence at push time.** If you catch yourself thinking "close enough, ship it," re-read this step. Precedent for why this exists: PR [#18](https://github.com/aditrioka/nearyou-id/pull/18) / [#19](https://github.com/aditrioka/nearyou-id/pull/19) (global-timeline divergence incident), PR [#24](https://github.com/aditrioka/nearyou-id/pull/24) (v10 notifications spillover audit).
 
 ### Phase C — Push for auto-review
 
-8. **Create the feature branch.** Starting from `main` (if there's other untracked/uncommitted work in the tree that isn't the proposal, ask the user what to do — do NOT silently stash or commit unknown state):
-   ```bash
-   git checkout main && git pull --ff-only
-   git checkout -b <change-name>
-   ```
-   Branch name MUST equal the change name per `openspec/project.md` § Change Delivery Workflow.
+**C.1 — Create the feature branch.** Starting from `main` (if uncommitted local work isn't the proposal, ask the user — do NOT silently stash or commit unknown state):
 
-9. **Commit only the proposal directory.**
-   ```bash
-   git add openspec/changes/<change-name>/
-   ```
-   Do NOT `git add -A`. Verify `git status` shows only the proposal files staged. If other files are unexpectedly staged, unstage them and surface the surprise to the user.
+```bash
+git checkout main && git pull --ff-only
+git checkout -b <change-name>
+```
 
-   Commit message: `docs(openspec): propose <change-name>` with a short body summarizing what the change will add (1–3 sentences, derived from `proposal.md` § Why + § What Changes).
+Branch name MUST equal the change name (per project.md § Change Delivery Workflow).
 
-10. **Push + open the PR.**
-   ```bash
-   git push -u origin <change-name>
-   gh pr create --title "docs(openspec): propose <change-name>" --body "$(cat <<'EOF'
-   ## Summary
-   <one-paragraph summary from proposal.md § Why + § What Changes>
+**C.2 — Commit only the proposal directory.**
 
-   ## Artifacts
-   - `openspec/changes/<change-name>/proposal.md`
-   - `openspec/changes/<change-name>/design.md`
-   - `openspec/changes/<change-name>/specs/**`
-   - `openspec/changes/<change-name>/tasks.md`
+```bash
+git add openspec/changes/<change-name>/
+```
 
-   ## Capabilities
-   - **New:** <list from proposal>
-   - **Modified:** <list from proposal>
+Do NOT `git add -A`. Verify `git status` shows only the proposal files staged. If other files are unexpectedly staged, unstage them and surface the surprise to the user.
 
-   ## Review
-   Proposal-only PR. Qodo review feedback is triaged in-session: safe-apply nits land as follow-up commits on this branch; scope-level feedback is surfaced to the user before merging.
+Commit message: `docs(openspec): propose <change-name>` with a short body (1–3 sentences) summarizing what the change will add, derived from `proposal.md` § Why + § What Changes.
 
-   🤖 Generated with [Claude Code](https://claude.com/claude-code)
-   EOF
-   )"
-   ```
-   Capture the PR number + URL from the `gh pr create` output for subsequent steps.
+**C.3 — Push + open the PR.**
+
+```bash
+git push -u origin <change-name>
+gh pr create --title "docs(openspec): propose <change-name>" --body "$(cat <<'EOF'
+## Summary
+<one-paragraph summary from proposal.md § Why + § What Changes>
+
+## Artifacts
+- `openspec/changes/<change-name>/proposal.md`
+- `openspec/changes/<change-name>/design.md`
+- `openspec/changes/<change-name>/specs/**`
+- `openspec/changes/<change-name>/tasks.md`
+
+## Capabilities
+- **New:** <list from proposal>
+- **Modified:** <list from proposal>
+
+## Review
+Proposal-only PR. Qodo review feedback is triaged in-session: safe-apply nits land as follow-up commits on this branch; scope-level feedback is surfaced to the user before merging.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
+
+Capture the PR number + URL from the `gh pr create` output for subsequent steps.
 
 ### Phase D — Iterate on reviews
 
-Two review channels run in parallel and are treated as **complementary**, not competing:
+**D.1 — Spawn sub-agent review + wait for qodo (parallel).**
 
-- **qodo** (auto, GitHub-side) — runs via the qodo GitHub App (no workflow file on our side; installed at repo level). Posts as `qodo-code-review` with structured inline-style comments + top-level summary. Typical: <1 min wall-clock. Quota-capped on the free tier.
-- **Sub-agent** (in-session, skill-driven) — for self-authored proposals (i.e., everything this skill produces), step 11 below explicitly spawns a `general-purpose` sub-agent with PR URL + CLAUDE.md context. Catches the in-session bias surface that self-review misses (stale references, allowlist gaps, spec/code drift). Per `CLAUDE.md` § Reviewing a PR §7. Typical: 2–4 min wall-clock per dispatch.
+Triage proposal complexity first:
 
-(The previous auto-Claude-review GitHub Action was retired in PR #36 — its OAuth/quota failure rate climbed to ~89% in the global-timeline ship cycle, so the signal stopped being trustworthy. Sub-agent review in-session is faster, more reliable, and lets the skill author own severity calls directly.)
+- **Trivial**: ≤1 `### Requirement:` ADDED, no schema migration, no new algorithm, no security surface touched. → ONE general-lens sub-agent.
+- **Non-trivial**: anything else, OR when uncertain. → FOUR parallel lens sub-agents.
 
-11. **Spawn sub-agent review + wait for qodo.** In parallel:
-    - **Sub-agent dispatch** (immediate): invoke `general-purpose` agent(s) with self-contained prompt(s) — include the PR URL, the change name, "read CLAUDE.md § Reviewing a PR before reviewing," and ask for a structured report under 600 words grouped by severity (bug / invariant / suggestion / question). Return findings to this skill's context as each agent's tool result.
-      - **Trivial proposal** (one-requirement spec tweak, single doc fix, etc.): one general-lens agent is sufficient.
-      - **Non-trivial proposal** (new capability + schema + algorithm changes): SHOULD dispatch **multiple lenses in parallel** — typically four: **general** / **security-and-invariant** (CLAUDE.md critical-invariants list, allowlist gaps, RLS, rate-limit math, secret reads, block/shadow-ban joins) / **OpenSpec format-and-correctness** (`### Requirement:` headers, ADDED/MODIFIED/REMOVED deltas, `#### Scenario:` WHEN/THEN coverage, `tasks.md` checkbox format, `--strict` validation) / **test-coverage** (missing scenarios, untested edge cases, integration-test surface). Each lens catches findings the others miss; PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) round 1 confirmed: security caught 5 hardening items the general lens didn't; test-coverage caught 3 missing-scenario bugs the security lens didn't.
-      - **Round 2 regression scan** (optional, after round-1 fixes are pushed): dispatch ONE sub-agent with the explicit prompt "did the round-1 fixes introduce orphan refs or break previously-correct scenarios?" PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) round 2 surfaced 6 stale references the round-1 sweep missed.
-    - **qodo polling** (deferred): schedule a `ScheduleWakeup` with `delaySeconds: 120` to give qodo its 2-min window. On wake-up, poll:
-      ```bash
-      gh pr view <pr-number> --json comments,reviews \
-        --jq '{qodo: {
-                 comments: [.comments[] | select(.author.login | test("qodo"; "i"))],
-                 reviews:  [.reviews[]  | select(.author.login | test("qodo"; "i"))]
-               }}'
-      ```
-      If qodo absent at 120 s, `ScheduleWakeup 90s` (up to 3 reschedules). If still absent after 6 min total, proceed with sub-agent findings alone.
+Lens dispatch (non-trivial) — invoke `general-purpose` sub-agents in parallel, each with PR URL + change name + "read CLAUDE.md § Reviewing a PR before reviewing" + structured-report-under-600-words ask grouped by severity:
 
-    Do NOT poll qodo in a tight loop. Use `ScheduleWakeup` between checks.
+- **general** — overall design coherence, scope creep, missing docs, dependency-order sanity.
+- **security-and-invariant** — CLAUDE.md critical-invariants list, allowlist gaps, RLS, rate-limit math, secret reads, block/shadow-ban joins.
+- **OpenSpec format-and-correctness** — `### Requirement:` headers, ADDED/MODIFIED/REMOVED deltas, `#### Scenario:` WHEN/THEN coverage, `tasks.md` checkbox format, `--strict` validation surface.
+- **test-coverage** — missing scenarios, untested edge cases, integration-test surface.
 
-12. **Read both channels' outputs.** Each produces a different shape:
-    - **Sub-agent report** — markdown grouped by severity, ≤600 words, in your tool-result context.
-    - **qodo review** — top-level summary + structured inline suggestions (with severity pills, often `🐞 Bug` / `📘 Rule violation` / `📎 Requirement gap`) on the GitHub PR.
+Each lens catches findings the others miss — PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) round 1 confirmed: security caught 5 hardening items the general lens didn't; test-coverage caught 3 missing-scenario bugs the security lens didn't.
 
-    Build a **merged findings list**:
-    - Tag each finding with its source (`sub-agent` or `qodo`).
-    - Deduplicate: if both flag the same file:line with overlapping meaning, keep one with both sources listed.
-    - Classify by severity: **blocking** (bug / invariant violation / rule violation / incorrectness) vs **non-blocking** (suggestion / nit / question / style).
-    - If either channel explicitly says "no material findings" / "LGTM," note that but still process the other's findings.
+**Round 2 regression scan (optional, after round-1 fixes are pushed)** — dispatch ONE sub-agent with prompt: "did the round-1 fixes introduce orphan refs or break previously-correct scenarios?" PR #37 round 2 surfaced 6 stale references the round-1 sweep missed.
 
-    Sub-agent findings are prose; qodo's inline comments need manual patch per suggestion. You judge + surface to user.
+**qodo polling (parallel)** — schedule `ScheduleWakeup` with `delaySeconds: 120` to give qodo its 2-min window. On wake-up, poll:
 
-13. **Present findings to user via `AskUserQuestion`.** Show a concise digest (1–2 sentences per finding, citing `file:line` when present) grouped by blocking vs non-blocking. Options:
-    - **Apply the blocking fixes myself, keep non-blocking as-is (Recommended)** — you (Claude, the skill author) attempt the blocking fixes: edit the proposal/design/specs/tasks files, re-run `openspec validate --strict`, commit + push. Then re-invoke step 11 (new sub-agent dispatch + qodo poll on the new push).
-    - **Apply all findings (blocking + non-blocking)** — same as above but address non-blocking too.
-    - **Ignore the review and hand off to `/opsx:apply`** — skip fixes, proceed to implementation. Record the skipped findings in the PR description so they're visible later.
-    - **Pause — I'll review the PR myself** — stop here; user will re-invoke `/opsx:apply` or `/next-change` when ready.
+```bash
+gh pr view <pr-number> --json comments,reviews \
+  --jq '{qodo: {
+           comments: [.comments[] | select(.author.login | test("qodo"; "i"))],
+           reviews:  [.reviews[]  | select(.author.login | test("qodo"; "i"))]
+         }}'
+```
 
-14. **On "apply" options: edit → validate → commit → push → loop.** If the user selected an apply option, make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply review feedback to <change-name>` (list the fixes in the commit body), and push to the **same** change branch. After the push re-triggers qodo, loop back to step 11.
+If qodo absent at 120s, reschedule with `delaySeconds: 90` (up to 3 reschedules). If still absent after 6 min total, see Recovery § qodo-silence.
 
-    **Same-PR iteration rule (full lifecycle).** New commits land on the existing change PR — do NOT open a new PR per review round, per phase, or for any reason short of a genuine new change. The PR opened by `/next-change` carries through proposal-review, implementation (`/opsx:apply`), and archive (`/opsx:archive`); it squash-merges ONCE at end-of-lifecycle. PR title evolves via `gh pr edit` as scope progresses (`docs(openspec): propose <name>` → `feat(<area>): <name>` when implementation begins → optionally one final retitle before squash). Body gets updated to reflect current state at each phase boundary. Precedent: PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) (`like-rate-limit`) carried 3 commits during the proposal-review phase (initial proposal + round-1 review feedback + round-2 sweep) without title/body change; subsequent `/opsx:apply` and `/opsx:archive` invocations push to the SAME branch.
+Do NOT poll qodo in a tight loop. Use `ScheduleWakeup` between checks.
 
-    Cap the proposal-review loop at **2 iterations total**. If new blocking findings keep surfacing after round 2, stop and ask the user to triage — recurring findings usually signal scope confusion that the skill can't resolve autonomously.
+**D.2 — Read both channels' outputs.** Build a merged findings list:
+
+- Tag each finding with its source (`sub-agent` / `qodo`).
+- Deduplicate: if both flag the same `file:line` with overlapping meaning, keep one entry with both sources listed.
+- Classify by severity: **blocking** (bug / invariant violation / rule violation / incorrectness) vs **non-blocking** (suggestion / nit / question / style).
+- If a channel says "LGTM / no material findings," note that but still process the other's findings.
+
+Sub-agent findings come as prose in your tool-result context; qodo's inline comments need manual patch per suggestion. You judge severity + surface to user.
+
+**D.3 — Present findings to user via `AskUserQuestion`.** Concise digest (1–2 sentences per finding, citing `file:line` when present) grouped by blocking vs non-blocking. Options:
+
+- **Apply blocking fixes; keep non-blocking as-is (Recommended)** — Claude (this skill) edits artifacts, re-runs `--strict`, commits + pushes; loop back to D.1 for new push.
+- **Apply all findings (blocking + non-blocking)** — same as above but address non-blocking too.
+- **Ignore review; hand off to `/opsx:apply`** — skip fixes, proceed to implementation. Record skipped findings in PR description for visibility.
+- **Pause — user reviews PR manually** — stop here; user re-invokes `/opsx:apply` or `/next-change` when ready.
+
+**D.4 — On "apply" options: edit → validate → commit → push → loop.** Make the edits, run `openspec validate <change-name> --strict`, commit with `docs(openspec): apply review feedback to <change-name>` (list the fixes in the commit body), push to the SAME branch. After the push re-triggers qodo, loop back to D.1.
+
+**Same-PR iteration rule.** New commits land on the existing PR — do NOT open a new PR per review round (see Context § same-PR convention). Precedent: PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) carried 3 commits during proposal-review phase (initial + round-1 feedback + round-2 sweep) without title/body change.
+
+**Iteration cap: 2 rounds total.** On cap-hit, `AskUserQuestion` with these options:
+
+- **Stop iterating; merge proposal as-is** — record remaining findings in PR body so they're visible at squash-merge time.
+- **Abandon this proposal** — close PR, pick a different change via re-invoking this skill.
+- **Promote to `/openspec-explore`** — recurring findings signal scope confusion better handled in explore mode than via patch loop.
 
 ### Phase E — Hand off
 
-15. **After the review loop settles (no new blocking findings, or user chose to stop iterating):**
-    - If the user chose to proceed: remind them to run `/opsx:apply` (or ask whether to invoke it now via `AskUserQuestion`). **CRITICAL: `/opsx:apply` lands feat commits on the SAME branch, not a new one.** Do NOT merge the proposal PR before implementation — under the one-PR-per-change convention the PR stays open through proposal-review, implementation, AND archive, and squash-merges once at end-of-lifecycle. The PR title gets retitled (typically via `gh pr edit <pr> --title 'feat(<area>): <name>'`) when implementation begins.
-    - If the user chose to pause: report the PR URL, list any non-blocking findings still unaddressed, and stop. The PR stays open at the current commit; future `/opsx:apply` / `/opsx:archive` invocations will push to this branch.
+**E.1 — After the review loop settles** (no new blocking findings, or user chose to stop iterating):
+
+- **User chose to proceed**: remind them to run `/opsx:apply` (or offer to invoke it now via `AskUserQuestion`). `/opsx:apply` lands feat commits on the SAME branch (see Context § same-PR convention). Do NOT merge the proposal PR before implementation — under one-PR-per-change the PR stays open through proposal-review + implementation + archive, and squash-merges once at end-of-lifecycle. PR title typically retitled via `gh pr edit <pr> --title 'feat(<area>): <name>'` when implementation begins.
+- **User chose to pause**: report the PR URL, list any non-blocking findings still unaddressed, and stop. PR stays open at the current commit; future `/opsx:apply` / `/opsx:archive` invocations push to this branch.
+
+## Recovery from common failures
+
+- **`openspec-propose` returns partial output** — verify all four artifacts (`proposal.md`, `design.md`, `specs/`, `tasks.md`) exist before B.2. If any missing, re-invoke `openspec-propose` with an explicit ask for the missing artifact rather than improvising it inline.
+- **`git push` fails (network / auth)** — surface the full error to the user. Do NOT retry blindly. Common cause: SSH key not loaded or `gh` auth expired; ask user to run `ssh-add` or `gh auth refresh`.
+- **`gh pr create` fails because PR already exists for this branch** — `gh pr view <change-name>` to confirm. If a PR exists, you've likely re-invoked the skill on an in-flight change (or a parallel `/next-change` session beat you to it). Surface to user; do not force-create.
+- **Pre-commit hook fails** — NEVER `--no-verify`. Diagnose the underlying issue (usually ktlint or Detekt). Fix, re-stage, create a NEW commit (do NOT amend — per CLAUDE.md).
+- **qodo silence beyond 6 min total** — proceed with sub-agent findings alone. Add a line to PR body: "qodo did not respond within timeout; review based on sub-agent dispatch only." Do not block the loop on qodo.
+- **Validation fails after applying review feedback** — fix the new `--strict` error before committing. Do not push a broken validation; that defeats the iteration loop's purpose.
 
 ## Notes
 
-- Don't invent work that isn't grounded in `docs/` or the roadmap.
-- If the docs are ambiguous about what's next, surface that to the user rather than guessing.
-- Commits tell you what *just* shipped — useful for ordering, not for deciding scope. Scope comes from `docs/`.
-- **Only propose an OpenSpec change if it's spec-driven** — capability + behavior + WHEN/THEN scenarios. If the candidate is pure infra / tooling / CI / docs, recommend a regular PR instead and don't hand off to `openspec-propose`, and skip Phases B–E entirely.
-- **Phase boundary with `/opsx:apply` and `/opsx:archive`.** Under the one-PR-per-change convention (per `openspec/project.md` § Change Delivery Workflow + the same-PR iteration rule in step 14), this skill is responsible only for the proposal-review phase: open the PR, scaffold proposal/design/specs/tasks, drive the qodo + sub-agent review loop, iterate fixes on the same branch. When the user transitions to implementation, hand off to `/opsx:apply` — it pushes feat commits to the **same branch** (do not open a new PR) and retitles via `gh pr edit`. Final archive is `/opsx:archive` on the same branch. The PR squash-merges ONCE at end-of-lifecycle.
-- **Don't `--no-verify` or skip hooks.** If pre-commit hooks fail, diagnose and fix the underlying issue. The `main` branch has a direct-push hook-block; feature branches are fine.
-- **Don't force-push.** Every push in this skill is either the initial push (step 10) or a new commit on top of the branch (step 14 during the review loop). `--force-with-lease` is only appropriate if rewriting already-pushed history, which this skill never does.
-- **Out-of-scope findings during any step** (especially Phase B.5 reconciliation) go to `FOLLOW_UPS.md` at repo root. This file is transient — the convention is "delete entries when their action items are merged, delete the file itself when empty, recreate it when a new finding arises." NEVER sweep findings silently and NEVER force them into the current change's scope. If `FOLLOW_UPS.md` doesn't exist, create it with an intro blurb (preserved across recreations — same header + Format block as PR [#18](https://github.com/aditrioka/nearyou-id/pull/18) shipped) and your first entry.
-- **Promoting a deferred follow-up? Run `/triage-follow-ups` first.** If the user references a `FOLLOW_UPS.md` entry as the candidate for the next change, recommend `/triage-follow-ups` before this skill — it verifies the entry is still valid (some are silently resolved by intervening work), prunes obsolete entries, and produces a vetted scope summary that this skill's Phase A can confirm against the canonical docs. Saves a wasted `/next-change` cycle if the follow-up turned out to be obsolete.
-- **Stashing user work.** If Phase C step 7 finds uncommitted local changes that aren't the proposal, ask the user before stashing or committing them — do not silently stash. The untracked proposal directory is the only expected working-tree state after `openspec-propose` runs.
-- **Review channels.** Step 11 dispatches two complementary channels: an in-session `general-purpose` sub-agent (CLAUDE.md-aware, fast, no GitHub round-trip) and the qodo GitHub App (auto-posts as `qodo-code-review` / similar — regex `test("qodo"; "i")`). The legacy auto-Claude-review GitHub Action (`.github/workflows/claude-code-review.yml`) was retired in PR #36 — its OAuth/quota failure rate hit ~89% in the global-timeline ship cycle, so the signal stopped being trustworthy. The on-demand `claude.yml` workflow that responds to `@claude` mentions in PR comments is **kept** — that's a separate, lower-frequency channel a reviewer can manually invoke for ad-hoc Q&A on a specific point. If a third auto-reviewer joins later, extend the qodo query + merge logic in step 12.
-- **External-data dependencies need a sanity-check task.** If the candidate change pulls from an external open-data source (OSM via Overpass, BPS GeoJSON, CC-BY datasets, third-party fixture files) — add an explicit verification step to `tasks.md` Phase 1 *before* any scripting. Concrete shape: a one-shot lookup that confirms the upstream identifier matches the expected entity (e.g., `relation(304751)` returns `{name: "Indonesia", ISO3166-1: "ID"}` for the OSM Indonesia area; pin a known kabupaten and assert `admin_level=5` for Indonesian convention). Hardcoded IDs in scaffolds drift over time (re-numbered relations, license changes, dataset retirements); verify each at the start of the work session, don't trust comments in old import scripts. Precedent: the global-timeline import scaffold landed with `area:3600304716` (an Indian relation) hardcoded; required 3 fetch cycles to discover Indonesia is `area:3600304751` and that DKI kotamadya live at `admin_level=5`, not `admin_level=6` as initially assumed (PR #31).
+- Don't invent work that isn't grounded in `docs/` or the roadmap. If docs are ambiguous about what's next, surface that to the user rather than guessing. Commits tell you what *just* shipped — useful for ordering, not for deciding scope.
+- **Only propose OpenSpec changes if spec-driven** — capability + behavior + WHEN/THEN scenarios. Pure infra / tooling / CI / docs candidates go through regular PRs; recommend that path and skip Phases B–E entirely.
+- **Promoting a deferred follow-up? Run `/triage-follow-ups` first.** If the user references a `FOLLOW_UPS.md` entry as the candidate, recommend triage BEFORE this skill — it verifies the entry is still valid (some are silently resolved by intervening work), prunes obsolete entries, and produces a vetted scope summary that A.2 can confirm against canonical docs. Saves a wasted `/next-change` cycle if the follow-up turned out obsolete.
+- **`FOLLOW_UPS.md` format.** This file is transient — convention is "delete entries when their action items are merged, delete the file itself when empty, recreate when a new finding arises." If it doesn't exist, create with the intro blurb + Format block from PR [#18](https://github.com/aditrioka/nearyou-id/pull/18) and your first entry.
+- **External-data dependencies need a sanity-check task.** If the candidate change pulls from an external open-data source (OSM via Overpass, BPS GeoJSON, CC-BY datasets, third-party fixture files), add an explicit verification step to `tasks.md` Phase 1 BEFORE any scripting. Concrete shape: a one-shot lookup that confirms the upstream identifier matches the expected entity (e.g., `relation(304751)` returns `{name: "Indonesia", ISO3166-1: "ID"}`; pin a known kabupaten and assert `admin_level=5` for Indonesian convention). Hardcoded IDs drift over time. Precedent: PR #31 global-timeline import scaffold landed with `area:3600304716` (an Indian relation) hardcoded; required 3 fetch cycles to discover Indonesia is `area:3600304751` and DKI kotamadya live at `admin_level=5`.
