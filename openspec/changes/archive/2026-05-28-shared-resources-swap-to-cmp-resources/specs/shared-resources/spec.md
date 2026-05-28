@@ -1,3 +1,14 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: Shared resources Gradle module exists with Moko Resources plugin`
+- TO: `### Requirement: Shared resources Gradle module exists with Compose Multiplatform Resources`
+
+- FROM: `### Requirement: Reuse existing Compose Multiplatform material3 pin; add only moko-resources pin`
+- TO: `### Requirement: Reuse existing Compose Multiplatform material3 pin; remove moko-resources pin`
+
+- FROM: `### Requirement: Moko app_name string coexists with platform-native Android strings.xml app_name`
+- TO: `### Requirement: app_name string coexists with platform-native Android strings.xml app_name`
+
 ## MODIFIED Requirements
 
 ### Requirement: Shared resources Gradle module exists with Compose Multiplatform Resources

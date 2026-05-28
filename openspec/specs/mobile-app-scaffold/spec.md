@@ -77,10 +77,15 @@ The `App()` composable SHALL host a navigation framework (declared in `design.md
 - **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt`
 - **THEN** the navigation host is instantiated inside `App()` (or a commonMain helper invoked by `App()`); no platform-specific source set declares its own navigation host
 
-#### Scenario: Placeholder screen renders app identity via Moko Resources
+#### Scenario: Placeholder screen renders app identity via Compose Multiplatform Resources
 
 - **WHEN** the start-destination placeholder is composed
-- **THEN** the rendered content includes a "NearYouID" identifier label consumed via `MR.strings.home_placeholder_title` from `:shared:resources` (NOT a hardcoded string literal), AND a version label consumed via `MR.strings.home_placeholder_version` with the runtime version supplied as the format argument, AND no networking call, no auth lookup, and no feature-specific business logic is invoked
+- **THEN** the rendered content includes a "NearYouID" identifier label consumed via `stringResource(Res.string.home_placeholder_title)` from `:shared:resources` (NOT a hardcoded string literal, NOT the legacy `MR.strings.home_placeholder_title` Moko accessor), AND a version label consumed via `stringResource(Res.string.home_placeholder_version, "1.0")` with the runtime version supplied as the format argument, AND no networking call, no auth lookup, and no feature-specific business logic is invoked
+
+#### Scenario: HomeScreen consumes brand logo via CMP Resources accessor
+
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt`
+- **THEN** the brand-logo selection uses `Res.drawable.logo_brand_dark` (when `isSystemInDarkTheme()` is true) and `Res.drawable.logo_brand_light` (when false), consumed via `painterResource(...)` from the Compose Multiplatform Resources accessor; the file contains NO references to `MR.images.*` or `MR.strings.*` (the legacy Moko accessors)
 
 ### Requirement: Koin DI initialized once per process
 
