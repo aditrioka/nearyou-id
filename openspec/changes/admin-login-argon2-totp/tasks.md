@@ -32,15 +32,11 @@
 
 ## 5. Session middleware
 
-- [ ] 5.1 Create `backend/ktor/src/main/kotlin/id/nearyou/app/admin/auth/AdminPrincipal.kt` — `data class AdminPrincipal(val adminId: UUID, val role: String)`. Implements `io.ktor.server.auth.Principal`.
-- [ ] 5.2 Create `backend/ktor/src/main/kotlin/id/nearyou/app/admin/auth/SessionRepository.kt` exposing:
-   - `fun insert(adminId: UUID, sessionTokenHash: ByteArray, csrfTokenHash: ByteArray, ip: String, userAgent: String?, expiresAt: Instant): UUID` — INSERTs and returns the new session id.
-   - `fun findActiveBySessionHash(sessionTokenHash: ByteArray): SessionRow?` — SELECTs `id, admin_id, csrf_token_hash, expires_at, last_active_at, revoked_at` WHERE `session_token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW() AND last_active_at > NOW() - INTERVAL '30 minutes'`. Returns NULL when no match.
-   - `fun refreshLastActive(sessionId: UUID)` — UPDATE `last_active_at = NOW() WHERE id = $1`.
-   - `fun revoke(sessionId: UUID)` — UPDATE `revoked_at = NOW() WHERE id = $1`.
-   - All queries via `PreparedStatement` (parameterized).
-- [ ] 5.3 Create `backend/ktor/src/main/kotlin/id/nearyou/app/admin/auth/AdminAuthPlugin.kt` — custom Ktor `Authentication` provider. Reads `__Host-admin_session` cookie; if absent, calls `respondRedirect("/admin/login", permanent = false)` (302); else SHA-256s the value via `MessageDigest.getInstance("SHA-256")`, calls `SessionRepository.findActiveBySessionHash(...)`, if NULL → 302 redirect; else calls `SessionRepository.refreshLastActive(...)`, populates `call.principal` with `AdminPrincipal(...)`, also stores the SessionRow (or specifically the csrfTokenHash) in `call.attributes` so the CSRF middleware can read it without a second DB lookup.
-- [ ] 5.4 Wire `install(Authentication) { admin { ... } }` block in `Application.admin()` (after the existing Pebble install).
+- [x] 5.1 Created `AdminPrincipal.kt` — `data class` with `adminId`, `sessionId`, `csrfTokenHash`, `role`, `expiresAt`, `lastActiveAt`. Implements `io.ktor.server.auth.Principal`.
+- [x] 5.2 Created `SessionRepository.kt` exposing `insert(...) → UUID`, `findBySessionHash(...) → SessionRow?`, `refreshLastActive(...)`, `revoke(...)`. All queries via PreparedStatement. Active-predicate (revoked/expires/idle) applied at the application layer (in `SessionRow.isActive(...)`) per design.md D8 — keeps the test ergonomics clean (no Postgres-NOW vs JVM-clock drift). Also `AdminUserRepository.kt` with `findActiveByEmail(...)` + `findById(...)`.
+- [x] 5.3 Created `AdminAuthPlugin.kt` — custom Ktor `AuthenticationProvider`. Reads `__Host-admin_session` cookie via `call.request.cookies`; SHA-256-hex hash via `HashUtil`; calls `SessionRepository.findBySessionHash(...)`; validates active predicate + admin still active; refreshes `last_active_at`; populates `AdminPrincipal`. Fail-CLOSED on DB exception (try/catch around the lookup → 302 + WARN log) per spec scenario "Session middleware fails CLOSED on DB exception" + design.md D16. DSL helper `adminAuth(name)` for `install(Authentication) { adminAuth("admin") { ... } }`.
+- [x] 5.4 DSL wired; actual install will happen in S8 (`Application.admin()` cleanup).
+- [x] 5.x-bonus Created `HashUtil.kt` — SHA-256/hex helpers using JDK 17+ `HexFormat`, `constantTimeEqualHex(a, b)` via `MessageDigest.isEqual` per spec Req "All admin auth comparisons are constant-time".
 
 ## 5.5. AdminAuditLogger (precedes its consumers in Sections 6 + 7)
 
@@ -50,15 +46,8 @@
 
 ## 6. CSRF middleware
 
-- [ ] 6.1 Create `backend/ktor/src/main/kotlin/id/nearyou/app/admin/auth/AdminCsrfPlugin.kt` — custom Ktor plugin for CSRF validation. Behavior per design.md D6, D7 + spec admin-login Requirements "CSRF middleware validates X-CSRF-Token on state-changing requests" + "CSRF mismatch writes admin_csrf_violation audit row":
-   - Triggers on `ApplicationCallPipeline.Plugins` phase.
-   - Skips when `call.request.httpMethod` is GET, HEAD, OPTIONS.
-   - Skips when `call.request.path()` is `/admin/login` (exempt per design.md D7).
-   - Reads `X-CSRF-Token` header; if absent, reads `_csrf` form field via `call.receiveParameters()` (be careful — receiveParameters consumes the body; the plugin should ONLY read form fields when method is POST/PUT/PATCH/DELETE AND the request has a form content-type; otherwise rely on header only).
-   - SHA-256s the submitted token; constant-time compares (`MessageDigest.isEqual`) against `call.attributes[csrfTokenHashKey]` (populated by AdminAuthPlugin).
-   - On match: pass-through.
-   - On mismatch / missing: call `AdminAuditLogger.logCsrfViolation(...)` with the appropriate reason (`'missing_token'`, `'header_mismatch'`, `'form_field_mismatch'`); respond 403; halt the pipeline.
-- [ ] 6.2 Wire the CSRF plugin inside the `authenticate("admin") { ... }` block in `Application.admin()` so it ONLY runs on auth-required routes.
+- [x] 6.1 Created `AdminCsrfPlugin.kt` — `AdminCsrfGate.validateCsrf(call, auditLogger)` returns Boolean (true=proceed, false=rejected with 403 + audit). Skips idempotent methods (GET/HEAD/OPTIONS). Reads `X-CSRF-Token` header first; falls back to `_csrf` form field ONLY when content-type is `application/x-www-form-urlencoded` or `multipart/form-data` (avoids the body-consuming gotcha for JSON requests). SHA-256-hex of submitted token + constant-time hex compare via `HashUtil.constantTimeEqualHex` against the principal's `csrfTokenHash`. On mismatch / missing: `AdminAuditLogger.logCsrfViolation(...)` with appropriate reason, `respond(403)`.
+- [x] 6.2 Wiring happens in S8 (interceptor inside the `authenticate("admin") { ... }` block calls `validateCsrf` and `finish()`s the pipeline on rejection).
 
 ## 7. Login + logout routes
 
