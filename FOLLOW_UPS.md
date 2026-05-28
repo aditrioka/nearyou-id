@@ -748,6 +748,44 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 **Ambiguity to resolve first:** Detekt source-set extension cost. Options: (a) extend Detekt to scan `:mobile:app` `src/commonMain/kotlin` only — clean, mirrors backend pattern; (b) add a one-off shell script run in CI that greps `mobile/app/src/{commonMain,androidMain,iosMain}` — simpler but less integrated; (c) accept the gap until Mobile #3 ships and the negative requirements become obsolete.
 
 **Action items:**
-- [ ] File OpenSpec change `mobile-negative-requirement-detekt-rule` that adds a Detekt rule `MobileScaffoldNegativeRequirementsRule` to `:lint:detekt-rules`, scanning `:mobile:app` `src/commonMain/kotlin` for the six forbidden identifier patterns enumerated in the spec scenarios. Wire the Detekt source-set extension in `build-logic`.
+- [ ] File OpenSpec change `mobile-negative-requirement-detekt-rule` that adds a Detekt rule `MobileScaffoldNegativeRequirementsRule` to `:lint:detekt-rules`, scanning `:mobile:app` `src/commonMain/kotlin` for the six forbidden identifier patterns enumerated in the spec scenarios — **plus** the hardcoded-UI-strings axis from [`openspec/project.md`](openspec/project.md) § Coding Conventions ("Mobile strings: no hardcoded UI strings; must go through Moko Resources"), for which `shared-resources-moko-bootstrap` (PR [#116](https://github.com/aditrioka/nearyou-id/pull/116)) ships an interim grep step in `tasks.md` Section 8.6. The eventual Detekt rule should cover both axes under a single rule. Wire the Detekt source-set extension in `build-logic`.
 - [ ] Delete this entry once the rule ships AND Mobile #3's `proposal.md` updates the `mobile-app-scaffold` spec's negative requirements to acknowledge auth identifiers now belong to dedicated namespaces.
 
+## compose-components-resources-dependency-cleanup
+
+**Discovered during:** `shared-resources-moko-bootstrap` `/opsx:apply` ([PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — surfaced while choosing between Moko Resources and Compose Multiplatform Resources for the brand-resources module.
+**Status:** open
+
+**Finding:** `gradle/libs.versions.toml` declares `compose-components-resources` (from `org.jetbrains.compose.components:components-resources`, pinned via the existing `composeMultiplatform = "1.10.3"` ref) at line 60. Grep across `:mobile:app` + all `:shared:*` + all `:infra:*` finds zero consumers — neither the Kotlin source nor any `build.gradle.kts` `implementation(libs.compose.components.resources)` reference exists. Mobile #2 (`shared-resources-moko-bootstrap`) ships Moko Resources for the brand-resources surface instead, per [`openspec/project.md`](openspec/project.md) § Coding Conventions invariant "Mobile strings: ... must go through Moko Resources." The `compose-components-resources` declaration is now dead code (likely a leftover from the JetBrains Compose Multiplatform wizard scaffold that Mobile #1 replaced).
+
+**Specs at fault:** None.
+**Code at fault:** `gradle/libs.versions.toml` line 60 — `compose-components-resources` library coordinate has no consumer.
+**Docs at fault:** None.
+
+**Impact (if shipped without removing):** Zero runtime impact (unused libs.versions.toml entries are inert). The cost is documentation noise — a future maintainer might assume the project uses Compose Multiplatform Resources and try to wire it up against the existing pin, only to discover it conflicts with Moko Resources (parallel `Res.X` and `MR.X` accessors generated for the same fonts/images would create import ambiguity).
+
+**Ambiguity to resolve first:** None. Removal is a single-line edit + verifying no transitive consumer.
+
+**Action items:**
+- [ ] File a focused cleanup PR (NOT an OpenSpec change — pure dependency hygiene, no behavior change) that removes `compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }` from `gradle/libs.versions.toml` line 60. Run `./gradlew dependencies | grep -i "components-resources"` to verify no resolved usage. Verify CI still green.
+- [ ] Delete this entry once the cleanup PR merges.
+
+## mobile-compose-ui-tests-android-instrumented
+
+**Discovered during:** `shared-resources-moko-bootstrap` `/opsx:archive` ([PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — surfaced when running the pre-archive `./gradlew :shared:resources:build` and `:shared:resources:testDebugUnitTest` failed with `NullPointerException: Cannot invoke "String.toLowerCase(java.util.Locale)" because "android.os.Build.FINGERPRINT" is null` on all 6 `ColorSchemeExtensionsTest.runComposeUiTest` cases.
+**Status:** open
+
+**Finding:** `androidx.compose.ui.test.runComposeUiTest` reads `Build.FINGERPRINT.toLowerCase(...)` to detect the runtime environment. Android JVM unit tests (`testDebugUnitTest`) stub `android.os.Build` static fields as `null` by default, so every Compose UI test crashes during framework init. The Compose UI test framework expects either Robolectric setup or instrumented (`androidTest/`) execution on a real device/emulator. `testOptions { unitTests.isReturnDefaultValues = true }` does NOT help — it stubs method returns, not static fields.
+
+**Specs at fault:** None.
+**Code at fault:** [`shared/resources/src/commonTest/kotlin/id/nearyou/resources/theme/ColorSchemeExtensionsTest.kt`](shared/resources/src/commonTest/kotlin/id/nearyou/resources/theme/ColorSchemeExtensionsTest.kt) runs correctly on iOS sim (`iosSimulatorArm64Test` PASSED with all 6 cases) but cannot run on Android JVM unit tests as written. Workaround applied in PR #116: [`shared/resources/build.gradle.kts`](shared/resources/build.gradle.kts) `testOptions { unitTests.all { it.exclude("**/ColorSchemeExtensionsTest*") } }` skips these tests on the Android JVM lane.
+**Docs at fault:** None.
+
+**Impact (if shipped without resolving):** Android-specific Compose UI behavior regressions would only surface on iOS sim runs, which is asymmetric coverage. In practice the `ColorSchemeExtensionsTest` cases test pure CompositionLocal wiring (no Android-specific behavior), so iOS sim execution is sufficient proof. But future Compose UI tests that DO touch Android-specific paths (e.g., adaptive layouts that read `WindowInsets`, dynamic color schemes that read `Material You`) would silently skip on this codebase until the gap is fixed.
+
+**Ambiguity to resolve first:** Choice between Robolectric setup (heavier — adds `org.robolectric:robolectric` test dep + `@RunWith(AndroidJUnit4::class)` annotations, but keeps tests in `testDebugUnitTest` for fast feedback) vs `androidTest/` instrumented setup (canonical Android pattern, but requires CI emulator infrastructure that doesn't exist yet in `.github/workflows/ci.yml` and adds 5-10 min per test run).
+
+**Action items:**
+- [ ] File an OpenSpec change `shared-resources-android-compose-ui-tests-robolectric` (recommended path — Robolectric is the lower-friction fix and keeps tests fast). Add `org.robolectric:robolectric` test dependency to `shared/resources/build.gradle.kts` androidUnitTest source set; annotate `ColorSchemeExtensionsTest` with `@RunWith(AndroidJUnit4::class)`; configure Robolectric to stub `Build.FINGERPRINT`; remove the exclude added by PR #116.
+- [ ] Alternative (heavier): file `mobile-android-instrumented-test-ci-runner` to add a `macos-latest` or `ubuntu-latest`-with-Android-emulator job to `.github/workflows/ci.yml` for `connectedAndroidTest` execution.
+- [ ] Delete this entry once either OpenSpec change ships AND the `unitTests.all { it.exclude(...) }` workaround is removed from `shared/resources/build.gradle.kts`.

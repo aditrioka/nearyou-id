@@ -19,6 +19,7 @@ A modular monolith on Kotlin Multiplatform. Module list below is auto-generated 
 - `:core:data` — pure-JVM repository interfaces and DTOs.
 - `:core:domain` — pure-JVM domain interfaces, value types, no vendor SDK imports.
 - `:shared:distance` — KMP utilities for great-circle distance + nearby-radius math, shared by mobile and backend.
+- `:shared:resources` — KMP brand resources via Moko Resources: `NearYouColorScheme` + `NearYouTypography` (Plus Jakarta Sans) + brand logo variants + foundational Bahasa Indonesia strings consumed by `:mobile:app`.
 - `:shared:tmp` — scratch placeholder for KMP boilerplate; will be split into real `:shared:<name>` modules as features are built.
 - `:infra:fcm` — Firebase Cloud Messaging Admin SDK wrapper; production `NotificationDispatcher` impl, per-platform payload builders, on-send token-prune contract.
 - `:infra:oidc` — Google OIDC bearer-token verifier (Auth0 `jwks-rsa` + `java-jwt`) for `/internal/*` endpoints invoked by Cloud Scheduler.

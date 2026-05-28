@@ -9,9 +9,8 @@ class HomeScreenTest {
     fun homeScreen_canBeInstantiated() {
         // Smoke check: the Voyager Screen subclass instantiates without throwing.
         // Composing the @Composable Content() body requires a Compose UI test runner
-        // (deferred to follow-up `mobile-theme-light-dark-direct-test` per design
-        // Decision 7); for kotlin.test-only scope the instantiation check is the
-        // tightest assertion we can make without that runner.
+        // (deferred to follow-up `mobile-theme-light-dark-direct-test` per Mobile #1
+        // design Decision 7).
         val screen = HomeScreen()
         assertTrue(screen.key.isNotEmpty(), "Voyager Screen should derive a non-empty key")
     }
@@ -22,11 +21,20 @@ class HomeScreenTest {
         // instantiations must not interfere (each Screen has its own key).
         val first = HomeScreen()
         val second = HomeScreen()
-        // Each Voyager Screen instance has its own key by default; both should be
-        // non-empty (we accept that the keys may or may not be equal depending on
-        // Voyager's key-derivation strategy — the assertion is just that the second
-        // instantiation does not throw).
         assertTrue(first.key.isNotEmpty())
         assertTrue(second.key.isNotEmpty())
     }
+
+    // NOTE: Runtime format-substitution verification for
+    // `MR.strings.home_placeholder_version` (per spec § "home_placeholder_version
+    // format substitution renders correctly at runtime" + task 7.4) is
+    // verified VISUALLY during the cold-start checks in tasks 8.10 + 8.11 +
+    // 8.12 (mandatory screenshots show "Versi 1.0", NOT "Versi %1$s" literal).
+    //
+    // A pure-commonTest runtime substitution check requires a platform Context
+    // (Android: Resources, iOS: NSBundle) that's awkward to mock in
+    // kotlin.test-only scope. The XML-level `formatted="true"` attribute in
+    // strings.xml (task 5.5) ensures Android's Resources.getString(id, args)
+    // dispatches correctly; the iOS NSLocalizedString path uses Moko's native
+    // arg-forwarding wrapper. Both are exercised at app launch.
 }
