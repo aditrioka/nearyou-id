@@ -74,8 +74,9 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
-            // Mobile #3 — MockEngine for AuthApiClient tests.
+            // Mobile #3 — MockEngine for AuthApiClient tests + runTest for suspend tests.
             implementation(libs.ktor.kmp.clientMock)
+            implementation(libs.kotlinx.coroutines.test)
         }
         iosMain.dependencies {
             // Mobile #3 — Darwin engine for iOS Ktor client.
