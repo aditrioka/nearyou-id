@@ -111,11 +111,13 @@ To prevent timing-side-channel enumeration, the login handler SHALL ALWAYS run A
 - **THEN** the constant SHALL parse as a valid Argon2id hash via `Password.check(<any-string>, <sentinel>).withArgon2()` (returns a boolean without throwing)
 - **AND** the parsed hash SHALL declare the same memory, iterations, and parallelism parameters as `PasswordHasher`'s production configuration
 
-### Requirement: Login POST writes audit row on every attempt
+### Requirement: Login POST writes audit row when an admin actor is identified
 
-The system SHALL insert a row into `admin_actions_log` for every login attempt — both success and failure. Successful logins SHALL be logged with `action_type = 'admin_login_success'`, `admin_id` = the matched admin's UUID, `ip` from `call.clientIp`, `user_agent` from request header, and `after_state` JSON containing the session metadata (`session_id`, `expires_at`, `last_active_at`) but NEVER the plaintext token, the CSRF token, or any hash thereof.
+The system SHALL insert a row into `admin_actions_log` for every login attempt WHERE an admin row was matched (success OR matched-but-failed paths). Successful logins SHALL be logged with `action_type = 'admin_login_success'`, `admin_id` = the matched admin's UUID, `ip` from `call.clientIp`, `user_agent` from request header (NULL-tolerant), and `after_state` JSON containing the session metadata (`session_id`, `expires_at`, `last_active_at`) but NEVER the plaintext token, the CSRF token, or any hash thereof.
 
-Failed logins SHALL be logged with `action_type = 'admin_login_failure'`, `admin_id` = the matched admin's UUID (or NULL when the email is not found), `ip`, `user_agent`, and `reason` ∈ `{'email_not_found', 'password_mismatch', 'totp_mismatch', 'inactive_admin', 'totp_secret_missing'}`. The audit row SHALL NOT contain the submitted password, the submitted TOTP code, or any value derived from them (no hash of submitted password, no truncation).
+Failed logins matched to an admin row SHALL be logged with `action_type = 'admin_login_failure'`, `admin_id` = the matched admin's UUID, `ip`, `user_agent`, and `reason` ∈ `{'password_mismatch', 'totp_mismatch', 'inactive_admin', 'totp_secret_missing'}`. The audit row SHALL NOT contain the submitted password, the submitted TOTP code, or any value derived from them (no hash of submitted password, no truncation).
+
+The `email_not_found` failure mode (the submitted email did not resolve to any `admin_users` row, regardless of `is_active` state) is NOT written to `admin_actions_log` per `design.md` Decision 14 — the V16 schema's `admin_actions_log.admin_id NOT NULL` invariant forbids unowned audit rows, and an attacker probing for valid admin emails is not an admin actor. Instead, the system SHALL emit a structured INFO log line at the application logger (Sentry + Cloud Logging reach) carrying fields `event=admin_login_attempt_email_not_found`, `ip`, `user_agent`, `email_hash` (SHA-256 of the submitted email, base64url-encoded, so the same email is correlatable across attempts without exposing plaintext), `timestamp`.
 
 #### Scenario: Successful login writes admin_login_success audit row
 
@@ -123,16 +125,38 @@ Failed logins SHALL be logged with `action_type = 'admin_login_failure'`, `admin
 - **THEN** an `admin_actions_log` row SHALL exist with `action_type = 'admin_login_success'`
 - **AND** `admin_id` = the matched admin's UUID
 - **AND** `ip` = the value from `call.clientIp`
-- **AND** `user_agent` = the request's `User-Agent` header value (NULL-tolerant)
+- **AND** `user_agent` = the request's `User-Agent` header value (or NULL when absent)
 - **AND** `after_state` SHALL be a JSON object containing `session_id`, `expires_at`, `last_active_at` keys (and MAY contain other non-secret session metadata)
-- **AND** `after_state` SHALL NOT contain `session_token`, `csrf_token`, `password`, `totp`, or any key whose value matches the plaintext or hash of those values (verified by scanning the JSON for any substring match against the test fixtures' known values)
+- **AND** `after_state` SHALL NOT contain `session_token`, `csrf_token`, `password`, `totp`, or any key whose value matches the plaintext or hash of those values (verified by scanning the JSON for any substring match against the test fixtures' known values, including SHA-256 of the cookie value)
 
-#### Scenario: Email-not-found failure writes audit row with admin_id NULL
+#### Scenario: Audit row records NULL user_agent when the request omitted the header
 
-- **WHEN** a login fails because the email is not in `admin_users`
-- **THEN** an `admin_actions_log` row SHALL exist with `action_type = 'admin_login_failure'`
-- **AND** `admin_id IS NULL`
-- **AND** `reason = 'email_not_found'`
+- **WHEN** a login attempt POSTs `/admin/login` with no `User-Agent` request header
+- **AND** an `admin_actions_log` row is written for the attempt (success or matched-but-failed)
+- **THEN** the row's `user_agent` column SHALL be NULL
+
+#### Scenario: Audit row records the forwarded client IP (CF-Connecting-IP)
+
+- **GIVEN** the request carries `CF-Connecting-IP: 1.2.3.4` (per the `client-ip-extraction` capability)
+- **WHEN** a login attempt POSTs `/admin/login` and an audit row is written
+- **THEN** the row's `ip` column SHALL be `1.2.3.4` (NOT the LB / Cloudflare edge IP that would appear in `X-Forwarded-For`'s last hop or `remoteHost`)
+
+#### Scenario: Email-not-found does NOT write to admin_actions_log
+
+- **GIVEN** no `admin_users` row exists with `email = 'phantom@nearyou.id'`
+- **WHEN** the client sends `POST /admin/login` with `email=phantom@nearyou.id&password=anything&totp=000000`
+- **THEN** no new `admin_actions_log` row SHALL be inserted (the `admin_id NOT NULL` invariant from V16 forbids it; per design.md D14, this attempt is captured at the application logger instead)
+- **AND** the response body SHALL still contain the generic error message (no-enumeration contract preserved at the HTTP layer)
+
+#### Scenario: Email-not-found writes a structured INFO log line at the application logger
+
+- **GIVEN** no `admin_users` row exists with `email = 'phantom@nearyou.id'`
+- **WHEN** the client sends `POST /admin/login` with `email=phantom@nearyou.id&password=anything&totp=000000`
+- **AND** the application's log capture (via Logback `ListAppender` or equivalent) captures emitted log lines
+- **THEN** an INFO-level log line SHALL be captured carrying the substring `event=admin_login_attempt_email_not_found`
+- **AND** the log line SHALL include the `ip`, `user_agent`, and `email_hash` fields
+- **AND** the log line SHALL NOT include the plaintext email (only its SHA-256 hash)
+- **AND** the log line SHALL NOT include the submitted password or TOTP code
 
 #### Scenario: Password mismatch failure records the matched admin's UUID
 
@@ -241,6 +265,31 @@ The system SHALL gate every `/admin/*` route (except `GET /admin/login`, `POST /
 - **WHEN** the session middleware SELECTs from `admin_sessions`
 - **THEN** the query SHALL be a JDBC `PreparedStatement` with `session_token_hash` bound as a parameter (NOT string-interpolated)
 
+#### Scenario: Session middleware fails CLOSED on DB exception
+
+- **GIVEN** the `admin_sessions` SELECT query throws (connection pool exhausted, Postgres restart, JDBC timeout, etc.)
+- **WHEN** the client sends `GET /admin/` with a session cookie
+- **THEN** the response status SHALL be 302 (or 500 — both signal closed; what SHALL NOT happen is status 200)
+- **AND** the `Location` header (if status 302) SHALL be `/admin/login`
+- **AND** the principal SHALL NOT be populated (downstream route handlers do not receive a valid session)
+- **AND** the failure SHALL be logged at WARN level at the application logger so operators see the DB outage signal (per `design.md` Decision 16)
+
+#### Scenario: Session middleware does not extend an idle-timed-out session via last_active_at refresh
+
+- **GIVEN** a session row with `last_active_at` AT EXACTLY `NOW() - INTERVAL '30 minutes 1 second'` (just past the sliding idle threshold)
+- **WHEN** the client sends `GET /admin/` carrying that session's cookie
+- **THEN** the session middleware SHALL classify the session as idle-timed-out
+- **AND** the response SHALL be 302 to `/admin/login`
+- **AND** the `last_active_at` column SHALL NOT be refreshed to `NOW()` (a dead session must not be revived by the same request that's being rejected)
+
+#### Scenario: Forged cookie that hashes to no admin_sessions row redirects to login
+
+- **GIVEN** the client sends a well-formed cookie value (43-character base64url string matching the cookie format regex) that has NEVER been issued — i.e., its SHA-256 hash does not match any row in `admin_sessions`
+- **WHEN** the request reaches the session middleware
+- **THEN** the response SHALL be 302 to `/admin/login`
+- **AND** no `admin_sessions.last_active_at` row SHALL be updated
+- **AND** the response SHALL clear the cookie (the browser MAY have cached an attacker-supplied value; clearing it terminates the loop)
+
 ### Requirement: CSRF middleware validates X-CSRF-Token on state-changing requests
 
 The system SHALL gate every state-changing request (HTTP method ∈ `{POST, PUT, PATCH, DELETE}`) under `/admin/*` (EXCEPT `POST /admin/login`, which is pre-session and exempt) with a CSRF validation middleware. The middleware SHALL accept the CSRF token from EITHER the `X-CSRF-Token` request header OR the `_csrf` form field. The header SHALL take precedence if both are present. The middleware SHALL compute SHA-256 of the submitted token and compare (constant-time via `MessageDigest.isEqual`) against the current session's `admin_sessions.csrf_token_hash`. Mismatch SHALL return HTTP 403 and write an audit row with `action_type = 'admin_csrf_violation'` (per the audit-log requirement below).
@@ -286,6 +335,21 @@ The system SHALL gate every state-changing request (HTTP method ∈ `{POST, PUT,
 - **GIVEN** an authenticated session
 - **WHEN** the client sends `GET /admin/` (idempotent method) with no `X-CSRF-Token` header
 - **THEN** the request SHALL pass through to the route handler (status 200)
+
+#### Scenario: CSRF token does NOT rotate per request — same token accepted across multiple in-flight state-changing requests
+
+- **GIVEN** an authenticated session with stored `csrf_token_hash = SHA-256(<plaintext-csrf>)`
+- **WHEN** the client sends TWO sequential state-changing requests `POST /admin/<any-test-route>` AND `POST /admin/<any-other-test-route>` with `X-CSRF-Token: <plaintext-csrf>` on BOTH
+- **THEN** both requests SHALL pass the CSRF middleware (per the per-login-rotation contract in `design.md` D6 — the same token is reusable until the next successful login regenerates it)
+- **AND** the `admin_sessions.csrf_token_hash` SHALL NOT have changed between the two requests (verified by SELECT after request 1 and after request 2)
+- **AND** no `admin_csrf_violation` audit row SHALL be written
+
+#### Scenario: CSRF token regenerates only on successful login (not on per-request use)
+
+- **GIVEN** an authenticated session with `csrf_token_hash = SHA-256(<token-A>)`
+- **WHEN** the client performs a successful state-changing request with `X-CSRF-Token: <token-A>` (e.g., a synthetic test route that doesn't terminate the session)
+- **THEN** the `admin_sessions.csrf_token_hash` SHALL remain `SHA-256(<token-A>)` (no rotation on use)
+- **AND** the next subsequent state-changing request with `X-CSRF-Token: <token-A>` SHALL also succeed
 
 ### Requirement: CSRF mismatch writes admin_csrf_violation audit row
 
@@ -336,9 +400,11 @@ The system SHALL accept `POST /admin/logout` as a CSRF-required authenticated ro
 - **AND** the logout route handler SHALL NOT be reached, so no new `admin_actions_log` row SHALL be written
 - **AND** the response SHALL clear the cookie regardless (the redirect response from the session middleware does NOT need to set the clear-cookie header — the browser already considers the session invalid because the server keeps rejecting it)
 
-### Requirement: TOTP secret decryption uses AES-256-GCM with key from GCP Secret Manager
+### Requirement: TOTP secret decryption uses AES-256-GCM with key from GCP Secret Manager and admin-UUID AAD binding
 
-The system SHALL decrypt `admin_users.totp_secret_encrypted` at login-verify time via `javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")`. The AES-256 key SHALL be sourced via the `secretKey(env, "admin-totp-secret-aes-key")` helper (the `KTOR_ENV`-namespaced secret slot — `staging-admin-totp-secret-aes-key` in staging, `admin-totp-secret-aes-key` in production). The ciphertext format SHALL be `BYTEA = nonce (12 bytes) || ciphertext || auth_tag (16 bytes)` per `design.md` Decision 1. The GCM authentication tag SHALL be verified — if verification fails (tampered ciphertext), the decryption SHALL throw and the login attempt SHALL be treated as `totp_secret_missing` (the bootstrap procedure produces valid ciphertext; a tamper signals storage corruption, not a normal login flow).
+The system SHALL decrypt `admin_users.totp_secret_encrypted` at login-verify time via `javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")`. The AES-256 key SHALL be sourced via the `secretKey(env, "admin-totp-secret-aes-key")` helper (the `KTOR_ENV`-namespaced secret slot — `staging-admin-totp-secret-aes-key` in staging, `admin-totp-secret-aes-key` in production). The ciphertext format SHALL be `BYTEA = nonce (12 bytes) || ciphertext || auth_tag (16 bytes)` per `design.md` Decision 1. The GCM authentication tag SHALL be verified — if verification fails (tampered ciphertext, wrong key, or AAD mismatch), the decryption SHALL throw and the login attempt SHALL be treated as `totp_secret_missing` (the bootstrap procedure produces valid ciphertext; a tamper signals storage corruption or row-swap, not a normal login flow).
+
+The admin's UUID (`admin_users.id`, as 16 raw bytes from the UUID's most-significant + least-significant longs) SHALL be bound as Additional Authenticated Data (AAD) via `Cipher.updateAAD(adminUuidBytes)` before the `doFinal()` call on BOTH the encrypt and decrypt paths (per `design.md` Decision 1). This prevents a DB-write attacker from swapping admin A's encrypted TOTP secret into admin B's `totp_secret_encrypted` column — the AAD mismatch produces an `AEADBadTagException` on decrypt.
 
 #### Scenario: AES-GCM round-trip on a known-secret fixture succeeds
 
@@ -362,6 +428,25 @@ The system SHALL decrypt `admin_users.totp_secret_encrypted` at login-verify tim
 
 - **WHEN** `KTOR_ENV = 'staging'`, the `secretKey(env, "admin-totp-secret-aes-key")` call SHALL resolve the GCP Secret Manager slot named `staging-admin-totp-secret-aes-key`
 - **AND** when `KTOR_ENV = 'production'`, it SHALL resolve `admin-totp-secret-aes-key` (unprefixed, per the project's secret-namespacing convention)
+
+#### Scenario: AAD-bound encrypt-decrypt round-trip succeeds when the admin UUID matches
+
+- **GIVEN** a test fixture with `secret = SecureRandom.nextBytes(20)`, `key = SecureRandom.nextBytes(32)`, `adminUuid = UUID.randomUUID()`, and ciphertext produced by `AesGcmCipher.encrypt(secret, key, adminUuidAsBytes(adminUuid))`
+- **WHEN** `AesGcmCipher.decrypt(ciphertext, key, adminUuidAsBytes(adminUuid))` is called with the SAME admin UUID
+- **THEN** the result SHALL equal the original `secret`
+
+#### Scenario: AAD-bound decrypt FAILS when the admin UUID is swapped
+
+- **GIVEN** a ciphertext encrypted with `adminUuid = A` AAD
+- **WHEN** `AesGcmCipher.decrypt(ciphertext, key, adminUuidAsBytes(B))` is called with a different admin UUID (`B != A`)
+- **THEN** the method SHALL throw `AEADBadTagException` (or equivalent JCA exception)
+
+#### Scenario: AES-GCM decryption fails on wrong-length key
+
+- **GIVEN** a valid ciphertext encrypted with a 256-bit (32-byte) key + correct AAD
+- **WHEN** `AesGcmCipher.decrypt(ciphertext, key=SecureRandom.nextBytes(16), aad=...)` is called with a 128-bit (16-byte) key
+- **THEN** the method SHALL throw `InvalidKeyException` (or equivalent JCA exception indicating the key length is unsupported)
+- **AND** a misconfigured GCP Secret Manager slot SHALL fail loudly at login-verify time, not silently produce a wrong-decrypt result
 
 ### Requirement: Authenticated layout includes CSRF meta tag and HTMX configRequest hook
 
@@ -405,6 +490,11 @@ The system SHALL use constant-time comparison primitives for every secret-derive
 
 - **WHEN** the test suite scans the admin auth source for byte-array equality compares
 - **THEN** the canonical pattern SHALL be `MessageDigest.isEqual(a, b)` (verified by grepping for the literal `MessageDigest.isEqual` substring)
+
+#### Scenario: Source scan catches Kotlin operator-form equality on secret-named locals
+
+- **WHEN** the test suite scans the admin auth source for `==` operator usage on locals/parameters whose name matches `*token*` / `*hash*` / `*csrf*` (case-insensitive)
+- **THEN** no match SHALL exist (Kotlin's `==` desugars to `.equals(...)` which is NOT constant-time; named-token variables SHALL only be compared via `MessageDigest.isEqual` or via library APIs)
 
 ### Requirement: Argon2id verification uses tuned parameters with documented benchmark
 
@@ -458,3 +548,33 @@ The system SHALL configure samstevens java-totp's `CodeVerifier` with `HashingAl
 - **GIVEN** the same fixture
 - **WHEN** the verifier checks the code generated at `T + 30s` against the secret at time `T`
 - **THEN** the verification SHALL return TRUE
+
+### Requirement: Login input handling tolerates Unicode and rejects malformed shapes safely
+
+The login form fields SHALL handle Unicode email + Unicode password inputs (UTF-8 round-trip through the Argon2id verify path). The `totp` field SHALL be validated for shape — exactly 6 digits, no leading/trailing whitespace silently accepted (whitespace SHALL be rejected via the no-enumeration generic error message). Oversized inputs (>10 MiB per field) SHALL be rejected at the Ktor request-parse layer (Ktor's default `ApplicationCallPipeline.Setup` size limit) without reaching the auth handler. The `errorMessage` rendering context for `login.peb` SHALL pass through Pebble's HTML escape on render — even though the current message is a fixed string, the template SHALL escape it so a future change that interpolates user input cannot inject HTML.
+
+#### Scenario: Unicode email + Unicode password round-trip through Argon2id verify
+
+- **GIVEN** an `admin_users` row exists with `email = 'oka.テスト@nearyou.id'` (Unicode email) and a known Argon2id `password_hash` for the Unicode password `'p@ssword.テスト'`
+- **WHEN** the client sends `POST /admin/login` with `email=oka.テスト@nearyou.id&password=p@ssword.テスト&totp=<current-code>`
+- **THEN** the response SHALL succeed per the verification requirement (login succeeds)
+- **AND** the audit row SHALL record the matched admin's UUID + the Unicode email is NOT recorded plaintext anywhere
+
+#### Scenario: TOTP code with leading whitespace is rejected
+
+- **WHEN** the client sends `POST /admin/login` with valid email + password + `totp=' 123456'` (leading space) or `'123456 '` (trailing space)
+- **THEN** the response SHALL be the generic no-enumeration error (matching the wrong-TOTP shape)
+- **AND** the audit row SHALL be `admin_login_failure` with `reason = 'totp_mismatch'` (NOT silently stripped to `'123456'`)
+
+#### Scenario: Pebble template escapes the errorMessage variable
+
+- **WHEN** the login template is rendered with `errorMessage = '<script>alert(1)</script>'` (an XSS payload — only happens if a future change interpolates user input)
+- **THEN** the rendered HTML SHALL contain the entity-escaped form `&lt;script&gt;alert(1)&lt;/script&gt;`
+- **AND** the rendered HTML SHALL NOT contain the raw `<script>` substring
+
+#### Scenario: Oversized email field is rejected without reaching auth handler
+
+- **WHEN** the client sends `POST /admin/login` with `email=<10MB string>` and otherwise-valid fields
+- **THEN** the request SHALL be rejected at the request-parse layer (status 413 Payload Too Large OR 400 Bad Request — exact code depends on Ktor's parse-error handling)
+- **AND** no `admin_users` SELECT SHALL be executed
+- **AND** no `admin_actions_log` row SHALL be written

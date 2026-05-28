@@ -48,7 +48,7 @@ Stakeholders: Oka (solo operator, sole admin until second-admin hire). Code revi
 
 - **Argon2id:** `com.password4j:password4j` 1.8.4 (Maven Central, [Password4j/password4j](https://github.com/Password4j/password4j)).
 - **TOTP RFC 6238:** `dev.samstevens.totp:totp` 1.7.1 (Maven Central, [samdjstevens/java-totp](https://github.com/samdjstevens/java-totp)).
-- **AES-256-GCM:** JCA built-in (`javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")`). No third-party library.
+- **AES-256-GCM:** JCA built-in (`javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")`). No third-party library. **AAD binding:** the admin's UUID (`admin_users.id`, 16 raw bytes) SHALL be bound as Additional Authenticated Data. This prevents a DB-write attacker from swapping admin A's encrypted TOTP secret into admin B's row — the AAD mismatch causes decryption to fail with `AEADBadTagException`. The encrypt path passes the admin UUID via `Cipher.updateAAD(adminUuidBytes)` before `doFinal(plaintext)`; the decrypt path does the same. Trade-off: re-encrypting a TOTP secret to migrate it to a different admin requires re-running through the bootstrap script.
 - **SecureRandom:** JCA built-in (`java.security.SecureRandom`).
 - **SHA-256 + constant-time compare:** JCA built-in (`java.security.MessageDigest` + `MessageDigest.isEqual()`).
 
@@ -119,6 +119,8 @@ Stakeholders: Oka (solo operator, sole admin until second-admin hire). Code revi
 
 **Rationale.** The `__Host-` prefix forces the cookie to be host-locked (no Domain attribute, Path=/, Secure required). Combined with `SameSite=Strict`, this gives the strongest cookie isolation available in the platform — no cross-site sending, no domain-scoping abuse, no subdomain cookie injection. `HttpOnly` prevents JS access. The opaque-token + SHA-256-at-rest pattern means a database compromise reveals only hashes, not live session tokens (attacker can't replay against the admin panel without the plaintext token).
 
+**`Path=/` is mandated by `__Host-`, not chosen.** Per RFC 6265bis §4.1.3.2, the `__Host-` prefix REQUIRES `Path=/`; any other value makes the browser reject the Set-Cookie. A narrower `Path=/admin` would reduce exposure to XSS on other paths (`/api/v1/*`), but `__Host-` and `Path=/admin` are mutually exclusive constraints. The chosen trade-off is "lock the cookie to one host via `__Host-`" over "lock the cookie to one path via narrower `Path`"; the host lock is the stronger defense against cookie injection (subdomain attacks) which is the threat we care about more in a multi-host platform. The `HttpOnly` attribute mitigates the residual XSS exfiltration risk on other paths.
+
 **Why opaque random instead of signed JWT / stateless cookie:**
 
 - Sessions are mutable (idle timeout refresh, revocation on logout, revocation on role escalation). Stateless JWT can't support these without a revocation list, which defeats statelessness.
@@ -162,7 +164,9 @@ This auto-adds the `X-CSRF-Token` header on every HTMX `hx-get`/`hx-post`/`hx-pu
 
 **For non-HTMX traditional form posts (e.g., logout button as a `<form>`):** the layout SHALL render `<input type="hidden" name="_csrf" value="${csrfToken}">` inside any form whose method is not GET. The CSRF middleware accepts the token from EITHER the `X-CSRF-Token` header OR the `_csrf` form field, with the header taking precedence if both present.
 
-**Token rotation:** the CSRF token is regenerated on every successful login (per docs). It does NOT rotate per request — rotating per request would break the meta-tag pattern (the next request's HTMX header would mismatch the stored hash). Per-login rotation is sufficient for the threat model: an attacker who steals a CSRF token also needs the session cookie to use it, and SameSite=Strict on the session cookie already prevents cross-site sends.
+**Token rotation:** the CSRF token is regenerated on every successful login (per docs). It does NOT rotate per request — rotating per request would break the meta-tag pattern (the next request's HTMX header would mismatch the stored hash). Per-login rotation is sufficient for the threat model: an attacker who steals a CSRF token also needs the session cookie to use it, and SameSite=Strict on the session cookie already prevents cross-site sends. **Multiple in-flight state-changing requests under the same session SHALL all succeed with the same CSRF token** — this is the natural consequence of per-login rotation; the spec includes an explicit scenario asserting it to prevent a future change from silently flipping to per-request rotation.
+
+**Pebble escape strategy: explicit `html_attr` filter on the CSRF meta tag.** Pebble's default escape strategy is HTML-context (`{{ value }}` produces HTML-entity-escaped output suitable for element content). The CSRF token is rendered as the value of the `content="..."` attribute, which is HTML-attribute-context — slightly different escaping rules apply (escape `"`, `'`, `<`, `>`, `&`). Default HTML-context escaping is SUFFICIENT for ASCII alphanumeric + `-` + `_` (base64url's character set), but to bake the invariant into the template (defense-in-depth against a future change that puts non-alphanumeric content in the CSRF token), the template SHALL use the explicit form `{{ csrfToken | escape('html_attr') }}` (or whichever Pebble syntax produces attribute-context escaping). Test for this in tasks.md Section 11.
 
 **Alternatives considered:**
 
@@ -307,7 +311,45 @@ The sentinel-hash approach is well-known (used by Django's `User.set_unusable_pa
 
 **Follow-up.** File `admin-module-admin-app-role-swap` per the proposal's Out-of-Scope list. The follow-up's design problem: under the current single-deployable shape, the admin module would need a second DataSource pointing at the same Postgres with different credentials. Under the eventual separate-CR-deployment shape, the admin module gets its own service with its own credentials trivially. The follow-up's design should defer to the deployment shape that's current at the time it lands.
 
-### D13: Constant-time comparison discipline
+### D14: `email_not_found` audit path routes to INFO logger, NOT `admin_actions_log`
+
+**Choice:** When a login attempt's email does NOT resolve to any `admin_users` row, the failure is recorded at the application's structured INFO logger only — NOT inserted into `admin_actions_log`. The structured INFO log line carries fields: `event=admin_login_attempt_email_not_found`, `ip` (from `call.clientIp`), `user_agent`, `email_hash` (SHA-256 of the submitted email — so the same email can be correlated across attempts without exposing the plaintext), `timestamp`. The other four failure modes (`password_mismatch`, `totp_mismatch`, `inactive_admin`, `totp_secret_missing`) DO write to `admin_actions_log` because they have a real admin row to FK against. The login success path also writes to `admin_actions_log`.
+
+**Rationale.** The V16 schema declares `admin_actions_log.admin_id UUID NOT NULL REFERENCES admin_users(id)` — the column is NOT NULL and the FK rejects synthetic UUIDs. Writing a row with `admin_id = NULL` (or a non-existent UUID) would throw `not_null_violation` / `foreign_key_violation` at runtime. The proposal-phase round-1 multi-lens review (general lens B1 + security lens B1) surfaced this contradiction in the initial spec draft.
+
+Three resolution paths were considered:
+
+- **(a) Ship a sentinel `system` admin row in this change** — contradicts proposal § Out-of-Scope (the `system-actor-and-worker-audit-rows` follow-up owns this); also requires a CHECK constraint or query-level safeguard to prevent the sentinel from being used as a real-admin login target (the schema mandates `password_hash NOT NULL`, so the sentinel's stored hash would either be a valid hash for an unguessable password OR a special-cased value that bypasses the NOT NULL constraint, both of which add complexity).
+- **(b) Ship a V17 migration relaxing `admin_id` to NULLABLE** — contradicts the canonical `admin-schema` spec; also weakens the audit-trail integrity invariant ("every audit row has a real admin actor") which is operationally valuable for the Admin #4 audit-log viewer.
+- **(c) Drop the email-not-found row from `admin_actions_log`; route to structured INFO log instead** — chosen. The structured INFO log line goes to the same Sentry + Cloud Logging surface as audit rows, so anomaly detection (per `docs/08-Roadmap-Risk.md` Phase 1 §29 "Anomaly detection metrics") catches email-enumeration probes at the same observability layer. The cost is that the Admin #4 in-app `admin-actions-log-viewer` (a future change) won't surface anonymous failed attempts — but those attempts aren't admin actions, so they don't belong in an admin-actions UI anyway.
+
+**Operationally.** The structured INFO log line at `event=admin_login_attempt_email_not_found` plus the spec's no-enumeration response contract (identical HTML body across all failure modes) means an attacker probing for valid admin emails gets the same response shape every time — the probe is detectable in logs (volume + IP), not in HTTP responses. This is the same defense pattern as user-side login enumeration.
+
+### D15: Sentinel-hash regeneration discipline
+
+**Choice:** The sentinel Argon2id hash (for timing equalization per D9) SHALL be regenerated whenever the Argon2id parameters in `PasswordHasher.kt` (memory, iterations, parallelism) are retuned. Regenerated hash + tuned parameters land in the SAME commit. The sentinel value is committed as a Kotlin constant `SENTINEL_HASH` in `PasswordHasher.kt` with an `// @sentinel-of-params <memory>-<iterations>-<parallelism> generated <date>` comment recording the params combination.
+
+**Rationale.** The sentinel hash carries embedded parameters (Password4j's hash string format includes `$argon2id$v=19$m=...,t=...,p=...$...`). The timing equalization invariant requires the sentinel verify to take the same wall time as a production hash verify. A drift (sentinel embeds OLD params; production embeds NEW params) re-introduces the timing distinguishability that D9 closed.
+
+**Implementation.** Task 3.3 tunes the params; task 3.4 generates the sentinel against those params; both happen in the same commit. A future Argon2 re-tune (the operational follow-up tracked under D2's "auto-tuning at startup" rejected-alternative) MUST also regenerate the sentinel in the same commit. The benchmark Kotest spec (task 11.17) includes a sentinel-params-match-production-params assertion to catch drift at CI time.
+
+### D16: Session middleware fails CLOSED on DB exception
+
+**Choice:** When the session middleware's SELECT against `admin_sessions` throws (connection pool exhausted, Postgres restart mid-request, Cloudflare timeout, etc.), the middleware SHALL fail CLOSED — return 302 to `/admin/login` (or 500 if the implementation prefers to surface the underlying error class without revealing internal details to the client). The middleware SHALL NOT fail open — i.e., the principal SHALL NOT be populated with a "trust me bro" value, and the route handler SHALL NOT be reached without a valid session.
+
+**Rationale.** Fail-open silently bypasses authentication during a DB outage. The cost of fail-closed during a true DB outage is "admin can't log in until DB is back," which is the correct posture — the entire admin tool depends on the DB anyway (Admin #4 audit log, Admin #5 suspend/unban) so a DB outage means the admin can't do anything regardless. Fail-closed preserves the auth invariant during partial outages (e.g., admin_sessions query times out but the rest of the system stays up).
+
+**Implementation.** The session middleware's outer try/catch routes any thrown exception into the same 302-to-login path as an empty-cookie request. Spec Req "Session middleware validates the cookie on every authenticated request" adds a scenario asserting the fail-closed behavior. Tests use a connection-error-injecting test harness.
+
+### D17: TOTP replay tracking is a documented gap
+
+**Choice:** Admin #3 does NOT track previously-used TOTP codes. A code accepted at time T can be replayed at time T + 30s (within the ±1 step skew window). This is a documented gap with mitigation by per-IP rate limiting (deferred to `admin-login-rate-limit` follow-up) + IAP / Cloud Armor at the network layer + audit logging surfacing brute-force patterns.
+
+**Rationale.** Per-code replay prevention requires storing the last-accepted TOTP step in `admin_sessions` (or a new `admin_users.last_totp_step_accepted_at` column). This is a real schema delta and ships in a focused follow-up. The replay surface is bounded: an attacker must shoulder-surf or intercept the 6-digit code within the ±30s window AND have the admin's password AND the admin's email — all three together means the attacker has bigger problems than TOTP replay. The 90-second window with a hardware token assumes the admin promptly clears the code; in practice the cooldown between login attempts (Argon2id 500ms + auth flow rendering) bounds the per-window replay window to maybe 2-3 attempts.
+
+**Follow-up name.** `admin-totp-replay-tracking` — adds either `admin_sessions.last_used_totp_step BIGINT` (per-session) or `admin_users.last_used_totp_step BIGINT` (per-admin) plus the verify path's check + update. The follow-up lands alongside or after the `admin-login-rate-limit` follow-up (both narrow the TOTP-brute-force surface).
+
+### D18: Constant-time comparison discipline
 
 **Choice:** Every secret-derived comparison in the admin auth path uses an explicitly constant-time API:
 
@@ -400,8 +442,8 @@ The auth path code is small enough to review manually for these patterns; a Dete
 1. **CSRF token storage on the page after login.** The token is returned in the response (or surfaced via the meta tag on subsequent page loads). Should the meta tag value be the plaintext token (so the JS hook reads it directly) or the SHA-256 hash (and the JS hook re-hashes server-side via a no-op endpoint)? **Resolution direction:** plaintext token in meta tag is fine — same security properties as a cookie value (HTTPOnly cookie protects against XSS reading session; meta tag doesn't, but CSRF token + session cookie together still require the attacker to bypass SameSite=Strict, which is the cookie's job, not the token's). Confirm at implementation time.
 2. **Last-active-at refresh batching.** Should every authenticated request UPDATE `last_active_at`, or batch (e.g., only refresh if `last_active_at < NOW() - INTERVAL '30 seconds'`)? **Resolution direction:** start with every-request for simplicity; benchmark in staging; optimize if writes become a bottleneck. Defer to a follow-up if needed.
 3. **CSRF token rotation cadence.** Per-login is documented. Should we ALSO rotate on successful state-changing requests (so a stolen token has shorter validity)? **Resolution direction:** per-login only — per-request rotation breaks the meta-tag-once-per-page-load pattern. The stolen-token surface requires also stealing the session cookie, which is mitigated by SameSite=Strict + HttpOnly.
-4. **Sentinel hash storage.** The sentinel Argon2id hash is a constant in source. Should it be regenerated on every Argon2id-params change so it remains a "valid hash with current params" (preserving the timing equalization)? **Resolution direction:** yes — when D2's params are tuned, generate a fresh sentinel hash with those params; both land in the same commit. Document in `PasswordHasher.kt`.
-5. **The `Pebble` template engine's escape behavior.** Pebble defaults to HTML-escape output. The CSRF token value should be HTML-attribute-context-safe (we render `<meta name="csrf-token" content="${token}">`). Confirm Pebble's default escape strategy is sufficient for the attribute context. **Resolution direction:** test at implementation time; if needed, use Pebble's `escape(strategy='attr')` filter explicitly.
+4. ~~Sentinel hash storage~~ → **RESOLVED in D15** (regenerated alongside any Argon2id retune; same commit; benchmark spec asserts the sentinel-params-match-production-params invariant).
+5. ~~Pebble escape behavior~~ → **RESOLVED in D6** (use explicit `escape(strategy='html_attr')` filter on the CSRF meta tag rather than relying on the default; defense-in-depth).
 6. **Logout idempotency.** A `POST /admin/logout` with an already-revoked session — should it return 200 (idempotent), 401 (no session), or 302 to login? **Resolution direction:** idempotent 302 to `/admin/login`. The cookie is cleared regardless; the audit row is not written if no active session was found.
 
 These resolve at `/opsx:apply` implementation time; no proposal-phase blockers.
