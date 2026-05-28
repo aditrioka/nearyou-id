@@ -11,7 +11,7 @@ The `:shared:resources` module SHALL provide a foundational set of Bahasa Indone
 - `cta_signin_google`: "Masuk dengan Google" (the user-facing primary CTA per [`docs/03-UX-Design.md`](../../../../docs/03-UX-Design.md) § Auth Flow)
 - `signin_screen_title`: "Masuk ke NearYouID"
 - `signin_error_no_account`: "Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya." (temporary copy per the `mobile-auth-google-signin-flow` change Decision 7; Mobile #4 replaces this branch with age-gate-then-signup navigation, retiring this string OR repurposing it for the network-edge-case-only path)
-- `signin_error_banned`: "Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru." (matching [`docs/03-UX-Design.md`](../../../../docs/03-UX-Design.md) § Suspension UX wording byte-identical)
+- `signin_error_banned`: "Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru." (matching [`docs/03-UX-Design.md`](../../../../docs/03-UX-Design.md) § Suspension UX permanent-ban wording byte-identical; Mobile #3 permanent-ban-only copy — suspended-user copy split tracked in `FOLLOW_UPS.md` entry `mobile-auth-signin-suspended-user-copy-split` per `mobile-auth-google-signin-flow` design.md Decision 7)
 - `signin_error_network`: "Tidak bisa terhubung. Periksa koneksi internet kamu."
 - `signin_error_token_invalid`: "Sesi Google bermasalah. Coba lagi."
 - `signin_loading`: "Sedang masuk…"
@@ -40,13 +40,13 @@ Text content for all Mobile #3 strings SHALL match the Bahasa Indonesia copy in 
 #### Scenario: Mobile #3 sign-in strings carry the canonical Bahasa Indonesia copy
 
 - **WHEN** reading the `<string name="cta_signin_google">` value
-- **THEN** the text is exactly `"Masuk dengan Google"` (matching [`docs/03-UX-Design.md`](../../../../docs/03-UX-Design.md) § Auth Flow line 36)
+- **THEN** the text is exactly `"Masuk dengan Google"` (matching [`docs/03-UX-Design.md`](../../../../docs/03-UX-Design.md) § Auth Flow paragraph beginning `1. Android: "Masuk dengan Google"`)
 
 - **WHEN** reading the `<string name="signin_error_banned">` value
 - **THEN** the text is exactly `"Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru."` (matching [`docs/03-UX-Design.md`](../../../../docs/03-UX-Design.md) § Suspension UX byte-identical)
 
 - **WHEN** reading the `<string name="account_separation_disclosure">` value
-- **THEN** the text is exactly `"Akun Google dan akun Apple terpisah. Satu identifier = satu akun NearYouID"` (matching [`docs/03-UX-Design.md`](../../../../docs/03-UX-Design.md) § Auth Flow line 43 byte-identical)
+- **THEN** the text is exactly `"Akun Google dan akun Apple terpisah. Satu identifier = satu akun NearYouID"` (matching [`docs/03-UX-Design.md`](../../../../docs/03-UX-Design.md) § Auth Flow paragraph beginning `**Account separation disclosure**` byte-identical)
 
 - **WHEN** reading the `<string name="signin_error_network">` value
 - **THEN** the text is exactly `"Tidak bisa terhubung. Periksa koneksi internet kamu."`
