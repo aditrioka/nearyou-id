@@ -804,3 +804,31 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 **Action items:**
 - [ ] File a focused docs-only PR (NOT an OpenSpec change for the spec-text edits — these are wording fixes, not requirement modifications) that updates the 3 spec-text references. For `fcm-push-dispatch/spec.md:326` + `in-app-notifications/spec.md:281`, the wording-only edit ships as a regular `docs(specs):` PR. For `mobile-app-scaffold/spec.md:5`+`:107` Purpose-section references, decide between (a) accepting historical text as-is (Purpose sections describe historical context; "Mobile #2 was Moko" is historically accurate); (b) rewriting Purpose section in a future change that already modifies the capability for another reason. Lean toward (a) — Purpose-section is historical narrative, not a requirement.
 - [ ] Delete this entry once the docs-only PR merges (or if option (a) is chosen for `mobile-app-scaffold`, delete after the 2 spec-text edits ship).
+
+---
+
+## docs-host-prefix-domain-attribute-incongruity
+
+**Discovered during:** `admin-login-argon2-totp` `/next-change` Phase B step 3 (canonical-docs reconciliation pass) — verifying the proposal's cookie format claim against [`docs/04-Architecture.md:629`](docs/04-Architecture.md) + [`docs/05-Implementation.md:699`](docs/05-Implementation.md) + [`docs/08-Roadmap-Risk.md:356`](docs/08-Roadmap-Risk.md).
+**Status:** open
+
+**Finding:** The three docs sites all list the admin session cookie attributes as `Secure; HttpOnly; SameSite=Strict; Path=/; Domain=admin.nearyou.id`. The `Domain=admin.nearyou.id` attribute is RFC-incompatible with the `__Host-` cookie prefix used in the cookie's name (`__Host-admin_session`). Per [RFC 6265bis §4.1.3.2](https://www.rfc-editor.org/rfc/rfc6265bis-12.html), a cookie with the `__Host-` name prefix MUST be set with `Secure`, `Path=/`, AND NO `Domain` attribute — the prefix locks the cookie to the origin that set it (host-only), and any `Domain` attribute makes the browser reject the Set-Cookie. The docs' inclusion of `Domain=admin.nearyou.id` would, if followed verbatim by an implementation, produce a cookie the browser silently drops — admin login would appear to succeed at the server but the next request would arrive without a session cookie, looking like an idle-timeout misfire.
+
+The `admin-login-argon2-totp` proposal (`design.md` D4 + `specs/admin-login/spec.md` Req "__Host-admin_session cookie format meets security invariants") implements the RFC-correct shape: no `Domain` attribute, `__Host-` prefix preserved. The cookie remains host-locked to whichever origin serves the response — `api.nearyou.id` until the Phase 3.5 separate-Cloud-Run migration moves `/admin/*` to `admin.nearyou.id` (at which point the cookie naturally migrates to the new host).
+
+**Specs at fault:** None — the proposal correctly implements the RFC-compatible shape; the project's spec layer matches RFC.
+**Code at fault:** None — the V16 schema is RFC-agnostic (it stores the SHA-256 hash, not the cookie format); the auth-gate code ships in this change with the correct shape.
+**Docs at fault:**
+- [`docs/04-Architecture.md:629`](docs/04-Architecture.md) — drop `Domain=admin.nearyou.id` from the cookie attribute list; add a short note that `__Host-` prefix makes the cookie host-locked to whichever origin sets it.
+- [`docs/05-Implementation.md:699`](docs/05-Implementation.md) — same edit.
+- [`docs/08-Roadmap-Risk.md:356`](docs/08-Roadmap-Risk.md) — drop `Domain=admin.nearyou.id` from the Pre-Launch "Admin session cookie test" checklist item.
+
+**Impact (if shipped):** Zero implementation impact (the proposal already ships the RFC-correct shape). Documentation rot only — a future contributor reading the docs verbatim and asserting against the `Domain=` attribute in tests would write a failing test, then incorrectly "fix" the implementation to match the wrong docs, then discover the cookie is silently dropped at the browser. The reconciliation pass for this change catches it; the docs amendment closes the gap before that scenario can happen.
+
+**Ambiguity to resolve first:** None. RFC 6265bis is the canonical source; the amendment is a wording-only fix.
+
+**Action items:**
+- [ ] File a focused docs-only PR (NOT an OpenSpec change — this is wording-only, no requirement change) that updates the 3 docs sites. Each amendment is a single-line edit dropping `Domain=admin.nearyou.id` from the cookie attribute list (+ a short rationale note at the docs/04 + docs/05 sites referencing the `__Host-` prefix RFC requirement).
+- [ ] Delete this entry once the docs-only PR merges.
+
+**FOLLOW_UPS.md soft-limit overage note (2026-05-28):** This entry brings the file to 32 open entries, above the 30-entry soft limit per the intro paragraph. A triage sweep via `/triage-follow-ups` is overdue (last verify-only sweep was 2026-05-10 at 22 entries). Triage sweep is out of scope for the `admin-login-argon2-totp` cycle; surface this overage to the user at handoff time for a separate `/triage-follow-ups` session.
