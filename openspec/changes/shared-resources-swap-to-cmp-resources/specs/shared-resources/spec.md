@@ -137,24 +137,31 @@ After this change is applied, the "no hardcoded UI strings in mobile source" con
 - **WHEN** inspecting `FOLLOW_UPS.md` (in the repository root) after this change is applied
 - **THEN** the `mobile-negative-requirement-ci-grep` (FOLLOW_UPS.md:735, proposing future OpenSpec change `mobile-negative-requirement-detekt-rule`) entry (or equivalent kebab-case identifier) notes that the grep-based verification in this change should eventually be replaced by a `:lint:detekt-rules` rule modeled on the existing `RawFromPostsRule` / `BlockExclusionJoinRule` precedent — AND the entry's example accessor pattern references `Res.string.X` (CMP Resources), NOT the legacy `MR.strings.X` (Moko Resources) wording Mobile #2 originally used
 
-### Requirement: Plus Jakarta Sans bundled resource guarantees font availability; missing-at-runtime is a build-time invariant failure
+### Requirement: Plus Jakarta Sans falls back to platform sans-serif when font loading fails
 
-The `NearYouTypography` function SHALL load Plus Jakarta Sans via the Compose Multiplatform Resources composable `Font(Res.font.plus_jakarta_sans)`. **The Moko-era defensive in-function fallback (`if (brandFont == null) return Typography()`) is REMOVED in the CMP swap and replaced with a build-time invariant.** Reasoning: (a) Compose's compiler invariant forbids wrapping `@Composable` calls in `runCatching` / `try` / `catch` blocks, so a defensive guard cannot live in-function; (b) CMP Resources' `Font(...)` composable returns non-null `androidx.compose.ui.text.font.Font` — the Moko-era nullable return that motivated the original guard does not exist in this API. The defensive responsibility shifts to the resource-bundling layer: CMP Resources' Gradle plugin validates the `composeResources/font/plus_jakarta_sans.ttf` file at codegen time and bakes it into the iOS framework binary (static framework, per amended `design.md` Decision 6) + Android assets bundle. Runtime-missing-font is a "framework bug" / "corrupted install" failure class that should crash composition rather than silently degrade to a fallback typeface (which would mask a build/packaging regression).
+The brand theme SHALL load Plus Jakarta Sans via the **canonical JetBrains CMP Resources preload pattern**: a `FontFamilyResolver.preload(brandFamily)` call inside a `LaunchedEffect` coroutine scope (where `try`/`catch` is legal — `preload()` is `suspend` and the Compose-compiler invariant against exception-catching around `@Composable` calls does NOT apply to suspend coroutines). On preload failure (`MissingResourceException` / `IllegalStateException` / any throwable), state flips to a `brandFontFailed` flag and recomposition supplies vanilla `Typography()` so platform sans-serif renders text reliably. This pattern preserves the Mobile #2 spec contract ("font issues never reach users as blank/crashed text") while honoring Compose's runtime constraints + the documented JetBrains-canonical pattern per [CMP Resources usage docs](https://kotlinlang.org/docs/multiplatform/compose-multiplatform-resources-usage.html) and the precedent of real-world bundled-font runtime failures in [JetBrains issue #4111](https://github.com/JetBrains/compose-multiplatform/issues/4111), [#3472](https://github.com/JetBrains/compose-multiplatform/issues/3472), [#4387](https://github.com/JetBrains/compose-multiplatform/issues/4387) (build-time codegen validation alone does NOT eliminate runtime-missing-font failure mode).
 
-#### Scenario: NearYouTypography loads Plus Jakarta Sans via CMP Resources Font composable
+The Moko-era in-function null-guard pattern (`if (brandFont == null) return Typography()` inside `nearYouTypography()`) is REMOVED — CMP's `Font(...)` is `@Composable` and returns non-null, so the null check is impossible AND irrelevant. The defensive responsibility moves UP the stack to `NearYouTheme` where the suspend-scope preload allows proper exception capture.
+
+#### Scenario: brandFontFamily is exposed as a Composable helper
 
 - **WHEN** inspecting `shared/resources/src/commonMain/kotlin/id/nearyou/resources/theme/NearYouTypography.kt`
-- **THEN** the function body contains exactly one call to `Font(Res.font.plus_jakarta_sans)` (the CMP Resources `@Composable` accessor); the call is NOT wrapped in `runCatching` / `try` / `catch` (forbidden by Compose's no-exception-catching-around-Composable invariant); the Moko-era `MR.fonts.plus_jakarta_sans.asFont()` accessor + `if (brandFont == null) return Typography()` defensive null-guard pattern are REMOVED (the docstring explains the contract change)
+- **THEN** the file declares `@Composable fun brandFontFamily(): FontFamily = FontFamily(Font(Res.font.plus_jakarta_sans))` (or equivalent shape exposing the brand `FontFamily` as a `@Composable` so the caller can preload it); the Font construction is NOT wrapped in `runCatching` / `try` / `catch` (forbidden by Compose's no-exception-catching-around-Composable invariant)
 
-#### Scenario: Bundled font resource is build-time validated
+#### Scenario: nearYouTypography is a pure transformation taking the family as a parameter
 
-- **WHEN** running `./gradlew :shared:resources:generateResourceAccessorsForCommonMain` (the Compose Resources Gradle codegen task)
-- **THEN** the task succeeds AND the generated `id.nearyou.resources.generated.resources.Res.font.plus_jakarta_sans` accessor exists AND the underlying file `shared/resources/src/commonMain/composeResources/font/plus_jakarta_sans.ttf` exists on disk; a missing or corrupted .ttf would fail this codegen task at build time, NOT propagate to runtime
+- **WHEN** inspecting the `nearYouTypography(brandFamily: FontFamily): Typography` signature
+- **THEN** the function takes a `FontFamily` parameter (not constructed in-function); all 13 Material 3 type roles (`displayLarge` through `labelSmall`) have `fontFamily` set to `brandFamily` via `.copy(fontFamily = brandFamily)`; the function is a pure transformation with no font-loading concerns of its own
 
-#### Scenario: Successful font load applies Plus Jakarta Sans to all Material 3 type roles
+#### Scenario: NearYouTheme preloads the brand font in a LaunchedEffect with try-catch fallback
 
-- **WHEN** inspecting the `Typography(...)` returned by `nearYouTypography()`
-- **THEN** all 13 Material 3 type roles (`displayLarge` through `labelSmall`) have `fontFamily` set to `FontFamily(Font(Res.font.plus_jakarta_sans))`; the Material 3 type-scale sizes + weights from `Typography()` defaults are preserved via `.copy(fontFamily = family)`
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/theme/NearYouTheme.kt`
+- **THEN** the `NearYouTheme` composable contains: (1) `val resolver = LocalFontFamilyResolver.current` to access the platform's font resolver; (2) `val brandFamily = brandFontFamily()` to construct the family; (3) `LaunchedEffect(brandFamily) { try { resolver.preload(brandFamily); brandFontReady = true } catch (_: Throwable) { brandFontFailed = true } }` (or equivalent suspend-scope try/catch) so the preload failure is captured at the coroutine level, NOT at composition level; (4) state-conditional `typography` selection — `nearYouTypography(brandFamily)` only when preload completed successfully, `Typography()` (vanilla / platform sans-serif fallback) otherwise
+
+#### Scenario: Font load failure produces vanilla Typography fallback, NOT a crash
+
+- **WHEN** the `FontFamilyResolver.preload(brandFamily)` call throws (e.g., `MissingResourceException` or `IllegalStateException` from `FontFamilyResolver` per JetBrains issues #4111 / #3472 / #4387)
+- **THEN** the caught exception sets `brandFontFailed = true`; the next recomposition uses `Typography()` (platform sans-serif); text in the app continues rendering — the app does NOT crash; the failure should still surface in logs (Compose's default failure log) for diagnosis
 
 ### Requirement: home_placeholder_version format substitution renders correctly at runtime
 

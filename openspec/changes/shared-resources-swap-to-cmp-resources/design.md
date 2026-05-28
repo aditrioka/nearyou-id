@@ -135,7 +135,32 @@ CMP Resources does NOT require any plugin to be applied in consumer modules — 
 - `NearYouColors.kt` — data class. No Moko import. Untouched.
 - `NearYouTypography.kt` — **THIS IS THE ONLY FILE THAT IMPORTS FROM MOKO.** It calls `MR.fonts.plus_jakarta_sans.asFont()` to load the font resource. Change this import + accessor to CMP Resources' equivalent: import the generated `Res.font.plus_jakarta_sans` and use the CMP Resources `Font(Res.font.plus_jakarta_sans)` composable accessor.
 
-  **Defensive guard contract change** (caught during apply, 2026-05-28): The Moko-era `if (brandFont == null) return Typography()` defensive null-guard pattern **cannot be preserved** with CMP Resources for two reasons: (1) CMP's `Font(...)` is `@Composable` and Kotlin's Compose compiler invariant forbids wrapping `@Composable` calls in `runCatching` / `try` / `catch`; (2) `Font(Res.font.X)` returns non-null `Font` — the nullable return shape that justified the Moko guard does not exist. The defensive responsibility shifts to the **resource-bundling layer**: CMP Resources' Gradle plugin validates the .ttf file at codegen time + bakes it into the static iOS framework binary + Android assets. Runtime-missing-font becomes a "framework bug" / "corrupted install" class failure that crashes composition rather than silently degrading — preferred over masking a build/packaging regression with a fallback typeface. The MODIFIED requirement "Plus Jakarta Sans falls back to platform sans-serif when font loading fails" is correspondingly amended to "Plus Jakarta Sans bundled resource guarantees font availability; missing-at-runtime is a build-time invariant failure" — the contract is preserved in spirit (no font load issues reach users) but the enforcement layer moves up the stack from runtime-Kotlin-guard to build-time-Gradle-task.
+  **Defensive guard contract change** (caught during apply, 2026-05-28; revised after a second fresh-dated WebSearch surfaced the canonical pattern): The Moko-era `if (brandFont == null) return Typography()` in-function null-guard pattern **cannot be directly preserved** with CMP Resources because (1) CMP's `Font(...)` is `@Composable` and Kotlin's Compose compiler invariant forbids `runCatching` / `try` / `catch` around composable calls; (2) `Font(Res.font.X)` returns non-null `Font` — the nullable return shape that justified the Moko guard does not exist.
+
+  **The canonical JetBrains-recommended replacement is `FontFamilyResolver.preload(brandFamily)` inside a `LaunchedEffect` coroutine**, NOT shifting the defensive responsibility to build-time validation alone. The first apply-phase revision of this Decision (commit `e229343`) claimed "build-time validation makes runtime-missing impossible" — that was an overclaim. JetBrains' own issue tracker documents real runtime font-load failures with bundled resources: [#4111 MissingResourceException for fonts on iOS](https://github.com/JetBrains/compose-multiplatform/issues/4111), [#3472 Android loading font crash](https://github.com/JetBrains/compose-multiplatform/issues/3472), [#4387 Could not load font](https://github.com/JetBrains/compose-multiplatform/issues/4387). Build-time codegen catches the .ttf missing from disk, but iOS framework-bundle path resolution + framework-version-upgrade regressions + install corruption all produce runtime failures the codegen task cannot prevent.
+
+  The corrected pattern, applied in this change:
+
+  ```kotlin
+  // In NearYouTheme.kt:
+  val resolver = LocalFontFamilyResolver.current
+  val brandFamily = brandFontFamily()  // @Composable helper from :shared:resources
+  var brandFontReady by remember { mutableStateOf(false) }
+  var brandFontFailed by remember { mutableStateOf(false) }
+  LaunchedEffect(brandFamily) {
+      try {
+          resolver.preload(brandFamily)  // suspend — try/catch is LEGAL here
+          brandFontReady = true
+      } catch (_: Throwable) {
+          brandFontFailed = true
+      }
+  }
+  val typography = if (brandFontReady && !brandFontFailed) nearYouTypography(brandFamily) else Typography()
+  ```
+
+  Mobile #2's spec contract ("Plus Jakarta Sans falls back to platform sans-serif when font loading fails") is **preserved verbatim in header text** — the MODIFIED Requirement keeps the original canonical header. Only the IMPLEMENTATION shape changes: in-`@Composable`-function null-guard (Moko-era, now impossible) → `LaunchedEffect`-scope `preload()` + state-based fallback (CMP-canonical). Scenarios in the MODIFIED Requirement assert on the new shape (preload + LaunchedEffect + state fallback + fontFamily passed as parameter).
+
+  **Lesson codified post-discovery**: An "implementation reveals a design issue" moment (the apply-phase tempted-to-revise-spec gap) needs the same fresh-dated WebSearch gate as the pre-implementation library re-check rule from PR [#118](https://github.com/aditrioka/nearyou-id/pull/118). This change codifies the apply-phase rule alongside the implementation as a sister-rule update — see the new "Apply-phase design-revision re-check" paragraph in [`openspec/project.md`](../../project.md) § Change Delivery Workflow + the expansion of step 6 in [`.claude/skills/openspec-apply-change/SKILL.md`](../../../.claude/skills/openspec-apply-change/SKILL.md).
 
 **Rationale:** The brand contract (colors, typography, extension properties) is decoupled from the resource-substrate layer by design. The CompositionLocal + extension-property pattern is pure Compose semantics — no Moko vs CMP impact. Only the font-loading path touches the substrate, and the file move + accessor swap addresses it.
 
