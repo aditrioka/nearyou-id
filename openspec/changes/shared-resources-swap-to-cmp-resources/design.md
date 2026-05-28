@@ -36,7 +36,7 @@ PR [#118](https://github.com/aditrioka/nearyou-id/pull/118) (squash-merged 2026-
 
 **Non-Goals:**
 
-- **Authoring the "no hardcoded UI strings" Detekt rule.** Still deferred per existing `FOLLOW_UPS.md` entry `mobile-hardcoded-strings-detekt-rule` (a [`grep`-shaped verification](#decision-7) stays in place; this change just retargets the future rule's expected accessor pattern from `MR.strings` to `Res.string`).
+- **Authoring the "no hardcoded UI strings" Detekt rule.** Still deferred per existing `FOLLOW_UPS.md` entry `mobile-negative-requirement-ci-grep` (FOLLOW_UPS.md:735), which proposes the future OpenSpec change `mobile-negative-requirement-detekt-rule`. A [`grep`-shaped verification](#decision-7) stays in place; this change just retargets the future rule's expected accessor pattern from `MR.strings` to `Res.string`.
 - **moko-mvvm migration.** Not in use (project already wired `org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose`, JetBrains' KMP fork of AndroidX Lifecycle, at Mobile #1). Skip.
 - **moko-permissions / moko-media adoption.** Not in use yet. Defer permissions library choice to Mobile #5/#6 when `mobile-nearby-timeline-screen` actually needs location permission. Lean Calf ([mohamedrejeb/Calf](https://github.com/MohamedRejeb/Calf)) at decision time, but pre-picking here is premature.
 - **Hand-tuned dark palette.** Still deferred per `shared-resources-moko-bootstrap` design.md Decision 3 (mechanically-derived dark stays).
@@ -113,7 +113,7 @@ Keep:
 **Choice:** Remove from [`mobile/app/build.gradle.kts`](../../../mobile/app/build.gradle.kts):
 
 - Lines 8-14: the 7-line comment block + `alias(libs.plugins.mokoResources)` plugin alias.
-- Lines 67-70: the `multiplatformResources { resourcesPackage.set("id.nearyou.app.frameworkresources") }` block (the empty-MR-class workaround so the iOS framework gets the resource copy task).
+- Lines 68-70: the `multiplatformResources { resourcesPackage.set("id.nearyou.app.frameworkresources") }` block (the empty-MR-class workaround so the iOS framework gets the resource copy task). The 7-line justifying comment above it (lines 61-67) goes too.
 
 CMP Resources does NOT require any plugin to be applied in consumer modules — the JetBrains Compose Multiplatform plugin handles iOS framework resource wiring automatically through its own iOS framework declaration logic. Resources from a depended-on KMP module with `compose-components-resources` configured are auto-bundled into the consumer's iOS framework.
 
@@ -143,28 +143,33 @@ CMP Resources does NOT require any plugin to be applied in consumer modules — 
 
 - **Re-derive the brand color tokens through CMP's theme system.** Not applicable — CMP Resources is about strings/drawables/fonts; theme tokens are pure Material 3 Compose code, independent of which resource library is in play.
 
-### Decision 6: Drop the `export(libs.moko.resources)` line + `isStatic = true` boilerplate from `:shared:resources/build.gradle.kts` iOS framework declaration
+### Decision 6: Drop the `export(libs.moko.resources)` line + `multiplatformResources` block; KEEP `isStatic = true` (it's the JetBrains-default, NOT Moko-coupled)
 
 **Choice:** Remove from [`shared/resources/build.gradle.kts`](../../../shared/resources/build.gradle.kts):
 
-- Line 25: `export(libs.moko.resources)` from the iOS framework block (lines 18-27).
-- Line 24: `isStatic = true` flag — only required because Moko's iOS resource bundling demanded a static framework; CMP Resources works with dynamic frameworks by default.
+- Line 25: `export(libs.moko.resources)` from the iOS framework block (lines 18-27). This is unambiguously Moko-specific.
+- Lines 79-82: the `multiplatformResources { resourcesPackage.set("id.nearyou.resources"); resourcesClassName.set("MR") }` block — Moko-specific DSL, no equivalent needed under CMP Resources.
 
-The iOS framework block becomes a simple `iosTarget.binaries.framework { baseName = "SharedResources" }`.
+**PRESERVE `isStatic = true` (line 24).** This was originally planned as part of the drop but post-review (Round-1 substrate-rationale lens, 2026-05-28) the assumption that "isStatic was Moko-coupled" did not hold up to fresh evidence. `isStatic = true` is the **JetBrains KMP wizard default** for iOS frameworks in 2026, NOT a Moko-imposed requirement. Multiple 2026-era CMP samples + tutorials use `isStatic = true` as the canonical pattern, citing iOS app-startup-performance benefits ([Apple guidance](https://bpoplauschi.github.io/2021/10/25/Advanced-static-vs-dynamic-libraries-and-frameworks.html) recommends ≤6 dynamic modules for fast launch; static is the safer default for KMP shared frameworks). Dropping it speculatively would trade a stable, JetBrains-default configuration for a non-canonical one with potential app-startup-time regression — a behavior change unrelated to the substrate swap. Conservative call: leave `isStatic = true` untouched.
 
-Also remove the `multiplatformResources { resourcesPackage.set("id.nearyou.resources"); resourcesClassName.set("MR") }` block (lines 79-82) — Moko-specific DSL.
+The iOS framework block becomes:
+```kotlin
+iosTarget.binaries.framework {
+    baseName = "SharedResources"
+    isStatic = true  // preserved — JetBrains KMP-wizard default, NOT Moko-coupled
+}
+```
 
-**Rationale:** Both lines are Moko-iOS-pipeline-specific. CMP Resources handles iOS framework resource bundling via the CMP Gradle plugin's native mechanism, which expects the default dynamic framework shape and auto-wires resource bundles into the framework's `Resources/` subdirectory without needing an `export(...)` directive.
-
-**Risk + mitigation:** If the iOS framework link task fails after dropping `isStatic = true`, the project may need to explicitly opt the consumer (`:mobile:app`) into the static framework shape (the `isStatic = true` is on the framework declaration; the consumer-side equivalent if needed is also documented in CMP docs). Verify against `./gradlew :mobile:app:linkDebugFrameworkIosSimulatorArm64` at apply time; if it breaks, restore `isStatic = true` as a targeted single-line keep.
+**Rationale:** Each line dropped is unambiguously Moko-iOS-pipeline-specific. `export(libs.moko.resources)` references a library coordinate that disappears with the swap. The `multiplatformResources { ... }` DSL is a Moko-only Gradle configuration block (CMP Resources uses different conventions). `isStatic = true`, in contrast, is a Compose Multiplatform framework-shape decision orthogonal to the resources substrate — JetBrains' own KMP project wizard generates `isStatic = true` as default for iOS frameworks in 2026, and the Mobile #2 build that shipped with `isStatic = true` worked because static framework is correct for KMP shared modules, not because Moko demanded it.
 
 **Alternatives considered:**
 
-- **Keep `isStatic = true` defensively.** Possible — `isStatic = true` is a CMP-compatible flag (Moko isn't the only reason a project might want a static framework). But if the project's iOS shipment shape didn't strictly require static framework (Mobile #1 + #2 work green with it because Moko demanded it), dropping it returns the framework to CMP defaults. Conservative call: try without `isStatic` first; restore if iOS linkage fails.
+- **Drop `isStatic = true` along with the Moko-specific lines** (the original Round-1 proposal of this decision). Rejected post-review — Round-1 substrate-rationale lens found JetBrains KMP wizard's 2026 output ships `isStatic = true` as default for iOS frameworks; the "Moko-coupled" framing was incorrect. Dropping it would be a speculative behavior change (potential app-startup regression on iOS for no compensating benefit).
+- **Keep everything in the iOS framework block as-is, only drop the `multiplatformResources` outer block.** Could work — `export(libs.moko.resources)` referencing a now-removed library would just be a compile error, alerting us to the issue at build time. But that's a slower feedback loop than removing the line proactively (the catalog removal happens in Decision 3; the iOS-framework `export(...)` referencing it must go with it).
 
 ### Decision 7: Grep-based "no hardcoded UI strings" verification retargets from `MR.strings` to `Res.string`
 
-**Choice:** Update the grep heuristic shape (currently archived in `shared-resources-moko-bootstrap` tasks.md Section 8) to accept `Res.string` / `Res.drawable` accessors instead of `MR.strings` / `MR.images`. This change ships an UPDATED grep heuristic in its own tasks.md Section 8 (re-derived from Mobile #2's shape, not just diff-copied — since the grep is a verification step, not a deliverable, it lives in tasks.md not in spec scenarios). The FOLLOW_UPS.md `mobile-hardcoded-strings-detekt-rule` entry is updated to reference the new accessor pattern.
+**Choice:** Update the grep heuristic shape (currently archived in `shared-resources-moko-bootstrap` tasks.md Section 8) to accept `Res.string` / `Res.drawable` accessors instead of `MR.strings` / `MR.images`. This change ships an UPDATED grep heuristic in its own tasks.md Section 8 (re-derived from Mobile #2's shape, not just diff-copied — since the grep is a verification step, not a deliverable, it lives in tasks.md not in spec scenarios). The existing `FOLLOW_UPS.md` entry `mobile-negative-requirement-ci-grep` (at FOLLOW_UPS.md:735 — proposes the future OpenSpec change `mobile-negative-requirement-detekt-rule`) is updated to reference the new accessor pattern.
 
 **Grep shape (lives in this change's tasks.md Section 8):**
 
@@ -192,7 +197,7 @@ grep -rEn 'Text\(\s*"[^"]+"' mobile/app/src/commonMain/ mobile/app/src/androidMa
 
 | Risk | Mitigation |
 |---|---|
-| iOS framework link fails after dropping `isStatic = true` (Decision 6) — CMP Resources may need static framework on iOS too in some configurations | Try without `isStatic = true` first via `./gradlew :mobile:app:linkDebugFrameworkIosSimulatorArm64`; if it fails, restore the line as a 1-line keep + amend Decision 6 + add a tasks.md sub-task for the conservative path. Build verification is the canonical signal. |
+| ~~iOS framework link fails after dropping `isStatic = true`~~ — **RESOLVED post-review:** Decision 6 amended to KEEP `isStatic = true` (it's the JetBrains KMP-wizard 2026 default, not Moko-coupled). Risk eliminated by not making the speculative change in the first place. | N/A — risk removed by amended Decision 6. |
 | CMP Resources' `stringResource(Res.string.X, "1.0")` format-arg substitution behaves subtly differently from Moko's on iOS (e.g., `%1$s` vs `%@` normalization quirks per platform) | Mobile #2's `shared-resources/spec.md` § "home_placeholder_version format substitution renders correctly at runtime" requirement already exists. The corresponding scenario MUST be re-run against the CMP Resources implementation; the spec MODIFIED delta in this change updates the scenario to reference `Res.string.X` instead of `MR.strings.X`, but the runtime-substitution contract is preserved bit-for-bit. |
 | Plus Jakarta Sans font loading via CMP Resources' `Font(Res.font.X)` accessor produces visibly different rendering vs Moko's `MR.fonts.X.asFont()` (e.g., different default weight resolution) | Both APIs ultimately load the same `.ttf` file via platform font-loading APIs. Visual diff during build verification step (compare APK + iOS framework rendering of `HomeScreen.kt`'s placeholder title). Defensive: `NearYouTypography`'s existing `if (brandFont == null) return Typography()` early-return guard catches any "font failed to load" case and falls back to platform sans-serif. |
 | CMP Resources' generated `Res` class import path differs from Mobile #2's `MR` import path in non-obvious ways | The exact CMP-generated import path is determined at codegen time (typically `<project>.shared.resources.generated.resources.Res` or similar). Resolve at apply time when running the first `./gradlew :shared:resources:generateComposeResClass` or equivalent task; pin the import in `HomeScreen.kt` accordingly. tasks.md Section 4 verifies. |
@@ -224,7 +229,7 @@ This is a **build-time-only substrate swap**. Zero runtime impact — the same f
 
 2. **Should `:mobile:app/build.gradle.kts` retain ANY resource-related Gradle configuration after dropping the dual `mokoResources` plugin?** CMP Resources expects zero consumer-side configuration in the typical case. If any iOS-framework-specific wiring turns out to be needed (e.g., explicit `compose.resources { ... }` block at the consumer level), document + add in apply phase.
 
-3. **`isStatic = true` retention question (Decision 6).** Try without first; restore if iOS linkage requires it. Verify at apply time via `./gradlew :mobile:app:linkDebugFrameworkIosSimulatorArm64`.
+3. ~~**`isStatic = true` retention question (Decision 6).**~~ **RESOLVED post-Round-1-review.** Decision 6 amended to KEEP `isStatic = true` — it's the JetBrains KMP-wizard 2026 default, not Moko-coupled. No apply-time experiment needed; the framework declaration retains the existing flag.
 
 4. **`docs/09-Versions.md` Moko row treatment.** Two options: (a) DELETE the Moko row entirely (since the pin is removed); (b) AMEND the Moko row with a "**SUPERSEDED 2026-05-28** by `shared-resources-swap-to-cmp-resources` per PR [#118](https://github.com/aditrioka/nearyou-id/pull/118) pre-implementation re-check rule" note + ADD a new row documenting the swap. **Lean: option (b)** (amend + add new row) — preserves the decision history for future-archaeology readers who wonder "why did this swap happen?" without forcing them to dig through OpenSpec archives. Confirm at apply time.
 

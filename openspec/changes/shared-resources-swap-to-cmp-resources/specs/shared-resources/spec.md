@@ -125,7 +125,7 @@ The repository SHALL NOT introduce a new `material3` version pin in [`gradle/lib
 
 ### Requirement: No hardcoded UI strings in :mobile:app verified by grep (Detekt rule deferred)
 
-After this change is applied, the "no hardcoded UI strings in mobile source" convention from [`openspec/project.md`](../../project.md) § Coding Conventions SHALL be verified via an **explicit grep step** documented in this change's `tasks.md` Section 8 — NOT via a Detekt rule (the rule does not yet exist in `:lint:detekt-rules` and is still tracked as a `FOLLOW_UPS.md` entry `mobile-hardcoded-strings-detekt-rule`). Every UI string in `mobile/app/src/commonMain/`, `mobile/app/src/androidMain/`, and `mobile/app/src/iosMain/` SHALL be sourced via Compose Multiplatform Resources (`stringResource(Res.string.<name>)` Compose accessor), with no remaining hardcoded UI string literals. The future upgrade to a real Detekt rule SHALL be tracked by the existing `FOLLOW_UPS.md` entry (retargeted to accept `Res.string.X` instead of `MR.strings.X` as part of this change).
+After this change is applied, the "no hardcoded UI strings in mobile source" convention from [`openspec/project.md`](../../project.md) § Coding Conventions SHALL be verified via an **explicit grep step** documented in this change's `tasks.md` Section 8 — NOT via a Detekt rule (the rule does not yet exist in `:lint:detekt-rules` and is still tracked as a `FOLLOW_UPS.md` entry `mobile-negative-requirement-ci-grep` (FOLLOW_UPS.md:735, proposing future OpenSpec change `mobile-negative-requirement-detekt-rule`)). Every UI string in `mobile/app/src/commonMain/`, `mobile/app/src/androidMain/`, and `mobile/app/src/iosMain/` SHALL be sourced via Compose Multiplatform Resources (`stringResource(Res.string.<name>)` Compose accessor), with no remaining hardcoded UI string literals. The future upgrade to a real Detekt rule SHALL be tracked by the existing `FOLLOW_UPS.md` entry (retargeted to accept `Res.string.X` instead of `MR.strings.X` as part of this change).
 
 #### Scenario: Grep verification reports zero hardcoded UI string literals
 
@@ -135,7 +135,7 @@ After this change is applied, the "no hardcoded UI strings in mobile source" con
 #### Scenario: FOLLOW_UPS.md tracks the Detekt rule upgrade with retargeted accessor
 
 - **WHEN** inspecting `FOLLOW_UPS.md` (in the repository root) after this change is applied
-- **THEN** the `mobile-hardcoded-strings-detekt-rule` entry (or equivalent kebab-case identifier) notes that the grep-based verification in this change should eventually be replaced by a `:lint:detekt-rules` rule modeled on the existing `RawFromPostsRule` / `BlockExclusionJoinRule` precedent — AND the entry's example accessor pattern references `Res.string.X` (CMP Resources), NOT the legacy `MR.strings.X` (Moko Resources) wording Mobile #2 originally used
+- **THEN** the `mobile-negative-requirement-ci-grep` (FOLLOW_UPS.md:735, proposing future OpenSpec change `mobile-negative-requirement-detekt-rule`) entry (or equivalent kebab-case identifier) notes that the grep-based verification in this change should eventually be replaced by a `:lint:detekt-rules` rule modeled on the existing `RawFromPostsRule` / `BlockExclusionJoinRule` precedent — AND the entry's example accessor pattern references `Res.string.X` (CMP Resources), NOT the legacy `MR.strings.X` (Moko Resources) wording Mobile #2 originally used
 
 ### Requirement: Plus Jakarta Sans falls back to platform sans-serif when font loading fails
 
