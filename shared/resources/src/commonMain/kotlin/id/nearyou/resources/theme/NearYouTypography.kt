@@ -18,7 +18,7 @@ import id.nearyou.resources.MR
  * weights (`displayLarge` 400, `labelSmall` 500, etc.) — the axis interpolation
  * is the renderer's job, not ours.
  *
- * If `MR.fonts.plus_jakarta_sans.regular.asFont()` returns null at runtime
+ * If `MR.fonts.plus_jakarta_sans.asFont()` returns null at runtime
  * (Moko Resources font loading failure — rare; the .ttf is bundled, not
  * network-fetched), we fall back to `Typography()` defaults, which the
  * platform renders in its sans-serif (per `design.md` Decision 5's
