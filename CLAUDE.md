@@ -48,7 +48,7 @@ The 16 code-level invariants cover (high-level summary; for the actual enforceme
 - Username + privacy-flag write allowlists (annotated comments required)
 - Content length guards (post/reply 280, chat 2000)
 - Admin sessions (`csrf_token_hash` mandatory; admin-user FKs `ON DELETE SET NULL`)
-- Mobile strings via Moko Resources only
+- Mobile strings via Compose Multiplatform Resources only
 - Partial indexes: no `NOW()` in `WHERE`
 - RLS changes: mandatory "JWT `sub` not in `public.users` → deny" test
 - Secrets via `secretKey(env, name)` helper only

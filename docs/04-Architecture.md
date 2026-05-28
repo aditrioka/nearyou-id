@@ -34,7 +34,7 @@ System architecture, tech stack, module structure, deployment strategy, observab
 | Observability Metrics | GCP Cloud Monitoring |
 | Mobile + Backend Errors | Sentry KMP SDK (unified Android + iOS + backend). dSYM (iOS) + ProGuard mappings (Android) uploaded via CI step. |
 | Product Analytics | Amplitude (free tier event quota, opt-in per UU PDP) |
-| Localization | Moko Resources or Compose MP Resources |
+| Localization | Compose Multiplatform Resources |
 | Backup | Supabase PITR 7-day + Cloudflare R2 offsite weekly dump (AES-256-GCM via `age` CLI in the backup container) + append-only deletion log |
 | Text Moderation | Keyword blocklist + UU ITE categories + Google Perspective API (dev Phase 2 stopgap) |
 | Serialization | kotlinx.serialization |
@@ -129,7 +129,7 @@ Redis Streams provide:
 
 | Module | Status | Trigger to scaffold |
 |---|---|---|
-| `:shared:resources` | shipped | Mobile #2 (`shared-resources-moko-bootstrap`, [PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — Moko Resources `MR` accessors + `NearYouColorScheme` + `NearYouTypography` + `NearYouColors` CompositionLocal extension surface + brand logos + Bahasa Indonesia strings. Consumed by `:mobile:app`'s `NearYouTheme` + `HomeScreen`. |
+| `:shared:resources` | shipped | Mobile #2 / #2.5 (`shared-resources-moko-bootstrap`, [PR #116](https://github.com/aditrioka/nearyou-id/pull/116) → `shared-resources-swap-to-cmp-resources`, PR [#119](https://github.com/aditrioka/nearyou-id/pull/119)) — Compose Multiplatform Resources `Res` accessors + `NearYouColorScheme` + `NearYouTypography` + `NearYouColors` CompositionLocal extension surface + brand logos + Bahasa Indonesia strings. Consumed by `:mobile:app`'s `NearYouTheme` + `HomeScreen`. |
 | `:infra:r2` | DESIGN | Image upload feature (Phase 2/3) — Cloudflare R2 (non-image, zero egress) |
 | `:infra:cloudflare-images` | DESIGN | Image upload feature — Cloudflare Images (`img.nearyou.id`) + CSAM webhook handler |
 | `:infra:revenuecat` | DESIGN | Premium subscription billing (webhook signature verify) |
@@ -143,7 +143,7 @@ Redis Streams provide:
 
 ### Mobile Status
 
-`:mobile:app` ships a production-shaped Compose Multiplatform scaffold (per the `mobile-app-scaffold-replace-wizard` change): a single `App()` composable in commonMain wrapping a Voyager `Navigator` inside a `NearYouTheme` (Material 3 light + dark, system-preference-driven); Koin DI initialized via an idempotent `initKoin()` helper called from Android `MainActivity.onCreate` and from the iOS Swift `iOSApp.init()` block (which then renders `ContentView` → `UIViewControllerRepresentable` → Kotlin `MainViewController()` → `App()`); one placeholder `HomeScreen` as the start destination, rendering only a "NearYouID" label + version. The scaffold has zero networking, zero auth, zero feature behavior — those concerns ship in subsequent mobile changes per [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority (Mobile #2 Moko Resources, #3 Google Sign-In, #4 age gate, #5 first product screen). **Sections of this doc that describe mobile-side rendering of features (NSE iOS push handling, App Group setup, push payload handling, attestation flow, etc.) remain forward-looking design** — they describe contracts the backend already serves, but the consumer side is built incrementally over Mobile #2-5+.
+`:mobile:app` ships a production-shaped Compose Multiplatform scaffold (per the `mobile-app-scaffold-replace-wizard` change): a single `App()` composable in commonMain wrapping a Voyager `Navigator` inside a `NearYouTheme` (Material 3 light + dark, system-preference-driven); Koin DI initialized via an idempotent `initKoin()` helper called from Android `MainActivity.onCreate` and from the iOS Swift `iOSApp.init()` block (which then renders `ContentView` → `UIViewControllerRepresentable` → Kotlin `MainViewController()` → `App()`); one placeholder `HomeScreen` as the start destination, rendering only a "NearYouID" label + version. The scaffold has zero networking, zero auth, zero feature behavior — those concerns ship in subsequent mobile changes per [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority (Mobile #2 / #2.5 Resources scaffolding — Moko initially, swapped to CMP Resources; #3 Google Sign-In, #4 age gate, #5 first product screen). **Sections of this doc that describe mobile-side rendering of features (NSE iOS push handling, App Group setup, push payload handling, attestation flow, etc.) remain forward-looking design** — they describe contracts the backend already serves, but the consumer side is built incrementally over Mobile #2-5+.
 
 ### Backend Modules (inside `:backend:ktor`)
 

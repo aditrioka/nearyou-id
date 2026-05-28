@@ -748,27 +748,19 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 **Ambiguity to resolve first:** Detekt source-set extension cost. Options: (a) extend Detekt to scan `:mobile:app` `src/commonMain/kotlin` only — clean, mirrors backend pattern; (b) add a one-off shell script run in CI that greps `mobile/app/src/{commonMain,androidMain,iosMain}` — simpler but less integrated; (c) accept the gap until Mobile #3 ships and the negative requirements become obsolete.
 
 **Action items:**
-- [ ] File OpenSpec change `mobile-negative-requirement-detekt-rule` that adds a Detekt rule `MobileScaffoldNegativeRequirementsRule` to `:lint:detekt-rules`, scanning `:mobile:app` `src/commonMain/kotlin` for the six forbidden identifier patterns enumerated in the spec scenarios — **plus** the hardcoded-UI-strings axis from [`openspec/project.md`](openspec/project.md) § Coding Conventions ("Mobile strings: no hardcoded UI strings; must go through Moko Resources"), for which `shared-resources-moko-bootstrap` (PR [#116](https://github.com/aditrioka/nearyou-id/pull/116)) ships an interim grep step in `tasks.md` Section 8.6. The eventual Detekt rule should cover both axes under a single rule. Wire the Detekt source-set extension in `build-logic`.
+- [ ] File OpenSpec change `mobile-negative-requirement-detekt-rule` that adds a Detekt rule `MobileScaffoldNegativeRequirementsRule` to `:lint:detekt-rules`, scanning `:mobile:app` `src/commonMain/kotlin` for the six forbidden identifier patterns enumerated in the spec scenarios — **plus** the hardcoded-UI-strings axis from [`openspec/project.md`](openspec/project.md) § Coding Conventions ("Mobile strings: no hardcoded UI strings; must go through Compose Multiplatform Resources"), for which `shared-resources-swap-to-cmp-resources` (PR [#119](https://github.com/aditrioka/nearyou-id/pull/119)) ships an interim grep step in `tasks.md` Section 8.7. The eventual Detekt rule should cover both axes under a single rule, accepting `stringResource(Res.string.X)` / `Res.string.X` / `// hardcoded-string-allow:` as the valid accessor patterns (NOT the legacy `MR.strings.X` from Mobile #2's pre-swap Moko shipping). Wire the Detekt source-set extension in `build-logic`.
 - [ ] Delete this entry once the rule ships AND Mobile #3's `proposal.md` updates the `mobile-app-scaffold` spec's negative requirements to acknowledge auth identifiers now belong to dedicated namespaces.
 
 ## compose-components-resources-dependency-cleanup
 
 **Discovered during:** `shared-resources-moko-bootstrap` `/opsx:apply` ([PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — surfaced while choosing between Moko Resources and Compose Multiplatform Resources for the brand-resources module.
-**Status:** open
+**Status:** **SUPERSEDED 2026-05-28 by `shared-resources-swap-to-cmp-resources` ([PR #119](https://github.com/aditrioka/nearyou-id/pull/119))** — that change ACTIVATES the previously-unused `compose-components-resources` coordinate as the project's canonical resources substrate, exactly opposite the cleanup action this entry recommended. Entry retained for historical archaeology (it documents the Mobile #2 → #2.5 substrate flip context); the action items below are now obsolete.
 
-**Finding:** `gradle/libs.versions.toml` declares `compose-components-resources` (from `org.jetbrains.compose.components:components-resources`, pinned via the existing `composeMultiplatform = "1.10.3"` ref) at line 60. Grep across `:mobile:app` + all `:shared:*` + all `:infra:*` finds zero consumers — neither the Kotlin source nor any `build.gradle.kts` `implementation(libs.compose.components.resources)` reference exists. Mobile #2 (`shared-resources-moko-bootstrap`) ships Moko Resources for the brand-resources surface instead, per [`openspec/project.md`](openspec/project.md) § Coding Conventions invariant "Mobile strings: ... must go through Moko Resources." The `compose-components-resources` declaration is now dead code (likely a leftover from the JetBrains Compose Multiplatform wizard scaffold that Mobile #1 replaced).
+**Finding (historical, no longer actionable):** `gradle/libs.versions.toml` declared `compose-components-resources` at line 60 with zero consumers as of Mobile #2. The "dead code" framing assumed the project would stay on Moko Resources indefinitely — incorrect by 2026-05-28 (one day later), when PR #119 swapped the substrate.
 
-**Specs at fault:** None.
-**Code at fault:** `gradle/libs.versions.toml` line 60 — `compose-components-resources` library coordinate has no consumer.
-**Docs at fault:** None.
-
-**Impact (if shipped without removing):** Zero runtime impact (unused libs.versions.toml entries are inert). The cost is documentation noise — a future maintainer might assume the project uses Compose Multiplatform Resources and try to wire it up against the existing pin, only to discover it conflicts with Moko Resources (parallel `Res.X` and `MR.X` accessors generated for the same fonts/images would create import ambiguity).
-
-**Ambiguity to resolve first:** None. Removal is a single-line edit + verifying no transitive consumer.
-
-**Action items:**
-- [ ] File a focused cleanup PR (NOT an OpenSpec change — pure dependency hygiene, no behavior change) that removes `compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }` from `gradle/libs.versions.toml` line 60. Run `./gradlew dependencies | grep -i "components-resources"` to verify no resolved usage. Verify CI still green.
-- [ ] Delete this entry once the cleanup PR merges.
+**Action items (SUPERSEDED — do NOT execute):**
+- [x] ~~File a focused cleanup PR that removes `compose-components-resources` from `gradle/libs.versions.toml`.~~ Superseded — PR #119 wired it up instead of removing it.
+- [x] ~~Delete this entry once the cleanup PR merges.~~ Entry retained for historical context; status SUPERSEDED is the final state.
 
 ## mobile-compose-ui-tests-android-instrumented
 
@@ -789,3 +781,26 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 - [ ] File an OpenSpec change `shared-resources-android-compose-ui-tests-robolectric` (recommended path — Robolectric is the lower-friction fix and keeps tests fast). Add `org.robolectric:robolectric` test dependency to `shared/resources/build.gradle.kts` androidUnitTest source set; annotate `ColorSchemeExtensionsTest` with `@RunWith(AndroidJUnit4::class)`; configure Robolectric to stub `Build.FINGERPRINT`; remove the exclude added by PR #116.
 - [ ] Alternative (heavier): file `mobile-android-instrumented-test-ci-runner` to add a `macos-latest` or `ubuntu-latest`-with-Android-emulator job to `.github/workflows/ci.yml` for `connectedAndroidTest` execution.
 - [ ] Delete this entry once either OpenSpec change ships AND the `unitTests.all { it.exclude(...) }` workaround is removed from `shared/resources/build.gradle.kts`.
+
+## post-cmp-swap-spec-text-cleanup
+
+**Discovered during:** `shared-resources-swap-to-cmp-resources` Round-1 multi-lens review (docs-reconciliation lens, 2026-05-28) — surfaced when enumerating Moko Resources mentions across canonical docs + shipped specs.
+**Status:** open
+
+**Finding:** Three shipped OpenSpec specs reference Moko Resources as illustrative example text (NOT as requirement substance). After `shared-resources-swap-to-cmp-resources` (PR [#119](https://github.com/aditrioka/nearyou-id/pull/119)) lands, these references become factually stale — the project's canonical client-side resources library is now Compose Multiplatform Resources, not Moko. Wording updates are needed but the underlying requirements are unchanged.
+
+**Specs at fault:**
+- [`openspec/specs/fcm-push-dispatch/spec.md:326`](openspec/specs/fcm-push-dispatch/spec.md) — illustrative example "`PushCopy` MUST NOT depend on Moko Resources (Moko Resources is a KMP client concern; backend strings are server-side i18n per `design.md` D4)". The requirement (backend MUST NOT depend on client-side resource libs) is preserved; the example library name is what's stale.
+- [`openspec/specs/in-app-notifications/spec.md:281`](openspec/specs/in-app-notifications/spec.md) — illustrative fallback example "mobile UI is responsible for rendering a localized fallback (e.g., 'Sent a post') via Moko Resources". The requirement (mobile UI renders localized fallback for null preview) is preserved; the example accessor library is what's stale.
+- [`openspec/specs/mobile-app-scaffold/spec.md:5`](openspec/specs/mobile-app-scaffold/spec.md) + line 107 — Purpose-section parenthetical references "(Mobile #2 Moko Resources, ...)" in the menu-position enumeration. Historical menu-state reference; could be updated to "(Mobile #2 / #2.5 Resources scaffolding — Moko initially, swapped to CMP Resources, ...)" or left as historical record. Purpose sections don't participate in MODIFIED Requirement deltas, so spec-side fix requires a different mechanism.
+
+**Code at fault:** None — these are spec-text references only.
+**Docs at fault:** None — the inline references to Moko in CLAUDE.md / openspec/project.md / docs/*.md were all updated by PR #119 Section 7. The 3 spec-text references survived because (a) `fcm-push-dispatch` + `in-app-notifications` capabilities aren't in PR #119's MODIFIED-capability scope; (b) the `mobile-app-scaffold` Purpose section isn't reachable via OpenSpec deltas.
+
+**Impact (if shipped without updating):** Zero runtime impact. Cost is documentation accuracy: future archaeology readers might think Moko Resources is still the canonical KMP client-side resources library and try to wire it up. The `mobile-negative-requirement-ci-grep` follow-up (FOLLOW_UPS.md:735) also references "Moko Resources" in its action-item description; PR #119 updated that text but a future maintainer might reintroduce drift.
+
+**Ambiguity to resolve first:** None. The fix is wording-only across 3 spec files.
+
+**Action items:**
+- [ ] File a focused docs-only PR (NOT an OpenSpec change for the spec-text edits — these are wording fixes, not requirement modifications) that updates the 3 spec-text references. For `fcm-push-dispatch/spec.md:326` + `in-app-notifications/spec.md:281`, the wording-only edit ships as a regular `docs(specs):` PR. For `mobile-app-scaffold/spec.md:5`+`:107` Purpose-section references, decide between (a) accepting historical text as-is (Purpose sections describe historical context; "Mobile #2 was Moko" is historically accurate); (b) rewriting Purpose section in a future change that already modifies the capability for another reason. Lean toward (a) — Purpose-section is historical narrative, not a requirement.
+- [ ] Delete this entry once the docs-only PR merges (or if option (a) is chosen for `mobile-app-scaffold`, delete after the 2 spec-text edits ship).
