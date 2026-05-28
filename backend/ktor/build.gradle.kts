@@ -33,8 +33,16 @@ dependencies {
     implementation(libs.ktor.serverCallLogging)
     implementation(libs.ktor.serverAuth)
     implementation(libs.ktor.serverAuthJwt)
+    implementation(libs.ktor.serverSessions)
     implementation(libs.ktor.serializationKotlinxJson)
     implementation(libs.ktor.serverPebble)
+
+    // Admin auth (Admin #3 `admin-login-argon2-totp`): Argon2id password
+    // verification via Password4j + TOTP RFC 6238 verification via samstevens
+    // java-totp. AES-256-GCM for `admin_users.totp_secret_encrypted`
+    // decryption uses JCA built-ins (no third-party).
+    implementation(libs.password4j)
+    implementation(libs.samstevens.totp)
     implementation(libs.ktor.clientCore)
     implementation(libs.ktor.clientCio)
     implementation(libs.ktor.clientContentNegotiation)
