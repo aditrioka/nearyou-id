@@ -19,6 +19,12 @@ The mobile app SHALL ship a Voyager `Screen` implementation `SignInScreen` (file
 - **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/auth/SignInScreen.kt`
 - **THEN** every `Text(...)` / `contentDescription = ...` / similar UI-string-bearing call site sources its text via `stringResource(Res.string.<name>)` (Compose Multiplatform Resources accessor); zero literal string arguments appear in such call sites
 
+#### Scenario: SignInScreen brand logo swaps on system-theme change at recomposition
+
+- **GIVEN** `SignInScreen` is composed in light mode (`isSystemInDarkTheme() == false`) — the rendered brand logo node uses `Res.drawable.logo_brand_light`
+- **WHEN** the system theme is toggled to dark mode AND the screen is recomposed
+- **THEN** the rendered brand logo node uses `Res.drawable.logo_brand_dark` (no crash, no stale-logo retention); recomposition is triggered automatically because `isSystemInDarkTheme()` is observable Compose state
+
 ### Requirement: Google Sign-In ceremony via expect/actual GoogleSignInClient
 
 The mobile app SHALL declare `expect class GoogleSignInClient { suspend fun signIn(): GoogleSignInResult }` in commonMain (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/GoogleSignInClient.kt`) with a sealed result type:
@@ -60,6 +66,16 @@ Both actuals SHALL be coroutine-suspending wrappers (via `suspendCancellableCoro
 - **WHEN** the suspending `signIn()` call returns
 - **THEN** the returned value is `GoogleSignInResult.UserCancelled` (the singleton `data object`), NOT `GoogleSignInResult.Failed(...)` (cancellation is not an error)
 
+#### Scenario: iOS URL handler verifies GIDSignIn.handle(url) Bool return value
+
+- **WHEN** inspecting `iosApp/iosApp/iOSApp.swift` (or the equivalent SwiftUI / `AppDelegate` URL handler hook)
+- **THEN** the OAuth callback handler invokes `GIDSignIn.sharedInstance.handle(url)` AND captures + returns its `Bool` return value (in `application(_:open:options:)` form) OR uses the SwiftUI `.onOpenURL { url in let handled = GIDSignIn.sharedInstance.handle(url); ... }` pattern that branches on `handled`; the handler MUST NOT discard the return value (a `false` return signals the URL was NOT a GoogleSignIn callback and SHOULD be propagated to subsequent URL handlers — silently swallowing `false` would mask a future URL-scheme misconfiguration)
+
+#### Scenario: iOS Info.plist CFBundleURLTypes uses reversedClientId scheme
+
+- **WHEN** inspecting `iosApp/iosApp/Info.plist`
+- **THEN** the file contains a `CFBundleURLTypes` array entry whose `CFBundleURLSchemes` value matches the `REVERSED_CLIENT_ID` from the staging (or production) `GoogleService-Info.plist` — a string of shape `com.googleusercontent.apps.<NNN>-<XYZ>` (bundle-ID-derived, not an arbitrary custom scheme); arbitrary custom schemes (e.g., `nearyou-auth://`) MUST NOT be registered for the Google Sign-In callback path
+
 ### Requirement: SecureTokenStore persists tokens at rest with platform-specific encryption
 
 The mobile app SHALL declare `expect class SecureTokenStore { suspend fun read(): TokenPair?; suspend fun write(tokens: TokenPair); suspend fun clear() }` in commonMain (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/SecureTokenStore.kt`) where `TokenPair` is `data class TokenPair(val accessToken: String, val refreshToken: String, val accessExpiresAtEpochMillis: Long)`.
@@ -84,6 +100,16 @@ Round-trip integrity MUST hold: `write(tokens)` followed by `read()` (potentiall
 
 - **WHEN** inspecting `mobile/app/src/iosMain/kotlin/id/nearyou/app/auth/SecureTokenStore.kt` (or equivalent `iosMain` path)
 - **THEN** the actual class implementation contains references to `SecItemAdd` / `SecItemCopyMatching` AND uses `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (NOT `kSecAttrAccessibleAlways` which would weaken security, NOT `kSecAttrAccessibleAfterFirstUnlock` without the `ThisDeviceOnly` suffix which would sync via iCloud Keychain)
+
+#### Scenario: Android Tink keyset is constructed with Android Keystore master key URI, no user-authentication-required flag
+
+- **WHEN** inspecting `mobile/app/src/androidMain/kotlin/id/nearyou/app/auth/SecureTokenStore.kt`
+- **THEN** the `AndroidKeysetManager.Builder()` invocation specifies `.withMasterKeyUri("android-keystore://nearyou_auth_tokens_master_key")` (or the equivalent constant referencing the master-key alias) AND does NOT invoke `.withMasterKey(... setUserAuthenticationRequired(true) ...)` (which would lock the keyset behind a biometric / lockscreen unlock and break the post-reboot routing path described in the `RootRouterScreen` requirement)
+
+#### Scenario: iOS Keychain item is single-bundle-scoped, no kSecAttrAccessGroup set
+
+- **WHEN** inspecting `mobile/app/src/iosMain/kotlin/id/nearyou/app/auth/SecureTokenStore.kt`
+- **THEN** the `SecItemAdd` query dictionary contains NO `kSecAttrAccessGroup` key (or sets it explicitly to the app's own bundle identifier prefix); a future watch-app or shared-app-group target SHALL NOT be able to read refresh tokens written by this app via the default keychain access group
 
 #### Scenario: write-then-read round-trip preserves the TokenPair
 
@@ -134,7 +160,24 @@ The Ktor `Auth { bearer { ... } }` plugin's built-in request-queuing-during-refr
 
 - **GIVEN** `SecureTokenStore` contains `TokenPair("at-stale", "rt-revoked", <past-epoch>)` AND the MockEngine responds 401 to the first request AND responds 401 to the subsequent refresh call (simulating `token_reuse_detected` per `auth-session` spec)
 - **WHEN** the request is issued via the `AuthRepository`-wrapped client
-- **THEN** `AuthRepository` observes the terminal 401, invokes `SecureTokenStore.clear()`, AND emits a state event triggering `RootRouterScreen` to re-route to `SignInScreen`
+- **THEN** `AuthRepository` observes the terminal 401, invokes `SecureTokenStore.clear()` (clearing BOTH access token AND refresh token AND expiration timestamp — not just the access token), AND emits a state event triggering `RootRouterScreen` to re-route to `SignInScreen`
+
+#### Scenario: Concurrent 401s during in-flight refresh queue and retry once
+
+- **GIVEN** `SecureTokenStore` contains `TokenPair("at-stale", "rt-Y", <past-epoch>)`; three concurrent requests in-flight (`GET /api/v1/posts`, `GET /api/v1/timeline`, `GET /api/v1/profile`); the MockEngine responds 401 to all three on first attempt AND responds 200 to `POST /api/v1/auth/refresh` (returning fresh tokens) AND responds 200 to each retry
+- **WHEN** the three requests are issued in parallel via the `HttpClient`
+- **THEN** exactly ONE `POST /api/v1/auth/refresh` call is observed (NOT three) AND all three original requests retry with the new access token AND all three final responses are 200
+
+#### Scenario: Authorization header is sanitized in Ktor Logging plugin output
+
+- **WHEN** inspecting the `HttpClient` construction code in `HttpClientFactory.kt`
+- **THEN** the `install(Logging) { ... }` block (if present) sets `level = LogLevel.HEADERS` (NOT `LogLevel.ALL`, which would log request bodies including the raw refresh-token body of `POST /api/v1/auth/refresh`) AND configures `sanitizeHeader { header -> header.equals(HttpHeaders.Authorization, ignoreCase = true) }` (per Ktor 3's `sanitizeHeader` API) so that emitted log lines display `Authorization: ***` rather than `Authorization: Bearer <token>`; the Logging plugin install MUST be gated by a debug-build check so production builds do not install it at all
+
+#### Scenario: App-backgrounded during in-flight /signin produces NetworkError on resumption
+
+- **GIVEN** `AuthRepository.signInWithGoogle()` is in-flight after a successful `GoogleSignInClient.signIn()` AND the `POST /api/v1/auth/signin` call has been dispatched but no response has arrived
+- **WHEN** the host app is backgrounded (Android process death or iOS scene phase change suspending the coroutine scope) AND subsequently resumed
+- **THEN** the `AuthRepository.signInWithGoogle()` flow either (a) was cancelled by structured-concurrency on background-out and emits `SignInOutcome.Cancelled` on resumption (re-render to initial CTA-visible state, NO error banner), OR (b) on iOS where URLSession may complete in the background, the call resumes and emits the appropriate outcome per the actual backend response; in BOTH cases the user is never left on a permanent "Sedang masuk…" splash without a path forward
 
 ### Requirement: Environment-aware API base URL via expect/actual config
 
@@ -174,16 +217,17 @@ The mobile app SHALL invoke `POST /api/v1/auth/signin` (the canonical unified-pr
 
 ### Requirement: Backend error codes are mapped to user-facing copy with no fallthrough
 
-The `AuthRepository` SHALL map each backend response from `POST /api/v1/auth/signin` to a specific UI state per Decision 7's table:
+The `AuthRepository` SHALL map each result from the sign-in flow to a specific UI state per Decision 7's table:
 
-- **HTTP 200**: persist `TokenPair` via `SecureTokenStore.write(...)` AND emit a navigation event routing through `RootRouterScreen` to `HomeScreen`.
+- **HTTP 200 (backend `/signin` success)**: persist `TokenPair` via `SecureTokenStore.write(...)` AND emit a navigation event routing through `RootRouterScreen` to `HomeScreen`.
 - **HTTP 404 with `error = "user_not_found"`**: emit an error state whose user-facing copy is `stringResource(Res.string.signin_error_no_account)` (currently "Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya."); remain on `SignInScreen`; user may retry via the CTA.
-- **HTTP 403 with `error = "account_banned"`**: emit an error state whose user-facing copy is `stringResource(Res.string.signin_error_banned)` ("Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru."); remain on `SignInScreen`; CTA is disabled to prevent retry.
-- **HTTP 401 with `error = "invalid_id_token"`**: emit an error state whose user-facing copy is `stringResource(Res.string.signin_error_token_invalid)` ("Sesi Google bermasalah. Coba lagi."); automatically re-invoke `GoogleSignInClient.signIn()` ONCE; if the re-invocation also produces a 401, remain on the error state and require a manual retry tap.
+- **HTTP 403 with `error = "account_banned"` (permanent-ban path)**: emit an error state whose user-facing copy is `stringResource(Res.string.signin_error_banned)` ("Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru."); remain on `SignInScreen`; CTA is disabled (visually disabled AND tap-rejected per the dedicated scenario below) to prevent retry. **Note:** the current backend `/signin` emits `account_banned` for any `is_banned = TRUE` row WITHOUT inspecting `suspended_until`, so temporarily-suspended users (`is_banned = TRUE AND suspended_until > NOW()` per V2 schema) hit this same permanent-ban copy in Mobile #3. A FOLLOW_UPS entry `mobile-auth-signin-suspended-user-copy-split` tracks the eventual backend differentiation (emit `account_suspended` with a `suspended_until` field at `/signin`) + mobile copy split per `docs/03-UX-Design.md` § Suspension UX line 288-290; until that lands, Mobile #3 deliberately ships the permanent-ban copy as a uniform path.
+- **HTTP 401 with `error = "invalid_id_token"`**: emit an error state whose user-facing copy is `stringResource(Res.string.signin_error_token_invalid)` ("Sesi Google bermasalah. Coba lagi."); automatically re-invoke `GoogleSignInClient.signIn()` ONCE; if the re-invocation also produces a 401, remain on the error state and require a manual retry tap. The retry counter SHALL be **screen-state-local** (held in the `SignInScreen`'s composition state) — re-entering `SignInScreen` (e.g., after a process death + relaunch) SHALL reset the counter to zero.
 - **HTTP 5xx OR network/IO failure**: emit an error state whose user-facing copy is `stringResource(Res.string.signin_error_network)` ("Tidak bisa terhubung. Periksa koneksi internet kamu."); CTA changes label to "Coba lagi" and re-invokes the full flow on tap.
 - **`GoogleSignInResult.UserCancelled`**: emit no error state (cancellation is not a failure); `SignInScreen` returns to the initial CTA-visible state.
+- **`GoogleSignInResult.Failed(message)`**: emit the same `NetworkError` UI state as the HTTP 5xx / network-IO path (user-facing copy `signin_error_network`); the Google ceremony failing pre-backend is operationally indistinguishable from a network failure from the user's perspective; the `message` payload SHOULD be emitted to Sentry / OTel logs (NOT to the user-facing UI) for diagnosis.
 
-There SHALL NOT be a generic "Sign-in failed" fallthrough — every observed result from the flow maps to one of the six explicit states above.
+There SHALL NOT be a generic "Sign-in failed" fallthrough — every observed result from the flow maps to exactly one of the seven explicit states above. Error states SHALL NOT render the Google account `email` or `displayName` from `GoogleSignInResult.Success` in any user-facing UI (no "Hi, foo@example.com — try again?" pattern); the `displayName` MAY be surfaced ONLY post-authentication, on screens behind the auth gate.
 
 #### Scenario: 200 success persists tokens and navigates to Home
 
@@ -221,6 +265,42 @@ There SHALL NOT be a generic "Sign-in failed" fallthrough — every observed res
 - **WHEN** the `AuthRepository.signInWithGoogle(...)` flow processes the cancellation
 - **THEN** no error message is emitted; the UI state remains in the initial CTA-visible state (no banner, no disabled CTA, no navigation)
 
+#### Scenario: 401 invalid_id_token second attempt also failing emits terminal InvalidIdToken state
+
+- **GIVEN** backend responds `401 { error: { code: "invalid_id_token" } }` on the first call AND `401 { error: { code: "invalid_id_token" } }` on the auto-retry second call
+- **WHEN** the `AuthRepository.signInWithGoogle(...)` flow processes the second 401
+- **THEN** the emitted UI state's error message equals `Res.string.signin_error_token_invalid` AND `GoogleSignInClient.signIn()` is NOT invoked a third time (the retry budget is exhausted at one) AND the CTA returns to its initial label ("Masuk dengan Google") with `ctaEnabled = true` so the user can manually tap to start a fresh flow
+
+#### Scenario: 401 invalid_id_token retry counter is screen-state-local and resets across SignInScreen re-entries
+
+- **GIVEN** the user just exhausted the auto-retry budget (two consecutive 401s within one flow) AND has navigated AWAY from `SignInScreen` (e.g., closed the app, was routed to `HomeScreen` by an unrelated path then back to `SignInScreen` via 401-clear, OR the process died and relaunched)
+- **WHEN** `SignInScreen` is re-composed AND the user taps the CTA again
+- **THEN** the auto-retry counter starts fresh at zero — the next 401 (if any) triggers ONE auto-retry per the canonical mapping, NOT zero (the counter is NOT persisted to disk, NOT persisted across navigator pops)
+
+#### Scenario: GoogleSignInResult.Failed maps to NetworkError state
+
+- **GIVEN** `GoogleSignInClient.signIn()` returns `GoogleSignInResult.Failed("Credential Manager failed to reach Google's servers")`
+- **WHEN** the `AuthRepository.signInWithGoogle(...)` flow processes the result
+- **THEN** the emitted `SignInOutcome` is `NetworkError` (NOT a silent no-op, NOT a separate `UnexpectedFailure` state — the user-perceived experience is "the Google sign-in didn't work because of a connectivity issue") AND the UI banner copy equals `Res.string.signin_error_network` AND the `message` payload IS emitted to Sentry / OTel logs (for diagnosis) but is NOT rendered to user-facing UI
+
+#### Scenario: Banned banner CTA does not invoke signInWithGoogle when tapped
+
+- **GIVEN** UI state is in `SignInOutcome.Banned` with `ctaEnabled = false`
+- **WHEN** a synthetic Compose tap event is dispatched on the CTA node (some Compose configurations still synthesize click events on `Button(enabled=false)`)
+- **THEN** `GoogleSignInClient.signIn()` is NOT invoked AND `AuthRepository.signInWithGoogle()` is NOT entered (the tap is rejected by the visual-AND-tap-handler-disable defense pair, not visual-disable-only)
+
+#### Scenario: No error-state UI renders Google email or displayName
+
+- **GIVEN** the in-flight `GoogleSignInResult.Success(idToken="g-id", displayName="Test User", email="test@example.com")` followed by ANY non-200 backend response (404, 403, 401, 5xx)
+- **WHEN** the resulting error-state UI is rendered
+- **THEN** the rendered tree contains NO node whose text contains the substring `"test@example.com"` AND NO node whose text contains the substring `"Test User"` (the PII payload from `GoogleSignInResult.Success` is consumed only for the backend API call body; it is NOT plumbed into any error-state banner / disclaimer / debug text)
+
+#### Scenario: Double-tap on CTA rejects the second concurrent invocation
+
+- **GIVEN** `AuthRepository.signInWithGoogle()` is currently in-flight (first invocation suspended on the Google ceremony or the backend call)
+- **WHEN** the user taps the CTA a second time within the same in-flight window
+- **THEN** the second invocation either (a) is silently rejected via an `isInFlight` guard in `AuthRepository` (the first call completes normally; the second call returns immediately without re-invoking `GoogleSignInClient.signIn()`), OR (b) the CTA is visibly transitioned to a disabled / `signin_loading` state for the duration of the in-flight window (preventing a second tap). The implementation MAY choose either pattern; both prevent the race-condition outcome where TWO concurrent token writes hit `SecureTokenStore`
+
 ### Requirement: RootRouterScreen routes based on token presence
 
 The Voyager `Navigator(startDestination = ...)` SHALL be constructed with `RootRouterScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/RootRouterScreen.kt`) as the start destination. On first composition, `RootRouterScreen` SHALL read `SecureTokenStore.read()` once (in a `LaunchedEffect`-suspended scope) and route via `navigator.replaceAll(...)`:
@@ -248,6 +328,24 @@ While the `read()` is in-flight, the screen SHALL render a splash composition (b
 - **GIVEN** a `SecureTokenStore` test stub that suspends indefinitely on `read()`
 - **WHEN** `RootRouterScreen` is composed
 - **THEN** the rendered tree contains the brand logo node AND a `CircularProgressIndicator`; the screen does NOT make a routing decision (navigator state is unchanged)
+
+#### Scenario: Token expiration boundary — strictly-future epoch routes to HomeScreen
+
+- **GIVEN** `SecureTokenStore.read()` returns `TokenPair("at-X", "rt-Y", accessExpiresAtEpochMillis = now + 1)` (one millisecond in the future)
+- **WHEN** `RootRouterScreen` is composed
+- **THEN** the routing decision is `HomeScreen` (the comparison uses `accessExpiresAtEpochMillis > Clock.System.now().toEpochMillis()`, strictly greater-than, NOT greater-than-or-equal — a token expiring "now" is considered expired and triggers the refresh-or-clear path)
+
+#### Scenario: Token expiration boundary — exactly-now epoch treats access as expired but routes to HomeScreen if refresh still valid
+
+- **GIVEN** `SecureTokenStore.read()` returns `TokenPair("at-X", "rt-Y", accessExpiresAtEpochMillis = now)` (epoch equals current time) AND the refresh token is still within its 30-day TTL
+- **WHEN** `RootRouterScreen` is composed
+- **THEN** the routing decision is `HomeScreen` (the Ktor `Auth` plugin will refresh on the first authenticated call); the routing does NOT pre-emptively call refresh from `RootRouterScreen` itself — the refresh fires lazily when the first authenticated request happens
+
+#### Scenario: Post-Banned process restart routes to SignInScreen with token cleared
+
+- **GIVEN** a previous flow ended in `SignInOutcome.Banned` AND no token was persisted (per the `Banned` scenario, `SecureTokenStore.write` is NOT called) AND the user kills the app
+- **WHEN** the app relaunches and `RootRouterScreen` is the start destination
+- **THEN** `SecureTokenStore.read()` returns `null` AND the routing decision is `SignInScreen`; the previous `Banned` UI state is NOT restored across process death (which is correct — the Banned state is composition-local; the user MUST re-attempt sign-in on next launch to get the up-to-date banned status from the backend)
 
 ### Requirement: device_fingerprint_hash omitted in Mobile #3
 
