@@ -84,6 +84,30 @@ When ready to implement, run /opsx:apply
    openspec status --change "<name>"
    ```
 
+**Substrate-introducing proposals — propose-time WebSearch (SHOULD, not MUST).**
+
+When the proposal's `What Changes` block adds, removes, or activates an entry in [`gradle/libs.versions.toml`](../../../gradle/libs.versions.toml) (new pin, version bump, plugin add/remove, OR activation of a previously-pinned-but-unused library), run a fresh dated `WebSearch` BEFORE finalizing the proposal artifacts — query templates: `"<library> vs <alternative> <current-year> best practice"`, `"<library> production ready <current-month-year>"`, `"<approach> canonical pattern <current-year>"`. Read 2-3 sources; weight official framework / library / vendor docs (JetBrains, Google, Anthropic, etc.) over community blogs (Medium, dev.to). Reasoning: the AI's pretrained "canonical pattern for X" knowledge can be 1-2 years stale; the fresh-dated search anchors the proposal in current-year ecosystem reality BEFORE the multi-lens substrate-rationale lens has to flag it at Phase D.
+
+**Outcomes:**
+
+- **Search confirms the design-time direction** → drop a 1-line evidence note in `design.md` Decision rationale (`verified 2026-MM-DD: <library> remains <position> per <source>`) and finalize the proposal artifacts.
+- **Search surfaces a different canonical pattern** → either (a) revise the proposal's `What Changes` + `design.md` Decision to match the canonical pattern, or (b) log the divergence explicitly in `design.md` § Open Questions for the user to resolve BEFORE `/opsx:apply` runs.
+
+**Skip for non-substrate proposals** (product features that don't touch `libs.versions.toml`, refactors, docs-only changes, OpenSpec format-only changes). The trigger is genuinely "new substrate enters the codebase," not "any library touch."
+
+**Where this gate fits in the substrate-drift defense family:**
+
+| Gate | When fires | Catches |
+|---|---|---|
+| **Propose-time WebSearch** (this rule) | At `/opsx:propose` artifact-finalization | Stale substrate-direction memory at proposal authoring time |
+| `/next-change` Phase D multi-lens substrate-rationale lens | At proposal review | Substrate-rationale weak/missing in authored proposal |
+| `openspec/project.md` § "Pre-implementation library re-check" (PR [#118](https://github.com/aditrioka/nearyou-id/pull/118)) | At `/opsx:apply` kickoff | Staleness between proposal-authoring and implement-kickoff |
+| `openspec/project.md` § "Apply-phase design-revision re-check" (PR [#119](https://github.com/aditrioka/nearyou-id/pull/119)) | When implementation surfaces a hiccup | Mid-implementation rationalization drift |
+
+Propose-time WebSearch is the EARLIEST gate in this family — fires before the proposal commits — so downstream gates don't have to flip substrate-direction mid-review. SHOULD not MUST because proposals exploring open-ended substrates may benefit from fresh-search post-exploration rather than pre-commit; use judgment when the substrate is unclear.
+
+**Precedent:** PR [#119](https://github.com/aditrioka/nearyou-id/pull/119) `shared-resources-swap-to-cmp-resources` — proposal activated the previously-unused `compose-components-resources` library. Multi-lens caught the substrate decision was good but downstream apply-phase surfaced 3 more drift moments (`isStatic = true` framing, font defensive-guard "build-time invariant" overclaim, SVG-on-Android crash). A propose-time WebSearch at authoring would have flagged the canonical preload pattern + SVG-on-Android constraint earlier in the lifecycle.
+
 **Output**
 
 After completing all artifacts, summarize:

@@ -150,6 +150,8 @@ Each lens catches findings the others miss — PR [#37](https://github.com/aditr
 
 **Round 2 regression scan (optional, after round-1 fixes are pushed)** — dispatch ONE sub-agent with prompt: "did the round-1 fixes introduce orphan refs or break previously-correct scenarios?" PR #37 round 2 surfaced 6 stale references the round-1 sweep missed.
 
+**Security Guidance plugin — supplemental for security-relevant changes (optional).** For proposals touching authentication, RLS, rate-limiting, push attestation, secrets management, encryption, content moderation, or any of the 16 critical invariants in [`CLAUDE.md`](../../../CLAUDE.md) § "Critical invariants": after the multi-lens dispatch above completes, additionally invoke the Anthropic-published Security Guidance plugin's review command (`/security-review` or equivalent) on the proposal PR. The plugin scans for generic OWASP / web-security-class concerns (injection patterns, crypto misuse, secret leakage in code / commits, common authn/authz misconfigurations) — **complements** the project-specific invariant + RLS / block-join coverage from the multi-lens `security-and-invariant` lens, not replaces it. For non-security-touching proposals (substrate swaps, typography, refactors, docs-only, format-only OpenSpec changes), the multi-lens `security-and-invariant` lens alone is sufficient — skip the plugin to avoid burning cycles on irrelevant proposals.
+
 **D.2 — Read sub-agent findings.** Build a findings list:
 
 - Classify by severity: **blocking** (bug / invariant violation / rule violation / incorrectness) vs **non-blocking** (suggestion / nit / question / style).
