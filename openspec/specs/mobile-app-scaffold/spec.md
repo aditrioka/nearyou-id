@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the cross-cutting structure of the `:mobile:app` Compose Multiplatform application: a single shared `App()` composable in commonMain, a Material 3 theming root that follows the system dark-mode preference, a typed navigation host (Voyager) with a placeholder start destination (`HomeScreen`), a Koin DI initializer that is idempotent across Android Activity recreations + iOS Swift `iOSApp.init()` re-entries, and the iOS two-layer bridge (Swift `iOSApp` → `ContentView` → Kotlin `MainViewController()` → KMP `App()`). The capability's negative requirement explicitly forbids the scaffold from introducing networking, authentication, FCM token registration, hardcoded API base URLs, ad-hoc HTTP usage, backend or infra module dependencies, or any feature behavior — those concerns ship in subsequent mobile changes per [`openspec/project.md`](../../project.md) § Mobile + Admin Scaffolding Priority (Mobile #2 Moko Resources, #3 Google Sign-In, #4 age gate, #5 first product screen, and beyond).
+Defines the cross-cutting structure of the `:mobile:app` Compose Multiplatform application: a single shared `App()` composable in commonMain, a Material 3 theming root that follows the system dark-mode preference, a typed navigation host (Voyager) with a placeholder start destination (`HomeScreen`), a Koin DI initializer that is idempotent across Android Activity recreations + iOS Swift `iOSApp.init()` re-entries, and the iOS two-layer bridge (Swift `iOSApp` → `ContentView` → Kotlin `MainViewController()` → KMP `App()`). The capability's negative requirement explicitly forbids the scaffold from introducing networking, authentication, FCM token registration, hardcoded API base URLs, ad-hoc HTTP usage, backend or infra module dependencies, or any feature behavior — those concerns ship in subsequent mobile changes per [`openspec/project.md`](../../project.md) § Mobile + Admin Scaffolding Priority (Mobile #2 / #2.5 Resources scaffolding — Moko initially via [PR #116](https://github.com/aditrioka/nearyou-id/pull/116), swapped to Compose Multiplatform Resources via [PR #119](https://github.com/aditrioka/nearyou-id/pull/119); #3 Google Sign-In, #4 age gate, #5 first product screen, and beyond).
 
 See [`docs/04-Architecture.md`](../../../docs/04-Architecture.md) § Mobile Status for the current shipped scaffold shape and [`docs/03-UX-Design.md`](../../../docs/03-UX-Design.md) for the user-facing flows that subsequent mobile changes will implement on this foundation.
 ## Requirements
@@ -77,10 +77,15 @@ The `App()` composable SHALL host a navigation framework (declared in `design.md
 - **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt`
 - **THEN** the navigation host is instantiated inside `App()` (or a commonMain helper invoked by `App()`); no platform-specific source set declares its own navigation host
 
-#### Scenario: Placeholder screen renders app identity via Moko Resources
+#### Scenario: Placeholder screen renders app identity via Compose Multiplatform Resources
 
 - **WHEN** the start-destination placeholder is composed
-- **THEN** the rendered content includes a "NearYouID" identifier label consumed via `MR.strings.home_placeholder_title` from `:shared:resources` (NOT a hardcoded string literal), AND a version label consumed via `MR.strings.home_placeholder_version` with the runtime version supplied as the format argument, AND no networking call, no auth lookup, and no feature-specific business logic is invoked
+- **THEN** the rendered content includes a "NearYouID" identifier label consumed via `stringResource(Res.string.home_placeholder_title)` from `:shared:resources` (NOT a hardcoded string literal, NOT the legacy `MR.strings.home_placeholder_title` Moko accessor), AND a version label consumed via `stringResource(Res.string.home_placeholder_version, "1.0")` with the runtime version supplied as the format argument, AND no networking call, no auth lookup, and no feature-specific business logic is invoked
+
+#### Scenario: HomeScreen consumes brand logo via CMP Resources accessor
+
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt`
+- **THEN** the brand-logo selection uses `Res.drawable.logo_brand_dark` (when `isSystemInDarkTheme()` is true) and `Res.drawable.logo_brand_light` (when false), consumed via `painterResource(...)` from the Compose Multiplatform Resources accessor; the file contains NO references to `MR.images.*` or `MR.strings.*` (the legacy Moko accessors)
 
 ### Requirement: Koin DI initialized once per process
 
@@ -104,7 +109,7 @@ The `:mobile:app` module SHALL initialize Koin via a commonMain `initKoin(additi
 
 ### Requirement: Scaffold does not introduce networking, auth, or feature behavior
 
-The `:mobile:app` module commonMain SHALL NOT contain Ktor HTTP-client setup, ad-hoc HTTP usage, authentication-flow wiring, FCM token registration, hardcoded API base URLs, or any feature-specific business logic. All such concerns ship in later mobile changes per [`openspec/project.md`](../../../project.md) § Mobile + Admin Scaffolding Priority (#2 Moko Resources, #3 Google Sign-In, #4 age gate, #5 first product screen, and beyond).
+The `:mobile:app` module commonMain SHALL NOT contain Ktor HTTP-client setup, ad-hoc HTTP usage, authentication-flow wiring, FCM token registration, hardcoded API base URLs, or any feature-specific business logic. All such concerns ship in later mobile changes per [`openspec/project.md`](../../../project.md) § Mobile + Admin Scaffolding Priority (#2 / #2.5 Resources scaffolding — Moko initially, swapped to Compose Multiplatform Resources; #3 Google Sign-In, #4 age gate, #5 first product screen, and beyond).
 
 The negative scenarios below use case-insensitive grep patterns intentionally broadened to cover common identifier shapes. They are NOT exhaustive — the canonical defense against scope drift is the spec requirement itself, with grep as a CI-time backstop. Implementers SHOULD treat additions to mobile sources that match the spirit (auth flow, FCM token handling, ad-hoc network calls, hardcoded API hostnames) as requirement violations even if the specific identifier shape escapes a literal grep.
 

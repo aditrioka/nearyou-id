@@ -75,7 +75,7 @@ Implement tasks from an OpenSpec change.
 
    **Pause if:**
    - Task is unclear → ask for clarification
-   - Implementation reveals a design issue → suggest updating artifacts
+   - Implementation reveals a design issue → **DO NOT rationalize a new design from training-data memory.** Run a fresh dated `WebSearch` first (e.g., `"<framework> <symptom> 2026 best practice"`, `"<library> <API> canonical pattern"`) to verify the proposed workaround/revision is the canonical pattern for that ecosystem at the current point in time. Read 2-3 sources, weight official framework / library / vendor docs over community blogs. Only then suggest updating artifacts. Per `openspec/project.md` § Change Delivery Workflow "Apply-phase design-revision re-check (MUST when implementation surfaces a hiccup/blocker and you're tempted to revise the spec inline)" — the AI's pretrained "canonical pattern for X" knowledge can be 1-2 years stale; the workflow rule exists to anchor revisions in 2026-current reality. Precedent: `shared-resources-swap-to-cmp-resources` first-attempt revision (commit `e229343`) overclaimed "build-time validation eliminates runtime font failures" based on training-data memory; fresh search disproved + surfaced the canonical `FontFamilyResolver.preload()` + LaunchedEffect pattern (PR [#119](https://github.com/aditrioka/nearyou-id/pull/119)).
    - Error or blocker encountered → report and wait for guidance
    - User interrupts
 

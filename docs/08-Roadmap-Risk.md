@@ -130,7 +130,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
     - Detect raw `FROM posts` / `FROM users` / `FROM post_replies` in the business module
     - Enforce `computeTTLToNextReset(user_id)` for rate limit TTL
     - Mandatory test case "JWT sub not in public.users then deny" on every RLS policy change
-    - Detect hardcoded strings in mobile source (must go via Moko Resources resource file)
+    - Detect hardcoded strings in mobile source (must go via Compose Multiplatform Resources `Res.string.*` accessor)
     - **Detect `ST_DWithin` or `ST_Distance` using `actual_location` in non-admin paths (must use `display_location`)**
     - **Detect raw Redis keys without hash tag `{scope:<value>}`**
     - **Detect business queries without block-exclusion join (applies to `posts`, `users`, `chat_messages`, `post_replies`; except Repository own-content + admin)**
@@ -200,7 +200,7 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 - Remote Config client fetch on cold start + foreground
 - Sentry KMP setup via `:infra:sentry` (unified with backend Sentry)
 - Amplitude tracker via `:infra:amplitude` (event taxonomy, consent-aware)
-- Moko Resources strings via `:shared:resources`
+- Compose Multiplatform Resources strings via `:shared:resources`
 
 **iOS-specific**:
 - **`PrivacyInfo.xcprivacy` finalized** with merged SDK declarations (Sentry, Amplitude, RevenueCat, FCM, AdMob)
@@ -387,7 +387,7 @@ Go live on App Store + Play Store. Monitor density metrics before expanding to a
   - Detect business queries without block-exclusion join (applies to posts, users, chat_messages, post_replies)
   - Enforce `computeTTLToNextReset(user_id)` for rate limit TTL (prevent hardcoded midnight)
   - Mandatory test case "JWT sub not in public.users then deny" on every RLS policy change
-  - Detect hardcoded strings in mobile source (must go via Moko Resources resource file)
+  - Detect hardcoded strings in mobile source (must go via Compose Multiplatform Resources `Res.string.*` accessor)
   - Detect `ST_DWithin`/`ST_Distance` using `actual_location` in non-admin paths
   - Detect raw Redis keys without hash tag `{scope:<value>}`
   - Detect content input endpoints without a length guard

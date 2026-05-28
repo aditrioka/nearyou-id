@@ -11,7 +11,9 @@ import id.nearyou.data.repository.NotificationType
  * to a `:shared:resources`-style server i18n module is a one-file refactor.
  *
  * MUST NOT call any external service, MUST NOT read any database row, AND
- * MUST NOT depend on Moko Resources (the latter is a KMP client concern).
+ * MUST NOT depend on KMP client-side resource frameworks (e.g. Compose
+ * Multiplatform Resources, Moko Resources) — server-side strings live here
+ * inline, not in client-bundled resource catalogs.
  */
 object PushCopy {
     private const val APP_NAME = "NearYou"
