@@ -126,13 +126,40 @@ Implement tasks from an OpenSpec change.
 
    **8.1 — Mark PR ready (UX) + invoke qodo via `/review` comment.**
 
+   **Mergeable precheck (run FIRST — non-negotiable).** A CONFLICTING / DIRTY branch does NOT run CI lanes on push — GitHub gates the workflow until conflicts resolve. Posting `/review` + arming any CI Monitor wait against a conflicting branch wastes wall-clock indefinitely (the Monitor polls a check_suite that will never register). Precedent: PR [#116](https://github.com/aditrioka/nearyou-id/pull/116) (`shared-resources-moko-bootstrap`, 2026-05-28) burned ~6 hours of idle Monitor time when Admin #2 squash-merged to `main` mid-implementation, leaving Mobile #2's branch conflicting on `gradle/libs.versions.toml` + `docs/09-Versions.md`. Only spotted via UI screenshot showing "This branch has conflicts that must be resolved."
+
    ```bash
    PR=$(gh pr list --head "<change-name>" --state open --json number --jq '.[0].number')
+
+   # Mergeable precheck — halt before /review if branch can't merge.
+   STATE=$(gh pr view "$PR" --json mergeable,mergeStateStatus -q '"\(.mergeable) \(.mergeStateStatus)"')
+   case "$STATE" in
+     *CONFLICTING*|*DIRTY*)
+       echo "❌ PR #$PR is not mergeable ($STATE). Rebase + resolve before posting /review." >&2
+       echo "   git fetch origin main && git rebase origin/main" >&2
+       echo "   # resolve conflicts in editor, git add, git rebase --continue" >&2
+       echo "   git push --force-with-lease" >&2
+       echo "   # then re-invoke /opsx:apply (and expect to need a fast-forward re-poke commit" >&2
+       echo "   # post-rebase — see memory feedback_ci_force_push_orphans_before)" >&2
+       exit 1
+       ;;
+     *UNKNOWN*)
+       # GitHub hasn't computed mergeable yet; wait briefly + re-check once.
+       sleep 5
+       STATE=$(gh pr view "$PR" --json mergeable,mergeStateStatus -q '"\(.mergeable) \(.mergeStateStatus)"')
+       case "$STATE" in
+         *CONFLICTING*|*DIRTY*) echo "❌ PR #$PR is not mergeable ($STATE after re-check). Same recovery as above." >&2; exit 1 ;;
+       esac
+       ;;
+   esac
+
    gh pr ready "$PR"
    gh pr comment "$PR" --body "/review"
    ```
 
    `gh pr ready` is a UX signal only — PR moves out of draft so human reviewers know implementation is done. It does NOT trigger qodo (Manual mode). The `gh pr comment "/review"` is the actual qodo trigger; qodo posts the review ~1 min later. If `gh pr ready` reports the PR is already ready (e.g., user un-drafted earlier), proceed silently and still post `/review` — each invocation re-reviews the current PR state, so this is safe even if a prior `/review` ran.
+
+   **On `CONFLICTING` halt:** the user resolves via the standard rebase-onto-main flow, force-pushes, and re-invokes `/opsx:apply`. The force-push will trigger the orphan-`before` CI-skip pattern (see memory `feedback_ci_force_push_orphans_before`) — expect to need a tiny fast-forward re-poke commit before CI's heavy lanes run.
 
    **8.2 — Spawn sub-agent review (parallel to qodo).**
 
