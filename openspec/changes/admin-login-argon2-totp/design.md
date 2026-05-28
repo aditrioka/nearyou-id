@@ -211,7 +211,7 @@ Documentation of the exemption + audit-log markers on every login attempt (with 
 
 Timing equalization: the login handler ALWAYS runs Argon2id verify, even when the email is not found. If `admin_users WHERE email = $1` returns no row, the handler verifies against a fixed sentinel hash (a hardcoded Argon2id hash of an unguessable string, computed once at module bootstrap). This means the wall time of an "email not found" attempt approximates the wall time of a "wrong password" attempt.
 
-Audit logging IS distinguishing — the `admin_actions_log` row records the actual failure reason (`email_not_found`, `password_mismatch`, `totp_mismatch`, `inactive_admin`, `totp_secret_missing`). The audit log is operator-only; it does not leak to the requester.
+Audit logging IS distinguishing — the `admin_actions_log` row records the actual failure reason (`password_mismatch`, `totp_mismatch`, `inactive_admin`, `totp_secret_missing`). The audit log is operator-only; it does not leak to the requester. The fifth failure mode `email_not_found` is captured at the application's structured INFO logger only — see D14 for the schema-driven rationale (the V16 `admin_actions_log.admin_id NOT NULL` invariant forbids unowned audit rows).
 
 **Rationale.** Username enumeration on the admin panel is a real attacker-recon surface. A "no such admin" response distinguishes valid from invalid emails, letting an attacker confirm whether `oka@example.com` is an admin without trying to crack the password. Timing-side-channel distinguishing is the same problem at a different layer — if "email not found" returns in 5ms and "wrong password" returns in 600ms, the attacker has the same signal without needing the response body.
 
