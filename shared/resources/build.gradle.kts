@@ -5,7 +5,6 @@ plugins {
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
-    alias(libs.plugins.mokoResources)
 }
 
 kotlin {
@@ -21,15 +20,19 @@ kotlin {
     ).forEach { iosTarget ->
         iosTarget.binaries.framework {
             baseName = "SharedResources"
+            // isStatic = true preserved per shared-resources-swap-to-cmp-resources
+            // design.md Decision 6 (amended post-Round-1-review) — it's the JetBrains
+            // KMP-wizard 2026 default for iOS frameworks, NOT a Moko-coupled requirement.
             isStatic = true
-            export(libs.moko.resources)
         }
     }
 
     sourceSets {
         commonMain.dependencies {
-            api(libs.moko.resources)
-            api(libs.moko.resources.compose)
+            // Exposed as `api` so :mobile:app (consumer) can resolve generated
+            // Res accessor types (StringResource / DrawableResource / FontResource)
+            // + the `painterResource` / `stringResource` / `Font` Compose accessors.
+            api(libs.compose.components.resources)
             implementation(libs.compose.runtime)
             implementation(libs.compose.material3)
             implementation(libs.compose.ui)
@@ -42,6 +45,12 @@ kotlin {
             implementation(libs.compose.ui.test)
         }
     }
+}
+
+compose.resources {
+    publicResClass = true
+    packageOfResClass = "id.nearyou.resources.generated.resources"
+    generateResClass = auto
 }
 
 android {
@@ -74,9 +83,4 @@ android {
             it.exclude("**/ColorSchemeExtensionsTest*")
         }
     }
-}
-
-multiplatformResources {
-    resourcesPackage.set("id.nearyou.resources")
-    resourcesClassName.set("MR")
 }

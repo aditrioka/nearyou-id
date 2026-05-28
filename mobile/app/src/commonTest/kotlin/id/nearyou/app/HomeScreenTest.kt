@@ -26,15 +26,17 @@ class HomeScreenTest {
     }
 
     // NOTE: Runtime format-substitution verification for
-    // `MR.strings.home_placeholder_version` (per spec § "home_placeholder_version
-    // format substitution renders correctly at runtime" + task 7.4) is
-    // verified VISUALLY during the cold-start checks in tasks 8.10 + 8.11 +
-    // 8.12 (mandatory screenshots show "Versi 1.0", NOT "Versi %1$s" literal).
+    // `Res.string.home_placeholder_version` (per spec § "home_placeholder_version
+    // format substitution renders correctly at runtime") is verified VISUALLY
+    // during the cold-start checks in tasks 8.9 + 8.10 of the
+    // `shared-resources-swap-to-cmp-resources` change (mandatory screenshots
+    // show "Versi 1.0", NOT "Versi %1$s" literal).
     //
     // A pure-commonTest runtime substitution check requires a platform Context
     // (Android: Resources, iOS: NSBundle) that's awkward to mock in
-    // kotlin.test-only scope. The XML-level `formatted="true"` attribute in
-    // strings.xml (task 5.5) ensures Android's Resources.getString(id, args)
-    // dispatches correctly; the iOS NSLocalizedString path uses Moko's native
-    // arg-forwarding wrapper. Both are exercised at app launch.
+    // kotlin.test-only scope. CMP Resources' `stringResource(resource, ...args)`
+    // composable dispatches positional `%1$s`/`%2$s` placeholders via the
+    // platform's native format API (Android's `Resources.getString(id, args)`
+    // and iOS's `NSString stringWithFormat:` equivalent), exercised at app
+    // launch from `HomeScreen.kt`.
 }

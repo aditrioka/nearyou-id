@@ -3,8 +3,9 @@ package id.nearyou.resources.theme
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.font.FontFamily
-import dev.icerock.moko.resources.compose.asFont
-import id.nearyou.resources.MR
+import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.plus_jakarta_sans
+import org.jetbrains.compose.resources.Font
 
 /**
  * Brand typography for `NearYouTheme` — Plus Jakarta Sans variable font
@@ -18,21 +19,20 @@ import id.nearyou.resources.MR
  * weights (`displayLarge` 400, `labelSmall` 500, etc.) — the axis interpolation
  * is the renderer's job, not ours.
  *
- * If `MR.fonts.plus_jakarta_sans.asFont()` returns null at runtime
- * (Moko Resources font loading failure — rare; the .ttf is bundled, not
- * network-fetched), we fall back to `Typography()` defaults, which the
- * platform renders in its sans-serif (per `design.md` Decision 5's
- * defensive fallback contract).
+ * Defensive fallback removed in the Moko→CMP swap: CMP Resources' `Font(...)`
+ * is `@Composable` and returns non-null. Wrapping it in `runCatching` / `try`
+ * is forbidden by Compose's "no exception catching around @Composable calls"
+ * invariant. The .ttf is bundled into `composeResources/font/` and resolved
+ * at build time by the Compose Resources Gradle plugin — runtime-missing-font
+ * is a "framework bug" class of failure that should crash the composition
+ * rather than silently degrade to a fallback typeface (which would mask a
+ * build/packaging regression). Per amended spec scenario "NearYouTypography
+ * defensively guards against font-load failure" — defensive responsibility
+ * now lives at the resource-bundling layer, not in this function.
  */
 @Composable
 fun nearYouTypography(): Typography {
-    val brandFont = MR.fonts.plus_jakarta_sans.asFont()
-    if (brandFont == null) {
-        // Defensive fallback per design.md Decision 5: missing font → platform
-        // sans-serif via vanilla Material 3 Typography().
-        return Typography()
-    }
-    val family = FontFamily(brandFont)
+    val family = FontFamily(Font(Res.font.plus_jakarta_sans))
     val base = Typography()
     return Typography(
         displayLarge = base.displayLarge.copy(fontFamily = family),

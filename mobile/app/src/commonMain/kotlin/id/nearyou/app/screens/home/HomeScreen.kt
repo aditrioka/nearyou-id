@@ -15,9 +15,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.screen.Screen
-import dev.icerock.moko.resources.compose.painterResource
-import dev.icerock.moko.resources.compose.stringResource
-import id.nearyou.resources.MR
+import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.app_name
+import id.nearyou.resources.generated.resources.home_placeholder_title
+import id.nearyou.resources.generated.resources.home_placeholder_version
+import id.nearyou.resources.generated.resources.logo_brand_dark
+import id.nearyou.resources.generated.resources.logo_brand_light
+import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
 
 class HomeScreen : Screen {
     @Composable
@@ -33,22 +38,22 @@ class HomeScreen : Screen {
         ) {
             val logo =
                 if (isSystemInDarkTheme()) {
-                    MR.images.logo_brand_dark
+                    Res.drawable.logo_brand_dark
                 } else {
-                    MR.images.logo_brand_light
+                    Res.drawable.logo_brand_light
                 }
             Image(
                 painter = painterResource(logo),
-                contentDescription = stringResource(MR.strings.app_name),
+                contentDescription = stringResource(Res.string.app_name),
                 modifier = Modifier.size(120.dp),
             )
             Text(
-                text = stringResource(MR.strings.home_placeholder_title),
+                text = stringResource(Res.string.home_placeholder_title),
                 style = MaterialTheme.typography.headlineLarge,
                 color = MaterialTheme.colorScheme.onBackground,
             )
             Text(
-                text = stringResource(MR.strings.home_placeholder_version, "1.0"),
+                text = stringResource(Res.string.home_placeholder_version, "1.0"),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
