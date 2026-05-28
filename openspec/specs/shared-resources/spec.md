@@ -91,22 +91,22 @@ The `:shared:resources` module SHALL bundle the Plus Jakarta Sans variable `.ttf
 
 ### Requirement: Brand logo bundled in light + dark variants with palette primary
 
-The `:shared:resources` module SHALL bundle two in-app brand logo SVG variants in `shared/resources/src/commonMain/composeResources/drawable/` (Compose Multiplatform Resources canonical layout): `logo_brand_light.svg` (blue `#1E4FD6` glyph on white background, for use on light UI backgrounds) and `logo_brand_dark.svg` (white glyph on `#1E4FD6` blue background, for use on dark UI backgrounds). Both files SHALL be byte-identical to the variants Mobile #2 shipped — this change is a layout move, NOT a re-export. Compose call sites SHALL select the variant via `isSystemInDarkTheme()` and access via `Res.drawable.logo_brand_{light,dark}`.
+The `:shared:resources` module SHALL bundle two in-app brand logo **Android XML vector drawable** variants in `shared/resources/src/commonMain/composeResources/drawable/` (Compose Multiplatform Resources canonical layout): `logo_brand_light.xml` (blue `#1E4FD6` glyph on white background, for use on light UI backgrounds) and `logo_brand_dark.xml` (white glyph on `#1E4FD6` blue background, for use on dark UI backgrounds). Format note: CMP Resources rejects SVG on Android with `IllegalStateException: Android platform doesn't support SVG format` per JetBrains issues [#4715](https://github.com/JetBrains/compose-multiplatform/issues/4715) / [#4670](https://github.com/JetBrains/compose-multiplatform/issues/4670); Android XML vector drawables are the canonical cross-platform format (work on iOS / desktop / web too via `VectorPainter`). The two `.xml` files are functional equivalents of Mobile #2's source SVGs — same `viewBox`, same glyph geometry, same colors — converted via manual SVG-element-to-vector-drawable mapping (polyline → path with pathData, circle → arc-based path) preserving the per-variant geometric differences from the source assets. Compose call sites SHALL select the variant via `isSystemInDarkTheme()` and access via `Res.drawable.logo_brand_{light,dark}`.
 
-#### Scenario: Both logo variants are present in composeResources/drawable/
+#### Scenario: Both logo variants are present in composeResources/drawable/ as XML vector drawables
 
 - **WHEN** inspecting `shared/resources/src/commonMain/composeResources/drawable/`
-- **THEN** the directory contains both `logo_brand_light.svg` AND `logo_brand_dark.svg`; the Moko-convention directory `shared/resources/src/commonMain/moko-resources/images/` no longer exists OR is empty
+- **THEN** the directory contains both `logo_brand_light.xml` AND `logo_brand_dark.xml` (Android XML vector drawable format, `<vector>` root element); NO `.svg` variant of either logo remains in the directory; the Moko-convention directory `shared/resources/src/commonMain/moko-resources/images/` no longer exists OR is empty
 
 #### Scenario: Light variant uses palette primary blue
 
-- **WHEN** grepping `shared/resources/src/commonMain/composeResources/drawable/logo_brand_light.svg` for hex color values
-- **THEN** the only blue value referenced is `#1E4FD6` (or its rgb-decomposed equivalent); NO occurrence of `#014CAB` or `#0B4FA8`
+- **WHEN** grepping `shared/resources/src/commonMain/composeResources/drawable/logo_brand_light.xml` for hex color values
+- **THEN** the only blue value referenced is `#1E4FD6` (in `android:strokeColor` / `android:fillColor` attributes); NO occurrence of `#014CAB` or `#0B4FA8`
 
 #### Scenario: Dark variant uses palette primary blue
 
-- **WHEN** grepping `shared/resources/src/commonMain/composeResources/drawable/logo_brand_dark.svg` for hex color values
-- **THEN** the only blue value referenced is `#1E4FD6` (or its rgb-decomposed equivalent); NO occurrence of `#0B4FA8` or `#014CAB`
+- **WHEN** grepping `shared/resources/src/commonMain/composeResources/drawable/logo_brand_dark.xml` for hex color values
+- **THEN** the only blue value referenced is `#1E4FD6` (in `android:fillColor` attribute on the background path); NO occurrence of `#0B4FA8` or `#014CAB`
 
 #### Scenario: Both variants accessible via CMP Resources
 
