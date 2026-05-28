@@ -117,17 +117,20 @@ object PasswordHasher {
 
     /**
      * Verify [plaintext] against the stored [hash] string. Returns true
-     * iff the plaintext produces the stored hash under the SAME params
-     * the hash embeds. Constant-time per Password4j's internal compare.
+     * iff the plaintext produces the stored hash under the SAME [argon2Function]
+     * params. Constant-time per Password4j's internal compare.
      *
-     * Uses [Password.check.withArgon2] which reads the params from the
-     * hash string itself — this lets a future params re-tune coexist with
-     * already-stored hashes during a migration window.
+     * Uses `.with(argon2Function)` (rather than `.withArgon2()` which uses
+     * Password4j-default params). Password4j's PHC-formatted hash string
+     * embeds the params used at hash time; a future params re-tune that
+     * differs from `argon2Function` would fail to verify pre-tune hashes
+     * — that's a deliberate migration gate (force re-hash on next login
+     * vs silently accepting a weaker hash).
      */
     fun verify(
         plaintext: String,
         hash: String,
-    ): Boolean = Password.check(plaintext, hash).withArgon2()
+    ): Boolean = Password.check(plaintext, hash).with(argon2Function)
 
     /**
      * Verify against the [sentinelHash] for timing equalization on the

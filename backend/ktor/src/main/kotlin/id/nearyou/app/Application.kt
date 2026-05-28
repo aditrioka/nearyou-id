@@ -916,13 +916,28 @@ fun Application.module() {
         }
     }
 
-    // /admin/* — admin-panel-ktor-htmx-bootstrap scaffold (Admin #2). Mounted via
-    // an Application extension function so the eventual extraction to a separate
-    // Cloud Run service for admin.nearyou.id (per docs/07-Operations.md § Stack)
-    // is mechanical. Internally gated by KTOR_ENV != "production" — production
-    // exposure is structurally impossible until Admin #3 (admin-login-argon2-totp)
-    // lifts the guard alongside landing the auth gate.
-    admin()
+    // /admin/ — admin panel route subtree. Cookie-based session + CSRF
+    // gate per admin-login-argon2-totp (Admin #3). Mounted via an
+    // Application extension function so the eventual extraction to a
+    // separate Cloud Run service for admin.nearyou.id (per
+    // docs/07-Operations.md § Stack) is mechanical.
+    //
+    // AES key for `admin_users.totp_secret_encrypted` decryption is
+    // sourced lazily — the lambda is only invoked at login-verify time,
+    // so a missing secret slot fails the FIRST login attempt with a
+    // clear error but does NOT block app boot. Once provisioned, the
+    // secret resolution is cached at the slot lookup level by
+    // EnvVarSecretResolver behavior (env vars don't change at runtime).
+    admin(
+        dataSource = dataSource,
+        aesKeyProvider = {
+            val slot = secretKey(ktorEnv, "admin-totp-secret-aes-key")
+            val base64 =
+                secrets.resolve(slot)
+                    ?: error("Missing required secret '$slot' (set ADMIN_TOTP_SECRET_AES_KEY)")
+            Base64.getDecoder().decode(base64)
+        },
+    )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime
     // exercises Tier 3 fallback per list`). Fires once each for ProfanityList +

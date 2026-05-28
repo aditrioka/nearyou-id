@@ -93,11 +93,12 @@ class PasswordHasherTest : StringSpec({
         val sentinelParams = extractArgon2Params(PasswordHasher.sentinelHash)
         sentinelParams shouldBe productionParams
         // Also assert the params trio matches the constants exactly.
-        sentinelParams shouldBe Argon2Params(
-            memoryKib = PasswordHasher.MEMORY_KIB,
-            iterations = PasswordHasher.ITERATIONS,
-            parallelism = PasswordHasher.PARALLELISM,
-        )
+        sentinelParams shouldBe
+            Argon2Params(
+                memoryKib = PasswordHasher.MEMORY_KIB,
+                iterations = PasswordHasher.ITERATIONS,
+                parallelism = PasswordHasher.PARALLELISM,
+            )
     }
 
     "verifyAgainstSentinel returns FALSE for any obvious non-sentinel input" {

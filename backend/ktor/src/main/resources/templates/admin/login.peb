@@ -1,0 +1,28 @@
+{% extends "layout.peb" %}
+
+{% block title %}Login — NearYouID Admin{% endblock %}
+
+{% block content %}
+<h2>Admin login</h2>
+{% if errorMessage is not null %}
+<p class="error" role="alert">{{ errorMessage }}</p>
+{% endif %}
+<form action="/admin/login" method="POST">
+    <p>
+        <label for="email">Email</label>
+        <input type="email" name="email" id="email" required autocomplete="username">
+    </p>
+    <p>
+        <label for="password">Password</label>
+        <input type="password" name="password" id="password" required autocomplete="current-password">
+    </p>
+    <p>
+        <label for="totp">TOTP code</label>
+        <input type="text" name="totp" id="totp" pattern="\d{6}" maxlength="6" minlength="6" required
+               autocomplete="one-time-code" inputmode="numeric">
+    </p>
+    <p>
+        <button type="submit">Login</button>
+    </p>
+</form>
+{% endblock %}

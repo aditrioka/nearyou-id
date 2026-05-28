@@ -4,7 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}NearYouID Admin{% endblock %}</title>
+    {% if csrfToken is not null %}
+    {# CSRF meta tag — surfaces the per-session CSRF token to client-side JS.
+       Per `admin-login-argon2-totp` spec Req "Authenticated layout includes
+       CSRF meta tag and HTMX configRequest hook" + design.md D6.
+       Rendered ONLY on authenticated pages (no session ⇒ no token). #}
+    <meta name="csrf-token" content="{{ csrfToken | escape("html_attr") }}">
+    {% endif %}
     <script src="/admin/static/htmx.min.js" defer></script>
+    {% if csrfToken is not null %}
+    <script>
+        {# HTMX configRequest listener — auto-adds X-CSRF-Token on every
+           HTMX request. Reads the meta tag at request time so a per-login
+           rotation propagates without page reload. #}
+        document.addEventListener('htmx:configRequest', function (evt) {
+            var meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta) {
+                evt.detail.headers['X-CSRF-Token'] = meta.content;
+            }
+        });
+    </script>
+    {% endif %}
 </head>
 <body>
     <header>
@@ -15,13 +35,21 @@
             <li><a href="#">Reports (stub)</a></li>
             <li><a href="#">Users (stub)</a></li>
             <li><a href="#">Audit log (stub)</a></li>
+            {% if csrfToken is not null %}
+            <li>
+                <form action="/admin/logout" method="POST" style="display: inline;">
+                    <input type="hidden" name="_csrf" value="{{ csrfToken | escape("html_attr") }}">
+                    <button type="submit">Logout</button>
+                </form>
+            </li>
+            {% endif %}
         </ul>
     </nav>
     <main>
         {% block content %}{% endblock %}
     </main>
     <footer>
-        <p>NearYouID admin scaffold — auth lands in admin-login-argon2-totp.</p>
+        <p>NearYouID admin panel.</p>
     </footer>
 </body>
 </html>
