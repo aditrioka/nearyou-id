@@ -2,7 +2,6 @@ package id.nearyou.app.auth
 
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.CPointer
-import kotlinx.cinterop.CPointerVar
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.convert

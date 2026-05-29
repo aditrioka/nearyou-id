@@ -3,6 +3,7 @@ package id.nearyou.app.auth
 import id.nearyou.app.network.HttpClientFactory
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.request.HttpRequestData
@@ -29,11 +30,9 @@ private const val PAST_EPOCH = 1_000L
 private const val SIGNIN_OK_BODY =
     """{"access_token":"at-new","refresh_token":"rt-new","expires_in":900}"""
 
-private fun OutgoingContent.bodyText(): String =
-    (this as? OutgoingContent.ByteArrayContent)?.bytes()?.decodeToString() ?: ""
+private fun OutgoingContent.bodyText(): String = (this as? OutgoingContent.ByteArrayContent)?.bytes()?.decodeToString() ?: ""
 
-private fun bearerOf(request: HttpRequestData): String? =
-    request.headers[HttpHeaders.Authorization]
+private fun bearerOf(request: HttpRequestData): String? = request.headers[HttpHeaders.Authorization]
 
 /**
  * Captures every log line so the Authorization-sanitization scenario (5.8g) can assert
@@ -61,7 +60,7 @@ class AuthApiClientTest {
         tokenStore: TokenStore,
         installLogging: Boolean = false,
         logger: Logger = NoopLogger,
-        handler: suspend io.ktor.client.engine.mock.MockRequestHandleScope.(HttpRequestData) -> io.ktor.client.request.HttpResponseData,
+        handler: MockRequestHandler,
     ): HttpClient =
         HttpClientFactory.create(
             apiBaseUrl = "http://test.local",

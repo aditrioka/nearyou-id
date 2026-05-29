@@ -2,6 +2,7 @@ package id.nearyou.app.auth
 
 import id.nearyou.app.network.HttpClientFactory
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
@@ -29,7 +30,7 @@ class AuthRepositoryTest {
         gateway: GoogleSignInGateway,
         tokenStore: InMemoryTokenStore = InMemoryTokenStore(),
         diagnosticLog: (String) -> Unit = {},
-        handler: suspend io.ktor.client.engine.mock.MockRequestHandleScope.(io.ktor.client.request.HttpRequestData) -> io.ktor.client.request.HttpResponseData,
+        handler: MockRequestHandler,
     ): AuthRepository {
         val sessionInvalidator = SessionInvalidator(tokenStore)
         val client =
@@ -224,9 +225,10 @@ class AuthRepositoryTest {
     @Test
     fun `isAuthenticated is false when the store is empty`() =
         runTest {
-            val repo = repository(FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled), InMemoryTokenStore()) {
-                respond("", HttpStatusCode.OK, JSON_HEADERS)
-            }
+            val repo =
+                repository(FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled), InMemoryTokenStore()) {
+                    respond("", HttpStatusCode.OK, JSON_HEADERS)
+                }
             assertEquals(false, repo.isAuthenticated())
         }
 
@@ -234,9 +236,10 @@ class AuthRepositoryTest {
     fun `isAuthenticated is true for a strictly-future access expiry`() =
         runTest {
             val store = InMemoryTokenStore(TokenPair("at", "rt", accessExpiresAtEpochMillis = 1L))
-            val repo = repository(FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled), store) {
-                respond("", HttpStatusCode.OK, JSON_HEADERS)
-            }
+            val repo =
+                repository(FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled), store) {
+                    respond("", HttpStatusCode.OK, JSON_HEADERS)
+                }
             assertEquals(true, repo.isAuthenticated())
         }
 
@@ -246,9 +249,10 @@ class AuthRepositoryTest {
             // Access expired (epoch 0) but a TokenPair exists → routes to Home; the Auth plugin
             // refreshes lazily on the first authenticated call.
             val store = InMemoryTokenStore(TokenPair("at", "rt", accessExpiresAtEpochMillis = 0L))
-            val repo = repository(FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled), store) {
-                respond("", HttpStatusCode.OK, JSON_HEADERS)
-            }
+            val repo =
+                repository(FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled), store) {
+                    respond("", HttpStatusCode.OK, JSON_HEADERS)
+                }
             assertEquals(true, repo.isAuthenticated())
         }
 
