@@ -942,6 +942,18 @@ fun Application.module() {
                     ?: error("Missing required secret '$slot' (set ADMIN_TOTP_SECRET_AES_KEY)")
             Base64.getDecoder().decode(base64)
         },
+        csrfHmacKeyProvider = {
+            // Server-side HMAC key for the Signed Double-Submit CSRF token
+            // (HashUtil.deriveCsrfFromSessionToken). Distinct slot from the
+            // TOTP AES key (key separation). Lazy — resolved at login/render
+            // time, so a missing slot fails the first admin page load with a
+            // clear error but does NOT block app boot.
+            val slot = secretKey(ktorEnv, "admin-csrf-hmac-key")
+            val base64 =
+                secrets.resolve("admin-csrf-hmac-key")
+                    ?: error("Missing required secret '$slot' (set ADMIN_CSRF_HMAC_KEY)")
+            Base64.getDecoder().decode(base64)
+        },
     )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime

@@ -45,6 +45,7 @@ import javax.sql.DataSource
 fun Application.admin(
     dataSource: DataSource,
     aesKeyProvider: () -> ByteArray,
+    csrfHmacKeyProvider: () -> ByteArray,
 ) {
     val adminUserRepository = AdminUserRepository(dataSource)
     val sessionRepository = SessionRepository(dataSource)
@@ -55,6 +56,7 @@ fun Application.admin(
             sessionRepository = sessionRepository,
             auditLogger = auditLogger,
             aesKeyProvider = aesKeyProvider,
+            csrfHmacKeyProvider = csrfHmacKeyProvider,
         )
     val logoutRoute = AdminLogoutRoute(sessionRepository, auditLogger)
 
@@ -106,7 +108,7 @@ fun Application.admin(
                 // Unmapped state-changing paths (e.g. POST /admin/) correctly
                 // surface as routing-layer 405s because no handler runs.
                 logoutRoute.install(this)
-                adminIndex()
+                adminIndex(csrfHmacKeyProvider)
             }
         }
     }

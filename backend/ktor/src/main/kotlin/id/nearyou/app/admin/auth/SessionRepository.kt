@@ -48,7 +48,10 @@ class SessionRepository(
                 ps.setObject(1, adminId)
                 ps.setString(2, sessionTokenHash)
                 ps.setString(3, csrfTokenHash)
-                ps.setString(4, ip)
+                // admin_sessions.ip is NOT NULL INET — sanitize so a
+                // non-literal clientIp ("unknown"/"localhost") doesn't throw
+                // at the ?::inet cast (would 500 the login).
+                ps.setString(4, InetSanitizer.orFallback(ip, InetSanitizer.UNKNOWN_IP_SENTINEL))
                 ps.setString(5, userAgent)
                 ps.setObject(6, java.sql.Timestamp.from(expiresAt))
                 ps.executeQuery().use { rs ->

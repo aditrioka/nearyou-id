@@ -494,6 +494,42 @@ class AdminLoginRouteTest : StringSpec({
         }
     }
 
+    "oversized email field is rejected with 400 before any DB SELECT or audit row" {
+        val admin = track(AdminAuthTestSupport.seedAdmin(dataSource))
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val hugeEmail = "x".repeat(2_000_000) + "@nearyou.id" // ~2 MB
+            val res =
+                client.post("/admin/login") {
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(formBody("email" to hugeEmail, "password" to admin.password, "totp" to "000000"))
+                }
+            res.status shouldBe HttpStatusCode.BadRequest
+            // No session created, and no audit row for our seeded admin
+            // (the guard returns before the admin_users lookup).
+            AdminAuthTestSupport.countSessions(dataSource, admin.id) shouldBe 0
+            AdminAuthTestSupport.countAuditRows(dataSource, admin.id) shouldBe 0
+        }
+    }
+
+    "non-INET clientIp does not 500 the login (INET guard) — session row gets the sentinel" {
+        // Drive a request whose resolved clientIp is NOT an IP literal by
+        // sending a hostname-shaped CF-Connecting-IP. The login must still
+        // succeed (200), not throw at the admin_sessions.ip ?::inet cast.
+        val admin = track(AdminAuthTestSupport.seedAdmin(dataSource))
+        val code = AdminAuthTestSupport.currentTotpCode(admin.totpSecret!!)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/login") {
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    header("CF-Connecting-IP", "not-an-ip-literal")
+                    setBody(formBody("email" to admin.email, "password" to admin.password, "totp" to code))
+                }
+            res.status shouldBe HttpStatusCode.OK
+            res.headers["HX-Redirect"] shouldBe "/admin/"
+            AdminAuthTestSupport.countSessions(dataSource, admin.id) shouldBe 1
+        }
+    }
+
     "TOTP code with leading whitespace is rejected (no silent strip)" {
         val admin = track(AdminAuthTestSupport.seedAdmin(dataSource))
         val code = AdminAuthTestSupport.currentTotpCode(admin.totpSecret!!)

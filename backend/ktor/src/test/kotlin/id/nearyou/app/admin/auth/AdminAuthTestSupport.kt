@@ -39,6 +39,9 @@ object AdminAuthTestSupport {
      */
     val FIXED_AES_KEY: ByteArray = ByteArray(32) { (it + 1).toByte() }
 
+    /** Fixed HMAC key for the test CSRF derivation. NOT a real secret. */
+    val FIXED_CSRF_HMAC_KEY: ByteArray = ByteArray(32) { (it + 101).toByte() }
+
     private val secureRandom = SecureRandom()
     private val base32 = Base32()
     private val totpGenerator = DefaultCodeGenerator(HashingAlgorithm.SHA1, TotpVerifier.DIGITS)
@@ -125,7 +128,8 @@ object AdminAuthTestSupport {
     ): String {
         val sessionToken = generateOpaqueToken()
         val sessionTokenHash = HashUtil.sha256Hex(sessionToken)
-        val csrfTokenHash = HashUtil.sha256Hex(HashUtil.deriveCsrfFromSessionToken(sessionToken))
+        val csrfTokenHash =
+            HashUtil.sha256Hex(HashUtil.deriveCsrfFromSessionToken(sessionToken, FIXED_CSRF_HMAC_KEY))
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
@@ -155,7 +159,7 @@ object AdminAuthTestSupport {
     }
 
     /** Derive the plaintext CSRF token a session cookie value implies. */
-    fun csrfFor(sessionToken: String): String = HashUtil.deriveCsrfFromSessionToken(sessionToken)
+    fun csrfFor(sessionToken: String): String = HashUtil.deriveCsrfFromSessionToken(sessionToken, FIXED_CSRF_HMAC_KEY)
 
     // ---------------- DB query helpers ----------------
 
@@ -276,7 +280,11 @@ object AdminAuthTestSupport {
         testApplication {
             application {
                 installTestClientIpDefault()
-                admin(dataSource = dataSource, aesKeyProvider = aesKeyOverride ?: { FIXED_AES_KEY })
+                admin(
+                    dataSource = dataSource,
+                    aesKeyProvider = aesKeyOverride ?: { FIXED_AES_KEY },
+                    csrfHmacKeyProvider = { FIXED_CSRF_HMAC_KEY },
+                )
             }
             val client = createClient { followRedirects = false }
             block(client)

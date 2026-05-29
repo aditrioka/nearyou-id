@@ -59,29 +59,43 @@ object HashUtil {
     private const val HEX_DIGEST_LENGTH = 64 // SHA-256 = 32 bytes = 64 hex chars
 
     /**
-     * Derive the per-session plaintext CSRF token deterministically from
-     * the plaintext session token.
+     * Derive the per-session plaintext CSRF token from the plaintext session
+     * token via **HMAC-SHA256 with a server-side secret key** (the canonical
+     * Signed Double-Submit Cookie pattern per the 2026 OWASP CSRF Cheat
+     * Sheet — "HMAC is preferred over simple hashing in all cases").
      *
      * Per `admin-login-argon2-totp` design.md D6: the meta-tag rendering
      * needs server-side access to the plaintext CSRF token, but the V16
      * schema only stores its SHA-256 hash. Rather than persisting the
-     * plaintext (which would weaken the hash-at-rest defense), we derive
-     * it deterministically from the session token at both login time
-     * (compute the hash to store) and render time (regenerate from the
-     * session cookie value to populate the meta tag).
+     * plaintext (which would weaken the hash-at-rest defense), we derive it
+     * deterministically from the session token at both login time (compute
+     * the hash to store) and render time (regenerate from the session
+     * cookie value to populate the meta tag).
+     *
+     * The [hmacKey] is a 256-bit server-side secret sourced from the GCP
+     * Secret Manager slot `admin-csrf-hmac-key` (env-namespaced via
+     * `secretKey(env, name)`), DISTINCT from the TOTP-secret AES key (key
+     * separation). HMAC-binding means an attacker who somehow learned the
+     * session token still cannot forge the CSRF token without the
+     * server-side key — strictly stronger than plain SHA-256.
      *
      * Security properties:
      *  - Per-login rotation: session token is fresh per login → derived
      *    CSRF is fresh per login (spec Req invariant).
      *  - No per-request rotation: session token stays stable within a
      *    session → derived CSRF stays stable (spec Req invariant).
-     *  - Knowledge of session cookie ⇒ knowledge of CSRF, but an attacker
-     *    without the cookie cannot derive the CSRF. The session cookie
-     *    is HttpOnly + SameSite=Strict, so XSS / cross-site CSRF cannot
-     *    obtain it.
+     *  - Server-secret-bound: forgery requires BOTH the (HttpOnly,
+     *    SameSite=Strict) session token AND the server-side HMAC key.
      */
-    fun deriveCsrfFromSessionToken(sessionToken: String): String {
-        val digest = sha256("$sessionToken:csrf".toByteArray(Charsets.UTF_8))
+    fun deriveCsrfFromSessionToken(
+        sessionToken: String,
+        hmacKey: ByteArray,
+    ): String {
+        val mac = javax.crypto.Mac.getInstance(HMAC_SHA256)
+        mac.init(javax.crypto.spec.SecretKeySpec(hmacKey, HMAC_SHA256))
+        val digest = mac.doFinal(sessionToken.toByteArray(Charsets.UTF_8))
         return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
     }
+
+    private const val HMAC_SHA256 = "HmacSHA256"
 }

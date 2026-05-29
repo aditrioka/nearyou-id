@@ -172,7 +172,11 @@ class AdminAuditLogger(
                 ps.setString(5, reason)
                 ps.setString(6, beforeState?.let { json.encodeToString(it) })
                 ps.setString(7, afterState?.let { json.encodeToString(it) })
-                ps.setString(8, ip)
+                // admin_actions_log.ip is nullable INET — sanitize so a
+                // non-literal clientIp doesn't throw at the ?::inet cast
+                // (would 500 the audit write, breaking no-enumeration on a
+                // failure path). NULL when not an IP literal.
+                ps.setString(8, InetSanitizer.orFallback(ip, null))
                 ps.setString(9, userAgent)
                 ps.executeUpdate()
             }

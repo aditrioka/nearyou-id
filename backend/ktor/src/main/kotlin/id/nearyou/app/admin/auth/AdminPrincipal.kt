@@ -7,7 +7,7 @@ import java.util.UUID
 /**
  * Authenticated admin's identity for downstream route handlers.
  *
- * Populated by [AdminAuthPlugin] after validating the `__Host-admin_session`
+ * Populated by [AdminAuthProvider] after validating the `__Host-admin_session`
  * cookie against `admin_sessions`. Carries:
  *
  *  - [adminId]: the matched admin's UUID (used for audit-row writes,
@@ -17,7 +17,7 @@ import java.util.UUID
  *  - [csrfTokenHash]: the session's stored `csrf_token_hash` (hex string;
  *    SHA-256 of the plaintext CSRF token). Compared constant-time against
  *    the request's `X-CSRF-Token` (or `_csrf` form field) by
- *    [AdminCsrfPlugin].
+ *    [AdminCsrfGate].
  *  - [role]: the admin's role (`owner`, `admin`, `moderator`, `read_only`)
  *    per V16 schema. Used by future admin routes that gate destructive
  *    actions by role; not consumed in Admin #3.

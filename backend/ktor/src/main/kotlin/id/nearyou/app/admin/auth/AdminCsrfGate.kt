@@ -28,17 +28,21 @@ import io.ktor.server.response.respond
  *  - GET/HEAD/OPTIONS pass through unconditionally (idempotent methods).
  *  - `POST /admin/login` is exempt (pre-session; CSRF cannot apply).
  *
- * The CSRF check is wired by calling [validateCsrf] from a route-level
- * interceptor inside the `authenticate("admin") { ... }` block. The
- * interceptor finishes the pipeline (`finish()`) on rejection so the route
- * handler does not run.
+ * The CSRF check is wired by an explicit `validateCsrf(call, auditLogger)`
+ * call at the top of each state-changing handler (see [AdminLogoutRoute]);
+ * the handler returns early when it returns false (the 403 + audit row are
+ * already written). An earlier route-pipeline `intercept` approach was
+ * abandoned because it leaked across sibling routes (the CSRF-exempt
+ * `POST /admin/login`) and mis-ordered against the Authentication phase —
+ * the per-handler call is the predictable contract (see the AdminModule
+ * comment for the full rationale).
  */
 object AdminCsrfGate {
     /**
      * Validate CSRF on the given [call]. Returns true when the call may
-     * proceed to the route handler; false when the call was rejected with
-     * 403 + audit. Caller is responsible for calling [finish()] in the
-     * interceptor when this returns false.
+     * proceed to the route handler; false when the call was already
+     * rejected with 403 + an `admin_csrf_violation` audit row (the caller
+     * just returns early).
      *
      * Per spec, exempt paths:
      *  - `GET` / `HEAD` / `OPTIONS` (idempotent)

@@ -22,14 +22,14 @@ import io.ktor.server.routing.get
  * tag + the HTMX configRequest JS hook per spec Req "Authenticated layout
  * includes CSRF meta tag and HTMX configRequest hook".
  */
-fun Route.adminIndex() {
+fun Route.adminIndex(csrfHmacKeyProvider: () -> ByteArray) {
     get("/") {
         val sessionCookie = call.request.cookies[AdminAuthProvider.COOKIE_NAME]
         val model =
             buildMap<String, Any> {
                 sessionCookie
                     ?.takeIf { it.isNotBlank() }
-                    ?.let { HashUtil.deriveCsrfFromSessionToken(it) }
+                    ?.let { HashUtil.deriveCsrfFromSessionToken(it, csrfHmacKeyProvider()) }
                     ?.let { put("csrfToken", it) }
             }
         call.respond(PebbleContent("index.peb", model = model))

@@ -74,7 +74,11 @@ class AdminCsrfMiddlewareTest : StringSpec({
                         }
                     },
                 )
-                admin(dataSource = dataSource) { AdminAuthTestSupport.FIXED_AES_KEY }
+                admin(
+                    dataSource = dataSource,
+                    aesKeyProvider = { AdminAuthTestSupport.FIXED_AES_KEY },
+                    csrfHmacKeyProvider = { AdminAuthTestSupport.FIXED_CSRF_HMAC_KEY },
+                )
                 val auditLogger = AdminAuditLogger(dataSource)
                 routing {
                     route("/admin") {

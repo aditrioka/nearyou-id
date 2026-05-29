@@ -51,6 +51,7 @@ class AdminLoginRoutes(
     private val sessionRepository: SessionRepository,
     private val auditLogger: AdminAuditLogger,
     private val aesKeyProvider: () -> ByteArray,
+    private val csrfHmacKeyProvider: () -> ByteArray,
     private val sessionLifetime: Duration = DEFAULT_SESSION_LIFETIME,
     private val clockSource: () -> Instant = Instant::now,
     private val tokenGenerator: () -> String = ::generateOpaqueToken,
@@ -75,6 +76,20 @@ class AdminLoginRoutes(
         val totp = params[FORM_TOTP].orEmpty()
         val ip = call.clientIp
         val userAgent = call.request.headers[HttpHeaders.UserAgent]
+
+        // Oversized-input guard (spec Req "Login input handling tolerates
+        // Unicode and rejects malformed shapes safely" scenario "Oversized
+        // email field is rejected without reaching auth handler"): reject
+        // absurd field lengths with 400 BEFORE any admin_users SELECT or
+        // audit-row write. MAX_FIELD_LENGTH is generous enough for any real
+        // Unicode email/password (RFC 5321 caps email at 320 chars). A
+        // malformed-request 400 is distinct from the 200 no-enumeration
+        // error, which is correct — no-enumeration governs credential
+        // failure modes, not malformed requests.
+        if (email.length > MAX_FIELD_LENGTH || password.length > MAX_FIELD_LENGTH || totp.length > MAX_FIELD_LENGTH) {
+            call.respond(HttpStatusCode.BadRequest)
+            return
+        }
 
         val admin = adminUserRepository.findActiveByEmail(email)
 
@@ -180,7 +195,7 @@ class AdminLoginRoutes(
         val now = clockSource()
         val expiresAt = now.plus(sessionLifetime)
         val sessionToken = tokenGenerator()
-        val csrfToken = HashUtil.deriveCsrfFromSessionToken(sessionToken)
+        val csrfToken = HashUtil.deriveCsrfFromSessionToken(sessionToken, csrfHmacKeyProvider())
         val sessionTokenHash = HashUtil.sha256Hex(sessionToken)
         val csrfTokenHash = HashUtil.sha256Hex(csrfToken)
 
@@ -240,6 +255,10 @@ class AdminLoginRoutes(
         const val FORM_PASSWORD = "password"
         const val FORM_TOTP = "totp"
         const val GENERIC_ERROR_MESSAGE = "Email, password, or code is incorrect."
+
+        /** Max accepted length for a login form field (generous vs RFC 5321's
+         *  320-char email cap); oversized fields are 400-rejected pre-DB. */
+        const val MAX_FIELD_LENGTH = 1024
 
         val DEFAULT_SESSION_LIFETIME: Duration = Duration.ofHours(8)
 
