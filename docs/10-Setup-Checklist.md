@@ -365,6 +365,11 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
 - [ ] `prod-flyway-db-connection-string` (DB role `flyway_migrator`, DDL rights)
 - [ ] `prod-cf-worker-csam-secret` (kalau pilih Cloudflare Worker auto-forward path untuk CSAM)
 
+**Admin login TOTP-secret AES key** (added by `admin-login-argon2-totp` / Admin #3; AES-256-GCM key for `admin_users.totp_secret_encrypted`; resolved via `secretKey(env, "admin-totp-secret-aes-key")`; provision via `dev/scripts/admin-totp-key-bootstrap.sh`):
+- [ ] `staging-admin-totp-secret-aes-key` — provision via the bootstrap script (`dev/scripts/admin-totp-key-bootstrap.sh`, default staging target). Grants `secretAccessor` to Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com`. Wired in `deploy-staging.yml --set-secrets` as `ADMIN_TOTP_SECRET_AES_KEY` (env-var form of the slot; the app resolves it via the lazy `aesKeyProvider` only at login-verify time, so a missing slot fails the first login attempt but does NOT block boot). **Operational — not part of the change PR.** ⚠ Key rotation orphans every existing `totp_secret_encrypted` ciphertext; the bootstrap script intentionally does NOT rotate on re-run.
+- [ ] **Staging-test admin row** — provision via `dev/scripts/admin-bootstrap/admin-bootstrap.sh` for the pre-archive smoke (`dev/scripts/smoke-admin-login-argon2-totp.sh`). Store the staging-test email + password + base32 TOTP secret in the operator's password manager — NOT in this repo / PR.
+- [ ] `admin-totp-secret-aes-key` (production, unprefixed) — **deferred to the production-bootstrap milestone**. Provision via `PROJECT_OVERRIDE=nearyou-production SLOT_OVERRIDE=admin-totp-secret-aes-key RUNTIME_SA_OVERRIDE=<prod-sa> dev/scripts/admin-totp-key-bootstrap.sh`.
+
 ---
 
 ## 5. Decisions yang Perlu Diputusin Pre-Phase 1

@@ -931,9 +931,14 @@ fun Application.module() {
     admin(
         dataSource = dataSource,
         aesKeyProvider = {
+            // secretKey() computes the env-namespaced SLOT name for
+            // diagnostics; secrets.resolve() takes the UN-prefixed logical
+            // name (→ env var ADMIN_TOTP_SECRET_AES_KEY, which the deploy
+            // populates from the staging-/prod- slot) — same shape as the
+            // firebase-admin-sa precedent above.
             val slot = secretKey(ktorEnv, "admin-totp-secret-aes-key")
             val base64 =
-                secrets.resolve(slot)
+                secrets.resolve("admin-totp-secret-aes-key")
                     ?: error("Missing required secret '$slot' (set ADMIN_TOTP_SECRET_AES_KEY)")
             Base64.getDecoder().decode(base64)
         },

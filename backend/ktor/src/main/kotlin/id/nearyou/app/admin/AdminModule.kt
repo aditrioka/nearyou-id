@@ -9,8 +9,8 @@ import id.nearyou.app.admin.auth.adminAuth
 import id.nearyou.app.admin.routes.adminIndex
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
-import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.authenticate
+import io.ktor.server.auth.authentication
 import io.ktor.server.http.content.staticResources
 import io.ktor.server.pebble.Pebble
 import io.ktor.server.routing.route
@@ -66,7 +66,14 @@ fun Application.admin(
         )
     }
 
-    install(Authentication) {
+    // Use `authentication { }` (NOT `install(Authentication) { }`): the main
+    // Application.module() already installs the Authentication plugin for the
+    // user-JWT provider (AuthPlugin.installAuth), so a second `install` would
+    // throw DuplicatePluginException at module boot. `authentication { }` does
+    // `pluginOrNull(Authentication)?.configure(block) ?: install(...)` — it
+    // ADDS the admin session provider to the existing plugin in production,
+    // and installs fresh when admin() is wired standalone (tests).
+    authentication {
         adminAuth(ADMIN_AUTH_NAME) {
             this.sessionRepository = sessionRepository
             this.adminUserRepository = adminUserRepository

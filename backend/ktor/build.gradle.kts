@@ -108,3 +108,16 @@ tasks.register<JavaExec>("mintDevJwt") {
     // Quiet down Gradle's own output so the captured stdout is just the token.
     logging.captureStandardOutput(LogLevel.QUIET)
 }
+
+// Operator-only: generate the SQL INSERT for a new admin_users row (Argon2id
+// password hash + AES-GCM-encrypted TOTP secret). Wrapped by
+// dev/scripts/admin-bootstrap/admin-bootstrap.sh. Reads the AES key from
+// ADMIN_TOTP_AES_KEY_BASE64. Never run in prod without the prod key slot.
+tasks.register<JavaExec>("adminBootstrap") {
+    group = "application"
+    description = "Generate the SQL INSERT for a new admin (admin-login-argon2-totp bootstrap)."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("id.nearyou.app.dev.AdminBootstrapMainKt")
+    standardInput = System.`in`
+    logging.captureStandardOutput(LogLevel.QUIET)
+}
