@@ -105,17 +105,18 @@ class AdminLoginRouteTest : StringSpec({
 
     // ============ Login POST verify ============
 
-    "login succeeds with valid credentials — 200 + HX-Redirect + cookie + session row" {
+    "login succeeds (plain browser form) — 303 to /admin/ + cookie + session row" {
         val admin = track(AdminAuthTestSupport.seedAdmin(dataSource))
         val code = AdminAuthTestSupport.currentTotpCode(admin.totpSecret!!)
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            // No HX-Request header → the plain-browser POST-redirect-GET path.
             val res =
                 client.post("/admin/login") {
                     contentType(ContentType.Application.FormUrlEncoded)
                     setBody(formBody("email" to admin.email, "password" to admin.password, "totp" to code))
                 }
-            res.status shouldBe HttpStatusCode.OK
-            res.headers["HX-Redirect"] shouldBe "/admin/"
+            res.status shouldBe HttpStatusCode.SeeOther
+            res.headers[HttpHeaders.Location] shouldBe "/admin/"
             val cookie = AdminAuthTestSupport.parseSessionCookieValue(res.headers.getAll(HttpHeaders.SetCookie).orEmpty())
             cookie.shouldNotBeNull()
 
@@ -126,6 +127,24 @@ class AdminLoginRouteTest : StringSpec({
             // expires_at ≈ NOW() + 8h (± generous tolerance for test wall time)
             val expectedExpiry = Instant.now().plusSeconds(8 * 3600)
             (session.expiresAt.epochSecond - expectedExpiry.epochSecond) shouldBeInRange (-30L..30L)
+        }
+    }
+
+    "login succeeds (HTMX submit) — 200 + HX-Redirect + cookie" {
+        val admin = track(AdminAuthTestSupport.seedAdmin(dataSource))
+        val code = AdminAuthTestSupport.currentTotpCode(admin.totpSecret!!)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/login") {
+                    header(AdminLoginRoutes.HX_REQUEST_HEADER, "true")
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(formBody("email" to admin.email, "password" to admin.password, "totp" to code))
+                }
+            res.status shouldBe HttpStatusCode.OK
+            res.headers[AdminLoginRoutes.HX_REDIRECT_HEADER] shouldBe "/admin/"
+            AdminAuthTestSupport.parseSessionCookieValue(
+                res.headers.getAll(HttpHeaders.SetCookie).orEmpty(),
+            ).shouldNotBeNull()
         }
     }
 
@@ -489,8 +508,8 @@ class AdminLoginRouteTest : StringSpec({
                     contentType(ContentType.Application.FormUrlEncoded)
                     setBody(formBody("email" to admin.email, "password" to admin.password, "totp" to code))
                 }
-            res.status shouldBe HttpStatusCode.OK
-            res.headers["HX-Redirect"] shouldBe "/admin/"
+            res.status shouldBe HttpStatusCode.SeeOther
+            res.headers[HttpHeaders.Location] shouldBe "/admin/"
         }
     }
 
@@ -514,7 +533,7 @@ class AdminLoginRouteTest : StringSpec({
     "non-INET clientIp does not 500 the login (INET guard) — session row gets the sentinel" {
         // Drive a request whose resolved clientIp is NOT an IP literal by
         // sending a hostname-shaped CF-Connecting-IP. The login must still
-        // succeed (200), not throw at the admin_sessions.ip ?::inet cast.
+        // succeed (303), not throw at the admin_sessions.ip ?::inet cast.
         val admin = track(AdminAuthTestSupport.seedAdmin(dataSource))
         val code = AdminAuthTestSupport.currentTotpCode(admin.totpSecret!!)
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
@@ -524,8 +543,8 @@ class AdminLoginRouteTest : StringSpec({
                     header("CF-Connecting-IP", "not-an-ip-literal")
                     setBody(formBody("email" to admin.email, "password" to admin.password, "totp" to code))
                 }
-            res.status shouldBe HttpStatusCode.OK
-            res.headers["HX-Redirect"] shouldBe "/admin/"
+            res.status shouldBe HttpStatusCode.SeeOther
+            res.headers[HttpHeaders.Location] shouldBe "/admin/"
             AdminAuthTestSupport.countSessions(dataSource, admin.id) shouldBe 1
         }
     }

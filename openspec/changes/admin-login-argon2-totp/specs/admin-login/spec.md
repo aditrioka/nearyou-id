@@ -31,16 +31,19 @@ The system SHALL accept `POST /admin/login` with form-encoded `email`, `password
 
 > **AMENDED (apply phase, 2026-05-29):** the CSRF token is NOT an independent random value but is **HMAC-SHA256-derived from the session token** with a server-side secret key (`admin-csrf-hmac-key` slot): `csrfToken = base64url(HMAC-SHA256(key, sessionToken))`. This is the canonical "Signed Double-Submit Cookie" pattern (2026 OWASP CSRF Cheat Sheet) and is required because the authenticated layout must re-render the plaintext CSRF token on every page load while the schema stores only the hash — derivation lets the server recompute it without persisting a second secret. Per-login rotation (fresh session token ⇒ fresh CSRF) + no-per-request-rotation are preserved. See `design.md` D5 for the full rationale + the dated re-check that selected HMAC over plain hashing.
 2. Set the `__Host-admin_session` response cookie with the plaintext session token as its value (base64url-encoded). Cookie attributes per Requirement "Cookie format meets security invariants" below.
-3. Return an HTTP 200 response with the `HX-Redirect: /admin/` header (HTMX redirect convention) so the client navigates to the authenticated index.
+3. Navigate the client to `/admin/`, **dual-mode by client type** (AMENDED apply-phase 2026-05-29 — see below):
+   - **HTMX-driven submit** (request carries `HX-Request: true`): return HTTP 200 with the `HX-Redirect: /admin/` header (HTMX reads the header + does a full page reload to the authenticated index).
+   - **Plain browser form POST** (no `HX-Request` header): return HTTP 303 See Other with `Location: /admin/` (standard POST-redirect-GET). `HX-Redirect` is an HTMX-only header a plain browser ignores, so a 200 + HX-Redirect would leave a real browser on a blank 200 body despite the session cookie being set. `login.peb` is a plain form (progressive enhancement — login works without JS), so the 303 path is the primary one; the HX-Redirect path serves any future `hx-post` login form.
+
+> **AMENDED (apply phase, 2026-05-29):** the original spec said "200 + HX-Redirect" unconditionally. Manual-browser-testing analysis surfaced that a plain `<form method=POST>` submit (which `login.peb` uses) does NOT route through HTMX, so the HTMX-only `HX-Redirect` header is ignored and the browser shows a blank page on success. Resolved via the dual-mode above (a dated re-check confirmed HX-Redirect is canonical only when HTMX processes the response; POST-redirect-GET 303 is canonical for plain server-rendered form posts). See `design.md` D6a.
 
 Password verification SHALL use Argon2id via the `com.password4j:password4j` library with the parameters tuned per `design.md` Decision 2. TOTP verification SHALL use RFC 6238 via the `dev.samstevens.totp:totp` library with SHA-1, 30-second step, 6 digits, and ±1 step skew tolerance per `design.md` Decision 3. The TOTP secret SHALL be decrypted from `admin_users.totp_secret_encrypted` via AES-256-GCM using the key sourced from GCP Secret Manager slot `admin-totp-secret-aes-key` (or `staging-admin-totp-secret-aes-key` in staging) via the `secretKey(env, name)` helper.
 
 #### Scenario: Login succeeds with valid credentials
 
 - **GIVEN** an `admin_users` row exists with `email = 'oka@nearyou.id'`, a known Argon2id `password_hash`, a known AES-256-GCM-encrypted `totp_secret_encrypted`, `is_active = TRUE`, `role = 'owner'`
-- **WHEN** the client sends `POST /admin/login` with form fields `email=oka@nearyou.id&password=<correct>&totp=<current-code>`
-- **THEN** the response status SHALL be 200
-- **AND** the response SHALL include header `HX-Redirect: /admin/`
+- **WHEN** the client sends `POST /admin/login` (plain browser form, no `HX-Request`) with form fields `email=oka@nearyou.id&password=<correct>&totp=<current-code>`
+- **THEN** the response status SHALL be 303 See Other with `Location: /admin/` (the plain-browser POST-redirect-GET path; an `HX-Request: true` submit instead returns 200 + `HX-Redirect: /admin/` per the dual-mode amendment above)
 - **AND** the response SHALL include a `Set-Cookie` header for `__Host-admin_session=...`
 - **AND** a new `admin_sessions` row SHALL exist with `admin_id = <oka-uuid>`, `session_token_hash` = SHA-256 of the cookie value, `csrf_token_hash` non-null, `expires_at` ≈ NOW() + 8h (±10s for clock tolerance), `last_active_at` ≈ NOW(), `revoked_at IS NULL`
 

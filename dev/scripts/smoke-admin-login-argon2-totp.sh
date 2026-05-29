@@ -40,18 +40,41 @@ echo "$login_page" | head -1 | grep -q "200" || fail "expected 200 on /admin/log
 echo "$login_page" | grep -qi 'name="totp"' || fail "login form missing totp field"
 pass "login page renders"
 
-echo "[b] POST /admin/login with valid creds + current TOTP → 200 + HX-Redirect + Set-Cookie"
+echo "[b] POST /admin/login (plain browser form) → 303 to /admin/ + Set-Cookie"
 totp="$(oathtool --totp -b "$STAGING_TEST_TOTP_SECRET")"
 login_resp="$(curl -sS -i -c "$tmp/cookies.txt" \
     --data-urlencode "email=$STAGING_TEST_EMAIL" \
     --data-urlencode "password=$STAGING_TEST_PASSWORD" \
     --data-urlencode "totp=$totp" \
     "$API_BASE/admin/login")"
-echo "$login_resp" | head -1 | grep -q "200" || fail "expected 200 on successful login"
-echo "$login_resp" | grep -qi "^HX-Redirect: /admin/" || fail "missing HX-Redirect: /admin/"
+# Plain browser form post → POST-redirect-GET (303 See Other). HX-Redirect
+# is HTMX-only; a plain browser uses the 303 + Location.
+echo "$login_resp" | head -1 | grep -qE "30[23]" || fail "expected 303 (POST-redirect-GET) on successful browser login"
+echo "$login_resp" | grep -qi "^Location: /admin/" || fail "missing Location: /admin/ on 303"
 set_cookie="$(echo "$login_resp" | grep -i "^Set-Cookie: __Host-admin_session" || true)"
 [ -n "$set_cookie" ] || fail "missing Set-Cookie __Host-admin_session"
-pass "login succeeded"
+pass "browser login succeeded (303 → /admin/)"
+
+echo "[b-htmx] POST /admin/login with HX-Request → 200 + HX-Redirect"
+htmx_totp="$(oathtool --totp -b "$STAGING_TEST_TOTP_SECRET")"
+htmx_resp="$(curl -sS -i -H "HX-Request: true" \
+    --data-urlencode "email=$STAGING_TEST_EMAIL" \
+    --data-urlencode "password=$STAGING_TEST_PASSWORD" \
+    --data-urlencode "totp=$htmx_totp" \
+    "$API_BASE/admin/login")"
+echo "$htmx_resp" | head -1 | grep -q "200" || fail "expected 200 on HTMX login"
+echo "$htmx_resp" | grep -qi "^HX-Redirect: /admin/" || fail "missing HX-Redirect: /admin/ on HTMX login"
+pass "HTMX login path returns 200 + HX-Redirect"
+
+echo "[b.2] full browser navigation: POST then follow the 303 lands on /admin/ 200"
+nav_totp="$(oathtool --totp -b "$STAGING_TEST_TOTP_SECRET")"
+nav_code="$(curl -sS -L -o /dev/null -w "%{http_code}" -c "$tmp/nav.txt" -b "$tmp/nav.txt" \
+    --data-urlencode "email=$STAGING_TEST_EMAIL" \
+    --data-urlencode "password=$STAGING_TEST_PASSWORD" \
+    --data-urlencode "totp=$nav_totp" \
+    "$API_BASE/admin/login")"
+[ "$nav_code" = "200" ] || fail "following the 303 did not land on a 200 page (got $nav_code)"
+pass "browser POST-redirect-GET lands on /admin/ (200) — manual-login UX works"
 
 echo "[b.1] wire-level cookie attribute check"
 echo "$set_cookie" | grep -q "Secure" || fail "cookie missing Secure"

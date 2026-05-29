@@ -215,7 +215,6 @@ class AdminLoginRoutes(
                 maxAgeSeconds = sessionLifetime.seconds.toInt(),
             ),
         )
-        call.response.header("HX-Redirect", "/admin/")
 
         auditLogger.logSuccess(
             adminId = admin.id,
@@ -226,7 +225,23 @@ class AdminLoginRoutes(
             userAgent = userAgent,
         )
 
-        call.respond(HttpStatusCode.OK)
+        // Dual-mode navigation on success:
+        //  - HTMX-driven submit (HX-Request: true) → 200 + HX-Redirect, the
+        //    canonical HTMX redirect (HTMX reads the header + full-reloads).
+        //  - Plain browser form POST (no HX-Request) → 303 See Other +
+        //    Location, the standard POST-redirect-GET. HX-Redirect is an
+        //    HTMX-only header a plain browser ignores, so without this a
+        //    real browser login would land on a blank 200 body despite the
+        //    cookie being set. login.peb is a plain form (progressive
+        //    enhancement: login works without JS), so the 303 path is the
+        //    normal one; the HX-Redirect path serves any future hx-post.
+        if (call.request.headers[HX_REQUEST_HEADER] == "true") {
+            call.response.header(HX_REDIRECT_HEADER, "/admin/")
+            call.respond(HttpStatusCode.OK)
+        } else {
+            call.response.header(HttpHeaders.Location, "/admin/")
+            call.respond(HttpStatusCode.SeeOther)
+        }
     }
 
     private suspend fun io.ktor.server.routing.RoutingContext.renderError() {
@@ -254,6 +269,8 @@ class AdminLoginRoutes(
         const val FORM_EMAIL = "email"
         const val FORM_PASSWORD = "password"
         const val FORM_TOTP = "totp"
+        const val HX_REQUEST_HEADER = "HX-Request"
+        const val HX_REDIRECT_HEADER = "HX-Redirect"
         const val GENERIC_ERROR_MESSAGE = "Email, password, or code is incorrect."
 
         /** Max accepted length for a login form field (generous vs RFC 5321's

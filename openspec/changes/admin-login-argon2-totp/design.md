@@ -174,6 +174,14 @@ This auto-adds the `X-CSRF-Token` header on every HTMX `hx-get`/`hx-post`/`hx-pu
 - Double-submit cookie pattern (CSRF token in a separate cookie, validated against the header) — rejected: requires both cookies to have correct SameSite attributes; the meta-tag pattern is simpler and equally secure for our threat model.
 - Origin / Referer header validation as the sole CSRF defense — rejected: Origin/Referer can be omitted in some cases (HTTPS → HTTPS strict-origin policy can drop it); the explicit token is the canonical defense.
 
+### D6a: Login-success navigation — dual-mode (303 for plain browser, HX-Redirect for HTMX) — ADDED apply-phase
+
+**Choice (added 2026-05-29):** on successful login, navigate to `/admin/` dual-mode by client type:
+- `HX-Request: true` (HTMX-driven submit) → HTTP 200 + `HX-Redirect: /admin/`.
+- no `HX-Request` (plain browser `<form method=POST>`) → HTTP 303 See Other + `Location: /admin/`.
+
+**Why this was added.** The original design (D-login + spec) said "200 + HX-Redirect" unconditionally, on the assumption the admin UI is HTMX-driven. But `login.peb` ships as a **plain HTML form** (deliberately — progressive enhancement: an admin can log in even if JS/HTMX fails to load). A plain form POST does NOT route through HTMX, so the HTMX-only `HX-Redirect` header is ignored by the browser → on success the browser would render the empty 200 body and sit on `/admin/login` (blank page) despite the cookie being set. This was caught by reasoning about **manual browser testing** (the curl smoke only asserted the header, not browser navigation). A dated re-check (2026-05-29) confirmed: `HX-Redirect` is canonical only when HTMX processes the response; the standard **POST-redirect-GET (303)** is canonical for plain server-rendered form posts. Dual-mode satisfies both — plain browsers get the 303 (the primary path), and any future `hx-post` login form gets the HTMX 200 + HX-Redirect. The 303 carries the `Set-Cookie`, so the subsequent GET `/admin/` is authenticated. Validated end-to-end on staging (`smoke` step b.2: POST → follow 303 → lands on `/admin/` 200).
+
 ### D7: Login POST CSRF protection — NOT required on `/admin/login` POST
 
 **Choice:** The `POST /admin/login` endpoint does NOT require a CSRF token. It is exempt from the CSRF middleware. All OTHER state-changing requests under `/admin/*` (including `POST /admin/logout`) require the token.
