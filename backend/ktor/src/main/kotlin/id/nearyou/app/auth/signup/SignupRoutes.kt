@@ -10,6 +10,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -24,19 +25,24 @@ import kotlinx.serialization.Serializable
 const val SIGNUP_USER_BLOCKED_BODY: String =
     """{"error":"user_blocked","message":"Akun tidak dapat dibuat dengan data ini."}"""
 
+// Wire field names are snake_case per the canonical auth-signup spec
+// (`{ "provider", "id_token", "date_of_birth", "device_fingerprint_hash" }` →
+// `{ "access_token", "refresh_token", "expires_in" }`). Same camelCase-vs-spec slip as the
+// sign-in DTOs (see AuthRoutes.kt) — explicit @SerialName is required because the app-wide Json
+// uses kotlinx's default (camelCase) naming. Pinned by AuthWireFormatTest.
 @Serializable
 data class SignupRequestDto(
     val provider: String,
-    val idToken: String,
-    val dateOfBirth: String,
-    val deviceFingerprintHash: String? = null,
+    @SerialName("id_token") val idToken: String,
+    @SerialName("date_of_birth") val dateOfBirth: String,
+    @SerialName("device_fingerprint_hash") val deviceFingerprintHash: String? = null,
 )
 
 @Serializable
 data class SignupTokenPairResponse(
-    val accessToken: String,
-    val refreshToken: String,
-    val expiresIn: Long,
+    @SerialName("access_token") val accessToken: String,
+    @SerialName("refresh_token") val refreshToken: String,
+    @SerialName("expires_in") val expiresIn: Long,
 )
 
 @Serializable

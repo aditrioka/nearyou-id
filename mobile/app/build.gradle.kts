@@ -141,7 +141,11 @@ android {
             dimension = "env"
             applicationIdSuffix = ".staging"
             buildConfigField("String", "API_BASE_URL", "\"https://api-staging.nearyou.id\"")
-            buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"27815942904-egrmb6ou96poualok9gooi63mjo2a0om.apps.googleusercontent.com\"")
+            buildConfigField(
+                "String",
+                "GOOGLE_SERVER_CLIENT_ID",
+                "\"27815942904-egrmb6ou96poualok9gooi63mjo2a0om.apps.googleusercontent.com\"",
+            )
         }
         create("production") {
             dimension = "env"
