@@ -113,6 +113,11 @@ The system SHALL tolerate malformed filter inputs without returning a 500 and wi
 - **THEN** the response status SHALL be 200
 - **AND** the result SHALL be unfiltered by date (the invalid `from` is ignored)
 
+#### Scenario: Over-long filter value is bounded, not errored
+
+- **WHEN** an authenticated client sends `GET /admin/actions-log?action_type=<a string far longer than the 64-char column width>`
+- **THEN** the response status SHALL be 200 (the over-long value is length-bounded during lenient parse and applied as a literal filter — which matches zero rows — rather than causing a 400/500)
+
 ### Requirement: HTMX partial swap with plain-GET progressive enhancement
 
 The system SHALL serve the audit-log table as an HTMX-swappable fragment AND as a full standalone page from the same route, branching on the `HX-Request` header. When the request carries `HX-Request: true`, the system SHALL respond with only the table fragment (the swappable `#actions-log-table` element) so the filter form and surrounding layout remain in place. When the request does NOT carry `HX-Request`, the system SHALL respond with the full page (which includes the same table fragment), so filtering and pagination work without JavaScript. The filtered/paginated URL SHALL remain shareable (a plain `GET` to a filtered URL SHALL reproduce the same filtered view).
@@ -133,15 +138,21 @@ The system SHALL serve the audit-log table as an HTMX-swappable fragment AND as 
 - **AND** the response body SHALL contain the base-layout structural sections AND the `id="actions-log-table"` element
 - **AND** the rendered table SHALL reflect the `action_type=admin_login_success` filter (a shared filtered link reproduces the filtered view)
 
-### Requirement: before_state and after_state render HTML-escaped, never raw
+### Requirement: All audit-row values render HTML-escaped, never raw
 
-The system SHALL render the `before_state` and `after_state` JSONB columns HTML-escaped in the admin's browser, in a per-row on-demand detail region (not inline in the summary row). Audit-row values SHALL NOT be emitted through any template mechanism that bypasses HTML escaping (e.g., a `raw` filter). A `NULL` JSONB column SHALL render as a placeholder (em-dash), not the literal text produced by an unguarded null.
+The system SHALL render every audit-row value HTML-escaped in the admin's browser — this includes the free-text `reason`, the client-controlled `user_agent` (which is fully attacker-influenced at write time), the `ip`, and the `before_state` / `after_state` JSONB (the latter two in a per-row on-demand detail region, not inline in the summary row). No audit-row value SHALL be emitted through any template mechanism that bypasses HTML escaping (e.g., a Pebble `raw` filter); the templates rely on Pebble's default-on autoescaping. A `NULL` `before_state` / `after_state` JSONB column SHALL render as a placeholder (em-dash), not the literal text produced by an unguarded null.
 
 #### Scenario: HTML-bearing state payload is escaped, not executed
 
 - **GIVEN** an authenticated session AND an `admin_actions_log` row whose `after_state` JSONB contains the substring `<script>alert(1)</script>`
 - **WHEN** `GET /admin/actions-log` is served and the row's detail region is rendered
 - **THEN** the response body SHALL contain the escaped form (e.g., `&lt;script&gt;`) and SHALL NOT contain a live, unescaped `<script>alert(1)</script>` tag
+
+#### Scenario: Client-controlled user_agent with markup is escaped
+
+- **GIVEN** an authenticated session AND an `admin_actions_log` row whose `user_agent` contains the substring `<img src=x onerror=alert(1)>`
+- **WHEN** `GET /admin/actions-log` is served and the row is rendered in the summary table
+- **THEN** the response body SHALL contain the escaped form (e.g., `&lt;img `) and SHALL NOT contain a live, unescaped `<img src=x onerror=alert(1)>` tag
 
 #### Scenario: NULL state columns render as a placeholder
 

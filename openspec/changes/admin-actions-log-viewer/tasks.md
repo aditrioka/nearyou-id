@@ -9,37 +9,39 @@
 
 ## 2. Cursor codec + filter parsing
 
-- [ ] 2.1 Implement the opaque cursor codec (encode/decode `base64url("<created_at>|<id>")` per design.md D1). Decode validates the shape; a malformed token returns `null` (→ first page), never throws.
-- [ ] 2.2 Implement lenient filter parsing from query params: `admin_id` → `UUID.fromString` guarded (invalid → ignored); `from`/`to` → ISO-8601 `LocalDate` parse guarded (invalid → ignored); `action_type` / `target_type` / `target_id` → trimmed, length-capped to the column widths (`action_type` ≤ 64, `target_type` ≤ 32), blank → ignored.
+- [ ] 2.1 Implement the opaque cursor codec (encode/decode `base64url("<created_at>|<id>")` per design.md D1). Decode validates the shape; a malformed token returns `null` (→ first page), never throws. Add a pure unit test asserting `encode` then `decode` round-trips AND `decode("garbage")` / `decode("")` / a non-base64url token each return `null` without throwing (proposal-review test-B1, unit half).
+- [ ] 2.2 Implement lenient filter parsing from query params: `admin_id` → `UUID.fromString` guarded (invalid → ignored); `from`/`to` → ISO-8601 `LocalDate` parse guarded (invalid → ignored); `action_type` / `target_type` → trimmed, length-capped to the column widths (`action_type` ≤ 64, `target_type` ≤ 32); `target_id` → trimmed, length-capped to a sane bound (it is `TEXT` with no fixed column width — cap to e.g. 256 so an unbounded query-param can't bloat the bound parameter); blank → ignored. (Over-long values are bounded as literals, never rejected — they simply match zero rows; security-review N3.)
 - [ ] 2.3 Clamp page size to the fixed constant (50); the page size is an implementation constant, not a client-supplied param.
 
 ## 3. Route handler — `AdminActionsLogRoute`
 
-- [ ] 3.1 Create `backend/ktor/src/main/kotlin/id/nearyou/app/admin/routes/AdminActionsLogRoute.kt` with `fun Route.adminActionsLog(repo: AdminActionsLogRepository)`; wire `get("/actions-log")`.
-- [ ] 3.2 Parse + clamp query params (Section 2), build `ActionLogQuery`, call `repo.query(...)`, assemble the Pebble model (rows + active-filter echo + next cursor).
-- [ ] 3.3 Branch on `call.request.headers["HX-Request"] == "true"` (design.md D3): HX → render `_actions-log-table.peb` fragment only; plain → render `actions-log.peb` full page. Both via `PebbleContent` (mirror `AdminIndexRoute`).
+- [ ] 3.1 Create `backend/ktor/src/main/kotlin/id/nearyou/app/admin/routes/AdminActionsLogRoute.kt` with `fun Route.adminActionsLog(repo: AdminActionsLogRepository, csrfHmacKeyProvider: () -> ByteArray)`; wire `get("/actions-log")`.
+- [ ] 3.2 Parse + clamp query params (Section 2), build `ActionLogQuery`, call `repo.query(...)`, assemble the Pebble model (rows + active-filter echo + next cursor). For the FULL-PAGE render, also derive `csrfToken` from the `__Host-admin_session` cookie via `HashUtil.deriveCsrfFromSessionToken(sessionToken, csrfHmacKeyProvider())` and put it in the model — exactly as `AdminIndexRoute` does — so `layout.peb`'s `{% if csrfToken is not null %}` CSRF meta + htmx hook + logout-form `_csrf` render (design.md D3 / proposal-review B2). The HTMX *fragment* response omits `csrfToken` (renders no layout).
+- [ ] 3.3 Branch on `call.request.headers["HX-Request"] == "true"` (design.md D3): HX → render `actions-log-table.peb` fragment only; plain → render `actions-log.peb` full page (with `csrfToken` per 3.2). Both via `PebbleContent` (mirror `AdminIndexRoute`).
 - [ ] 3.4 Ensure the handler performs NO write (no audit insert) and returns 200 with the empty-state model when the page is empty.
 
 ## 4. Templates + nav link
 
-- [ ] 4.1 Add `backend/ktor/src/main/resources/templates/admin/actions-log.peb` — extends `_layout.peb`; renders the filter `<form>` (`hx-get` + `hx-target="#actions-log-table"` + `hx-swap="outerHTML"` + `hx-push-url="true"`) with inputs for `action_type`, `admin_id`, `target_type`, `target_id`, `from`, `to`; `{% include %}`s the table fragment.
-- [ ] 4.2 Add `backend/ktor/src/main/resources/templates/admin/_actions-log-table.peb` — the `id="actions-log-table"` element: the rows table (structured columns) + per-row `<details>` detail region for `before_state`/`after_state` (HTML-escaped; em-dash for NULL per design.md D8) + the "older" `hx-get` pagination control (rendered only when a next cursor exists) + the empty-state message when there are no rows.
-- [ ] 4.3 Verify NO `raw` filter is used on any audit-row value in either template (autoescape preserved — design.md D8 + spec Req "before_state and after_state render HTML-escaped").
-- [ ] 4.4 Add the functional "Audit Log" link (→ `/admin/actions-log`) to the nav stub in `_layout.peb` (design.md D6 — implementation task, not a scaffold-spec modification).
+- [ ] 4.1 Add `backend/ktor/src/main/resources/templates/admin/actions-log.peb` — extends the shipped base layout `layout.peb` (flat name, matching `index.peb` / `login.peb` — NOT `_layout.peb`); renders the filter `<form>` (`hx-get` + `hx-target="#actions-log-table"` + `hx-swap="outerHTML"` + `hx-push-url="true"`) with inputs for `action_type`, `admin_id`, `target_type`, `target_id`, `from`, `to`; `{% include %}`s the table fragment.
+- [ ] 4.2 Add `backend/ktor/src/main/resources/templates/admin/actions-log-table.peb` (flat name, no underscore prefix — the codebase uses flat template names) — the `id="actions-log-table"` element: the rows table (structured columns) + per-row `<details>` detail region for `before_state`/`after_state` (em-dash for NULL per design.md D8) + the "older" `hx-get` pagination control (rendered only when a next cursor exists) + the empty-state message when there are no rows.
+- [ ] 4.3 Verify NO `raw` filter is used on ANY audit-row value in either template — including the inline summary-row `reason` / `user_agent` / `ip`, not just the JSONB detail (autoescape preserved — design.md D8 + spec Req "All audit-row values render HTML-escaped, never raw").
+- [ ] 4.4 Edit the EXISTING `Audit log (stub)` nav entry in `layout.peb` — point its `href` at `/admin/actions-log` and drop the "(stub)" suffix (the placeholder `<li><a href="#">Audit log (stub)</a></li>` already ships; this edits it rather than adding a new link — design.md D6, proposal-review general-N1).
 
 ## 5. Wiring
 
-- [ ] 5.1 In `AdminModule.kt`: construct `AdminActionsLogRepository(dataSource)`; call `adminActionsLog(repo)` inside the existing `authenticate(ADMIN_AUTH_NAME) { ... }` block alongside `adminIndex(...)` + `logoutRoute.install(this)`. No change to auth/CSRF wiring.
+- [ ] 5.1 In `AdminModule.kt`: construct `AdminActionsLogRepository(dataSource)`; call `adminActionsLog(repo, csrfHmacKeyProvider)` inside the existing `authenticate(ADMIN_AUTH_NAME) { ... }` block alongside `adminIndex(csrfHmacKeyProvider)` + `logoutRoute.install(this)` (the `csrfHmacKeyProvider` is already a parameter of `Application.admin(...)` and threaded to `adminIndex`). No change to auth/CSRF wiring.
 
 ## 6. Tests — repository (DB-tagged)
 
 - [ ] 6.1 `AdminActionsLogRepositoryTest.kt` (DB-tagged, runs against the service-container Postgres). Seed `admin_users` + `admin_actions_log` fixtures.
 - [ ] 6.2 Assert newest-first ordering (`created_at DESC, id DESC`).
-- [ ] 6.3 Assert keyset pagination: first page is full + has-next; following the cursor returns strictly-older, non-overlapping rows; last page has no next cursor (spec Req "Keyset pagination").
-- [ ] 6.4 Assert each filter narrows correctly + filters compose with AND (spec Req "Composable, index-aligned filtering").
-- [ ] 6.5 Assert the date-range inclusive-whole-day upper bound (a row at the very end of the `to` day is included; the next day's row is excluded) — pin the boundary per design.md D2.
+- [ ] 6.3 Assert keyset pagination — base case: with more than page-size rows, the first page is full + reports has-next; following the cursor returns strictly-older, non-overlapping rows (no row from page 1 reappears on page 2) (spec Req "Keyset pagination").
+- [ ] 6.3a Assert the exact-page-boundary off-by-one (proposal-review test-B3): seed EXACTLY page-size (50) matching rows → first page returns 50 rows AND reports NO next cursor (the `LIMIT 51` probe returns the 50th-and-final, the 51st is absent, so no "older" control). Separately seed page-size+1 (51) rows → first page returns 50 + reports has-next. Pins the `LIMIT pageSize + 1` drop-the-extra logic (design.md D1).
+- [ ] 6.3b Assert the `id` tiebreaker on `created_at` collision (proposal-review test-B2): seed ≥2 rows with an IDENTICAL `created_at` and distinct `id`s, with a page-size forcing the cursor boundary to fall between them → assert no row is skipped or duplicated across the cursor (the `(created_at, id) < (?, ?)` row-value predicate must use `id DESC` as the deterministic tiebreaker — design.md D1/D7).
+- [ ] 6.4 Assert each filter narrows correctly + filters compose with AND, INCLUDING the `target_type` + `target_id` two-param composition (the conditional second-param path against `admin_actions_target_idx`; proposal-review test-N1), and assert newest-first ordering is preserved WITHIN a filtered result set (proposal-review test-N5) (spec Req "Composable, index-aligned filtering").
+- [ ] 6.5 Assert the date-range inclusive-whole-day upper bound (a row at the very end of the `to` day is included; the next day's row is excluded) — pin the boundary per design.md D2. **Insert fixture `created_at` values with EXPLICIT timezone offsets** (do NOT rely on the CI host's local tz) so the `< to + 1 day` boundary assertion is deterministic across runners (proposal-review test-N4 / `openspec/project.md` § Test-data conventions).
 - [ ] 6.6 Assert the `admin_users` join resolves `display_name` + `email` for each row.
-- [ ] 6.7 Assert an SQL-metacharacter `action_type` value matches zero rows as a literal AND the table still exists afterward (spec Req "Malformed filter inputs … without injection").
+- [ ] 6.7 Assert an SQL-metacharacter `action_type` value matches zero rows as a literal AND the table still exists afterward (spec Req "Malformed filter inputs … without injection"). Also assert an over-long `action_type` (> 64 chars) is bounded and matches zero rows without error (spec scenario "Over-long filter value is bounded, not errored").
 - [ ] 6.8 Assert empty result (no matching rows) returns an empty page, not an error.
 
 ## 7. Tests — route (`testApplication`)
@@ -50,11 +52,15 @@
 - [ ] 7.4 `HX-Request: true` → fragment only (`id="actions-log-table"` present; no `<html>` wrapper / base layout) (spec Req "HTMX partial swap").
 - [ ] 7.5 Plain GET with a filter → full page reflecting the filter (shareable filtered link) (spec Req "HTMX partial swap" scenario "Plain GET returns the full page").
 - [ ] 7.6 Malformed `admin_id` / unparseable `from` → 200, other filters still apply (spec Req "Malformed filter inputs").
-- [ ] 7.7 `after_state` containing `<script>alert(1)</script>` → rendered escaped, no live script tag (spec Req "before_state and after_state render HTML-escaped").
+- [ ] 7.7 `after_state` containing `<script>alert(1)</script>` → rendered escaped, no live script tag (spec Req "All audit-row values render HTML-escaped, never raw").
+- [ ] 7.7a `user_agent` containing `<img src=x onerror=alert(1)>` → rendered escaped in the summary row, no live `<img>` tag (spec scenario "Client-controlled user_agent with markup is escaped"; proposal-review security-N2 / test-N2).
+- [ ] 7.7b A row with `before_state IS NULL` → detail region renders an em-dash, not the literal string `null` (spec scenario "NULL state columns render as a placeholder"; proposal-review test-N2).
 - [ ] 7.8 `POST /admin/actions-log` → 405 (spec Req "adds only read routes" scenario "POST … is not wired").
 - [ ] 7.9 GET does not change the `admin_actions_log` row count (spec Req scenario "Serving the viewer writes no audit row").
 - [ ] 7.10 `read_only`-role admin session → 200 (spec Req "accessible to every authenticated admin role").
 - [ ] 7.11 No-match filter → 200 with empty-state indicator (spec Req "Empty result renders an empty state").
+- [ ] 7.12 `?cursor=not-a-valid-cursor` → 200 with the newest page (malformed cursor falls back to first page, not an error) (spec scenario "Malformed cursor falls back to the first page"; proposal-review test-B1). Complemented by a pure unit assertion that the cursor codec's `decode("garbage")` returns `null` (under Section 2 / task 2.1).
+- [ ] 7.13 The full-page render (no `HX-Request`) includes the `<meta name="csrf-token" ...>` tag (proving `csrfToken` is populated in the model per task 3.2 / proposal-review B2); the HTMX-fragment render does NOT (it carries no layout).
 
 ## 8. Pre-archive staging smoke + bookkeeping
 
