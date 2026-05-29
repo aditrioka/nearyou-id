@@ -74,10 +74,10 @@ private data class StoredTokenPayload(
  * § "iOS Keychain item is single-bundle-scoped, no kSecAttrAccessGroup set".
  */
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
-actual class SecureTokenStore {
+actual class SecureTokenStore : TokenStore {
     private val json = Json { ignoreUnknownKeys = true }
 
-    actual suspend fun read(): TokenPair? =
+    actual override suspend fun read(): TokenPair? =
         withContext(Dispatchers.Default) {
             val raw = readKeychainItem() ?: return@withContext null
             val payload =
@@ -93,7 +93,7 @@ actual class SecureTokenStore {
             )
         }
 
-    actual suspend fun write(tokens: TokenPair) {
+    actual override suspend fun write(tokens: TokenPair) {
         withContext(Dispatchers.Default) {
             val payload =
                 StoredTokenPayload(
@@ -106,7 +106,7 @@ actual class SecureTokenStore {
         }
     }
 
-    actual suspend fun clear() {
+    actual override suspend fun clear() {
         withContext(Dispatchers.Default) {
             deleteKeychainItem()
         }

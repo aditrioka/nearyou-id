@@ -48,6 +48,9 @@ kotlin {
             implementation(libs.androidx.datastore.preferences)
             implementation(libs.google.tink)
             implementation(libs.ktor.kmp.clientOkhttp)
+            // koin-android gives `androidContext()` so the platform Koin module can supply a
+            // Context to `SecureTokenStore` without a bespoke context-holder.
+            implementation(libs.koin.android)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -108,19 +111,27 @@ android {
     // client (tasks.md 10.2). Production has no suffix.
     flavorDimensions += "env"
     productFlavors {
+        // GOOGLE_SERVER_CLIENT_ID is the backend's Google OAuth **web/server** client ID (the
+        // audience of the Google ID token). Per-flavor placeholders until Google Cloud Console
+        // provisioning (tasks.md 10.2/10.3); per CLAUDE.md § Public-repo posture these IDs are
+        // non-sensitive once real (the SHA-1 signing-cert binding is the security boundary), so
+        // they may be committed verbatim once provisioned.
         create("dev") {
             dimension = "env"
             applicationIdSuffix = ".dev"
             buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080\"")
+            buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"REPLACE_WITH_DEV_SERVER_CLIENT_ID.apps.googleusercontent.com\"")
         }
         create("staging") {
             dimension = "env"
             applicationIdSuffix = ".staging"
             buildConfigField("String", "API_BASE_URL", "\"https://api-staging.nearyou.id\"")
+            buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"REPLACE_WITH_STAGING_SERVER_CLIENT_ID.apps.googleusercontent.com\"")
         }
         create("production") {
             dimension = "env"
             buildConfigField("String", "API_BASE_URL", "\"https://api.nearyou.id.PLACEHOLDER\"")
+            buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"REPLACE_WITH_PRODUCTION_SERVER_CLIENT_ID.apps.googleusercontent.com\"")
         }
     }
 

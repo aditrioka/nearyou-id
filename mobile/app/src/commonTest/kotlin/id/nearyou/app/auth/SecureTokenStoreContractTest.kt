@@ -70,20 +70,31 @@ class SecureTokenStoreContractTest {
 }
 
 /**
- * Test-only in-memory implementation of the SecureTokenStore contract. Mirrors the API
- * shape declared by [SecureTokenStore] but with a backing reference instead of platform
- * encryption — used to verify the contract behavior without requiring a platform context.
+ * Test-only in-memory [TokenStore]. Backs the contract test here and is the substitution
+ * point `HttpClientFactory` / `AuthRepository` tests inject in place of the platform
+ * [SecureTokenStore]. Exposes [clearCount] / [writeCount] spy counters so the bearer
+ * refresh-failure path (clear-on-terminal-401) can be asserted (§5.8d).
  */
-internal class InMemoryTokenStore {
-    private var current: TokenPair? = null
+internal class InMemoryTokenStore(
+    initial: TokenPair? = null,
+) : TokenStore {
+    private var current: TokenPair? = initial
 
-    suspend fun read(): TokenPair? = current
+    var clearCount: Int = 0
+        private set
 
-    suspend fun write(tokens: TokenPair) {
+    var writeCount: Int = 0
+        private set
+
+    override suspend fun read(): TokenPair? = current
+
+    override suspend fun write(tokens: TokenPair) {
         current = tokens
+        writeCount++
     }
 
-    suspend fun clear() {
+    override suspend fun clear() {
         current = null
+        clearCount++
     }
 }

@@ -38,7 +38,7 @@ private val Context.tokenStore: DataStore<Preferences> by preferencesDataStore(n
  * No `setUserAuthenticationRequired(true)` is set on the master key — locking the keyset
  * behind biometric/lockscreen would break the post-reboot RootRouterScreen routing path.
  */
-actual class SecureTokenStore(private val context: Context) {
+actual class SecureTokenStore(private val context: Context) : TokenStore {
     private val dataStore: DataStore<Preferences> = context.tokenStore
 
     private val aead: Aead by lazy {
@@ -52,7 +52,7 @@ actual class SecureTokenStore(private val context: Context) {
             .getPrimitive(Aead::class.java)
     }
 
-    actual suspend fun read(): TokenPair? {
+    actual override suspend fun read(): TokenPair? {
         val prefs = dataStore.data.first()
         val encryptedAccess = prefs[ACCESS_TOKEN_KEY] ?: return null
         val encryptedRefresh = prefs[REFRESH_TOKEN_KEY] ?: return null
@@ -67,7 +67,7 @@ actual class SecureTokenStore(private val context: Context) {
         }
     }
 
-    actual suspend fun write(tokens: TokenPair) {
+    actual override suspend fun write(tokens: TokenPair) {
         val encryptedAccess =
             Base64.encodeToString(
                 aead.encrypt(tokens.accessToken.encodeToByteArray(), null),
@@ -85,7 +85,7 @@ actual class SecureTokenStore(private val context: Context) {
         }
     }
 
-    actual suspend fun clear() {
+    actual override suspend fun clear() {
         dataStore.edit { it.clear() }
     }
 }

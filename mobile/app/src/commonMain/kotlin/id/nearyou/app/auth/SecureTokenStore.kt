@@ -1,6 +1,20 @@
 package id.nearyou.app.auth
 
 /**
+ * The token-persistence contract consumed by `HttpClientFactory` (bearer load/refresh) and
+ * `AuthRepository`. The production binding is the platform [SecureTokenStore] expect/actual;
+ * commonTest substitutes an `InMemoryTokenStore` so the bearer-refresh + clear-on-failure
+ * paths can be exercised without a platform Keystore / Keychain.
+ */
+interface TokenStore {
+    suspend fun read(): TokenPair?
+
+    suspend fun write(tokens: TokenPair)
+
+    suspend fun clear()
+}
+
+/**
  * Secure persistence of the backend-issued auth token pair.
  *
  * Round-trip integrity is mandatory: `write(tokens)` followed by `read()` (potentially
@@ -13,12 +27,12 @@ package id.nearyou.app.auth
  *    wrapped by an Android-Keystore master key at alias `nearyou_auth_tokens_master_key`).
  *  - iosMain: Keychain Services with accessibility `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`.
  */
-expect class SecureTokenStore {
-    suspend fun read(): TokenPair?
+expect class SecureTokenStore : TokenStore {
+    override suspend fun read(): TokenPair?
 
-    suspend fun write(tokens: TokenPair)
+    override suspend fun write(tokens: TokenPair)
 
-    suspend fun clear()
+    override suspend fun clear()
 }
 
 /**

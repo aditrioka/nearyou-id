@@ -37,7 +37,7 @@ import org.koin.mp.KoinPlatformTools
 fun initKoin(additionalConfig: KoinAppDeclaration? = null) {
     if (KoinPlatformTools.defaultContext().getOrNull() == null) {
         startKoin {
-            modules(mobileModule)
+            modules(mobileModule, platformModule)
             additionalConfig?.invoke(this)
         }
     }
