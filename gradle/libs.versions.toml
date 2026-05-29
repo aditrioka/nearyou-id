@@ -31,6 +31,7 @@ kotlinx-datetime = "0.7.1"
 kotlinx-serialization = "1.9.0"
 ktlint-plugin = "12.1.2"
 ktor = "3.4.1"
+robolectric = "4.14.1"
 lettuce = "6.5.0.RELEASE"
 logback = "1.5.32"
 opentelemetry-bom = "1.51.0"
@@ -65,6 +66,11 @@ compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMul
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
 compose-uiToolingPreview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "composeMultiplatform" }
 compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "composeMultiplatform" }
+# androidx (Google) ui-test-manifest — provides the ComponentActivity manifest entry that
+# Robolectric's runComposeUiTest (ActivityScenario) needs. Pinned to the resolved
+# androidx.compose.ui runtime version, NOT the JetBrains composeMultiplatform version.
+androidx-composeUi-testManifest = { module = "androidx.compose.ui:ui-test-manifest", version = "1.10.5" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 ktor-serverCore = { module = "io.ktor:ktor-server-core-jvm", version.ref = "ktor" }

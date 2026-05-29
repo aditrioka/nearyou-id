@@ -80,6 +80,14 @@ kotlin {
             // Mobile #3 — MockEngine for AuthApiClient tests + runTest for suspend tests.
             implementation(libs.ktor.kmp.clientMock)
             implementation(libs.kotlinx.coroutines.test)
+            // Mobile #3 — Compose UI test API (runComposeUiTest). The SignInScreen /
+            // RootRouterScreen render+interaction tests live in androidUnitTest (Robolectric
+            // JVM runner); the API itself is shared so the fakes can live in commonTest.
+            implementation(libs.compose.ui.test)
+        }
+        androidUnitTest.dependencies {
+            // Mobile #3 — Robolectric runs the Compose UI tests on the JVM (no emulator).
+            implementation(libs.robolectric)
         }
         iosMain.dependencies {
             // Mobile #3 — Darwin engine for iOS Ktor client.
@@ -103,6 +111,13 @@ android {
     buildFeatures {
         // Mobile #3 — required so per-flavor `API_BASE_URL` is exposed on `BuildConfig`.
         buildConfig = true
+    }
+
+    testOptions {
+        unitTests {
+            // Mobile #3 — Robolectric-backed Compose UI tests need merged Android resources.
+            isIncludeAndroidResources = true
+        }
     }
 
     // Mobile #3 — env-aware API base URL per `openspec/project.md` § Environments. Per-flavor
@@ -153,4 +168,7 @@ android {
 
 dependencies {
     debugImplementation(libs.compose.uiTooling)
+    // Mobile #3 — merges `androidx.activity.ComponentActivity` into the debug manifest so
+    // Robolectric's `runComposeUiTest` (ActivityScenario) can resolve a host activity.
+    debugImplementation(libs.androidx.composeUi.testManifest)
 }
