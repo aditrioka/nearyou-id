@@ -76,10 +76,10 @@
 
 ## 8. shared-resources string additions
 
-- [ ] 8.1 Add the 8 Mobile #3 strings (`cta_signin_google`, `signin_screen_title`, `signin_error_no_account`, `signin_error_banned`, `signin_error_network`, `signin_error_token_invalid`, `signin_loading`, `account_separation_disclosure`) to `shared/resources/src/commonMain/composeResources/values/strings.xml` per spec text-content scenarios
-- [ ] 8.2 Verify the 10 Mobile #2 / #2.5 strings remain byte-identical to current shipped content (no rewrite); rebuild `:shared:resources` and verify `Res.string.<name>` accessors compile for both new + existing entries
-- [ ] 8.3 Confirm `openspec/specs/shared-resources/spec.md` is NOT pre-modified during implementation — the archive workflow (`/opsx:archive`) applies the delta from `openspec/changes/<change-name>/specs/shared-resources/spec.md` to the canonical spec at archive time. Pre-applying the delta during implementation creates drift. The implementation-phase check is just `openspec validate mobile-auth-google-signin-flow --strict` (passes against the delta-only `specs/<capability>/spec.md`); this task is otherwise a no-op
-- [ ] 8.4 Run `./gradlew :shared:resources:assemble` (or equivalent) to verify codegen + commit "feat(shared:resources): add Mobile #3 sign-in flow strings"
+- [x] 8.1 Add the 8 Mobile #3 strings (`cta_signin_google`, `signin_screen_title`, `signin_error_no_account`, `signin_error_banned`, `signin_error_network`, `signin_error_token_invalid`, `signin_loading`, `account_separation_disclosure`) to `shared/resources/src/commonMain/composeResources/values/strings.xml` per spec text-content scenarios
+- [x] 8.2 Verify the 10 Mobile #2 / #2.5 strings remain byte-identical to current shipped content (no rewrite); rebuild `:shared:resources` and verify `Res.string.<name>` accessors compile for both new + existing entries — the 10 existing strings are untouched (8 strings appended only); generated `String0.commonMain.kt` contains `Res.string.{cta_signin_google,signin_screen_title,signin_error_*,signin_loading,account_separation_disclosure}` accessors
+- [x] 8.3 Confirm `openspec/specs/shared-resources/spec.md` is NOT pre-modified during implementation — the archive workflow (`/opsx:archive`) applies the delta from `openspec/changes/<change-name>/specs/shared-resources/spec.md` to the canonical spec at archive time. Pre-applying the delta during implementation creates drift. The implementation-phase check is just `openspec validate mobile-auth-google-signin-flow --strict` (passes against the delta-only `specs/<capability>/spec.md`); this task is otherwise a no-op — confirmed not pre-modified
+- [x] 8.4 Run `./gradlew :shared:resources:assemble` (or equivalent) to verify codegen + commit "feat(shared:resources): add Mobile #3 sign-in flow strings" — `:shared:resources:generateResourceAccessorsForCommonMain` + `:shared:resources:assemble` green
 
 ## 9. Static checks + grep-verifications updated
 
