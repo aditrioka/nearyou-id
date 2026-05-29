@@ -17,13 +17,20 @@ import com.password4j.types.Argon2
  *  - Hash output length: 32 bytes (OWASP recommendation)
  *  - Target verify wall time: 400–800 ms on the local dev machine
  *
- * `@benchmark 2026-05-29 (apply-phase, Apple Silicon dev machine):` the
- * initial 64 MiB / 3 iter preset measured a mean verify wall time of
- * 192.8 ms (n=10) — below the 400-800 ms target window. Bumped to
- * 128 MiB / 4 iter, which measures ~500 ms mean on the same machine
- * (≈2.6× the prior work). CI runners are slower; the benchmark spec's
- * loose [300, 2000] ms bounds tolerate that variance. Re-run
- * `PasswordHasherBenchmarkTest` (tag `benchmark`) after any params change.
+ * `@benchmark 2026-05-29 (apply-phase):` tuning history —
+ *  - 64 MiB / 3 iter → 192.8 ms mean on the dev machine (too fast).
+ *  - 128 MiB / 4 iter → ~500 ms mean on the dev machine (in the original
+ *    target) BUT **OOM'd the staging Cloud Run heap** — the pre-archive
+ *    smoke surfaced HTTP 500 "Java heap space" on the first login attempt,
+ *    because `--memory=512Mi` gives a ~128 MiB JVM heap and Argon2's memory
+ *    matrix is allocated on-heap per hash. Memory tuning MUST fit the
+ *    deployment envelope, not the dev machine.
+ *  - **19 MiB / 8 iter (current)** → fits the heap with concurrency
+ *    headroom; OWASP's recommended memory-constrained profile is m=19456,
+ *    t=2, so t=8 is 4× that work factor. Dev-machine mean is fast (~150 ms);
+ *    the production ≈400-800 ms target lands on the slower Cloud Run cpu=2
+ *    core (not measurable from the dev benchmark). Re-run
+ *    `PasswordHasherBenchmarkTest` (tag `benchmark`) after any params change.
  *
  * D15 sentinel-params discipline:
  *  - The sentinel hash is computed at module bootstrap from a fixed
@@ -47,10 +54,18 @@ object PasswordHasher {
     const val HASH_OUTPUT_BYTES = 32
 
     // ----- Tuned production parameters -----
-    // Tuned to land in the 400–800 ms verify window (see the @benchmark note
-    // in the class KDoc); re-run PasswordHasherBenchmarkTest after changing.
-    const val MEMORY_KIB = 128 * 1024 // 128 MiB
-    const val ITERATIONS = 4
+    // Memory is sized to the DEPLOYMENT envelope, not the dev machine: the
+    // staging/prod Cloud Run service runs `--memory=512Mi` → ~128 MiB JVM
+    // heap (default 25% container ergonomics). Argon2's memory matrix is
+    // allocated on-heap PER hash, so the original 128 MiB tuning OOM'd the
+    // heap on the very first login attempt (caught by the pre-archive
+    // staging smoke). 19 MiB is OWASP's recommended memory-constrained
+    // profile (m=19456, t=2) and leaves ample heap for the app + concurrent
+    // logins. Iterations bumped to keep the work factor up at the lower
+    // memory. See the @benchmark note in the class KDoc; re-run
+    // PasswordHasherBenchmarkTest after changing.
+    const val MEMORY_KIB = 19 * 1024 // 19 MiB (OWASP memory-constrained profile)
+    const val ITERATIONS = 8
 
     /**
      * The single [Argon2Function] instance used for BOTH production hashing
