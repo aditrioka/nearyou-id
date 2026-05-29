@@ -1,11 +1,13 @@
 package id.nearyou.app.admin
 
+import id.nearyou.app.admin.actionslog.AdminActionsLogRepository
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminLoginRoutes
 import id.nearyou.app.admin.auth.AdminLogoutRoute
 import id.nearyou.app.admin.auth.AdminUserRepository
 import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.auth.adminAuth
+import id.nearyou.app.admin.routes.adminActionsLog
 import id.nearyou.app.admin.routes.adminIndex
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -50,6 +52,7 @@ fun Application.admin(
     val adminUserRepository = AdminUserRepository(dataSource)
     val sessionRepository = SessionRepository(dataSource)
     val auditLogger = AdminAuditLogger(dataSource)
+    val actionsLogRepository = AdminActionsLogRepository(dataSource)
     val loginRoutes =
         AdminLoginRoutes(
             adminUserRepository = adminUserRepository,
@@ -109,6 +112,7 @@ fun Application.admin(
                 // surface as routing-layer 405s because no handler runs.
                 logoutRoute.install(this)
                 adminIndex(csrfHmacKeyProvider)
+                adminActionsLog(actionsLogRepository, csrfHmacKeyProvider)
             }
         }
     }

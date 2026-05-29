@@ -1,0 +1,54 @@
+{# Swappable audit-log table fragment. Rendered standalone for HTMX requests
+   (HX-Request: true) and {% include %}d by actions-log.peb for full-page
+   navigation. The #actions-log-table id is the hx-target swapped in place.
+   Every value is Pebble-autoescaped on output (design.md D8) — no `raw`
+   filter is used on any audit-row value, including the client-controlled
+   user_agent and free-text reason. #}
+<div id="actions-log-table">
+{% if hasRows %}
+    <table>
+        <thead>
+            <tr>
+                <th>Time (UTC)</th>
+                <th>Admin</th>
+                <th>Action</th>
+                <th>Target</th>
+                <th>Reason</th>
+                <th>IP</th>
+                <th>User agent</th>
+                <th>State</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td>{{ row.createdAt }}</td>
+                <td>{{ row.adminDisplay }}</td>
+                <td>{{ row.actionType }}</td>
+                <td>{{ row.target }}</td>
+                <td>{{ row.reason }}</td>
+                <td>{{ row.ip }}</td>
+                <td>{{ row.userAgent }}</td>
+                <td>
+                    <details>
+                        <summary>view</summary>
+                        <div class="state-before"><strong>before:</strong> {{ row.beforeState }}</div>
+                        <div class="state-after"><strong>after:</strong> {{ row.afterState }}</div>
+                    </details>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if olderUrl is not null %}
+    <a class="pagination-older"
+       href="{{ olderUrl }}"
+       hx-get="{{ olderUrl }}"
+       hx-target="#actions-log-table"
+       hx-swap="outerHTML"
+       hx-push-url="true">Older &rarr;</a>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No audit log entries match the current filters.</p>
+{% endif %}
+</div>
