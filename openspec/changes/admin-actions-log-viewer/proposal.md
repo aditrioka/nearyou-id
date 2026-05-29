@@ -31,7 +31,7 @@ What's missing is the surface that makes those rows *useful*: there is no way to
 
 ### New Capabilities
 
-- `admin-actions-log-viewer`: The read-only in-app surface for the `admin_actions_log` audit trail. Owns the `GET /admin/actions-log` route (authenticated, wrapped by the `admin-login` session + CSRF middleware), keyset pagination over `(created_at, id)` DESC, composable index-aligned filters (`action_type` / `admin_id` / `target_type`+`target_id` / `from`+`to` date range), an `admin_users` join for human-readable actor display, HTML-escaped `before_state`/`after_state` detail rendering, HTMX partial-swap with plain-GET progressive-enhancement fallback, and the read-only-no-mutation posture that relies on the operational `REVOKE UPDATE, DELETE … FROM admin_app` for DB immutability. Builds entirely on shipped infrastructure — the V16 schema ([`admin-schema`](../../specs/admin-schema/spec.md)), the auth gate ([`admin-login`](../../specs/admin-login/spec.md)), and the route subtree + base layout ([`admin-panel-scaffold`](../../specs/admin-panel-scaffold/spec.md)). Zero migrations, zero new library pins.
+- `admin-actions-log-viewer`: The read-only in-app surface for the `admin_actions_log` audit trail. Owns the `GET /admin/actions-log` route (authenticated, wrapped by the `admin-login` session + CSRF middleware), keyset pagination over `(created_at, id)` DESC, composable index-aligned filters (`action_type` / `admin_id` / `target_type`+`target_id` / `from`+`to` date range), an `admin_users` join for human-readable actor display, HTML-escaped `before_state`/`after_state` detail rendering, HTMX partial-swap with plain-GET progressive-enhancement fallback, and the read-only-no-mutation posture that relies on the operational `REVOKE UPDATE, DELETE … FROM admin_app` for DB immutability. Builds on shipped infrastructure — the V16 schema ([`admin-schema`](../../specs/admin-schema/spec.md)), the auth gate ([`admin-login`](../../specs/admin-login/spec.md)), and the route subtree + base layout ([`admin-panel-scaffold`](../../specs/admin-panel-scaffold/spec.md)). Ships **one** performance-only Flyway migration (`V17` — a `(created_at DESC, id DESC)` keyset index on `admin_actions_log`; see `design.md` D9) and **zero new library pins**.
 
 ### Modified Capabilities
 
@@ -45,7 +45,8 @@ What's missing is the surface that makes those rows *useful*: there is no way to
 - `backend/ktor/src/main/kotlin/id/nearyou/app/admin/routes/AdminActionsLogRoute.kt` (new) — `fun Route.adminActionsLog(repo, csrfHmacKeyProvider)`: parses + clamps query params, calls the repository, builds the Pebble model (deriving `csrfToken` from the session cookie via `HashUtil.deriveCsrfFromSessionToken` exactly as `AdminIndexRoute` does, so the full-page render carries the layout's CSRF wiring), renders full page vs `#actions-log-table` fragment based on the `HX-Request` header (mirrors `AdminIndexRoute` + the `admin-login` HTMX/plain dual-mode).
 - `backend/ktor/src/main/kotlin/id/nearyou/app/admin/actionslog/AdminActionsLogRepository.kt` (new) — `PreparedStatement`-parameterized SELECT against `admin_actions_log` LEFT/INNER JOIN `admin_users`, dynamic WHERE built from the active filter set, keyset cursor predicate, `LIMIT pageSize + 1` (the extra row signals "has older"). Plus `ActionLogRow` / `ActionLogQuery` / `ActionLogCursor` data classes. Admin-module raw-read exemption applies (per [`openspec/project.md`](../../project.md) § Coding Conventions — raw reads allowed in the admin module; `visible_*` + block-join rules do not apply).
 - `backend/ktor/src/main/resources/templates/admin/` — `actions-log.peb` (full page extending the shipped base layout `layout.peb`: filter form + table fragment include), `actions-log-table.peb` (the swappable table + pagination fragment, included by both the full page and the HTMX partial response), and the existing `Audit log (stub)` nav entry in `layout.peb` edited to point at `/admin/actions-log` (drop the "(stub)" suffix) rather than a newly-added link.
-- `backend/ktor/src/test/kotlin/id/nearyou/app/admin/` — repository integration tests (`AdminActionsLogRepositoryTest.kt`, DB-tagged) + route tests (`AdminActionsLogRouteTest.kt`, `testApplication`).
+- `backend/ktor/src/main/resources/db/migration/V17__admin_actions_log_created_idx.sql` (new) — the single performance-only index migration (see `design.md` D9).
+- `backend/ktor/src/test/kotlin/id/nearyou/app/admin/` — repository integration tests (`AdminActionsLogRepositoryTest.kt`, DB-tagged; includes the `V17` index-existence assertion) + route tests (`AdminActionsLogRouteTest.kt`, `testApplication`).
 
 **Affected APIs (HTTP surface).**
 
@@ -56,11 +57,11 @@ What's missing is the surface that makes those rows *useful*: there is no way to
 
 - None. Pebble + HTMX (Admin #2), the session/CSRF gate (Admin #3), and JDBC `PreparedStatement` are all already on the classpath. No new pin ⇒ the pre-implementation library re-check ([`openspec/project.md`](../../project.md) § Change Delivery Workflow) does NOT apply to this change (the trigger is "new substrate enters the codebase").
 
-**Affected database tables (runtime, not schema):**
+**Affected database tables:**
 
-- `admin_actions_log` — first runtime `SELECT`s (read-only; the table has only been written to until now). Queries hit the three V16 indexes. No INSERT/UPDATE/DELETE.
+- `admin_actions_log` — first runtime `SELECT`s (read-only; the table has only been written to until now). Queries hit the three V16 indexes plus the new `V17` `admin_actions_created_idx`. No INSERT/UPDATE/DELETE.
 - `admin_users` — additional read: join to resolve `admin_id` → `display_name` + `email` for actor display. No write.
-- No migration. No schema change.
+- One migration: `V17__admin_actions_log_created_idx.sql` — a single non-partial composite index `admin_actions_created_idx (created_at DESC, id DESC)` serving the default + date-only keyset queries (see `design.md` D9). No column/table/constraint change.
 
 **Affected operational state.**
 

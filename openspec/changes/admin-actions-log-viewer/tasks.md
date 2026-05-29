@@ -1,3 +1,7 @@
+## 0. Index migration (`V17`) — added during apply per design.md D9
+
+- [x] 0.1 Create `backend/ktor/src/main/resources/db/migration/V17__admin_actions_log_created_idx.sql` — `CREATE INDEX IF NOT EXISTS admin_actions_created_idx ON admin_actions_log (created_at DESC, id DESC)`. Non-partial (no `WHERE` → satisfies the partial-index invariant by construction), idempotent (`IF NOT EXISTS`), environment-portable (applies against the integration-test Postgres + staging + prod). Header comment cites the change + the keyset-query rationale.
+
 ## 1. Repository — `AdminActionsLogRepository`
 
 - [x] 1.1 Create `backend/ktor/src/main/kotlin/id/nearyou/app/admin/actionslog/AdminActionsLogRepository.kt` mirroring the `SessionRepository` / `AdminUserRepository` JDBC pattern (constructor-injected `DataSource`, `PreparedStatement`, no ORM).
@@ -43,6 +47,7 @@
 - [x] 6.6 Assert the `admin_users` join resolves `display_name` + `email` for each row.
 - [x] 6.7 Assert an SQL-metacharacter `action_type` value matches zero rows as a literal AND the table still exists afterward (spec Req "Malformed filter inputs … without injection"). Also assert an over-long `action_type` (> 64 chars) is bounded and matches zero rows without error (spec scenario "Over-long filter value is bounded, not errored").
 - [x] 6.8 Assert empty result (no matching rows) returns an empty page, not an error.
+- [x] 6.9 Assert the `V17` migration created `admin_actions_created_idx` on `admin_actions_log` with both keyset key columns in DESC order AND no `WHERE` clause (non-partial) — query `pg_indexes` (spec Req "A composite (created_at DESC, id DESC) index serves the keyset queries"; design.md D9).
 
 ## 7. Tests — route (`testApplication`)
 
@@ -61,11 +66,12 @@
 - [x] 7.11 No-match filter → 200 with empty-state indicator (spec Req "Empty result renders an empty state").
 - [x] 7.12 `?cursor=not-a-valid-cursor` → 200 with the newest page (malformed cursor falls back to first page, not an error) (spec scenario "Malformed cursor falls back to the first page"; proposal-review test-B1). Complemented by a pure unit assertion that the cursor codec's `decode("garbage")` returns `null` (under Section 2 / task 2.1).
 - [x] 7.13 The full-page render (no `HX-Request`) includes the `<meta name="csrf-token" ...>` tag (proving `csrfToken` is populated in the model per task 3.2 / proposal-review B2); the HTMX-fragment render does NOT (it carries no layout).
+- [x] 7.14 Follow the rendered "older" link over HTTP end-to-end (impl-review test-N4): seed 60 rows, GET page 1, extract the `pagination-older` href, GET it, assert the second page is the next-older, non-overlapping set (exercises the cursor encode → query-param → decode round-trip the repo-level test 6.3 cannot reach).
 
 ## 8. Pre-archive staging smoke + bookkeeping
 
 - [x] 8.1 Lint + compile + non-DB tests green locally: `ktlintCheck` clean (main + test), `detekt` 0 findings (custom `RawFromPostsRule`/`BlockExclusionJoinRule` correctly do NOT flag the admin-module raw reads), all sources compile (incl. the DB-tagged tests), and the pure `ActionLogCursorTest` passes. NOTE: the full `:backend:ktor:test` suite is NOT runnable in this sandbox — no Postgres/Docker, and many pre-existing specs (e.g. `ChatFoundationRouteTest`) require a DB and aren't `@Tags("database")`-excluded, so they fail with `ConnectException` here. The DB-tagged `AdminActionsLogRepositoryTest` + `AdminActionsLogRouteTest` compile cleanly and run in CI's service-container Postgres (per `openspec/project.md` § CI expectations — database-tagged tests run against the service container). `:lint:detekt-rules:test` unaffected (no rule changes in this change).
 - [ ] 8.2 Manual staging deploy on the branch (`gh workflow run deploy-staging.yml --ref <branch>`); authenticate as the staging test admin (provisioned in Admin #3); confirm the `admin_login_success` row from that login is visible in `/admin/actions-log`; exercise each filter + the "older" control. (Per `openspec/project.md` § Staging deploy timing — pre-archive smoke. Deferred to the pre-archive gate; not runnable from this sandbox.)
-- [x] 8.3 No `gradle/libs.versions.toml` change and no Flyway migration in this change — confirmed via `git status` (no dep/migration files in the change set; scope stayed read-only-feature-only).
+- [x] 8.3 No `gradle/libs.versions.toml` change — confirmed via `git status` (no new library pin; the pre-impl re-check is N/A). ONE Flyway migration ships: `V17__admin_actions_log_created_idx.sql` (performance-only index, added during apply per design.md D9 / operator decision) — `migrate-supabase-parity` CI job will validate it applies cleanly; no parity-init change needed (plain `CREATE INDEX`, assumes no new Supabase-provided state).
 - [x] 8.4 No new module added to `settings.gradle.kts` — confirmed (no `settings.gradle.kts` change) ⇒ no `dev/module-descriptions.txt` / `sync-readme.sh` update needed.
 - [ ] 8.5 Archive bookkeeping handled by `/opsx:archive` (spec sync for the new `admin-actions-log-viewer` capability + move under `archive/`).

@@ -179,8 +179,14 @@ class AdminActionsLogRouteTest : StringSpec({
 
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             val body = client.get("/admin/actions-log") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
-            body shouldContain "—" // before_state placeholder
-            body shouldNotContain "null"
+            // Scope both assertions to the before_state cell (impl-review B1):
+            // a whole-document `shouldNotContain "null"` would false-fail the day
+            // any unrelated "null" token (JS guard, attribute, copy) lands on the
+            // page, and a bare `shouldContain "—"` also matches the target column's
+            // em-dash. Anchoring on `before:</strong> …` pins the placeholder to the
+            // before_state region specifically.
+            body shouldContain "before:</strong> —"
+            body shouldNotContain "before:</strong> null"
         }
     }
 
@@ -262,6 +268,44 @@ class AdminActionsLogRouteTest : StringSpec({
                     header("HX-Request", "true")
                 }.bodyAsText()
             fragment shouldNotContain "<meta name=\"csrf-token\""
+        }
+    }
+
+    "7.14 — following the rendered older-cursor link over HTTP returns the next-older, non-overlapping page" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        // 60 rows, reasons evt-00..evt-59 with strictly increasing created_at
+        // (evt-59 newest). Page size 50 → page 1 = evt-59..evt-10, page 2 = evt-09..evt-00.
+        repeat(60) { i ->
+            ActionsLogTestSupport.seedActionLog(
+                dataSource,
+                admin.id,
+                "admin_login_success",
+                base.plusSeconds(i.toLong()),
+                reason = "evt-%02d".format(i),
+            )
+        }
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val page1 = client.get("/admin/actions-log") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            page1 shouldContain "evt-59"
+            page1 shouldContain "evt-10"
+            page1 shouldNotContain "evt-09"
+            page1 shouldNotContain "evt-00"
+
+            // Extract the older-cursor link the template rendered and follow it over
+            // HTTP — exercises the full encode → query-param → decode round-trip that
+            // the repo-level cursor test (6.3) cannot reach.
+            val olderUrl =
+                Regex("class=\"pagination-older\"\\s+href=\"([^\"]+)\"")
+                    .find(page1)!!
+                    .groupValues[1]
+                    .replace("&amp;", "&")
+
+            val page2 = client.get(olderUrl) { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            page2 shouldContain "evt-09"
+            page2 shouldContain "evt-00"
+            page2 shouldNotContain "evt-59"
+            page2 shouldNotContain "evt-10"
         }
     }
 })

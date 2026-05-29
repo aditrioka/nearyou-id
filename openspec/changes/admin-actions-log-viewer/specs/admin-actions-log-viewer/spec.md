@@ -197,3 +197,18 @@ The system SHALL render an explicit empty-state message when no `admin_actions_l
 - **WHEN** `GET /admin/actions-log?action_type=a_value_that_matches_no_rows` is served
 - **THEN** the response status SHALL be 200
 - **AND** the rendered body SHALL contain an empty-state indicator (e.g., a "no entries" message) rather than a table of rows or an error page
+
+### Requirement: A composite (created_at DESC, id DESC) index serves the keyset queries
+
+The change SHALL ship a Flyway migration (`V17`) creating a composite index `admin_actions_created_idx` on `admin_actions_log (created_at DESC, id DESC)`. This index serves both the `ORDER BY created_at DESC, id DESC` clause and the keyset row-value predicate `(created_at, id) < (?, ?)` for the no-filter (default newest-first) and date-only-filter query paths — the three V16 secondary indexes each lead with a different column (`admin_id` / `target_type` / `action_type`) and so cannot serve a bare newest-first scan without a full sort. The index SHALL be non-partial (no `WHERE` clause, hence no `NOW()`/volatile predicate, satisfying the partial-index invariant by construction) and SHALL be defined idempotently (`IF NOT EXISTS`) so it applies cleanly against the integration-test Postgres, a hand-pre-applied staging index, and production alike.
+
+#### Scenario: Post-migration the index exists with the canonical definition
+
+- **WHEN** the integration-test spec queries `pg_indexes WHERE schemaname = 'public' AND tablename = 'admin_actions_log' AND indexname = 'admin_actions_created_idx'`
+- **THEN** exactly one row SHALL be returned
+- **AND** its `indexdef` SHALL reference `created_at DESC` AND `id DESC` as the index key columns
+
+#### Scenario: The index is non-partial (no WHERE predicate)
+
+- **WHEN** the integration-test spec reads the `indexdef` for `admin_actions_created_idx`
+- **THEN** the definition SHALL NOT contain a `WHERE` clause (the index covers the whole table; no volatile/`NOW()` predicate is present)

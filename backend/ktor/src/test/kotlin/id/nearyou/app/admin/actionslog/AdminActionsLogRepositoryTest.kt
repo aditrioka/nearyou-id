@@ -172,4 +172,29 @@ class AdminActionsLogRepositoryTest : StringSpec({
         page.rows.size shouldBe 0
         page.nextCursor.shouldBeNull()
     }
+
+    "6.9 — V17 creates the non-partial (created_at DESC, id DESC) keyset index" {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT indexdef FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND tablename = 'admin_actions_log'
+                  AND indexname = 'admin_actions_created_idx'
+                """.trimIndent(),
+            ).use { ps ->
+                ps.executeQuery().use { rs ->
+                    rs.next() shouldBe true
+                    val indexdef = rs.getString("indexdef")
+                    indexdef.shouldNotBeNull()
+                    // covers both keyset columns in DESC order …
+                    indexdef.contains("created_at DESC") shouldBe true
+                    indexdef.contains("id DESC") shouldBe true
+                    // … and is non-partial (no WHERE ⇒ no volatile/NOW() predicate)
+                    indexdef.uppercase().contains(" WHERE ") shouldBe false
+                    rs.next() shouldBe false // exactly one index row
+                }
+            }
+        }
+    }
 })
