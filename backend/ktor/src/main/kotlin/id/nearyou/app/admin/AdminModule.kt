@@ -1,7 +1,6 @@
 package id.nearyou.app.admin
 
 import id.nearyou.app.admin.auth.AdminAuditLogger
-import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminLoginRoutes
 import id.nearyou.app.admin.auth.AdminLogoutRoute
 import id.nearyou.app.admin.auth.AdminUserRepository
@@ -9,8 +8,6 @@ import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.auth.adminAuth
 import id.nearyou.app.admin.routes.adminIndex
 import io.ktor.server.application.Application
-import io.ktor.server.application.ApplicationCallPipeline
-import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.authenticate
@@ -89,23 +86,18 @@ fun Application.admin(
             staticResources("/static", "admin/static")
 
             authenticate(ADMIN_AUTH_NAME) {
-                // CSRF gate: intercept inside the authenticate block so it
-                // only runs on authenticated requests. The gate's
-                // validateCsrf returns true to proceed; false → response
-                // already written (403 + audit) so finish() the pipeline.
-                //
-                // Path-prefix check is load-bearing (intercept on Plugins
-                // phase fires globally on the Application pipeline, not
-                // the Route pipeline) — discovered in Admin #2's PR #115
-                // staging smoke; same pattern applies here.
-                intercept(ApplicationCallPipeline.Plugins) {
-                    val path = call.request.local.uri
-                    if (!path.startsWith("/admin/")) return@intercept
-                    if (!AdminCsrfGate.validateCsrf(call, auditLogger)) {
-                        finish()
-                    }
-                }
-
+                // CSRF gating is performed PER STATE-CHANGING HANDLER via an
+                // explicit `AdminCsrfGate.validateCsrf(call, auditLogger)`
+                // call at the top of each POST/PUT/PATCH/DELETE handler
+                // (see AdminLogoutRoute). A route-pipeline `intercept` was
+                // tried first but leaked across sibling routes (the
+                // CSRF-exempt POST /admin/login) and mis-ordered against the
+                // Authentication phase; the explicit per-handler call is the
+                // predictable contract. The shared validateCsrf function IS
+                // the "CSRF middleware" — every state-changing admin handler
+                // MUST call it first (GET/HEAD/OPTIONS short-circuit to true).
+                // Unmapped state-changing paths (e.g. POST /admin/) correctly
+                // surface as routing-layer 405s because no handler runs.
                 logoutRoute.install(this)
                 adminIndex()
             }

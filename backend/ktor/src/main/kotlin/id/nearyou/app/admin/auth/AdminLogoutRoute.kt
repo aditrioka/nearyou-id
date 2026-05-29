@@ -15,10 +15,11 @@ import io.ktor.server.routing.post
  * Per `admin-login-argon2-totp` spec Req "Logout POST revokes session,
  * clears cookie, and writes audit row".
  *
- * Wired INSIDE the `authenticate("admin") { ... }` block + behind the
- * CSRF gate. An already-revoked session is handled by the session
- * middleware (which 302-redirects before this handler runs) — the
- * idempotency contract is preserved at the middleware layer, not here.
+ * Wired INSIDE the `authenticate("admin") { ... }` block. An already-revoked
+ * session is handled by the session middleware (which 302-redirects before
+ * this handler runs) — the idempotency contract is preserved at the
+ * middleware layer. As a state-changing handler it validates CSRF first via
+ * [AdminCsrfGate.validateCsrf] (the shared CSRF "middleware").
  */
 class AdminLogoutRoute(
     private val sessionRepository: SessionRepository,
@@ -33,6 +34,13 @@ class AdminLogoutRoute(
                     call.respondRedirect("/admin/login", permanent = false)
                     return@post
                 }
+
+            // CSRF gate: every state-changing admin handler MUST validate
+            // CSRF first. validateCsrf writes the 403 + admin_csrf_violation
+            // audit row on failure; we just stop here.
+            if (!AdminCsrfGate.validateCsrf(call, auditLogger)) {
+                return@post
+            }
 
             val ip = call.clientIp
             val userAgent = call.request.headers[HttpHeaders.UserAgent]

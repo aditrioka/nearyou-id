@@ -78,12 +78,28 @@ class AdminLoginRoutes(
 
         val admin = adminUserRepository.findActiveByEmail(email)
 
-        // Email-not-found path: always run sentinel verifies for timing
-        // equalization. Then INFO-log (NOT admin_actions_log) per D14.
+        // Primary auth lookup returned null → the email is either missing OR
+        // belongs to a deactivated admin (the `is_active = TRUE` filter on
+        // findActiveByEmail excludes both from the happy path). Run sentinel
+        // verifies FIRST for timing equalization, then a secondary audit-only
+        // lookup distinguishes inactive-admin (→ audit row) from truly-missing
+        // (→ INFO log) per spec reconciliation + design.md D14.
         if (admin == null) {
             PasswordHasher.verifyAgainstSentinel(password)
             TotpVerifier.verifyAgainstSentinel(totp)
-            auditLogger.logEmailNotFoundAttempt(email, ip, userAgent)
+            val inactiveAdmin = adminUserRepository.findByEmailAnyStatus(email)
+            if (inactiveAdmin != null) {
+                // Exists but is_active = FALSE.
+                auditLogger.logFailure(
+                    adminId = inactiveAdmin.id,
+                    reason = AdminAuditLogger.LoginFailureReason.INACTIVE_ADMIN,
+                    ip = ip,
+                    userAgent = userAgent,
+                )
+            } else {
+                // Truly missing — no admin actor, so no admin_actions_log row.
+                auditLogger.logEmailNotFoundAttempt(email, ip, userAgent)
+            }
             return renderError()
         }
 

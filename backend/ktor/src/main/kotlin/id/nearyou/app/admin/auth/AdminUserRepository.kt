@@ -52,6 +52,43 @@ class AdminUserRepository(
     }
 
     /**
+     * Find an admin by [email] WITHOUT the `is_active` filter. Used ONLY as
+     * a secondary, audit-purpose lookup when [findActiveByEmail] returned
+     * null, to distinguish an inactive-admin attempt (→ `inactive_admin`
+     * audit row) from a truly-missing email (→ `email_not_found` INFO log).
+     *
+     * Per `admin-login-argon2-totp` spec reconciliation (apply phase): the
+     * primary auth lookup [findActiveByEmail] keeps the `is_active = TRUE`
+     * WHERE clause (so a deactivated admin's `password_hash` is never even
+     * loaded for verification — defense in depth), while this audit-only
+     * lookup makes the spec's `inactive_admin` audit reason reachable.
+     */
+    fun findByEmailAnyStatus(email: String): AdminUserRow? {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, email, password_hash, totp_secret_encrypted, role, is_active
+                  FROM admin_users
+                 WHERE email = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, email)
+                ps.executeQuery().use { rs ->
+                    if (!rs.next()) return null
+                    return AdminUserRow(
+                        id = rs.getObject("id", UUID::class.java),
+                        email = rs.getString("email"),
+                        passwordHash = rs.getString("password_hash"),
+                        totpSecretEncrypted = rs.getBytes("totp_secret_encrypted"),
+                        role = rs.getString("role"),
+                        isActive = rs.getBoolean("is_active"),
+                    )
+                }
+            }
+        }
+    }
+
+    /**
      * Find an admin by id WITHOUT the `is_active` filter — used by audit
      * paths that need the admin row even if it's been deactivated. NOT
      * consumed by the login flow.

@@ -9,7 +9,7 @@
        Per `admin-login-argon2-totp` spec Req "Authenticated layout includes
        CSRF meta tag and HTMX configRequest hook" + design.md D6.
        Rendered ONLY on authenticated pages (no session ⇒ no token). #}
-    <meta name="csrf-token" content="{{ csrfToken | escape("html_attr") }}">
+    <meta name="csrf-token" content="{{ csrfToken | escape("html") }}">
     {% endif %}
     <script src="/admin/static/htmx.min.js" defer></script>
     {% if csrfToken is not null %}
@@ -38,7 +38,7 @@
             {% if csrfToken is not null %}
             <li>
                 <form action="/admin/logout" method="POST" style="display: inline;">
-                    <input type="hidden" name="_csrf" value="{{ csrfToken | escape("html_attr") }}">
+                    <input type="hidden" name="_csrf" value="{{ csrfToken | escape("html") }}">
                     <button type="submit">Logout</button>
                 </form>
             </li>
