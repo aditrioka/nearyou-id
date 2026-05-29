@@ -4,5 +4,30 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Env-aware API base URL, driven by APP_API_BASE_URL in the active xcconfig
+	     (Config.xcconfig base / Staging.xcconfig / Production.xcconfig). Read at runtime by
+	     the iosMain `apiBaseUrl` actual via NSBundle.objectForInfoDictionaryKey("ApiBaseUrl"). -->
+	<key>ApiBaseUrl</key>
+	<string>$(APP_API_BASE_URL)</string>
+	<!-- Google Sign-In iOS client ID. Per env this is the CLIENT_ID from the matching
+	     GoogleService-Info.plist. Placeholder until Google Cloud Console provisioning
+	     (dev/docs/google-cloud-oauth-clients.md). GoogleSignIn v7+ reads this key. -->
+	<key>GIDClientID</key>
+	<string>$(GID_CLIENT_ID)</string>
+	<!-- OAuth callback URL scheme. MUST be the REVERSED_CLIENT_ID from GoogleService-Info.plist
+	     (shape com.googleusercontent.apps.<NNN>-<XYZ>), NOT an arbitrary custom scheme — an
+	     arbitrary scheme is squattable by a malicious app. Placeholder of the correct shape;
+	     replace with the real reversed client ID per environment. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.PLACEHOLDER-REVERSED-CLIENT-ID</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -1,0 +1,8 @@
+#include "Config.xcconfig"
+
+// Staging environment (mobile-auth-google-signin-flow, Mobile #3). Wire this xcconfig to a
+// "Staging" build configuration + scheme in Xcode (see dev/docs/google-cloud-oauth-clients.md).
+PRODUCT_BUNDLE_IDENTIFIER=id.nearyou.app.staging
+
+APP_API_BASE_URL=https://api-staging.nearyou.id
+GID_CLIENT_ID=PLACEHOLDER-staging.apps.googleusercontent.com

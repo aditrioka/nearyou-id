@@ -5,3 +5,11 @@ PRODUCT_BUNDLE_IDENTIFIER=id.nearyou.app.NearYouID$(TEAM_ID)
 
 CURRENT_PROJECT_VERSION=1
 MARKETING_VERSION=1.0
+
+// Mobile #3 (mobile-auth-google-signin-flow). Base defaults — the staging values double as
+// the local-dev defaults so the unmodified base Debug/Release build is usable. Per-env
+// overrides live in Staging.xcconfig / Production.xcconfig (wired to schemes per
+// dev/docs/google-cloud-oauth-clients.md). Read into Info.plist via $(APP_API_BASE_URL) /
+// $(GID_CLIENT_ID).
+APP_API_BASE_URL=https://api-staging.nearyou.id
+GID_CLIENT_ID=PLACEHOLDER-staging.apps.googleusercontent.com
