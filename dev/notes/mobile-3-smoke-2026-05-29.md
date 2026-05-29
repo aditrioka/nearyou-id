@@ -50,3 +50,28 @@ path: (a) the emulator has no Google account added, and (b) the build carries th
 `GOOGLE_SERVER_CLIENT_ID`. Either alone makes Credential Manager return `GetCredentialException`,
 which the sealed-result + Decision-7 mapping turn into the `NetworkError` UI seen above. A green
 happy-path run requires both a real Google account on the device and a provisioned client ID.
+
+## Real-device run (Samsung Galaxy A17 `RRGL20CTDBM`, 2026-05-29 11:04)
+
+Re-ran on a real device with Google accounts present. Confirmed the same on-device render +
+error path as the emulator (`04-real-device-signin.png`, `05-real-device-ceremony-error-28444.png`),
+and pinpointed the EXACT happy-path blocker:
+
+```
+CredentialManager: Get credential errorMsg=[28444] Developer console is not set up correctly.
+```
+
+This is Google's canonical "OAuth client not provisioned" error. It proves the app is correct
+end-to-end up to the ceremony (CTA → Credential Manager invoked → `GetCredentialException` →
+`GoogleSignInResult.Failed` → `NetworkError` UI rendered). The ONLY remaining gate for the
+happy-path smoke is provisioning the Google OAuth clients in Cloud Console (`nearyou-staging`):
+
+- **OAuth 2.0 Web/Server client ID** → goes into the staging `GOOGLE_SERVER_CLIENT_ID` buildConfigField (the ID-token audience the backend `/signin` validates).
+- **OAuth 2.0 Android client ID** bound to:
+  - package `id.nearyou.app.staging`
+  - SHA-1 `9A:14:CE:3E:30:74:1A:AD:E9:EC:F7:49:41:C3:26:81:BD:A1:11:05` (staging **debug** signing cert)
+- OAuth consent screen configured for the project.
+- A staging Supabase `users` row for the test Google account → 200 happy path; absent → 404 `user_not_found` (which itself smoke-tests 10.7).
+
+After provisioning: plug the web client ID into `mobile/app/build.gradle.kts` staging flavor,
+`installStagingDebug`, re-tap → account picker → complete → backend `/signin`.
