@@ -27,7 +27,10 @@ struct iOSApp: App {
                     if !handled {
                         // No other URL handlers are registered today; log so a future
                         // URL-scheme misconfiguration is diagnosable rather than a silent no-op.
+                        // Debug-only so the callback URL is never logged in release builds.
+                        #if DEBUG
                         print("onOpenURL: GIDSignIn did not handle \(url); no downstream handler")
+                        #endif
                     }
                 }
         }

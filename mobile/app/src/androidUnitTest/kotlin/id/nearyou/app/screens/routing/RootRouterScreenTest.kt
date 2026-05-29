@@ -37,7 +37,11 @@ private const val LOGO_DESC = "NearYouID" // brand-logo contentDescription (app_
  *
  * Koin is started BEFORE `runComposeUiTest` (the composition's `koinInject` captures the scope
  * eagerly — starting it inside the test lambda races a closed scope).
+ *
+ * `@Suppress("DEPRECATION")`: see `SignInScreenTest` for why `KoinContext` (deprecated in
+ * koin-compose 4.1.0) is retained for the multi-test JVM start/stop cycle.
  */
+@Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
 @OptIn(ExperimentalTestApi::class)

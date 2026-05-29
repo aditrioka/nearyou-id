@@ -134,9 +134,13 @@ class SignInScreen : Screen {
                     if (!uiState.ctaEnabled) return@Button
                     scope.launch {
                         inFlight = true
-                        val result = authFlow.signInWithGoogle()
-                        inFlight = false
-                        outcome = result
+                        try {
+                            outcome = authFlow.signInWithGoogle()
+                        } finally {
+                            // Reset even if the launch job is cancelled mid-ceremony (config
+                            // change / screen disposal) so the CTA never sticks on "loading".
+                            inFlight = false
+                        }
                     }
                 },
                 enabled = uiState.ctaEnabled,

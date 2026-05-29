@@ -167,15 +167,27 @@ private fun cfDictionaryOf(vararg pairs: Pair<CPointer<*>?, Any?>): CFDictionary
             kCFTypeDictionaryValueCallBacks.ptr,
         )!!
     for ((k, v) in pairs) {
-        val cfV: CFTypeRef? =
-            when (v) {
-                null -> null
-                is String -> CFBridgingRetain(NSString.create(string = v))
-                is NSData -> CFBridgingRetain(v)
-                is CPointer<*> -> v
-                else -> v as? CFTypeRef
+        when (v) {
+            null -> Unit
+            // `CFBridgingRetain` returns a +1-owned ref; `CFDictionaryAddValue` retains it
+            // again (kCFTypeDictionaryValueCallBacks), so we MUST release our +1 after adding
+            // — otherwise each String / NSData leaks on every read/write/clear. The dict's
+            // own retain keeps the value alive for the dict's lifetime.
+            is String -> {
+                val cfStr = CFBridgingRetain(NSString.create(string = v))
+                CFDictionaryAddValue(dict, k, cfStr)
+                CFRelease(cfStr)
             }
-        CFDictionaryAddValue(dict, k, cfV)
+            is NSData -> {
+                val cfData = CFBridgingRetain(v)
+                CFDictionaryAddValue(dict, k, cfData)
+                CFRelease(cfData)
+            }
+            // CF constants (kSecClassGenericPassword, kSecMatchLimitOne, kCFBooleanTrue, …):
+            // singletons we do NOT own — add without retaining/releasing.
+            is CPointer<*> -> CFDictionaryAddValue(dict, k, v)
+            else -> CFDictionaryAddValue(dict, k, v as? CFTypeRef)
+        }
     }
     return dict
 }

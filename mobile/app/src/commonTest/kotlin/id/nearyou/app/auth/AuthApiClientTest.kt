@@ -77,9 +77,11 @@ class AuthApiClientTest {
     fun `signin request body carries provider and id_token but not device_fingerprint_hash`() =
         runTest {
             var capturedBody = ""
+            var capturedPath = ""
             val store = InMemoryTokenStore()
             val httpClient =
                 client(store) { request ->
+                    capturedPath = request.url.encodedPath
                     capturedBody = request.body.bodyText()
                     respond(
                         content = SIGNIN_OK_BODY,
@@ -90,6 +92,9 @@ class AuthApiClientTest {
             val result = AuthApiClient(httpClient) { 0L }.signIn("test-google-id-token")
 
             assertTrue(result is SignInApiResult.Success)
+            // Canonical unified-provider endpoint — NOT the menu's `/signin/google` shorthand
+            // (spec scenario "Sign-in API call targets the canonical endpoint path").
+            assertEquals("/api/v1/auth/signin", capturedPath)
             val parsed = Json.parseToJsonElement(capturedBody)
             assertTrue(capturedBody.contains("\"provider\""), "body: $capturedBody")
             assertTrue(capturedBody.contains("google"))

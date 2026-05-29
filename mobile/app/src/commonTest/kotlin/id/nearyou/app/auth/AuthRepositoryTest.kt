@@ -221,6 +221,10 @@ class AuthRepositoryTest {
         }
 
     // ----- isAuthenticated (§6.8 routing gate) -----
+    // The gate is PRESENCE-only (`read() != null`) — it does NOT compare
+    // `accessExpiresAtEpochMillis`. These tests assert exactly that: a persisted TokenPair is
+    // "authenticated" regardless of its access-token freshness (the Ktor Auth plugin handles
+    // staleness lazily). They are NOT boundary-comparison tests (there is no comparison).
 
     @Test
     fun `isAuthenticated is false when the store is empty`() =
@@ -233,9 +237,10 @@ class AuthRepositoryTest {
         }
 
     @Test
-    fun `isAuthenticated is true for a strictly-future access expiry`() =
+    fun `isAuthenticated is true for a persisted TokenPair with a still-fresh access token`() =
         runTest {
-            val store = InMemoryTokenStore(TokenPair("at", "rt", accessExpiresAtEpochMillis = 1L))
+            // Fresh access (expiry far in the future) — present ⇒ authenticated.
+            val store = InMemoryTokenStore(TokenPair("at", "rt", accessExpiresAtEpochMillis = Long.MAX_VALUE))
             val repo =
                 repository(FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled), store) {
                     respond("", HttpStatusCode.OK, JSON_HEADERS)
@@ -244,10 +249,11 @@ class AuthRepositoryTest {
         }
 
     @Test
-    fun `isAuthenticated is true for an already-expired access token when a refresh token is present`() =
+    fun `isAuthenticated is true even when the access token is already expired (presence-only gate)`() =
         runTest {
-            // Access expired (epoch 0) but a TokenPair exists → routes to Home; the Auth plugin
-            // refreshes lazily on the first authenticated call.
+            // Access expired (epoch 0) but a TokenPair exists ⇒ still authenticated → routes to
+            // Home; the Auth plugin refreshes lazily on the first authenticated call. This is the
+            // key proof that the gate ignores the expiry value, not a boundary comparison.
             val store = InMemoryTokenStore(TokenPair("at", "rt", accessExpiresAtEpochMillis = 0L))
             val repo =
                 repository(FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled), store) {

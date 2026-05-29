@@ -42,7 +42,15 @@ private const val ERR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet 
  * Koin is started BEFORE `runComposeUiTest` (the composition's `koinInject` captures the scope
  * eagerly — starting it inside the test lambda races a closed scope). `sdk = 33` matches the
  * cached Robolectric android-all jar; `ui-test-manifest` (debug dep) supplies the host activity.
+ *
+ * `@Suppress("DEPRECATION")`: `KoinContext` is deprecated in koin-compose 4.1.0 ("setup with
+ * startKoin()"), but that assumes a clean single-start. In this multi-test JVM the
+ * global-context fallback caches a stale/closed scope across the per-test startKoin/stopKoin
+ * cycle, so `koinInject` hits a closed scope without an explicit re-bind. `KoinContext` re-binds
+ * the composition to the freshly-started test Koin; keep it until koin-compose offers a
+ * non-deprecated test seam.
  */
+@Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
 @OptIn(ExperimentalTestApi::class)

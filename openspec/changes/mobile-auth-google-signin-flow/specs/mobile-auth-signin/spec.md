@@ -304,11 +304,10 @@ There SHALL NOT be a generic "Sign-in failed" fallthrough — every observed res
 
 ### Requirement: RootRouterScreen routes based on token presence
 
-The Voyager `Navigator(startDestination = ...)` SHALL be constructed with `RootRouterScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/RootRouterScreen.kt`) as the start destination. On first composition, `RootRouterScreen` SHALL read `SecureTokenStore.read()` once (in a `LaunchedEffect`-suspended scope) and route via `navigator.replaceAll(...)`:
+The Voyager `Navigator(startDestination = ...)` SHALL be constructed with `RootRouterScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/RootRouterScreen.kt`) as the start destination. On first composition, `RootRouterScreen` SHALL read `SecureTokenStore.read()` once (in a `LaunchedEffect`-suspended scope, via `AuthRepository.isAuthenticated()`) and route via `navigator.replaceAll(...)`:
 
-- If `read()` returns a `TokenPair` whose `accessExpiresAtEpochMillis` is in the future, replace-all with `HomeScreen`.
-- If `read()` returns a `TokenPair` whose access token has expired but whose refresh token is still within its `expires_in` TTL (30 days per [`openspec/specs/auth-session/spec.md`](../../../auth-session/spec.md)), replace-all with `HomeScreen` (the Ktor `Auth` plugin will refresh on the first authenticated call).
-- If `read()` returns `null` or the refresh token has clearly expired, replace-all with `SignInScreen`.
+- If `read()` returns a non-null `TokenPair`, replace-all with `HomeScreen`. **The router gates on token PRESENCE only** — it does NOT compare `accessExpiresAtEpochMillis` against the current time. Whether the persisted access token is still fresh or already expired is decided lazily, downstream, by the Ktor `Auth` plugin: `loadTokens` attaches the persisted access token, and on the first authenticated `401` `refreshTokens` exchanges the refresh token for a new pair (or, on refresh failure, `SessionInvalidator` clears the store + re-routes to `SignInScreen`). The stored `accessExpiresAtEpochMillis` is retained on the `TokenPair` for a future pre-emptive-refresh optimization in `loadTokens`, but is intentionally NOT a routing gate (the project cannot cheaply know the refresh-token's own expiry client-side, so "a `TokenPair` exists" is the routing signal and the backend is the authority on refresh-token validity).
+- If `read()` returns `null`, replace-all with `SignInScreen`.
 
 While the `read()` is in-flight, the screen SHALL render a splash composition (brand logo centered + `CircularProgressIndicator`); no token-bearing decisions are made before the read completes.
 
@@ -330,17 +329,17 @@ While the `read()` is in-flight, the screen SHALL render a splash composition (b
 - **WHEN** `RootRouterScreen` is composed
 - **THEN** the rendered tree contains the brand logo node AND a `CircularProgressIndicator`; the screen does NOT make a routing decision (navigator state is unchanged)
 
-#### Scenario: Token expiration boundary — strictly-future epoch routes to HomeScreen
+#### Scenario: Persisted TokenPair with a still-fresh access token routes to HomeScreen
 
 - **GIVEN** `SecureTokenStore.read()` returns `TokenPair("at-X", "rt-Y", accessExpiresAtEpochMillis = now + 1)` (one millisecond in the future)
 - **WHEN** `RootRouterScreen` is composed
-- **THEN** the routing decision is `HomeScreen` (the comparison uses `accessExpiresAtEpochMillis > Clock.System.now().toEpochMillis()`, strictly greater-than, NOT greater-than-or-equal — a token expiring "now" is considered expired and triggers the refresh-or-clear path)
+- **THEN** the routing decision is `HomeScreen` — the router gates on token PRESENCE (non-null `TokenPair`), NOT on the expiry comparison; a fresh access token simply means the Ktor `Auth` plugin won't need to refresh on the first authenticated call
 
-#### Scenario: Token expiration boundary — exactly-now epoch treats access as expired but routes to HomeScreen if refresh still valid
+#### Scenario: Persisted TokenPair with an already-expired access token still routes to HomeScreen
 
-- **GIVEN** `SecureTokenStore.read()` returns `TokenPair("at-X", "rt-Y", accessExpiresAtEpochMillis = now)` (epoch equals current time) AND the refresh token is still within its 30-day TTL
+- **GIVEN** `SecureTokenStore.read()` returns `TokenPair("at-X", "rt-Y", accessExpiresAtEpochMillis = now)` (epoch equals current time, i.e. the access token is at/past expiry)
 - **WHEN** `RootRouterScreen` is composed
-- **THEN** the routing decision is `HomeScreen` (the Ktor `Auth` plugin will refresh on the first authenticated call); the routing does NOT pre-emptively call refresh from `RootRouterScreen` itself — the refresh fires lazily when the first authenticated request happens
+- **THEN** the routing decision is still `HomeScreen` — the presence-only gate does NOT distinguish fresh from expired access tokens; `RootRouterScreen` does NOT compare the expiry or pre-emptively refresh. The Ktor `Auth` plugin refreshes lazily on the first authenticated request (or, on refresh failure, `SessionInvalidator` clears the store + re-routes to `SignInScreen`). This is why both the `now + 1` and `now` cases route identically: routing is presence-driven, expiry handling is the Auth plugin's concern.
 
 #### Scenario: Post-Banned process restart routes to SignInScreen with token cleared
 
@@ -369,7 +368,7 @@ A `FOLLOW_UPS.md` entry `mobile-auth-signin-attestation-fingerprint-hash` SHALL 
 The mobile app SHALL ship an `AuthRepository` class (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/AuthRepository.kt`) registered as a Koin singleton in `mobileModule`, exposing at minimum:
 
 - `suspend fun signInWithGoogle(): SignInOutcome` — orchestrates the full ceremony (GoogleSignInClient → backend `/signin` → token persistence → outcome emission).
-- `suspend fun isAuthenticated(): Boolean` — checks `SecureTokenStore` for a non-stale `TokenPair`.
+- `suspend fun isAuthenticated(): Boolean` — returns whether a persisted `TokenPair` exists (`SecureTokenStore.read() != null`). Presence-only — it does NOT evaluate `accessExpiresAtEpochMillis` (staleness is handled lazily by the Ktor `Auth` plugin per the RootRouterScreen requirement).
 - `suspend fun handleTerminal401()` — called by the Ktor `Auth` plugin's `refreshTokens` callback returning `null`; clears the store and triggers re-route to SignInScreen.
 
 `SignInOutcome` is a sealed type modeling six distinct UI states from Decision 7 — `Success`, `NoAccount`, `Banned`, `InvalidIdToken`, `NetworkError`, `Cancelled`. The state count is six (not seven) because `GoogleSignInResult.Failed(message)` from the ceremony layer + HTTP 5xx / network IO failures from the API layer BOTH map to the same `NetworkError` outcome (per Decision 7's table where those two result rows share the user-facing copy `signin_error_network`); the Decision 7 table has seven RESULT rows that converge into six distinct OUTCOMES.
