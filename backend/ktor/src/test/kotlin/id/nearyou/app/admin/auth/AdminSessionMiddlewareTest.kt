@@ -86,8 +86,13 @@ class AdminSessionMiddlewareTest : StringSpec({
                 }
             res.status shouldBe HttpStatusCode.Found
             res.headers[HttpHeaders.Location] shouldBe "/admin/login"
-            // Dead session not revived.
-            lastActiveOf(token) shouldBe t0
+            // Dead session not revived: last_active_at still ≈ t0 (NOT jumped
+            // to NOW(), which would be ~120s later). Compare at second
+            // granularity — Postgres TIMESTAMPTZ is microsecond-precision but
+            // Instant.now() carries nanoseconds, so an exact `shouldBe t0`
+            // after the DB round-trip is fragile (truncation differs by
+            // run/host). The not-refreshed property is what matters.
+            lastActiveOf(token).epochSecond shouldBe t0.epochSecond
         }
     }
 
@@ -139,7 +144,9 @@ class AdminSessionMiddlewareTest : StringSpec({
             res.status shouldBe HttpStatusCode.Found
             res.headers[HttpHeaders.Location] shouldBe "/admin/login"
             // last_active_at must NOT be refreshed by a rejecting request.
-            lastActiveOf(token) shouldBe justPast
+            // Second-granularity compare (DB micros vs Instant nanos — see
+            // the expired-session test's note).
+            lastActiveOf(token).epochSecond shouldBe justPast.epochSecond
         }
     }
 
