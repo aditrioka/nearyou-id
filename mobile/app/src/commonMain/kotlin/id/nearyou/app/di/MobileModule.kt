@@ -1,6 +1,8 @@
 package id.nearyou.app.di
 
 import id.nearyou.app.auth.AuthApiClient
+import id.nearyou.app.auth.AuthFlow
+import id.nearyou.app.auth.AuthRepository
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.config.apiBaseUrl
 import id.nearyou.app.config.httpClientEngine
@@ -29,6 +31,17 @@ val mobileModule =
             )
         }
         single { AuthApiClient(get()) }
+        single {
+            AuthRepository(
+                googleSignIn = get(),
+                authApiClient = get(),
+                tokenStore = get(),
+                sessionInvalidator = get(),
+            )
+        }
+        // Bind the AuthFlow interface to the concrete AuthRepository so screens depend on the
+        // testable seam while the concrete remains resolvable.
+        single<AuthFlow> { get<AuthRepository>() }
     }
 
 /**
