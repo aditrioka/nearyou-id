@@ -24,7 +24,7 @@ import java.util.UUID
  *  - [expiresAt]: the session's absolute 8h cap, for diagnostics + future
  *    UI surfacing.
  *  - [lastActiveAt]: the value AT request-arrival time, BEFORE the
- *    [AdminAuthPlugin] refreshes it. Useful for diagnostics + future
+ *    [AdminAuthProvider] refreshes it. Useful for diagnostics + future
  *    "log me out everywhere" UI.
  */
 data class AdminPrincipal(

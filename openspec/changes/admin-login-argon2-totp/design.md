@@ -233,13 +233,13 @@ The sentinel-hash approach is well-known (used by Django's `User.set_unusable_pa
 2. Remove the per-request WARN interceptor (lines ~75-95 in current `AdminModule.kt`).
 3. Update the head-of-file comment block: drop the "unauthenticated scaffold" framing; describe the auth-gate design and reference Admin #3.
 4. Install the Ktor `Authentication` plugin with a custom session-validation provider (reads `__Host-admin_session` cookie, looks up session via SHA-256, validates per D8, populates `call.principal` with `AdminPrincipal(adminId, adminRole)`).
-5. Install the custom `AdminCsrfPlugin` that validates `X-CSRF-Token` header (or `_csrf` form field) against the session's `csrf_token_hash` on POST/PUT/PATCH/DELETE.
+5. Validate CSRF via `AdminCsrfGate.validateCsrf(call, auditLogger)` — called explicitly at the top of each state-changing handler (NOT a route-pipeline plugin; see D10's apply-phase note) — checks the `X-CSRF-Token` header (or `_csrf` form field) against the session's `csrf_token_hash` on POST/PUT/PATCH/DELETE.
 6. Wrap the existing `routing { route("/admin") { adminIndex() } }` block: split `/admin/login` (GET + POST, unauthenticated, CSRF-exempt) and `/admin/logout` (POST, authenticated, CSRF-required) into their own outer route sections; wrap `adminIndex()` + future admin routes inside `authenticate("admin") { ... csrfRequired { ... } }`.
 
 **Structure of new files (under `backend/ktor/src/main/kotlin/id/nearyou/app/admin/auth/`):**
 
 - `AdminAuthPlugin.kt` — `Authentication` provider that reads the session cookie and validates.
-- `AdminCsrfPlugin.kt` — custom Ktor plugin for CSRF header/form validation + audit logging on mismatch.
+- `AdminCsrfGate.kt` — `object AdminCsrfGate` with `validateCsrf(...)` for CSRF header/form validation + audit logging on mismatch (shipped as a per-handler-called gate, not a Ktor plugin — the route-interceptor approach was abandoned during apply; see D10).
 - `LoginRoute.kt` — `GET /admin/login` (render Pebble template) + `POST /admin/login` (verify + session create + cookie + audit).
 - `LogoutRoute.kt` — `POST /admin/logout` (revoke session + clear cookie + audit + redirect).
 - `PasswordHasher.kt` — Password4j Argon2id wrapper + sentinel hash for timing equalization.
@@ -443,7 +443,7 @@ The auth path code is small enough to review manually for these patterns; a Dete
 2. **Last-active-at refresh batching.** Should every authenticated request UPDATE `last_active_at`, or batch (e.g., only refresh if `last_active_at < NOW() - INTERVAL '30 seconds'`)? **Resolution direction:** start with every-request for simplicity; benchmark in staging; optimize if writes become a bottleneck. Defer to a follow-up if needed.
 3. **CSRF token rotation cadence.** Per-login is documented. Should we ALSO rotate on successful state-changing requests (so a stolen token has shorter validity)? **Resolution direction:** per-login only — per-request rotation breaks the meta-tag-once-per-page-load pattern. The stolen-token surface requires also stealing the session cookie, which is mitigated by SameSite=Strict + HttpOnly.
 4. ~~Sentinel hash storage~~ → **RESOLVED in D15** (regenerated alongside any Argon2id retune; same commit; benchmark spec asserts the sentinel-params-match-production-params invariant).
-5. ~~Pebble escape behavior~~ → **RESOLVED in D6** (use explicit `escape(strategy='html_attr')` filter on the CSRF meta tag rather than relying on the default; defense-in-depth).
+5. ~~Pebble escape behavior~~ → **RESOLVED in D6** (use explicit `escape('html')` filter on the CSRF meta tag rather than relying on the default; defense-in-depth. Note: the original D6 said `html_attr`, but Pebble 3.x has no such strategy — amended to `html` during apply; see D6.).
 6. **Logout idempotency.** A `POST /admin/logout` with an already-revoked session — should it return 200 (idempotent), 401 (no session), or 302 to login? **Resolution direction:** idempotent 302 to `/admin/login`. The cookie is cleared regardless; the audit row is not written if no active session was found.
 
 These resolve at `/opsx:apply` implementation time; no proposal-phase blockers.

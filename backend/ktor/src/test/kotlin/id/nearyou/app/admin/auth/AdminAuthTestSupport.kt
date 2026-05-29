@@ -116,7 +116,7 @@ object AdminAuthTestSupport {
      * Seed an `admin_sessions` row directly with controlled timestamps and
      * return the plaintext session token (to be sent as the cookie). The
      * `csrf_token_hash` is computed to match what the login flow would
-     * store: `SHA-256(deriveCsrfFromSessionToken(sessionToken))`.
+     * store: `SHA-256(deriveCsrfFromSessionToken(sessionToken, FIXED_CSRF_HMAC_KEY))`.
      */
     fun seedSession(
         dataSource: DataSource,
