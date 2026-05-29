@@ -33,8 +33,16 @@ dependencies {
     implementation(libs.ktor.serverCallLogging)
     implementation(libs.ktor.serverAuth)
     implementation(libs.ktor.serverAuthJwt)
+    implementation(libs.ktor.serverSessions)
     implementation(libs.ktor.serializationKotlinxJson)
     implementation(libs.ktor.serverPebble)
+
+    // Admin auth (Admin #3 `admin-login-argon2-totp`): Argon2id password
+    // verification via Password4j + TOTP RFC 6238 verification via samstevens
+    // java-totp. AES-256-GCM for `admin_users.totp_secret_encrypted`
+    // decryption uses JCA built-ins (no third-party).
+    implementation(libs.password4j)
+    implementation(libs.samstevens.totp)
     implementation(libs.ktor.clientCore)
     implementation(libs.ktor.clientCio)
     implementation(libs.ktor.clientContentNegotiation)
@@ -98,5 +106,18 @@ tasks.register<JavaExec>("mintDevJwt") {
     mainClass.set("id.nearyou.app.dev.MintDevJwtKt")
     standardInput = System.`in`
     // Quiet down Gradle's own output so the captured stdout is just the token.
+    logging.captureStandardOutput(LogLevel.QUIET)
+}
+
+// Operator-only: generate the SQL INSERT for a new admin_users row (Argon2id
+// password hash + AES-GCM-encrypted TOTP secret). Wrapped by
+// dev/scripts/admin-bootstrap/admin-bootstrap.sh. Reads the AES key from
+// ADMIN_TOTP_AES_KEY_BASE64. Never run in prod without the prod key slot.
+tasks.register<JavaExec>("adminBootstrap") {
+    group = "application"
+    description = "Generate the SQL INSERT for a new admin (admin-login-argon2-totp bootstrap)."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("id.nearyou.app.dev.AdminBootstrapMainKt")
+    standardInput = System.`in`
     logging.captureStandardOutput(LogLevel.QUIET)
 }

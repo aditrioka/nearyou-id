@@ -365,6 +365,13 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
 - [ ] `prod-flyway-db-connection-string` (DB role `flyway_migrator`, DDL rights)
 - [ ] `prod-cf-worker-csam-secret` (kalau pilih Cloudflare Worker auto-forward path untuk CSAM)
 
+**Admin login key slots** (added by `admin-login-argon2-totp` / Admin #3; both 256-bit, resolved via `secretKey(env, name)`, provisioned together by `dev/scripts/admin-totp-key-bootstrap.sh`):
+- [ ] `staging-admin-totp-secret-aes-key` — AES-256-GCM key for `admin_users.totp_secret_encrypted`. Wired in `deploy-staging.yml --set-secrets` as `ADMIN_TOTP_SECRET_AES_KEY` (lazy `aesKeyProvider`, resolved at login-verify time; missing slot fails the first login but does NOT block boot). ⚠ Rotation orphans every existing `totp_secret_encrypted` ciphertext; the script does NOT rotate on re-run.
+- [ ] `staging-admin-csrf-hmac-key` — HMAC-SHA256 key for the Signed Double-Submit CSRF token derivation (distinct slot from the AES key — key separation). Wired as `ADMIN_CSRF_HMAC_KEY` (lazy, resolved at login/render time). ⚠ Rotation invalidates every in-flight session's CSRF token (forces re-login); the script does NOT rotate on re-run.
+- [ ] Both slots grant `secretAccessor` to Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com`. **Operational — not part of the change PR.** Run `dev/scripts/admin-totp-key-bootstrap.sh` (default = both staging slots).
+- [ ] **Staging-test admin row** — provision via `dev/scripts/admin-bootstrap/admin-bootstrap.sh` for the pre-archive smoke (`dev/scripts/smoke-admin-login-argon2-totp.sh`). Store the staging-test email + password + base32 TOTP secret in the operator's password manager — NOT in this repo / PR.
+- [ ] `admin-totp-secret-aes-key` + `admin-csrf-hmac-key` (production, unprefixed) — **deferred to the production-bootstrap milestone**. Run once per slot: `PROJECT_OVERRIDE=nearyou-production SLOT_OVERRIDE=admin-totp-secret-aes-key RUNTIME_SA_OVERRIDE=<prod-sa> dev/scripts/admin-totp-key-bootstrap.sh` (then again with `SLOT_OVERRIDE=admin-csrf-hmac-key`).
+
 ---
 
 ## 5. Decisions yang Perlu Diputusin Pre-Phase 1

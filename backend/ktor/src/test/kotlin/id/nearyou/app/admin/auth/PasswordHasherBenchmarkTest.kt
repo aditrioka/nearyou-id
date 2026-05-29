@@ -1,0 +1,60 @@
+package id.nearyou.app.admin.auth
+
+import io.kotest.core.NamedTag
+import io.kotest.core.spec.style.StringSpec
+import kotlin.time.measureTime
+
+/**
+ * Benchmark spec for [PasswordHasher] — every test tagged `benchmark` so
+ * PR-time CI skips them (`./gradlew test -Dkotest.tags=!benchmark` is the
+ * project's PR-time invocation per the precedent set by
+ * `admin-login-argon2-totp` design.md D2 + tasks.md 11.5).
+ *
+ * The spec runs the production Argon2id verify 10× against a freshly-
+ * hashed value and asserts the mean wall time is in the expected window.
+ * Bounds are intentionally loose (300–2000 ms) to tolerate JIT warmup +
+ * CI-machine variance; the target is 400–800 ms but the assertion only
+ * fails on catastrophic drift (e.g. params accidentally tuned 10× too
+ * low → 50 ms, or accidentally 10× too high → 8 s).
+ *
+ * Run locally during apply-phase tuning:
+ *   ./gradlew :backend:ktor:test -Dkotest.tags=benchmark \
+ *     --tests 'id.nearyou.app.admin.auth.PasswordHasherBenchmarkTest'
+ *
+ * Mean / median observed at apply time SHOULD land in the
+ * `PasswordHasher.kt` `@benchmark` comment.
+ */
+class PasswordHasherBenchmarkTest : StringSpec({
+
+    val benchmarkTag = setOf(NamedTag("benchmark"))
+
+    "Argon2id verify mean wall time within [60, 2000] ms (n=10)".config(tags = benchmarkTag) {
+        val hash = PasswordHasher.hash("benchmark-fixture-plaintext")
+
+        // One warmup verify to amortize JIT.
+        PasswordHasher.verify("benchmark-fixture-plaintext", hash)
+
+        val durations =
+            (1..10).map {
+                measureTime {
+                    PasswordHasher.verify("benchmark-fixture-plaintext", hash)
+                }.inWholeMilliseconds
+            }
+        val mean = durations.average()
+
+        // Bounds are intentionally wide. The SECURITY floor is enforced
+        // separately by PasswordHasherTest (OWASP minimums: m≥15 MiB, t≥2,
+        // p=1). This benchmark only catches catastrophic mis-tuning. The
+        // lower bound is 60 ms (not the old 300 ms) because the memory-
+        // constrained profile (m=19 MiB) runs fast on a fast dev machine;
+        // the production target (≈400-800 ms) lands on the slower Cloud Run
+        // cpu=2 core, which this dev-run can't measure. The upper bound
+        // (2000 ms) guards against an accidental over-tune that would also
+        // risk OOMing the 128 MiB Cloud Run heap.
+        check(mean in 60.0..2000.0) {
+            "Argon2id verify mean wall time $mean ms out of [60, 2000] window. " +
+                "Durations: $durations. " +
+                "Update PasswordHasher.MEMORY_KIB / ITERATIONS if drifting."
+        }
+    }
+})
