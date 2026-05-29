@@ -75,3 +75,22 @@ happy-path smoke is provisioning the Google OAuth clients in Cloud Console (`nea
 
 After provisioning: plug the web client ID into `mobile/app/build.gradle.kts` staging flavor,
 `installStagingDebug`, re-tap → account picker → complete → backend `/signin`.
+
+## Provisioning decision (2026-05-29) — automation declined for cross-project safety
+
+Evaluated automating the OAuth-client provisioning to finish the happy-path smoke. **Declined.**
+- The Firebase MCP's active project is `ledger-fcc1e` / `bukuwarung-app` (the operator's
+  EMPLOYER's production project, under org 1041900352991) — NOT `nearyou-staging`. Running
+  `firebase_create_app` / `firebase_create_android_sha` there would pollute a production project.
+- Driving the Cloud Console via browser automation runs in a Google session with access to both
+  BukuWarung's projects and `nearyou-staging` → real risk of creating credentials in the wrong
+  (production) project; switching the Firebase CLI's active project could also disrupt other work.
+- `gcloud` (correctly scoped to `nearyou-staging`) cannot create consumer mobile OAuth client IDs.
+
+Provisioning production-adjacent OAuth credentials is a consequential infra action that should be
+done by the human who owns the `nearyou-staging` GCP project, not automated in a shared session.
+The happy-path / banned / no-account smokes (10.4-happy, 10.5, 10.6, 10.7, 10.9, 10.10) are therefore
+a **launch-prep provisioning task**, not a code-correctness gate — the app is proven correct up to
+the ceremony on real hardware (error 28444 = pure provisioning gap). Recipe + SHA-1 above; once the
+clients exist in `nearyou-staging` + the Web client ID is in the staging build, the device-side run
+is one `installStagingDebug` + adb-driven account-picker tap away.
