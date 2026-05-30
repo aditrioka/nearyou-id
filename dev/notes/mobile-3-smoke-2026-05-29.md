@@ -163,10 +163,10 @@ The §10.4 happy path now runs **green end-to-end on real hardware**. What unblo
 | **10.4 happy path → HomeScreen** | `200 OK: POST /api/v1/auth/signin in 103ms` (Cloud Run log) → HomeScreen — `07-real-device-home-signed-in.png` |
 | **10.4 token persists (process death)** | force-stop + cold relaunch lands directly on HomeScreen, SignInScreen skipped — `08-real-device-relaunch-token-persisted.png` |
 | 10.7 no-account 404 | `signin no-account … 404 Not Found` before seeding (user-facing "Akun belum terdaftar…") |
+| **10.6 banned 403** | flipped `smoketest_adi.is_banned=TRUE` → `403 Forbidden /signin in 85ms` → banner "Akun kamu telah dinonaktifkan…" (`signin_error_banned`) + CTA disabled — `09-banned-banner-disabled-cta.png`; `is_banned` restored to FALSE after |
 | 10.8 NetworkError copy + retry label | covered pre-provisioning (`03-…`) |
 
 **Still gated / optional** (not blockers — code proven correct):
 - **10.4a OS-reboot persistence** — process-death persistence proven; full `adb reboot` survival not yet run (token is on disk: encrypted DataStore + Tink keyset, so it will survive — but not yet device-confirmed).
 - **10.5 iOS sim smoke** — needs the Podfile/`.xcworkspace` migration + iOS OAuth client + a Google account on the sim.
-- **10.6 banned 403** — flip `smoketest_adi.is_banned = TRUE` → expect `signin_error_banned`; flip back after.
 - **10.9 / 10.10 refresh rotation + reuse-detection** — now have an authenticated session to drive these.
