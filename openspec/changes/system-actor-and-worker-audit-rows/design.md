@@ -32,7 +32,8 @@ The originating follow-up (`suspension-unban-worker-audit-log-after-phase-3.5`) 
 
 ### D2 — Login is blocked structurally via `is_active = FALSE`, not via a NULL-hash guard
 `AdminUserRepository.findActiveByEmail` uses `WHERE email = ? AND is_active = TRUE`, so a deactivated row's `password_hash` "is never even loaded for verification" (its own KDoc). Seeding the sentinel `is_active = FALSE` makes it un-loginable with **zero new auth code**, reusing already-tested behavior.
-- Defense-in-depth: the sentinel's `password_hash` is a non-PHC literal (`!system-actor-no-login!`), so even a hypothetical future `is_active` flip yields a hash `PasswordHasher.verify` can never match.
+- Defense-in-depth: the sentinel's `password_hash` is a **well-formed** Argon2id PHC string whose plaintext is a randomly-generated secret produced once and discarded — so `PasswordHasher.verify` returns `false` for every candidate. A bare non-PHC literal was rejected in round-1 review: Password4j's `decodeHash` splits on `$` and **throws** `BadParametersException` on a malformed string, so a non-PHC value would turn a hypothetical future `is_active`-flip into a noisy 500 per sentinel-email login rather than a silent reject. The hash is of a discarded secret, so committing it to the source-available repo is not a credential leak (and the account is un-loginable regardless).
+- Side effect (benign, documented so it isn't mistaken for a gap): a login *attempt* against the sentinel email takes the existing inactive-admin branch (`AdminLoginRoutes` → `findByEmailAnyStatus` → `auditLogger.logFailure(..., INACTIVE_ADMIN)`), writing one `inactive_admin` audit row attributed to the sentinel. It still returns the no-enumeration response with no session — identical to any other inactive admin.
 - *Alternative — the follow-up's `password_hash IS NULL` guard:* rejected as **moot** — `password_hash` is `NOT NULL` (no NULL row can exist), and `is_active` already gates the lookup. Adding a guard would be dead code.
 
 ### D3 — Deterministic UUID, asserted equal across migration + Kotlin at CI time
@@ -69,7 +70,7 @@ SELECT
 RETURNING target_id;
 ```
 
-The four-conjunct eligibility predicate is preserved **verbatim** inside `eligible` (the suspension-unban-worker spec's non-negotiable). It remains exactly one SQL statement in one transaction; `RETURNING target_id` yields the unbanned user ids (drives `unbanned_count` + the INFO log's `unbanned_user_ids`). Capturing `prev_suspended_until` in the snapshot lets `before_state` record the real prior expiry (post-UPDATE `RETURNING` would only see the NULLed value).
+The four-conjunct eligibility predicate is preserved **verbatim** inside `eligible` (the suspension-unban-worker spec's non-negotiable). It remains exactly one SQL statement in one transaction; `RETURNING target_id` yields the unbanned user ids (drives `unbanned_count` + the INFO log's `unbanned_user_ids`). Capturing `prev_suspended_until` in the snapshot lets `before_state` record the real prior expiry (post-UPDATE `RETURNING` would only see the NULLed value). Note: `jsonb_build_object('suspended_until', <timestamptz>)` renders Postgres's native JSON timestamptz form (offset + microseconds), not Java `Instant.toString()` (`…Z`); tests assert `before_state.suspended_until` by `::timestamptz` value-equality, not string match. The audit INSERT is uncapped — one row per flipped user — independent of the INFO log's 50-entry `unbanned_user_ids` cap.
 - *Alternative — app-managed two statements (UPDATE...RETURNING id; then batch INSERT):* viable but adds a round-trip and loses `prev_suspended_until` unless a separate SELECT snapshots first. The single CTE is tighter and keeps "exactly one statement" true.
 
 ### D5 — Worker writes via the main app DB role; immutability REVOKE is out of scope
@@ -77,6 +78,9 @@ The four-conjunct eligibility predicate is preserved **verbatim** inside `eligib
 
 ### D6 — Audit row vocabulary
 `action_type = 'system_unban_applied'` (fits `VARCHAR(64)`), `target_type = 'user'` (fits `VARCHAR(32)`), `target_id = <user_id>::text`, `reason = 'suspension_elapsed'`, `ip`/`user_agent` = NULL (no request context — Cloud Scheduler invocation). Matches the audit-row column shape at [`docs/07-Operations.md:106`](../../../docs/07-Operations.md).
+
+### D7 — Testing the atomicity guarantee against real Postgres
+The worker SQL is a compile-time constant with no app-level injection seam, so the "failed audit INSERT rolls back the unban" scenario is exercised by installing a transient fault at the database layer: the test creates a `BEFORE INSERT` trigger on `admin_actions_log` that unconditionally `RAISE`s (or a transient `CHECK` rejecting `action_type = 'system_unban_applied'`), invokes the worker, asserts the transaction rolled back (the target user is still `is_banned = TRUE` with its original `suspended_until`, and no `admin_actions_log` row persisted), then drops the trigger in a `finally`. This makes the atomicity scenario concretely testable rather than hand-wavy (round-1 review B2). Separately, the existing "Worker performance is bounded" `EXPLAIN`/index-scan test (unmodified, still in force) must be re-pointed at the new CTE — confirm the `eligible … FOR UPDATE` snapshot still plans as an index scan on `users_suspended_idx`.
 
 ## Risks / Trade-offs
 

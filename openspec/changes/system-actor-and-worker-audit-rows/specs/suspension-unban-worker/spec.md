@@ -103,11 +103,11 @@ Each audit row SHALL set:
 - `target_type` = `'user'`
 - `target_id` = the unbanned user's id rendered as text
 - `reason` = `'suspension_elapsed'`
-- `before_state` = `{"is_banned": true, "suspended_until": <the user's prior suspended_until as ISO-8601>}`
+- `before_state` = `{"is_banned": true, "suspended_until": <the user's prior suspended_until>}` — produced by `jsonb_build_object` from the `timestamptz`, so it renders in Postgres's native JSON timestamptz form (offset + microseconds), NOT Java `Instant.toString()`; tests MUST assert it by `timestamptz` value-equality (`(before_state->>'suspended_until')::timestamptz = <prior expiry>`), not string match
 - `after_state` = `{"is_banned": false, "suspended_until": null}`
 - `ip` = NULL AND `user_agent` = NULL (Cloud Scheduler invocation carries no client request context)
 
-The worker MUST NOT write an audit row for any user it did not flip. The worker writes via the main application DB role (which retains INSERT on `admin_actions_log`); the role-level immutability REVOKE (no UPDATE/DELETE) targets the `admin_app` role and is out of scope for this change.
+The worker MUST NOT write an audit row for any user it did not flip. Audit rows are NOT subject to the INFO log's 50-entry `unbanned_user_ids` cap — exactly one `admin_actions_log` row is written per flipped user regardless of batch size. The worker writes via the main application DB role (which retains INSERT on `admin_actions_log`); the role-level immutability REVOKE (no UPDATE/DELETE) targets the `admin_app` role and is out of scope for this change.
 
 #### Scenario: One unban writes exactly one matching audit row
 - **WHEN** exactly one user with `suspended_until = NOW() - INTERVAL '1 hour'` is flipped by `POST /internal/unban-worker`
@@ -128,3 +128,7 @@ The worker MUST NOT write an audit row for any user it did not flip. The worker 
 #### Scenario: Three unbans write three audit rows
 - **WHEN** three eligible users are flipped in one invocation
 - **THEN** exactly three new `admin_actions_log` rows exist, one per user, each with `action_type = 'system_unban_applied'` AND a distinct `target_id` matching one of the three flipped users
+
+#### Scenario: Audit rows are not capped at the INFO log's 50-entry limit
+- **WHEN** more than 50 users are flipped in one invocation
+- **THEN** exactly one `admin_actions_log` row is written per flipped user — the audit-row count equals `unbanned_count` (greater than 50), NOT capped at 50 — even though the INFO log's `unbanned_user_ids` array is capped at 50 entries

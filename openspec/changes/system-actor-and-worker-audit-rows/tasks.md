@@ -6,7 +6,7 @@
 
 ## 2. V18 migration — seed the `system` sentinel
 
-- [ ] 2.1 Create `backend/ktor/src/main/resources/db/migration/V18__seed_system_actor.sql` that `INSERT`s the sentinel `admin_users` row: `id = '54b53072-540e-3eb8-b8e9-343e71f28176'`, `email = 'system@system.nearyou.invalid'`, `display_name = 'System Actor'`, `password_hash = '!system-actor-no-login!'` (non-PHC literal), `role = 'read_only'`, `is_active = FALSE`, `webauthn_enrolled = FALSE` (TOTP/webauthn columns left default/NULL), with `ON CONFLICT (id) DO NOTHING` for re-run safety.
+- [ ] 2.1 Create `backend/ktor/src/main/resources/db/migration/V18__seed_system_actor.sql` that `INSERT`s the sentinel `admin_users` row: `id = '54b53072-540e-3eb8-b8e9-343e71f28176'`, `email = 'system@system.nearyou.invalid'`, `display_name = 'System Actor'`, `password_hash` = a **well-formed Argon2id PHC string** generated once via `PasswordHasher.hash("<a randomly-generated secret that is then discarded>")` and hardcoded as the literal (well-formed so `verify` returns `false` rather than throwing — round-1 B1; plaintext discarded so nothing verifies; safe to commit since it hashes no real credential), `role = 'read_only'`, `is_active = FALSE`, `webauthn_enrolled = FALSE` (TOTP/webauthn columns left default/NULL), with `ON CONFLICT (id) DO NOTHING` for re-run safety.
 - [ ] 2.2 Add a header comment citing `V16__admin_users.sql:24-26` (which defers this seed to this change) + `docs/05-Implementation.md:235`.
 - [ ] 2.3 Verify the migration applies cleanly against the CI integration Postgres (table exists from V16; no `admin_app` role required — env-portable like V16).
 
@@ -19,16 +19,17 @@
 
 ## 4. Tests
 
-- [ ] 4.1 Audit-row content (real Postgres): one elapsed-suspension user flipped → exactly one `admin_actions_log` row with `admin_id` = sentinel UUID, `action_type='system_unban_applied'`, `target_type='user'`, `target_id` = user id, `reason='suspension_elapsed'`, `before_state` = `{is_banned:true, suspended_until:<prior expiry>}`, `after_state` = `{is_banned:false, suspended_until:null}`.
-- [ ] 4.2 Atomicity: inject an `admin_actions_log` INSERT failure (e.g., a deferred constraint / test hook) → the transaction rolls back; the user still has `is_banned=TRUE` and its original `suspended_until`; no audit row persisted.
+- [ ] 4.1 Audit-row content (real Postgres): one elapsed-suspension user flipped → exactly one `admin_actions_log` row with `admin_id` = sentinel UUID, `action_type='system_unban_applied'`, `target_type='user'`, `target_id` = user id, `reason='suspension_elapsed'`. Assert `before_state->>'is_banned' = 'true'` AND `(before_state->>'suspended_until')::timestamptz` equals the user's prior expiry (value-equality, NOT string match — Postgres JSON timestamptz rendering ≠ Java `Instant.toString()`); assert `after_state->>'is_banned' = 'false'` AND `after_state->'suspended_until' = 'null'::jsonb` (explicit JSON null, key present).
+- [ ] 4.2 Atomicity (real Postgres, design D7): install a transient `BEFORE INSERT` trigger on `admin_actions_log` that unconditionally `RAISE`s (drop it in a `finally`) → invoke the worker → the transaction rolls back: the user still has `is_banned=TRUE` and its original `suspended_until`, AND no `admin_actions_log` row persisted.
 - [ ] 4.3 Zero-flip run → zero `admin_actions_log` rows written AND `{"unbanned_count":0}`.
 - [ ] 4.4 Idempotent retry: first invocation writes one audit row; immediate second invocation flips zero rows and writes zero additional audit rows (no duplicate).
 - [ ] 4.5 Three eligible users → exactly three audit rows, one per user, distinct `target_id`s.
-- [ ] 4.6 Regression: re-run the five existing flip-eligibility scenarios (elapsed / future-dated / permanent / soft-deleted / already-active) against the CTE — flip behavior is unchanged from the pre-audit worker.
-- [ ] 4.7 Sentinel cannot authenticate: `POST /admin/login` with `email='system@system.nearyou.invalid'` → standard no-enumeration failure, no `admin_sessions` row created.
-- [ ] 4.8 Sentinel hash never verifies: `PasswordHasher.verify(<any plaintext>, "!system-actor-no-login!")` returns `false` (defense-in-depth, independent of `is_active`).
+- [ ] 4.6 Regression: re-run the five existing flip-eligibility scenarios (elapsed / future-dated / permanent / soft-deleted / already-active) against the CTE — flip behavior unchanged from the pre-audit worker. Re-point the existing `EXPLAIN`/index-scan test ("Worker performance is bounded") at the new CTE SQL and confirm `eligible … FOR UPDATE` still plans as an index scan on `users_suspended_idx` (not a seq scan).
+- [ ] 4.7 Sentinel cannot authenticate: `POST /admin/login` with `email='system@system.nearyou.invalid'` → standard no-enumeration failure, no `admin_sessions` row created. Assert the benign side effect too: exactly one `inactive_admin` `admin_actions_log` row attributed to the sentinel is written (round-1 general-lens #1).
+- [ ] 4.8 Sentinel hash never verifies (and does NOT throw): `PasswordHasher.verify(<any plaintext>, <the seeded well-formed Argon2id sentinel hash>)` returns `false` — the stored value is a valid PHC string (so `decodeHash` doesn't throw `BadParametersException`) whose plaintext is a discarded secret. Defense-in-depth, independent of `is_active`.
 - [ ] 4.9 Sentinel hard-delete rejected: with the sentinel owning ≥1 `admin_actions_log` row, `DELETE FROM admin_users WHERE id = <sentinel>` is rejected by the FK.
 - [ ] 4.10 Seed idempotency: applying the V18 seed statement twice leaves exactly one sentinel row, no error.
+- [ ] 4.11 Audit rows uncapped: when >50 users are flipped in one invocation, exactly `unbanned_count` (>50) `admin_actions_log` rows are written (one per user, NOT capped at 50), even though the INFO log's `unbanned_user_ids` caps at 50 + sets `unbanned_user_ids_truncated=true`.
 
 ## 5. Lint + local verification
 
