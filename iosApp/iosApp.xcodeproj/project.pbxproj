@@ -102,7 +102,6 @@
 			buildConfigurationList = D726113E45DCD00A70ADD3CE /* Build configuration list for PBXNativeTarget "iosApp" */;
 			buildPhases = (
 				887952AE5CFA979ACD925800 /* [CP] Check Pods Manifest.lock */,
-				EE1BAFF086EA22DF54F42C39 /* Compile Kotlin Framework */,
 				4B02018E24C0687482126658 /* Sources */,
 				A3A5A98F636E8E98D572CCB9 /* Frameworks */,
 				07CB68C6AE9E9D1897464CB9 /* Resources */,
@@ -221,25 +220,6 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-iosApp/Pods-iosApp-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
-		};
-		EE1BAFF086EA22DF54F42C39 /* Compile Kotlin Framework */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Compile Kotlin Framework";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping Gradle build task invocation due to OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED environment variable set to \\\"YES\\\"\"\n  exit 0\nfi\ncd \"$SRCROOT/..\"\n./gradlew :mobile:app:embedAndSignAppleFrameworkForXcode\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

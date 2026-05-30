@@ -14,6 +14,12 @@
 	     (dev/docs/google-cloud-oauth-clients.md). GoogleSignIn v7+ reads this key. -->
 	<key>GIDClientID</key>
 	<string>$(GID_CLIENT_ID)</string>
+	<!-- Backend (web/server) OAuth client ID. GoogleSignIn auto-config reads this so the issued
+	     ID token's `aud` is the BACKEND client, which POST /api/v1/auth/signin validates against
+	     GOOGLE_CLIENT_IDS. Without it the token's aud is the iOS client → backend 401. Per env via
+	     $(GID_SERVER_CLIENT_ID). Canonical mechanism per developers.google.com/identity/sign-in/ios. -->
+	<key>GIDServerClientID</key>
+	<string>$(GID_SERVER_CLIENT_ID)</string>
 	<!-- OAuth callback URL scheme. MUST be the REVERSED_CLIENT_ID from GoogleService-Info.plist
 	     (shape com.googleusercontent.apps.<NNN>-<XYZ>), NOT an arbitrary custom scheme — an
 	     arbitrary scheme is squattable by a malicious app. Placeholder of the correct shape;
@@ -25,7 +31,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.PLACEHOLDER-REVERSED-CLIENT-ID</string>
+				<string>$(GID_REVERSED_CLIENT_ID)</string>
 			</array>
 		</dict>
 	</array>

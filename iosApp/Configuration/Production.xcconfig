@@ -6,5 +6,8 @@
 // a misconfigured production build fails fast rather than silently hitting a wrong host.
 PRODUCT_BUNDLE_IDENTIFIER=id.nearyou.app
 
-APP_API_BASE_URL=https://api.nearyou.id.PLACEHOLDER
+// `//` is an xcconfig comment — built from $(NY_SLASH) (inherited from Config.xcconfig) so the
+// URL isn't silently truncated to "https:". The `.PLACEHOLDER` host keeps the deliberate
+// fail-fast until production infra is provisioned. See Config.xcconfig for the full rationale.
+APP_API_BASE_URL=https:$(NY_SLASH)$(NY_SLASH)api.nearyou.id.PLACEHOLDER
 GID_CLIENT_ID=PLACEHOLDER-production.apps.googleusercontent.com

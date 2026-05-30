@@ -4,5 +4,9 @@
 // "Staging" build configuration + scheme in Xcode (see dev/docs/google-cloud-oauth-clients.md).
 PRODUCT_BUNDLE_IDENTIFIER=id.nearyou.app.staging
 
-APP_API_BASE_URL=https://api-staging.nearyou.id
-GID_CLIENT_ID=PLACEHOLDER-staging.apps.googleusercontent.com
+// `//` is an xcconfig comment — build it from $(NY_SLASH) (inherited from Config.xcconfig) so
+// the URL isn't truncated to "https:". See Config.xcconfig for the full rationale.
+APP_API_BASE_URL=https:$(NY_SLASH)$(NY_SLASH)api-staging.nearyou.id
+GID_CLIENT_ID=27815942904-gd1es5imb5q3ksgijvk95r278oe95vu2.apps.googleusercontent.com
+GID_SERVER_CLIENT_ID=27815942904-egrmb6ou96poualok9gooi63mjo2a0om.apps.googleusercontent.com
+GID_REVERSED_CLIENT_ID=com.googleusercontent.apps.27815942904-gd1es5imb5q3ksgijvk95r278oe95vu2

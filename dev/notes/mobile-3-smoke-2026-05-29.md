@@ -168,5 +168,43 @@ The §10.4 happy path now runs **green end-to-end on real hardware**. What unblo
 
 **Still gated / optional** (not blockers — code proven correct):
 - **10.4a OS-reboot persistence** — process-death persistence proven; full `adb reboot` survival not yet run (token is on disk: encrypted DataStore + Tink keyset, so it will survive — but not yet device-confirmed).
-- **10.5 iOS sim smoke** — needs the Podfile/`.xcworkspace` migration + iOS OAuth client + a Google account on the sim.
 - **10.9 / 10.10 refresh rotation + reuse-detection** — now have an authenticated session to drive these.
+
+## ✅ iOS HAPPY PATH GREEN — iPhone 16 simulator (iOS 18.5), 2026-05-30
+
+The §10.5 iOS happy path now runs **green end-to-end on the simulator** against the live staging
+backend: CocoaPods build → install → SignInScreen (Compose Multiplatform renders on iOS) →
+"Masuk dengan Google" → GIDSignIn web ceremony (`aditrioka@gmail.com`) → `200 OK POST
+/api/v1/auth/signin in 227ms` → HomeScreen. Screenshots `10-ios-sim-signin-screen.png`,
+`11-ios-sim-home-signed-in.png`. iOS OAuth client `27815942904-gd1es5…` (bundle
+`id.nearyou.app.staging`); `GIDServerClientID` = the shared web client so the iOS token's `aud`
+matches the backend allow-list.
+
+**The iOS smoke surfaced + fixed 3 bugs the Android path never hit** (all config/build, not logic;
+the iOS sign-in *code* was correct throughout):
+
+1. **embedAndSign ↔ CocoaPods conflict** — the `kotlin("native.cocoapods")` framework integration
+   conflicts with the old "Compile Kotlin Framework" (`embedAndSignAppleFrameworkForXcode`)
+   run-script phase. Removed that phase from `iosApp.xcodeproj/project.pbxproj`; the pod's
+   `syncFramework` script phase builds the framework now.
+2. **GIDSignIn keychain error -2** — building the sim app with `CODE_SIGNING_ALLOWED=NO` strips
+   the keychain-access-group entitlement, so GIDSignIn's credential write fails. Fix: build with
+   default (ad-hoc "Sign to Run Locally") signing — exactly what Xcode's Run does.
+3. **`ApiBaseUrl` truncated to `"https:"`** — xcconfig treats `//` as a line comment, so
+   `APP_API_BASE_URL=https://api-staging.nearyou.id` got cut to `https:` → ECONNREFUSED. Fixed in
+   Config/Staging/Production.xcconfig via `NY_SLASH = /` + `https:$(NY_SLASH)$(NY_SLASH)host` (a lone
+   `/` is not a comment). **Lesson: never put a literal `//` in an xcconfig value.**
+
+**iOS build recipe (sim smoke, until a Staging build config + scheme are wired — follow-up):**
+```
+xcodebuild -workspace iosApp/iosApp.xcworkspace -scheme iosApp -configuration Debug \
+  -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/iosbuild build
+# (NO CODE_SIGNING_ALLOWED=NO — needs ad-hoc signing for the keychain; bundle id.nearyou.app.staging
+#  comes target-scoped from Config.xcconfig, NOT a global xcodebuild override — that collides the Pod
+#  framework bundle IDs.) Then: simctl install/launch on an iOS ≥18.2 sim (the app targets 18.2).
+```
+
+**iOS follow-ups (polish, not blockers):** proper per-env build configs (Staging/Production) +
+schemes wired to the matching xcconfig (so the bundle/URL aren't carried by the base Config);
+per-config Pods xcconfig include (currently the Debug Pods xcconfig is included in Config.xcconfig
+for the smoke).

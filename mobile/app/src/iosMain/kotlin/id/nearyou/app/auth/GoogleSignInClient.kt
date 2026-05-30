@@ -21,9 +21,13 @@ private const val GID_SIGN_IN_ERROR_CANCELED: Long = -5
  * The `GoogleSignIn` Pod is consumed via the KMP `kotlin("native.cocoapods")` plugin. No
  * `WKWebView` / `SFSafariViewController` fallback per spec § "iOS actual uses GoogleSignIn SDK".
  *
- * The OAuth client ID + server client ID are read by the SDK from `GoogleService-Info.plist`
- * (provisioned per-environment); the URL-callback scheme is registered in `Info.plist`
- * (`CFBundleURLTypes` ⇒ `REVERSED_CLIENT_ID`) and routed back via the `iOSApp.swift`
+ * GoogleSignIn auto-configures from `Info.plist` (the canonical mechanism per
+ * developers.google.com/identity/sign-in/ios): `GIDClientID` (the iOS OAuth client) and
+ * `GIDServerClientID` (the backend/web client — makes the issued ID token's `aud` the backend
+ * client that `POST /api/v1/auth/signin` validates against `GOOGLE_CLIENT_IDS`). Both are driven
+ * per-environment by the active xcconfig ($(GID_CLIENT_ID) / $(GID_SERVER_CLIENT_ID)). The
+ * OAuth-callback URL scheme is the iOS client's `REVERSED_CLIENT_ID` (`Info.plist`
+ * `CFBundleURLTypes`, via `$(GID_REVERSED_CLIENT_ID)`), routed back via the `iOSApp.swift`
  * `.onOpenURL { GIDSignIn.sharedInstance.handle(it) }` hook. See §7.
  */
 @OptIn(ExperimentalForeignApi::class)
