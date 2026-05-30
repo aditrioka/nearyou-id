@@ -79,7 +79,7 @@ After provisioning: plug the web client ID into `mobile/app/build.gradle.kts` st
 ### Discovered staging state (2026-05-29, founder gcloud token, read-only)
 
 Re-probed `nearyou-staging` with the correctly-scoped lane (`gcloud` is authed as
-`nearyouid.founder@gmail.com`, active project `nearyou-staging` — the founder account, NOT the
+`<founder-account>@gmail.com`, active project `nearyou-staging` — the founder account, NOT the
 employer's `ledger-fcc1e`). Findings that make the provisioning faster:
 
 - `nearyou-staging` **is already a Firebase project** (`state: ACTIVE`, projectNumber `27815942904`).
@@ -127,7 +127,7 @@ is one `installStagingDebug` + adb-driven account-picker tap away.
 
 The §10.4 happy path now runs **green end-to-end on real hardware**. What unblocked it, in order:
 
-1. **OAuth clients provisioned** (operator, Firebase Console, founder account `nearyouid.founder@gmail.com`):
+1. **OAuth clients provisioned** (operator, Firebase Console, founder account `<founder-account>@gmail.com`):
    Android app `id.nearyou.app.staging` + debug SHA-1 `9A:14:CE:…:11:05` → Android OAuth client;
    Authentication → Google provider enabled → auto-created **Web client**
    `27815942904-egrmb6ou96poualok9gooi63mjo2a0om.apps.googleusercontent.com`. Error 28444 cleared;
@@ -174,7 +174,7 @@ The §10.4 happy path now runs **green end-to-end on real hardware**. What unblo
 
 The §10.5 iOS happy path now runs **green end-to-end on the simulator** against the live staging
 backend: CocoaPods build → install → SignInScreen (Compose Multiplatform renders on iOS) →
-"Masuk dengan Google" → GIDSignIn web ceremony (`aditrioka@gmail.com`) → `200 OK POST
+"Masuk dengan Google" → GIDSignIn web ceremony (`<test-account>@gmail.com`) → `200 OK POST
 /api/v1/auth/signin in 227ms` → HomeScreen. Screenshots `10-ios-sim-signin-screen.png`,
 `11-ios-sim-home-signed-in.png`. iOS OAuth client `27815942904-gd1es5…` (bundle
 `id.nearyou.app.staging`); `GIDServerClientID` = the shared web client so the iOS token's `aud`

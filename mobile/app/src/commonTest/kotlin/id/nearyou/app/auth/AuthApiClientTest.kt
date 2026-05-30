@@ -99,10 +99,34 @@ class AuthApiClientTest {
             assertTrue(capturedBody.contains("\"provider\""), "body: $capturedBody")
             assertTrue(capturedBody.contains("google"))
             assertTrue(capturedBody.contains("test-google-id-token"))
+            // Pin the literal snake_case wire KEY, not just the value. This is the exact gap that
+            // let the camelCase backend bug ship: the assertion previously passed unchanged against
+            // {"idToken":...}. Mirrors backend AuthWireFormatTest; closes the mobile request side.
+            assertTrue(capturedBody.contains("\"id_token\""), "wire key must be id_token: $capturedBody")
+            assertFalse(capturedBody.contains("idToken"), "must NOT use camelCase idToken: $capturedBody")
             assertFalse(capturedBody.contains("device_fingerprint_hash"), "body must omit fingerprint: $capturedBody")
             // sanity: it parses as a JSON object
             assertTrue(parsed.toString().isNotEmpty())
         }
+
+    // (a2) Wire-format pin — the mobile auth DTOs (de)serialize snake_case, mirroring the backend
+    // AuthWireFormatTest. Guards the mobile side of the camelCase-vs-snake_case contract that
+    // shipped a 400 on the first real-device sign-in (request `id_token`, refresh `refresh_token`,
+    // response `access_token`/`refresh_token`/`expires_in`). MockEngine round-trips alone do NOT
+    // catch a wire mismatch (they use the same DTOs both ways) — this asserts the literal keys.
+    @Test
+    fun `auth DTOs use snake_case wire field names`() {
+        val signIn = Json.encodeToString(SignInRequest.serializer(), SignInRequest(provider = "google", idToken = "tok"))
+        assertTrue(signIn.contains("\"id_token\""), signIn)
+        assertFalse(signIn.contains("idToken"), signIn)
+        val refresh = Json.encodeToString(RefreshRequest.serializer(), RefreshRequest(refreshToken = "rt"))
+        assertTrue(refresh.contains("\"refresh_token\""), refresh)
+        assertFalse(refresh.contains("refreshToken"), refresh)
+        val resp = Json.decodeFromString(SignInResponse.serializer(), SIGNIN_OK_BODY)
+        assertEquals("at-new", resp.accessToken)
+        assertEquals("rt-new", resp.refreshToken)
+        assertEquals(900, resp.expiresIn)
+    }
 
     // (b) bearer-token attachment on subsequent (authenticated) requests.
     @Test

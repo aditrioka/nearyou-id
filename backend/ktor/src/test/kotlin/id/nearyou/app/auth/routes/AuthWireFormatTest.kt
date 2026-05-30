@@ -83,5 +83,7 @@ class AuthWireFormatTest : StringSpec({
         s shouldContain "\"refresh_token\""
         s shouldContain "\"expires_in\""
         s shouldNotContain "accessToken"
+        s shouldNotContain "refreshToken"
+        s shouldNotContain "expiresIn"
     }
 })
