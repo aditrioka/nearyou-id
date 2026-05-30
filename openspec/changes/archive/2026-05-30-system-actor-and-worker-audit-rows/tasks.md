@@ -39,5 +39,5 @@
 ## 6. Docs / lifecycle
 
 - [x] 6.1 Confirm no canonical-doc amendment is needed — `docs/05-Implementation.md:235` ("Audit log inserted per unban") + `docs/07-Operations.md` already describe the end state; this change makes it observed, not changed.
-- [ ] 6.2 At archive: delete the `suspension-unban-worker-audit-log-after-phase-3.5` entry from `FOLLOW_UPS.md` (its action items are now merged).
-- [ ] 6.3 At archive: confirm `openspec/specs/system-actor/spec.md` (new) and `openspec/specs/suspension-unban-worker/spec.md` (deltas applied) reflect the shipped behavior.
+- [x] 6.2 At archive: delete the `suspension-unban-worker-audit-log-after-phase-3.5` entry from `FOLLOW_UPS.md` (its action items are now merged).
+- [x] 6.3 At archive: confirm `openspec/specs/system-actor/spec.md` (new) and `openspec/specs/suspension-unban-worker/spec.md` (deltas applied) reflect the shipped behavior.
