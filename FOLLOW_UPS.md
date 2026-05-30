@@ -535,27 +535,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## firebase-app-extraction
-
-**Discovered during:** `content-moderation-keyword-lists` Phase 3 — scaffolding `:infra:remote-config` while `:infra:fcm` already initializes its own `FirebaseApp` from the same `firebase-admin-sa` secret slot.
-**Status:** open
-
-**Finding:** Both `:infra:fcm` (`FirebaseAdminInit.NEARYOU_FIREBASE_APP_NAME = "nearyou-default"`) and the new `:infra:remote-config` (`FirebaseAdminInitForRemoteConfig.NEARYOU_REMOTE_CONFIG_APP_NAME = "nearyou-rc"`) initialize their own named `FirebaseApp` from the same secret JSON. The two consumers share the secret slot but isolate their lifecycles via the named-app mechanism. A future `:infra:firebase-app` extraction module that owns the `FirebaseApp` init + is depended on by both `:infra:fcm` and `:infra:remote-config` would be the cleanest factoring.
-
-**Specs at fault:** None.
-**Code at fault:** [`infra/fcm/.../FirebaseAdminInit.kt`](infra/fcm/src/main/kotlin/id/nearyou/app/infra/fcm/FirebaseAdminInit.kt), [`infra/remote-config/.../FirebaseAdminInitForRemoteConfig.kt`](infra/remote-config/src/main/kotlin/id/nearyou/app/infra/remoteconfig/FirebaseAdminInitForRemoteConfig.kt).
-**Docs at fault:** None (the duplication is intentional in the current shape).
-
-**Impact (if shipped):** Low — the duplication is small (~50 LOC across both files) and the named-app pattern is already idiomatic. Refactoring a third Firebase consumer arrives, OR when the per-startup-cost of two `GoogleCredentials.fromStream(...)` calls becomes measurable in startup latency budgets.
-
-**Ambiguity to resolve first:** Choose factoring shape — `:infra:firebase-app` exposes a `FirebaseAppRegistry` interface? Or just one shared `FirebaseApp` instance? Same-instance is simpler but breaks the lifecycle-isolation invariant the named-app pattern provides today.
-
-**Action items:**
-- [ ] Defer until a third Firebase consumer arrives (e.g., Firebase Auth, Firestore) OR until the duplication becomes painful in some other dimension.
-- [ ] Delete this entry once the extraction lands.
-
----
-
 ## content-moderation-cache-invalidation-endpoint
 
 **Discovered during:** `content-moderation-keyword-lists` design.md D4 — Cache strategy: Redis 5-min TTL, no explicit invalidation.
@@ -619,25 +598,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] Delete this entry once the test is added.
 
 ---
-
-## vendor-ahocorasick-detekt-guard
-
-**Discovered during:** `content-moderation-keyword-lists` Phase 2 task 2.7 — Detekt-rules guard against introducing a vendor Aho-Corasick library.
-**Status:** open
-
-**Finding:** The spec `### Requirement: :core:domain MUST NOT depend on a vendor Aho-Corasick library` is currently enforced via reviewer attestation + the spec scenario "No vendor Aho-Corasick library on the :core:domain classpath" (which is a structural assertion against the resolved classpath). A Detekt-rules guard at `lint/detekt-rules/...` checking the `:core:domain` `build.gradle.kts` would be defense-in-depth.
-
-**Specs at fault:** None — the spec scenario covers the contract.
-**Code at fault:** None.
-**Docs at fault:** None.
-
-**Impact (if shipped):** Low — `:core:domain` currently has only one dependency (`kotlinx-serialization-json`); the surface for accidentally-adding `org.ahocorasick:*` is small. The lint rule is meaningful only after the dependency surface grows.
-
-**Ambiguity to resolve first:** None.
-
-**Action items:**
-- [ ] Add a Detekt rule that scans `:core:domain` `build.gradle.kts` for `org.ahocorasick:*`, `com.hankcs:*` references.
-- [ ] Delete this entry once the rule lands OR if `:core:domain` dep surface stays minimal indefinitely.
 
 ## infra-sentry-kmp-module-isation
 
