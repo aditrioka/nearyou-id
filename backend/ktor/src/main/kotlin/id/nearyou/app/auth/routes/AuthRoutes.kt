@@ -18,31 +18,42 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import org.slf4j.LoggerFactory
 import java.security.MessageDigest
 
+// Wire field names are snake_case per the canonical auth-signin / auth-session specs
+// (`{ "provider", "id_token", "access_token", "refresh_token", "expires_in",
+// "device_fingerprint_hash" }`). The app-wide ContentNegotiation Json uses kotlinx's default
+// (camelCase) naming, so each non-single-word field needs an explicit @SerialName — without it
+// the endpoints (de)serialize camelCase, silently violating the spec. The mobile client follows
+// the spec (snake_case); the mismatch surfaced as a 400 "Malformed sign-in payload" on the first
+// real-device sign-in. AuthWireFormatTest pins these literal wire names against regression.
 @Serializable
 data class SignInRequest(
     val provider: String,
-    val idToken: String,
-    val deviceFingerprintHash: String? = null,
+    @SerialName("id_token") val idToken: String,
+    @SerialName("device_fingerprint_hash") val deviceFingerprintHash: String? = null,
 )
 
 @Serializable
 data class TokenPairResponse(
-    val accessToken: String,
-    val refreshToken: String,
-    val expiresIn: Long,
+    @SerialName("access_token") val accessToken: String,
+    @SerialName("refresh_token") val refreshToken: String,
+    @SerialName("expires_in") val expiresIn: Long,
 )
 
 @Serializable
 data class RefreshRequest(
-    val refreshToken: String,
-    val deviceFingerprintHash: String? = null,
+    @SerialName("refresh_token") val refreshToken: String,
+    @SerialName("device_fingerprint_hash") val deviceFingerprintHash: String? = null,
 )
 
 @Serializable
-data class LogoutRequest(val refreshToken: String)
+data class LogoutRequest(
+    @SerialName("refresh_token") val refreshToken: String,
+)
 
 @Serializable
 data class ApiError(val error: Envelope) {
@@ -59,6 +70,8 @@ class Providers(
     val google: ProviderIdTokenVerifier,
     val apple: ProviderIdTokenVerifier,
 )
+
+private val log = LoggerFactory.getLogger("id.nearyou.app.auth.routes.AuthRoutes")
 
 fun Application.authRoutes(
     providers: Providers,
@@ -101,6 +114,11 @@ fun Application.authRoutes(
                     else -> users.findByAppleIdHash(subHash)
                 }
             if (user == null) {
+                // DEBUG diagnostic: correlate a no-account sign-in to the exact provider-id hash
+                // that matched no `users` row. The hash is a one-way SHA-256 of the provider `sub`
+                // (NOT PII / NOT the raw subject), so it is safe to log; it lets ops triage
+                // "sign-in says not-registered" reports and seed staging test accounts.
+                log.debug("signin no-account: provider={} sub_hash={}", req.provider, subHash)
                 call.respond(
                     HttpStatusCode.NotFound,
                     errorBody("user_not_found", "No account linked to this identity."),

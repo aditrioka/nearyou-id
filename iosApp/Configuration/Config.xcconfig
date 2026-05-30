@@ -1,7 +1,37 @@
+// CocoaPods integration (Mobile #3): the project uses this custom xcconfig as its base, so
+// `pod install` could not auto-set the Pods base config — pull it in explicitly here.
+// NOTE (smoke-expedient): includes the *Debug* Pods xcconfig because the staging device smoke
+// builds the Debug config. Proper per-config wiring (Debug↔Pods-iosApp.debug,
+// Release↔Pods-iosApp.release, ideally a dedicated Staging build config) is a follow-up.
+#include "../Pods/Target Support Files/Pods-iosApp/Pods-iosApp.debug.xcconfig"
+
 TEAM_ID=
 
 PRODUCT_NAME=NearYouID
-PRODUCT_BUNDLE_IDENTIFIER=id.nearyou.app.NearYouID$(TEAM_ID)
+// Set target-scoped (in the app's base xcconfig, NOT a global xcodebuild override — that would
+// clobber the embedded Pod frameworks' bundle IDs and break install). Must match the iOS OAuth
+// client's registered bundle ID (id.nearyou.app.staging). The base defaults to staging while iOS
+// is single-env scaffolding; per-env build configs (Staging/Production) are a follow-up.
+PRODUCT_BUNDLE_IDENTIFIER=id.nearyou.app.staging
 
 CURRENT_PROJECT_VERSION=1
 MARKETING_VERSION=1.0
+
+// Mobile #3 (mobile-auth-google-signin-flow). Base defaults — the staging values double as
+// the local-dev defaults so the unmodified base Debug/Release build is usable. Per-env
+// overrides live in Staging.xcconfig / Production.xcconfig (wired to schemes per
+// dev/docs/google-cloud-oauth-clients.md). Read into Info.plist via $(APP_API_BASE_URL) /
+// $(GID_CLIENT_ID).
+// xcconfig treats `//` as a line comment, so a literal `https://host` truncates to `https:`
+// (the rest is eaten by the parser). Build the `//` from a single-slash var (a lone `/` is NOT
+// a comment) so the URL survives. This bit the iOS staging smoke — ApiBaseUrl came through as
+// "https:" → ECONNREFUSED. Keep all https:// URLs in this file in the $(NY_SLASH) form.
+NY_SLASH = /
+APP_API_BASE_URL=https:$(NY_SLASH)$(NY_SLASH)api-staging.nearyou.id
+// iOS OAuth client (from the staging GoogleService-Info.plist CLIENT_ID).
+GID_CLIENT_ID=27815942904-gd1es5imb5q3ksgijvk95r278oe95vu2.apps.googleusercontent.com
+// Backend (web/server) OAuth client — the ID-token `aud` the backend validates; MUST match the
+// Android GOOGLE_SERVER_CLIENT_ID + backend GOOGLE_CLIENT_IDS. Set as GIDServerClientID in Info.plist.
+GID_SERVER_CLIENT_ID=27815942904-egrmb6ou96poualok9gooi63mjo2a0om.apps.googleusercontent.com
+// OAuth callback URL scheme = REVERSED_CLIENT_ID of the iOS client above.
+GID_REVERSED_CLIENT_ID=com.googleusercontent.apps.27815942904-gd1es5imb5q3ksgijvk95r278oe95vu2

@@ -7,7 +7,7 @@ Transient working file for findings discovered during a change cycle that are NO
 - **Delete the entry once all its action items are merged.** Do NOT let `triaged` entries linger — if residual work remains, either (a) move it to the canonical doc that owns the topic (e.g., launch-prerequisite tasks → `docs/08-Roadmap-Risk.md` Pre-Launch list, runbook tweaks → `docs/07-Operations.md` Deployment Runbook), or (b) replace the entry with a fresh one scoped to the residual work. Triaged-but-not-deleted entries are how this file rots.
 - Delete the file itself when it has zero entries left.
 - Recreate the file (with this same intro blurb) the next time a finding arises.
-- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. Audit on 2026-05-10 (verify-only sweep) found 22 open + 0 triaged; below the hard limit. Today's sweep verified all 22 entries against current code/specs/docs and found no drift — no silently-resolved entries (none of the referenced OpenSpec change names exist in `openspec/changes/` or `archive/`; none of the referenced Detekt rules / helper scripts / test fixtures have shipped), no superseded entries, no migrations needed. Composition holds steady from the 2026-05-09 sweep: 10 deferred-by-trigger (Phase 3.5 schema, rule of three, user-growth signals, SDK upstream fixes) + 7 OpenSpec-shaped pending promotion via `/next-change` (Detekt-rule and observability/auth capability work) + 5 regular-PR-shaped test/coverage tightening work (FCM payload structure, FCM shutdown determinism, FCM composite wiring, reply rate-limit moderator-spy, chat block-check moderator-spy). PR #79 (`chore: triage FOLLOW_UPS.md (2026-05-09)`) preserves the deletion-evidence audit trail for the prior sweep.
+- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. **2026-05-29 (mid-change, `mobile-auth-google-signin-flow` §11): TRANSIENTLY OVER BUDGET at 37 open.** A safe mid-change sweep could only delete 1 entry (`compose-components-resources-dependency-cleanup`, superseded by merged PR #119); the other stale-looking entries (`mobile-theme-light-dark-direct-test`, `mobile-negative-requirement-ci-grep`) are partially resolved by THIS unmerged change and CANNOT be safely deleted yet (deleting them would be wrong if the change is reverted — the exact spurious-classification the `/triage-follow-ups` pre-flight guards against). The change's spec-required §11 additions (8 `mobile-auth-signin-*` / `docs-ios-primary-*` entries) push the count to 37. **A full `/triage-follow-ups` sweep is scheduled immediately post-archive of `mobile-auth-google-signin-flow`** — at which point the active-change-superseded entries can be safely re-evaluated + deleted to bring the count back well under 30. Prior sweep: audit on 2026-05-10 found 22 open + 0 triaged, no drift; PR #79 (`chore: triage FOLLOW_UPS.md (2026-05-09)`) preserves that sweep's deletion-evidence audit trail.
 
 Format per entry:
 
@@ -751,17 +751,6 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 - [ ] File OpenSpec change `mobile-negative-requirement-detekt-rule` that adds a Detekt rule `MobileScaffoldNegativeRequirementsRule` to `:lint:detekt-rules`, scanning `:mobile:app` `src/commonMain/kotlin` for the six forbidden identifier patterns enumerated in the spec scenarios — **plus** the hardcoded-UI-strings axis from [`openspec/project.md`](openspec/project.md) § Coding Conventions ("Mobile strings: no hardcoded UI strings; must go through Compose Multiplatform Resources"), for which `shared-resources-swap-to-cmp-resources` (PR [#119](https://github.com/aditrioka/nearyou-id/pull/119)) ships an interim grep step in `tasks.md` Section 8.7. The eventual Detekt rule should cover both axes under a single rule, accepting `stringResource(Res.string.X)` / `Res.string.X` / `// hardcoded-string-allow:` as the valid accessor patterns (NOT the legacy `MR.strings.X` from Mobile #2's pre-swap Moko shipping). Wire the Detekt source-set extension in `build-logic`.
 - [ ] Delete this entry once the rule ships AND Mobile #3's `proposal.md` updates the `mobile-app-scaffold` spec's negative requirements to acknowledge auth identifiers now belong to dedicated namespaces.
 
-## compose-components-resources-dependency-cleanup
-
-**Discovered during:** `shared-resources-moko-bootstrap` `/opsx:apply` ([PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — surfaced while choosing between Moko Resources and Compose Multiplatform Resources for the brand-resources module.
-**Status:** **SUPERSEDED 2026-05-28 by `shared-resources-swap-to-cmp-resources` ([PR #119](https://github.com/aditrioka/nearyou-id/pull/119))** — that change ACTIVATES the previously-unused `compose-components-resources` coordinate as the project's canonical resources substrate, exactly opposite the cleanup action this entry recommended. Entry retained for historical archaeology (it documents the Mobile #2 → #2.5 substrate flip context); the action items below are now obsolete.
-
-**Finding (historical, no longer actionable):** `gradle/libs.versions.toml` declared `compose-components-resources` at line 60 with zero consumers as of Mobile #2. The "dead code" framing assumed the project would stay on Moko Resources indefinitely — incorrect by 2026-05-28 (one day later), when PR #119 swapped the substrate.
-
-**Action items (SUPERSEDED — do NOT execute):**
-- [x] ~~File a focused cleanup PR that removes `compose-components-resources` from `gradle/libs.versions.toml`.~~ Superseded — PR #119 wired it up instead of removing it.
-- [x] ~~Delete this entry once the cleanup PR merges.~~ Entry retained for historical context; status SUPERSEDED is the final state.
-
 ## mobile-compose-ui-tests-android-instrumented
 
 **Discovered during:** `shared-resources-moko-bootstrap` `/opsx:archive` ([PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) — surfaced when running the pre-archive `./gradlew :shared:resources:build` and `:shared:resources:testDebugUnitTest` failed with `NullPointerException: Cannot invoke "String.toLowerCase(java.util.Locale)" because "android.os.Build.FINGERPRINT" is null` on all 6 `ColorSchemeExtensionsTest.runComposeUiTest` cases.
@@ -807,6 +796,161 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 
 ---
 
+## mobile-auth-signin-apple-ios
+
+**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) `/next-change` Phase A.4 — the user chose "Google Sign-In on both Android + iOS" so the substrate-proving change ships one SDK end-to-end; iOS-primary = Apple Sign-In is deferred.
+**Status:** open
+
+**Finding:** Two canonical docs prescribe iOS primary auth = Apple Sign-In at the eventual state — [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Auth Flow line 38 (`2. iOS: "Masuk dengan Apple" (primary, user-facing)`) and [`docs/04-Architecture.md`](docs/04-Architecture.md) § Tech Stack (`Auth | Google Sign-In (Android Credential Manager) + Apple Sign-In`). Mobile #3 ships Google on iOS as a substrate-proving stopgap (one SDK on both platforms is simpler to integrate end-to-end + carries less Apple-Developer-cert setup risk for the first auth integration). The Apple-Sign-In-iOS swap is real outstanding work.
+
+**Specs at fault:** None — `openspec/specs/mobile-auth-signin/spec.md` (post-archive) ships Google-on-both deliberately; this follow-up adds the Apple path.
+**Code at fault:** None — `GoogleSignInClient` iosMain is correct for Mobile #3; the Apple path is additive.
+**Docs at fault:** None directly — see `docs-ios-primary-auth-mobile-3-vs-eventual-state` for the doc status-tag amendment.
+
+**Impact (if shipped):** iOS users sign in with Google rather than the docs-prescribed Apple Sign-In. Functionally complete; the gap is the eventual-state UX + App Store review expectations (Apple requires Sign in with Apple when other social logins are offered, per App Store Review Guideline 4.8 — a launch-readiness concern, not an MVP blocker).
+
+**Ambiguity to resolve first:** Whether Apple Sign-In iOS bundles with Mobile #4 (age-gate/signup) or ships as its own change. Apple Developer Program enrollment + entitlements + cert setup are the gating cost.
+
+**Action items:**
+- [ ] File OpenSpec change `mobile-auth-signin-apple-ios` adding an `AppleSignInClient` iosMain actual (`ASAuthorizationController` / Sign in with Apple) + swapping the iOS primary CTA to "Masuk dengan Apple"; keep Google as the Android primary; map the Apple identity-token exchange onto the same backend `/signin` contract (`provider: "apple"`, already supported by `auth-signin`).
+- [ ] Delete this entry once that change ships.
+
+---
+
+## mobile-auth-signin-404-route-to-age-gate
+
+**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Decision 7 — the `404 user_not_found` branch ships temporary copy ("Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya.") because the signup/age-gate flow (Mobile #4) doesn't exist yet.
+**Status:** open
+
+**Finding:** `AuthRepository` maps backend `404 user_not_found` to `SignInOutcome.NoAccount` → `signin_error_no_account` banner (stay on SignInScreen). The canonical destination per `docs/03-UX-Design.md` § Auth Flow is navigation to an age-gate → signup flow. Mobile #3 ships the honest stopgap ("registration not available in this build") until Mobile #4 lands.
+
+**Specs at fault:** `openspec/specs/mobile-auth-signin/spec.md` (post-archive) — the `404 → NoAccount` scenario + the `signin_error_no_account` string are temporary; Mobile #4 replaces the branch.
+**Code at fault:** [`AuthRepository.kt`](mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/AuthRepository.kt) `exchangeIdToken` `404 → NoAccount`; [`SignInScreen.kt`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/auth/SignInScreen.kt) renders the no-account banner. `signin_error_no_account` in `shared/resources/.../strings.xml`.
+**Docs at fault:** None.
+
+**Impact (if shipped long-term):** Users with no account hit a dead-end ("try again later") instead of being routed to sign up — acceptable for the pre-Mobile-#4 window, a UX dead-end if it persists.
+
+**Action items:**
+- [ ] In Mobile #4 (`mobile-auth-age-gate` / signup), replace the `NoAccount → banner` branch with `navigator.push(AgeGateScreen)`; retire or repurpose `signin_error_no_account` for the network-edge-case-only path.
+- [ ] Delete this entry once Mobile #4 ships the age-gate navigation.
+
+---
+
+## mobile-auth-signin-attestation-fingerprint-hash
+
+**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Decision 9 — the `/signin` + `/refresh` request bodies omit `device_fingerprint_hash` because attestation (Play Integrity / App Attest) hasn't landed.
+**Status:** open
+
+**Finding:** `auth-signin/spec.md` accepts `device_fingerprint_hash` as optional ("MUST NOT be required for sign-in to succeed"). Mobile #3's `SignInRequest` carries only `{provider, id_token}` (verified by the §5.8a test + §9.6 grep). Fingerprint generation requires platform-specific entropy that lands canonically alongside attestation per [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) § Attestation.
+
+**Specs at fault:** `openspec/specs/mobile-auth-signin/spec.md` (post-archive) — the "signin request body does not carry device_fingerprint_hash" scenario is intentional-for-now; the attestation change flips it.
+**Code at fault:** [`AuthApiClient.kt`](mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/AuthApiClient.kt) `SignInRequest` (no fingerprint field).
+**Docs at fault:** None — `docs/06-Security-Privacy.md` § Attestation already names this as the landing context.
+
+**Impact (if shipped):** Refresh-token rows persist with `device_fingerprint_hash = NULL` (compatible with the schema). No anti-abuse fingerprint binding until attestation lands — accepted pre-launch risk.
+
+**Action items:**
+- [ ] File OpenSpec change `mobile-auth-signin-attestation-fingerprint-hash` (likely bundled with the Play Integrity / App Attest change) that adds platform fingerprint generation + the `device_fingerprint_hash` body field to `SignInRequest` / `RefreshRequest`.
+- [ ] Delete this entry once attestation + the fingerprint field ship.
+
+---
+
+## mobile-auth-signin-logout-wire-up
+
+**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Non-Goals — no Settings screen ships in Mobile #3, so the backend logout endpoints have no mobile caller.
+**Status:** open
+
+**Finding:** [`openspec/specs/auth-session/spec.md`](openspec/specs/auth-session/spec.md) § Logout endpoints defines `POST /api/v1/auth/logout` (revoke one refresh token) + `POST /api/v1/auth/logout-all` (revoke all + bump `token_version`). Mobile #3 ships token persistence + the bearer-refresh client but no logout UI/caller — the only store-clear path today is the terminal-401 `SessionInvalidator`. A user-initiated logout lands with the Settings screen.
+
+**Specs at fault:** None — `auth-session` already defines the endpoints; this is mobile-caller-wiring.
+**Code at fault:** None — `AuthApiClient` + `SecureTokenStore.clear()` exist; a logout method + Settings CTA are additive.
+**Docs at fault:** None.
+
+**Impact (if shipped):** No user-facing sign-out until the Settings screen ships. Acceptable — there's no Settings surface in Mobile #3.
+
+**Action items:**
+- [ ] When the Settings screen ships, add `AuthApiClient.logout(refreshToken)` + `logoutAll()` + a Settings "Keluar" CTA that calls logout-all, clears `SecureTokenStore`, and routes to SignInScreen (reuse `SessionInvalidator`).
+- [ ] Delete this entry once logout is wired.
+
+---
+
+## mobile-auth-signin-credential-manager-legacy-fallback
+
+**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Decision 1 + propose-time WebSearch — Credential Manager can fail on older Android devices (API 24-27 with corrupted/old Play Services).
+**Status:** open
+
+**Finding:** The Android `GoogleSignInClient` actual uses Credential Manager exclusively; `GetCredentialException` maps to `GoogleSignInResult.Failed` → `NetworkError` UI ("Tidak bisa terhubung… Coba lagi"). On devices where Credential Manager is structurally unavailable, the user can never sign in. The deprecated `com.google.android.gms.auth.api.signin.GoogleSignInClient` legacy path is the documented fallback, deliberately NOT shipped in Mobile #3 (it's deprecated; the sealed `Failed` result degrades gracefully).
+
+**Specs at fault:** None.
+**Code at fault:** [`GoogleSignInClient.kt`](mobile/app/src/androidMain/kotlin/id/nearyou/app/auth/GoogleSignInClient.kt) androidMain — Credential-Manager-only.
+**Docs at fault:** None.
+
+**Impact (if shipped):** A subset of older-device users may be unable to sign in. Severity Low (subset; the Failed result is diagnosable). Trigger to act: user reports / a Sentry signal showing a `GoogleSignInResult.Failed` rate above threshold.
+
+**Ambiguity to resolve first:** Whether the legacy fallback is worth the deprecated-API dependency vs. just requiring a Play Services update. Decide on real signal.
+
+**Action items:**
+- [ ] If `GoogleSignInResult.Failed` rate (Sentry/OTel) exceeds threshold, file `mobile-auth-signin-credential-manager-legacy-fallback` adding a try-Credential-Manager-then-fall-back-to-legacy path in the androidMain actual.
+- [ ] Delete this entry once the fallback ships OR the signal confirms it's unnecessary.
+
+---
+
+## docs-ios-primary-auth-mobile-3-vs-eventual-state
+
+**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) reconciliation pass (design.md Reconciliation item 3) — two canonical docs prescribe iOS-primary = Apple Sign-In, but Mobile #3 ships Google on iOS as a substrate-proving stopgap.
+**Status:** open
+
+**Finding:** [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Auth Flow (the paragraph beginning `2. iOS: "Masuk dengan Apple" (primary, user-facing)`) and [`docs/04-Architecture.md`](docs/04-Architecture.md) § Tech Stack table (the row beginning `Auth | Google Sign-In (Android Credential Manager) + Apple Sign-In`) are both correct as the EVENTUAL state but temporarily misleading now that Mobile #3 has shipped Google iOS. The docs were intentionally NOT amended in Mobile #3 (they reflect the eventual state, not the current stopgap).
+
+**Specs at fault:** None.
+**Code at fault:** None.
+**Docs at fault:** [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Auth Flow + [`docs/04-Architecture.md`](docs/04-Architecture.md) § Tech Stack — need a Mobile #3 status-tag note (NOT removal of the Apple-iOS prescription).
+
+**Impact (if shipped without amendment):** Doc readers may think iOS already ships Apple Sign-In. Zero runtime impact; documentation-accuracy cost only.
+
+**Action items:**
+- [ ] File a docs-only PR adding a status-tag note to both paragraphs: "As of Mobile #3 (`mobile-auth-google-signin-flow`), iOS ships Google Sign-In as a substrate-proving stopgap; Apple Sign-In iOS is tracked by `mobile-auth-signin-apple-ios` and remains the eventual-state primary." Do NOT remove the Apple-iOS prescription.
+- [ ] Delete this entry once the docs amendment merges (coordinate with `mobile-auth-signin-apple-ios`).
+
+---
+
+## mobile-auth-signin-suspended-user-copy-split
+
+**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Decision 7 — the backend `/signin` emits `account_banned` for ANY `is_banned = TRUE` row without inspecting `suspended_until`, so temporarily-suspended users hit the permanent-ban copy.
+**Status:** open
+
+**Finding:** [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Suspension UX prescribes different copy for temporary suspension ("Akun kamu dalam suspensi sementara sampai {date}.") vs permanent ban ("Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru."). Mobile #3 ships only the permanent-ban copy (`signin_error_banned`) as a uniform 403 path because the backend `/signin` doesn't differentiate `is_banned = TRUE AND suspended_until > NOW()` (temp) from `is_banned = TRUE AND suspended_until IS NULL` (permanent). `auth-jwt`'s middleware DOES differentiate (`account_suspended` vs `account_banned`) on authenticated requests, but `/signin` (pre-auth) does not.
+
+**Specs at fault:** [`openspec/specs/auth-signin/spec.md`](openspec/specs/auth-signin/spec.md) § "Banned user blocked at sign-in" — emits `account_banned` uniformly; the eventual differentiation adds an `account_suspended` + `suspended_until` response shape. `openspec/specs/mobile-auth-signin/spec.md` (post-archive) ships the uniform copy as documented.
+**Code at fault:** Backend `/signin` handler (the `is_banned` check) + mobile `AuthRepository` `403 → Banned` mapping (would gain a `Suspended` outcome + date-formatted copy).
+**Docs at fault:** None — `docs/03-UX-Design.md` § Suspension UX already prescribes the split.
+
+**Impact (if shipped long-term):** Temporarily-suspended users see "permanently deactivated, contact support" instead of "suspended until {date}" — misleading + generates avoidable support contacts. Acceptable short-term (both block sign-in correctly); the copy accuracy is the gap.
+
+**Action items:**
+- [ ] File OpenSpec change differentiating `/signin` 403s: backend emits `account_suspended` + `suspended_until` when `suspended_until > NOW()`, else `account_banned`; mobile adds a `SignInOutcome.Suspended(until)` + date-formatted `signin_error_suspended` copy.
+- [ ] Delete this entry once the backend differentiation + mobile copy split ship.
+
+---
+
+## mobile-auth-signin-android-instrumented-encryption-test
+
+**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) `/opsx:apply` §3.5 — the Android raw-byte-leak encryption test for `SecureTokenStore` (DataStore + Tink) was deferred for lack of instrumented-test infra.
+**Status:** open
+
+**Finding:** `tasks.md` §3.5 specifies an Android test that writes `TokenPair("at-SENTINEL", "rt-SENTINEL", t)` then asserts NO file under the DataStore dir OR the Tink keyset dir contains the plaintext sentinels (+ a keyset-regeneration assertion). This needs the REAL Tink `AndroidKeysetManager` + Android Keystore crypto, which Robolectric does NOT faithfully emulate (its Keystore shadow may no-op the AEAD, making a raw-byte-leak assertion meaningless). Mobile #3 wired Robolectric for the Compose UI tests (`:mobile:app` androidUnitTest), but the encryption-leak test specifically needs a real device/emulator (`connectedAndroidTest`). Runtime correctness is currently covered by the §10.4 + §10.4b device smoke (real-token round-trip, uninstall/reinstall keyset regeneration); the architectural assertions (no `EncryptedSharedPreferences`, canonical master-key URI, no `kSecAttrAccessGroup`) are covered by the §9.10a-d CI greps.
+
+**Specs at fault:** None — the round-trip contract is covered by `SecureTokenStoreContractTest`; this is the at-rest-encryption RUNTIME proof.
+**Code at fault:** None — [`SecureTokenStore.kt`](mobile/app/src/androidMain/kotlin/id/nearyou/app/auth/SecureTokenStore.kt) androidMain is architecturally correct; the gap is automated runtime verification.
+**Docs at fault:** None.
+
+**Impact (if shipped without resolving):** A future refactor that accidentally drops the Tink AEAD wrap (e.g., writing the TokenPair as plain DataStore JSON) would not trip a CI assertion — only the §9.10b grep (no `EncryptedSharedPreferences`) + device smoke catch it. The raw-byte-leak guarantee has no fast-feedback automated test.
+
+**Ambiguity to resolve first:** `connectedAndroidTest` needs a CI emulator runner (doesn't exist in `.github/workflows/ci.yml` today — see `mobile-ios-ci-link-task` for the analogous macOS-runner cost question). Decide emulator-CI cost vs. relying on device smoke.
+
+**Action items:**
+- [ ] File a change adding an `androidInstrumentedTest` `SecureTokenStoreEncryptionTest` (raw-byte-leak + keyset-regeneration assertions per §3.5) once an Android-emulator CI lane exists (or run it as a documented manual gate).
+- [ ] Delete this entry once the instrumented encryption test ships.
 ## docs-host-prefix-domain-attribute-incongruity
 
 **Discovered during:** `admin-login-argon2-totp` `/next-change` Phase B step 3 (canonical-docs reconciliation pass) — verifying the proposal's cookie format claim against [`docs/04-Architecture.md:629`](docs/04-Architecture.md) + [`docs/05-Implementation.md:699`](docs/05-Implementation.md) + [`docs/08-Roadmap-Risk.md:356`](docs/08-Roadmap-Risk.md).

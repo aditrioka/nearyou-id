@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -5,6 +6,8 @@ plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinxSerialization)
+    kotlin("native.cocoapods")
 }
 
 kotlin {
@@ -14,13 +17,24 @@ kotlin {
         }
     }
 
-    listOf(
-        iosArm64(),
-        iosSimulatorArm64(),
-    ).forEach { iosTarget ->
-        iosTarget.binaries.framework {
+    iosArm64()
+    iosSimulatorArm64()
+
+    cocoapods {
+        version = "1.0"
+        summary = "NearYou Mobile App — ComposeApp KMP framework"
+        homepage = "https://nearyou.id"
+        ios.deploymentTarget = "13.0"
+        framework {
             baseName = "ComposeApp"
             isStatic = true
+        }
+        // GoogleSignIn iOS SDK is consumed via the KMP cocoapods plugin per Decision 1
+        // (`design.md` Mobile #3). The iosApp Xcode project must consume this through the
+        // generated Pods.xcworkspace + a Podfile at `iosApp/Podfile` referencing
+        // `pod 'ComposeApp', :path => '../mobile/app'`. Runbook: `dev/docs/google-cloud-oauth-clients.md`.
+        pod("GoogleSignIn") {
+            version = libs.versions.googleSigninIos.get()
         }
     }
 
@@ -28,6 +42,16 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
+            // Mobile #3 — Credential Manager + Google ID helper + DataStore + Tink + Ktor OkHttp engine.
+            implementation(libs.androidx.credentials)
+            implementation(libs.androidx.credentials.playServicesAuth)
+            implementation(libs.googleid)
+            implementation(libs.androidx.datastore.preferences)
+            implementation(libs.google.tink)
+            implementation(libs.ktor.kmp.clientOkhttp)
+            // koin-android gives `androidContext()` so the platform Koin module can supply a
+            // Context to `SecureTokenStore` without a bespoke context-holder.
+            implementation(libs.koin.android)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -43,9 +67,32 @@ kotlin {
             implementation(libs.voyager.navigator)
             implementation(libs.voyager.koin)
             implementation(projects.shared.resources)
+            // Mobile #3 — Ktor KMP client + serialization + datetime for token expiration.
+            implementation(libs.ktor.kmp.clientCore)
+            implementation(libs.ktor.kmp.clientContentNegotiation)
+            implementation(libs.ktor.kmp.serializationKotlinxJson)
+            implementation(libs.ktor.kmp.clientAuth)
+            implementation(libs.ktor.kmp.clientLogging)
+            implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.datetime)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            // Mobile #3 — MockEngine for AuthApiClient tests + runTest for suspend tests.
+            implementation(libs.ktor.kmp.clientMock)
+            implementation(libs.kotlinx.coroutines.test)
+            // Mobile #3 — Compose UI test API (runComposeUiTest). The SignInScreen /
+            // RootRouterScreen render+interaction tests live in androidUnitTest (Robolectric
+            // JVM runner); the API itself is shared so the fakes can live in commonTest.
+            implementation(libs.compose.ui.test)
+        }
+        androidUnitTest.dependencies {
+            // Mobile #3 — Robolectric runs the Compose UI tests on the JVM (no emulator).
+            implementation(libs.robolectric)
+        }
+        iosMain.dependencies {
+            // Mobile #3 — Darwin engine for iOS Ktor client.
+            implementation(libs.ktor.kmp.clientDarwin)
         }
     }
 }
@@ -61,6 +108,53 @@ android {
         versionCode = 1
         versionName = "1.0"
     }
+
+    buildFeatures {
+        // Mobile #3 — required so per-flavor `API_BASE_URL` is exposed on `BuildConfig`.
+        buildConfig = true
+    }
+
+    testOptions {
+        unitTests {
+            // Mobile #3 — Robolectric-backed Compose UI tests need merged Android resources.
+            isIncludeAndroidResources = true
+        }
+    }
+
+    // Mobile #3 — env-aware API base URL per `openspec/project.md` § Environments. Per-flavor
+    // `applicationIdSuffix` lets dev / staging / production install side-by-side on the same
+    // device; `id.nearyou.app.staging` is also the bundle ID used by the staging Google OAuth
+    // client (tasks.md 10.2). Production has no suffix.
+    flavorDimensions += "env"
+    productFlavors {
+        // GOOGLE_SERVER_CLIENT_ID is the backend's Google OAuth **web/server** client ID (the
+        // audience of the Google ID token). Per-flavor placeholders until Google Cloud Console
+        // provisioning (tasks.md 10.2/10.3); per CLAUDE.md § Public-repo posture these IDs are
+        // non-sensitive once real (the SHA-1 signing-cert binding is the security boundary), so
+        // they may be committed verbatim once provisioned.
+        create("dev") {
+            dimension = "env"
+            applicationIdSuffix = ".dev"
+            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080\"")
+            buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"REPLACE_WITH_DEV_SERVER_CLIENT_ID.apps.googleusercontent.com\"")
+        }
+        create("staging") {
+            dimension = "env"
+            applicationIdSuffix = ".staging"
+            buildConfigField("String", "API_BASE_URL", "\"https://api-staging.nearyou.id\"")
+            buildConfigField(
+                "String",
+                "GOOGLE_SERVER_CLIENT_ID",
+                "\"27815942904-egrmb6ou96poualok9gooi63mjo2a0om.apps.googleusercontent.com\"",
+            )
+        }
+        create("production") {
+            dimension = "env"
+            buildConfigField("String", "API_BASE_URL", "\"https://api.nearyou.id.PLACEHOLDER\"")
+            buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"REPLACE_WITH_PRODUCTION_SERVER_CLIENT_ID.apps.googleusercontent.com\"")
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -77,6 +171,21 @@ android {
     }
 }
 
+// The Robolectric Compose UI tests (SignInScreenTest / RootRouterScreenTest) need the debug-only
+// `androidx.compose.ui:ui-test-manifest` ComponentActivity, which is NOT merged into release
+// variants — so `./gradlew test` (all variants) fails `testDevReleaseUnitTest` etc. with a
+// host-activity RuntimeException. Skip those two classes in release unit-test tasks; they are
+// build-type-agnostic (they exercise the composable, not the build type) and run fully in the
+// debug variants. Non-UI unit tests still run in every variant.
+tasks.withType<Test>().configureEach {
+    if (name.contains("Release")) {
+        exclude("**/SignInScreenTest*", "**/RootRouterScreenTest*")
+    }
+}
+
 dependencies {
     debugImplementation(libs.compose.uiTooling)
+    // Mobile #3 — merges `androidx.activity.ComponentActivity` into the debug manifest so
+    // Robolectric's `runComposeUiTest` (ActivityScenario) can resolve a host activity.
+    debugImplementation(libs.androidx.composeUi.testManifest)
 }

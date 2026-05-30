@@ -10,4 +10,15 @@
     <string name="empty_state_generic">Belum ada konten.</string>
     <string name="home_placeholder_title">NearYouID</string>
     <string name="home_placeholder_version" formatted="true">Versi %1$s</string>
+
+    <!-- Mobile #3 sign-in flow (mobile-auth-google-signin-flow). Canonical Bahasa Indonesia
+         copy per docs/03-UX-Design.md § Auth Flow + § Suspension UX. -->
+    <string name="cta_signin_google">Masuk dengan Google</string>
+    <string name="signin_screen_title">Masuk ke NearYouID</string>
+    <string name="signin_error_no_account">Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya.</string>
+    <string name="signin_error_banned">Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru.</string>
+    <string name="signin_error_network">Tidak bisa terhubung. Periksa koneksi internet kamu.</string>
+    <string name="signin_error_token_invalid">Sesi Google bermasalah. Coba lagi.</string>
+    <string name="signin_loading">Sedang masuk…</string>
+    <string name="account_separation_disclosure">Akun Google dan akun Apple terpisah. Satu identifier = satu akun NearYouID</string>
 </resources>

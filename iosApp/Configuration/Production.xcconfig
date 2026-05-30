@@ -1,0 +1,13 @@
+#include "Config.xcconfig"
+
+// Production environment (mobile-auth-google-signin-flow, Mobile #3). Wire this xcconfig to a
+// "Production" build configuration + scheme in Xcode (see dev/docs/google-cloud-oauth-clients.md).
+// The API base URL is a deliberately-broken placeholder until production infra is provisioned —
+// a misconfigured production build fails fast rather than silently hitting a wrong host.
+PRODUCT_BUNDLE_IDENTIFIER=id.nearyou.app
+
+// `//` is an xcconfig comment — built from $(NY_SLASH) (inherited from Config.xcconfig) so the
+// URL isn't silently truncated to "https:". The `.PLACEHOLDER` host keeps the deliberate
+// fail-fast until production infra is provisioned. See Config.xcconfig for the full rationale.
+APP_API_BASE_URL=https:$(NY_SLASH)$(NY_SLASH)api.nearyou.id.PLACEHOLDER
+GID_CLIENT_ID=PLACEHOLDER-production.apps.googleusercontent.com

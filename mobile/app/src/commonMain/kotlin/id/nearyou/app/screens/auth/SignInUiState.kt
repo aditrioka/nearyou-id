@@ -1,0 +1,67 @@
+package id.nearyou.app.screens.auth
+
+import id.nearyou.app.auth.SignInOutcome
+
+/** Which string the CTA shows. The Compose layer maps each to a `stringResource`. */
+enum class SignInCtaLabel {
+    /** `cta_signin_google` — initial + after a non-network terminal state. */
+    GOOGLE,
+
+    /** `cta_retry` — after a NetworkError. */
+    RETRY,
+
+    /** `signin_loading` — while a sign-in is in flight. */
+    LOADING,
+}
+
+/** Which error banner (if any) is shown. Deliberately an enum of static message keys — it
+ *  can NEVER carry the Google `email` / `displayName` PII into the UI (spec § "No error-state
+ *  UI renders Google email or displayName"). */
+enum class SignInErrorBanner {
+    NO_ACCOUNT,
+    BANNED,
+    NETWORK,
+    TOKEN_INVALID,
+}
+
+/** Pure, Compose-free projection of the sign-in screen UI state. Encodes Decision 7's
+ *  result→state table so it can be unit-tested without a Compose UI runner. */
+data class SignInUiState(
+    val ctaLabel: SignInCtaLabel,
+    val ctaEnabled: Boolean,
+    val errorBanner: SignInErrorBanner?,
+)
+
+/**
+ * Maps the current [SignInOutcome] (null = fresh / never-attempted) + the in-flight flag to
+ * the screen's UI state, per `design.md` Decision 7.
+ *
+ * - in-flight ⇒ LOADING label, disabled, no banner.
+ * - [SignInOutcome.NetworkError] ⇒ RETRY label, enabled, NETWORK banner.
+ * - [SignInOutcome.Banned] ⇒ GOOGLE label, **disabled** (tap-rejected), BANNED banner.
+ * - [SignInOutcome.NoAccount] / [SignInOutcome.InvalidIdToken] ⇒ GOOGLE label, enabled, banner.
+ * - [SignInOutcome.Success] / [SignInOutcome.Cancelled] / null ⇒ GOOGLE label, enabled, no banner.
+ */
+fun signInUiState(
+    outcome: SignInOutcome?,
+    inFlight: Boolean,
+): SignInUiState {
+    if (inFlight) {
+        return SignInUiState(ctaLabel = SignInCtaLabel.LOADING, ctaEnabled = false, errorBanner = null)
+    }
+    return when (outcome) {
+        SignInOutcome.NoAccount ->
+            SignInUiState(SignInCtaLabel.GOOGLE, ctaEnabled = true, errorBanner = SignInErrorBanner.NO_ACCOUNT)
+        SignInOutcome.Banned ->
+            SignInUiState(SignInCtaLabel.GOOGLE, ctaEnabled = false, errorBanner = SignInErrorBanner.BANNED)
+        SignInOutcome.InvalidIdToken ->
+            SignInUiState(SignInCtaLabel.GOOGLE, ctaEnabled = true, errorBanner = SignInErrorBanner.TOKEN_INVALID)
+        SignInOutcome.NetworkError ->
+            SignInUiState(SignInCtaLabel.RETRY, ctaEnabled = true, errorBanner = SignInErrorBanner.NETWORK)
+        SignInOutcome.Success,
+        SignInOutcome.Cancelled,
+        null,
+        ->
+            SignInUiState(SignInCtaLabel.GOOGLE, ctaEnabled = true, errorBanner = null)
+    }
+}

@@ -4,5 +4,36 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Env-aware API base URL, driven by APP_API_BASE_URL in the active xcconfig
+	     (Config.xcconfig base / Staging.xcconfig / Production.xcconfig). Read at runtime by
+	     the iosMain `apiBaseUrl` actual via NSBundle.objectForInfoDictionaryKey("ApiBaseUrl"). -->
+	<key>ApiBaseUrl</key>
+	<string>$(APP_API_BASE_URL)</string>
+	<!-- Google Sign-In iOS client ID. Per env this is the CLIENT_ID from the matching
+	     GoogleService-Info.plist. Placeholder until Google Cloud Console provisioning
+	     (dev/docs/google-cloud-oauth-clients.md). GoogleSignIn v7+ reads this key. -->
+	<key>GIDClientID</key>
+	<string>$(GID_CLIENT_ID)</string>
+	<!-- Backend (web/server) OAuth client ID. GoogleSignIn auto-config reads this so the issued
+	     ID token's `aud` is the BACKEND client, which POST /api/v1/auth/signin validates against
+	     GOOGLE_CLIENT_IDS. Without it the token's aud is the iOS client → backend 401. Per env via
+	     $(GID_SERVER_CLIENT_ID). Canonical mechanism per developers.google.com/identity/sign-in/ios. -->
+	<key>GIDServerClientID</key>
+	<string>$(GID_SERVER_CLIENT_ID)</string>
+	<!-- OAuth callback URL scheme. MUST be the REVERSED_CLIENT_ID from GoogleService-Info.plist
+	     (shape com.googleusercontent.apps.<NNN>-<XYZ>), NOT an arbitrary custom scheme — an
+	     arbitrary scheme is squattable by a malicious app. Placeholder of the correct shape;
+	     replace with the real reversed client ID per environment. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(GID_REVERSED_CLIENT_ID)</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
