@@ -696,7 +696,7 @@ Solo admin period: Oka's row with `webauthn_enrolled = FALSE` (TOTP required). B
 
 Classic server-side sessions (not JWT), since the Admin Panel is a stateful Ktor + HTMX app.
 
-- **Cookie** `__Host-admin_session` with `Secure; HttpOnly; SameSite=Strict; Path=/; Domain=admin.nearyou.id`; value = opaque 256-bit random token, base64url encoded. SHA256 stored in `admin_sessions.session_token_hash` (lookup by hash, plain never persisted).
+- **Cookie** `__Host-admin_session` with `Secure; HttpOnly; SameSite=Strict; Path=/` (NO `Domain` attribute — the `__Host-` name prefix per RFC 6265bis §4.1.3.2 locks the cookie host-only to the origin that sets it; any `Domain` attribute makes the browser reject the `Set-Cookie`); value = opaque 256-bit random token, base64url encoded. SHA256 stored in `admin_sessions.session_token_hash` (lookup by hash, plain never persisted).
 - **CSRF**: second 256-bit token per session, returned in login response body, SHA256 stored in `admin_sessions.csrf_token_hash`. State-changing requests must include `X-CSRF-Token`; mismatch → 403 + audit log `admin_csrf_violation`. Regenerated on every successful login.
 - **Privilege-escalation rotation**: any change to `admin_users.role` rotates the affected admin's session cookies.
 

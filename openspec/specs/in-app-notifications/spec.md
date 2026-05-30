@@ -278,7 +278,7 @@ For the **five types V10 writes after `chat-message-notification` lands**, `body
 
 Excerpts and previews SHALL be the first 80 code points of the source content (post content for `post_liked`, reply content for `post_replied`, chat message content for `chat_message`), taken at emit time. The excerpt / preview MUST NOT be regenerated on read; subsequent edits to the source content do NOT update the already-written `body_data`.
 
-For `chat_message` specifically, `preview` SHALL be JSON `null` when the source `chat_messages.content` is `NULL` (an embedded-only message — schema-permitted per [`docs/05-Implementation.md:1285`](../../../../../docs/05-Implementation.md)). `null` is the canonical signal for "no text to preview"; mobile UI is responsible for rendering a localized fallback (e.g., "Sent a post") via Moko Resources.
+For `chat_message` specifically, `preview` SHALL be JSON `null` when the source `chat_messages.content` is `NULL` (an embedded-only message — schema-permitted per [`docs/05-Implementation.md:1285`](../../../../../docs/05-Implementation.md)). `null` is the canonical signal for "no text to preview"; mobile UI is responsible for rendering a localized fallback (e.g., "Sent a post") via Compose Multiplatform Resources.
 
 The `chat_message` `body_data` SHALL NOT carry `embedded_post_id`, `embedded_post_snapshot`, or `embedded_post_edit_id` keys (those are owned by the future `chat-embedded-posts` change and are out of scope for `chat-message-notification`). Forward-compat: future changes MAY add keys to `chat_message` body_data, but this change ships exactly the two-key shape `{conversation_id, preview}`.
 

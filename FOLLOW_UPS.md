@@ -771,31 +771,6 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 - [ ] Alternative (heavier): file `mobile-android-instrumented-test-ci-runner` to add a `macos-latest` or `ubuntu-latest`-with-Android-emulator job to `.github/workflows/ci.yml` for `connectedAndroidTest` execution.
 - [ ] Delete this entry once either OpenSpec change ships AND the `unitTests.all { it.exclude(...) }` workaround is removed from `shared/resources/build.gradle.kts`.
 
-## post-cmp-swap-spec-text-cleanup
-
-**Discovered during:** `shared-resources-swap-to-cmp-resources` Round-1 multi-lens review (docs-reconciliation lens, 2026-05-28) — surfaced when enumerating Moko Resources mentions across canonical docs + shipped specs.
-**Status:** open
-
-**Finding:** Three shipped OpenSpec specs reference Moko Resources as illustrative example text (NOT as requirement substance). After `shared-resources-swap-to-cmp-resources` (PR [#119](https://github.com/aditrioka/nearyou-id/pull/119)) lands, these references become factually stale — the project's canonical client-side resources library is now Compose Multiplatform Resources, not Moko. Wording updates are needed but the underlying requirements are unchanged.
-
-**Specs at fault:**
-- [`openspec/specs/fcm-push-dispatch/spec.md:326`](openspec/specs/fcm-push-dispatch/spec.md) — illustrative example "`PushCopy` MUST NOT depend on Moko Resources (Moko Resources is a KMP client concern; backend strings are server-side i18n per `design.md` D4)". The requirement (backend MUST NOT depend on client-side resource libs) is preserved; the example library name is what's stale.
-- [`openspec/specs/in-app-notifications/spec.md:281`](openspec/specs/in-app-notifications/spec.md) — illustrative fallback example "mobile UI is responsible for rendering a localized fallback (e.g., 'Sent a post') via Moko Resources". The requirement (mobile UI renders localized fallback for null preview) is preserved; the example accessor library is what's stale.
-- [`openspec/specs/mobile-app-scaffold/spec.md:5`](openspec/specs/mobile-app-scaffold/spec.md) + line 107 — Purpose-section parenthetical references "(Mobile #2 Moko Resources, ...)" in the menu-position enumeration. Historical menu-state reference; could be updated to "(Mobile #2 / #2.5 Resources scaffolding — Moko initially, swapped to CMP Resources, ...)" or left as historical record. Purpose sections don't participate in MODIFIED Requirement deltas, so spec-side fix requires a different mechanism.
-
-**Code at fault:** None — these are spec-text references only.
-**Docs at fault:** None — the inline references to Moko in CLAUDE.md / openspec/project.md / docs/*.md were all updated by PR #119 Section 7. The 3 spec-text references survived because (a) `fcm-push-dispatch` + `in-app-notifications` capabilities aren't in PR #119's MODIFIED-capability scope; (b) the `mobile-app-scaffold` Purpose section isn't reachable via OpenSpec deltas.
-
-**Impact (if shipped without updating):** Zero runtime impact. Cost is documentation accuracy: future archaeology readers might think Moko Resources is still the canonical KMP client-side resources library and try to wire it up. The `mobile-negative-requirement-ci-grep` follow-up (FOLLOW_UPS.md:735) also references "Moko Resources" in its action-item description; PR #119 updated that text but a future maintainer might reintroduce drift.
-
-**Ambiguity to resolve first:** None. The fix is wording-only across 3 spec files.
-
-**Action items:**
-- [ ] File a focused docs-only PR (NOT an OpenSpec change for the spec-text edits — these are wording fixes, not requirement modifications) that updates the 3 spec-text references. For `fcm-push-dispatch/spec.md:326` + `in-app-notifications/spec.md:281`, the wording-only edit ships as a regular `docs(specs):` PR. For `mobile-app-scaffold/spec.md:5`+`:107` Purpose-section references, decide between (a) accepting historical text as-is (Purpose sections describe historical context; "Mobile #2 was Moko" is historically accurate); (b) rewriting Purpose section in a future change that already modifies the capability for another reason. Lean toward (a) — Purpose-section is historical narrative, not a requirement.
-- [ ] Delete this entry once the docs-only PR merges (or if option (a) is chosen for `mobile-app-scaffold`, delete after the 2 spec-text edits ship).
-
----
-
 ## mobile-auth-signin-apple-ios
 
 **Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) `/next-change` Phase A.4 — the user chose "Google Sign-In on both Android + iOS" so the substrate-proving change ships one SDK end-to-end; iOS-primary = Apple Sign-In is deferred.
@@ -805,7 +780,7 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 
 **Specs at fault:** None — `openspec/specs/mobile-auth-signin/spec.md` (post-archive) ships Google-on-both deliberately; this follow-up adds the Apple path.
 **Code at fault:** None — `GoogleSignInClient` iosMain is correct for Mobile #3; the Apple path is additive.
-**Docs at fault:** None directly — see `docs-ios-primary-auth-mobile-3-vs-eventual-state` for the doc status-tag amendment.
+**Docs at fault:** None directly — the Mobile #3 status-tag note was added to `docs/03-UX-Design.md` § Auth Flow + `docs/04-Architecture.md` § Tech Stack in the 2026-05-30 triage sweep (formerly tracked by the `docs-ios-primary-auth-mobile-3-vs-eventual-state` entry, now closed).
 
 **Impact (if shipped):** iOS users sign in with Google rather than the docs-prescribed Apple Sign-In. Functionally complete; the gap is the eventual-state UX + App Store review expectations (Apple requires Sign in with Apple when other social logins are offered, per App Store Review Guideline 4.8 — a launch-readiness concern, not an MVP blocker).
 
@@ -895,25 +870,6 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 
 ---
 
-## docs-ios-primary-auth-mobile-3-vs-eventual-state
-
-**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) reconciliation pass (design.md Reconciliation item 3) — two canonical docs prescribe iOS-primary = Apple Sign-In, but Mobile #3 ships Google on iOS as a substrate-proving stopgap.
-**Status:** open
-
-**Finding:** [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Auth Flow (the paragraph beginning `2. iOS: "Masuk dengan Apple" (primary, user-facing)`) and [`docs/04-Architecture.md`](docs/04-Architecture.md) § Tech Stack table (the row beginning `Auth | Google Sign-In (Android Credential Manager) + Apple Sign-In`) are both correct as the EVENTUAL state but temporarily misleading now that Mobile #3 has shipped Google iOS. The docs were intentionally NOT amended in Mobile #3 (they reflect the eventual state, not the current stopgap).
-
-**Specs at fault:** None.
-**Code at fault:** None.
-**Docs at fault:** [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Auth Flow + [`docs/04-Architecture.md`](docs/04-Architecture.md) § Tech Stack — need a Mobile #3 status-tag note (NOT removal of the Apple-iOS prescription).
-
-**Impact (if shipped without amendment):** Doc readers may think iOS already ships Apple Sign-In. Zero runtime impact; documentation-accuracy cost only.
-
-**Action items:**
-- [ ] File a docs-only PR adding a status-tag note to both paragraphs: "As of Mobile #3 (`mobile-auth-google-signin-flow`), iOS ships Google Sign-In as a substrate-proving stopgap; Apple Sign-In iOS is tracked by `mobile-auth-signin-apple-ios` and remains the eventual-state primary." Do NOT remove the Apple-iOS prescription.
-- [ ] Delete this entry once the docs amendment merges (coordinate with `mobile-auth-signin-apple-ios`).
-
----
-
 ## mobile-auth-signin-suspended-user-copy-split
 
 **Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Decision 7 — the backend `/signin` emits `account_banned` for ANY `is_banned = TRUE` row without inspecting `suspended_until`, so temporarily-suspended users hit the permanent-ban copy.
@@ -951,28 +907,3 @@ The canonical source is now [`docs/06-Security-Privacy.md:185`](docs/06-Security
 **Action items:**
 - [ ] File a change adding an `androidInstrumentedTest` `SecureTokenStoreEncryptionTest` (raw-byte-leak + keyset-regeneration assertions per §3.5) once an Android-emulator CI lane exists (or run it as a documented manual gate).
 - [ ] Delete this entry once the instrumented encryption test ships.
-## docs-host-prefix-domain-attribute-incongruity
-
-**Discovered during:** `admin-login-argon2-totp` `/next-change` Phase B step 3 (canonical-docs reconciliation pass) — verifying the proposal's cookie format claim against [`docs/04-Architecture.md:629`](docs/04-Architecture.md) + [`docs/05-Implementation.md:699`](docs/05-Implementation.md) + [`docs/08-Roadmap-Risk.md:356`](docs/08-Roadmap-Risk.md).
-**Status:** open
-
-**Finding:** The three docs sites all list the admin session cookie attributes as `Secure; HttpOnly; SameSite=Strict; Path=/; Domain=admin.nearyou.id`. The `Domain=admin.nearyou.id` attribute is RFC-incompatible with the `__Host-` cookie prefix used in the cookie's name (`__Host-admin_session`). Per [RFC 6265bis §4.1.3.2](https://www.rfc-editor.org/rfc/rfc6265bis-12.html), a cookie with the `__Host-` name prefix MUST be set with `Secure`, `Path=/`, AND NO `Domain` attribute — the prefix locks the cookie to the origin that set it (host-only), and any `Domain` attribute makes the browser reject the Set-Cookie. The docs' inclusion of `Domain=admin.nearyou.id` would, if followed verbatim by an implementation, produce a cookie the browser silently drops — admin login would appear to succeed at the server but the next request would arrive without a session cookie, looking like an idle-timeout misfire.
-
-The `admin-login-argon2-totp` proposal (`design.md` D4 + `specs/admin-login/spec.md` Req "__Host-admin_session cookie format meets security invariants") implements the RFC-correct shape: no `Domain` attribute, `__Host-` prefix preserved. The cookie remains host-locked to whichever origin serves the response — `api.nearyou.id` until the Phase 3.5 separate-Cloud-Run migration moves `/admin/*` to `admin.nearyou.id` (at which point the cookie naturally migrates to the new host).
-
-**Specs at fault:** None — the proposal correctly implements the RFC-compatible shape; the project's spec layer matches RFC.
-**Code at fault:** None — the V16 schema is RFC-agnostic (it stores the SHA-256 hash, not the cookie format); the auth-gate code ships in this change with the correct shape.
-**Docs at fault:**
-- [`docs/04-Architecture.md:629`](docs/04-Architecture.md) — drop `Domain=admin.nearyou.id` from the cookie attribute list; add a short note that `__Host-` prefix makes the cookie host-locked to whichever origin sets it.
-- [`docs/05-Implementation.md:699`](docs/05-Implementation.md) — same edit.
-- [`docs/08-Roadmap-Risk.md:356`](docs/08-Roadmap-Risk.md) — drop `Domain=admin.nearyou.id` from the Pre-Launch "Admin session cookie test" checklist item.
-
-**Impact (if shipped):** Zero implementation impact (the proposal already ships the RFC-correct shape). Documentation rot only — a future contributor reading the docs verbatim and asserting against the `Domain=` attribute in tests would write a failing test, then incorrectly "fix" the implementation to match the wrong docs, then discover the cookie is silently dropped at the browser. The reconciliation pass for this change catches it; the docs amendment closes the gap before that scenario can happen.
-
-**Ambiguity to resolve first:** None. RFC 6265bis is the canonical source; the amendment is a wording-only fix.
-
-**Action items:**
-- [ ] File a focused docs-only PR (NOT an OpenSpec change — this is wording-only, no requirement change) that updates the 3 docs sites. Each amendment is a single-line edit dropping `Domain=admin.nearyou.id` from the cookie attribute list (+ a short rationale note at the docs/04 + docs/05 sites referencing the `__Host-` prefix RFC requirement).
-- [ ] Delete this entry once the docs-only PR merges.
-
-**FOLLOW_UPS.md soft-limit overage note (2026-05-28):** This entry brings the file to 32 open entries, above the 30-entry soft limit per the intro paragraph. A triage sweep via `/triage-follow-ups` is overdue (last verify-only sweep was 2026-05-10 at 22 entries). Triage sweep is out of scope for the `admin-login-argon2-totp` cycle; surface this overage to the user at handoff time for a separate `/triage-follow-ups` session.

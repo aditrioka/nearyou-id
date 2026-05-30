@@ -36,6 +36,8 @@ Because the app's location-based nature is ambiguous between "posts from this lo
 1. Android: "Masuk dengan Google" (primary, user-facing; under the hood uses Android Credential Manager)
 2. iOS: "Masuk dengan Apple" (primary, user-facing)
 
+> **Status (as of Mobile #3 `mobile-auth-google-signin-flow`, 2026-05):** iOS currently ships Google Sign-In as a substrate-proving stopgap; "Masuk dengan Apple" remains the eventual-state iOS primary, tracked by the `mobile-auth-signin-apple-ios` follow-up. Apple Sign-In is a launch-readiness requirement (App Store Review Guideline 4.8 mandates it when other social logins are offered).
+
 On first login, the attestation check (Play Integrity / App Attest) runs automatically in the background. Emulator/rooted detection rejects with user-facing "Aplikasi tidak dapat digunakan di perangkat ini" + fallback manual review link.
 
 Backend verifies the ID token + attestation, issues a Ktor RS256 JWT (15 minutes) + refresh token (30 days, tagged with `family_id`) + Supabase HS256 JWT (1 hour).

@@ -12,7 +12,7 @@ System architecture, tech stack, module structure, deployment strategy, observab
 | Backend | Ktor |
 | Admin Panel | Ktor server-side + Pebble/Freemarker + HTMX |
 | Database | Supabase Pro (PostgreSQL + PostGIS) |
-| Auth | Google Sign-In (Android Credential Manager) + Apple Sign-In (backend verify + Ktor-issued RS256 JWT) + Supabase-compatible HS256 WSS token |
+| Auth | Google Sign-In (Android Credential Manager) + Apple Sign-In (backend verify + Ktor-issued RS256 JWT) + Supabase-compatible HS256 WSS token — _iOS currently ships Google Sign-In as a Mobile #3 substrate-proving stopgap (see `mobile-auth-signin-apple-ios`); Apple Sign-In remains the eventual-state iOS primary_ |
 | Device Attestation | Play Integrity API (Android), App Attest (iOS) |
 | Realtime Chat | Supabase Realtime Broadcast mode via `ChatRealtimeClient` abstraction; swap to DIY Ktor WebSocket + Redis Streams in Month 15+ |
 | Cache / Rate Limit | Upstash Redis |
@@ -626,7 +626,7 @@ The admin panel Ktor service connects to Supabase Postgres via a dedicated servi
 
 The Admin Panel is a stateful Ktor + HTMX application, not an SPA. Sessions use classic server-side cookies:
 
-- Cookie name `__Host-admin_session`, attributes `Secure; HttpOnly; SameSite=Strict; Path=/; Domain=admin.nearyou.id`
+- Cookie name `__Host-admin_session`, attributes `Secure; HttpOnly; SameSite=Strict; Path=/` (NO `Domain` attribute — the `__Host-` prefix locks the cookie to the origin that sets it per RFC 6265bis §4.1.3.2; adding `Domain` would make the browser drop the `Set-Cookie`)
 - Opaque 256-bit random token (base64url); SHA256 at rest in `admin_sessions.session_token_hash`
 - Separate CSRF token issued per session (SHA256 at rest in `admin_sessions.csrf_token_hash`), verified via `X-CSRF-Token` header on every state-changing request
 - Session timeout: 30 min idle via `last_active_at`; cookie rotates on role escalation

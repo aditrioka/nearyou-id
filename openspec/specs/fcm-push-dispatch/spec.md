@@ -323,7 +323,7 @@ A Kotlin object `PushCopy` SHALL be defined in `:infra:fcm` with at minimum:
 
 (Note on the requirement title's "four" count: the title is preserved verbatim per OpenSpec's MODIFIED-header-stability convention — changing it would break the MODIFIED match against the existing canonical requirement. With `chat-message-notification` adding `chat_message` as the fifth wired type, the body above is the authoritative count; the title is a stable identifier with historical-original wording. A future change MAY use the OpenSpec RENAMED operation to update the title.)
 
-`PushCopy` MUST NOT call any external service, MUST NOT read any database row, AND MUST NOT depend on Moko Resources (Moko Resources is a KMP client concern; backend strings are server-side i18n per `design.md` D4).
+`PushCopy` MUST NOT call any external service, MUST NOT read any database row, AND MUST NOT depend on Compose Multiplatform Resources (a KMP client-side resource concern; backend strings are server-side i18n per `design.md` D4).
 
 #### Scenario: post_liked body uses actor username when present
 
