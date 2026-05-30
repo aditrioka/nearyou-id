@@ -20,6 +20,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import org.slf4j.LoggerFactory
 import java.security.MessageDigest
 
 // Wire field names are snake_case per the canonical auth-signin / auth-session specs
@@ -70,6 +71,8 @@ class Providers(
     val apple: ProviderIdTokenVerifier,
 )
 
+private val log = LoggerFactory.getLogger("id.nearyou.app.auth.routes.AuthRoutes")
+
 fun Application.authRoutes(
     providers: Providers,
     users: UserRepository,
@@ -111,6 +114,11 @@ fun Application.authRoutes(
                     else -> users.findByAppleIdHash(subHash)
                 }
             if (user == null) {
+                // DEBUG diagnostic: correlate a no-account sign-in to the exact provider-id hash
+                // that matched no `users` row. The hash is a one-way SHA-256 of the provider `sub`
+                // (NOT PII / NOT the raw subject), so it is safe to log; it lets ops triage
+                // "sign-in says not-registered" reports and seed staging test accounts.
+                log.debug("signin no-account: provider={} sub_hash={}", req.provider, subHash)
                 call.respond(
                     HttpStatusCode.NotFound,
                     errorBody("user_not_found", "No account linked to this identity."),
