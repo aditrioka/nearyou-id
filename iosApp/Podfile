@@ -1,0 +1,11 @@
+# CocoaPods integration for the iosApp Xcode project (Mobile #3).
+# Consumes the KMP `ComposeApp` framework (pod name `app`) via the generated podspec at
+# `../mobile/app/app.podspec`; GoogleSignIn 8.0.0 comes transitively from that podspec
+# (declared in mobile/app/build.gradle.kts cocoapods block). `pod install` generates
+# `iosApp.xcworkspace` — open/build THAT, not the bare `.xcodeproj`.
+platform :ios, '13.0'
+
+target 'iosApp' do
+  use_frameworks!
+  pod 'app', :path => '../mobile/app'
+end
