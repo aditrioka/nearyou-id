@@ -2,9 +2,11 @@ package id.nearyou.app.admin
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContain
+import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -102,6 +104,60 @@ class SuspensionUnbanWorkerTest : StringSpec({
         }
     }
 
+    data class AuditRow(
+        val adminId: UUID,
+        val actionType: String,
+        val targetType: String?,
+        val targetId: String?,
+        val reason: String?,
+        val beforeStateJson: String?,
+        val afterStateJson: String?,
+    )
+
+    fun loadWorkerAuditRows(userId: UUID): List<AuditRow> =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT admin_id, action_type, target_type, target_id, reason,
+                       before_state::text AS before_json, after_state::text AS after_json
+                  FROM admin_actions_log
+                 WHERE target_id = ? AND action_type = 'system_unban_applied'
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, userId.toString())
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) {
+                            add(
+                                AuditRow(
+                                    adminId = rs.getObject("admin_id", UUID::class.java),
+                                    actionType = rs.getString("action_type"),
+                                    targetType = rs.getString("target_type"),
+                                    targetId = rs.getString("target_id"),
+                                    reason = rs.getString("reason"),
+                                    beforeStateJson = rs.getString("before_json"),
+                                    afterStateJson = rs.getString("after_json"),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+    fun cleanupAudit(vararg userIds: UUID) {
+        if (userIds.isEmpty()) return
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "DELETE FROM admin_actions_log WHERE action_type = 'system_unban_applied' AND target_id = ANY(?)",
+            ).use { ps ->
+                val arr = conn.createArrayOf("text", userIds.map { it.toString() }.toTypedArray())
+                ps.setArray(1, arr)
+                ps.executeUpdate()
+            }
+        }
+    }
+
     "9.2 elapsed 7-day suspension is flipped" {
         val uid =
             seedUser(
@@ -116,6 +172,7 @@ class SuspensionUnbanWorkerTest : StringSpec({
             row.isBanned shouldBe false
             row.suspendedUntil shouldBe null
         } finally {
+            cleanupAudit(uid)
             cleanup(uid)
         }
     }
@@ -197,6 +254,7 @@ class SuspensionUnbanWorkerTest : StringSpec({
             val row = loadUser(uid)
             row.isBanned shouldBe false
         } finally {
+            cleanupAudit(uid)
             cleanup(uid)
         }
     }
@@ -282,6 +340,143 @@ class SuspensionUnbanWorkerTest : StringSpec({
             }
         } finally {
             cleanup(sentinelUid)
+        }
+    }
+
+    // ============ Audit rows (system-actor-and-worker-audit-rows) ============
+
+    "4.1 one unban writes exactly one matching admin_actions_log row" {
+        val priorExpiry = Instant.now().minusSeconds(3600).truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+        val uid = seedUser(isBanned = true, suspendedUntil = priorExpiry)
+        try {
+            val result = runBlocking { worker.execute() }
+            result.unbannedUserIds shouldContain uid
+
+            val rows = loadWorkerAuditRows(uid)
+            rows shouldHaveSize 1
+            val row = rows.first()
+            row.adminId shouldBe SuspensionUnbanWorker.SYSTEM_ACTOR_ID
+            row.actionType shouldBe "system_unban_applied"
+            row.targetType shouldBe "user"
+            row.targetId shouldBe uid.toString()
+            row.reason shouldBe "suspension_elapsed"
+
+            // before_state.suspended_until == the prior expiry by timestamptz
+            // value-equality (NOT string match); JSON shape pinned in SQL.
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    """
+                    SELECT (before_state->>'suspended_until')::timestamptz = ?::timestamptz AS ts_matches,
+                           before_state->>'is_banned' AS before_banned,
+                           after_state->>'is_banned' AS after_banned,
+                           after_state->'suspended_until' = 'null'::jsonb AS after_null
+                      FROM admin_actions_log
+                     WHERE target_id = ? AND action_type = 'system_unban_applied'
+                    """.trimIndent(),
+                ).use { ps ->
+                    ps.setTimestamp(1, Timestamp.from(priorExpiry))
+                    ps.setString(2, uid.toString())
+                    ps.executeQuery().use { rs ->
+                        rs.next() shouldBe true
+                        rs.getBoolean("ts_matches") shouldBe true
+                        rs.getString("before_banned") shouldBe "true"
+                        rs.getString("after_banned") shouldBe "false"
+                        rs.getBoolean("after_null") shouldBe true
+                    }
+                }
+            }
+        } finally {
+            cleanupAudit(uid)
+            cleanup(uid)
+        }
+    }
+
+    "4.2 failed audit INSERT rolls back the unban (atomicity)" {
+        val uid = seedUser(isBanned = true, suspendedUntil = Instant.now().minusSeconds(3600))
+        try {
+            // Inject a DB-layer fault: a NOT VALID CHECK rejecting the worker's audit
+            // rows (NOT VALID skips existing rows, enforces new INSERTs). The worker
+            // SQL is a fixed string literal (no app-level injection seam), so the fault
+            // must be installed at the DB layer (D7).
+            dataSource.connection.use { conn ->
+                conn.createStatement().use { st ->
+                    st.execute(
+                        "ALTER TABLE admin_actions_log ADD CONSTRAINT zzz_fail_audit " +
+                            "CHECK (action_type <> 'system_unban_applied') NOT VALID",
+                    )
+                }
+            }
+            try {
+                shouldThrow<Exception> { runBlocking { worker.execute() } }
+                // Unban rolled back: user still banned with its original expiry.
+                val row = loadUser(uid)
+                row.isBanned shouldBe true
+                row.suspendedUntil.shouldNotBeNull()
+                loadWorkerAuditRows(uid) shouldHaveSize 0
+            } finally {
+                dataSource.connection.use { conn ->
+                    conn.createStatement().use { st ->
+                        st.execute("ALTER TABLE admin_actions_log DROP CONSTRAINT IF EXISTS zzz_fail_audit")
+                    }
+                }
+            }
+        } finally {
+            cleanupAudit(uid)
+            cleanup(uid)
+        }
+    }
+
+    "4.3 zero-flip run writes zero audit rows" {
+        val uid = seedUser(isBanned = false, suspendedUntil = null)
+        try {
+            val result = runBlocking { worker.execute() }
+            result.unbannedUserIds.contains(uid) shouldBe false
+            loadWorkerAuditRows(uid) shouldHaveSize 0
+        } finally {
+            cleanupAudit(uid)
+            cleanup(uid)
+        }
+    }
+
+    "4.4 idempotent retry writes no duplicate audit row" {
+        val uid = seedUser(isBanned = true, suspendedUntil = Instant.now().minusSeconds(3600))
+        try {
+            runBlocking { worker.execute() }
+            loadWorkerAuditRows(uid) shouldHaveSize 1
+            runBlocking { worker.execute() } // retry flips 0 rows
+            loadWorkerAuditRows(uid) shouldHaveSize 1 // still exactly one
+        } finally {
+            cleanupAudit(uid)
+            cleanup(uid)
+        }
+    }
+
+    "4.5 three unbans write three audit rows, one per user" {
+        val uids = (1..3).map { seedUser(isBanned = true, suspendedUntil = Instant.now().minusSeconds(3600)) }
+        try {
+            runBlocking { worker.execute() }
+            uids.forEach { uid ->
+                val rows = loadWorkerAuditRows(uid)
+                rows shouldHaveSize 1
+                rows.first().targetId shouldBe uid.toString()
+            }
+        } finally {
+            cleanupAudit(*uids.toTypedArray())
+            cleanup(*uids.toTypedArray())
+        }
+    }
+
+    "4.11 audit rows are not capped at the INFO log's 50-entry limit" {
+        val uids = (1..55).map { seedUser(isBanned = true, suspendedUntil = Instant.now().minusSeconds(3600)) }
+        try {
+            runBlocking { worker.execute() }
+            // All 55 flipped users each get exactly one audit row -> 55 audit rows in
+            // a single run, proving the audit write is NOT capped at the INFO log's
+            // 50-entry unbanned_user_ids limit.
+            uids.forEach { uid -> loadWorkerAuditRows(uid) shouldHaveSize 1 }
+        } finally {
+            cleanupAudit(*uids.toTypedArray())
+            cleanup(*uids.toTypedArray())
         }
     }
 })

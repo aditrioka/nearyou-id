@@ -117,6 +117,20 @@ class UnbanWorkerRouteTest : StringSpec({
     val users = JdbcUserRepository(dataSource)
     val userJwtIssuer = JwtIssuer(keys)
 
+    // The worker now writes one `admin_actions_log` row per unban
+    // (system-actor-and-worker-audit-rows). These route tests drive many worker
+    // runs; clean the resulting `system_unban_applied` audit rows after the spec so
+    // they don't leak into later specs' global admin_actions_log views (e.g. the
+    // AdminActionsLogRouteTest pagination/content assertions). Only the worker
+    // writes this action_type, so the filter is exact + safe.
+    afterSpec {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "DELETE FROM admin_actions_log WHERE action_type = 'system_unban_applied'",
+            ).use { ps -> ps.executeUpdate() }
+        }
+    }
+
     fun seedUser(
         isBanned: Boolean,
         suspendedUntil: Instant?,

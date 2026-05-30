@@ -1,9 +1,5 @@
-# suspension-unban-worker Specification
+## MODIFIED Requirements
 
-## Purpose
-
-The suspension-unban-worker capability defines `POST /internal/unban-worker`, the daily Cloud-Scheduler-invoked endpoint that flips `is_banned = FALSE` and `suspended_until = NULL` for every user whose 7-day suspension window has elapsed. Permanent bans (`suspended_until IS NULL`) and soft-deleted users (`deleted_at IS NOT NULL`) are deliberately untouched. The worker is gated by the `internal-endpoint-auth` OIDC plugin, runs at 04:00 WIB (`0 21 * * *` UTC), emits a structured `suspension_unban_applied` log per run, and returns `{"unbanned_count": N}` so Scheduler retries are observable. It pioneered the `/internal/*` route prefix that subsequent scheduled workers (privacy-flip, hard-delete, FCM cleanup, notifications purge) reuse.
-## Requirements
 ### Requirement: `POST /internal/unban-worker` flips elapsed time-bound suspensions
 
 The Ktor backend SHALL expose `POST /internal/unban-worker` as a Cloud-Scheduler-invoked endpoint that flips `is_banned = FALSE` and nulls `suspended_until` for users whose time-bound suspension window has elapsed. The endpoint MUST be mounted under `/internal/*` and is gated by the `internal-endpoint-auth` capability — every request requires a valid Google OIDC bearer token whose audience matches the configured `oidc.internalAudience` Ktor config value (resolved from the `INTERNAL_OIDC_AUDIENCE` environment variable; the audience is the deployed Cloud Run service URL, a public non-secret value).
@@ -66,29 +62,6 @@ Each of the four `WHERE` conjuncts in the `eligible` CTE is required and MUST NO
 - **WHEN** a user has `is_banned = FALSE` AND `suspended_until IS NULL` AND `POST /internal/unban-worker` is invoked
 - **THEN** that user's row is unchanged
 
-### Requirement: Response shape is `{"unbanned_count": N}` with HTTP 200
-
-On successful execution (the SQL statement completes without error), the endpoint SHALL return HTTP `200 OK` with a JSON body containing exactly one field `unbanned_count` whose value is the integer count of rows actually flipped (the size of the `RETURNING id` result set). The count MUST be reported even when zero — operators rely on the response to confirm the cron fired even on no-op runs.
-
-The response body MUST NOT include the affected user IDs, raw exception messages, stack traces, or any other field. Sanitized error responses (HTTP `500`) use the body shape `{"error": "<classification>"}` with classification drawn from a fixed vocabulary tailored to handler-level failures (distinct from the probe-level vocabulary in `health-check` — handler errors map to JDBC failures, not external-service liveness):
-- `"timeout"` — the JDBC query / transaction exceeded its configured budget.
-- `"connection_refused"` — the DataSource could not acquire a connection (pool exhaustion, downstream Postgres unreachable).
-- `"unknown"` — escape-hatch catch-all; the original exception is logged at WARN with full context for operator debugging but never appears in the response.
-
-The original exception's message and stack trace MUST NOT appear in the response.
-
-#### Scenario: Success with zero eligible rows
-- **WHEN** there are no users meeting the eligibility predicate AND `POST /internal/unban-worker` is invoked with a valid OIDC token
-- **THEN** the response status is `200 OK` AND the response body parses as JSON with exactly `{"unbanned_count": 0}`
-
-#### Scenario: Success with three eligible rows
-- **WHEN** three users each have `is_banned = TRUE`, `suspended_until` in the past, AND `deleted_at IS NULL` AND `POST /internal/unban-worker` is invoked
-- **THEN** the response status is `200 OK` AND the response body is `{"unbanned_count": 3}` AND all three rows have `is_banned = FALSE` AND `suspended_until = NULL`
-
-#### Scenario: DB unreachable returns sanitized 500
-- **WHEN** the Postgres connection acquire times out AND `POST /internal/unban-worker` is invoked
-- **THEN** the response status is `500 Internal Server Error` AND the response body is `{"error": "timeout"}` AND does NOT contain the original exception message or stack trace
-
 ### Requirement: Worker emits one structured INFO log event per run
 
 For every successful invocation (HTTP 200 path), the worker SHALL emit exactly one structured INFO log event with the following fields:
@@ -118,51 +91,7 @@ This structured INFO log is retained alongside the per-unban `admin_actions_log`
 - **WHEN** the INFO event is emitted
 - **THEN** the event payload does NOT contain the inbound `Authorization` header value, the JWT bytes, or any of the JWT claims
 
-### Requirement: Endpoint is idempotent
-
-The `POST /internal/unban-worker` endpoint SHALL be idempotent: invoking it twice in succession with no intervening state change MUST produce identical observable outcomes on the second call (zero rows flipped, `unbanned_count: 0` response). Idempotency arises naturally from the `WHERE` predicate — after the first run, no row satisfies the predicate, so the second run flips nothing.
-
-This guarantee enables Cloud Scheduler retry policies to safely re-invoke the endpoint after transient failures without risking double-flips. Once `admin_actions_log` ships in Phase 3.5 and the audit-row write is wired through this worker (per `FOLLOW_UPS.md` § `suspension-unban-worker-audit-log-after-phase-3.5`), the same idempotency guarantee will mean no duplicate audit rows are written on retry; until then, the structured INFO log is the trail and a duplicate INFO event with `unbanned_count=0` on retry is the correct, expected shape.
-
-#### Scenario: Two consecutive invocations produce one effective unban
-- **WHEN** a user is flipped by a first `POST /internal/unban-worker` AND a second invocation runs immediately after
-- **THEN** the first invocation returns `{"unbanned_count": 1}` AND the second returns `{"unbanned_count": 0}` AND exactly one INFO event with `event="suspension_unban_applied"` AND `unbanned_count=1` containing that user's UUID was emitted by the first call AND a second INFO event with `unbanned_count=0` was emitted by the second call
-
-#### Scenario: Retry after network blip is safe
-- **WHEN** Cloud Scheduler invokes the endpoint, receives the response, but the response is lost in transit AND Cloud Scheduler retries the invocation
-- **THEN** the retry's UPDATE flips zero additional rows AND the user row is NOT modified again AND the response body is `{"unbanned_count": 0}`
-
-### Requirement: Schedule is daily at 04:00 WIB
-
-The endpoint SHALL be invoked exactly once per day at `04:00` Asia/Jakarta time (WIB, UTC+7) via Cloud Scheduler. The cron schedule expressed in UTC is `0 21 * * *` (the prior calendar day in UTC). Cloud Scheduler job configuration MUST be reproducible per environment (one job per environment: `nearyou-unban-worker-staging`, `nearyou-unban-worker-prod`) — initial setup is via the `gcloud` commands documented in `tasks.md` § 11; long-term, this codebase intends to move infrastructure-state to declarative configuration as the project grows, but that's out of scope for this change.
-
-The Cloud Scheduler retry policy MUST permit at least 3 attempts with exponential backoff (min 30s, max 5min) — the endpoint's idempotency guarantee makes retries safe.
-
-#### Scenario: Cron expression is correct in UTC
-- **WHEN** the Cloud Scheduler job is configured
-- **THEN** its cron schedule is `0 21 * * *` in UTC, equivalent to `0 4 * * *` in Asia/Jakarta time
-
-#### Scenario: Job exists per environment
-- **WHEN** the staging Cloud Scheduler jobs are inspected via `gcloud scheduler jobs list --project=nearyou-staging`
-- **THEN** exactly one job named `nearyou-unban-worker-staging` exists that targets the deployed service URL `${SERVICE_URL}/internal/unban-worker` with method `POST` and an OIDC token bound to a dedicated service account (and the analogous job exists in production once the production Cloud Run + Scheduler deployment is wired in a subsequent change)
-
-### Requirement: No notification on unban
-
-The worker SHALL NOT insert any `notifications` row when a user is unbanned. The user's next sign-in attempt or post action succeeds, which is the natural in-band signal of restored access. This decision is documented in `design.md` D5 — adopting `account_action_applied` would cause user-facing copy mismatch ("Akun kamu menerima tindakan moderasi" does not fit a positive restoration), and adding a new `account_action_lifted` type is out of scope.
-
-If post-launch user research surfaces confusion about restored access, a follow-up change can introduce `account_action_lifted` and amend this requirement.
-
-#### Scenario: No notification row on unban
-- **WHEN** a user is flipped by `POST /internal/unban-worker`
-- **THEN** zero new rows are inserted into the `notifications` table referencing that user
-
-### Requirement: Worker performance is bounded
-
-The worker SHALL leverage the existing `users_suspended_idx ON users(suspended_until) WHERE suspended_until IS NOT NULL` partial index ([`docs/05-Implementation.md:242`](docs/05-Implementation.md)) so that the eligibility scan is index-bound, not a full table scan. The endpoint's worst-case latency at expected suspension volumes (≤100 unbans/day) MUST complete within Cloud Scheduler's per-invocation timeout (30 minutes). At the operational steady state, end-to-end response time is expected to be well under 1 second.
-
-#### Scenario: Index scan, not seq scan
-- **WHEN** the worker's UPDATE query is profiled with `EXPLAIN`
-- **THEN** the query plan shows an index scan against `users_suspended_idx`, not a sequential scan of the `users` table
+## ADDED Requirements
 
 ### Requirement: Worker writes one immutable `admin_actions_log` row per unban in the same transaction
 
@@ -203,4 +132,3 @@ The worker MUST NOT write an audit row for any user it did not flip. Audit rows 
 #### Scenario: Audit rows are not capped at the INFO log's 50-entry limit
 - **WHEN** more than 50 users are flipped in one invocation
 - **THEN** exactly one `admin_actions_log` row is written per flipped user — the audit-row count equals `unbanned_count` (greater than 50), NOT capped at 50 — even though the INFO log's `unbanned_user_ids` array is capped at 50 entries
-
