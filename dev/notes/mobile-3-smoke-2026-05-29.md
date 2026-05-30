@@ -76,6 +76,34 @@ happy-path smoke is provisioning the Google OAuth clients in Cloud Console (`nea
 After provisioning: plug the web client ID into `mobile/app/build.gradle.kts` staging flavor,
 `installStagingDebug`, re-tap → account picker → complete → backend `/signin`.
 
+### Discovered staging state (2026-05-29, founder gcloud token, read-only)
+
+Re-probed `nearyou-staging` with the correctly-scoped lane (`gcloud` is authed as
+`nearyouid.founder@gmail.com`, active project `nearyou-staging` — the founder account, NOT the
+employer's `ledger-fcc1e`). Findings that make the provisioning faster:
+
+- `nearyou-staging` **is already a Firebase project** (`state: ACTIVE`, projectNumber `27815942904`).
+- `firebase.googleapis.com` + `identitytoolkit.googleapis.com` are **already enabled**.
+- **Zero** Android apps, **zero** Web apps, **no** Identity Toolkit auth config, **no** Google IDP
+  configured → clean slate; nothing to reuse, both OAuth clients must be created.
+- Debug SHA-1 re-verified via `keytool` on `~/.android/debug.keystore`:
+  `9A:14:CE:3E:30:74:1A:AD:E9:EC:F7:49:41:C3:26:81:BD:A1:11:05` (SHA-256
+  `51:09:49:84:89:5C:2B:5C:FC:F9:30:86:4A:76:FF:91:B7:1F:23:04:16:36:0A:28:C1:42:82:84:FA:AA:D6:87`).
+
+Attempted to auto-provision via the Firebase Management API using the founder gcloud token
+(`POST .../projects/nearyou-staging/androidApps`). **Gated by policy** — creating persistent
+resources in the shared cloud project requires the human owner's explicit authorization, even on
+the correctly-scoped founder lane. This is the right boundary; the provisioning stays a
+human-owned step. Recipe handed to the operator (Firebase Console, founder account):
+
+1. **Project Settings → Add app → Android**: package `id.nearyou.app.staging`, SHA-1 above →
+   creates the Android OAuth client.
+2. **Authentication → Sign-in method → Google → Enable** (set support email) → auto-creates the
+   "Web client (auto created by Google Service)" + the OAuth consent screen.
+3. Copy the **Web client ID** (`27815942904-…apps.googleusercontent.com`) from the Google provider's
+   "Web SDK configuration" (or Cloud Console → Credentials). That value → staging
+   `GOOGLE_SERVER_CLIENT_ID`. Then `installStagingDebug` + adb-driven ceremony is one step away.
+
 ## Provisioning decision (2026-05-29) — automation declined for cross-project safety
 
 Evaluated automating the OAuth-client provisioning to finish the happy-path smoke. **Declined.**
@@ -94,3 +122,51 @@ a **launch-prep provisioning task**, not a code-correctness gate — the app is 
 the ceremony on real hardware (error 28444 = pure provisioning gap). Recipe + SHA-1 above; once the
 clients exist in `nearyou-staging` + the Web client ID is in the staging build, the device-side run
 is one `installStagingDebug` + adb-driven account-picker tap away.
+
+## ✅ HAPPY PATH GREEN — real device (Galaxy A17 `RRGL20CTDBM`), 2026-05-30
+
+The §10.4 happy path now runs **green end-to-end on real hardware**. What unblocked it, in order:
+
+1. **OAuth clients provisioned** (operator, Firebase Console, founder account `nearyouid.founder@gmail.com`):
+   Android app `id.nearyou.app.staging` + debug SHA-1 `9A:14:CE:…:11:05` → Android OAuth client;
+   Authentication → Google provider enabled → auto-created **Web client**
+   `27815942904-egrmb6ou96poualok9gooi63mjo2a0om.apps.googleusercontent.com`. Error 28444 cleared;
+   the account picker rendered ("Choose a saved sign-in for NearYouID").
+2. **Audience wired both sides** (commit `d750357`): the Web client ID → staging
+   `GOOGLE_SERVER_CLIENT_ID` buildConfigField (mobile `serverClientId`) **and** the staging deploy's
+   `GOOGLE_CLIENT_IDS` env var (the backend's `aud` allow-list, `deploy-staging.yml` line 137).
+3. **Backend wire-format bug found + fixed** (commit `9980851`): with the audience accepted, the
+   ceremony succeeded but the backend returned **400 `invalid_request`**. Root cause: the deployed
+   auth DTOs (de)serialized **camelCase** (`idToken`/`accessToken`/…) while the canonical
+   auth-signin/-session/-signup specs mandate **snake_case** (`id_token`/`access_token`/…). The
+   mobile client correctly follows the spec; the backend's plain `@Serializable` data classes lacked
+   `@SerialName` (app-wide Json uses kotlinx's default camelCase naming). Fixed by adding snake_case
+   `@SerialName` to `SignInRequest`/`TokenPairResponse`/`RefreshRequest`/`LogoutRequest` +
+   `SignupRequestDto`/`SignupTokenPairResponse`, plus `AuthWireFormatTest` pinning the literal wire
+   names (the gap existed because both the backend flow tests and the mobile MockEngine tests
+   round-trip via the same DTOs, so neither pinned the wire contract). Verified live: snake_case body
+   `id_token` went from `400` → `401` (deserialization now succeeds).
+4. **Staging test user seeded.** After (3), sign-in reached the user lookup and 404'd
+   (`signin_error_no_account` — this itself smoke-tests **10.7** on real hardware). The looked-up hash
+   was surfaced by the DEBUG diagnostic (commit `e3c1c57`): `sub_hash=f10eaeb6…a6a409`. A `users` row
+   was seeded for it (via the IPv4 Supabase pooler `aws-1-ap-southeast-1`, founder-account
+   `staging-db-password`): `username=smoketest_adi`, `id=986142e3-0f12-43fd-92a5-cf40e1b70bd4`,
+   `google_id_hash=f10eaeb6…a6a409`, not banned. **Keep this row** — it is the registered account the
+   happy-path smoke depends on. (Sign-in is account-gated; signup is a later mobile change, so there
+   is no in-app way to register yet.)
+
+**Verified green (screenshots in this dir):**
+
+| Scenario | Evidence |
+|---|---|
+| 10.2/10.3 OAuth clients provisioned | account picker rendered (err 28444 gone) — `06-real-device-signin-provisioned.png` (SignInScreen) |
+| **10.4 happy path → HomeScreen** | `200 OK: POST /api/v1/auth/signin in 103ms` (Cloud Run log) → HomeScreen — `07-real-device-home-signed-in.png` |
+| **10.4 token persists (process death)** | force-stop + cold relaunch lands directly on HomeScreen, SignInScreen skipped — `08-real-device-relaunch-token-persisted.png` |
+| 10.7 no-account 404 | `signin no-account … 404 Not Found` before seeding (user-facing "Akun belum terdaftar…") |
+| 10.8 NetworkError copy + retry label | covered pre-provisioning (`03-…`) |
+
+**Still gated / optional** (not blockers — code proven correct):
+- **10.4a OS-reboot persistence** — process-death persistence proven; full `adb reboot` survival not yet run (token is on disk: encrypted DataStore + Tink keyset, so it will survive — but not yet device-confirmed).
+- **10.5 iOS sim smoke** — needs the Podfile/`.xcworkspace` migration + iOS OAuth client + a Google account on the sim.
+- **10.6 banned 403** — flip `smoketest_adi.is_banned = TRUE` → expect `signin_error_banned`; flip back after.
+- **10.9 / 10.10 refresh rotation + reuse-detection** — now have an authenticated session to drive these.
