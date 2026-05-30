@@ -36,6 +36,8 @@ lettuce = "6.5.0.RELEASE"
 logback = "1.5.32"
 opentelemetry-bom = "1.51.0"
 opentelemetry-instrumentation-bom = "2.25.0-alpha"
+password4j = "1.8.4"
+samstevens-totp = "1.7.1"
 slf4j = "2.0.16"
 material3 = "1.10.0-alpha05"
 postgresql-jdbc = "42.7.7"
@@ -81,6 +83,7 @@ ktor-serverStatusPages = { module = "io.ktor:ktor-server-status-pages-jvm", vers
 ktor-serverCallLogging = { module = "io.ktor:ktor-server-call-logging-jvm", version.ref = "ktor" }
 ktor-serverAuth = { module = "io.ktor:ktor-server-auth-jvm", version.ref = "ktor" }
 ktor-serverAuthJwt = { module = "io.ktor:ktor-server-auth-jwt-jvm", version.ref = "ktor" }
+ktor-serverSessions = { module = "io.ktor:ktor-server-sessions-jvm", version.ref = "ktor" }
 ktor-serializationKotlinxJson = { module = "io.ktor:ktor-serialization-kotlinx-json-jvm", version.ref = "ktor" }
 ktor-clientCore = { module = "io.ktor:ktor-client-core-jvm", version.ref = "ktor" }
 ktor-clientCio = { module = "io.ktor:ktor-client-cio-jvm", version.ref = "ktor" }
@@ -164,6 +167,19 @@ opentelemetry-instrumentationLettuce = { module = "io.opentelemetry.instrumentat
 
 auth0-javaJwt = { module = "com.auth0:java-jwt", version.ref = "auth0-javaJwt" }
 auth0-jwksRsa = { module = "com.auth0:jwks-rsa", version.ref = "auth0-jwksRsa" }
+
+# Password4j: JVM Argon2id (and bcrypt/scrypt/PBKDF2). Introduced by
+# `admin-login-argon2-totp` (Admin #3) for the admin login flow. Library
+# coordinate verified via propose-time WebSearch 2026-05-28 + apply-phase
+# re-check; OWASP-aligned recommended params; pure-Java (no native libargon2
+# JNI overhead in the Cloud Run container).
+password4j = { module = "com.password4j:password4j", version.ref = "password4j" }
+
+# samstevens java-totp: TOTP RFC 6238 verification (+ QR/URI for future
+# enrollment UI). Introduced by `admin-login-argon2-totp` (Admin #3) for the
+# admin login flow. Coordinate verified via propose-time WebSearch 2026-05-28
+# + apply-phase re-check; ecosystem-complete vs java-otp's minimal-deps shape.
+samstevens-totp = { module = "dev.samstevens.totp:totp", version.ref = "samstevens-totp" }
 
 firebase-admin = { module = "com.google.firebase:firebase-admin", version.ref = "firebase-admin" }
 

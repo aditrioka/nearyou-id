@@ -916,13 +916,45 @@ fun Application.module() {
         }
     }
 
-    // /admin/* — admin-panel-ktor-htmx-bootstrap scaffold (Admin #2). Mounted via
-    // an Application extension function so the eventual extraction to a separate
-    // Cloud Run service for admin.nearyou.id (per docs/07-Operations.md § Stack)
-    // is mechanical. Internally gated by KTOR_ENV != "production" — production
-    // exposure is structurally impossible until Admin #3 (admin-login-argon2-totp)
-    // lifts the guard alongside landing the auth gate.
-    admin()
+    // /admin/ — admin panel route subtree. Cookie-based session + CSRF
+    // gate per admin-login-argon2-totp (Admin #3). Mounted via an
+    // Application extension function so the eventual extraction to a
+    // separate Cloud Run service for admin.nearyou.id (per
+    // docs/07-Operations.md § Stack) is mechanical.
+    //
+    // AES key for `admin_users.totp_secret_encrypted` decryption is
+    // sourced lazily — the lambda is only invoked at login-verify time,
+    // so a missing secret slot fails the FIRST login attempt with a
+    // clear error but does NOT block app boot. Once provisioned, the
+    // secret resolution is cached at the slot lookup level by
+    // EnvVarSecretResolver behavior (env vars don't change at runtime).
+    admin(
+        dataSource = dataSource,
+        aesKeyProvider = {
+            // secretKey() computes the env-namespaced SLOT name for
+            // diagnostics; secrets.resolve() takes the UN-prefixed logical
+            // name (→ env var ADMIN_TOTP_SECRET_AES_KEY, which the deploy
+            // populates from the staging-/prod- slot) — same shape as the
+            // firebase-admin-sa precedent above.
+            val slot = secretKey(ktorEnv, "admin-totp-secret-aes-key")
+            val base64 =
+                secrets.resolve("admin-totp-secret-aes-key")
+                    ?: error("Missing required secret '$slot' (set ADMIN_TOTP_SECRET_AES_KEY)")
+            Base64.getDecoder().decode(base64)
+        },
+        csrfHmacKeyProvider = {
+            // Server-side HMAC key for the Signed Double-Submit CSRF token
+            // (HashUtil.deriveCsrfFromSessionToken). Distinct slot from the
+            // TOTP AES key (key separation). Lazy — resolved at login/render
+            // time, so a missing slot fails the first admin page load with a
+            // clear error but does NOT block app boot.
+            val slot = secretKey(ktorEnv, "admin-csrf-hmac-key")
+            val base64 =
+                secrets.resolve("admin-csrf-hmac-key")
+                    ?: error("Missing required secret '$slot' (set ADMIN_CSRF_HMAC_KEY)")
+            Base64.getDecoder().decode(base64)
+        },
+    )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime
     // exercises Tier 3 fallback per list`). Fires once each for ProfanityList +
