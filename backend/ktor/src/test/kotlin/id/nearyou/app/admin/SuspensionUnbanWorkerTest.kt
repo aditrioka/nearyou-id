@@ -396,7 +396,8 @@ class SuspensionUnbanWorkerTest : StringSpec({
         try {
             // Inject a DB-layer fault: a NOT VALID CHECK rejecting the worker's audit
             // rows (NOT VALID skips existing rows, enforces new INSERTs). The worker
-            // SQL is a compile-time const, so the fault is installed in the schema (D7).
+            // SQL is a fixed string literal (no app-level injection seam), so the fault
+            // must be installed at the DB layer (D7).
             dataSource.connection.use { conn ->
                 conn.createStatement().use { st ->
                     st.execute(

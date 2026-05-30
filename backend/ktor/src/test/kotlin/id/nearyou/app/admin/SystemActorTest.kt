@@ -8,7 +8,9 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldStartWith
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -158,19 +160,24 @@ class SystemActorTest : StringSpec({
                 }
             }
         count shouldBe 1
-        // And it is still the inactive, read-only sentinel (the re-insert was a no-op,
-        // so the placeholder password_hash above did NOT overwrite the real one).
-        val (active, role) =
-            dataSource.connection.use { conn ->
-                conn.prepareStatement("SELECT is_active, role FROM admin_users WHERE id = ?").use { ps ->
-                    ps.setObject(1, sentinelId)
-                    ps.executeQuery().use { rs ->
-                        rs.next()
-                        rs.getBoolean("is_active") to rs.getString("role")
-                    }
+        // Full sentinel row shape (system-actor "Sentinel row exists with the
+        // deterministic UUID" scenario) AND proof the re-insert was a no-op: the
+        // 'placeholder' password_hash above did NOT overwrite the real V18 hash.
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT email, display_name, role, is_active, password_hash FROM admin_users WHERE id = ?",
+            ).use { ps ->
+                ps.setObject(1, sentinelId)
+                ps.executeQuery().use { rs ->
+                    rs.next() shouldBe true
+                    rs.getString("email") shouldBe "system@system.nearyou.invalid"
+                    rs.getString("display_name") shouldBe "System Actor"
+                    rs.getString("role") shouldBe "read_only"
+                    rs.getBoolean("is_active") shouldBe false
+                    rs.getString("password_hash") shouldStartWith "\$argon2id\$"
+                    rs.getString("password_hash") shouldNotBe "placeholder"
                 }
             }
-        active shouldBe false
-        role shouldBe "read_only"
+        }
     }
 })
