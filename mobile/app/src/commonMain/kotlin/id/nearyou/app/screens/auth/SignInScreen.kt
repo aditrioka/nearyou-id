@@ -94,7 +94,13 @@ class SignInScreen : Screen {
         LaunchedEffect(outcome) {
             when (val current = outcome) {
                 SignInOutcome.Success -> navigator.replaceAll(HomeScreen())
-                is SignInOutcome.NoAccount -> navigator.push(AgeGateScreen(current.idToken))
+                is SignInOutcome.NoAccount -> {
+                    navigator.push(AgeGateScreen(current.idToken))
+                    // Clear the consumed outcome so a system-back from the age gate (which returns
+                    // here) cannot re-fire this effect and re-push the screen — the user lands on a
+                    // clean, initial SignInScreen instead of a back-trap.
+                    outcome = null
+                }
                 else -> Unit
             }
         }

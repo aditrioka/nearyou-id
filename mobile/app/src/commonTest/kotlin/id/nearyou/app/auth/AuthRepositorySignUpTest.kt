@@ -153,6 +153,44 @@ class AuthRepositorySignUpTest {
             assertNull(store.read())
         }
 
+    // 7.7 (refresh sub-branch) — if the user CANCELS the Google refresh sheet on the 401, the
+    // carried token cannot be refreshed → terminal InvalidIdToken; no retry /signup is issued.
+    @Test
+    fun `401 then a cancelled refresh sheet is terminal InvalidIdToken with no retry signup`() =
+        runTest {
+            var signupCalls = 0
+            val gateway = FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled)
+            val repo =
+                repository(gateway) {
+                    signupCalls++
+                    respond("""{"error":{"code":"invalid_id_token"}}""", HttpStatusCode.Unauthorized, JSON_HEADERS)
+                }
+
+            assertEquals(SignUpOutcome.InvalidIdToken, repo.signUpWithGoogle("g-id", DOB))
+            assertEquals(1, gateway.invocationCount, "the refresh ceremony was invoked once")
+            assertEquals(1, signupCalls, "no retry /signup after the user cancelled the refresh")
+        }
+
+    // 7.7 (refresh sub-branch) — if the Google refresh ceremony FAILS on the 401, it is a
+    // connectivity-class problem → RetryableError (mirroring sign-in's Failed→NetworkError), logged.
+    @Test
+    fun `401 then a failed refresh ceremony maps to RetryableError and logs a diagnostic`() =
+        runTest {
+            var signupCalls = 0
+            val logged = mutableListOf<String>()
+            val gateway = FakeGoogleSignInGateway(GoogleSignInResult.Failed("Credential Manager unavailable"))
+            val repo =
+                repository(gateway, diagnosticLog = { logged.add(it) }) {
+                    signupCalls++
+                    respond("""{"error":{"code":"invalid_id_token"}}""", HttpStatusCode.Unauthorized, JSON_HEADERS)
+                }
+
+            assertEquals(SignUpOutcome.RetryableError, repo.signUpWithGoogle("g-id", DOB))
+            assertEquals(1, gateway.invocationCount)
+            assertEquals(1, signupCalls, "no retry /signup after the refresh ceremony failed")
+            assertTrue(logged.any { it.contains("signup_refresh_ceremony_failed") }, "failed refresh logs a diagnostic: $logged")
+        }
+
     // 7.8 — 503 username_generation_failed (typed nested body) → RetryableError (status-driven), no write.
     @Test
     fun `typed 503 username_generation_failed maps to RetryableError`() =
