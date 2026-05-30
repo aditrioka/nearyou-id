@@ -20,6 +20,7 @@ The 18+ age gate is mandated by `docs/06-Security-Privacy.md` § Age Gate (UU PD
 
 ### Modified Capabilities
 - `mobile-auth-signin`: the `404 user_not_found` handling in the "Backend error codes mapped to user-facing copy" requirement changes from "show `signin_error_no_account` banner, stay on `SignInScreen`" to "navigate to `AgeGateScreen` carrying the verified Google identity."
+- `shared-resources`: the "Foundational Bahasa Indonesia string surface" requirement is extended with the Mobile #4 age-gate / signup strings (`age_gate_title`, `age_gate_explainer`, `age_gate_dob_label`, `age_gate_dob_picker_cta`, `cta_create_account`, `age_gate_under18_blocked`, `signup_error_account_exists`, `signup_loading`); no Mobile #2/#3 string is altered.
 
 ## Impact
 
@@ -28,4 +29,4 @@ The 18+ age gate is mandated by `docs/06-Security-Privacy.md` § Age Gate (UU PD
 - **Dependencies**: none added — `kotlinx-datetime` (`mobile/app/build.gradle.kts:77`) and Material 3 `DatePicker` already in use.
 - **Security surface**: client-side age-gate UX, anti-DOB-shopping correctness (under-18 DOB must reach the server so `rejected_identifiers` populates — the client must not hard-block), privacy-preserving rejection (byte-identical `403` bodies → one generic blocked message), and PII discipline (no Google email/`displayName` in age-gate UI).
 - **FOLLOW_UPS.md**: resolves `mobile-auth-signin-404-route-to-age-gate` (at archive); adds `mobile-age-gate-stronger-verification` (Apple Declared Age Range API / Google Play Families SDK cross-checks deferred — self-declared DOB ships first).
-- **Out of scope**: Apple Sign-In iOS (`mobile-auth-signin-apple-ios`, stays a separate change); stronger age *verification*; attestation `device_fingerprint_hash`.
+- **Out of scope**: Apple Sign-In iOS (`mobile-auth-signin-apple-ios`, stays a separate change); stronger age *verification*; attestation `device_fingerprint_hash`; **the post-age-gate Analytics & Tracking Consent screen and the Location Permission screen** that `docs/03-UX-Design.md` § User Onboarding Flow sequences after the age gate — Mobile #4 routes a successful signup straight to `HomeScreen` (parity with Mobile #3's sign-in terminus); those screens are later mobile changes (see the design Open Question + the FOLLOW_UPS entry this change adds for the deferred onboarding sequence).

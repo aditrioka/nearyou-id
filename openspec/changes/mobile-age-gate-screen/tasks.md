@@ -14,7 +14,8 @@
 ## 3. AgeGateScreen UI (commonMain)
 
 - [ ] 3.1 Create `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/auth/AgeGateScreen.kt` as a Voyager `Screen` rendering: title (`age_gate_title`), explainer (`age_gate_explainer`), DOB field (`age_gate_dob_label` + `age_gate_dob_picker_cta`), and the create-account CTA (`cta_create_account`). Render under `NearYouTheme`; reuse the theme-aware brand-logo pattern from `SignInScreen`.
-- [ ] 3.2 Wire a Material 3 `DatePicker` (`rememberDatePickerState`) opened from the DOB field. Do NOT constrain `selectableDates`/year range to 18+ (per design D1); reject only future dates and non-dates (format/sanity validation). Enable the create-account CTA once a valid (non-future) date is picked.
+- [ ] 3.2 Wire a Material 3 `DatePicker` (`rememberDatePickerState`) opened from the DOB field. Do NOT constrain `selectableDates`/year range to 18+ (per design D1); reject only future dates and non-dates (format/sanity validation). Enable the create-account CTA once a valid (non-future) date is picked. Both `today−18y` (exactly 18) and `today−18y+1day` (one day under) MUST be submittable — the boundary is the server's call.
+- [ ] 3.2a Give the DOB sanity-validation an injectable notion of "today" (`Clock` / `today: LocalDate` seam, mirroring Mobile #3's `nowMillis: () -> Long` in `AuthApiClient`) so the under-18 / exactly-18-boundary / future-date checks are deterministically testable (per design D1).
 - [ ] 3.3 Ensure every UI string flows through `stringResource(Res.string.X)` — zero hardcoded literals. Never render the Google `email`/`displayName` (PII discipline, design D7).
 - [ ] 3.4 Show the in-flight state via `signup_loading` while a signup call is running; render outcome states (blocked / account-exists / token-invalid / retryable) per the `mobile-age-gate` spec.
 
@@ -24,6 +25,7 @@
 - [ ] 4.2 Add `suspend fun signUpWithGoogle(dateOfBirth: LocalDate): SignUpOutcome` to `AuthRepository` (the existing Koin singleton). Convert the picked DOB to `"YYYY-MM-DD"` via `kotlinx-datetime`.
 - [ ] 4.3 Reuse the verified Google `id_token` carried from the sign-in `404` (do not re-run the Google ceremony on age-gate entry); never log the `id_token` (design D3).
 - [ ] 4.4 Define the `SignUpOutcome` sealed type (`Success`, `Blocked`, `AccountExists`, `InvalidIdToken`, plus a retryable error outcome) in `auth/**`; register/consume via `mobileModule`.
+- [ ] 4.5 Add an in-flight guard to `signUpWithGoogle` (`isInFlight` / `Mutex.tryLock`, or a CTA disabled-while-loading `signup_loading` state) so a double-tap cannot fire two concurrent `/signup` calls or two token writes (per design D8, mirroring Mobile #3's sign-in CTA defense).
 
 ## 5. Routing (RootRouterScreen branch + 404 swap)
 
@@ -33,23 +35,27 @@
 
 ## 6. Outcome / error mapping
 
-- [ ] 6.1 Map every signup result to exactly one `SignUpOutcome` with no generic fallthrough: `201`→Success; `403 user_blocked`→Blocked (`age_gate_under18_blocked`, no token write, no nav); `409 user_exists`→AccountExists (`signup_error_account_exists`, route to SignIn); `401 invalid_id_token`→one fresh `GoogleSignInClient.signIn()` + retry, second `401`→terminal (`signin_error_token_invalid`); `5xx`/`503`/IO/`GoogleSignInResult.Failed`→retryable error (`signin_error_network` + `cta_retry`); `400`→retryable error with logged diagnostic (not expected from a valid picker).
+- [ ] 6.1 Map every signup result to exactly one `SignUpOutcome` with no generic fallthrough, **keyed on HTTP status (and transport-failure type), NOT on a parsed `error.code`** (per design D2/D8): `201`→Success; `403`→Blocked (`age_gate_under18_blocked`, no token write, no nav); `409`→AccountExists (`signup_error_account_exists`, route to SignIn); `401`→one fresh `GoogleSignInClient.signIn()` + retry, second `401`→terminal (`signin_error_token_invalid`); `5xx`/`503`/IO/`GoogleSignInResult.Failed`→retryable error (`signin_error_network` + `cta_retry`); `400`→retryable error with logged diagnostic.
+- [ ] 6.1a CRITICAL (per security review): `/signup`'s `403` is the FLAT body `{"error":"user_blocked","message":"..."}` (no `code` field) — the shipped `AuthApiClient.BackendErrorBody` nested parser yields `null` on it. Map `403`→Blocked on **HTTP status**, render the local `age_gate_under18_blocked` string, ignore the server `message`, and do NOT log the `403` body. A code-based mapping would misroute the rejection to the retryable fallthrough.
 - [ ] 6.2 Emit the `Failed(message)` payload to Sentry/OTel logs only (never to user-facing UI).
 
 ## 7. Tests (commonTest)
 
 - [ ] 7.1 `AgeGateScreen` render test: title + DOB label + create-account CTA present via `stringResource`; brand logo present.
 - [ ] 7.2 No-hardcoded-strings test/grep scenario for `AgeGateScreen.kt`.
-- [ ] 7.3 DOB picker permits selecting an under-18 date (not constrained to 18+); future date not submittable.
+- [ ] 7.3 DOB picker permits selecting an under-18 date (not constrained to 18+); future date not submittable. Using the injected clock (3.2a): assert BOTH `today−18y` (exactly 18) and `today−18y+1day` (one day under) are selectable AND enable the CTA — the client never accepts exactly-18 while rejecting one-day-under (boundary delegated to the server, guards D1).
 - [ ] 7.4 `signUpWithGoogle` MockEngine tests: `201`→canonical snake_case body (`provider`,`id_token`,`date_of_birth`, NO `device_fingerprint_hash`) + token write + route Home.
-- [ ] 7.5 `403 user_blocked`→`age_gate_under18_blocked`, no token write, no nav.
+- [ ] 7.5 `403`→Blocked: MockEngine returns the ACTUAL FLAT body `{"error":"user_blocked","message":"Akun tidak dapat dibuat dengan data ini."}` → maps to Blocked (`age_gate_under18_blocked`), NOT the retryable fallthrough (proves status-driven mapping, not `error.code` parse); no token write, no nav.
 - [ ] 7.6 `409 user_exists`→route to `SignInScreen`, no token write.
 - [ ] 7.7 `401 invalid_id_token`→exactly one `GoogleSignInClient.signIn()` re-invocation + retry; second `401`→terminal, no third invocation.
-- [ ] 7.8 `5xx`/`503`/IO→retryable network error (`signin_error_network` + `cta_retry`).
+- [ ] 7.8 Retryable-error mapping: bare `5xx`/IO → retryable (`signin_error_network` + `cta_retry`); typed `503 {error:{code:"username_generation_failed"}}` → retryable (status-driven); `400 {error:{code:"invalid_request"}}` → retryable + logged diagnostic (not silent, not crash).
 - [ ] 7.9 Outcome-coverage test: every documented result (`201/400/401/403/409/503/5xx`/IO/`Failed`) maps to a `SignUpOutcome` member; no `else`/wildcard generic-failure branch.
 - [ ] 7.10 PII test: no age-gate / signup error UI renders the Google `email` or `displayName`.
-- [ ] 7.11 `mobile-auth-signin` `404` test (MODIFIED): `404 user_not_found` navigates to `AgeGateScreen` carrying `idToken`, emits no `SignInScreen` banner, no token write.
+- [ ] 7.11 `mobile-auth-signin` `404` test (MODIFIED): `404 user_not_found` navigates to `AgeGateScreen` carrying `idToken`; assert NO `SignInScreen` error banner — specifically that no node renders `Res.string.signin_error_no_account`; no token write.
 - [ ] 7.12 `shared-resources` string tests: all Mobile #2+#3+#4 keys declared; `age_gate_under18_blocked` exact text; `cta_create_account`/`signup_error_account_exists`/`age_gate_title` exact text.
+- [ ] 7.13 Double-submit guard: a second concurrent `signUpWithGoogle` invocation (double-tap) results in exactly ONE `/signup` call and at most ONE `SecureTokenStore.write` (per 4.5).
+- [ ] 7.14 Process-death mid-signup: with no `TokenPair` persisted, relaunch → `RootRouterScreen` reads `null` → routes to `SignInScreen` (no stale token, no crash, no stuck splash).
+- [ ] 7.15 No-second-ceremony-on-entry: reaching / composing `AgeGateScreen` does NOT invoke `GoogleSignInClient.signIn()` (the `id_token` is reused from the sign-in `404`) — distinct from the 401-refresh re-invocation count in 7.7.
 
 ## 8. Lint + verification (local, before push)
 

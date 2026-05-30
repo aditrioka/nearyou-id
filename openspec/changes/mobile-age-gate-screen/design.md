@@ -30,6 +30,10 @@ The DOB `DatePicker` MUST allow selecting an under-18 date, and the client MUST 
 
 **Rationale:** the anti-DOB-shopping blocklist (`rejected_identifiers`, age-gate spec) only works if an honest under-18 DOB reaches `POST /api/v1/auth/signup`, which writes the `(identifier_hash, identifier_type, 'age_under_18')` row and returns `403`. A picker that constrained its range to 18+-only dates — or a client that hard-rejected under-18 before the call — would silently train a minor to pick a fake 18+ date on the first try, the blocklist row would never be written, and a later retry with a fabricated DOB would succeed. Pushing the under-18 DOB to the server is what makes the one-honest-attempt → permanent-block design hold.
 
+**Boundary delegation (makes D1 enforceable):** the spec pins that BOTH a DOB of exactly `today − 18 years` AND `today − 18 years + 1 day` are client-submittable — the client never decides the 18+ boundary itself; the server's inclusive-at-exactly-18 / strict-below rule (age-gate spec § Strict 18+ DOB check) is the sole authority. This is the precise value where a regression could silently re-introduce a local 18+ gate, so it gets dedicated scenarios.
+
+**Testability seam:** the DOB sanity-validation (and any "age" computation used only for UX, never for gating) SHALL take an injectable notion of "today" (a `Clock` / `today: LocalDate` parameter, mirroring Mobile #3's `nowMillis: () -> Long` injection in `AuthApiClient`) so the under-18, exactly-18-boundary, and future-date scenarios are deterministic rather than wall-clock-dependent.
+
 - **(rejected) Constrain the `DatePicker` `selectableDates`/`yearRange` to 18+-only.** Defeats the blocklist (above); also leaks the threshold to a casual user. The server's DB CHECK + app-layer guard remain the real gate.
 - **(rejected) Client-side 18+ check that blocks the call entirely.** Same failure mode — no server round-trip means no blocklist write.
 
@@ -38,6 +42,13 @@ The DOB `DatePicker` MUST allow selecting an under-18 date, and the client MUST 
 On `403 user_blocked`, the client shows a single generic blocked copy ("*Platform ini hanya tersedia untuk pengguna usia 18 tahun ke atas.*"). The client cannot and must not attempt to tell "fresh under-18 rejection" apart from "already-blocked identifier."
 
 **Rationale:** the age-gate spec (§ Rejection body indistinguishability) and auth-signup spec (§ Privacy-preserving blocked body) guarantee the two `403` bodies are **byte-identical**. The client therefore naturally renders the same message for both — preserving the server's privacy property by construction. Branching on any heuristic (timing, etc.) would be both pointless and a privacy regression.
+
+**Wire reality (verified against [`SignupRoutes.kt`](../../../../backend/ktor/src/main/kotlin/id/nearyou/app/auth/signup/SignupRoutes.kt) + [`AuthApiClient.kt`](../../../../mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/AuthApiClient.kt)):** `/signup` emits the `403` as a **FLAT** body `{"error":"user_blocked","message":"Akun tidak dapat dibuat dengan data ini."}` — `error` is a *string* with no machine-readable `code` field (deliberate: the comment in `SignupRoutes.kt` notes the body must stay exactly this string for the byte-identity guarantee). The other signup codes (`400/401/409/503`) use the **NESTED** `{"error":{"code":...}}` shape that the shipped Mobile #3 `AuthApiClient.BackendErrorBody` parser decodes. Consequences for this change:
+
+- The signup outcome mapping MUST key on the HTTP **status code**, NOT on a parsed `error.code` — `body<BackendErrorBody>()` throws on the flat `403` and the catch yields `code = null`, which would misroute the `403` to the retryable/network fallthrough and silently break the privacy-rejection path. (This is the keystone of D8's status-driven mapping.)
+- The client deliberately **ignores the server `message`** field and renders its own local `age_gate_under18_blocked` string (never surface server copy).
+- The `403` response **body** MUST NOT be logged (Mobile #3's `LogLevel.HEADERS` already excludes bodies — assert it; the carried `id_token` is a request-body field, also excluded).
+- This flat shape is **signup-specific** — `/signin`'s `403 account_banned` uses the nested `errorBody()` shape (verified in `AuthRoutes.kt`), so Mobile #3 sign-in is unaffected and **no Mobile #3 change is needed**.
 
 ### D3 — Reuse the verified Google ID token from the sign-in ceremony; refresh once on `401`
 
@@ -61,11 +72,19 @@ Mobile #4 ships self-declared DOB — the MVP-standard approach and what the bac
 
 `AgeGateScreen` is a Voyager `Screen` in commonMain using the Compose Multiplatform Material 3 `DatePicker` (already on the classpath). It renders under `NearYouTheme` (light/dark), reuses the brand-logo pattern from `SignInScreen`/`HomeScreen`, and sources every string via `stringResource(Res.string.X)` (CMP Resources — no hardcoded literals). It MUST NOT render the Google `email` or `displayName` anywhere (inherited from Mobile #3's error-state PII rule); the identity payload is consumed only for the `/signup` call body.
 
+### D8 — Signup outcome mapping is HTTP-status-driven + in-flight guarded
+
+Two related robustness rules for `signUpWithGoogle`:
+
+- **Status-driven mapping (from D2's wire reality):** the result → `SignUpOutcome` mapping keys on the HTTP **status** (`201`→Success, `403`→Blocked, `409`→AccountExists, `401`→InvalidIdToken+one-refresh, `400`/`503`/`5xx`→retryable) and transport-failure type — NOT on a parsed `error.code`. Each `/signup` status maps to exactly one outcome, so the error envelope (flat or nested) is informational only; this sidesteps the flat-`403` parse hole entirely and keeps the mapping exhaustive with no generic fallthrough.
+- **In-flight guard (double-submit):** `signUpWithGoogle` SHALL guard against concurrent/duplicate invocation — an `isInFlight` / `Mutex.tryLock` guard in `AuthRepository` OR a CTA disabled-while-loading (`signup_loading`) state — so a double-tap on the create-account CTA cannot fire two concurrent `/signup` calls or two `SecureTokenStore.write`s. Mirrors the Mobile #3 sign-in CTA double-tap defense (`mobile-auth-signin` § "Double-tap on CTA rejects the second concurrent invocation").
+
 ## Risks / Trade-offs
 
 - **A determined minor lies about their DOB** → no client-side measure stops this; the blocklist only catches the honest single-attempt minor. Mitigation: out of scope by design — stronger verification (D6 follow-up) is the real mitigation, and the server remains authoritative. The 18+ posture + UU PDP/PP TUNAS compliance is met at the self-declaration tier that the whole app category uses at MVP.
 - **`id_token` expiry between `404` and DOB submission** → `401 invalid_id_token`. Mitigation: D3's one-shot silent refresh + retry; a second `401` is a terminal, user-actionable state (re-start sign-in).
 - **Carrying `id_token` through navigation state risks accidental logging/leak.** Mitigation: never log it (Mobile #3 sanitization posture), keep it out of any UI string, and don't persist it (in-memory navigation arg only; not written to `SecureTokenStore`).
+- **Process death on `AgeGateScreen` mid-signup loses the in-memory-only `id_token`** (D3: not persisted). Mitigation: on relaunch `RootRouterScreen` finds no persisted `TokenPair` → routes to `SignInScreen`; the user simply restarts sign-in (no stale token, no stuck splash, no crash). A spec scenario pins this, mirroring Mobile #3's app-backgrounded / Banned-process-restart routing scenarios.
 - **`409 user_exists` mid-flow** (a race where the account got created between `/signin 404` and `/signup`) → route the user back to sign in rather than erroring. Mitigation: explicit `409 → SignInScreen` outcome with "account already exists, please sign in" copy.
 - **Copy not yet UX-reviewed** → `docs/03-UX-Design.md` § Age Gate Screen gives the under-18 reject copy verbatim but not the title/CTA/loading strings. Mitigation: derive sensible Bahasa Indonesia strings consistent with Mobile #3's register, flag for review in Open Questions.
 
