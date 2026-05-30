@@ -1,14 +1,25 @@
 package id.nearyou.app.auth
 
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.datetime.LocalDate
 
 /**
- * The sign-in orchestration contract consumed by `SignInScreen` + `RootRouterScreen`. The
- * production binding is [AuthRepository]; commonTest substitutes a `FakeAuthFlow` so screen
+ * The auth orchestration contract consumed by `SignInScreen` / `AgeGateScreen` / `RootRouterScreen`.
+ * The production binding is [AuthRepository]; commonTest substitutes a `FakeAuthFlow` so screen
  * tests can drive a specific outcome / assert (non-)invocation without a backend.
  */
 interface AuthFlow {
     suspend fun signInWithGoogle(): SignInOutcome
+
+    /**
+     * The Mobile #4 signup-new-user flow. [idToken] is the verified Google ID token carried from
+     * the sign-in `404 user_not_found` (reused, NOT re-fetched — design D3); [dateOfBirth] is the
+     * picked DOB. Returns the status-driven [SignUpOutcome] (design D8).
+     */
+    suspend fun signUpWithGoogle(
+        idToken: String,
+        dateOfBirth: LocalDate,
+    ): SignUpOutcome
 
     suspend fun isAuthenticated(): Boolean
 
@@ -40,6 +51,7 @@ class AuthRepository(
     private val diagnosticLog: (String) -> Unit = {},
 ) : AuthFlow {
     private val signInMutex = Mutex()
+    private val signUpMutex = Mutex()
 
     override suspend fun signInWithGoogle(): SignInOutcome {
         if (!signInMutex.tryLock()) {
@@ -93,7 +105,10 @@ class AuthRepository(
             }
             is SignInApiResult.HttpError ->
                 when {
-                    api.status == 404 -> SignInOutcome.NoAccount
+                    // 404 user_not_found is NOT an error — carry the verified Google id_token into
+                    // the age-gate/signup flow (Mobile #4 MODIFIED routing). The screen navigates
+                    // to AgeGateScreen; no on-SignInScreen banner.
+                    api.status == 404 -> SignInOutcome.NoAccount(idToken)
                     api.status == 403 -> SignInOutcome.Banned
                     api.status == 401 ->
                         // invalid_id_token: re-run the Google ceremony ONCE for a fresh token,
@@ -105,6 +120,97 @@ class AuthRepository(
                     else -> SignInOutcome.NetworkError
                 }
         }
+
+    /**
+     * The Mobile #4 signup-new-user orchestration: `POST /api/v1/auth/signup` (reusing the carried
+     * Google [idToken]) → token persistence on `201` → a status-driven [SignUpOutcome] (design D8).
+     *
+     * Concurrency: a double-tap while a signup is in flight is rejected by the [signUpMutex]
+     * tryLock guard (returns [SignUpOutcome.Cancelled] — no second `/signup`, no second token
+     * write), mirroring [signInWithGoogle]'s defense.
+     *
+     * Token refresh: a `401 invalid_id_token` (the carried token staled between the sign-in `404`
+     * and the DOB submission) triggers ONE fresh `GoogleSignInClient.signIn()` + retry within this
+     * call; a second consecutive `401` is terminal ([SignUpOutcome.InvalidIdToken]) — the ceremony
+     * is never invoked a third time.
+     */
+    override suspend fun signUpWithGoogle(
+        idToken: String,
+        dateOfBirth: LocalDate,
+    ): SignUpOutcome {
+        if (!signUpMutex.tryLock()) {
+            // A signup is already in flight — reject the concurrent invocation silently.
+            return SignUpOutcome.Cancelled
+        }
+        return try {
+            // ISO-8601 YYYY-MM-DD (kotlinx-datetime LocalDate.toString()), per the auth-signup wire.
+            attemptSignUp(idToken, dateOfBirth.toString(), allowRetry = true)
+        } finally {
+            signUpMutex.unlock()
+        }
+    }
+
+    /**
+     * Status-driven `/signup` outcome mapping (design D2/D8) — keyed on HTTP status / transport
+     * type, NEVER on a parsed `error.code` (the `403` body is the flat `{"error":"user_blocked"}`
+     * shape with no `code`). Exhaustive over the documented results with no generic-failure
+     * fallthrough: `201`→Success, `403`→Blocked, `409`→AccountExists, `401`→one refresh+retry then
+     * terminal, `400`/`503`/`5xx`/IO→[SignUpOutcome.RetryableError].
+     */
+    private suspend fun attemptSignUp(
+        idToken: String,
+        dateOfBirth: String,
+        allowRetry: Boolean,
+    ): SignUpOutcome =
+        when (val api = authApiClient.signUp(idToken, dateOfBirth)) {
+            is SignInApiResult.Success -> {
+                tokenStore.write(api.tokens)
+                SignUpOutcome.Success
+            }
+            is SignInApiResult.NetworkError -> {
+                diagnosticLog("signup_network_error: ${api.cause.message}")
+                SignUpOutcome.RetryableError
+            }
+            is SignInApiResult.HttpError ->
+                when {
+                    // 403 user_blocked — under-18 OR already-rejected identifier (byte-identical
+                    // flat bodies). Status-driven (D2): a code-based map would misroute it to the
+                    // retryable fallthrough since the flat body has no parseable `error.code`. No
+                    // token write, no nav; the screen shows the local age_gate_under18_blocked copy.
+                    api.status == 403 -> SignUpOutcome.Blocked
+                    api.status == 409 -> SignUpOutcome.AccountExists
+                    // invalid_id_token: refresh the Google token ONCE and retry; a second 401 is
+                    // terminal (the inner attempt below runs with allowRetry = false).
+                    api.status == 401 ->
+                        if (allowRetry) refreshTokenAndRetrySignUp(dateOfBirth) else SignUpOutcome.InvalidIdToken
+                    // 400 invalid_request is not expected from a well-formed picker submission —
+                    // surface it as retryable WITH a logged diagnostic (not a silent no-op/crash).
+                    api.status == 400 -> {
+                        diagnosticLog("signup_invalid_request: status=400 code=${api.code}")
+                        SignUpOutcome.RetryableError
+                    }
+                    // 5xx incl. 503 username_generation_failed, and any unenumerated status: a
+                    // defined retryable state (signin_error_network + cta_retry), NOT a generic
+                    // "signup failed" fallthrough.
+                    else -> SignUpOutcome.RetryableError
+                }
+        }
+
+    /**
+     * On `401 invalid_id_token`, re-run the Google ceremony ONCE for a fresh token then retry
+     * `/signup` (allowRetry = false, so a second 401 yields [SignUpOutcome.InvalidIdToken]). A
+     * cancelled refresh sheet is treated as terminal token-invalid; a failed ceremony is a
+     * retryable connectivity problem (mirroring the sign-in `Failed`→NetworkError mapping).
+     */
+    private suspend fun refreshTokenAndRetrySignUp(dateOfBirth: String): SignUpOutcome =
+        when (val ceremony = googleSignIn.signIn()) {
+            is GoogleSignInResult.Success -> attemptSignUp(ceremony.idToken, dateOfBirth, allowRetry = false)
+            is GoogleSignInResult.UserCancelled -> SignUpOutcome.InvalidIdToken
+            is GoogleSignInResult.Failed -> {
+                diagnosticLog("signup_refresh_ceremony_failed: ${ceremony.message}")
+                SignUpOutcome.RetryableError
+            }
+        }
 }
 
 /**
@@ -114,7 +220,13 @@ class AuthRepository(
 sealed interface SignInOutcome {
     data object Success : SignInOutcome
 
-    data object NoAccount : SignInOutcome
+    /**
+     * `404 user_not_found` — no account yet for this verified Google identity. Carries the
+     * verified [idToken] from the `GoogleSignInResult.Success` so the screen can navigate to
+     * `AgeGateScreen` and the signup flow reuses it without a second Google ceremony (Mobile #4
+     * MODIFIED routing, design D3). NOT an error state — no on-`SignInScreen` banner.
+     */
+    data class NoAccount(val idToken: String) : SignInOutcome
 
     data object Banned : SignInOutcome
 

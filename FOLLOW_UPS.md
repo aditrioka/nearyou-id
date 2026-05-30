@@ -696,22 +696,24 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## mobile-auth-signin-404-route-to-age-gate
+## mobile-age-gate-stronger-verification
 
-**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Decision 7 — the `404 user_not_found` branch ships temporary copy ("Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya.") because the signup/age-gate flow (Mobile #4) doesn't exist yet.
+**Discovered during:** `mobile-age-gate-screen` (Mobile #4) `/next-change` Phase A — explicit user decision D6: ship self-declared DOB first, defer stronger age *verification*.
 **Status:** open
 
-**Finding:** `AuthRepository` maps backend `404 user_not_found` to `SignInOutcome.NoAccount` → `signin_error_no_account` banner (stay on SignInScreen). The canonical destination per `docs/03-UX-Design.md` § Auth Flow is navigation to an age-gate → signup flow. Mobile #3 ships the honest stopgap ("registration not available in this build") until Mobile #4 lands.
+**Finding:** Mobile #4 ships a self-declared DOB age gate (`AgeGateScreen` → `POST /api/v1/auth/signup`, server-authoritative 18+ check + `rejected_identifiers` anti-DOB-shopping blocklist). [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) § Verification names stronger cross-checks — the Apple Declared Age Range API (iOS 18+) and the Google Play Families / age-signal SDK (Android) — that are NOT yet integrated. Self-declaration is the MVP-standard tier the whole app category uses and what the backend already enforces; the platform cross-checks are real launch-hardening work.
 
-**Specs at fault:** `openspec/specs/mobile-auth-signin/spec.md` (post-archive) — the `404 → NoAccount` scenario + the `signin_error_no_account` string are temporary; Mobile #4 replaces the branch.
-**Code at fault:** [`AuthRepository.kt`](mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/AuthRepository.kt) `exchangeIdToken` `404 → NoAccount`; [`SignInScreen.kt`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/auth/SignInScreen.kt) renders the no-account banner. `signin_error_no_account` in `shared/resources/.../strings.xml`.
-**Docs at fault:** None.
+**Specs at fault:** None — `openspec/specs/mobile-age-gate/spec.md` (post-archive) ships self-declared DOB deliberately; the cross-checks are additive.
+**Code at fault:** None — `AgeGateScreen` self-declared DOB is correct for MVP; a platform age-signal probe is additive.
+**Docs at fault:** None — `docs/06-Security-Privacy.md` § Verification already names the cross-checks as the landing context.
 
-**Impact (if shipped long-term):** Users with no account hit a dead-end ("try again later") instead of being routed to sign up — acceptable for the pre-Mobile-#4 window, a UX dead-end if it persists.
+**Impact (if shipped long-term):** A determined minor can fabricate a DOB; the blocklist only catches the honest single-attempt minor. Stronger platform-attested age signals are the real mitigation. This is a launch-readiness / regulatory-hardening concern, NOT an MVP blocker — but it lands against a dated regulatory backdrop: **PP 17/2025 ("PP TUNAS", in effect ~March 2026)** pushes Indonesian apps in this category toward age *assurance*, not mere self-declaration, so this is a real pre-launch item rather than speculative.
+
+**Ambiguity to resolve first:** Which platform API leads (Apple Declared Age Range needs iOS 18+; Google Play age-signal availability on Android), and whether the cross-check is advisory (telemetry only) or gating (block signup on a hard mismatch) — the latter risks false-positives locking out legitimate adults.
 
 **Action items:**
-- [ ] In Mobile #4 (`mobile-auth-age-gate` / signup), replace the `NoAccount → banner` branch with `navigator.push(AgeGateScreen)`; retire or repurpose `signin_error_no_account` for the network-edge-case-only path.
-- [ ] Delete this entry once Mobile #4 ships the age-gate navigation.
+- [ ] File OpenSpec change `mobile-age-gate-stronger-verification` adding the Apple Declared Age Range API (iOS 18+) + Google Play Families / age-signal cross-checks per `docs/06-Security-Privacy.md` § Verification, layered on top of the self-declared DOB this change ships.
+- [ ] Delete this entry once the stronger-verification change ships.
 
 ---
 

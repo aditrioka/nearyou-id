@@ -16,9 +16,12 @@ enum class SignInCtaLabel {
 
 /** Which error banner (if any) is shown. Deliberately an enum of static message keys — it
  *  can NEVER carry the Google `email` / `displayName` PII into the UI (spec § "No error-state
- *  UI renders Google email or displayName"). */
+ *  UI renders Google email or displayName").
+ *
+ *  Note (Mobile #4): there is no `NO_ACCOUNT` banner — `404 user_not_found` now navigates to
+ *  `AgeGateScreen` instead of showing a banner (the `signin_error_no_account` copy is retired
+ *  from this path per the `mobile-auth-signin` MODIFIED routing). */
 enum class SignInErrorBanner {
-    NO_ACCOUNT,
     BANNED,
     NETWORK,
     TOKEN_INVALID,
@@ -39,8 +42,9 @@ data class SignInUiState(
  * - in-flight ⇒ LOADING label, disabled, no banner.
  * - [SignInOutcome.NetworkError] ⇒ RETRY label, enabled, NETWORK banner.
  * - [SignInOutcome.Banned] ⇒ GOOGLE label, **disabled** (tap-rejected), BANNED banner.
- * - [SignInOutcome.NoAccount] / [SignInOutcome.InvalidIdToken] ⇒ GOOGLE label, enabled, banner.
- * - [SignInOutcome.Success] / [SignInOutcome.Cancelled] / null ⇒ GOOGLE label, enabled, no banner.
+ * - [SignInOutcome.InvalidIdToken] ⇒ GOOGLE label, enabled, TOKEN_INVALID banner.
+ * - [SignInOutcome.NoAccount] (Mobile #4: navigates to `AgeGateScreen`) / [SignInOutcome.Success] /
+ *   [SignInOutcome.Cancelled] / null ⇒ GOOGLE label, enabled, no banner.
  */
 fun signInUiState(
     outcome: SignInOutcome?,
@@ -50,14 +54,16 @@ fun signInUiState(
         return SignInUiState(ctaLabel = SignInCtaLabel.LOADING, ctaEnabled = false, errorBanner = null)
     }
     return when (outcome) {
-        SignInOutcome.NoAccount ->
-            SignInUiState(SignInCtaLabel.GOOGLE, ctaEnabled = true, errorBanner = SignInErrorBanner.NO_ACCOUNT)
         SignInOutcome.Banned ->
             SignInUiState(SignInCtaLabel.GOOGLE, ctaEnabled = false, errorBanner = SignInErrorBanner.BANNED)
         SignInOutcome.InvalidIdToken ->
             SignInUiState(SignInCtaLabel.GOOGLE, ctaEnabled = true, errorBanner = SignInErrorBanner.TOKEN_INVALID)
         SignInOutcome.NetworkError ->
             SignInUiState(SignInCtaLabel.RETRY, ctaEnabled = true, errorBanner = SignInErrorBanner.NETWORK)
+        // NoAccount is a transient navigation trigger (→ AgeGateScreen), like Success — no banner
+        // (the signin_error_no_account copy is retired from the 404 path). Cancelled / null are the
+        // initial CTA-visible state.
+        is SignInOutcome.NoAccount,
         SignInOutcome.Success,
         SignInOutcome.Cancelled,
         null,

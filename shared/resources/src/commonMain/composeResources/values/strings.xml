@@ -21,4 +21,16 @@
     <string name="signin_error_token_invalid">Sesi Google bermasalah. Coba lagi.</string>
     <string name="signin_loading">Sedang masuk…</string>
     <string name="account_separation_disclosure">Akun Google dan akun Apple terpisah. Satu identifier = satu akun NearYouID</string>
+
+    <!-- Mobile #4 age-gate / signup flow (mobile-age-gate-screen). The under-18 reject copy is
+         byte-identical to docs/02-Product.md / docs/03-UX-Design.md / docs/06-Security-Privacy.md
+         § Age Gate; the rest are derived BI copy consistent with the Mobile #3 register. -->
+    <string name="age_gate_title">Verifikasi usia kamu</string>
+    <string name="age_gate_explainer">NearYouID hanya untuk pengguna berusia 18 tahun ke atas. Masukkan tanggal lahir kamu untuk melanjutkan.</string>
+    <string name="age_gate_dob_label">Tanggal lahir</string>
+    <string name="age_gate_dob_picker_cta">Pilih tanggal lahir</string>
+    <string name="cta_create_account">Buat akun</string>
+    <string name="age_gate_under18_blocked">Platform ini hanya tersedia untuk pengguna usia 18 tahun ke atas.</string>
+    <string name="signup_error_account_exists">Akun sudah terdaftar. Silakan masuk.</string>
+    <string name="signup_loading">Sedang membuat akun…</string>
 </resources>

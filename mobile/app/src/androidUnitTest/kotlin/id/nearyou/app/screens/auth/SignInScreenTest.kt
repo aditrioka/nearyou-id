@@ -33,6 +33,7 @@ private const val DISCLOSURE = "Akun Google dan akun Apple terpisah. Satu identi
 private const val ERR_NO_ACCOUNT = "Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya."
 private const val ERR_BANNED = "Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru."
 private const val ERR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
+private const val AGE_GATE_TITLE = "Verifikasi usia kamu" // AgeGateScreen title — proves the 404 navigation landed
 
 /**
  * Render + interaction coverage of `SignInScreen` via the Robolectric-backed CMP UI runner
@@ -99,15 +100,19 @@ class SignInScreenTest {
         }
     }
 
-    // 6.7c — NoAccount outcome renders the no-account banner.
+    // 7.11 (Mobile #4 MODIFIED 404 routing) — NoAccount navigates to AgeGateScreen carrying the
+    // id_token; NO signin_error_no_account banner is shown on SignInScreen.
     @Test
-    fun noAccountOutcome_rendersNoAccountBanner() {
-        installKoin(SignInOutcome.NoAccount)
+    fun noAccount_navigatesToAgeGate_withNoSignInBanner() {
+        installKoin(SignInOutcome.NoAccount("g-id"))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
             onNodeWithText(CTA_GOOGLE).performClick()
             waitForIdle()
-            onNodeWithText(ERR_NO_ACCOUNT).assertExists()
+            // Landed on AgeGateScreen (its title renders)…
+            onNodeWithText(AGE_GATE_TITLE).assertExists()
+            // …and the retired no-account banner is NOT shown anywhere.
+            onNodeWithText(ERR_NO_ACCOUNT).assertDoesNotExist()
         }
     }
 
@@ -147,9 +152,11 @@ class SignInScreenTest {
 
     // 6.7i — no error-state UI renders Google email / displayName. Structural: the screen never
     // receives PII (AuthRepository consumes it only for the API body; SignInOutcome carries none).
+    // Uses Banned (a state that REMAINS on SignInScreen) — 404 no longer produces a SignInScreen
+    // error state (it navigates to AgeGateScreen, whose PII discipline is covered by AgeGateScreenTest).
     @Test
     fun errorState_rendersNoGooglePii() {
-        installKoin(SignInOutcome.NoAccount)
+        installKoin(SignInOutcome.Banned)
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
             onNodeWithText(CTA_GOOGLE).performClick()
