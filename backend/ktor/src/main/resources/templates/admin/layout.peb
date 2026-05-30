@@ -34,7 +34,7 @@
         <ul>
             <li><a href="#">Reports (stub)</a></li>
             <li><a href="#">Users (stub)</a></li>
-            <li><a href="#">Audit log (stub)</a></li>
+            <li><a href="/admin/actions-log">Audit log</a></li>
             {% if csrfToken is not null %}
             <li>
                 <form action="/admin/logout" method="POST" style="display: inline;">
