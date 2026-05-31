@@ -3,6 +3,55 @@
 # `../mobile/app/app.podspec`; GoogleSignIn 8.0.0 comes transitively from that podspec
 # (declared in mobile/app/build.gradle.kts cocoapods block). `pod install` generates
 # `iosApp.xcworkspace` — open/build THAT, not the bare `.xcodeproj`.
+
+# ── Compose Multiplatform resource bootstrap (fixes the iOS clean-build crash) ──
+# The `app` podspec (mobile/app/app.podspec, Gradle-generated) declares:
+#     spec.resources = ['build/compose/cocoapods/compose-resources']
+# CocoaPods globs that directory AT `pod install` TIME and bakes the file list into
+# Pods-iosApp-resources.sh + the resource .xcfilelists. On a fresh clone the directory
+# does not exist yet (no Gradle build has run), so the glob is empty and CocoaPods drops
+# the entire `[CP] Copy Pods Resources` build phase. The :shared:resources compose
+# resources (e.g. font/plus_jakarta_sans.ttf) then never reach the .app and the app
+# crashes at runtime with MissingResourceException. This is a known fragility of
+# Compose-Multiplatform multimodule resources + the KMP CocoaPods integration.
+#
+# Fix: generate the framework stub and the compose-resources directory BEFORE CocoaPods
+# reads the podspec. This block is plain Ruby at Podfile-eval time, which runs before
+# dependency analysis — so it also satisfies the podspec's own `generateDummyFramework`
+# precondition (the `raise` it prints on a fresh clone), making `pod install` self-
+# bootstrapping: a clean `git clone` needs no manual Gradle step before it.
+# Both Gradle tasks are incremental, so this runs on every `pod install` but is a fast
+# no-op once the resources are already up to date.
+# Set NEARYOU_SKIP_COMPOSE_RESOURCE_BOOTSTRAP=1 to skip (e.g. when Gradle is unavailable
+# and the resources are known to be generated already). Runbook: dev/docs/ios-build.md.
+unless ENV['NEARYOU_SKIP_COMPOSE_RESOURCE_BOOTSTRAP'] == '1'
+  repo_root = File.expand_path('..', __dir__)
+  # `syncPodComposeResourcesForIos` reads Xcode's ARCHS / PLATFORM_NAME / CONFIGURATION
+  # env to infer the target arch (it refuses to run without them). Compose resources are
+  # arch- and config-independent — the .ttf is byte-identical for every target — so these
+  # values only satisfy that guard; they do NOT pin the build. The real per-arch framework
+  # is (re)built by the podspec's own `syncFramework` script phase at Xcode build time.
+  ok = system(
+    {
+      'ARCHS' => 'arm64',
+      'PLATFORM_NAME' => 'iphonesimulator',
+      'CONFIGURATION' => 'Debug',
+    },
+    './gradlew',
+    '--quiet',
+    ':mobile:app:generateDummyFramework',
+    ':mobile:app:syncPodComposeResourcesForIos',
+    chdir: repo_root,
+  )
+  unless ok
+    raise '[Podfile] Gradle resource bootstrap failed — see the Gradle output above. ' \
+      'Without it the :shared:resources compose resources (fonts, drawables) are dropped ' \
+      'from the .app and the app crashes at runtime with MissingResourceException. ' \
+      'Run `./gradlew :mobile:app:generateDummyFramework :mobile:app:syncPodComposeResourcesForIos` ' \
+      'manually to see the error, or see dev/docs/ios-build.md.'
+  end
+end
+
 platform :ios, '13.0'
 
 target 'iosApp' do

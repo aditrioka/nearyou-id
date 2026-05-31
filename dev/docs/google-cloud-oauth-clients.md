@@ -49,6 +49,11 @@ After provisioning, replace the `REPLACE_WITH_*_SERVER_CLIENT_ID` placeholders i
 
 ## 3. iOS CocoaPods integration (one-time, required by the KMP cocoapods plugin)
 
+> **Canonical build/run runbook:** [`ios-build.md`](ios-build.md). It documents the committed
+> `iosApp/Podfile` (which auto-bootstraps the KMP framework stub + Compose resources so a clean
+> clone does not crash with `MissingResourceException`), the UTF-8-locale precondition, and the
+> `xcodebuild` invocation. The steps below are the original Mobile #3 setup narrative.
+
 `mobile/app/build.gradle.kts` applies `kotlin("native.cocoapods")` with
 `pod("GoogleSignIn")`. The iosApp Xcode project must consume the KMP framework + the
 GoogleSignIn pod through a CocoaPods workspace:
@@ -61,13 +66,15 @@ GoogleSignIn pod through a CocoaPods workspace:
    otherwise. (Interim: prefix Gradle invocations with `PATH=/opt/homebrew/bin:$PATH`.)
 2. Generate the synthetic pod spec once: `./gradlew :mobile:app:podInstallSyntheticIos` (the
    framework-link tasks do this automatically).
-3. Create `iosApp/Podfile`:
+3. Create `iosApp/Podfile` (the committed file is canonical — it also bootstraps Compose
+   resources; see [`ios-build.md`](ios-build.md)). The minimal shape is:
    ```ruby
+   platform :ios, '13.0'
    target 'iosApp' do
      use_frameworks!
-     platform :ios, '13.0'
-     pod 'ComposeApp', :path => '../mobile/app'   # the KMP framework, via the generated podspec
-     pod 'GoogleSignIn'                            # transitively pulled by the KMP pod too
+     pod 'app', :path => '../mobile/app'   # pod name = the `:mobile:app` Gradle project;
+                                           # `ComposeApp` is the framework module name.
+                                           # GoogleSignIn 8.0.0 is pulled transitively.
    end
    ```
 4. `cd iosApp && pod install` → produces `iosApp.xcworkspace` + `Pods/` (both gitignored).
