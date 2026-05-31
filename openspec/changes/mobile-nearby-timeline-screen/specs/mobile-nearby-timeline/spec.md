@@ -192,7 +192,7 @@ The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equiv
 
 ### Requirement: Test coverage for the screen, projection, and networking
 
-The change SHALL ship: (1) a Robolectric `NearbyTimelineScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the initial render plus each of the six visual states via a `FakeNearbyTimelineFlow`, added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the established `*ScreenTest` convention); (2) a commonTest `NearbyTimelineUiStateTest` for the pure outcome→state projection; (3) MockEngine-backed `NearbyTimelineApiClient` / `NearbyTimelineRepository` tests verifying the endpoint path, snake_case parsing, the `X-Session-Id` header, `upsell` parsing, and the status→outcome mapping.
+The change SHALL ship: (1) a Robolectric `NearbyTimelineScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the initial render plus each of the six visual states via a `FakeNearbyTimelineFlow`, added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the established `*ScreenTest` convention); (2) a commonTest `NearbyTimelineUiStateTest` for the pure outcome→state projection; (3) MockEngine-backed `NearbyTimelineApiClient` / `NearbyTimelineRepository` tests verifying the endpoint path, mixed-case wire parsing (per § "Response DTOs mirror the SHIPPED wire casing" — fixtures use the shipped camelCase/`@SerialName` keys, plus the snake_case-only negative regression guard), the `X-Session-Id` header, `upsell` parsing, and the status→outcome mapping.
 
 #### Scenario: Test classes exist and are discoverable
 - **WHEN** running `./gradlew :mobile:app:testDebugUnitTest`
