@@ -38,6 +38,15 @@ The existing `HomeScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/ap
 - **WHEN** the Nearby fetch runs
 - **THEN** the captured request carries an `X-Session-Id` header whose value matches the regex `^[A-Za-z0-9-]{1,64}$` (so the backend's per-session soft-cap bucket is used, not `no-session`)
 
+### Requirement: SessionIdProvider yields a stable per-process session id
+
+`SessionIdProvider` SHALL compute its session id EXACTLY ONCE — captured at construction into a `val`/field (e.g., `val id = Uuid.random().toString()`), NOT recomputed per access — so every read within a process returns the same id. Registering it as a Koin `single` makes the *provider* a singleton, but the value MUST be field-captured (a fresh `Uuid.random()` per call would open a new per-session Redis bucket on every request, so the backend's 50-posts/session soft cap would never engage). The id MUST match `^[A-Za-z0-9-]{1,64}$`.
+
+#### Scenario: Two reads return the same session id
+- **GIVEN** a single `SessionIdProvider` instance
+- **WHEN** its session id is read twice (e.g., on two consecutive Nearby fetches in the same process)
+- **THEN** both reads return the identical string (the id is captured once at construction, not regenerated per call)
+
 ### Requirement: LocationProvider stub supplies a fixed coordinate; real location is deferred
 
 The mobile app SHALL declare a commonMain `LocationProvider` interface exposing a suspend function returning a `LatLng` (reusing `id.nearyou.distance.LatLng`). The default Koin binding SHALL be a `StubLocationProvider` returning the fixed coordinate `LatLng(-6.2, 106.8)` (Jakarta). This change MUST NOT request any runtime location permission and MUST NOT call any platform location API (`FusedLocationProviderClient`, `CLLocationManager`, etc.). The real device-location provider, runtime permission request, UU-PDP consent modal, and permission-denial fallback are deferred to a follow-up `mobile-location-permission-flow`, which will replace the Koin binding without modifying `NearbyTimelineRepository` or `NearbyTimelineScreen`.
@@ -54,18 +63,28 @@ The mobile app SHALL declare a commonMain `LocationProvider` interface exposing 
 - **WHEN** inspecting `FOLLOW_UPS.md` after this change is applied
 - **THEN** the file contains an entry `mobile-location-permission-flow` referencing this stub as the trigger and `docs/03-UX-Design.md` § Location Permission / § Permission Denial Fallback as the spec source
 
-### Requirement: Response DTOs parse the canonical post shape and render distance via DistanceRenderer
+### Requirement: Response DTOs mirror the SHIPPED wire casing and render distance via DistanceRenderer
 
-`NearbyTimelineApiClient` SHALL define `@Serializable` response DTOs whose field names map (via `@SerialName`) to the canonical snake_case Nearby response: a top-level object `{ posts: [...], next_cursor: String?, upsell: { soft: Boolean = false, hard: Boolean = false }? }`, and per-post `{ id, author_user_id, content, latitude (Double), longitude (Double), distance_m (Double), created_at (String), liked_by_viewer (Boolean), reply_count (Int), city_name (String) }`. The optional `upsell` object and `next_cursor` MUST tolerate absence/null. The user-facing distance string SHALL be produced by `DistanceRenderer.render(distance_m)` from `:shared:distance` (NOT reimplemented locally); `latitude`/`longitude` are display-only and MUST NOT be rendered as raw coordinates.
+`NearbyTimelineApiClient` SHALL define `@Serializable` response DTOs whose wire field names match the **shipped** backend serialization in `backend/ktor/src/main/kotlin/id/nearyou/app/timeline/TimelineRoutes.kt` (`NearbyPostDto` / `NearbyResponse`) and `Upsell.kt` — which is **mixed-case, NOT uniformly snake_case**. The mobile DTOs MUST be generated from that shipped source, NOT from the `nearby-timeline` spec's snake_case JSON example (which is stale relative to the shipped code — see the casing-drift FOLLOW_UP). Specifically:
+- Per-post bare (camelCase) wire names, no `@SerialName`: `id`, `authorUserId`, `content`, `latitude` (Double), `longitude` (Double), `distanceM` (Double), `createdAt` (String).
+- Per-post `@SerialName` snake_case: `@SerialName("city_name") cityName` (String), `@SerialName("liked_by_viewer") likedByViewer` (Boolean), `@SerialName("reply_count") replyCount` (Int).
+- Top-level: `posts: List<…>`, bare `nextCursor: String? = null` (camelCase on the wire), `upsell: UpsellDto? = null`.
+- `UpsellDto`: bare `soft: Boolean = false`, `hard: Boolean = false`.
 
-#### Scenario: Full post shape parses
-- **GIVEN** a MockEngine returning a 200 body with one post carrying all ten documented fields plus `next_cursor` and no `upsell`
+The optional `upsell` object and `nextCursor` MUST tolerate absence/null (the shared `Json` already sets `ignoreUnknownKeys` + `explicitNulls = false`; the backend uses `@EncodeDefault(NEVER)` so absent → default). The user-facing distance string SHALL be produced by `DistanceRenderer.render(distanceM)` from `:shared:distance` (NOT reimplemented locally); `latitude`/`longitude` are display-only and MUST NOT be rendered as raw coordinates.
+
+#### Scenario: Full post shape parses against the shipped mixed-case wire
+- **GIVEN** a MockEngine returning a 200 body whose post object uses the SHIPPED wire keys (`authorUserId`, `distanceM`, `createdAt` camelCase; `city_name`, `liked_by_viewer`, `reply_count` snake) plus top-level `nextCursor` and no `upsell`
 - **WHEN** the response is parsed
-- **THEN** the parsed post exposes `content`, `city_name`, `distance_m`, `created_at`, `liked_by_viewer`, and `reply_count` AND `next_cursor` is present AND `upsell` is null (absent tolerated)
+- **THEN** parsing succeeds AND the parsed post exposes `content`, `cityName`, `distanceM`, `createdAt`, `likedByViewer`, and `replyCount` AND `nextCursor` is present AND `upsell` is null (absent tolerated)
 
-#### Scenario: Distance is rendered through the shared renderer
-- **WHEN** a post with `distance_m = 1234.5` is rendered AND a post with `distance_m = 7600.0` is rendered
-- **THEN** the displayed distance strings are `DistanceRenderer.render(1234.5)` = "5km" AND `DistanceRenderer.render(7600.0)` = "8km" respectively (the floor + round contract from `:shared:distance`, not a locally-reimplemented format)
+#### Scenario: snake_case-only body would fail — guards against the stale-spec assumption
+- **GIVEN** a MockEngine returning a post object using snake_case `author_user_id` / `distance_m` / `created_at` / top-level `next_cursor` (the spec's JSON-example shape, NOT the shipped wire)
+- **THEN** those four fields do NOT populate the mobile DTO (they are absent under the shipped wire names) — a test fixture MUST use the shipped mixed-case keys so this regression cannot slip in
+
+#### Scenario: Distance is rendered through the shared renderer at the card level
+- **WHEN** a post card with `distanceM = 1234.5` is rendered AND a post card with `distanceM = 7600.0` is rendered
+- **THEN** the rendered card tree contains a node whose text is `DistanceRenderer.render(1234.5)` = "5km" AND a node whose text is `DistanceRenderer.render(7600.0)` = "8km" respectively (asserted at the rendered-card level, NOT only via the `:shared:distance` module's own unit test — confirming the card consumes the shared renderer rather than a locally-reimplemented format)
 
 #### Scenario: Empty city_name tolerated
 - **WHEN** a post has `city_name = ""` (the backend's never-null empty-string convention)
@@ -80,7 +99,7 @@ The mobile app SHALL declare a commonMain `LocationProvider` interface exposing 
 - **HTTP 5xx or network/IO failure** → `NetworkError` (retryable).
 
 #### Scenario: 200 maps to Loaded carrying posts, cursor, and upsell
-- **GIVEN** a MockEngine returning 200 with 3 posts, `next_cursor = "tok"`, and `upsell.soft = true`
+- **GIVEN** a MockEngine returning 200 with 3 posts, top-level `nextCursor = "tok"` (shipped camelCase wire key), and `upsell.soft = true`
 - **WHEN** the repository processes the response
 - **THEN** the outcome is `Loaded` with 3 posts AND `nextCursor = "tok"` AND the parsed `upsell.soft = true`
 
