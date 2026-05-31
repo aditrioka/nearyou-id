@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines the first end-to-end mobile authentication flow for `:mobile:app` (Android + iOS, Kotlin Multiplatform): "Masuk dengan Google" on `SignInScreen` → the platform Google Sign-In ceremony → exchange of the Google ID token for the backend's RS256 access + refresh pair via `POST /api/v1/auth/signin` → encrypted token persistence (Android DataStore + Tink AEAD; iOS Keychain) → token-gated `RootRouterScreen` routing to `HomeScreen`, with a shared Ktor `HttpClient` Bearer interceptor handling once-per-request 401-refresh rotation. It specifies the `GoogleSignInClient` and `SecureTokenStore` expect/actual interfaces, the `AuthRepository` backend-status → user-facing-copy mapping, and environment-aware API base URL resolution. This capability is the substrate every downstream authenticated mobile surface depends on (Mobile #4 age gate, Mobile #5 nearby timeline, all Phase 3+ feature screens); the backend `/signin` endpoint shipped 2026-04-20 (`auth-foundation`) but had no mobile caller until this change wired it on both platforms.
-
 ## Requirements
 ### Requirement: SignInScreen renders Google Sign-In entry point
 
@@ -225,14 +224,14 @@ The mobile app SHALL invoke `POST /api/v1/auth/signin` (the canonical unified-pr
 The `AuthRepository` SHALL map each result from the sign-in flow to a specific UI state per Decision 7's table:
 
 - **HTTP 200 (backend `/signin` success)**: persist `TokenPair` via `SecureTokenStore.write(...)` AND emit a navigation event routing through `RootRouterScreen` to `HomeScreen`.
-- **HTTP 404 with `error = "user_not_found"`**: emit an error state whose user-facing copy is `stringResource(Res.string.signin_error_no_account)` (currently "Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya."); remain on `SignInScreen`; user may retry via the CTA.
+- **HTTP 404 with `error = "user_not_found"`**: this is NOT an error — it is the "no account exists yet for this verified Google identity" signal. Emit a navigation event routing to `AgeGateScreen` (via `RootRouterScreen` / the navigator) **carrying the verified Google identity (the `id_token` from the `GoogleSignInResult.Success` that produced this `404`)** so the signup flow (per the `mobile-age-gate` capability) reuses it without a second Google ceremony. Do NOT emit an on-`SignInScreen` error banner for `404`. The `signin_error_no_account` string is no longer rendered on this path (retired in place; its removal/repurpose for a narrow network-edge fallback is an implementation-time decision per design Open Questions). This replaces the temporary Mobile #3 behavior ("show `signin_error_no_account` banner, remain on `SignInScreen`") and resolves the `FOLLOW_UPS.md` entry `mobile-auth-signin-404-route-to-age-gate`.
 - **HTTP 403 with `error = "account_banned"` (permanent-ban path)**: emit an error state whose user-facing copy is `stringResource(Res.string.signin_error_banned)` ("Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru."); remain on `SignInScreen`; CTA is disabled (visually disabled AND tap-rejected per the dedicated scenario below) to prevent retry. **Note:** the current backend `/signin` emits `account_banned` for any `is_banned = TRUE` row WITHOUT inspecting `suspended_until`, so temporarily-suspended users (`is_banned = TRUE AND suspended_until > NOW()` per V2 schema) hit this same permanent-ban copy in Mobile #3. A FOLLOW_UPS entry `mobile-auth-signin-suspended-user-copy-split` tracks the eventual backend differentiation (emit `account_suspended` with a `suspended_until` field at `/signin`) + mobile copy split per `docs/03-UX-Design.md` § Suspension UX (the paragraphs beginning `When users.is_banned = TRUE AND users.suspended_until > NOW()` and `When users.is_banned = TRUE AND users.suspended_until IS NULL`); until that lands, Mobile #3 deliberately ships the permanent-ban copy as a uniform path.
 - **HTTP 401 with `error = "invalid_id_token"`**: emit an error state whose user-facing copy is `stringResource(Res.string.signin_error_token_invalid)` ("Sesi Google bermasalah. Coba lagi."); automatically re-invoke `GoogleSignInClient.signIn()` ONCE; if the re-invocation also produces a 401, remain on the error state and require a manual retry tap. The retry counter SHALL be **screen-state-local** (held in the `SignInScreen`'s composition state) — re-entering `SignInScreen` (e.g., after a process death + relaunch) SHALL reset the counter to zero.
 - **HTTP 5xx OR network/IO failure**: emit an error state whose user-facing copy is `stringResource(Res.string.signin_error_network)` ("Tidak bisa terhubung. Periksa koneksi internet kamu."); CTA changes label to "Coba lagi" and re-invokes the full flow on tap.
 - **`GoogleSignInResult.UserCancelled`**: emit no error state (cancellation is not a failure); `SignInScreen` returns to the initial CTA-visible state.
 - **`GoogleSignInResult.Failed(message)`**: emit the same `NetworkError` UI state as the HTTP 5xx / network-IO path (user-facing copy `signin_error_network`); the Google ceremony failing pre-backend is operationally indistinguishable from a network failure from the user's perspective; the `message` payload SHOULD be emitted to Sentry / OTel logs (NOT to the user-facing UI) for diagnosis.
 
-There SHALL NOT be a generic "Sign-in failed" fallthrough — every observed result from the flow maps to exactly one of the seven explicit states above. Error states SHALL NOT render the Google account `email` or `displayName` from `GoogleSignInResult.Success` in any user-facing UI (no "Hi, foo@example.com — try again?" pattern); the `displayName` MAY be surfaced ONLY post-authentication, on screens behind the auth gate.
+There SHALL NOT be a generic "Sign-in failed" fallthrough — every observed result from the flow maps to exactly one explicit outcome (a navigation event OR an error state) among those listed above. Error states SHALL NOT render the Google account `email` or `displayName` from `GoogleSignInResult.Success` in any user-facing UI (no "Hi, foo@example.com — try again?" pattern); the `displayName` MAY be surfaced ONLY post-authentication, on screens behind the auth gate.
 
 #### Scenario: 200 success persists tokens and navigates to Home
 
@@ -240,11 +239,11 @@ There SHALL NOT be a generic "Sign-in failed" fallthrough — every observed res
 - **WHEN** the `AuthRepository.signInWithGoogle(...)` flow processes the response
 - **THEN** `SecureTokenStore.write(TokenPair("at-X", "rt-Y", <epoch-millis-now + 900_000>))` is called exactly once AND a navigation event routing to `HomeScreen` (via `RootRouterScreen`) is emitted
 
-#### Scenario: 404 emits no-account error state
+#### Scenario: 404 navigates to AgeGateScreen with the verified Google identity
 
-- **GIVEN** backend response `404 { error: { code: "user_not_found" } }`
+- **GIVEN** backend response `404 { error: { code: "user_not_found" } }` for a `GoogleSignInResult.Success(idToken="g-id", ...)`
 - **WHEN** the `AuthRepository.signInWithGoogle(...)` flow processes the response
-- **THEN** the emitted UI state's error message text equals the runtime value of `Res.string.signin_error_no_account` AND no token write is performed AND no navigation event is emitted
+- **THEN** a navigation event routing to `AgeGateScreen` carrying the verified Google identity (`idToken = "g-id"`) is emitted AND NO on-`SignInScreen` error banner is emitted (the `signin_error_no_account` copy is NOT shown) AND no token write is performed
 
 #### Scenario: 403 banned emits banned error state with CTA disabled
 
@@ -296,7 +295,7 @@ There SHALL NOT be a generic "Sign-in failed" fallthrough — every observed res
 
 #### Scenario: No error-state UI renders Google email or displayName
 
-- **GIVEN** the in-flight `GoogleSignInResult.Success(idToken="g-id", displayName="Test User", email="test@example.com")` followed by ANY non-200 backend response (404, 403, 401, 5xx)
+- **GIVEN** the in-flight `GoogleSignInResult.Success(idToken="g-id", displayName="Test User", email="test@example.com")` followed by ANY non-200 backend response that produces a `SignInScreen` error state (403, 401, 5xx — note `404` no longer produces a `SignInScreen` error state; it navigates to `AgeGateScreen`, whose PII discipline is covered by the `mobile-age-gate` capability)
 - **WHEN** the resulting error-state UI is rendered
 - **THEN** the rendered tree contains NO node whose text contains the substring `"test@example.com"` AND NO node whose text contains the substring `"Test User"` (the PII payload from `GoogleSignInResult.Success` is consumed only for the backend API call body; it is NOT plumbed into any error-state banner / disclaimer / debug text)
 
