@@ -32,7 +32,11 @@ kotlin {
         // GoogleSignIn iOS SDK is consumed via the KMP cocoapods plugin per Decision 1
         // (`design.md` Mobile #3). The iosApp Xcode project must consume this through the
         // generated Pods.xcworkspace + a Podfile at `iosApp/Podfile` referencing
-        // `pod 'ComposeApp', :path => '../mobile/app'`. Runbook: `dev/docs/google-cloud-oauth-clients.md`.
+        // `pod 'app', :path => '../mobile/app'` (the pod name is the `:mobile:app` Gradle
+        // project — `ComposeApp` is the framework module/baseName, NOT the pod name). Build +
+        // run runbook (incl. the Compose-resource bootstrap that prevents a clean-build
+        // MissingResourceException): `dev/docs/ios-build.md`; Google Sign-In OAuth wiring:
+        // `dev/docs/google-cloud-oauth-clients.md`.
         pod("GoogleSignIn") {
             version = libs.versions.googleSigninIos.get()
         }
