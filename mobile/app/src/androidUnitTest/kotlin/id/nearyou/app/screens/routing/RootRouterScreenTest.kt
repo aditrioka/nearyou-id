@@ -13,6 +13,9 @@ import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.SignInOutcome
 import id.nearyou.app.auth.SignUpOutcome
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.timeline.FakeNearbyTimelineFlow
+import id.nearyou.app.timeline.NearbyTimelineFlow
+import id.nearyou.app.timeline.NearbyTimelineOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.datetime.LocalDate
 import org.junit.runner.RunWith
@@ -26,7 +29,9 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 
-private const val HOME_MARKER = "Versi 1.0" // HomeScreen's version line — unique to Home
+// HomeScreen now hosts NearbyTimelineScreen (mobile-nearby-timeline-screen): its top-bar title
+// `timeline_nearby_title` is the unique-to-Home marker (the old "Versi 1.0" placeholder is gone).
+private const val HOME_MARKER = "Post dari lokasi ini"
 private const val SIGNIN_MARKER = "Masuk dengan Google" // SignInScreen CTA — unique to SignIn
 private const val LOGO_DESC = "NearYouID" // brand-logo contentDescription (app_name)
 
@@ -55,6 +60,10 @@ class RootRouterScreenTest {
                 module {
                     single { authFlow }
                     single { SessionInvalidator(InMemoryTokenStore()) }
+                    // HomeScreen now hosts NearbyTimelineScreen, which koinInjects a NearbyTimelineFlow
+                    // and loads on entry — provide a fast fake so the authenticated→Home route completes
+                    // (an empty Loaded; the top-bar title renders in every state).
+                    single<NearbyTimelineFlow> { FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null)) }
                 },
             )
         }

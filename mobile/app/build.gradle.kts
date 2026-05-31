@@ -67,6 +67,9 @@ kotlin {
             implementation(libs.voyager.navigator)
             implementation(libs.voyager.koin)
             implementation(projects.shared.resources)
+            // mobile-nearby-timeline-screen — DistanceRenderer.render + LatLng (the jitter
+            // algorithm ships transitively; JITTER_SECRET never does — backend-injected only).
+            implementation(projects.shared.distance)
             // Mobile #3 — Ktor KMP client + serialization + datetime for token expiration.
             implementation(libs.ktor.kmp.clientCore)
             implementation(libs.ktor.kmp.clientContentNegotiation)
@@ -179,7 +182,7 @@ android {
 // debug variants. Non-UI unit tests still run in every variant.
 tasks.withType<Test>().configureEach {
     if (name.contains("Release")) {
-        exclude("**/SignInScreenTest*", "**/RootRouterScreenTest*", "**/AgeGateScreenTest*")
+        exclude("**/SignInScreenTest*", "**/RootRouterScreenTest*", "**/AgeGateScreenTest*", "**/NearbyTimelineScreenTest*")
     }
 }
 

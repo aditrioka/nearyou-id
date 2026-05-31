@@ -33,4 +33,14 @@
     <string name="age_gate_under18_blocked">Platform ini hanya tersedia untuk pengguna usia 18 tahun ke atas.</string>
     <string name="signup_error_account_exists">Akun sudah terdaftar. Silakan masuk.</string>
     <string name="signup_loading">Sedang membuat akun…</string>
+
+    <!-- Mobile #5 Nearby timeline (mobile-nearby-timeline-screen). The title / loading / sparse-area
+         copy is byte-identical to docs/02-Product.md § UX Copy Strategy + docs/03-UX-Design.md
+         § Empty State; the two rate-limit strings are derived BI copy consistent with the Mobile
+         #3/#4 register, flagged for UX review (design Open Questions). -->
+    <string name="timeline_nearby_title">Post dari lokasi ini</string>
+    <string name="timeline_loading">Sedang memuat postingan…</string>
+    <string name="timeline_empty_nearby">Area kamu belum ramai. Sementara lihat dari seluruh Indonesia dulu?</string>
+    <string name="timeline_limit_hard">Kamu sudah mencapai batas baca untuk jam ini. Coba lagi sebentar lagi ya.</string>
+    <string name="timeline_limit_soft">Kamu lagi aktif-aktifnya! Premium membuka akses baca tanpa batas.</string>
 </resources>

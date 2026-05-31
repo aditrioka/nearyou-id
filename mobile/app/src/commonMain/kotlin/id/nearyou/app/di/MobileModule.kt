@@ -8,6 +8,12 @@ import id.nearyou.app.config.apiBaseUrl
 import id.nearyou.app.config.httpClientEngine
 import id.nearyou.app.config.isDebugBuild
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.timeline.LocationProvider
+import id.nearyou.app.timeline.NearbyTimelineApiClient
+import id.nearyou.app.timeline.NearbyTimelineFlow
+import id.nearyou.app.timeline.NearbyTimelineRepository
+import id.nearyou.app.timeline.SessionIdProvider
+import id.nearyou.app.timeline.StubLocationProvider
 import org.koin.dsl.module
 
 /**
@@ -42,6 +48,17 @@ val mobileModule =
         // Bind the AuthFlow interface to the concrete AuthRepository so screens depend on the
         // testable seam while the concrete remains resolvable.
         single<AuthFlow> { get<AuthRepository>() }
+
+        // mobile-nearby-timeline-screen — the Nearby timeline graph. SessionIdProvider is a
+        // single so its captured session id is stable per process (per-session soft-cap bucket).
+        // StubLocationProvider is the default LocationProvider binding (real GPS + permission flow
+        // is the mobile-location-permission-flow follow-up — a binding swap). NearbyTimelineFlow is
+        // bound to the concrete repository so a FakeNearbyTimelineFlow can drive screen tests.
+        single { NearbyTimelineApiClient(get()) }
+        single { SessionIdProvider() }
+        single<LocationProvider> { StubLocationProvider() }
+        single { NearbyTimelineRepository(get(), get(), get()) }
+        single<NearbyTimelineFlow> { get<NearbyTimelineRepository>() }
     }
 
 /**

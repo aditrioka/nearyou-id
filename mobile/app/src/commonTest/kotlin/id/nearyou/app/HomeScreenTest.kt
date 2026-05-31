@@ -25,18 +25,12 @@ class HomeScreenTest {
         assertTrue(second.key.isNotEmpty())
     }
 
-    // NOTE: Runtime format-substitution verification for
-    // `Res.string.home_placeholder_version` (per spec § "home_placeholder_version
-    // format substitution renders correctly at runtime") is verified VISUALLY
-    // during the cold-start checks in tasks 8.9 + 8.10 of the
-    // `shared-resources-swap-to-cmp-resources` change (mandatory screenshots
-    // show "Versi 1.0", NOT "Versi %1$s" literal).
-    //
-    // A pure-commonTest runtime substitution check requires a platform Context
-    // (Android: Resources, iOS: NSBundle) that's awkward to mock in
-    // kotlin.test-only scope. CMP Resources' `stringResource(resource, ...args)`
-    // composable dispatches positional `%1$s`/`%2$s` placeholders via the
-    // platform's native format API (Android's `Resources.getString(id, args)`
-    // and iOS's `NSString stringWithFormat:` equivalent), exercised at app
-    // launch from `HomeScreen.kt`.
+    // NOTE: As of `mobile-nearby-timeline-screen` (Mobile #5), `HomeScreen` is repurposed from the
+    // wizard placeholder to a thin host that delegates to `NearbyTimelineScreen`; it no longer renders
+    // `home_placeholder_title` / `home_placeholder_version` (those strings are retained in the catalog
+    // but unreferenced by `HomeScreen`). The render-level host-delegation assertion (composes
+    // `HomeScreen().Content()` → `timeline_nearby_title` present, `home_placeholder_title` absent) lives
+    // in `NearbyTimelineScreenTest.homeScreen_hostsNearbyTimeline_notThePlaceholder` (Robolectric CMP UI
+    // runner). These two instantiation smoke checks remain valid (the Voyager `Screen` subclass still
+    // instantiates with a stable key).
 }
