@@ -39,7 +39,6 @@ import id.nearyou.resources.generated.resources.logo_brand_dark
 import id.nearyou.resources.generated.resources.logo_brand_light
 import id.nearyou.resources.generated.resources.signin_error_banned
 import id.nearyou.resources.generated.resources.signin_error_network
-import id.nearyou.resources.generated.resources.signin_error_no_account
 import id.nearyou.resources.generated.resources.signin_error_token_invalid
 import id.nearyou.resources.generated.resources.signin_loading
 import id.nearyou.resources.generated.resources.signin_screen_title
@@ -82,17 +81,27 @@ class SignInScreen : Screen {
         val bannerText: String? =
             uiState.errorBanner?.let { banner ->
                 when (banner) {
-                    SignInErrorBanner.NO_ACCOUNT -> stringResource(Res.string.signin_error_no_account)
                     SignInErrorBanner.BANNED -> stringResource(Res.string.signin_error_banned)
                     SignInErrorBanner.NETWORK -> stringResource(Res.string.signin_error_network)
                     SignInErrorBanner.TOKEN_INVALID -> stringResource(Res.string.signin_error_token_invalid)
                 }
             }
 
-        // Navigate on Success from an effect (never mutate the navigator during composition).
+        // Navigate from an effect (never mutate the navigator during composition):
+        //  - Success → replace the stack with Home (authenticated terminus).
+        //  - NoAccount (404) → push AgeGateScreen carrying the verified Google id_token so the
+        //    Mobile #4 signup flow reuses it without a second Google ceremony (no banner shown).
         LaunchedEffect(outcome) {
-            if (outcome == SignInOutcome.Success) {
-                navigator.replaceAll(HomeScreen())
+            when (val current = outcome) {
+                SignInOutcome.Success -> navigator.replaceAll(HomeScreen())
+                is SignInOutcome.NoAccount -> {
+                    navigator.push(AgeGateScreen(current.idToken))
+                    // Clear the consumed outcome so a system-back from the age gate (which returns
+                    // here) cannot re-fire this effect and re-push the screen — the user lands on a
+                    // clean, initial SignInScreen instead of a back-trap.
+                    outcome = null
+                }
+                else -> Unit
             }
         }
 

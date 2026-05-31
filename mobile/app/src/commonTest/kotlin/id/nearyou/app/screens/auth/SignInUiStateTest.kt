@@ -39,11 +39,13 @@ class SignInUiStateTest {
     }
 
     @Test
-    fun `NoAccount shows the no-account banner, Google label, enabled`() {
-        val state = signInUiState(SignInOutcome.NoAccount, inFlight = false)
+    fun `NoAccount shows no banner (Mobile #4 navigates to AgeGateScreen), Google label, enabled`() {
+        // Mobile #4: 404 navigates to AgeGateScreen instead of showing the retired
+        // signin_error_no_account banner — like Success, it's a transient navigation trigger.
+        val state = signInUiState(SignInOutcome.NoAccount("g-id"), inFlight = false)
         assertEquals(SignInCtaLabel.GOOGLE, state.ctaLabel)
         assertEquals(true, state.ctaEnabled)
-        assertEquals(SignInErrorBanner.NO_ACCOUNT, state.errorBanner)
+        assertNull(state.errorBanner)
     }
 
     @Test

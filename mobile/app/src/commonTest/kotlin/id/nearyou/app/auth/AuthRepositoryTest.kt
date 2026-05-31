@@ -94,13 +94,15 @@ class AuthRepositoryTest {
         }
 
     @Test
-    fun `404 maps to NoAccount`() =
+    fun `404 maps to NoAccount carrying the verified id_token`() =
         runTest {
+            // Mobile #4: 404 user_not_found is NOT an error — it carries the verified Google
+            // id_token forward so SignInScreen can navigate to AgeGateScreen (no second ceremony).
             val repo =
                 repository(FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null))) {
                     respond("""{"error":{"code":"user_not_found"}}""", HttpStatusCode.NotFound, JSON_HEADERS)
                 }
-            assertEquals(SignInOutcome.NoAccount, repo.signInWithGoogle())
+            assertEquals(SignInOutcome.NoAccount("g-id"), repo.signInWithGoogle())
         }
 
     @Test

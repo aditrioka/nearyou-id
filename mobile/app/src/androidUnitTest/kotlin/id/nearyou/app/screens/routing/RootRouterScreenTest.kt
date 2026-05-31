@@ -11,8 +11,10 @@ import id.nearyou.app.auth.FakeAuthFlow
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.SignInOutcome
+import id.nearyou.app.auth.SignUpOutcome
 import id.nearyou.app.theme.NearYouTheme
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.datetime.LocalDate
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -102,6 +104,11 @@ class RootRouterScreenTest {
                 private val gate = CompletableDeferred<Boolean>()
 
                 override suspend fun signInWithGoogle() = SignInOutcome.Cancelled
+
+                override suspend fun signUpWithGoogle(
+                    idToken: String,
+                    dateOfBirth: LocalDate,
+                ) = SignUpOutcome.Cancelled
 
                 override suspend fun isAuthenticated(): Boolean = gate.await()
 

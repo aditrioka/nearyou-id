@@ -22,6 +22,20 @@ data class SignInRequest(
     @SerialName("id_token") val idToken: String,
 )
 
+/**
+ * `POST /api/v1/auth/signup` request body (Mobile #4). Carries exactly `{provider, id_token,
+ * date_of_birth}` in snake_case per the `auth-signup` spec wire contract (pinned by the backend
+ * `AuthWireFormatTest`). `device_fingerprint_hash` is omitted (design D4 — attestation deferred,
+ * consistent with the sign-in DTO's Decision 9). `dateOfBirth` is an ISO-8601 `YYYY-MM-DD` string
+ * (the `LocalDate.toString()` form).
+ */
+@Serializable
+data class SignUpRequest(
+    val provider: String,
+    @SerialName("id_token") val idToken: String,
+    @SerialName("date_of_birth") val dateOfBirth: String,
+)
+
 /** `POST /api/v1/auth/refresh` request body. */
 @Serializable
 data class RefreshRequest(
@@ -48,14 +62,17 @@ data class ErrorEnvelope(
 )
 
 /**
- * Low-level result of the `/signin` exchange. `AuthRepository` maps this onto the
- * user-facing `SignInOutcome` (Decision 7); keeping the HTTP detail here lets the repository
- * stay free of status-code arithmetic.
+ * Low-level result of an auth token-exchange call (`/signin` AND `/signup` — both yield a token
+ * pair on success, an HTTP status on rejection, or a transport failure). `AuthRepository` maps
+ * this onto the user-facing `SignInOutcome` / `SignUpOutcome`, keying on [HttpError.status] so it
+ * stays free of status-code arithmetic AND so the flat-vs-nested `/signup` error envelopes never
+ * affect routing (design D2/D8 — [code] is informational only and is `null` for the flat `403`).
  */
 sealed interface SignInApiResult {
     data class Success(val tokens: TokenPair) : SignInApiResult
 
-    /** Non-2xx response. [code] is the backend error envelope's `error.code` when parseable. */
+    /** Non-2xx response. [code] is the backend error envelope's `error.code` when parseable
+     *  (the flat `/signup` `403 user_blocked` body has no `code` → `null`; map on [status]). */
     data class HttpError(val status: Int, val code: String?) : SignInApiResult
 
     /** Transport-level failure (IOException, timeout, host unreachable). */
@@ -107,6 +124,61 @@ class AuthApiClient(
             }
         }
 
+        val code =
+            try {
+                response.body<BackendErrorBody>().error.code
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (_: Throwable) {
+                null
+            }
+        return SignInApiResult.HttpError(status = response.status.value, code = code)
+    }
+
+    /**
+     * `POST /api/v1/auth/signup` (Mobile #4). Body is `{provider:"google", id_token, date_of_birth}`
+     * — snake_case, NO `device_fingerprint_hash` (design D4). Success is HTTP **`201 Created`** (not
+     * `200`). On non-201 the [SignInApiResult.HttpError.status] is what `AuthRepository` keys on:
+     * the `403 user_blocked` body is the FLAT `{"error":"user_blocked",...}` shape that
+     * [BackendErrorBody] (nested parser) cannot decode, so [code] comes back `null` for it — that
+     * is fine and expected, because the outcome mapping is status-driven (design D2). The `403`
+     * body is deliberately NOT logged (`LogLevel.HEADERS` already excludes bodies).
+     */
+    suspend fun signUp(
+        idToken: String,
+        dateOfBirth: String,
+    ): SignInApiResult {
+        val response: HttpResponse =
+            try {
+                client.post("/api/v1/auth/signup") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SignUpRequest(provider = "google", idToken = idToken, dateOfBirth = dateOfBirth))
+                }
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (cause: Throwable) {
+                return SignInApiResult.NetworkError(cause)
+            }
+
+        if (response.status == HttpStatusCode.Created) {
+            return try {
+                val body = response.body<SignInResponse>()
+                SignInApiResult.Success(
+                    TokenPair(
+                        accessToken = body.accessToken,
+                        refreshToken = body.refreshToken,
+                        accessExpiresAtEpochMillis = nowMillis() + body.expiresIn * 1000L,
+                    ),
+                )
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (cause: Throwable) {
+                SignInApiResult.NetworkError(cause)
+            }
+        }
+
+        // Best-effort parse of the NESTED envelope (400/401/409/503); the FLAT 403 body yields
+        // null here — intentionally informational only, since the repository maps on `status`.
         val code =
             try {
                 response.body<BackendErrorBody>().error.code
