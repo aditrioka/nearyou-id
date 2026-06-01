@@ -696,27 +696,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## mobile-age-gate-stronger-verification
-
-**Discovered during:** `mobile-age-gate-screen` (Mobile #4) `/next-change` Phase A — explicit user decision D6: ship self-declared DOB first, defer stronger age *verification*.
-**Status:** open
-
-**Finding:** Mobile #4 ships a self-declared DOB age gate (`AgeGateScreen` → `POST /api/v1/auth/signup`, server-authoritative 18+ check + `rejected_identifiers` anti-DOB-shopping blocklist). [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) § Verification names stronger cross-checks — the Apple Declared Age Range API (iOS 18+) and the Google Play Families / age-signal SDK (Android) — that are NOT yet integrated. Self-declaration is the MVP-standard tier the whole app category uses and what the backend already enforces; the platform cross-checks are real launch-hardening work.
-
-**Specs at fault:** None — `openspec/specs/mobile-age-gate/spec.md` (post-archive) ships self-declared DOB deliberately; the cross-checks are additive.
-**Code at fault:** None — `AgeGateScreen` self-declared DOB is correct for MVP; a platform age-signal probe is additive.
-**Docs at fault:** None — `docs/06-Security-Privacy.md` § Verification already names the cross-checks as the landing context.
-
-**Impact (if shipped long-term):** A determined minor can fabricate a DOB; the blocklist only catches the honest single-attempt minor. Stronger platform-attested age signals are the real mitigation. This is a launch-readiness / regulatory-hardening concern, NOT an MVP blocker — but it lands against a dated regulatory backdrop: **PP 17/2025 ("PP TUNAS", in effect ~March 2026)** pushes Indonesian apps in this category toward age *assurance*, not mere self-declaration, so this is a real pre-launch item rather than speculative.
-
-**Ambiguity to resolve first:** Which platform API leads (Apple Declared Age Range needs iOS 18+; Google Play age-signal availability on Android), and whether the cross-check is advisory (telemetry only) or gating (block signup on a hard mismatch) — the latter risks false-positives locking out legitimate adults.
-
-**Action items:**
-- [ ] File OpenSpec change `mobile-age-gate-stronger-verification` adding the Apple Declared Age Range API (iOS 18+) + Google Play Families / age-signal cross-checks per `docs/06-Security-Privacy.md` § Verification, layered on top of the self-declared DOB this change ships.
-- [ ] Delete this entry once the stronger-verification change ships.
-
----
-
 ## mobile-auth-signin-attestation-fingerprint-hash
 
 **Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Decision 9 — the `/signin` + `/refresh` request bodies omit `device_fingerprint_hash` because attestation (Play Integrity / App Attest) hasn't landed.
@@ -813,25 +792,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Action items:**
 - [ ] File a change adding an `androidInstrumentedTest` `SecureTokenStoreEncryptionTest` (raw-byte-leak + keyset-regeneration assertions per §3.5) once an Android-emulator CI lane exists (or run it as a documented manual gate).
 - [ ] Delete this entry once the instrumented encryption test ships.
-
----
-
-## mobile-location-permission-flow
-
-**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D1 — device location is STUBBED (`StubLocationProvider` → fixed Jakarta `LatLng(-6.2, 106.8)`); the real GPS + permission surface is deferred to keep the change one-PR-shippable.
-**Status:** open
-
-**Finding:** [`NearbyTimelineScreen`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt) reads `lat`/`lng` from a commonMain [`LocationProvider`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/LocationProvider.kt) whose default Koin binding is `StubLocationProvider` (fixed coordinate, no platform API). The full device-location surface — a fused/`CLLocationManager` `expect`/`actual` provider, the runtime permission request, the **UU-PDP consent modal**, and the denial fallback ("*Aktifkan lokasi untuk lihat postingan sekitar*" + a Settings deep-link) per [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Location Permission / § Permission Denial Fallback — is NOT shipped. The `LocationProvider` seam means the follow-up swaps the Koin binding WITHOUT touching `NearbyTimelineRepository` or the screen.
-
-**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "LocationProvider stub supplies a fixed coordinate; real location is deferred" ships the stub deliberately.
-**Code at fault:** None — `StubLocationProvider` is correct for the scaffold; a real provider is additive (a binding swap).
-**Docs at fault:** None — `docs/03-UX-Design.md` § Location Permission / § Permission Denial Fallback already prescribe the flow.
-
-**Impact (if shipped):** The Nearby feed shows Jakarta posts regardless of the device's real location until the real provider lands. Acceptable for a scaffold whose goal is rendering + states + the Phase 2 fuzzing audit (coordinate-agnostic). Real-location is a launch-readiness item (you can't ship a location app on a fixed coordinate).
-
-**Action items:**
-- [ ] File OpenSpec change `mobile-location-permission-flow`: an `expect`/`actual` `DeviceLocationProvider` (Android fused / iOS `CLLocationManager`), the runtime permission request, the UU-PDP consent modal, and the denial fallback per `docs/03-UX-Design.md`; swap the Koin `LocationProvider` binding from `StubLocationProvider` to the real provider.
-- [ ] Delete this entry once the real location + permission flow ships.
 
 ---
 
