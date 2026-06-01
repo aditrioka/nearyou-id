@@ -101,6 +101,15 @@ kotlin {
             // Mobile #3 — Darwin engine for iOS Ktor client.
             implementation(libs.ktor.kmp.clientDarwin)
         }
+        androidInstrumentedTest.dependencies {
+            // Real-device/emulator encryption test (SecureTokenStoreEncryptionTest):
+            // exercises the live DataStore + Tink AEAD path that Robolectric cannot
+            // faithfully emulate (the Android Keystore master key). Runs only on the
+            // `android-instrumented` CI emulator lane (or a local device).
+            implementation(libs.androidx.testExt.junit)
+            implementation(libs.androidx.test.core)
+            implementation(libs.androidx.test.runner)
+        }
     }
 }
 
@@ -114,6 +123,9 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0"
+        // androidInstrumentedTest (SecureTokenStoreEncryptionTest) runs on a real
+        // emulator/device via the AndroidJUnitRunner.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
