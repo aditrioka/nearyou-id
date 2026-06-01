@@ -4,8 +4,6 @@ package id.nearyou.distance
 
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 
 /**
  * Cross-platform known-answer test for the [hmacSha256] actuals (JVM / Android / iOS), pinned to
@@ -40,29 +38,17 @@ class CryptoKnownAnswerTest {
         assertContentEquals(expected, hmacSha256(key, msg))
     }
 
-    // Empty-message coverage for the iOS empty-array placeholder branch (CryptoIos.kt: an empty
-    // `msg` is pinned via a 1-byte placeholder while length 0 is passed to CCHmac). RFC 4231 has
-    // no empty-message vector, so rather than a hardcoded digest this asserts the properties that
-    // the placeholder-pinning path MUST satisfy on every target: a full 32-byte digest, determinism
-    // (no uninitialized placeholder bytes leak into the output), and genuine dependence on BOTH the
-    // key and the message (ruling out a degenerate/constant result). Byte-exact correctness of the
-    // underlying primitive is already pinned by the RFC 4231 vectors above — the empty-message path
-    // is the SAME CCHmac/Mac call, differing only in the (placeholder, length 0) message argument.
-    // (The empty-KEY edge is deliberately NOT exercised: javax.crypto's SecretKeySpec rejects an
-    // empty key, so an empty-key assertion cannot hold cross-platform; JitterEngine never passes one.)
+    // Empty-message coverage for the iOS empty-array placeholder branch (CryptoIos.kt pins an empty
+    // `msg` via a 1-byte placeholder while passing length 0 to CCHmac). RFC 4231 has no empty-message
+    // vector, so HMAC-SHA256(key="Jefe", msg="") is pinned to a digest computed AND cross-checked by
+    // two independent implementations that agree exactly (Python hmac/hashlib + OpenSSL libcrypto) —
+    // a valid external oracle. This exercises the placeholder branch byte-exactly on every target.
+    // (The empty-KEY edge is deliberately NOT exercised: javax.crypto's SecretKeySpec rejects an empty
+    // key, so an empty-key assertion cannot hold cross-platform; JitterEngine never passes one.)
     @Test
-    fun hmacSha256_emptyMessage_isWellFormedDeterministicAndInputDependent() {
+    fun hmacSha256_emptyMessage_matchesIndependentOracle() {
         val key = "Jefe".encodeToByteArray()
-        val emptyMsgMac = hmacSha256(key, ByteArray(0))
-        assertEquals(32, emptyMsgMac.size, "HMAC-SHA256 of an empty message must still be a 32-byte digest")
-        assertContentEquals(emptyMsgMac, hmacSha256(key, ByteArray(0)), "empty-message MAC must be deterministic")
-        assertFalse(
-            emptyMsgMac.contentEquals(hmacSha256(key, "x".encodeToByteArray())),
-            "empty-message MAC must differ from a non-empty-message MAC under the same key",
-        )
-        assertFalse(
-            emptyMsgMac.contentEquals(hmacSha256("Jeff".encodeToByteArray(), ByteArray(0))),
-            "empty-message MAC must still depend on the key",
-        )
+        val expected = "923598ca6d64af2a5dba79dcd021a8a0fe5c5f557519adaaf0ad532d4506dd30".hexToByteArray()
+        assertContentEquals(expected, hmacSha256(key, ByteArray(0)))
     }
 }
