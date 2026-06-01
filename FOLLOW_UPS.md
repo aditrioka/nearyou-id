@@ -7,7 +7,7 @@ Transient working file for findings discovered during a change cycle that are NO
 - **Delete the entry once all its action items are merged.** Do NOT let `triaged` entries linger — if residual work remains, either (a) move it to the canonical doc that owns the topic (e.g., launch-prerequisite tasks → `docs/08-Roadmap-Risk.md` Pre-Launch list, runbook tweaks → `docs/07-Operations.md` Deployment Runbook), or (b) replace the entry with a fresh one scoped to the residual work. Triaged-but-not-deleted entries are how this file rots.
 - Delete the file itself when it has zero entries left.
 - Recreate the file (with this same intro blurb) the next time a finding arises.
-- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. **Audit on 2026-05-30 (`/triage-follow-ups` full sweep, post-archive of `mobile-auth-google-signin-flow`): 38 → 32 open + 0 triaged.** Zero silently-resolved / superseded entries found (no rot) — the breach was genuine deferred-work volume (the 8 `mobile-auth-signin-*` entries from PR #122 + the 6-entry otel cluster). Closed 6: 3 docs-only fixes applied inline (`post-cmp-swap-spec-text-cleanup`, `docs-host-prefix-domain-attribute-incongruity`, `docs-ios-primary-auth-mobile-3-vs-eventual-state`) + 1 migrated to `docs/08-Roadmap-Risk.md` Pre-Launch (`production-deploy-workflow-cloud-run-flags-for-layer3`) + 2 accept-the-gap deletes (`firebase-app-extraction`, `vendor-ahocorasick-detekt-guard`); `system-actor-and-worker-audit-rows` promoted to `/next-change`. **Note: 32 is still 2 over the 30 limit** — the residual is all verified-still-valid deferred work (not rot), drawn down as promoted + test-coverage-bundle work ships. **Targeted check on 2026-05-31 (`mobile-nearby-timeline-screen` apply §11.1):** no full re-sweep — the 2026-05-30 full sweep was 1 day prior and found zero rot, and only PRs #125/#126 shipped since (neither resolves an open entry; `system-actor-and-worker-audit-rows` was already promoted + removed). Verified the 6 new Mobile-#5 deferrals are not duplicates of any open entry, then added them (`mobile-location-permission-flow`, `mobile-nearby-radius-slider`, `mobile-nearby-timeline-infinite-scroll`, `mobile-timeline-empty-global-cta`, `timeline-response-dto-casing-drift`, `mobile-timeline-relative-timestamp`) → **37 open**. The breach is legitimate Mobile-#5 deferred-work volume, not rot; a dedicated `/triage-follow-ups` sweep + GitHub-Issues migration (per the solo→team note above) is the recommended drawdown path. Prior sweeps: 2026-05-10 found 22 open + 0 triaged; PR #79 (`chore: triage FOLLOW_UPS.md (2026-05-09)`) preserves the 2026-05-09 sweep's deletion-evidence audit trail.
+- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. **Audit on 2026-05-30 (`/triage-follow-ups` full sweep, post-archive of `mobile-auth-google-signin-flow`): 38 → 32 open + 0 triaged.** Zero silently-resolved / superseded entries found (no rot) — the breach was genuine deferred-work volume (the 8 `mobile-auth-signin-*` entries from PR #122 + the 6-entry otel cluster). Closed 6: 3 docs-only fixes applied inline (`post-cmp-swap-spec-text-cleanup`, `docs-host-prefix-domain-attribute-incongruity`, `docs-ios-primary-auth-mobile-3-vs-eventual-state`) + 1 migrated to `docs/08-Roadmap-Risk.md` Pre-Launch (`production-deploy-workflow-cloud-run-flags-for-layer3`) + 2 accept-the-gap deletes (`firebase-app-extraction`, `vendor-ahocorasick-detekt-guard`); `system-actor-and-worker-audit-rows` promoted to `/next-change`. **Note: 32 is still 2 over the 30 limit** — the residual is all verified-still-valid deferred work (not rot), drawn down as promoted + test-coverage-bundle work ships. **Targeted check on 2026-05-31 (`mobile-nearby-timeline-screen` apply §11.1):** no full re-sweep — the 2026-05-30 full sweep was 1 day prior and found zero rot, and only PRs #125/#126 shipped since (neither resolves an open entry; `system-actor-and-worker-audit-rows` was already promoted + removed). Verified the 6 new Mobile-#5 deferrals are not duplicates of any open entry, then added them (`mobile-location-permission-flow`, `mobile-nearby-radius-slider`, `mobile-nearby-timeline-infinite-scroll`, `mobile-timeline-empty-global-cta`, `timeline-response-dto-casing-drift`, `mobile-timeline-relative-timestamp`) → **37 open**. The breach is legitimate Mobile-#5 deferred-work volume, not rot; a dedicated `/triage-follow-ups` sweep + GitHub-Issues migration (per the solo→team note above) is the recommended drawdown path. Prior sweeps: 2026-05-10 found 22 open + 0 triaged; PR #79 (`chore: triage FOLLOW_UPS.md (2026-05-09)`) preserves the 2026-05-09 sweep's deletion-evidence audit trail. **Audit on 2026-06-01 (`/triage-follow-ups` full sweep): 37 → 35 open + 0 triaged.** Zero rot again (no silently-resolved / superseded) — verified none of the 16 `File OpenSpec change <name>` slugs exist in `openspec/changes/` or `archive/`, the `ColorSchemeExtensionsTest` exclude is still live in `shared/resources/build.gradle.kts` (`mobile-compose-ui-tests-android-instrumented` still-open), and `mobile-theme-light-dark-direct-test`'s two theme color-scheme scenarios are still untested in `:mobile:app` despite Mobile #5 shipping (runner wired since Mobile #3, but no theme assertion test — deletion condition only half-met). Closed 2 via migration to [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Pre-Launch #6/#7 (`mobile-location-permission-flow`, `mobile-age-gate-stronger-verification` — both launch-gating mobile work; the latter surfaces the PP 17/2025 "PP TUNAS" age-assurance deadline that was absent from the roadmap). Per user dispositions: a 6-entry test-coverage chore-PR scope was surfaced (`fcm-payload-structural-tests`, `fcm-shutdown-drain-deterministic-tests`, `fcm-end-to-end-composite-test`, `reply-rate-limit-moderator-spy`, `chat-block-check-moderator-spy`, `mobile-theme-light-dark-direct-test` — closes those on merge → ~29 open); the 7 dormant-until-external-trigger entries kept (still solo-operator, GitHub-Issues migration deferred); all promotions deferred. **35 is still 5 over the 30 limit** — residual is verified-still-valid deferred work, not rot; the test-coverage bundle is the next drawdown lever.
 
 Format per entry:
 
@@ -696,27 +696,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## mobile-age-gate-stronger-verification
-
-**Discovered during:** `mobile-age-gate-screen` (Mobile #4) `/next-change` Phase A — explicit user decision D6: ship self-declared DOB first, defer stronger age *verification*.
-**Status:** open
-
-**Finding:** Mobile #4 ships a self-declared DOB age gate (`AgeGateScreen` → `POST /api/v1/auth/signup`, server-authoritative 18+ check + `rejected_identifiers` anti-DOB-shopping blocklist). [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) § Verification names stronger cross-checks — the Apple Declared Age Range API (iOS 18+) and the Google Play Families / age-signal SDK (Android) — that are NOT yet integrated. Self-declaration is the MVP-standard tier the whole app category uses and what the backend already enforces; the platform cross-checks are real launch-hardening work.
-
-**Specs at fault:** None — `openspec/specs/mobile-age-gate/spec.md` (post-archive) ships self-declared DOB deliberately; the cross-checks are additive.
-**Code at fault:** None — `AgeGateScreen` self-declared DOB is correct for MVP; a platform age-signal probe is additive.
-**Docs at fault:** None — `docs/06-Security-Privacy.md` § Verification already names the cross-checks as the landing context.
-
-**Impact (if shipped long-term):** A determined minor can fabricate a DOB; the blocklist only catches the honest single-attempt minor. Stronger platform-attested age signals are the real mitigation. This is a launch-readiness / regulatory-hardening concern, NOT an MVP blocker — but it lands against a dated regulatory backdrop: **PP 17/2025 ("PP TUNAS", in effect ~March 2026)** pushes Indonesian apps in this category toward age *assurance*, not mere self-declaration, so this is a real pre-launch item rather than speculative.
-
-**Ambiguity to resolve first:** Which platform API leads (Apple Declared Age Range needs iOS 18+; Google Play age-signal availability on Android), and whether the cross-check is advisory (telemetry only) or gating (block signup on a hard mismatch) — the latter risks false-positives locking out legitimate adults.
-
-**Action items:**
-- [ ] File OpenSpec change `mobile-age-gate-stronger-verification` adding the Apple Declared Age Range API (iOS 18+) + Google Play Families / age-signal cross-checks per `docs/06-Security-Privacy.md` § Verification, layered on top of the self-declared DOB this change ships.
-- [ ] Delete this entry once the stronger-verification change ships.
-
----
-
 ## mobile-auth-signin-attestation-fingerprint-hash
 
 **Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Decision 9 — the `/signin` + `/refresh` request bodies omit `device_fingerprint_hash` because attestation (Play Integrity / App Attest) hasn't landed.
@@ -813,25 +792,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Action items:**
 - [ ] File a change adding an `androidInstrumentedTest` `SecureTokenStoreEncryptionTest` (raw-byte-leak + keyset-regeneration assertions per §3.5) once an Android-emulator CI lane exists (or run it as a documented manual gate).
 - [ ] Delete this entry once the instrumented encryption test ships.
-
----
-
-## mobile-location-permission-flow
-
-**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D1 — device location is STUBBED (`StubLocationProvider` → fixed Jakarta `LatLng(-6.2, 106.8)`); the real GPS + permission surface is deferred to keep the change one-PR-shippable.
-**Status:** open
-
-**Finding:** [`NearbyTimelineScreen`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt) reads `lat`/`lng` from a commonMain [`LocationProvider`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/LocationProvider.kt) whose default Koin binding is `StubLocationProvider` (fixed coordinate, no platform API). The full device-location surface — a fused/`CLLocationManager` `expect`/`actual` provider, the runtime permission request, the **UU-PDP consent modal**, and the denial fallback ("*Aktifkan lokasi untuk lihat postingan sekitar*" + a Settings deep-link) per [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Location Permission / § Permission Denial Fallback — is NOT shipped. The `LocationProvider` seam means the follow-up swaps the Koin binding WITHOUT touching `NearbyTimelineRepository` or the screen.
-
-**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "LocationProvider stub supplies a fixed coordinate; real location is deferred" ships the stub deliberately.
-**Code at fault:** None — `StubLocationProvider` is correct for the scaffold; a real provider is additive (a binding swap).
-**Docs at fault:** None — `docs/03-UX-Design.md` § Location Permission / § Permission Denial Fallback already prescribe the flow.
-
-**Impact (if shipped):** The Nearby feed shows Jakarta posts regardless of the device's real location until the real provider lands. Acceptable for a scaffold whose goal is rendering + states + the Phase 2 fuzzing audit (coordinate-agnostic). Real-location is a launch-readiness item (you can't ship a location app on a fixed coordinate).
-
-**Action items:**
-- [ ] File OpenSpec change `mobile-location-permission-flow`: an `expect`/`actual` `DeviceLocationProvider` (Android fused / iOS `CLLocationManager`), the runtime permission request, the UU-PDP consent modal, and the denial fallback per `docs/03-UX-Design.md`; swap the Koin `LocationProvider` binding from `StubLocationProvider` to the real provider.
-- [ ] Delete this entry once the real location + permission flow ships.
 
 ---
 
