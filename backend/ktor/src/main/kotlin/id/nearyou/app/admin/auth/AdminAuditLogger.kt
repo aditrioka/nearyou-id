@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
+import java.sql.Connection
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
@@ -145,6 +146,79 @@ class AdminAuditLogger(
         )
     }
 
+    /**
+     * Audit row for a successful admin-initiated user SUSPEND
+     * (`admin-user-moderation` capability). Unlike the auth-event writers
+     * above, this joins a CALLER-SUPPLIED [conn] so the audit INSERT commits
+     * atomically with the `users` UPDATE + the suspend notification in the
+     * `UserModerationRepository` transaction (design D4) — the connection is
+     * NOT closed or committed here; the caller owns the transaction.
+     *
+     * `adminId` is the acting human admin's `AdminPrincipal` UUID — NEVER the
+     * `system` sentinel owned by the worker (`system-actor` capability).
+     */
+    fun logUserSuspended(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "user_suspended",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a successful admin-initiated user UNBAN
+     * (`admin-user-moderation` capability). Joins the caller's [conn] for
+     * atomicity with the `users` UPDATE (design D4); unban writes no
+     * notification. `adminId` is the acting human admin, never the `system`
+     * sentinel.
+     */
+    fun logUserUnbanned(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "user_unbanned",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Own-connection audit write for the standalone login / logout / CSRF
+     * events — opens, writes, and (via `use`) closes its own connection.
+     * There is nothing to be atomic against on those paths, so each is a
+     * single self-contained INSERT (contrast [logUserSuspended] /
+     * [logUserUnbanned], which join a repository transaction).
+     */
     private fun insert(
         actionType: String,
         adminId: UUID,
@@ -157,29 +231,64 @@ class AdminAuditLogger(
         userAgent: String?,
     ) {
         dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                INSERT INTO admin_actions_log (
-                    admin_id, action_type, target_type, target_id, reason,
-                    before_state, after_state, ip, user_agent
-                ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::inet, ?)
-                """.trimIndent(),
-            ).use { ps ->
-                ps.setObject(1, adminId)
-                ps.setString(2, actionType)
-                ps.setString(3, targetType)
-                ps.setString(4, targetId)
-                ps.setString(5, reason)
-                ps.setString(6, beforeState?.let { json.encodeToString(it) })
-                ps.setString(7, afterState?.let { json.encodeToString(it) })
-                // admin_actions_log.ip is nullable INET — sanitize so a
-                // non-literal clientIp doesn't throw at the ?::inet cast
-                // (would 500 the audit write, breaking no-enumeration on a
-                // failure path). NULL when not an IP literal.
-                ps.setString(8, InetSanitizer.orFallback(ip, null))
-                ps.setString(9, userAgent)
-                ps.executeUpdate()
-            }
+            insertWithConnection(
+                conn = conn,
+                actionType = actionType,
+                adminId = adminId,
+                targetType = targetType,
+                targetId = targetId,
+                reason = reason,
+                beforeState = beforeState,
+                afterState = afterState,
+                ip = ip,
+                userAgent = userAgent,
+            )
+        }
+    }
+
+    /**
+     * Single canonical `admin_actions_log` INSERT, parameterized. Writes on
+     * the supplied [conn] WITHOUT closing or committing it — so an own-
+     * connection caller wraps it in `dataSource.connection.use { }` (see
+     * [insert]) and a transactional caller passes its repository connection
+     * (see [logUserSuspended] / [logUserUnbanned]). Sharing one statement
+     * keeps the column list + the `?::jsonb` / `?::inet` casts + the IP
+     * sanitization identical across both call shapes.
+     */
+    private fun insertWithConnection(
+        conn: Connection,
+        actionType: String,
+        adminId: UUID,
+        targetType: String?,
+        targetId: String?,
+        reason: String?,
+        beforeState: JsonElement?,
+        afterState: JsonElement?,
+        ip: String,
+        userAgent: String?,
+    ) {
+        conn.prepareStatement(
+            """
+            INSERT INTO admin_actions_log (
+                admin_id, action_type, target_type, target_id, reason,
+                before_state, after_state, ip, user_agent
+            ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::inet, ?)
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setObject(1, adminId)
+            ps.setString(2, actionType)
+            ps.setString(3, targetType)
+            ps.setString(4, targetId)
+            ps.setString(5, reason)
+            ps.setString(6, beforeState?.let { json.encodeToString(it) })
+            ps.setString(7, afterState?.let { json.encodeToString(it) })
+            // admin_actions_log.ip is nullable INET — sanitize so a
+            // non-literal clientIp doesn't throw at the ?::inet cast
+            // (would 500 the audit write, breaking no-enumeration on a
+            // failure path). NULL when not an IP literal.
+            ps.setString(8, InetSanitizer.orFallback(ip, null))
+            ps.setString(9, userAgent)
+            ps.executeUpdate()
         }
     }
 

@@ -247,14 +247,14 @@ The system SHALL validate the per-session CSRF token on `POST /admin/users/{id}/
 
 ### Requirement: The admin-entered reason is read from the form body after CSRF validation and recorded in the audit row only
 
-The handlers SHALL accept an OPTIONAL admin-entered free-text `reason` as a form field on the suspend / unban POST body. Because the shared CSRF gate may already have consumed the request body via `receiveParameters()` (the `_csrf`-form-field path), the handler SHALL read `reason` from `call.receiveParameters()` AFTER calling `validateCsrf` — Ktor caches the parsed body, so the post-gate read returns the same parameters whether the CSRF token arrived via the header (body untouched) or the `_csrf` field (body already parsed and cached). The free-text `reason` SHALL be recorded in the `admin_actions_log.reason` column (admin-only audit surface), NULL when absent/blank. The free-text `reason` SHALL NOT be echoed into the user-facing notification (see the notification requirement) — it is moderator-internal.
+The handlers SHALL accept an OPTIONAL admin-entered free-text `reason` as a form field on the suspend / unban POST body. Because the shared CSRF gate may already have consumed the request body via `receiveParameters()` (the `_csrf`-form-field path), and Ktor does NOT re-serve a consumed body without the DoubleReceive plugin, the CSRF gate SHALL stash the parsed form parameters in the call attributes; the handler SHALL read `reason` from those post-validation parameters (via `AdminCsrfGate.formParametersAfterValidation`) AFTER calling `validateCsrf` — returning the same values whether the CSRF token arrived via the header (body untouched, so the handler performs the first read) or the `_csrf` field (body already parsed and stashed by the gate). The free-text `reason` SHALL be recorded in the `admin_actions_log.reason` column (admin-only audit surface), NULL when absent/blank. The free-text `reason` SHALL NOT be echoed into the user-facing notification (see the notification requirement) — it is moderator-internal.
 
 #### Scenario: Suspend with both _csrf and reason in one form body records the reason in the audit row
 
 - **GIVEN** an authenticated authorized session AND an eligible target user
 - **WHEN** the client sends `POST /admin/users/{id}/suspend` as an `application/x-www-form-urlencoded` body containing BOTH `_csrf=<plaintext-csrf>` AND `reason=spam+and+harassment`
 - **THEN** the CSRF check SHALL pass (token read from the `_csrf` field) AND the suspend SHALL be applied
-- **AND** the resulting `admin_actions_log` row's `reason` SHALL be `spam and harassment` (read from the cached form body after the CSRF gate, not dropped)
+- **AND** the resulting `admin_actions_log` row's `reason` SHALL be `spam and harassment` (read from the form parameters the CSRF gate stashed, not dropped)
 
 #### Scenario: Suspend with no reason field records a NULL reason
 
