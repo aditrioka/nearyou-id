@@ -735,27 +735,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## timeline-response-dto-casing-drift
-
-**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D10 / multi-lens review — the mobile DTOs had to mirror the SHIPPED mixed-case wire, not the spec's snake_case JSON example.
-**Status:** open
-
-**Finding:** [`backend/.../timeline/TimelineRoutes.kt`](backend/ktor/src/main/kotlin/id/nearyou/app/timeline/TimelineRoutes.kt) `NearbyPostDto` / `FollowingPostDto` / `GlobalPostDto` (and their `*Response`) serialize **mixed-case**: `id`, `authorUserId`, `content`, `latitude`, `longitude`, `distanceM`, `createdAt`, and top-level `nextCursor` are **bare camelCase** (no `@SerialName`); only `city_name`, `liked_by_viewer`, `reply_count` carry `@SerialName` snake_case. But the [`nearby-timeline`](openspec/specs/nearby-timeline/spec.md) / [`following-timeline`](openspec/specs/following-timeline/spec.md) / [`global-timeline`](openspec/specs/global-timeline/spec.md) specs' Response-shape JSON examples show **uniform snake_case** (`author_user_id`, `distance_m`, `created_at`, `next_cursor`). The mobile client tracks the deployed wire (camelCase for those 4 fields), but the spec examples are stale relative to the shipped code — a client generated from the spec example would silently fail to parse those 4 fields. (See also [`reference_timeline_dto_camelcase_wire`] precedent from PR #128.)
-
-**Specs at fault:** `openspec/specs/nearby-timeline/spec.md`, `following-timeline/spec.md`, `global-timeline/spec.md` — Response-shape JSON examples are snake_case while the shipped DTOs emit camelCase for `author_user_id`/`distance_m`/`created_at`/`next_cursor`.
-**Code at fault:** `backend/.../timeline/TimelineRoutes.kt` — the DTOs emit camelCase for those 4 fields (no global `JsonNamingStrategy`).
-**Docs at fault:** None beyond the specs above.
-
-**Impact (if shipped):** Any future client generated from the spec JSON examples (rather than the shipped DTO) silently drops 4 fields. This is a backend↔spec contract drift, not a mobile bug (the Mobile #5 client correctly mirrors the deployed wire).
-
-**Ambiguity to resolve first:** Two valid fixes — (a) add `@SerialName` snake_case to the backend DTOs to match the specs (then coordinate a mobile DTO update + bump the wire), OR (b) amend the three specs' Response-shape JSON examples to the camelCase reality. (b) is lower-risk (no wire change); (a) is more consistent (uniform snake_case) but a breaking wire change for any deployed client.
-
-**Action items:**
-- [ ] Backend owner: reconcile the casing drift — either add `@SerialName` to the three `*PostDto`/`*Response` DTOs to match the specs (+ coordinate a mobile DTO update), OR amend the `nearby-timeline`/`following-timeline`/`global-timeline` specs' JSON examples to the shipped camelCase.
-- [ ] Delete this entry once the specs and the shipped wire agree.
-
----
-
 ## mobile-timeline-relative-timestamp
 
 **Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) `/opsx:apply` §6.2 — the post card renders the `createdAt` DATE portion ("2026-05-31"), not a relative label ("2j lalu"), because relative formatting needs a localized unit-string set + a clock seam.

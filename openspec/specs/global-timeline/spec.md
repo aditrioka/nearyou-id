@@ -111,17 +111,17 @@ A successful response SHALL be HTTP 200 with body:
   "posts": [
     {
       "id": "<uuid>",
-      "author_user_id": "<uuid>",
+      "authorUserId": "<uuid>",
       "content": "<string>",
       "latitude": <double>,
       "longitude": <double>,
       "city_name": "<string>",
-      "created_at": "<ISO-8601 UTC>",
+      "createdAt": "<ISO-8601 UTC>",
       "liked_by_viewer": <boolean>,
       "reply_count": <integer>
     }
   ],
-  "next_cursor": "<string or null>"
+  "nextCursor": "<string or null>"
 }
 ```
 
@@ -187,7 +187,7 @@ The `GET /api/v1/timeline/global` route handler SHALL delegate read-side rate-li
 The route handler MUST:
 
 - Run the rolling pre-check + session pre-check BEFORE the canonical Global SQL query (per `timeline-read-rate-limit` § "Limiter ordering and pre-execution before DB"). Pre-check key shapes are `{scope:rate_timeline_rolling}:{user:<user_id>}` and `{scope:rate_timeline_session}:{session:<user_id>__<sanitized_session_id>}`.
-- On rolling-cap `RateLimited`: return HTTP 200 with `{ "posts": [], "next_cursor": null, "upsell": { "hard": true } }`. Do NOT execute the canonical Global SQL query. The existing Global query (FROM visible_posts, no follows filter, no spatial filter, bidirectional block exclusion, V7 likes LEFT JOIN, V8 reply-count LEFT JOIN LATERAL, V11 `city_name` projection from the trigger-populated column) and response shape requirements remain unchanged for the non-cap-hit path.
+- On rolling-cap `RateLimited`: return HTTP 200 with `{ "posts": [], "nextCursor": null, "upsell": { "hard": true } }`. Do NOT execute the canonical Global SQL query. The existing Global query (FROM visible_posts, no follows filter, no spatial filter, bidirectional block exclusion, V7 likes LEFT JOIN, V8 reply-count LEFT JOIN LATERAL, V11 `city_name` projection from the trigger-populated column) and response shape requirements remain unchanged for the non-cap-hit path.
 - On a successful response (rolling pre-check admitted, query executed, returning `N` posts where `0 ≤ N ≤ 30`): bump both buckets via `(N - 1).coerceAtLeast(0)` additional best-effort `tryAcquire` calls (1 already consumed at pre-check). Build the response per the existing Global response shape PLUS the optional `upsell` object per the `timeline-read-rate-limit` contract.
 - Validate the `X-Session-Id` header per `timeline-read-rate-limit` § "X-Session-Id header validation"; substitute with `no-session` on missing or malformed values.
 - For Premium callers (`subscription_status IN ('premium_active', 'premium_billing_retry')`): SKIP both pre-checks and post-increment entirely. Run the canonical Global query and respond per the existing shape; never include the `upsell` field.
@@ -196,7 +196,7 @@ The existing Global requirements (route + auth, query parameters, canonical quer
 
 #### Scenario: Free Global read at rolling cap returns empty + upsell.hard
 - **WHEN** Free-tier caller A's rolling bucket holds 150 entries AND A issues `GET /api/v1/timeline/global`
-- **THEN** the response is HTTP 200 with body `{ "posts": [], "next_cursor": null, "upsell": { "hard": true } }` AND zero `posts` SELECTs were issued to Postgres for the request
+- **THEN** the response is HTTP 200 with body `{ "posts": [], "nextCursor": null, "upsell": { "hard": true } }` AND zero `posts` SELECTs were issued to Postgres for the request
 
 #### Scenario: Free Global read at session-soft-cap still returns posts with city_name
 - **WHEN** Free-tier caller A's session bucket (under `X-Session-Id: SID`) is at 50/50 capacity AND the rolling bucket holds 80/150 entries AND A issues a Global read
