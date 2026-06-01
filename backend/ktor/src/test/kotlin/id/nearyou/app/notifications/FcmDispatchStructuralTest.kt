@@ -55,18 +55,22 @@ class FcmDispatchStructuralTest : StringSpec(
         }
 
         // 7.5.a — DI test-isolation guard: no test source references
-        // FcmAndInAppDispatcher outside the designated override-installation
-        // path. (As of this change, NO test source SHOULD reference it —
-        // production binding only. If a future test deliberately wants the
-        // composite, install it via a clearly-named override module and add
-        // its file path to ALLOWED_TEST_FILES below.)
+        // FcmAndInAppDispatcher outside the explicitly-allowlisted files. The
+        // production binding is the only place the composite is wired; a test
+        // that deliberately exercises it must construct it via a clearly-named
+        // surface and add its file path to the allowlist below.
         "7.5.a no test source references FcmAndInAppDispatcher outside the designated override path" {
             val allowedTestFiles =
                 setOf(
                     // The static-analysis guard itself MUST reference the
                     // class name to scan for it. This is the allowlist's
-                    // self-reference — every other test file is forbidden.
+                    // self-reference.
                     "notifications/FcmDispatchStructuralTest.kt",
+                    // Deliberate composite-wiring proof for the like emit-site
+                    // (the `fcm-end-to-end-composite-test` follow-up). Constructs
+                    // FcmAndInAppDispatcher directly over a mock FcmSender —
+                    // documented in the test's class KDoc.
+                    "engagement/FcmCompositeWiringTest.kt",
                 )
             val offenders =
                 backendKtorTest
