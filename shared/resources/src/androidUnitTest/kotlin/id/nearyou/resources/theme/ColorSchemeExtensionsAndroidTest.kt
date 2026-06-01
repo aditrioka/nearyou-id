@@ -1,19 +1,22 @@
 package id.nearyou.resources.theme
 
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import kotlin.test.Test
 
 /**
- * iOS-side runner for the [LocalNearYouColors] + `ColorScheme.*` extension
- * contract (runs on `iosSimulatorArm64Test`). The assertion bodies live in
- * [ColorSchemeExtensionsAssertions] so the Android Robolectric runner
- * (`ColorSchemeExtensionsAndroidTest` in `androidUnitTest`) shares them verbatim.
- *
- * This class is excluded from the Android JVM unit-test lane in
- * `build.gradle.kts` (`runComposeUiTest` reads a `null` `Build.FINGERPRINT`
- * there) — Android coverage comes from the Robolectric variant instead. See
- * [ColorSchemeExtensionsAssertions] for why the exclude is permanent-by-design.
+ * Android-side runner for the [LocalNearYouColors] + `ColorScheme.*` extension
+ * contract, closing the prior asymmetry where these `runComposeUiTest` cases ran
+ * only on iOS sim. Robolectric supplies a real `Build` (so `runComposeUiTest`'s
+ * `Build.FINGERPRINT` read does not NPE on the JVM lane — the crash the
+ * `commonTest` variant is excluded for). Assertion bodies are shared verbatim
+ * via [ColorSchemeExtensionsAssertions]; this class only supplies the Robolectric
+ * runner that `commonTest` cannot declare.
  */
-class ColorSchemeExtensionsTest {
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
+class ColorSchemeExtensionsAndroidTest {
     @Test
     fun localNearYouColors_throwsWhenReadOutsideProvider() =
         ColorSchemeExtensionsAssertions.localNearYouColorsThrowsWhenReadOutsideProvider()
