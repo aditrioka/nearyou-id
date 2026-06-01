@@ -44,6 +44,13 @@ kotlin {
             // test runner via this single artifact.
             implementation(libs.compose.ui.test)
         }
+        androidUnitTest.dependencies {
+            // Robolectric supplies a real `Build` so `runComposeUiTest` runs on
+            // the Android JVM lane (ColorSchemeExtensionsAndroidTest). commonTest
+            // cannot declare the `@RunWith(RobolectricTestRunner)` it needs (it is
+            // also an iOS/native target), so Android coverage is this separate class.
+            implementation(libs.robolectric)
+        }
     }
 }
 
@@ -67,20 +74,41 @@ android {
     }
 
     // `androidx.compose.ui.test.runComposeUiTest` reads
-    // `Build.FINGERPRINT.toLowerCase(...)` to detect the runtime — Android
-    // JVM unit tests stub `Build` static fields as `null`, so any Compose UI
-    // test crashes with NullPointerException on `Build.FINGERPRINT`.
-    // `isReturnDefaultValues` doesn't help (it stubs method returns, not
-    // static fields). The proper fix is Robolectric or moving these tests to
-    // `androidTest/` (instrumented) — tracked as the
-    // `mobile-compose-ui-tests-android-instrumented` follow-up. Canonical
-    // cross-platform verification ALREADY runs via
-    // `:shared:resources:iosSimulatorArm64Test` (same test class, real
-    // Compose runtime); excluding here on the Android JVM lane does not
-    // reduce real coverage.
+    // `Build.FINGERPRINT.toLowerCase(...)`, which is `null` on the plain Android
+    // JVM unit-test lane → NPE. `@RunWith(RobolectricTestRunner)` fixes it but
+    // CANNOT be applied to the `commonTest` `ColorSchemeExtensionsTest` (that
+    // source set is also compiled for iOS/native). So the commonTest class is
+    // excluded from the JVM lane (it still runs on `iosSimulatorArm64Test`), and
+    // Android coverage comes from `ColorSchemeExtensionsAndroidTest` in
+    // `androidUnitTest`, which DOES declare Robolectric and is NOT matched by the
+    // `ColorSchemeExtensionsTest*` glob below. This exclude is therefore correct
+    // config, not a coverage gap — both platforms run the shared assertions.
     testOptions {
-        unitTests.all {
-            it.exclude("**/ColorSchemeExtensionsTest*")
+        unitTests {
+            // Robolectric's `runComposeUiTest` needs the merged Android resources
+            // + manifest (which carries the ui-test-manifest ComponentActivity host).
+            isIncludeAndroidResources = true
+            all {
+                it.exclude("**/ColorSchemeExtensionsTest*")
+            }
         }
+    }
+}
+
+dependencies {
+    // ui-test-manifest merges the ComponentActivity host into the DEBUG manifest
+    // that Robolectric's `runComposeUiTest` (ActivityScenario) needs. Debug-only,
+    // so ColorSchemeExtensionsAndroidTest is excluded from the Release lane below.
+    debugImplementation(libs.androidx.composeUi.testManifest)
+}
+
+// ColorSchemeExtensionsAndroidTest (Robolectric `runComposeUiTest`) needs the
+// debug-only ui-test-manifest ComponentActivity, NOT merged into release variants
+// — so `testReleaseUnitTest` would throw a host-activity RuntimeException. Skip it
+// in release unit-test tasks; it is build-type-agnostic (exercises the composable,
+// not the build type) and runs fully in the debug variant.
+tasks.withType<Test>().configureEach {
+    if (name.contains("Release")) {
+        exclude("**/ColorSchemeExtensionsAndroidTest*")
     }
 }
