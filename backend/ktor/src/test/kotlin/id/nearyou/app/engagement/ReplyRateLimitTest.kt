@@ -14,6 +14,9 @@ import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcPostReplyRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.moderation.RecordingTextModerator
+import id.nearyou.app.moderation.TestModerationFixtures
+import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.notifications.DbNotificationEmitter
 import id.nearyou.app.notifications.NoopNotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
@@ -188,19 +191,16 @@ class ReplyRateLimitTest : StringSpec({
         remoteConfig: RemoteConfig = NullRemoteConfigReply,
         emitter: NotificationEmitter = notificationEmitter,
         dispatcher: NotificationDispatcher = NoopNotificationDispatcher(),
+        textModerator: TextModerator = TestModerationFixtures.ALLOW_ONLY_MODERATOR,
         clock: () -> Instant = Instant::now,
         block: suspend ApplicationTestBuilder.() -> Unit,
     ) {
-        // Reply tests pre-date `content-moderation-keyword-lists`. Inject an
-        // Allow-only TextModerator (loader returns empty lists) so existing rate-limit /
-        // notification scenarios pass through the moderation gate unchanged. Dedicated
-        // moderation integration tests live in PostRepliesModerationIntegrationTest.kt.
-        val allowOnlyLoader =
-            object : id.nearyou.app.moderation.ModerationListLoader {
-                override fun load(list: id.nearyou.app.moderation.ModerationList): List<String> = emptyList()
-
-                override fun loadThreshold(): Int = 3
-            }
+        // Reply tests pre-date `content-moderation-keyword-lists`. The default
+        // `textModerator` is Allow-only (loader returns empty lists) so existing
+        // rate-limit / notification scenarios pass through the moderation gate
+        // unchanged; scenario 25 overrides it with a RecordingTextModerator to prove
+        // the rate-limited path never invokes the moderator. Dedicated moderation
+        // integration tests live in PostRepliesModerationIntegrationTest.kt.
         val service =
             ReplyService(
                 dataSource = dataSource,
@@ -209,7 +209,7 @@ class ReplyRateLimitTest : StringSpec({
                 dispatcher = dispatcher,
                 rateLimiter = rateLimiter,
                 remoteConfig = remoteConfig,
-                textModerator = id.nearyou.app.moderation.TextModerator(allowOnlyLoader),
+                textModerator = textModerator,
                 moderationQueue = id.nearyou.app.infra.repo.JdbcModerationQueueRepository(),
                 clock = clock,
             )
@@ -917,6 +917,36 @@ class ReplyRateLimitTest : StringSpec({
             withReplyService(rateLimiter = limiter, remoteConfig = rc) {
                 posts.forEach { p -> postReply(tok, p).status shouldBe HttpStatusCode.Created }
                 postReply(tok, extra).status shouldBe HttpStatusCode.TooManyRequests
+            }
+        } finally {
+            cleanup(replier, author)
+        }
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Scenario 25 — the rate-limited 21st reply does NOT invoke the TextModerator.
+    // Runtime-spy complement to PostRepliesCallOrderTest's static source-order scan:
+    // proves at runtime that the 429 short-circuit happens before service.post() (where
+    // moderate() runs). Closes the `reply-rate-limit-moderator-spy` follow-up. NB: the
+    // follow-up's literal "moderateCallCount == 0 after the 21st attempt" cannot hold —
+    // the 20 successful replies legitimately moderate — so the faithful assertion is
+    // "no increment across the 429".
+    // ----------------------------------------------------------------------------------
+    "scenario 25 — moderator NOT invoked on the rate-limited 21st reply (runtime spy)" {
+        val (replier, tok) = seedUser()
+        val (author, _) = seedUser()
+        val posts = seedPosts(author, 20)
+        val extra = seedPost(author)
+        try {
+            val recording = RecordingTextModerator()
+            withReplyService(rateLimiter = InMemoryRateLimiter(), textModerator = recording.moderator) {
+                posts.forEach { postReply(tok, it).status shouldBe HttpStatusCode.Created }
+                // 20 successful replies each invoked the moderator exactly once.
+                recording.moderateCallCount.get() shouldBe 20
+                val before = recording.moderateCallCount.get()
+                postReply(tok, extra).status shouldBe HttpStatusCode.TooManyRequests
+                // The 429 short-circuited before service.post(): no new moderate() call.
+                recording.moderateCallCount.get() shouldBe before
             }
         } finally {
             cleanup(replier, author)

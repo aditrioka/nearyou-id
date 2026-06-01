@@ -178,15 +178,22 @@ android {
     }
 }
 
-// The Robolectric Compose UI tests (SignInScreenTest / RootRouterScreenTest / AgeGateScreenTest)
-// need the debug-only `androidx.compose.ui:ui-test-manifest` ComponentActivity, which is NOT
-// merged into release variants — so `./gradlew test` (all variants) fails `testDevReleaseUnitTest`
-// etc. with a host-activity RuntimeException. Skip those classes in release unit-test tasks; they
-// are build-type-agnostic (they exercise the composable, not the build type) and run fully in the
+// The Robolectric Compose UI tests (SignInScreenTest / RootRouterScreenTest / AgeGateScreenTest /
+// NearbyTimelineScreenTest / NearYouThemeTest) need the debug-only
+// `androidx.compose.ui:ui-test-manifest` ComponentActivity, which is NOT merged into release
+// variants — so `./gradlew test` (all variants) fails `testDevReleaseUnitTest` etc. with a
+// host-activity RuntimeException. Skip those classes in release unit-test tasks; they are
+// build-type-agnostic (they exercise the composable, not the build type) and run fully in the
 // debug variants. Non-UI unit tests still run in every variant.
 tasks.withType<Test>().configureEach {
     if (name.contains("Release")) {
-        exclude("**/SignInScreenTest*", "**/RootRouterScreenTest*", "**/AgeGateScreenTest*", "**/NearbyTimelineScreenTest*")
+        exclude(
+            "**/SignInScreenTest*",
+            "**/RootRouterScreenTest*",
+            "**/AgeGateScreenTest*",
+            "**/NearbyTimelineScreenTest*",
+            "**/NearYouThemeTest*",
+        )
     }
 }
 

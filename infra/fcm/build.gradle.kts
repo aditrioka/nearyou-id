@@ -14,6 +14,7 @@ dependencies {
     testImplementation(libs.kotest.runnerJunit5)
     testImplementation(libs.kotest.assertionsCore)
     testImplementation(libs.kotlinx.coroutines.core)
+    testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.logback)
     // SpanRecorder + FailingSpanProcessor for the OTel-foundation amendment
     // tests covering the WARN-log↔span-event pairing scenarios per

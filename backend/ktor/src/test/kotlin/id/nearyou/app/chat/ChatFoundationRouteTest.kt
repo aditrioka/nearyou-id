@@ -1398,6 +1398,59 @@ class ChatFoundationRouteTest : StringSpec({
         }
     }
 
+    // ---- 7.16.a: blocked send short-circuits BEFORE the TextModerator -------
+    // Runtime-spy complement to ChatModerationCallOrderTest's static source-order
+    // scan: proves the bidirectional block check in ChatRepository.sendMessage
+    // throws before preInsertHookInTx (where moderate() runs). Closes the
+    // `chat-block-check-moderator-spy` follow-up. The blocked send is the only
+    // attempt, so the count is a clean 0.
+
+    "7.16.a POST /chat/{id}/messages — blocked sender does NOT invoke the TextModerator" {
+        val (a, ta) = seedUser()
+        val (b, _) = seedUser()
+        try {
+            val cAB = createConversationDirect(a, b)
+            seedBlock(a, b)
+            val recording = id.nearyou.app.moderation.RecordingTextModerator()
+            val svc =
+                ChatService(
+                    repository = repository,
+                    notifications = NoopChatEmitter,
+                    dispatcher = NoopNotificationDispatcher(),
+                    rateLimiter = InMemoryRateLimiter(),
+                    remoteConfig = StubRemoteConfig(),
+                    textModerator = recording.moderator,
+                    moderationQueue = id.nearyou.app.moderation.TestModerationFixtures.SHARED_QUEUE_REPO,
+                )
+            testApplication {
+                application {
+                    install(ContentNegotiation) {
+                        json(
+                            Json {
+                                ignoreUnknownKeys = true
+                                explicitNulls = false
+                            },
+                        )
+                    }
+                    install(Authentication) { configureUserJwt(keys, users, java.time.Instant::now) }
+                    chatRoutes(svc, contentGuard, id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient())
+                }
+                val r =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/chat/$cAB/messages") {
+                            header(HttpHeaders.Authorization, "Bearer $ta")
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"content":"x"}""")
+                        }
+                r.status shouldBe HttpStatusCode.Forbidden
+            }
+            // The block check threw before preInsertHookInTx → moderator never ran.
+            recording.moderateCallCount.get() shouldBe 0
+        } finally {
+            cleanup(a, b)
+        }
+    }
+
     // ---- 7.17: 2001 chars / whitespace-only → 400 ---------------------------
 
     "7.17 POST /chat/{id}/messages — 2001-char content and whitespace-only content return 400" {

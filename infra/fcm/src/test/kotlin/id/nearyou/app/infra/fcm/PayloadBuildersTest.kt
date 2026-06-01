@@ -36,10 +36,9 @@ import java.util.UUID
  *   - JSON validity + Unicode round-trip on `bodyFull`.
  *
  * Structural assertions on the `Message` internals (no notification block,
- * priority HIGH, mutable-content=true, body_full custom-data presence) are
- * deferred to the integration-test surface, which can exercise
- * `FirebaseMessaging.send(msg, dryRun=true)` against a real (test-only)
- * FirebaseApp — see `FOLLOW_UPS.md` entry "fcm-payload-structural-tests".
+ * priority HIGH, mutable-content=true, body_full custom-data presence) live in
+ * [MessagePayloadStructuralTest], which renders the SDK's transport JSON
+ * offline via [MessageInspector] (no network / no `dryRun` send required).
  */
 class PayloadBuildersTest : StringSpec(
     {
