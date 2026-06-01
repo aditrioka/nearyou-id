@@ -52,6 +52,8 @@ kotlin {
             implementation(libs.googleid)
             implementation(libs.androidx.datastore.preferences)
             implementation(libs.google.tink)
+            // mobile-location-permission-flow — Fused Location Provider (coarse device location).
+            implementation(libs.google.playServicesLocation)
             implementation(libs.ktor.kmp.clientOkhttp)
             // koin-android gives `androidContext()` so the platform Koin module can supply a
             // Context to `SecureTokenStore` without a bespoke context-holder.
@@ -179,7 +181,7 @@ android {
 }
 
 // The Robolectric Compose UI tests (SignInScreenTest / RootRouterScreenTest / AgeGateScreenTest /
-// NearbyTimelineScreenTest / NearYouThemeTest) need the debug-only
+// NearbyTimelineScreenTest / NearbyLocationGateScreenTest / NearYouThemeTest) need the debug-only
 // `androidx.compose.ui:ui-test-manifest` ComponentActivity, which is NOT merged into release
 // variants — so `./gradlew test` (all variants) fails `testDevReleaseUnitTest` etc. with a
 // host-activity RuntimeException. Skip those classes in release unit-test tasks; they are
@@ -192,6 +194,7 @@ tasks.withType<Test>().configureEach {
             "**/RootRouterScreenTest*",
             "**/AgeGateScreenTest*",
             "**/NearbyTimelineScreenTest*",
+            "**/NearbyLocationGateScreenTest*",
             "**/NearYouThemeTest*",
         )
     }

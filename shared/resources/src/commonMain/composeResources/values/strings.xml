@@ -43,4 +43,15 @@
     <string name="timeline_empty_nearby">Area kamu belum ramai. Sementara lihat dari seluruh Indonesia dulu?</string>
     <string name="timeline_limit_hard">Kamu sudah mencapai batas baca untuk jam ini. Coba lagi sebentar lagi ya.</string>
     <string name="timeline_limit_soft">Kamu lagi aktif-aktifnya! Premium membuka akses baca tanpa batas.</string>
+
+    <!-- mobile-location-permission-flow. The UU-PDP location-consent rationale (why = show nearby
+         posts; what = approximate location; how-often = only when this page is open; + never shared)
+         per docs/03-UX-Design.md § Location Permission + docs/06-Security-Privacy.md § UU PDP. The
+         denial copy + "Buka Pengaturan" CTA are byte-identical to the change spec; the rest are
+         derived BI copy consistent with the Mobile #3/#4/#5 register. -->
+    <string name="location_consent_title">Aktifkan lokasi kamu</string>
+    <string name="location_consent_body">NearYouID memakai lokasi perkiraan kamu untuk menampilkan postingan di sekitar. Lokasi hanya diambil saat kamu membuka halaman ini dan tidak pernah dibagikan ke pengguna lain.</string>
+    <string name="location_consent_allow">Izinkan lokasi</string>
+    <string name="nearby_location_denied">Aktifkan lokasi untuk lihat postingan sekitar</string>
+    <string name="location_open_settings">Buka Pengaturan</string>
 </resources>
