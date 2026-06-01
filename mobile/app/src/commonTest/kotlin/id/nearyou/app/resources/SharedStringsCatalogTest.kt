@@ -27,6 +27,11 @@ import id.nearyou.resources.generated.resources.signin_loading
 import id.nearyou.resources.generated.resources.signin_screen_title
 import id.nearyou.resources.generated.resources.signup_error_account_exists
 import id.nearyou.resources.generated.resources.signup_loading
+import id.nearyou.resources.generated.resources.timeline_empty_nearby
+import id.nearyou.resources.generated.resources.timeline_limit_hard
+import id.nearyou.resources.generated.resources.timeline_limit_soft
+import id.nearyou.resources.generated.resources.timeline_loading
+import id.nearyou.resources.generated.resources.timeline_nearby_title
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -70,12 +75,18 @@ class SharedStringsCatalogTest {
             Res.string.age_gate_under18_blocked,
             Res.string.signup_error_account_exists,
             Res.string.signup_loading,
+            // Mobile #5 Nearby timeline (mobile-nearby-timeline-screen)
+            Res.string.timeline_nearby_title,
+            Res.string.timeline_loading,
+            Res.string.timeline_empty_nearby,
+            Res.string.timeline_limit_hard,
+            Res.string.timeline_limit_soft,
         )
 
     @Test
-    fun `all Mobile 2 3 and 4 string keys are declared`() {
-        // 10 (Mobile #2/#2.5) + 8 (Mobile #3) + 8 (Mobile #4) = 26.
-        assertEquals(26, allDeclaredStrings.size)
+    fun `all Mobile 2 3 4 and 5 string keys are declared`() {
+        // 10 (Mobile #2/#2.5) + 8 (Mobile #3) + 8 (Mobile #4) + 5 (Mobile #5 timeline) = 31.
+        assertEquals(31, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

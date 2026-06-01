@@ -1,62 +1,26 @@
 package id.nearyou.app.screens.home
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.safeContentPadding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.remember
 import cafe.adriel.voyager.core.screen.Screen
-import id.nearyou.resources.generated.resources.Res
-import id.nearyou.resources.generated.resources.app_name
-import id.nearyou.resources.generated.resources.home_placeholder_title
-import id.nearyou.resources.generated.resources.home_placeholder_version
-import id.nearyou.resources.generated.resources.logo_brand_dark
-import id.nearyou.resources.generated.resources.logo_brand_light
-import org.jetbrains.compose.resources.painterResource
-import org.jetbrains.compose.resources.stringResource
+import id.nearyou.app.screens.timeline.NearbyTimelineScreen
 
+/**
+ * Home host. Repurposed from the Mobile #1 wizard placeholder (logo + title + version) to a thin
+ * host whose `Content()` renders [NearbyTimelineScreen] — the first product surface
+ * (mobile-nearby-timeline-screen). A future tab-bar change makes this the Nearby/Following/Global
+ * host (aligned with `docs/02-Product.md` "Nearby and Following are home").
+ *
+ * `RootRouterScreen` still routes the authenticated path to `HomeScreen`, so the `mobile-auth-signin`
+ * § "RootRouterScreen routes based on token presence" requirement is UNCHANGED (zero cross-spec churn).
+ * The `home_placeholder_title` / `home_placeholder_version` strings are no longer rendered (retained
+ * in the catalog, consistent with `signin_error_no_account`'s retention). [NearbyTimelineScreen] holds
+ * no navigation dependency, so it is embedded directly here.
+ */
 class HomeScreen : Screen {
     @Composable
     override fun Content() {
-        Column(
-            modifier =
-                Modifier
-                    .background(MaterialTheme.colorScheme.background)
-                    .safeContentPadding()
-                    .fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            val logo =
-                if (isSystemInDarkTheme()) {
-                    Res.drawable.logo_brand_dark
-                } else {
-                    Res.drawable.logo_brand_light
-                }
-            Image(
-                painter = painterResource(logo),
-                contentDescription = stringResource(Res.string.app_name),
-                modifier = Modifier.size(120.dp),
-            )
-            Text(
-                text = stringResource(Res.string.home_placeholder_title),
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Text(
-                text = stringResource(Res.string.home_placeholder_version, "1.0"),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        val nearby = remember { NearbyTimelineScreen() }
+        nearby.Content()
     }
 }

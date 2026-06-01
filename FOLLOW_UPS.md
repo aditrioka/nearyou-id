@@ -7,7 +7,7 @@ Transient working file for findings discovered during a change cycle that are NO
 - **Delete the entry once all its action items are merged.** Do NOT let `triaged` entries linger — if residual work remains, either (a) move it to the canonical doc that owns the topic (e.g., launch-prerequisite tasks → `docs/08-Roadmap-Risk.md` Pre-Launch list, runbook tweaks → `docs/07-Operations.md` Deployment Runbook), or (b) replace the entry with a fresh one scoped to the residual work. Triaged-but-not-deleted entries are how this file rots.
 - Delete the file itself when it has zero entries left.
 - Recreate the file (with this same intro blurb) the next time a finding arises.
-- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. **Audit on 2026-05-30 (`/triage-follow-ups` full sweep, post-archive of `mobile-auth-google-signin-flow`): 38 → 32 open + 0 triaged.** Zero silently-resolved / superseded entries found (no rot) — the breach was genuine deferred-work volume (the 8 `mobile-auth-signin-*` entries from PR #122 + the 6-entry otel cluster). Closed 6: 3 docs-only fixes applied inline (`post-cmp-swap-spec-text-cleanup`, `docs-host-prefix-domain-attribute-incongruity`, `docs-ios-primary-auth-mobile-3-vs-eventual-state`) + 1 migrated to `docs/08-Roadmap-Risk.md` Pre-Launch (`production-deploy-workflow-cloud-run-flags-for-layer3`) + 2 accept-the-gap deletes (`firebase-app-extraction`, `vendor-ahocorasick-detekt-guard`); `system-actor-and-worker-audit-rows` promoted to `/next-change`. **Note: 32 is still 2 over the 30 limit** — the residual is all verified-still-valid deferred work (not rot), drawn down as promoted + test-coverage-bundle work ships. Prior sweeps: 2026-05-10 found 22 open + 0 triaged; PR #79 (`chore: triage FOLLOW_UPS.md (2026-05-09)`) preserves the 2026-05-09 sweep's deletion-evidence audit trail.
+- **Hard limit: max 30 open entries.** When breached, force a triage sweep before adding new entries; entries open for >2 weeks are candidates for migration to GitHub Issues if the team grows beyond solo. **Audit on 2026-05-30 (`/triage-follow-ups` full sweep, post-archive of `mobile-auth-google-signin-flow`): 38 → 32 open + 0 triaged.** Zero silently-resolved / superseded entries found (no rot) — the breach was genuine deferred-work volume (the 8 `mobile-auth-signin-*` entries from PR #122 + the 6-entry otel cluster). Closed 6: 3 docs-only fixes applied inline (`post-cmp-swap-spec-text-cleanup`, `docs-host-prefix-domain-attribute-incongruity`, `docs-ios-primary-auth-mobile-3-vs-eventual-state`) + 1 migrated to `docs/08-Roadmap-Risk.md` Pre-Launch (`production-deploy-workflow-cloud-run-flags-for-layer3`) + 2 accept-the-gap deletes (`firebase-app-extraction`, `vendor-ahocorasick-detekt-guard`); `system-actor-and-worker-audit-rows` promoted to `/next-change`. **Note: 32 is still 2 over the 30 limit** — the residual is all verified-still-valid deferred work (not rot), drawn down as promoted + test-coverage-bundle work ships. **Targeted check on 2026-05-31 (`mobile-nearby-timeline-screen` apply §11.1):** no full re-sweep — the 2026-05-30 full sweep was 1 day prior and found zero rot, and only PRs #125/#126 shipped since (neither resolves an open entry; `system-actor-and-worker-audit-rows` was already promoted + removed). Verified the 6 new Mobile-#5 deferrals are not duplicates of any open entry, then added them (`mobile-location-permission-flow`, `mobile-nearby-radius-slider`, `mobile-nearby-timeline-infinite-scroll`, `mobile-timeline-empty-global-cta`, `timeline-response-dto-casing-drift`, `mobile-timeline-relative-timestamp`) → **37 open**. The breach is legitimate Mobile-#5 deferred-work volume, not rot; a dedicated `/triage-follow-ups` sweep + GitHub-Issues migration (per the solo→team note above) is the recommended drawdown path. Prior sweeps: 2026-05-10 found 22 open + 0 triaged; PR #79 (`chore: triage FOLLOW_UPS.md (2026-05-09)`) preserves the 2026-05-09 sweep's deletion-evidence audit trail.
 
 Format per entry:
 
@@ -813,3 +813,119 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Action items:**
 - [ ] File a change adding an `androidInstrumentedTest` `SecureTokenStoreEncryptionTest` (raw-byte-leak + keyset-regeneration assertions per §3.5) once an Android-emulator CI lane exists (or run it as a documented manual gate).
 - [ ] Delete this entry once the instrumented encryption test ships.
+
+---
+
+## mobile-location-permission-flow
+
+**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D1 — device location is STUBBED (`StubLocationProvider` → fixed Jakarta `LatLng(-6.2, 106.8)`); the real GPS + permission surface is deferred to keep the change one-PR-shippable.
+**Status:** open
+
+**Finding:** [`NearbyTimelineScreen`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt) reads `lat`/`lng` from a commonMain [`LocationProvider`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/LocationProvider.kt) whose default Koin binding is `StubLocationProvider` (fixed coordinate, no platform API). The full device-location surface — a fused/`CLLocationManager` `expect`/`actual` provider, the runtime permission request, the **UU-PDP consent modal**, and the denial fallback ("*Aktifkan lokasi untuk lihat postingan sekitar*" + a Settings deep-link) per [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Location Permission / § Permission Denial Fallback — is NOT shipped. The `LocationProvider` seam means the follow-up swaps the Koin binding WITHOUT touching `NearbyTimelineRepository` or the screen.
+
+**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "LocationProvider stub supplies a fixed coordinate; real location is deferred" ships the stub deliberately.
+**Code at fault:** None — `StubLocationProvider` is correct for the scaffold; a real provider is additive (a binding swap).
+**Docs at fault:** None — `docs/03-UX-Design.md` § Location Permission / § Permission Denial Fallback already prescribe the flow.
+
+**Impact (if shipped):** The Nearby feed shows Jakarta posts regardless of the device's real location until the real provider lands. Acceptable for a scaffold whose goal is rendering + states + the Phase 2 fuzzing audit (coordinate-agnostic). Real-location is a launch-readiness item (you can't ship a location app on a fixed coordinate).
+
+**Action items:**
+- [ ] File OpenSpec change `mobile-location-permission-flow`: an `expect`/`actual` `DeviceLocationProvider` (Android fused / iOS `CLLocationManager`), the runtime permission request, the UU-PDP consent modal, and the denial fallback per `docs/03-UX-Design.md`; swap the Koin `LocationProvider` binding from `StubLocationProvider` to the real provider.
+- [ ] Delete this entry once the real location + permission flow ships.
+
+---
+
+## mobile-nearby-radius-slider
+
+**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D2 — the request uses `NEARBY_RADIUS_M = 20000` (Free-tier fixed 20 km); the radius slider is deferred (it depends on Premium-tier UX that isn't built).
+**Status:** open
+
+**Finding:** [`NEARBY_RADIUS_M`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineRepository.kt) is a single named constant (`20_000`) carrying the Free-tier fixed radius per [`docs/02-Product.md`](docs/02-Product.md) § Nearby Timeline ("*Free: stuck at 20km*"). The 4-position slider (10/20/50/100 km) with the Free-bounce-back-and-upsell + Premium-pick behavior is NOT shipped — the constant is the single site the follow-up generalizes.
+
+**Specs at fault:** None.
+**Code at fault:** None — `NEARBY_RADIUS_M` is the intended single generalization site.
+**Docs at fault:** None — `docs/02-Product.md` § Nearby Timeline already describes the Free/Premium radius behavior.
+
+**Impact (if shipped):** Free users cannot adjust the radius (it's the intended Free behavior); Premium radius selection is unavailable until Premium-tier UX + the slider land.
+
+**Action items:**
+- [ ] File OpenSpec change `mobile-nearby-radius-slider` adding the 10/20/50/100 km slider, the Free-bounce-back-to-20km + upsell behavior, and the Premium-pick path; replace the `NEARBY_RADIUS_M` call-site usage with the selected radius.
+- [ ] Delete this entry once the slider ships.
+
+---
+
+## mobile-nearby-timeline-infinite-scroll
+
+**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D8 — the screen renders page 1 (≤ 30 posts) + pull-to-refresh; `next_cursor` is parsed/retained but load-more is deferred.
+**Status:** open
+
+**Finding:** [`NearbyTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineFlow.kt) is parsed + retained, and [`NearbyTimelineApiClient.fetchNearby`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineApiClient.kt) accepts a `cursor` param, but the screen never issues a follow-up `cursor=`-bearing request. The backend `nearby-timeline` spec supports cursor pagination; only the mobile load-more UX (scroll-to-end detection + append) is missing.
+
+**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "Pull-to-refresh re-fetches the first page; infinite scroll is deferred" defers this deliberately.
+**Code at fault:** None — the cursor plumbing exists; the load-more trigger is additive.
+**Docs at fault:** None.
+
+**Impact (if shipped):** Users see only the first 30 nearby posts until load-more lands. Acceptable for the scaffold; a real feed needs pagination.
+
+**Action items:**
+- [ ] File OpenSpec change `mobile-nearby-timeline-infinite-scroll` adding scroll-to-end detection in the `LazyColumn`, a `loadNextPage(cursor)` path on `NearbyTimelineFlow`, and append-to-list state handling.
+- [ ] Delete this entry once load-more ships.
+
+---
+
+## mobile-timeline-empty-global-cta
+
+**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D7 — the empty-state copy implies a switch-to-Global action, but no Global screen exists yet, so the message renders without the button.
+**Status:** open
+
+**Finding:** The empty state renders `timeline_empty_nearby` ("*Area kamu belum ramai. Sementara lihat dari seluruh Indonesia dulu?*", [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Empty State) as a message only. The copy implies a "lihat Global" affordance, but there is no Global-timeline screen to navigate to, so shipping the button would create a dead control. The switch-to-Global CTA lands once a Global screen exists (a future tab-bar / Global-timeline change).
+
+**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "Screen state mapping" renders the empty message only, deferring the affordance.
+**Code at fault:** None — the message-only empty state is intentional.
+**Docs at fault:** None.
+
+**Impact (if shipped):** The empty-area copy hints at an action the user can't take yet. Low — the message still informs; the affordance is additive once Global exists.
+
+**Action items:**
+- [ ] Once a Global-timeline screen ships, add a "lihat Global" CTA to the Nearby empty state that navigates to it (likely bundled with the Nearby/Following/Global tab-bar change).
+- [ ] Delete this entry once the empty-state Global CTA is wired.
+
+---
+
+## timeline-response-dto-casing-drift
+
+**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D10 / multi-lens review — the mobile DTOs had to mirror the SHIPPED mixed-case wire, not the spec's snake_case JSON example.
+**Status:** open
+
+**Finding:** [`backend/.../timeline/TimelineRoutes.kt`](backend/ktor/src/main/kotlin/id/nearyou/app/timeline/TimelineRoutes.kt) `NearbyPostDto` / `FollowingPostDto` / `GlobalPostDto` (and their `*Response`) serialize **mixed-case**: `id`, `authorUserId`, `content`, `latitude`, `longitude`, `distanceM`, `createdAt`, and top-level `nextCursor` are **bare camelCase** (no `@SerialName`); only `city_name`, `liked_by_viewer`, `reply_count` carry `@SerialName` snake_case. But the [`nearby-timeline`](openspec/specs/nearby-timeline/spec.md) / [`following-timeline`](openspec/specs/following-timeline/spec.md) / [`global-timeline`](openspec/specs/global-timeline/spec.md) specs' Response-shape JSON examples show **uniform snake_case** (`author_user_id`, `distance_m`, `created_at`, `next_cursor`). The mobile client tracks the deployed wire (camelCase for those 4 fields), but the spec examples are stale relative to the shipped code — a client generated from the spec example would silently fail to parse those 4 fields. (See also [`reference_timeline_dto_camelcase_wire`] precedent from PR #128.)
+
+**Specs at fault:** `openspec/specs/nearby-timeline/spec.md`, `following-timeline/spec.md`, `global-timeline/spec.md` — Response-shape JSON examples are snake_case while the shipped DTOs emit camelCase for `author_user_id`/`distance_m`/`created_at`/`next_cursor`.
+**Code at fault:** `backend/.../timeline/TimelineRoutes.kt` — the DTOs emit camelCase for those 4 fields (no global `JsonNamingStrategy`).
+**Docs at fault:** None beyond the specs above.
+
+**Impact (if shipped):** Any future client generated from the spec JSON examples (rather than the shipped DTO) silently drops 4 fields. This is a backend↔spec contract drift, not a mobile bug (the Mobile #5 client correctly mirrors the deployed wire).
+
+**Ambiguity to resolve first:** Two valid fixes — (a) add `@SerialName` snake_case to the backend DTOs to match the specs (then coordinate a mobile DTO update + bump the wire), OR (b) amend the three specs' Response-shape JSON examples to the camelCase reality. (b) is lower-risk (no wire change); (a) is more consistent (uniform snake_case) but a breaking wire change for any deployed client.
+
+**Action items:**
+- [ ] Backend owner: reconcile the casing drift — either add `@SerialName` to the three `*PostDto`/`*Response` DTOs to match the specs (+ coordinate a mobile DTO update), OR amend the `nearby-timeline`/`following-timeline`/`global-timeline` specs' JSON examples to the shipped camelCase.
+- [ ] Delete this entry once the specs and the shipped wire agree.
+
+---
+
+## mobile-timeline-relative-timestamp
+
+**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) `/opsx:apply` §6.2 — the post card renders the `createdAt` DATE portion ("2026-05-31"), not a relative label ("2j lalu"), because relative formatting needs a localized unit-string set + a clock seam.
+**Status:** open
+
+**Finding:** [`NearbyTimelineScreen.postDateLabel`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt) renders `createdAt.substringBefore('T')` (the ISO date). Design D9 prescribes a "relative `created_at`" but a proper relative formatter ("baru saja" / "5 menit lalu" / "2 jam lalu" / "kemarin") needs (a) a localized Bahasa Indonesia unit-string set — which would extend this change's declared 5-string timeline surface (spec drift) — and (b) an injected clock for deterministic testing. Shipping the date is deterministic, needs no new strings, and is honest for a scaffold; relative formatting is a polish refinement.
+
+**Specs at fault:** None — no `mobile-nearby-timeline` spec scenario asserts `created_at` rendering; D9 is the delegated "Claude proposes" visual.
+**Code at fault:** None — `postDateLabel` is a correct, deterministic scaffold choice.
+**Docs at fault:** None.
+
+**Impact (if shipped):** The card shows an absolute date rather than a friendly relative label. Low — informative either way; relative time is a UX polish.
+
+**Action items:**
+- [ ] File a change (or fold into a later timeline-polish change) adding a pure `relativeTime(createdAtIso, now)` formatter + a localized BI unit-string set (`timeline_time_just_now` / `_minutes_ago` / `_hours_ago` / `_yesterday` / …), replacing `postDateLabel` at the card metadata row; inject the clock for deterministic tests.
+- [ ] Delete this entry once relative timestamps ship.
