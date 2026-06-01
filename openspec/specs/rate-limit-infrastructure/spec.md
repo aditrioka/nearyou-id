@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The rate-limit-infrastructure capability provides the shared Redis-backed primitives every per-endpoint rate limit reuses: the `:infra:redis` Lettuce client, the `RateLimiter` interface with daily-WIB-stagger and rolling-hour windowing strategies, the `computeTTLToNextReset(userId)` helper that distributes daily-cap reset across 00:00–01:00 WIB so traffic is not synchronized at midnight, and the `releaseMostRecent` escape hatch for idempotent no-op paths. The `RateLimitTtlRule` and `RedisHashTagRule` Detekt rules pin the conventions at every call site — a daily limiter must call `computeTTLToNextReset`, and every rate-limit Redis key must include a `{scope:<value>}` hash tag for cluster-safe multi-key ops.
+The rate-limit-infrastructure capability provides the shared Redis-backed primitives every per-endpoint rate limit reuses: the `:infra:redis` Lettuce client, the `RateLimiter` interface with daily-WIB-stagger and rolling-hour windowing strategies, the `computeTTLToNextReset(userId)` helper that staggers the per-user daily-bucket TTL (idle-bucket GC of the rolling-window key) across 00:00–01:00 WIB so traffic is not synchronized at midnight, and the `releaseMostRecent` escape hatch for idempotent no-op paths. The `RateLimitTtlRule` and `RedisHashTagRule` Detekt rules pin the conventions at every call site — a daily limiter must call `computeTTLToNextReset`, and every rate-limit Redis key must include a `{scope:<value>}` hash tag for cluster-safe multi-key ops.
 ## Requirements
 ### Requirement: `:infra:redis` module exists and exposes a Lettuce-backed client
 

@@ -300,9 +300,9 @@ The daily limiter MUST count INSERTs only — `DELETE /api/v1/posts/{post_id}/li
 - **WHEN** Free-tier caller A is at slot 11 AND attempts `POST /like` on a post that ALSO does not exist in `visible_posts`
 - **THEN** the response is HTTP 429 with `error.code = "rate_limited"` (NOT 404 `post_not_found`) AND no `visible_posts` SELECT was executed
 
-#### Scenario: WIB day rollover restores the cap
+#### Scenario: Rolling ~24h window restores the cap as entries age out
 - **WHEN** Free-tier caller A is at slot 10 at WIB `23:59:00` AND a like is attempted at WIB `00:00:01 + (hash(A.id) % 3600)` seconds the next day
-- **THEN** the response is HTTP 204 (the user-specific reset window has passed AND old entries are pruned)
+- **THEN** the response is HTTP 204 (caller A's oldest like entries have aged past the rolling ~24h window AND been pruned; the per-user staggered TTL is the idle-bucket GC horizon, NOT a synchronized midnight bulk-reset)
 
 ### Requirement: Burst rate limit — 500/hour for both tiers
 
@@ -466,7 +466,7 @@ Steps 3–4 MUST run before any DB query. The 401, 400, and rate-limit branches 
 15. 404 `post_not_found` consumes a slot (does NOT release).
 16. Daily limit hit short-circuits before `visible_posts` SELECT (assert: hit a non-existent post UUID; expect 429 not 404).
 17. Hash-tag key shape verified: daily key = `{scope:rate_like_day}:{user:<uuid>}`, burst = `{scope:rate_like_burst}:{user:<uuid>}`.
-18. WIB rollover: at the per-user reset moment the cap restores.
+18. Rolling ~24h window aging: advancing the clock 24h+1s past caller A's oldest like entry prunes it and restores one slot (sliding-window aging — NOT a synchronized midnight bulk-reset).
 19. Unlike does NOT consume any limiter slot.
 20. Notification emit does not block the 204 response (assert: a like with a synthetically-slow downstream FCM stub still returns 204 within the request budget).
 21. Tier (`subscription_status`) is read from the auth-time `viewer` principal, not via a DB SELECT — assert via a query-counter / Postgres statement-log spy that the like handler issues zero `users` SELECTs before the limiter check.
