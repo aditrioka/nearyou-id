@@ -5,7 +5,8 @@ The flagship Nearby screen (shipped in `mobile-nearby-timeline-screen`, [PR #128
 ## What Changes
 
 - **Real device-location provider** (Android **fused** via `play-services-location`, **coarse/approximate** accuracy; iOS `CLLocationManager`, **when-in-use**) bound behind a commonMain testable seam. Replaces `StubLocationProvider` as the default Koin binding (the stub is retained for tests).
-- **UU-PDP location-consent rationale modal** shown *before* the OS permission prompt — explains why location is needed, what is collected, and how often it is accessed. All copy via Compose Multiplatform Resources. (Distinct from the unbuilt analytics-consent screen.)
+- **UU-PDP location-consent rationale modal** shown *before* the OS permission prompt — explains why location is needed, what is collected, and how often it is accessed. All copy via Compose Multiplatform Resources. (Distinct from the unbuilt analytics-consent screen; this is a contextual gate and is **not** persisted to `users.analytics_consent`.)
+- **Coordinate logging discipline**: mask the `lat`/`lng` query-parameter values in the `HttpClient` debug-build `Logging` output. The Nearby fetch sends the coordinate as URL query params and `LogLevel.HEADERS` logs the request line — so the now-real coordinate would otherwise leak to debug logs (the existing `sanitizeHeader` only masks `Authorization`).
 - **Runtime permission request**: Android `ACCESS_COARSE_LOCATION` (via the existing `CurrentActivityHolder` / Activity-result seam); iOS when-in-use authorization. Background/"always" location is out of scope by design.
 - **Nearby permission-denial fallback state**: when permission is denied/unavailable, the Nearby screen shows *"Aktifkan lokasi untuk lihat postingan sekitar"* + a *"Buka Pengaturan"* CTA that deep-links to the OS app-settings screen (no posts are fetched).
 - **New `play-services-location` pin** in [`gradle/libs.versions.toml`](../../../gradle/libs.versions.toml) (Android only; iOS `CLLocationManager` is a system framework). **Triggers the pre-implementation library re-check** ([`openspec/project.md`](../../../openspec/project.md) § Change Delivery Workflow).
@@ -16,6 +17,7 @@ The flagship Nearby screen (shipped in `mobile-nearby-timeline-screen`, [PR #128
 - Precise location + the radius slider → `mobile-nearby-radius-slider` (existing follow-up).
 - Following/Global denial fallbacks ([`docs/03-UX-Design.md`](../../../docs/03-UX-Design.md) §78-79) — those screens don't exist yet; the intended behavior is documented but implementation defers to when they ship.
 - The broader analytics-consent onboarding screen — separate change.
+- The full linear onboarding sequence (age-gate → analytics-consent → location, [`docs/03-UX-Design.md`](../../../docs/03-UX-Design.md):57) — this change triggers location consent/permission **contextually** at the Nearby surface (design D4); wiring it into a linear onboarding flow waits on the analytics-consent screen.
 - The post-creation location picker → `mobile-post-creation-screen`.
 - Stronger age assurance (Apple/Google age signals) → roadmap Pre-Launch #7.
 

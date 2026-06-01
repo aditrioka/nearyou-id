@@ -2,7 +2,7 @@
 
 ### Requirement: Nearby feed is gated on location permission with a denial fallback
 
-The Nearby surface SHALL consult the `mobile-location` `LocationPermissionController` BEFORE fetching: when permission is granted it SHALL proceed to the existing `NearbyTimelineFlow.loadFirstPage()` fetch path; when permission is denied or unavailable it SHALL render a **pre-fetch** location-permission-denied state and SHALL NOT invoke the fetch. The denial state SHALL show `stringResource(Res.string.<nearby location denied>)` ("*Aktifkan lokasi untuk lihat postingan sekitar*") plus a "*Buka Pengaturan*" CTA that invokes `LocationPermissionController.openAppSettings()`. This denial state is a pre-fetch gate state, distinct from the six fetch-outcome states in the § "Screen state mapping covers loading, content, empty, error, and both rate-limit states" requirement (which is unchanged).
+The Nearby surface SHALL consult the `mobile-location` `LocationPermissionController` BEFORE fetching: when permission is granted it SHALL proceed to the existing `NearbyTimelineFlow.loadFirstPage()` fetch path; when permission is denied or unavailable it SHALL render a **pre-fetch** location-permission-denied state and SHALL NOT invoke the fetch. The denial state SHALL show `stringResource(Res.string.<nearby location denied>)` ("*Aktifkan lokasi untuk lihat postingan sekitar*") plus a "*Buka Pengaturan*" CTA that invokes `LocationPermissionController.openAppSettings()`. This denial state is a pre-fetch gate state, distinct from the six fetch-outcome states in the § "Screen state mapping covers loading, content, empty, error, and both rate-limit states" requirement (which is unchanged). When permission is GRANTED but a device coordinate cannot be acquired (GPS off / timeout / null fix), the surface SHALL render the **existing** retryable error state (network-error copy + retry control) and SHALL NOT introduce a new `NearbyTimelineOutcome` member — keeping `NearbyTimelineRepository`'s outcome enum unchanged.
 
 #### Scenario: Denied permission renders the fallback and issues no fetch
 - **GIVEN** a fake `LocationPermissionController` reporting `DENIED` AND a `FakeNearbyTimelineFlow` counting fetch invocations
@@ -13,6 +13,11 @@ The Nearby surface SHALL consult the `mobile-location` `LocationPermissionContro
 - **GIVEN** a fake `LocationPermissionController` reporting `GRANTED` AND a `FakeNearbyTimelineFlow`
 - **WHEN** the Nearby surface is composed
 - **THEN** `NearbyTimelineFlow.loadFirstPage()` is invoked (the existing fetch path runs) AND no denial copy is rendered
+
+#### Scenario: Granted but no coordinate obtainable maps to the existing retryable error state
+- **GIVEN** permission is `GRANTED` AND the location acquisition fails to yield a coordinate (GPS off / timeout / null fix)
+- **WHEN** the Nearby surface attempts to load
+- **THEN** the rendered tree shows the existing retryable error state (`stringResource(Res.string.signin_error_network)` + a `cta_retry` control) AND no new `NearbyTimelineOutcome` member is introduced (the repository's sealed outcome type is unchanged)
 
 #### Scenario: Buka Pengaturan CTA deep-links to settings
 - **GIVEN** the denial state is rendered
@@ -30,6 +35,16 @@ The default **production** `LocationProvider` Koin binding SHALL be the real pla
 #### Scenario: Repository outcome mapping is unchanged
 - **WHEN** comparing `NearbyTimelineRepository`'s status→`NearbyTimelineOutcome` mapping before and after this change
 - **THEN** the mapping is unchanged (no new `NearbyTimelineOutcome` member is introduced for location denial; the gate lives in the screen layer)
+
+## MODIFIED Requirements
+
+### Requirement: Repository, ApiClient, providers wired as Koin singletons behind a testable seam
+
+`NearbyTimelineApiClient`, `NearbyTimelineRepository`, and `SessionIdProvider` SHALL be registered in the commonMain Koin `mobileModule`. The `LocationProvider` SHALL be bound to the real platform device-location provider in each `platformModule` (Android/iOS) in production — NOT to `StubLocationProvider` in `mobileModule`; `StubLocationProvider` is retained in `commonMain` as the test double (per the `mobile-location` capability). `NearbyTimelineRepository` SHALL be bound behind a `NearbyTimelineFlow` interface (`single<NearbyTimelineFlow> { get<NearbyTimelineRepository>() }`) so a `FakeNearbyTimelineFlow` can drive the screen tests, mirroring `mobile-auth-signin`'s `AuthFlow` seam.
+
+#### Scenario: Koin registers the timeline graph behind the flow interface
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/di/MobileModule.kt` and each `platformModule`
+- **THEN** `mobileModule` declares singletons for `NearbyTimelineApiClient`, `NearbyTimelineRepository`, and `SessionIdProvider` AND binds `single<NearbyTimelineFlow> { get<NearbyTimelineRepository>() }` AND the `LocationProvider` binding is provided by each `platformModule` (the real provider), NOT hardcoded to `StubLocationProvider` in `mobileModule`
 
 ## REMOVED Requirements
 

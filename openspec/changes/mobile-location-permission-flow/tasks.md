@@ -12,7 +12,7 @@
 ## 3. Platform actuals (Android fused, iOS CLLocationManager)
 
 - [ ] 3.1 Android: real `LocationProvider` actual via `FusedLocationProviderClient` (best-effort `getCurrentLocation` balanced-power + `getLastLocation` fallback), **coarse only**. MUST NOT log the coordinate (spec: "Acquired coordinate is never logged").
-- [ ] 3.2 Android: `LocationPermissionController` actual — runtime `ACCESS_COARSE_LOCATION` request via the existing `CurrentActivityHolder` / Activity-result seam; `openAppSettings()` → app-details settings intent. Register both in `androidMain` `PlatformModule.kt`.
+- [ ] 3.2 Android: `LocationPermissionController` actual — runtime `ACCESS_COARSE_LOCATION` request via the existing `CurrentActivityHolder` / Activity-result seam; `openAppSettings()` → app-details settings intent built with `Uri.fromParts("package", packageName, null)` (self-scoped; never an externally-derived URI). Register both in `androidMain` `PlatformModule.kt`.
 - [ ] 3.3 iOS: real `LocationProvider` actual via `CLLocationManager` (**when-in-use**, reduced accuracy acceptable per design D2/Open Q3). MUST NOT log the coordinate.
 - [ ] 3.4 iOS: `LocationPermissionController` actual — `requestWhenInUseAuthorization`; `openAppSettings()` → `UIApplication.openSettingsURLString`. Register both in `iosMain` `PlatformModule.kt`. No "Always"/background authorization (spec: "Coarse-only, no fine, no background").
 
@@ -23,7 +23,8 @@
 
 ## 5. Koin binding swap
 
-- [ ] 5.1 Remove `single<LocationProvider> { StubLocationProvider() }` from the commonMain `MobileModule`; bind the real provider in each `platformModule` (Android/iOS). Retain `StubLocationProvider` in commonMain as the test double (spec: "Production binds the real provider; stub retained for tests").
+- [ ] 5.1 Remove `single<LocationProvider> { StubLocationProvider() }` from the commonMain `MobileModule`; bind the real provider in each `platformModule` (Android/iOS). Retain `StubLocationProvider` in commonMain as the test double (spec: "Production binds the real provider; stub retained for tests"). Keep the `mobile-nearby-timeline` testable-seam intact (`NearbyTimelineApiClient`/`Repository`/`SessionIdProvider` + the `NearbyTimelineFlow` binding stay in `mobileModule`).
+- [ ] 5.2 Mask coordinate query params in the `HttpClient` `Logging` output: extend `HttpClientFactory`'s logging config so the `lat`/`lng` (and any `coord`) query-parameter VALUES are redacted in the logged request line (analogous to the existing `Authorization` `sanitizeHeader`). Debug-build only (release installs no `Logging` plugin). Spec: `mobile-location` § "Coordinate query parameters are masked in HTTP-client logs".
 
 ## 6. Nearby screen gate + denial state (mobile-nearby-timeline delta)
 
@@ -38,10 +39,11 @@
 
 ## 8. Tests
 
-- [ ] 8.1 `commonTest`: permission-status → UI-state projection test (granted / denied / not-determined) — deterministic, no platform dep.
-- [ ] 8.2 `commonTest`/shared: fake-`LocationPermissionController` test exercising request-shows-rationale-then-prompt + the decline path.
-- [ ] 8.3 Screen test (fake controller + `FakeNearbyTimelineFlow`): denied → denial copy + "Buka Pengaturan" + fetch count `0`; granted → fetch path runs; CTA → `openAppSettings()`.
+- [ ] 8.1 `commonTest`: permission-status → UI-state projection test (granted / denied / not-determined; confirm terminal-denial states collapse into `DENIED`) — deterministic, no platform dep.
+- [ ] 8.2 `commonTest`: fake-`LocationPermissionController` test for the **pure** rationale-vs-prompt decision logic — request-shows-rationale-then-prompt, the decline path, AND the no-re-prompt-on-re-entry path (request-count does not increment on re-entry while `DENIED`). (`commonTest` has no Compose runner; keep the decision logic pure and assert the modal *render* in the Robolectric `*ScreenTest` below.)
+- [ ] 8.3 Robolectric screen test (fake controller + `FakeNearbyTimelineFlow`): denied → denial copy + "Buka Pengaturan" + fetch count `0`; granted → fetch path runs; granted-but-no-fix → existing retryable error state (no new outcome member); CTA → `openAppSettings()`; consent-modal render.
 - [ ] 8.4 Add any new Robolectric `*ScreenTest` to the `mobile/app/build.gradle.kts` Release-variant test-exclude block (verify via `:mobile:app:testDevReleaseUnitTest`, not only Debug — precedent [PR #126](https://github.com/aditrioka/nearyou-id/pull/126)).
+- [ ] 8.5 Logging test: assert the Nearby request's logged request line (capturing logger, `LogLevel.HEADERS`) does NOT contain the `lat`/`lng` values (spec: `mobile-location` § "Coordinate query parameters are masked in HTTP-client logs").
 
 ## 9. Build & lint verification
 
@@ -52,7 +54,7 @@
 
 ## 10. Manual device/sim verification (platform actuals are not unit-tested)
 
-- [ ] 10.1 Android device/emulator: cold launch → Nearby → consent rationale → OS coarse-permission prompt → grant → real-location nearby feed renders. Verify deny → denial state + "Buka Pengaturan" round-trips to settings and back.
+- [ ] 10.1 Android device/emulator: cold launch → Nearby → consent rationale → OS coarse-permission prompt → grant → real-location nearby feed renders. Verify deny → denial state + "Buka Pengaturan" round-trips to settings and back. Confirm no `lat`/`lng` value appears in logcat (the debug `Logging` request line is masked).
 - [ ] 10.2 iOS simulator (per the iOS-sim verification recipe): launch → Nearby → rationale → when-in-use prompt → grant → feed renders; deny → denial state + Settings deep link. Confirm no coordinate appears in device logs.
 
 ## 11. Docs, follow-ups & archive

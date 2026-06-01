@@ -56,7 +56,7 @@ The permission/consent orchestration is a commonMain `LocationPermissionControll
 - **[Coarse accuracy yields a coarser "nearby"]** → Acceptable: the Free radius is a fixed 20 km; coarse (~city-block) precision is well within tolerance and matches the privacy posture.
 - **[iOS reduced-accuracy / "Precise: Off" returns a low-fidelity fix]** → Acceptable for the 20 km radius; revisit with the precise-location slider.
 - **[Platform actuals are not unit-tested]** → Mitigated by the thin-actual design (logic in common, fakes in tests) + mandatory manual device/sim verification before archive.
-- **[Coordinate leakage via logs]** → The provider MUST NOT log coordinates; `NearbyTimelineRepository.diagnosticLog` already carries no coordinates — preserve. (Mobile has no OTel yet; do not introduce coordinate attributes.)
+- **[Coordinate leakage via logs]** → Two layers: (a) the provider MUST NOT log coordinates and `NearbyTimelineRepository.diagnosticLog` already carries none — preserve; (b) the coordinate travels as `lat`/`lng` URL query params and the shared `HttpClient` logs the request line at `LogLevel.HEADERS` in debug builds (the existing `sanitizeHeader` masks only `Authorization`) — so this change MUST mask the `lat`/`lng` query-param values in the `HttpClient` log output (closes the debug-build leak; release builds install no `Logging` plugin). Mobile has no OTel yet; do not introduce coordinate attributes (cf. the open `otel-attribute-rule-location-key-patterns` follow-up).
 
 ## Migration Plan
 
@@ -70,6 +70,6 @@ The permission/consent orchestration is a commonMain `LocationPermissionControll
 
 ## Open Questions
 
-1. **Granted-but-no-fix surfacing**: provider throws (screen maps to the existing retryable error state) vs the controller pre-acquires before invoking the flow. Both keep the repo outcome enum unchanged; decide at apply based on the simplest `NearbyTimelineScreen` wiring.
+1. **Granted-but-no-fix surfacing**: the *behavior* is now spec'd — a granted-but-no-coordinate path renders the **existing retryable error state** (network-error copy + retry), with NO new `NearbyTimelineOutcome` member (see the `mobile-nearby-timeline` delta). Only the mechanical catch-site remains an apply detail: provider throws → screen maps the thrown failure to the error state, vs the controller pre-acquires before invoking the flow. Both keep the repo outcome enum unchanged; pick the simplest `NearbyTimelineScreen` wiring at apply.
 2. **Permission re-prompt UX**: after a hard "deny" Android no longer shows the system dialog — confirm the "Buka Pengaturan" deep link is the only path and that the rationale modal isn't re-shown on every Nearby visit (avoid nagging). Resolve against `docs/03-UX-Design.md` at apply.
 3. **iOS reduced-accuracy request shape**: whether to set `desiredAccuracy = kCLLocationAccuracyReduced` explicitly or rely on the user's Precise toggle. Defer to the iOS-actual implementation; does not affect the commonMain contract.

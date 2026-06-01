@@ -28,9 +28,18 @@ The default **production** `LocationProvider` Koin binding SHALL be a real platf
 - **WHEN** inspecting the real `LocationProvider` actuals
 - **THEN** no logging/diagnostic call site receives the acquired latitude/longitude (the coordinate is returned to the caller only)
 
+### Requirement: Coordinate query parameters are masked in HTTP-client logs
+
+Because the Nearby fetch sends the coordinate as `lat`/`lng` **URL query parameters** (`NearbyTimelineApiClient.fetchNearby`) and the shared `HttpClient` installs the `Logging` plugin at `LogLevel.HEADERS` in debug builds (which logs the request URL line *including the query string*), the existing `Authorization`-only `sanitizeHeader` does NOT protect the coordinate. This change SHALL mask the `lat` and `lng` (and any `coord`-bearing) query-parameter VALUES in the `HttpClient` log output, analogous to the existing `Authorization`-header sanitizer in `HttpClientFactory`, so the acquired coordinate is never written to logs by the HTTP layer. (Release builds install no `Logging` plugin — already the case — so this closes the debug-build exposure.) This complements, and does not widen, the shipped `mobile-nearby-timeline` logging discipline.
+
+#### Scenario: Nearby request log line is coordinate-free in debug builds
+- **GIVEN** the shared `HttpClient` with the `Logging` plugin installed at `LogLevel.HEADERS` (debug) and a capturing logger
+- **WHEN** the Nearby fetch issues `GET /api/v1/timeline/nearby?lat=<lat>&lng=<lng>&radius_m=20000` and the request line is logged
+- **THEN** the captured log output does NOT contain the latitude or longitude values (the `lat`/`lng` query-parameter values are masked, mirroring the `Authorization`-header sanitizer)
+
 ### Requirement: UU-PDP location-consent rationale precedes the OS permission prompt
 
-Before the OS location-permission prompt is shown, the app SHALL present a UU-PDP consent rationale (why location is needed, what is collected, how often it is accessed) per [`docs/03-UX-Design.md`](../../../docs/03-UX-Design.md) § Location Permission and [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) § Analytics & Tracking Consent. The OS prompt SHALL fire only after the user accepts the rationale. All rationale copy SHALL be sourced via `stringResource(Res.string.*)` with no hardcoded string literals. Declining the rationale SHALL NOT force the OS prompt and SHALL leave the user in the denial fallback.
+Before the OS location-permission prompt is shown, the app SHALL present a UU-PDP consent rationale (why location is needed, what is collected, how often it is accessed) per [`docs/03-UX-Design.md`](../../../docs/03-UX-Design.md):73 § Location Permission (the UX source), with the UU-PDP legal basis in [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md):37 (articles 20-22 — explicit consent for non-essential personal-data processing). This location-consent modal is a distinct surface from the separate, deferred analytics-consent screen (`docs/06` § Analytics & Tracking Consent) and SHALL NOT be persisted to `users.analytics_consent`. The OS prompt SHALL fire only after the user accepts the rationale. All rationale copy SHALL be sourced via `stringResource(Res.string.*)` with no hardcoded string literals. Declining the rationale SHALL NOT force the OS prompt and SHALL leave the user in the denial fallback.
 
 #### Scenario: Rationale is shown before the OS prompt
 - **WHEN** the `LocationPermissionController.request(...)` flow runs with permission `NOT_DETERMINED`
@@ -40,9 +49,14 @@ Before the OS location-permission prompt is shown, the app SHALL present a UU-PD
 - **WHEN** inspecting the consent-rationale modal source
 - **THEN** every user-facing string is sourced via `stringResource(Res.string.<name>)` AND zero literal UI strings appear
 
+#### Scenario: A prior denial does not re-show the rationale on every Nearby visit
+- **GIVEN** a fake `LocationPermissionController` reporting `DENIED` with a counter on its `request(...)` invocations
+- **WHEN** the Nearby surface is re-composed/re-entered after the user has already declined or been denied
+- **THEN** the rationale modal is NOT re-shown automatically (the `request(...)` invocation count does not increment on re-entry) — the denial fallback + "Buka Pengaturan" CTA is the only re-entry path
+
 ### Requirement: Permission status maps to a pure, Compose-free UI state
 
-The change SHALL model the permission-gate result as a Compose-free state type and a pure projection function (mirroring `NearbyTimelineUiState` / `AgeGateUiState`) that maps each permission status to its corresponding UI state deterministically, with no wall-clock, platform, or Compose dependency. The projection MUST carry no coordinates.
+The change SHALL model the permission-gate result as a Compose-free state type and a pure projection function (mirroring `NearbyTimelineUiState` / `AgeGateUiState`) that maps each permission status to its corresponding UI state deterministically, with no wall-clock, platform, or Compose dependency. The projection MUST carry no coordinates. The status enum is `GRANTED` / `DENIED` / `NOT_DETERMINED`; platform terminal-denial states (Android "don't ask again" / permanently-denied, iOS `restricted`) collapse into `DENIED` (whose escape hatch is the "Buka Pengaturan" CTA) rather than adding enum members.
 
 #### Scenario: Projection maps each status deterministically
 - **WHEN** the projection is invoked for `GRANTED`, for `DENIED`, and for `NOT_DETERMINED`
@@ -74,7 +88,7 @@ The change SHALL add the consent-rationale, denial-state, and "Buka Pengaturan" 
 
 ### Requirement: Test coverage for the permission projection and consent flow
 
-The change SHALL ship: (1) a `commonTest` test for the pure permission-status → UI-state projection covering granted / denied / not-determined; (2) a fake-`LocationPermissionController`-driven test exercising the request-shows-rationale-then-prompt path and the decline path; (3) any new Robolectric `*ScreenTest` (e.g., for the consent modal or denial state) added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list.
+The change SHALL ship: (1) a `commonTest` test for the pure permission-status → UI-state projection covering granted / denied / not-determined; (2) a fake-`LocationPermissionController`-driven test exercising the request-shows-rationale-then-prompt path, the decline path, and the no-re-prompt-on-re-entry path (`commonTest` has no Compose runner, so the rationale-vs-prompt **decision logic** MUST be pure/`commonTest`-able; the modal **render** is asserted in a Robolectric `*ScreenTest`); (3) any new Robolectric `*ScreenTest` (e.g., for the consent modal or denial state) added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list.
 
 #### Scenario: Projection and consent-flow tests are discoverable
 - **WHEN** running `./gradlew :mobile:app:testDebugUnitTest`
