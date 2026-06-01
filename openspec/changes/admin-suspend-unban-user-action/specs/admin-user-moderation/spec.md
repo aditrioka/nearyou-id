@@ -36,7 +36,7 @@ The system SHALL serve `GET /admin/users` as an authenticated route, wired INSID
 
 ### Requirement: User lookup resolves by UUID then exact username, lenient on miss
 
-The system SHALL resolve the `q` lookup parameter by first attempting to parse it as a user UUID and selecting that user by primary key; if `q` is not a valid UUID, the system SHALL attempt an EXACT (not fuzzy / prefix) `users.username` match. All lookups SHALL use parameterized JDBC queries — never string-interpolated SQL. A `q` that resolves to no user SHALL render an inline empty-state ("no matching user") with HTTP 200 — never a 404 or 500. Reads of `users` in the admin module are permitted (the admin module is exempt from the `visible_*`-view lint).
+The system SHALL resolve the `q` lookup parameter by first attempting to parse it as a user UUID and selecting that user by primary key; if `q` is not a valid UUID, the system SHALL attempt an EXACT, case-sensitive `users.username` match (the `username` column is `VARCHAR(60) NOT NULL UNIQUE`, so an exact match is deterministic). A value that parses as a UUID SHALL always be resolved via the UUID branch (a hypothetical UUID-shaped username is unreachable by lookup — an acceptable edge given usernames cannot contain the `-` grouping of a UUID under the username regex). All lookups SHALL use parameterized JDBC queries — never string-interpolated SQL. A `q` that resolves to no user SHALL render an inline empty-state ("no matching user") with HTTP 200 — never a 404 or 500. Reads of `users` in the admin module are permitted (the admin module is exempt from the `visible_*`-view + block-exclusion lint).
 
 #### Scenario: Lookup by UUID returns the matching user
 
@@ -49,6 +49,12 @@ The system SHALL resolve the `q` lookup parameter by first attempting to parse i
 - **GIVEN** an authenticated session AND a user with `username = 'budi_jakarta'`
 - **WHEN** the client sends `GET /admin/users?q=budi_jakarta`
 - **THEN** the response status SHALL be 200 AND the rendered body SHALL display that user's moderation state
+
+#### Scenario: Username lookup is case-sensitive
+
+- **GIVEN** an authenticated session AND a user with `username = 'budi_jakarta'`
+- **WHEN** the client sends `GET /admin/users?q=BUDI_JAKARTA`
+- **THEN** the response status SHALL be 200 AND the rendered body SHALL show the empty-state ("no matching user"), because the exact match is case-sensitive
 
 #### Scenario: Non-resolving query renders an empty state, not a 404
 
@@ -63,9 +69,27 @@ The system SHALL resolve the `q` lookup parameter by first attempting to parse i
 - **THEN** the response status SHALL be 200
 - **AND** the `users` table SHALL still exist and be queryable afterward (the value matched zero users as a literal; no SQL was executed from it)
 
+### Requirement: A malformed path identifier on the action routes is handled safely
+
+The system SHALL tolerate a malformed `{id}` path segment on `POST /admin/users/{id}/suspend` and `POST /admin/users/{id}/unban` without a 500 and without any state change. A `{id}` that does not parse as a UUID SHALL be rejected with an inline error / 4xx response (the exact code is implementation-defined — 400 Bad Request or a re-rendered error page — but it SHALL NOT be a 500, SHALL NOT mutate any `users` row, and SHALL NOT write any `admin_actions_log` row). This is a distinct parse site from the `GET` lookup's `q` parameter (a path segment, not a query parameter).
+
+#### Scenario: Non-UUID id on the suspend route is rejected without a 500 or state change
+
+- **GIVEN** an authenticated authorized session with a valid CSRF token
+- **WHEN** the client sends `POST /admin/users/not-a-uuid/suspend`
+- **THEN** the response status SHALL NOT be 500 (it SHALL be a 4xx / inline error)
+- **AND** no `users` row SHALL be mutated AND no `admin_actions_log` row SHALL be written
+
+#### Scenario: Non-UUID id on the unban route is rejected without a 500 or state change
+
+- **GIVEN** an authenticated authorized session with a valid CSRF token
+- **WHEN** the client sends `POST /admin/users/not-a-uuid/unban`
+- **THEN** the response status SHALL NOT be 500 (it SHALL be a 4xx / inline error)
+- **AND** no `users` row SHALL be mutated AND no `admin_actions_log` row SHALL be written
+
 ### Requirement: Suspend applies a server-fixed 7-day suspension to an eligible user
 
-The system SHALL serve `POST /admin/users/{id}/suspend` (authenticated, role-gated, CSRF-gated per the requirements below). For an ELIGIBLE target — a user that is NOT soft-deleted (`deleted_at IS NULL`) AND NOT already permanently banned (`is_banned = TRUE AND suspended_until IS NULL`) — the handler SHALL set `is_banned = TRUE` AND `suspended_until = NOW() + INTERVAL '7 days'`. The 7-day window SHALL be computed server-side; the handler SHALL NOT accept a client-supplied suspension duration (any such request field SHALL be ignored). Re-suspending an already-time-bound-suspended user SHALL reset `suspended_until` to `NOW() + INTERVAL '7 days'` and SHALL capture the prior expiry in the audit `before_state`. On success the handler SHALL redirect (303, or `HX-Redirect` for HTMX) back to the user's lookup view.
+The system SHALL serve `POST /admin/users/{id}/suspend` (authenticated, role-gated, CSRF-gated per the requirements below). For an ELIGIBLE target — a user that is NOT soft-deleted (`deleted_at IS NULL`) AND NOT already permanently banned (`is_banned = TRUE AND suspended_until IS NULL`) — the handler SHALL set `is_banned = TRUE` AND `suspended_until = NOW() + INTERVAL '7 days'`. The 7-day window SHALL be computed server-side; the handler SHALL NOT accept a client-supplied suspension duration (any such request field SHALL be ignored). The eligibility test for "already suspended" SHALL key on `suspended_until IS NULL` (permanent) vs non-null, NOT on `suspended_until > NOW()` — a user whose `suspended_until` is in the PAST but `is_banned` is still TRUE (the daily worker has not yet swept it) is still re-suspendable. Re-suspending any time-bound-suspended user (future- OR past-dated `suspended_until`) SHALL reset `suspended_until` to `NOW() + INTERVAL '7 days'` and SHALL capture the prior expiry in the audit `before_state`. On success the handler SHALL redirect (303, or `HX-Redirect` for HTMX) back to the user's lookup view.
 
 #### Scenario: Active user is suspended for 7 days
 
@@ -79,12 +103,18 @@ The system SHALL serve `POST /admin/users/{id}/suspend` (authenticated, role-gat
 - **WHEN** the client sends `POST /admin/users/{id}/suspend` with a form field attempting to set a custom duration (e.g. `duration_days=3650`)
 - **THEN** `suspended_until` SHALL be ≈ `NOW() + INTERVAL '7 days'` (±10s) — the client-supplied value SHALL be ignored
 
-#### Scenario: Re-suspending an already-suspended user resets the 7-day clock
+#### Scenario: Re-suspending a future-dated suspension resets the 7-day clock
 
 - **GIVEN** an authenticated authorized session (valid CSRF) AND a target user with `is_banned = TRUE`, `suspended_until = NOW() + INTERVAL '2 days'`
 - **WHEN** the client sends `POST /admin/users/{id}/suspend`
 - **THEN** `suspended_until` SHALL be reset to ≈ `NOW() + INTERVAL '7 days'` (±10s)
-- **AND** the resulting `admin_actions_log` row's `before_state` SHALL record the prior `suspended_until` (≈ NOW() + 2 days)
+- **AND** the resulting `admin_actions_log` row's `before_state` `suspended_until` (parsed as an `Instant`) SHALL value-equal the prior expiry (≈ NOW() + 2 days, ±10s) — asserted by parsed-instant equality, NOT string match
+
+#### Scenario: Re-suspending an elapsed-but-unswept suspension is allowed
+
+- **GIVEN** an authenticated authorized session (valid CSRF) AND a target user with `is_banned = TRUE`, `suspended_until = NOW() - INTERVAL '1 hour'` (window elapsed, the daily worker has not yet run), `deleted_at IS NULL`
+- **WHEN** the client sends `POST /admin/users/{id}/suspend`
+- **THEN** the suspend SHALL be applied (the guard keys on `suspended_until IS NULL`, not on `> NOW()`): `suspended_until` SHALL be reset to ≈ `NOW() + INTERVAL '7 days'`
 
 ### Requirement: Suspend is rejected for soft-deleted or permanently-banned targets
 
@@ -107,7 +137,7 @@ The system SHALL reject a suspend request whose target is soft-deleted (`deleted
 
 ### Requirement: Manual unban clears the ban and suspension for a banned target
 
-The system SHALL serve `POST /admin/users/{id}/unban` (authenticated, role-gated, CSRF-gated). For a target that is currently banned (`is_banned = TRUE`), the handler SHALL set `is_banned = FALSE` AND `suspended_until = NULL` — lifting BOTH a time-bound suspension AND a permanent ban (the admin's deliberate override). This is the same `(is_banned, suspended_until) → (FALSE, NULL)` transition the automated `suspension-unban-worker` performs on elapse, triggered early by a human. For a target that is NOT currently banned (`is_banned = FALSE`), the handler SHALL make no state change, SHALL write NO `admin_actions_log` row (the log records only actual transitions), and SHALL surface an informational "user is not banned" message.
+The system SHALL serve `POST /admin/users/{id}/unban` (authenticated, role-gated, CSRF-gated). For a target that is currently banned (`is_banned = TRUE`), the handler SHALL set `is_banned = FALSE` AND `suspended_until = NULL` — lifting BOTH a time-bound suspension AND a permanent ban (the admin's deliberate override; the permanent-ban case is additionally role-restricted per the role-gate requirement). This is the same `(is_banned, suspended_until) → (FALSE, NULL)` transition the automated `suspension-unban-worker` performs on elapse, triggered early by a human. For a target that is NOT currently banned (`is_banned = FALSE`), the handler SHALL make no state change, SHALL write NO `admin_actions_log` row (the log records only actual transitions), and SHALL surface an informational "user is not banned" message. A soft-deleted-but-banned target MAY be unbanned (lifting a ban on a tombstoned row is harmless; `deleted_at` is unchanged).
 
 #### Scenario: Time-bound-suspended user is unbanned
 
@@ -115,9 +145,9 @@ The system SHALL serve `POST /admin/users/{id}/unban` (authenticated, role-gated
 - **WHEN** the client sends `POST /admin/users/{id}/unban`
 - **THEN** after the request the target user's row SHALL have `is_banned = FALSE` AND `suspended_until = NULL`
 
-#### Scenario: Permanently-banned user is unbanned by admin override
+#### Scenario: Permanently-banned user is unbanned by an owner/admin override
 
-- **GIVEN** an authenticated authorized session (valid CSRF) AND a target user with `is_banned = TRUE`, `suspended_until IS NULL` (permanent ban)
+- **GIVEN** an authenticated `owner` or `admin` session (valid CSRF) AND a target user with `is_banned = TRUE`, `suspended_until IS NULL` (permanent ban)
 - **WHEN** the client sends `POST /admin/users/{id}/unban`
 - **THEN** after the request the target user's row SHALL have `is_banned = FALSE` AND `suspended_until = NULL`
 
@@ -128,9 +158,15 @@ The system SHALL serve `POST /admin/users/{id}/unban` (authenticated, role-gated
 - **THEN** the target user's row SHALL remain `is_banned = FALSE`
 - **AND** no new `admin_actions_log` row SHALL be written for the target (the log records only actual state transitions)
 
-### Requirement: State-changing actions are gated to owner / admin / moderator roles
+#### Scenario: Soft-deleted-but-banned user may be unbanned
 
-The system SHALL restrict `POST /admin/users/{id}/suspend` and `POST /admin/users/{id}/unban` to admins whose `admin_users.role` is `owner`, `admin`, or `moderator`. A `read_only` admin SHALL be rejected with HTTP 403 (the admin is authenticated but unauthorized — NOT a redirect, which would falsely imply a session problem). On a `read_only` rejection the handler SHALL make no state change and SHALL write no `user_suspended` / `user_unbanned` audit row. The role check SHALL run after CSRF validation. (Contrast: `admin-actions-log-viewer` reads are available to ALL roles including `read_only`; this is the first role-gated admin WRITE.)
+- **GIVEN** an authenticated authorized session (valid CSRF) AND a target user with `is_banned = TRUE`, `suspended_until = NOW() + INTERVAL '3 days'`, `deleted_at = NOW() - INTERVAL '2 days'`
+- **WHEN** the client sends `POST /admin/users/{id}/unban`
+- **THEN** the target user's row SHALL have `is_banned = FALSE` AND `suspended_until = NULL` AND `deleted_at` SHALL be unchanged (the unban does not resurrect a tombstoned account)
+
+### Requirement: State-changing actions are role-gated; lifting a permanent ban is restricted to owner/admin
+
+The system SHALL restrict `POST /admin/users/{id}/suspend` and `POST /admin/users/{id}/unban` to admins whose `admin_users.role` is `owner`, `admin`, or `moderator`. A `read_only` admin SHALL be rejected with HTTP 403 (authenticated but unauthorized — NOT a redirect) on either route, with no state change and no audit row. This base role check SHALL run AFTER CSRF validation. ADDITIONALLY, because lifting a PERMANENT ban (`is_banned = TRUE AND suspended_until IS NULL`) is a higher-trust, harder-to-undo action than a 7-day suspension or lifting a time-bound suspension, the unban handler SHALL require `role` ∈ {`owner`, `admin`} when the target is permanently banned — a `moderator` attempting to unban a permanently-banned target SHALL be rejected with HTTP 403, with no state change and no audit row. The permanent-ban role check SHALL occur after reading the target's current state within the same transaction, so the moderator rejection writes nothing. (Contrast: `admin-actions-log-viewer` reads are available to ALL roles including `read_only`; this is the first role-gated admin WRITE, and the permanent-ban tier mirrors the higher-trust gate that chat redaction places at `owner`/`admin`.)
 
 #### Scenario: read_only admin is forbidden from suspending
 
@@ -140,18 +176,37 @@ The system SHALL restrict `POST /admin/users/{id}/suspend` and `POST /admin/user
 - **AND** the target user's `is_banned` / `suspended_until` SHALL be unchanged
 - **AND** no `user_suspended` `admin_actions_log` row SHALL be written
 
-#### Scenario: moderator admin is permitted to suspend
-
-- **GIVEN** an authenticated session for an admin whose `role = 'moderator'` (with a valid CSRF token) AND an eligible target user
-- **WHEN** the client sends `POST /admin/users/{id}/suspend`
-- **THEN** the request SHALL be authorized (not 403) AND the target user SHALL be suspended per the suspend requirement
-
 #### Scenario: read_only admin is forbidden from unbanning
 
 - **GIVEN** an authenticated session for an admin whose `role = 'read_only'` (with a valid CSRF token) AND a banned target user
 - **WHEN** the client sends `POST /admin/users/{id}/unban`
 - **THEN** the response status SHALL be 403
 - **AND** the target user SHALL remain banned AND no `user_unbanned` audit row SHALL be written
+
+#### Scenario: moderator admin is permitted to suspend
+
+- **GIVEN** an authenticated session for an admin whose `role = 'moderator'` (with a valid CSRF token) AND an eligible target user
+- **WHEN** the client sends `POST /admin/users/{id}/suspend`
+- **THEN** the request SHALL be authorized (not 403) AND the target user SHALL be suspended per the suspend requirement
+
+#### Scenario: moderator admin is permitted to unban a time-bound suspension
+
+- **GIVEN** an authenticated session for an admin whose `role = 'moderator'` (with a valid CSRF token) AND a target user with `is_banned = TRUE`, `suspended_until = NOW() + INTERVAL '4 days'`
+- **WHEN** the client sends `POST /admin/users/{id}/unban`
+- **THEN** the request SHALL be authorized AND the target user SHALL have `is_banned = FALSE`, `suspended_until = NULL`
+
+#### Scenario: moderator admin is forbidden from unbanning a permanent ban
+
+- **GIVEN** an authenticated session for an admin whose `role = 'moderator'` (with a valid CSRF token) AND a target user with `is_banned = TRUE`, `suspended_until IS NULL` (permanent ban)
+- **WHEN** the client sends `POST /admin/users/{id}/unban`
+- **THEN** the response status SHALL be 403
+- **AND** the target user SHALL remain `is_banned = TRUE`, `suspended_until IS NULL` AND no `user_unbanned` audit row SHALL be written
+
+#### Scenario: admin role is permitted to unban a permanent ban
+
+- **GIVEN** an authenticated session for an admin whose `role = 'admin'` (with a valid CSRF token) AND a permanently-banned target user
+- **WHEN** the client sends `POST /admin/users/{id}/unban`
+- **THEN** the request SHALL be authorized AND the target user SHALL have `is_banned = FALSE`, `suspended_until = NULL`
 
 ### Requirement: State-changing actions require a valid CSRF token
 
@@ -177,9 +232,39 @@ The system SHALL validate the per-session CSRF token on `POST /admin/users/{id}/
 - **WHEN** the client sends `POST /admin/users/{id}/suspend` with `X-CSRF-Token: <plaintext-csrf>`
 - **THEN** the CSRF check SHALL pass and the target user SHALL be suspended per the suspend requirement
 
+#### Scenario: Unban without a CSRF token is rejected
+
+- **GIVEN** an authenticated authorized session AND a banned target user
+- **WHEN** the client sends `POST /admin/users/{id}/unban` with no `X-CSRF-Token` header and no `_csrf` form field
+- **THEN** the response status SHALL be 403
+- **AND** the target user SHALL remain banned AND no `user_unbanned` audit row SHALL be written
+
+#### Scenario: Unban with a valid CSRF token proceeds
+
+- **GIVEN** an authenticated authorized session (token stored) AND a time-bound-suspended target user
+- **WHEN** the client sends `POST /admin/users/{id}/unban` with `X-CSRF-Token: <plaintext-csrf>`
+- **THEN** the CSRF check SHALL pass and the target user SHALL be unbanned per the unban requirement
+
+### Requirement: The admin-entered reason is read from the form body after CSRF validation and recorded in the audit row only
+
+The handlers SHALL accept an OPTIONAL admin-entered free-text `reason` as a form field on the suspend / unban POST body. Because the shared CSRF gate may already have consumed the request body via `receiveParameters()` (the `_csrf`-form-field path), the handler SHALL read `reason` from `call.receiveParameters()` AFTER calling `validateCsrf` — Ktor caches the parsed body, so the post-gate read returns the same parameters whether the CSRF token arrived via the header (body untouched) or the `_csrf` field (body already parsed and cached). The free-text `reason` SHALL be recorded in the `admin_actions_log.reason` column (admin-only audit surface), NULL when absent/blank. The free-text `reason` SHALL NOT be echoed into the user-facing notification (see the notification requirement) — it is moderator-internal.
+
+#### Scenario: Suspend with both _csrf and reason in one form body records the reason in the audit row
+
+- **GIVEN** an authenticated authorized session AND an eligible target user
+- **WHEN** the client sends `POST /admin/users/{id}/suspend` as an `application/x-www-form-urlencoded` body containing BOTH `_csrf=<plaintext-csrf>` AND `reason=spam+and+harassment`
+- **THEN** the CSRF check SHALL pass (token read from the `_csrf` field) AND the suspend SHALL be applied
+- **AND** the resulting `admin_actions_log` row's `reason` SHALL be `spam and harassment` (read from the cached form body after the CSRF gate, not dropped)
+
+#### Scenario: Suspend with no reason field records a NULL reason
+
+- **GIVEN** an authenticated authorized session AND an eligible target user
+- **WHEN** the client sends `POST /admin/users/{id}/suspend` (valid CSRF via header) with no `reason` field
+- **THEN** the suspend SHALL be applied AND the resulting `admin_actions_log` row's `reason` SHALL be NULL
+
 ### Requirement: Every applied action writes one immutable audit row attributed to the acting human admin
 
-For every action that changes state (a successful suspend, or a successful unban of a banned user), the system SHALL INSERT exactly one `admin_actions_log` row with: `admin_id` = the acting admin's own UUID (the `AdminPrincipal` from the session — NEVER the `system` sentinel UUID `54b53072-540e-3eb8-b8e9-343e71f28176`); `action_type` = `'user_suspended'` for suspend or `'user_unbanned'` for unban; `target_type` = `'user'`; `target_id` = the target user's UUID rendered as text; `reason` = the admin-entered reason (NULL-tolerant); `before_state` = `{"is_banned": <prior>, "suspended_until": <prior | null>}`; `after_state` = `{"is_banned": <new>, "suspended_until": <new | null>}`; `ip` from `call.clientIp` (the `client-ip-extraction` capability — never raw `X-Forwarded-For`); `user_agent` from the request header (NULL when absent). All values SHALL be written via parameterized placeholders.
+For every action that changes state (a successful suspend, or a successful unban of a banned user), the system SHALL INSERT exactly one `admin_actions_log` row with: `admin_id` = the acting admin's own UUID (the `AdminPrincipal` from the session — NEVER the `system` sentinel UUID `54b53072-540e-3eb8-b8e9-343e71f28176` owned by the `system-actor` capability); `action_type` = `'user_suspended'` for suspend or `'user_unbanned'` for unban; `target_type` = `'user'`; `target_id` = the target user's UUID rendered as text; `reason` = the admin-entered free-text (NULL-tolerant, per the reason requirement); `before_state` = `{"is_banned": <prior>, "suspended_until": <prior | null>}`; `after_state` = `{"is_banned": <new>, "suspended_until": <new | null>}`; `ip` from `call.clientIp` (the `client-ip-extraction` capability — never raw `X-Forwarded-For`); `user_agent` from the request header (NULL when absent). All values SHALL be written via parameterized placeholders.
 
 #### Scenario: Suspend writes a user_suspended row with before/after state
 
@@ -197,20 +282,31 @@ For every action that changes state (a successful suspend, or a successful unban
 - **THEN** the resulting `admin_actions_log` row's `admin_id` SHALL equal `<admin-uuid>`
 - **AND** `admin_id` SHALL NOT equal the `system` sentinel UUID `54b53072-540e-3eb8-b8e9-343e71f28176`
 
-#### Scenario: Audit row records the forwarded client IP and request user-agent
+#### Scenario: Audit row records the forwarded client IP
 
-- **GIVEN** the request carries `CF-Connecting-IP: 1.2.3.4` (per the `client-ip-extraction` capability) and a `User-Agent` header
+- **GIVEN** the request carries `CF-Connecting-IP: 1.2.3.4` (per the `client-ip-extraction` capability)
 - **WHEN** an authorized admin suspends a user
-- **THEN** the resulting `admin_actions_log` row's `ip` SHALL be `1.2.3.4` (NOT the Cloudflare-edge / load-balancer hop) AND `user_agent` SHALL be the request's `User-Agent` value (NULL when the header is absent)
+- **THEN** the resulting `admin_actions_log` row's `ip` SHALL be `1.2.3.4` (NOT the Cloudflare-edge / load-balancer hop)
 
-### Requirement: Suspend inserts an account_action_applied notification; unban inserts none
+#### Scenario: Audit row records NULL user_agent when the request omitted the header
 
-On a successful suspend, the system SHALL insert exactly one `notifications` row of `type = 'account_action_applied'` for the suspended user (the documented user-facing signal; `body_data` carries `{action_type, reason, suspended_until}` per the `docs/05-Implementation.md` notification catalog). On a successful manual unban, the system SHALL insert NO notification row (mirroring `suspension-unban-worker` design D5 — no `account_action_lifted` type exists, and the `account_action_applied` copy does not fit a positive restoration). FCM push dispatch for this notification is out of scope (deferred); the in-app `notifications` row is the in-band signal.
+- **WHEN** an authorized admin suspends a user via a request that carries NO `User-Agent` header
+- **THEN** the resulting `admin_actions_log` row's `user_agent` SHALL be NULL (and the positive case — header present — records the verbatim `User-Agent` value)
+
+### Requirement: Suspend inserts an account_action_applied notification with a sanitized reason; unban inserts none
+
+On a successful suspend, the system SHALL insert exactly one `notifications` row with `user_id` = the suspended (target) user, `type = 'account_action_applied'`, and `body_data` = `{"action_type": "user_suspended", "reason": <sanitized code>, "suspended_until": <ISO-8601 instant>}` per the `docs/05-Implementation.md` notification catalog. The `body_data.reason` SHALL be a SANITIZED, non-free-text value (this change sets it to the fixed code `"suspension"`) — it SHALL NOT carry the admin-entered free-text `reason`, which is moderator-internal and lives only in `admin_actions_log.reason` (the notification is read by the suspended end-user; leaking moderator rationale or third-party PII to the offender is forbidden). The notification row SHALL NOT duplicate `target_id` inside `body_data` (per the catalog), and `actor_user_id` SHALL be NULL (the actor is an admin, not a `public.users` row). On a successful manual unban, the system SHALL insert NO notification row (mirroring `suspension-unban-worker` design D5 — no `account_action_lifted` type exists, and the `account_action_applied` copy does not fit a positive restoration). FCM push dispatch for this notification is out of scope (deferred); the in-app `notifications` row is the in-band signal.
 
 #### Scenario: Suspend inserts one account_action_applied notification for the target
 
 - **WHEN** an active user is suspended by an authorized admin
-- **THEN** exactly one new `notifications` row SHALL exist for the target user with `type = 'account_action_applied'`
+- **THEN** exactly one new `notifications` row SHALL exist with `user_id` = the target user AND `type = 'account_action_applied'`
+
+#### Scenario: Notification body_data carries the action_type + suspended_until but NOT the free-text reason
+
+- **WHEN** an authorized admin suspends a user with the free-text `reason = 'suspected minor, see report #42'`
+- **THEN** the inserted notification's `body_data` SHALL contain `action_type = 'user_suspended'` AND a non-null `suspended_until`
+- **AND** the notification's `body_data` SHALL NOT contain the substring `suspected minor` (the free-text reason is recorded ONLY in `admin_actions_log.reason`, never in the user-facing notification)
 
 #### Scenario: Unban inserts no notification
 
@@ -219,13 +315,19 @@ On a successful suspend, the system SHALL insert exactly one `notifications` row
 
 ### Requirement: The state change, its audit row, and its notification commit atomically
 
-The system SHALL execute the `users` UPDATE, the `admin_actions_log` INSERT, and (for suspend) the `notifications` INSERT in a SINGLE database transaction, so they commit or roll back together. If the audit INSERT (or the notification INSERT) fails, the user UPDATE SHALL be rolled back — there SHALL never be a state change without its audit row, nor an audit row without the corresponding state change.
+The system SHALL execute the `users` UPDATE, the `admin_actions_log` INSERT, and (for suspend) the `notifications` INSERT in a SINGLE database transaction, so they commit or roll back together. If the audit INSERT OR the notification INSERT fails, the user UPDATE SHALL be rolled back — there SHALL never be a state change without its audit row, nor an audit row without the corresponding state change, nor a partial (update-without-notification) suspend.
 
 #### Scenario: Audit-insert failure rolls back the user update (suspend atomicity)
 
 - **GIVEN** an authorized admin suspends an active user BUT the `admin_actions_log` INSERT fails within the transaction (e.g. a constraint violation injected in test)
 - **WHEN** the request completes
 - **THEN** the transaction SHALL be rolled back: the target user's row SHALL still have `is_banned = FALSE` AND its original `suspended_until` AND no `admin_actions_log` row AND no `notifications` row SHALL have been written for the target
+
+#### Scenario: Notification-insert failure rolls back the user update and audit row (suspend atomicity)
+
+- **GIVEN** an authorized admin suspends an active user BUT the `notifications` INSERT (the last write in the suspend transaction) fails within the transaction (e.g. a constraint violation injected in test)
+- **WHEN** the request completes
+- **THEN** the transaction SHALL be rolled back: the target user's row SHALL still have `is_banned = FALSE` AND its original `suspended_until` AND NO `admin_actions_log` `user_suspended` row AND NO `notifications` row SHALL have been written for the target
 
 #### Scenario: Successful suspend commits the update, the audit row, and the notification together
 
