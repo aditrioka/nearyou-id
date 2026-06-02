@@ -1,6 +1,6 @@
 ## 1. Discovery & infra verification
 
-- [x] 1.1 Verified during `/next-change` reconciliation pass: Free 20/day, Premium unlimited, no burst — consistent across `01-Business.md:53`, `02-Product.md:224`, `05-Implementation.md:1740`.
+- [x] 1.1 Verified during `/next-change` reconciliation pass: Free 20/day, Premium unlimited, no burst — consistent across `01-Business.md`, `02-Product.md`, `05-Implementation.md:1740`.
 - [x] 1.2 Verified `openspec/specs/rate-limit-infrastructure/spec.md` confirms the `RateLimiter` interface contract (`tryAcquire(userId, key, capacity, ttl): Outcome`, `releaseMostRecent(userId, key)`) and `computeTTLToNextReset` placement in `id.nearyou.app.core.domain.ratelimit`.
 - [x] 1.3 Verified V8 ordering by reading `ReplyRoutes.kt` + `ReplyService.kt`: current sequence is auth → UUID → JSON parse → content guard → `service.post()` (which does visibility resolve + INSERT + V10 emit in TX → returns row). New ordering inserts the rate limiter BETWEEN UUID validation AND JSON body parse.
 - [x] 1.4 Verified: `:infra:redis` module exists (per like-rate-limit shipped). `.github/workflows/ci.yml:67-68` runs `redis:7-alpine` service container with `REDIS_URL=redis://localhost:6379`. No new CI infra needed.
@@ -71,7 +71,7 @@
 
 ## 7. Doc sync (in the archive commit, not the feat commit)
 
-- [x] 7.1 `docs/08-Roadmap-Risk.md` Phase 2 item 3 updated: appended "Reply rate limit shipped" callout covering the 20/day Free cap, `premium_reply_cap_override` flag, the explicit "no burst" decision (canonical asymmetry per `02-Product.md:224`), the oversized-flag clamp at 10,000, and the no-`releaseMostRecent` design choice. Removed the "Reply rate limit (20/day Free) remains deferred" stale note.
+- [x] 7.1 `docs/08-Roadmap-Risk.md` Phase 2 item 3 updated: appended "Reply rate limit shipped" callout covering the 20/day Free cap, `premium_reply_cap_override` flag, the explicit "no burst" decision (canonical asymmetry per `02-Product.md`), the oversized-flag clamp at 10,000, and the no-`releaseMostRecent` design choice. Removed the "Reply rate limit (20/day Free) remains deferred" stale note.
 - [x] 7.2 `docs/05-Implementation.md` § Rate Limiting Implementation callout extended with the reply-cap entry pointing at `openspec/specs/post-replies/spec.md` § "Daily rate limit". Layer 1 / Layer 3 / Layer 4 still flagged as future work.
-- [x] 7.3 Confirmed canonical "Free 20/day, Premium unlimited" line is unchanged at all three locations (`01-Business.md:53`, `02-Product.md:224`, `05-Implementation.md:1740`). No edits needed — what shipped matches what was canonical from the start.
+- [x] 7.3 Confirmed canonical "Free 20/day, Premium unlimited" line is unchanged at all three locations (`01-Business.md`, `02-Product.md`, `05-Implementation.md:1740`). No edits needed — what shipped matches what was canonical from the start.
 - [x] 7.4 Ran `openspec archive reply-rate-limit --yes` — see archive commit for the spec-merge output. Per the one-PR-per-change convention (PR #38), the archive commit lands on this same `reply-rate-limit` branch.

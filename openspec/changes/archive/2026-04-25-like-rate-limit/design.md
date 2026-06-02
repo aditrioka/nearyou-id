@@ -1,6 +1,6 @@
 ## Context
 
-`post-likes` (V7) shipped without the canonical Free 10/day + 500/hour-burst like cap from [`docs/01-Business.md:55`](../../../docs/01-Business.md), [`docs/02-Product.md:223`](../../../docs/02-Product.md), and [`docs/05-Implementation.md:1733`](../../../docs/05-Implementation.md) Layer 2. The infrastructure that the cap depends on — Phase 1 item 24 in [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md), which calls for "4-layer rate limiting + WIB stagger in Redis TTL from Day 1 + `computeTTLToNextReset(user_id)` shared function + CI lint + hash tag key format standard" — also hasn't shipped yet.
+`post-likes` (V7) shipped without the canonical Free 10/day + 500/hour-burst like cap from [`docs/01-Business.md`](../../../docs/01-Business.md), [`docs/02-Product.md`](../../../docs/02-Product.md), and [`docs/05-Implementation.md:1733`](../../../docs/05-Implementation.md) Layer 2. The infrastructure that the cap depends on — Phase 1 item 24 in [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md), which calls for "4-layer rate limiting + WIB stagger in Redis TTL from Day 1 + `computeTTLToNextReset(user_id)` shared function + CI lint + hash tag key format standard" — also hasn't shipped yet.
 
 V9 reports (`reports/spec.md` § Rate limit 10 submissions per hour per user) hit the same gap: it shipped a rate limiter but with no Redis client on the JVM classpath, so [`backend/ktor/src/main/kotlin/id/nearyou/app/moderation/ReportRateLimiter.kt:13-19`](../../../backend/ktor/src/main/kotlin/id/nearyou/app/moderation/ReportRateLimiter.kt) carries an explicit "deferred to a separate change" comment and runs entirely in-process via `ConcurrentHashMap`. The hash-tag key shape (`{scope:rate_report}:{user:<uuid>}`) and the 409-release-most-recent contract were both designed in V9 specifically so that the eventual port to Redis would be a behind-the-interface swap. This change executes that port.
 
@@ -80,7 +80,7 @@ The first user-facing consumer of the new infra is the like cap. Reply 20/day, p
 
 ### Decision 5 — Free vs Premium gating reads `users.subscription_status`
 
-**Choice.** The like service reads `users.subscription_status` (existing column from V3, three-state enum `free`/`premium_active`/`premium_billing_retry`) to decide whether to apply the daily cap. Both `premium_active` and `premium_billing_retry` (the 7-day grace state per [`docs/05-Implementation.md:1740`](../../../docs/05-Implementation.md)) skip the daily limiter entirely. The 500/hour burst limiter applies to **both** tiers per [`docs/02-Product.md:223`](../../../docs/02-Product.md).
+**Choice.** The like service reads `users.subscription_status` (existing column from V3, three-state enum `free`/`premium_active`/`premium_billing_retry`) to decide whether to apply the daily cap. Both `premium_active` and `premium_billing_retry` (the 7-day grace state per [`docs/05-Implementation.md:1740`](../../../docs/05-Implementation.md)) skip the daily limiter entirely. The 500/hour burst limiter applies to **both** tiers per [`docs/02-Product.md`](../../../docs/02-Product.md).
 
 **Why.** No new column. `subscription_status` is already kept up to date by the RevenueCat webhook handler (Phase 4 plan in [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md)). Reading it via the existing `users` query path keeps the like-service shape unchanged. Honoring `premium_billing_retry` matches the documented "Premium access REMAINS active" behavior during the 7-day grace.
 
@@ -165,5 +165,5 @@ All five live in the same feat PR per the existing precedent (each prior change 
 ## Open Questions
 
 - **Should the daily cap include unlikes?** Decision: NO. `DELETE /like` does not consume a slot — the cap counts INSERT events only. The 500/hour burst also counts INSERTs only. This matches the "10 likes per day" UX promise (users wouldn't expect un-liking a post to cost them a slot for re-liking later). Documented as a scenario in the post-likes spec.
-- **Should the `premium_like_cap_override` apply to the burst limit?** Decision: NO. Burst is anti-bot and applies equally to both tiers per [`docs/02-Product.md:223`](../../../docs/02-Product.md). Override is for the daily Free cap only.
+- **Should the `premium_like_cap_override` apply to the burst limit?** Decision: NO. Burst is anti-bot and applies equally to both tiers per [`docs/02-Product.md`](../../../docs/02-Product.md). Override is for the daily Free cap only.
 - **Pre-existing divergence found during scoping (NOT in scope here):** `reports/spec.md` shipped 10/hour but [`docs/05-Implementation.md:1742`](../../../docs/05-Implementation.md) Layer 2 says 20/hour. Documented in `FOLLOW_UPS.md` for separate reconciliation; this change does NOT silently adjust either side.

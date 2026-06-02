@@ -85,7 +85,7 @@ final 3000ms state):
 
 - `Layer3Moderator.kt`: `ANALYZE_TIMEOUT_MILLIS: Long = 3000L` (was 500L, then 1500L)
 - `OpenAiModerationClient.kt`: `REQUEST_TIMEOUT_MILLIS` + `SOCKET_TIMEOUT_MILLIS = 3000L`
-- `docs/06-Security-Privacy.md:184`: canonical "Layer 3 budget" line
+- `docs/06-Security-Privacy.md`: canonical "Layer 3 budget" line
 - `design.md` Decision 2 + Risks section + Context vendor-note
 - `specs/text-moderation-perspective-api-layer/spec.md`: timeout requirement + scenarios
 - Tests: `Layer3ModeratorTest` + `Layer3RouteTest` timeout-scenarios use
@@ -117,7 +117,7 @@ launch is a tuning task.
 
 ## Why
 
-The text-moderation pipeline today (Layers 1+2, shipped via [`content-moderation-keyword-lists`](../../specs/content-moderation-keyword-lists/spec.md)) catches keyword-listed profanity (Layer 1, sync REJECT) and UU ITE category matches (Layer 2, sync soft-flag). It does NOT catch toxicity that doesn't tokenize against the operator-curated wordlists — slurs phrased novelly, identity attacks expressed without listed keywords, threats wrapped in benign vocabulary. The canonical multi-layer moderation contract at [`docs/06-Security-Privacy.md:153-184`](../../../docs/06-Security-Privacy.md) prescribes a third layer: an asynchronous post-INSERT call to the **Google Perspective API** (toxicity classifier) with score-threshold-driven outcomes. This is **Phase 2 §16** in [`docs/08-Roadmap-Risk.md:178`](../../../docs/08-Roadmap-Risk.md) and the [`perspective-api-stopgap`](../../../FOLLOW_UPS.md) follow-up has been waiting for this change.
+The text-moderation pipeline today (Layers 1+2, shipped via [`content-moderation-keyword-lists`](../../specs/content-moderation-keyword-lists/spec.md)) catches keyword-listed profanity (Layer 1, sync REJECT) and UU ITE category matches (Layer 2, sync soft-flag). It does NOT catch toxicity that doesn't tokenize against the operator-curated wordlists — slurs phrased novelly, identity attacks expressed without listed keywords, threats wrapped in benign vocabulary. The canonical multi-layer moderation contract at [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) prescribes a third layer: an asynchronous post-INSERT call to the **Google Perspective API** (toxicity classifier) with score-threshold-driven outcomes. This is **Phase 2 §16** in [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) and the [`perspective-api-stopgap`](../../../FOLLOW_UPS.md) follow-up has been waiting for this change.
 
 Now is the right time because: (a) the Layer 1+2 foundation (`TextModerator`, `ModerationListLoader`, `:infra:remote-config`) shipped two weeks ago — Layer 3 plugs in cleanly; (b) the `moderation_queue.trigger` enum already includes `'perspective_api_high_score'` (reserved at V9) so no Flyway migration is needed; (c) the `perspective_api_enabled` Firebase Remote Config kill-switch flag has been seeded since Pre-Phase 1 §18; (d) Pre-Launch security review §5 lists "Perspective API kill switch tested" as a gate.
 

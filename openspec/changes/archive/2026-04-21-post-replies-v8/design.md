@@ -1,6 +1,6 @@
 ## Context
 
-Phase 2 item 3 in `docs/08-Roadmap-Risk.md:150` bundled "Like + reply" as one line item. V7 (`post-likes-v7`, archived 2026-04-21) shipped Likes because Likes are strictly smaller — no content string, no `is_auto_hidden` column, no soft-delete column, no block-aware list-read path. Replies were deferred to V8 for the same reason: they're a bigger surface and deserve their own change.
+Phase 2 item 3 in `docs/08-Roadmap-Risk.md` bundled "Like + reply" as one line item. V7 (`post-likes-v7`, archived 2026-04-21) shipped Likes because Likes are strictly smaller — no content string, no `is_auto_hidden` column, no soft-delete column, no block-aware list-read path. Replies were deferred to V8 for the same reason: they're a bigger surface and deserve their own change.
 
 V8 lands on a pipeline where:
 - V5 ships `user_blocks` + bidirectional block-exclusion in the Nearby read path + the `BlockExclusionJoinRule` lint (protected tables already include `post_replies` as a forward-looking target).

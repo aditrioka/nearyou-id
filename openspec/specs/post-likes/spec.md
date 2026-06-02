@@ -306,7 +306,7 @@ The daily limiter MUST count INSERTs only — `DELETE /api/v1/posts/{post_id}/li
 
 ### Requirement: Burst rate limit — 500/hour for both tiers
 
-`POST /api/v1/posts/{post_id}/like` SHALL enforce a per-user **burst** rate limit of 500 successful likes per rolling 1-hour window, applied to **both** Free and Premium tiers (per [`docs/02-Product.md:223`](../../../docs/02-Product.md): "Both tiers cap 500/hour burst (anti-bot)").
+`POST /api/v1/posts/{post_id}/like` SHALL enforce a per-user **burst** rate limit of 500 successful likes per rolling 1-hour window, applied to **both** Free and Premium tiers (per [`docs/02-Product.md`](../../../docs/02-Product.md): "Both tiers cap 500/hour burst (anti-bot)").
 
 The check runs via `RateLimiter.tryAcquire(userId, key, capacity = 500, ttl = Duration.ofHours(1))` against a Redis-backed counter keyed `{scope:rate_like_burst}:{user:<user_id>}`. The TTL is fixed at 1 hour — `computeTTLToNextReset` MUST NOT be used here (the burst window is rolling, not staggered-daily).
 

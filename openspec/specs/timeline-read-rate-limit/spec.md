@@ -252,7 +252,7 @@ A `is_shadow_banned = TRUE` user's timeline reads SHALL consume rate-limit bucke
 
 ### Requirement: Guest timeline read rate limit is explicitly NOT in scope
 
-This capability SHALL only cover authenticated callers. Guest reads of `GET /api/v1/timeline/global` (the future-state guest-readable endpoint per [`docs/02-Product.md:181`](../../../docs/02-Product.md)) MUST NOT be subject to the requirements in this spec. Guest read rate limiting (`10 posts/session + 30 posts/hour`, keyed by guest JWT `jti`) SHALL land in a follow-up change once the Layer 1 attestation-gated guest-session JWT issuance work (Phase 1 item 25) ships. That follow-up change MUST MODIFY this capability to add the guest-axis bucket; until then, the existing global timeline endpoint is authenticated-only and this capability's requirements apply only to authenticated callers.
+This capability SHALL only cover authenticated callers. Guest reads of `GET /api/v1/timeline/global` (the future-state guest-readable endpoint per [`docs/02-Product.md`](../../../docs/02-Product.md)) MUST NOT be subject to the requirements in this spec. Guest read rate limiting (`10 posts/session + 30 posts/hour`, keyed by guest JWT `jti`) SHALL land in a follow-up change once the Layer 1 attestation-gated guest-session JWT issuance work (Phase 1 item 25) ships. That follow-up change MUST MODIFY this capability to add the guest-axis bucket; until then, the existing global timeline endpoint is authenticated-only and this capability's requirements apply only to authenticated callers.
 
 #### Scenario: Guest endpoint not yet wired — capability does not apply
 - **WHEN** the codebase does not yet expose a guest-accessible variant of `GET /api/v1/timeline/global`

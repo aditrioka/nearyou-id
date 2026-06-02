@@ -81,7 +81,7 @@ ALTER TABLE <table>
 
 ### D4: `admin_app` REVOKE statements — operational, not Flyway
 
-**Decision:** V16 ships **without** `GRANT` or `REVOKE` statements. Role-level permissions (notably `REVOKE UPDATE, DELETE ON admin_actions_log FROM admin_app`) are provisioned in Supabase Console per [`docs/08-Roadmap-Risk.md:38`](../../../docs/08-Roadmap-Risk.md) Pre-Phase 1 #28.
+**Decision:** V16 ships **without** `GRANT` or `REVOKE` statements. Role-level permissions (notably `REVOKE UPDATE, DELETE ON admin_actions_log FROM admin_app`) are provisioned in Supabase Console per [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) Pre-Phase 1 #28.
 
 **Rationale:**
 

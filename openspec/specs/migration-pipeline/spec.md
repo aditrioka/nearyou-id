@@ -346,7 +346,7 @@ The migration pipeline SHALL record a new version `10` whose file `V10__notifica
 
 ### Requirement: V10 establishes the second valid partial-index pattern in the pipeline
 
-The V10 migration creates `notifications_user_unread_idx` with a `WHERE read_at IS NULL` predicate. This is a VALID partial index because the predicate is immutable (unlike `WHERE released_at > NOW()` or `WHERE expires_at > NOW()` which PostgreSQL rejects at `CREATE INDEX` time per `docs/08-Roadmap-Risk.md:486` and the partial-index CI lint rule). V10 MUST document this as the second established valid partial-index pattern in the pipeline (alongside any precedent in V1 `posts` partial indexes on `deleted_at` / `is_auto_hidden` immutable predicates).
+The V10 migration creates `notifications_user_unread_idx` with a `WHERE read_at IS NULL` predicate. This is a VALID partial index because the predicate is immutable (unlike `WHERE released_at > NOW()` or `WHERE expires_at > NOW()` which PostgreSQL rejects at `CREATE INDEX` time per the partial-index `NOW()` CI lint rule in `docs/08-Roadmap-Risk.md` § Development Tools). V10 MUST document this as the second established valid partial-index pattern in the pipeline (alongside any precedent in V1 `posts` partial indexes on `deleted_at` / `is_auto_hidden` immutable predicates).
 
 The migration-pipeline spec SHALL treat `IS NULL` and `IS NOT NULL` predicates on nullable timestamp columns as the canonical valid-partial-index pattern going forward. Non-immutable predicates (`NOW()`, `CURRENT_TIMESTAMP`, volatile functions) MUST continue to be rejected by the CI lint rule and by PostgreSQL itself.
 
@@ -401,7 +401,7 @@ The V11 migration file SHALL open with a header comment block that includes:
 2. The attribution text required by the license, formatted as it must appear in the app's legal section.
 3. The list of read-path consumers that MUST bidirectionally join `user_blocks` on top of `visible_posts`: `nearby-timeline`, `following-timeline`, `global-timeline` (extending the list documented in V5 and V6 headers).
 4. A note that the `posts_set_city_tg` trigger is the first BEFORE INSERT trigger in the migration history AND that the `admin_regions` seed is the first spatially-seeded reference table.
-5. A note that the coastal kabupaten polygons were pre-buffered by 12 nm (~22 km) at import time per `docs/02-Product.md:200–203`.
+5. A note that the coastal kabupaten polygons were pre-buffered by 12 nm (~22 km) at import time per `docs/02-Product.md–203`.
 
 #### Scenario: Header present and non-empty
 - **WHEN** reading the first 50 lines of `V11__admin_regions.sql`

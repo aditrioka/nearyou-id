@@ -248,7 +248,7 @@ The staging Cloud Run deploy workflow ([`.github/workflows/deploy-staging.yml`](
 - **Startup probe** (gates traffic during boot — Cloud Run's analog to Kubernetes readiness): `httpGet.path = /health/ready` on the container port; `initialDelaySeconds = 5`, `periodSeconds = 10`, `timeoutSeconds = 3`, `failureThreshold = 3`.
 - **Liveness probe** (continuous keepalive after startup): `httpGet.path = /health/live` on the container port; `initialDelaySeconds = 30`, `periodSeconds = 30`, `timeoutSeconds = 2`, `failureThreshold = 3`.
 
-(Note: Cloud Run does not implement a "readiness probe" in the Kubernetes sense. The startup probe fills the same role — gating traffic to a new revision until the application is healthy. [`docs/04-Architecture.md:166`](docs/04-Architecture.md) uses Kubernetes "readiness probe" vocabulary; the Cloud Run-native equivalent is the startup probe targeting the same endpoint.)
+(Note: Cloud Run does not implement a "readiness probe" in the Kubernetes sense. The startup probe fills the same role — gating traffic to a new revision until the application is healthy. [`docs/04-Architecture.md`](docs/04-Architecture.md) uses Kubernetes "readiness probe" vocabulary; the Cloud Run-native equivalent is the startup probe targeting the same endpoint.)
 
 Probe traffic is exempted from the per-IP rate-limit bucket via the `User-Agent` regex bypass (see the `/health/*` rate-limit requirement above) — Cloud Run native probes carry `User-Agent: GoogleHC/...`, which the rate-limit gate detects and skips.
 

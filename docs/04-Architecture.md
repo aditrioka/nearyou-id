@@ -72,11 +72,11 @@ Chat flow: Ktor as authoritative publisher. Client writes via REST, Ktor persist
 
 **Client IP origin**: all inbound traffic transits Cloudflare. Ktor extracts the real client IP from the `CF-Connecting-IP` header, not from `X-Forwarded-For`. See `05-Implementation.md` "Cloudflare-Fronted IP Extraction" for middleware, Cloud Armor allowlist configuration, and spoof protection.
 
-**CSAM detection trigger path**: the Cloudflare CSAM Scanning Tool does NOT emit webhooks. It blocks matched URLs (HTTP 451) and sends a daily email notification to a configured address. The `/internal/csam-webhook` handler in Ktor is NOT triggered by Cloudflare directly; it is invoked by one of the following supported paths:
+**CSAM detection trigger path**: the Cloudflare CSAM Scanning Tool emits no webhooks — it blocks matched URLs (HTTP 451) + sends a daily email. So `/internal/csam-webhook` is NOT triggered by Cloudflare directly; it's invoked by one of:
 
-- **Primary (MVP)**: an admin-triggered action in the Admin Panel after reviewing the CF email notification. The admin pastes the matched URL / image_id, the handler executes the downstream actions (hard-delete post, ban user, cascade, archive metadata, Kominfo queue).
-- **Automated Phase 2+**: a Cloudflare Worker attached to the `img.nearyou.id` route that watches for `451 Unavailable For Legal Reasons` responses and POSTs to `/internal/csam-webhook` with the same payload shape. This tightens the time-to-action but is optional for MVP.
-- **Alternative polling**: a daily Cloud Run Job that parses the Resend-received email inbox (via IMAP or the email provider's API). Deferred as it adds moving parts.
+- **Primary (MVP)**: admin-triggered in the Admin Panel after reviewing the CF email — admin pastes the matched URL / image_id; the handler runs the downstream actions (hard-delete post, ban user, cascade, archive metadata, Kominfo queue).
+- **Automated Phase 2+**: a Cloudflare Worker on the `img.nearyou.id` route watching for `451 Unavailable For Legal Reasons` responses, POSTing to `/internal/csam-webhook` with the same payload. Tightens time-to-action; optional for MVP.
+- **Alternative polling**: a daily Cloud Run Job parsing the email inbox (IMAP / provider API). Deferred — adds moving parts.
 
 Full CSAM detection flow, archive schema, and Kominfo SOP: see `06-Security-Privacy.md`.
 
@@ -483,7 +483,7 @@ expect object SentryProvider {
 2. **Logical dump to R2 (weekly, encrypted)**:
    - Cloud Scheduler (Sunday 02:00 WIB) triggers Cloud Run Jobs `nearyou-backup-weekly`
    - Container runs `pg_dump --format=custom --compress=9` then pipes through `age` CLI (`age -r <public_key>`) before uploading to R2 via `aws s3 cp`
-   - **Why `age` and not `openssl enc -aes-256-gcm`**: `openssl enc` does not stream AES-GCM safely across all supported distros (CBC/CTR are the reliable streaming modes; GCM requires chunking with per-chunk IV/tag handling that `enc` does not automate). `age` is a modern authenticated encryption tool (ChaCha20-Poly1305 under the hood), streams natively, handles key management cleanly, and is packaged in Alpine.
+   - **Why `age` not `openssl enc -aes-256-gcm`**: `openssl enc` doesn't stream AES-GCM safely across distros (CBC/CTR stream reliably; GCM needs per-chunk IV/tag handling `enc` doesn't automate). `age` (ChaCha20-Poly1305) streams natively, handles key management cleanly, and is packaged in Alpine.
    - Recipient public key in the backup image, private key in GCP Secret Manager (`backup-age-private-key`)
    - Runtime limit 168 hours (vs Cloud Run HTTP 60 minutes)
    - Retention: 12 weekly (3 months) + 12 monthly (1 year) + 5 yearly

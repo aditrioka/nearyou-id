@@ -1,6 +1,6 @@
 ## Why
 
-`nearby-timeline-with-blocks` (archived 2026-04-21) shipped V5 `user_blocks`, the Nearby read path, and the `BlockExclusionJoinRule` lint — but explicitly deferred the Following timeline (needs `follows`) and follow-cascade-on-block (needs `follows` to cascade against). Both blockers resolve with one schema (V6) + one endpoint + one four-line addition to the existing block flow. The same schema unlocks Phase 2 item 1 (follow/unfollow social features), so shipping it now is strictly upstream of both the Following read path and the social graph. See `docs/08-Roadmap-Risk.md:87` (Phase 1 item 15, Following) and `docs/08-Roadmap-Risk.md:88` (Phase 1 item 16, follow-cascade bullet).
+`nearby-timeline-with-blocks` (archived 2026-04-21) shipped V5 `user_blocks`, the Nearby read path, and the `BlockExclusionJoinRule` lint — but explicitly deferred the Following timeline (needs `follows`) and follow-cascade-on-block (needs `follows` to cascade against). Both blockers resolve with one schema (V6) + one endpoint + one four-line addition to the existing block flow. The same schema unlocks Phase 2 item 1 (follow/unfollow social features), so shipping it now is strictly upstream of both the Following read path and the social graph. See `docs/08-Roadmap-Risk.md` (Phase 1 item 15, Following) and `docs/08-Roadmap-Risk.md` (Phase 1 item 16, follow-cascade bullet).
 
 ## What Changes
 

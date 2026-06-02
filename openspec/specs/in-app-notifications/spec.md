@@ -19,7 +19,7 @@ A migration `V10__notifications.sql` SHALL create the `notifications` table verb
 - `read_at TIMESTAMPTZ` (nullable)
 
 Plus two indexes:
-- `notifications_user_unread_idx ON notifications (user_id, created_at DESC) WHERE read_at IS NULL` — partial; `read_at IS NULL` predicate is immutable (unlike `> NOW()` predicates which PostgreSQL rejects; see `docs/08-Roadmap-Risk.md:486`)
+- `notifications_user_unread_idx ON notifications (user_id, created_at DESC) WHERE read_at IS NULL` — partial; `read_at IS NULL` predicate is immutable (unlike `> NOW()` predicates which PostgreSQL rejects; see the partial-index `NOW()` CI lint rule in `docs/08-Roadmap-Risk.md` § Development Tools)
 - `notifications_user_all_idx ON notifications (user_id, created_at DESC)` — full; backs the default "all notifications" list endpoint
 
 The `user_id` FK MUST use `ON DELETE CASCADE` (recipient's per-user feed is PII about them; wiped on hard-delete with the tombstone worker's treatment of other per-user rows). The `actor_user_id` FK MUST use `ON DELETE SET NULL` (actor churn preserves the recipient's historical feed; render layer shows "a deleted user" for null actors).
