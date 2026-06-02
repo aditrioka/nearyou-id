@@ -201,7 +201,7 @@ A class `FcmDispatcher` SHALL implement the existing `NotificationDispatcher` in
 
 For each row whose `platform = "android"`, `FcmDispatcher` SHALL build an FCM `Message` with the following shape:
 
-- The `notification` block (alert payload) MUST be empty / unset. The Android payload is **data-only** per [`docs/04-Architecture.md:506`](../../../docs/04-Architecture.md) (the app handles rendering locally with the user's preview-toggle preference check).
+- The `notification` block (alert payload) MUST be empty / unset. The Android payload is **data-only** per [`docs/04-Architecture.md`](../../../docs/04-Architecture.md) (the app handles rendering locally with the user's preview-toggle preference check).
 - An `AndroidConfig` block with `priority = HIGH`.
 - Data fields populated from the `NotificationDto`:
   - `type` — the notification type string (e.g., `"post_liked"`).
@@ -246,7 +246,7 @@ For each row whose `platform = "android"`, `FcmDispatcher` SHALL build an FCM `M
 For each row whose `platform = "ios"`, `FcmDispatcher` SHALL build an FCM `Message` with the following shape:
 
 - A `Notification` block with `title` (per-type via `PushCopy.titleFor(type)`) and `body` (per-type via `PushCopy.bodyFor(notification, actor_username)`).
-- An `ApnsConfig` block with `aps.mutableContent = true`. This is the flag the future iOS Notification Service Extension consumes to optionally rewrite the body based on the on-device preview-toggle preference per [`docs/04-Architecture.md:535-540`](../../../docs/04-Architecture.md).
+- An `ApnsConfig` block with `aps.mutableContent = true`. This is the flag the future iOS Notification Service Extension consumes to optionally rewrite the body based on the on-device preview-toggle preference per [`docs/04-Architecture.md`](../../../docs/04-Architecture.md).
 - A custom data field `body_full` carrying the JSON-stringified `dto.bodyData`. The NSE rewrites the body based on this field if the preview-toggle is ON.
 - The `token` set to the row's `token` value.
 
@@ -296,7 +296,7 @@ The reason this matters: FCM's underlying APNs response surfaces oversized-paylo
 #### Scenario: iOS clamp pathology — body_data has no single field large enough to truncate
 
 - **WHEN** an iOS push is constructed for a notification with an unusually large but uniform `body_data` (e.g., 20 small fields totaling >4 KB, with no single field dominating)
-- **THEN** the implementation MUST either (a) drop the dispatch entirely with a structured WARN `event="fcm_dispatch_failed"` `error_code="payload_too_large"` (no FCM call made; recipient sees the in-app notification per the docs/04-Architecture.md:558 fallback), OR (b) apply ordered-truncation across multiple fields per a documented strategy. Option (a) is the simpler default; option (b) requires explicit doc + scenario coverage
+- **THEN** the implementation MUST either (a) drop the dispatch entirely with a structured WARN `event="fcm_dispatch_failed"` `error_code="payload_too_large"` (no FCM call made; recipient sees the in-app notification per the docs/04-Architecture.md fallback), OR (b) apply ordered-truncation across multiple fields per a documented strategy. Option (a) is the simpler default; option (b) requires explicit doc + scenario coverage
 
 ### Requirement: `PushCopy` SHALL provide Indonesian copy for the four V10-wired types and a fallback for others
 
@@ -470,7 +470,7 @@ This is documented for operators: an emergency credential rotation is a Secret M
 
 ### Requirement: Dispatcher coroutine scope SHALL drain on JVM shutdown
 
-The `fcmDispatcherScope` SHALL be registered with a JVM shutdown hook that invokes `cancelAndJoin()` with a 5-second timeout. In-flight FCM dispatches that complete within the timeout reach FCM normally; dispatches that exceed the timeout are abandoned (the recipient sees the notification on next app open via the in-app `notifications` list per the `docs/04-Architecture.md:558` fallback). New `dispatch(...)` calls received after shutdown initiation observe a closed scope and SHALL fall through to a structured WARN log `event="fcm_dispatch_after_shutdown"` without throwing.
+The `fcmDispatcherScope` SHALL be registered with a JVM shutdown hook that invokes `cancelAndJoin()` with a 5-second timeout. In-flight FCM dispatches that complete within the timeout reach FCM normally; dispatches that exceed the timeout are abandoned (the recipient sees the notification on next app open via the in-app `notifications` list per the `docs/04-Architecture.md` fallback). New `dispatch(...)` calls received after shutdown initiation observe a closed scope and SHALL fall through to a structured WARN log `event="fcm_dispatch_after_shutdown"` without throwing.
 
 #### Scenario: Shutdown hook drains in-flight dispatches up to 5 seconds
 

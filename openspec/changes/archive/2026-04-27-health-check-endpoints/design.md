@@ -2,7 +2,7 @@
 
 The Ktor backend at [`backend/ktor/src/main/kotlin/id/nearyou/app/health/HealthRoutes.kt`](backend/ktor/src/main/kotlin/id/nearyou/app/health/HealthRoutes.kt) ships partial health-check scaffolding: `/health/live` returns `200` unconditionally, and `/health/ready` runs a single Postgres `SELECT 1` with a 500ms `withTimeoutOrNull`. There is no OpenSpec capability documenting it. The canonical contract lives in:
 
-- [`docs/04-Architecture.md:154-168`](docs/04-Architecture.md) — three-way parallel probe + 60 req/min/IP + >99.9% green target.
+- [`docs/04-Architecture.md`](docs/04-Architecture.md) — three-way parallel probe + 60 req/min/IP + >99.9% green target.
 - [`docs/05-Implementation.md:1958-1982`](docs/05-Implementation.md) — kotlin sketch using `coroutineScope { listOf(async { ... }, ... ).awaitAll() }`.
 - [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 1 task #19 — explicitly calls out "Health check endpoints (`/health/live`, `/health/ready`) + Cloud Run probe config".
 
@@ -22,7 +22,7 @@ Constraints:
 ## Goals / Non-Goals
 
 **Goals:**
-- Implement the canonical three-way probe with parallel execution, deterministic response shape, and the 60 req/min/IP rate-limit per [`docs/04-Architecture.md:154-168`](docs/04-Architecture.md).
+- Implement the canonical three-way probe with parallel execution, deterministic response shape, and the 60 req/min/IP rate-limit per [`docs/04-Architecture.md`](docs/04-Architecture.md).
 - Wire Cloud Run readiness + liveness probes in the staging deploy workflow so dependency misconfiguration manifests as a probe failure at deploy time rather than at smoke test.
 - Preserve the "no vendor SDK outside `:infra:*`" invariant by introducing `RedisProbe` / `SupabaseRealtimeProbe` interfaces in `:core:domain`.
 - Stable contract for future external uptime monitors: a `200` body of `{status, checks[]}` is enough to power a Grafana dashboard or PagerDuty alert without bespoke parsing.
@@ -70,7 +70,7 @@ The Postgres probe stays inline with `dataSource.connection.use { ... }` because
 
 **Decision**: Wrap the `coroutineScope { ... awaitAll() }` in `withTimeoutOrNull(Duration.ofSeconds(2))`. If it fires, return `503` with all incomplete probes marked `ok=false, error="timeout"`.
 
-**Rationale**: Per-probe timeouts are 200 / 500 / 500 ms summing to 1.2s worst case, but `withTimeoutOrNull` inside an `async` block is honored cooperatively — a probe blocked on a non-cancellable JNI call (e.g., a JDBC connection acquire that doesn't respect coroutine cancellation) could exceed its individual timeout. The outer cap is an unconditional second line of defense that bounds total latency at 2s + handler overhead, matching [`docs/04-Architecture.md:158`](docs/04-Architecture.md) ("200 if all dependencies reachable within 2s, else 503").
+**Rationale**: Per-probe timeouts are 200 / 500 / 500 ms summing to 1.2s worst case, but `withTimeoutOrNull` inside an `async` block is honored cooperatively — a probe blocked on a non-cancellable JNI call (e.g., a JDBC connection acquire that doesn't respect coroutine cancellation) could exceed its individual timeout. The outer cap is an unconditional second line of defense that bounds total latency at 2s + handler overhead, matching [`docs/04-Architecture.md`](docs/04-Architecture.md) ("200 if all dependencies reachable within 2s, else 503").
 
 ### D5: Rate-limit key shape `{scope:health}:{ip:<addr>}` shared between `/live` and `/ready`
 
@@ -151,7 +151,7 @@ Reconciliation against canonical docs surfaced two minor terminology divergences
 
 1. **`status` field**: [`docs/05-Implementation.md:1974`](docs/05-Implementation.md) uses `"status": "ready"` for the green case (matching the endpoint name `/health/ready`); the existing partial implementation at [`HealthRoutes.kt:29`](backend/ktor/src/main/kotlin/id/nearyou/app/health/HealthRoutes.kt) uses `"status": "ok"`. This proposal aligns with canonical docs (`"ready"`); the implementation will be updated as part of section 6 of `tasks.md` (specifically task 6.7, the `HealthReadyResponse` data class).
 
-2. **Cloud Run probe vocabulary**: [`docs/04-Architecture.md:166`](docs/04-Architecture.md) uses Kubernetes "readiness probe" terminology, but Cloud Run does not implement a readiness probe — its `--startup-probe` flag gates traffic during boot in the same role. This proposal uses Cloud Run-native terminology (`startup-probe` + `liveness-probe`) in the spec and tasks while explicitly noting the docs use K8s vocabulary. A docs cleanup follow-up entry is added to `FOLLOW_UPS.md` to amend [`docs/04-Architecture.md:166`](docs/04-Architecture.md) once this change ships.
+2. **Cloud Run probe vocabulary**: [`docs/04-Architecture.md`](docs/04-Architecture.md) uses Kubernetes "readiness probe" terminology, but Cloud Run does not implement a readiness probe — its `--startup-probe` flag gates traffic during boot in the same role. This proposal uses Cloud Run-native terminology (`startup-probe` + `liveness-probe`) in the spec and tasks while explicitly noting the docs use K8s vocabulary. A docs cleanup follow-up entry is added to `FOLLOW_UPS.md` to amend [`docs/04-Architecture.md`](docs/04-Architecture.md) once this change ships.
 
 3. **Rate-limit framing**: this endpoint is a per-IP cap (Layer-1-style usage of an unauthenticated public endpoint) implemented over the Layer-2 `RateLimiter` infrastructure originally introduced for per-user limits in `like-rate-limit`. The infrastructure is reused unchanged; only the call-site convention is novel. See decision **D8** below for the open question on whether to amend `rate-limit-infrastructure` spec to formalize the IP-keyed convention.
 
@@ -219,4 +219,4 @@ The MODIFIED delta lives at [`specs/rate-limit-infrastructure/spec.md`](specs/ra
 
 ## Open Questions
 
-None. D8 resolved (above). Reconciliation against [`docs/04-Architecture.md:154-168`](docs/04-Architecture.md), [`docs/05-Implementation.md:1958-1982`](docs/05-Implementation.md), [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 1 #19, and [`openspec/specs/rate-limit-infrastructure/spec.md`](openspec/specs/rate-limit-infrastructure/spec.md) confirms timeout budgets, probe targets, response shape, rate-limit value, key shape, and the new method's Lua-script contract.
+None. D8 resolved (above). Reconciliation against [`docs/04-Architecture.md`](docs/04-Architecture.md), [`docs/05-Implementation.md:1958-1982`](docs/05-Implementation.md), [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 1 #19, and [`openspec/specs/rate-limit-infrastructure/spec.md`](openspec/specs/rate-limit-infrastructure/spec.md) confirms timeout budgets, probe targets, response shape, rate-limit value, key shape, and the new method's Lua-script contract.

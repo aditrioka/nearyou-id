@@ -17,8 +17,8 @@ Mobile #2 (`shared-resources-moko-bootstrap`, PR [#116](https://github.com/aditr
 - **MODIFIED canonical-doc wording** — replace "Moko Resources" with "Compose Multiplatform Resources" in five locations:
   - [`CLAUDE.md:51`](../../../CLAUDE.md:51) — "Mobile strings via Moko Resources only" invariant line.
   - [`openspec/project.md:150`](../../project.md:150) — same wording invariant in § Coding Conventions.
-  - [`docs/04-Architecture.md:37`](../../../docs/04-Architecture.md:37) — table row "Localization | Moko Resources or Compose MP Resources" → drop the "or", canonicalize to "Compose Multiplatform Resources".
-  - [`docs/04-Architecture.md:132`](../../../docs/04-Architecture.md:132) — `:shared:resources` module-description: `MR` accessors → `Res` accessors.
+  - [`docs/04-Architecture.md`](../../../docs/04-Architecture.md) — table row "Localization | Moko Resources or Compose MP Resources" → drop the "or", canonicalize to "Compose Multiplatform Resources".
+  - [`docs/04-Architecture.md`](../../../docs/04-Architecture.md) — `:shared:resources` module-description: `MR` accessors → `Res` accessors.
   - [`openspec/project.md:68`](../../project.md:68) — `:shared:resources` row in Module Structure: same `MR` → `Res` update; same Moko → CMP wording.
   - [`openspec/project.md:102`](../../project.md:102) — Mobile #2 menu row (now historical Mobile #2 has shipped; descriptor wording adjusted to reflect post-swap state).
 - **ADDED row to [`docs/09-Versions.md`](../../../docs/09-Versions.md)** — new Version Decisions Log row documenting the swap, dated 2026-05-28, citing PR [#118](https://github.com/aditrioka/nearyou-id/pull/118)'s pre-implementation re-check rule as the trigger, removing the prior Moko Resources row (or amending it with a "SUPERSEDED 2026-05-28" note) so future contributors see the swap explicitly.
