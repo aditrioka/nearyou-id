@@ -63,7 +63,7 @@
 ## 10. Staging smoke (pre-archive, per `openspec/project.md` § Staging deploy timing — stays unchecked until exercised)
 
 - [x] 10.1 Add `dev/scripts/smoke-admin-suspend-unban-user-action.sh`: log in as the seeded admin (TOTP via `oathtool` per the local-run recipe) → look up a synthetic user → suspend (with a `reason`) → assert `users.suspended_until` set + one `user_suspended` `admin_actions_log` row (with the free-text `reason`) + one `account_action_applied` notification (with the SANITIZED reason, NOT the free-text) → unban → assert `is_banned = FALSE`, `suspended_until = NULL` + one `user_unbanned` row.
-- [ ] 10.2 `gh workflow run deploy-staging.yml --ref admin-suspend-unban-user-action` → poll the deploy run → run the smoke script against the branch deploy → tick this section before `/opsx:archive`.
+- [x] 10.2 `gh workflow run deploy-staging.yml --ref admin-suspend-unban-user-action` → poll the deploy run → run the smoke script against the branch deploy → tick this section before `/opsx:archive`. **Done 2026-06-02:** deploy [run 26828007972](https://github.com/aditrioka/nearyou-id/actions/runs/26828007972) `conclusion=success`; `dev/scripts/smoke-admin-suspend-unban-user-action.sh` passed all 12 checks against `https://api-staging.nearyou.id` (login → lookup → suspend [303, "Suspended until" ≈ NOW+7d] → `user_suspended` audit row with free-text reason → unban [303, "Active"] → `user_unbanned` audit row). Smoke admin minted out-of-band (`oka+smoke2@nearyou.id`, owner); notification-sanitization DB check skipped (no `--db-url`) — covered by in-process test 8.6.
 
 ## 11. Docs + follow-ups
 
