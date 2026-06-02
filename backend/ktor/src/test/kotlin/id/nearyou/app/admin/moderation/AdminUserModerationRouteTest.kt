@@ -458,4 +458,39 @@ class AdminUserModerationRouteTest : StringSpec({
         val now = Instant.now()
         (suspendedUntil.isAfter(now.plus(6, ChronoUnit.DAYS)) && suspendedUntil.isBefore(now.plus(8, ChronoUnit.DAYS))) shouldBe true
     }
+
+    // =============== redirect target (review hardening: TC1 + TC2) =============
+
+    "suspend success (no-JS) → 303 See Other with Location to the lookup view" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/suspend") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldBe HttpStatusCode.SeeOther
+            res.headers[HttpHeaders.Location] shouldBe "/admin/users?q=$uid"
+        }
+        UserModerationTestSupport.loadUser(dataSource, uid).isBanned shouldBe true
+    }
+
+    "HTMX suspend success → 200 with HX-Redirect to the lookup view" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/suspend") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                    header("HX-Request", "true")
+                }
+            res.status shouldBe HttpStatusCode.OK
+            res.headers["HX-Redirect"] shouldBe "/admin/users?q=$uid"
+        }
+        UserModerationTestSupport.loadUser(dataSource, uid).isBanned shouldBe true
+    }
 })

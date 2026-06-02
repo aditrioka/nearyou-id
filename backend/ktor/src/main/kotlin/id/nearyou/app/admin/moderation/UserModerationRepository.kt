@@ -120,7 +120,7 @@ class UserModerationRepository(
                     ).use { ps ->
                         ps.setObject(1, targetId)
                         ps.executeQuery().use { rs ->
-                            rs.next()
+                            check(rs.next()) { "suspend RETURNING yielded no row for target $targetId (impossible under FOR UPDATE)" }
                             rs.getTimestamp("suspended_until").toInstant()
                         }
                     }
@@ -142,6 +142,13 @@ class UserModerationRepository(
             } catch (e: Throwable) {
                 runCatching { conn.rollback() }
                 throw e
+            } finally {
+                // Restore the pool default before checkin — matches every other
+                // transactional path in the codebase (CreatePostService,
+                // ChatRepository, FollowService, SignupService, ReplyService,
+                // LikeService). Defense-in-depth: the tx is already committed or
+                // rolled back here, so there is no pending work to flush.
+                runCatching { conn.autoCommit = true }
             }
         }
 
@@ -211,6 +218,13 @@ class UserModerationRepository(
             } catch (e: Throwable) {
                 runCatching { conn.rollback() }
                 throw e
+            } finally {
+                // Restore the pool default before checkin — matches every other
+                // transactional path in the codebase (CreatePostService,
+                // ChatRepository, FollowService, SignupService, ReplyService,
+                // LikeService). Defense-in-depth: the tx is already committed or
+                // rolled back here, so there is no pending work to flush.
+                runCatching { conn.autoCommit = true }
             }
         }
 
