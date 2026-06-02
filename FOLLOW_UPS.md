@@ -729,3 +729,26 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Action items:**
 - [ ] File a change (or fold into a later timeline-polish change) adding a pure `relativeTime(createdAtIso, now)` formatter + a localized BI unit-string set (`timeline_time_just_now` / `_minutes_ago` / `_hours_ago` / `_yesterday` / …), replacing `postDateLabel` at the card metadata row; inject the clock for deterministic tests.
 - [ ] Delete this entry once relative timestamps ship.
+
+---
+
+## admin-destructive-action-rate-limit
+
+**Discovered during:** `admin-suspend-unban-user-action` (Admin #5) `/opsx:apply` §11.1 — design D11 defers the per-admin destructive-action rate limiter (`docs/07-Operations.md` § Security: "Rate limit destructive actions: 20/hour per admin") to a focused follow-up.
+**Status:** open
+
+**Finding:** The admin panel's first state-changing actions (suspend / unban, `admin-user-moderation`) ship with NO per-admin rate limit. [`docs/07-Operations.md`](docs/07-Operations.md) § Security prescribes "20/hour per admin" for destructive actions; design D11 defers it because a correct limiter needs its own substrate decision that would balloon this first-write change. **This is deferred-MITIGATED, not a non-risk:** [`docs/07-Operations.md:92`](docs/07-Operations.md) explicitly notes TOTP is phishable (evilginx2), so the project's own threat model contemplates a phished admin session — without the limiter, such a session can mass-suspend (reversibly) at unbounded rate until the 30-min idle / 8-hour absolute session cap fires. Interim mitigations bound the blast radius: CSRF, the idle + absolute session caps, the IAP network gate, the full immutable audit trail, and reversibility (every suspend is undoable via unban).
+
+**Specs at fault:** None — `admin-user-moderation` (post-archive) deliberately scopes out the limiter; this follow-up adds the requirement (a MODIFIED `admin-user-moderation` requirement or a new shared `admin-action-rate-limit` capability gating all admin writes).
+**Code at fault:** None — there is no half-implemented limiter to fix; the deferral is clean.
+**Docs at fault:** None — `docs/07-Operations.md` § Security already names the "20/hour per admin" target.
+
+**Impact (if shipped):** Low-during-MVP (single trusted operator; the multi-admin period is gated behind WebAuthn per `admin-login`), rising with admin headcount. A compromised/phished admin session is the motivating threat; the audit trail + reversibility make the damage detectable and undoable, but unbounded-rate mass-suspension is a real (if recoverable) abuse vector until the limiter lands.
+
+**Ambiguity to resolve first:** Counter substrate. Options: (a) a Redis-backed per-admin sliding-window counter (reuses the existing `RedisRateLimiter` machinery + the `{scope:<admin_id>}` hash-tag pattern, but a destructive-action limiter that *fails soft* when Redis is down is a weaker guarantee), vs (b) a `COUNT(*) FROM admin_actions_log WHERE admin_id = ? AND created_at > NOW() - INTERVAL '1 hour'` DB check (no new infra, authoritative, no fail-soft hole, but a read-per-write coupled to the audit-table write cadence). Resolve in the follow-up's design.md; (b) is the likely first cut given low admin write volume.
+
+**Action items:**
+- [ ] File an OpenSpec change adding a per-admin destructive-action rate limiter (~20/hour) gating `POST /admin/users/{id}/suspend` + `/unban` (and future admin writes), with the substrate decision (Redis sliding-window vs `admin_actions_log` COUNT) resolved in its design.md.
+- [ ] Delete this entry once the limiter ships.
+
+**Cap note (2026-06-02):** adding this entry brings `FOLLOW_UPS.md` to ~30 open entries — at the 30-entry hard limit. Added per CLAUDE.md "documented debt is still debt"; flag as a candidate for the next `/triage-follow-ups` sweep (the verified-still-valid deferred-work backlog + the GitHub-Issues migration noted in the 2026-06-01 sweep remain the drawdown levers).

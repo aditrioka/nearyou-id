@@ -1,0 +1,59 @@
+{# Swappable user-moderation result fragment. Rendered standalone for HTMX
+   requests (HX-Request: true) and {% include %}d by users.peb for full-page
+   navigation. The #user-moderation-result id is the hx-target swapped in
+   place. Every value is Pebble-autoescaped on output — no `raw` filter is
+   used on any value, including the client-controlled username.
+
+   CSRF: on the full-page render `csrfToken` is present, so the suspend/unban
+   `_csrf` hidden fields populate for the no-JS POST path. On the HTMX-fragment
+   render `csrfToken` is omitted (mirrors the audit-log fragment) — JS is
+   obviously enabled there, so the layout's htmx:configRequest hook adds the
+   X-CSRF-Token header from the meta tag instead. #}
+<div id="user-moderation-result">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+{% if user is not null %}
+    <section class="user-state">
+        <h3>{{ user.username }}</h3>
+        <dl>
+            <dt>User ID</dt><dd class="user-id">{{ user.id }}</dd>
+            <dt>Status</dt><dd class="user-status">{{ user.statusLabel }}</dd>
+            <dt>is_banned</dt><dd class="user-is-banned">{{ user.isBanned }}</dd>
+            <dt>suspended_until</dt><dd class="user-suspended-until">{{ user.suspendedUntil }}</dd>
+        </dl>
+
+        {# Two state-changing controls. Each carries a _csrf hidden field as the
+           no-JS fallback; hx-post + the result-region target give the HTMX swap
+           on an informational (200) outcome. A successful action responds with
+           HX-Redirect (full navigation back to the lookup view). #}
+        <form class="action-suspend"
+              action="/admin/users/{{ user.id }}/suspend"
+              method="POST"
+              hx-post="/admin/users/{{ user.id }}/suspend"
+              hx-target="#user-moderation-result"
+              hx-swap="outerHTML">
+            <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+            <label>Reason (optional, audit-only)
+                <input type="text" name="reason">
+            </label>
+            <button type="submit">Suspend 7 days</button>
+        </form>
+
+        <form class="action-unban"
+              action="/admin/users/{{ user.id }}/unban"
+              method="POST"
+              hx-post="/admin/users/{{ user.id }}/unban"
+              hx-target="#user-moderation-result"
+              hx-swap="outerHTML">
+            <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+            <label>Reason (optional, audit-only)
+                <input type="text" name="reason">
+            </label>
+            <button type="submit">Unban</button>
+        </form>
+    </section>
+{% elseif searched %}
+    <p class="empty-state">No matching user.</p>
+{% endif %}
+</div>
