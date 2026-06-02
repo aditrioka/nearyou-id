@@ -62,7 +62,7 @@ class AuthRepositorySignUpTest {
     // 7.4 + 7.15 — 201 persists tokens, returns Success, and reuses the carried id_token (the
     // Google ceremony is NOT re-invoked on the happy path — no second account sheet).
     @Test
-    fun `valid DOB plus 201 persists tokens, returns Success, reusing the carried id_token`() =
+    fun `valid DOB plus 201 persists tokens returns Success reusing the carried id_token`() =
         runTest {
             val store = InMemoryTokenStore()
             val gateway = FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id-fresh", null, null))
@@ -78,7 +78,7 @@ class AuthRepositorySignUpTest {
     // 7.5 (keystone) — the ACTUAL flat 403 body maps to Blocked on HTTP status, NOT the retryable
     // fallthrough (a code-based parse would yield null and misroute it). No token write, no nav.
     @Test
-    fun `flat 403 user_blocked maps to Blocked, not retryable, with no token write`() =
+    fun `flat 403 user_blocked maps to Blocked not retryable with no token write`() =
         runTest {
             val store = InMemoryTokenStore()
             val repo =
@@ -301,7 +301,7 @@ class AuthRepositorySignUpTest {
     // DEFINED RetryableError (signin_error_network), and the SignUpOutcome sealed type is closed,
     // so exhaustiveness is compiler-enforced. This guard pins the unenumerated-status path.
     @Test
-    fun `unenumerated 4xx maps to the defined RetryableError, not a generic failure`() =
+    fun `unenumerated 4xx maps to the defined RetryableError not a generic failure`() =
         runTest {
             val repo =
                 repository(FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null))) {

@@ -251,7 +251,7 @@ class AuthRepositoryTest {
         }
 
     @Test
-    fun `isAuthenticated is true even when the access token is already expired (presence-only gate)`() =
+    fun `isAuthenticated is true even when the access token is already expired presence-only gate`() =
         runTest {
             // Access expired (epoch 0) but a TokenPair exists ⇒ still authenticated → routes to
             // Home; the Auth plugin refreshes lazily on the first authenticated call. This is the

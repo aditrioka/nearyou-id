@@ -14,7 +14,7 @@ import kotlin.test.assertIs
  */
 class GoogleSignInResultContractTest {
     @Test
-    fun `UserCancelled is the singleton data object, distinct from Failed`() =
+    fun `UserCancelled is the singleton data object distinct from Failed`() =
         runTest {
             val gateway = FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled)
             val result = gateway.signIn()

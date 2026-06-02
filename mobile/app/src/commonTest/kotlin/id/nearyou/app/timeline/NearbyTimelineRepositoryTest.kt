@@ -82,7 +82,7 @@ class NearbyTimelineRepositoryTest {
         }
 
     @Test
-    fun `hard-cap 200 (empty plus upsell hard) maps to Loaded NOT Error`() =
+    fun `hard-cap 200 empty plus upsell hard maps to Loaded NOT Error`() =
         runTest {
             val repo = repository { respond("""{"posts":[],"nextCursor":null,"upsell":{"hard":true}}""", HttpStatusCode.OK, JSON_HEADERS) }
 

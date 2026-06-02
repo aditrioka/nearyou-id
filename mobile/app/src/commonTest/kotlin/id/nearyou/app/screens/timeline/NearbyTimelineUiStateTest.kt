@@ -46,7 +46,7 @@ class NearbyTimelineUiStateTest {
     }
 
     @Test
-    fun `loaded empty with upsell hard maps to HardLimit (distinct from Empty)`() {
+    fun `loaded empty with upsell hard maps to HardLimit distinct from Empty`() {
         assertEquals(
             NearbyTimelineUiState.HardLimit,
             nearbyTimelineUiState(NearbyTimelineOutcome.Loaded(emptyList(), null, UpsellDto(hard = true)), inFlight = false),
