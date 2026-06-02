@@ -190,6 +190,35 @@ The screen SHALL render the projected state with all copy via `stringResource`:
 - **WHEN** the composer submits successfully within a Voyager `Navigator`
 - **THEN** the navigator pops `PostCreationScreen` (the home surface becomes current again)
 
+### Requirement: Post location is device-acquired; manual location selection is deferred
+
+The composer SHALL set the post coordinate SOLELY from the device location provider (`LocationProvider.current()`, permission-gated per the § "Outcome mapping is HTTP-status + error.code driven" requirement). It MUST NOT present any UI to manually choose or adjust the post location — no map view, no draggable pin, no manual coordinate-entry field, no place search. Manual location selection (the "auto/manual location" behavior in `docs/02-Product.md` § 2 Post System) is NOT implemented in this change and is deferred to a follow-up `mobile-post-creation-manual-location`, which will add the manual-selection UI without changing the device-acquisition path or the `POST /api/v1/posts` contract. (This mirrors the `mobile-nearby-timeline` "real location is deferred" precedent: the deferral is an explicit requirement here so the follow-up has a requirement to MODIFY.)
+
+#### Scenario: The submitted coordinate is the device fix
+- **GIVEN** a fake `LocationProvider` returning a known coordinate AND a granted permission
+- **WHEN** a successful submit issues the `POST /api/v1/posts`
+- **THEN** the request `latitude`/`longitude` equal the values returned by `LocationProvider.current()` (the device fix), NOT any user-entered or map-selected coordinate
+
+#### Scenario: No manual-location affordance is present
+- **WHEN** inspecting `PostCreationScreen.kt` and the composer's components
+- **THEN** there is NO map view, draggable-pin, manual coordinate-entry field, or place-search affordance for choosing the post location
+
+#### Scenario: FOLLOW_UPS tracks the manual-location follow-up
+- **WHEN** inspecting `FOLLOW_UPS.md` after this change is applied
+- **THEN** the file contains an entry `mobile-post-creation-manual-location` referencing this device-only decision as the trigger and `docs/02-Product.md` § 2 (auto/manual location) as the spec source
+
+### Requirement: Successful post returns to Home; Nearby auto-refresh on return is deferred
+
+On a `Success` outcome the composer SHALL `navigator.pop()` back to the home surface and SHALL NOT signal the Nearby feed to re-fetch; the newly-created post becomes visible on the next manual pull-to-refresh / `ON_RESUME`. Cross-screen auto-refresh-on-return is NOT implemented in this change and is deferred to a follow-up `mobile-post-creation-refresh-nearby-on-return`.
+
+#### Scenario: No Nearby reload is signalled on success
+- **WHEN** inspecting the composer's `Success` handling
+- **THEN** it calls `navigator.pop()` AND does NOT invoke any Nearby reload / re-fetch trigger (no shared reload signal, no Voyager result consumed by the Nearby feed)
+
+#### Scenario: FOLLOW_UPS tracks the Nearby-refresh follow-up
+- **WHEN** inspecting `FOLLOW_UPS.md` after this change is applied
+- **THEN** the file contains an entry `mobile-post-creation-refresh-nearby-on-return`
+
 ### Requirement: The post-body coordinate is never logged and logging is not widened
 
 The post coordinate travels in the `POST /api/v1/posts` request **body**. This change MUST keep the shipped `HttpClientFactory` logging at `LogLevel.HEADERS` (request/response bodies are not logged at HEADERS) and MUST NOT widen it to `LogLevel.BODY` or `LogLevel.ALL`. `PostCreationApiClient` and `CreatePostRepository` MUST NOT `println`/log the coordinate or the serialized request body. (The existing `CoordinateMaskingLogger` masks only URL query parameters; the body is protected by not widening the level.)

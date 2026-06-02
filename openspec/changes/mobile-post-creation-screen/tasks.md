@@ -45,6 +45,7 @@
 - [ ] 7.5 Add `**/PostCreationScreenTest*` to the `mobile/app/build.gradle.kts` Release-variant `tasks.withType<Test>()` exclude block (alongside the existing `*ScreenTest` exclusions); confirm `./gradlew :mobile:app:testDevReleaseUnitTest` does not attempt it.
 - [ ] 7.6 Add a no-hardcoded-strings source check for `PostCreationScreen.kt` (grep/inspection consistent with the existing mobile-strings discipline) and a logging-not-widened check (HttpClientFactory still `LogLevel.HEADERS`).
 - [ ] 7.7 Cover the spec scenario "HomeScreen renders a compose FAB that pushes the composer". NOTE there is no standalone `HomeScreenTest` today (the `homeScreen_*` cases live inside `NearbyTimelineScreenTest`); this will be a NEW Robolectric `*ScreenTest` that composes `HomeScreen` inside a Voyager `Navigator`, asserts the FAB is present, and asserts activating it pushes `PostCreationScreen`. Add its name to the Release-variant `*ScreenTest` exclude per 7.5 (so `:mobile:app:testDevReleaseUnitTest` skips it).
+- [ ] 7.8 Deferral guards (per the two "… is deferred" requirements): assert via source/render inspection that `PostCreationScreen` has NO map / draggable-pin / manual-coordinate-entry / place-search affordance AND does NOT signal a Nearby reload on `Success` (only `navigator.pop()`); assert the submitted coordinate equals the fake `LocationProvider` fix (covered by 7.3's request-body check); confirm `FOLLOW_UPS.md` contains `mobile-post-creation-manual-location` + `mobile-post-creation-refresh-nearby-on-return`.
 
 ## 8. Follow-ups, validation, verification
 
