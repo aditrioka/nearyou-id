@@ -1,0 +1,24 @@
+{% extends "layout.peb" %}
+
+{% block title %}User Moderation — NearYouID{% endblock %}
+
+{% block content %}
+<h2>User Moderation</h2>
+
+{# Lookup form. hx-get swaps only the #user-moderation-result fragment;
+   method=GET means it also works as plain navigation when JS is unavailable
+   (progressive enhancement, mirroring the audit-log viewer). All values are
+   autoescaped. #}
+<form hx-get="/admin/users"
+      hx-target="#user-moderation-result"
+      hx-swap="outerHTML"
+      hx-push-url="true"
+      method="GET">
+    <label>User UUID or exact username
+        <input type="text" name="q" value="{{ q | default('') }}">
+    </label>
+    <button type="submit">Look up</button>
+</form>
+
+{% include "users-result.peb" %}
+{% endblock %}

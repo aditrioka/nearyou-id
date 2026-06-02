@@ -2,7 +2,6 @@
 
 ## Purpose
 The mobile Nearby-timeline surface — the first authenticated product screen in `:mobile:app`. `NearbyTimelineScreen` (hosted by the repurposed `HomeScreen`) loads `GET /api/v1/timeline/nearby` through a status-driven `NearbyTimelineRepository` / `NearbyTimelineFlow` seam and renders read-only post cards (content, `city_name`, the shared `DistanceRenderer` distance, `created_at`, read-only `liked_by_viewer` + `reply_count`) in a Material 3 pull-to-refresh `LazyColumn` under `NearYouTheme`, mapping every fetch result to exactly one of six explicit states — loading / content / empty / error / rate-limit-hard / rate-limit-soft — with no generic fallthrough. PII discipline is enforced: the `author_user_id` UUID and raw `latitude`/`longitude` are never rendered or logged, and the response DTOs mirror the SHIPPED mixed-case wire (`authorUserId`/`distanceM`/`createdAt`/`nextCursor` camelCase; `city_name`/`liked_by_viewer`/`reply_count` snake), not the spec's stale snake_case example. Device location is stubbed behind a `LocationProvider` seam (fixed Jakarta coordinate at the Free-tier 20 km radius — real GPS/permission is a tracked follow-up), and a per-process `SessionIdProvider` supplies the `X-Session-Id` header so the backend's per-session soft-cap accounting engages. This establishes the read-only post-card + list visual pattern that later product screens inherit.
-
 ## Requirements
 ### Requirement: NearbyTimelineScreen renders the Nearby feed surface
 
@@ -50,22 +49,6 @@ The existing `HomeScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/ap
 - **GIVEN** a single `SessionIdProvider` instance
 - **WHEN** its session id is read twice (e.g., on two consecutive Nearby fetches in the same process)
 - **THEN** both reads return the identical string (the id is captured once at construction, not regenerated per call)
-
-### Requirement: LocationProvider stub supplies a fixed coordinate; real location is deferred
-
-The mobile app SHALL declare a commonMain `LocationProvider` interface exposing a suspend function returning a `LatLng` (reusing `id.nearyou.distance.LatLng`). The default Koin binding SHALL be a `StubLocationProvider` returning the fixed coordinate `LatLng(-6.2, 106.8)` (Jakarta). This change MUST NOT request any runtime location permission and MUST NOT call any platform location API (`FusedLocationProviderClient`, `CLLocationManager`, etc.). The real device-location provider, runtime permission request, UU-PDP consent modal, and permission-denial fallback are deferred to a follow-up `mobile-location-permission-flow`, which will replace the Koin binding without modifying `NearbyTimelineRepository` or `NearbyTimelineScreen`.
-
-#### Scenario: Stub returns the fixed Jakarta coordinate
-- **WHEN** the default `LocationProvider` binding is resolved and its coordinate is read
-- **THEN** the returned value equals `LatLng(-6.2, 106.8)`
-
-#### Scenario: No platform location or permission API is referenced
-- **WHEN** searching `mobile/app/src/commonMain`, `mobile/app/src/androidMain`, and `mobile/app/src/iosMain` for `FusedLocationProviderClient`, `CLLocationManager`, `ACCESS_FINE_LOCATION`, or a runtime location-permission request
-- **THEN** no match is found (location acquisition is stubbed; the permission flow is the `mobile-location-permission-flow` follow-up)
-
-#### Scenario: FOLLOW_UPS tracks the location-permission follow-up
-- **WHEN** inspecting `FOLLOW_UPS.md` after this change is applied
-- **THEN** the file contains an entry `mobile-location-permission-flow` referencing this stub as the trigger and `docs/03-UX-Design.md` § Location Permission / § Permission Denial Fallback as the spec source
 
 ### Requirement: Response DTOs mirror the SHIPPED wire casing and render distance via DistanceRenderer
 
@@ -166,11 +149,11 @@ The mobile app SHALL model the screen state as a Compose-free `NearbyTimelineUiS
 
 ### Requirement: Repository, ApiClient, providers wired as Koin singletons behind a testable seam
 
-`NearbyTimelineApiClient`, `NearbyTimelineRepository`, `LocationProvider` (→ `StubLocationProvider`), and `SessionIdProvider` SHALL be registered in the commonMain Koin `mobileModule`. `NearbyTimelineRepository` SHALL be bound behind a `NearbyTimelineFlow` interface (`single<NearbyTimelineFlow> { get<NearbyTimelineRepository>() }`) so a `FakeNearbyTimelineFlow` can drive the screen tests, mirroring `mobile-auth-signin`'s `AuthFlow` seam.
+`NearbyTimelineApiClient`, `NearbyTimelineRepository`, and `SessionIdProvider` SHALL be registered in the commonMain Koin `mobileModule`. The `LocationProvider` SHALL be bound to the real platform device-location provider in each `platformModule` (Android/iOS) in production — NOT to `StubLocationProvider` in `mobileModule`; `StubLocationProvider` is retained in `commonMain` as the test double (per the `mobile-location` capability). `NearbyTimelineRepository` SHALL be bound behind a `NearbyTimelineFlow` interface (`single<NearbyTimelineFlow> { get<NearbyTimelineRepository>() }`) so a `FakeNearbyTimelineFlow` can drive the screen tests, mirroring `mobile-auth-signin`'s `AuthFlow` seam.
 
 #### Scenario: Koin registers the timeline graph behind the flow interface
-- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/di/MobileModule.kt`
-- **THEN** the module declares singletons for `NearbyTimelineApiClient`, `NearbyTimelineRepository`, `LocationProvider`, and `SessionIdProvider` AND binds `single<NearbyTimelineFlow> { get<NearbyTimelineRepository>() }`
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/di/MobileModule.kt` and each `platformModule`
+- **THEN** `mobileModule` declares singletons for `NearbyTimelineApiClient`, `NearbyTimelineRepository`, and `SessionIdProvider` AND binds `single<NearbyTimelineFlow> { get<NearbyTimelineRepository>() }` AND the `LocationProvider` binding is provided by each `platformModule` (the real provider), NOT hardcoded to `StubLocationProvider` in `mobileModule`
 
 ### Requirement: No author identifier or coordinate is rendered or logged
 
@@ -205,4 +188,40 @@ The change SHALL ship: (1) a Robolectric `NearbyTimelineScreenTest` (`mobile/app
 #### Scenario: Screen test is excluded from the Release variant
 - **WHEN** inspecting `mobile/app/build.gradle.kts`
 - **THEN** the `tasks.withType<Test>()` Release-variant exclude block lists `**/NearbyTimelineScreenTest*` alongside the existing `*ScreenTest` exclusions (the `ui-test-manifest` host activity is debug-only)
+
+### Requirement: Nearby feed is gated on location permission with a denial fallback
+
+The Nearby surface SHALL consult the `mobile-location` `LocationPermissionController` BEFORE fetching: when permission is granted it SHALL proceed to the existing `NearbyTimelineFlow.loadFirstPage()` fetch path; when permission is denied or unavailable it SHALL render a **pre-fetch** location-permission-denied state and SHALL NOT invoke the fetch. The denial state SHALL show `stringResource(Res.string.<nearby location denied>)` ("*Aktifkan lokasi untuk lihat postingan sekitar*") plus a "*Buka Pengaturan*" CTA that invokes `LocationPermissionController.openAppSettings()`. This denial state is a pre-fetch gate state, distinct from the six fetch-outcome states in the § "Screen state mapping covers loading, content, empty, error, and both rate-limit states" requirement (which is unchanged). When permission is GRANTED but a device coordinate cannot be acquired (GPS off / timeout / null fix), the surface SHALL render the **existing** retryable error state (network-error copy + retry control) and SHALL NOT introduce a new `NearbyTimelineOutcome` member — keeping `NearbyTimelineRepository`'s outcome enum unchanged.
+
+#### Scenario: Denied permission renders the fallback and issues no fetch
+- **GIVEN** a fake `LocationPermissionController` reporting `DENIED` AND a `FakeNearbyTimelineFlow` counting fetch invocations
+- **WHEN** the Nearby surface is composed
+- **THEN** the rendered tree contains a node whose text matches `stringResource` of the "Aktifkan lokasi…" denial copy AND a clickable "Buka Pengaturan" node AND the fetch invocation count is `0`
+
+#### Scenario: Granted permission drives the existing fetch path
+- **GIVEN** a fake `LocationPermissionController` reporting `GRANTED` AND a `FakeNearbyTimelineFlow`
+- **WHEN** the Nearby surface is composed
+- **THEN** `NearbyTimelineFlow.loadFirstPage()` is invoked (the existing fetch path runs) AND no denial copy is rendered
+
+#### Scenario: Granted but no coordinate obtainable maps to the existing retryable error state
+- **GIVEN** permission is `GRANTED` AND the location acquisition fails to yield a coordinate (GPS off / timeout / null fix)
+- **WHEN** the Nearby surface attempts to load
+- **THEN** the rendered tree shows the existing retryable error state (`stringResource(Res.string.signin_error_network)` + a `cta_retry` control) AND no new `NearbyTimelineOutcome` member is introduced (the repository's sealed outcome type is unchanged)
+
+#### Scenario: Buka Pengaturan CTA deep-links to settings
+- **GIVEN** the denial state is rendered
+- **WHEN** the "Buka Pengaturan" CTA is activated
+- **THEN** `LocationPermissionController.openAppSettings()` is invoked
+
+### Requirement: Default LocationProvider binding is the real device provider; repository mapping unchanged
+
+The default **production** `LocationProvider` Koin binding SHALL be the real platform device-location provider (per the `mobile-location` capability), NOT `StubLocationProvider`; `StubLocationProvider` SHALL be retained as the test double. The `LocationProvider` interface signature (`suspend fun current(): LatLng`) SHALL remain unchanged. `NearbyTimelineRepository`'s status-driven `NearbyTimelineOutcome` mapping (HTTP 200→`Loaded`, 400→retryable `Error`, 5xx/IO→`NetworkError`, 401 delegated to the shipped `Auth` plugin) SHALL remain byte-for-byte unchanged — location-permission denial is handled by the screen's pre-fetch gate, not by a new repository outcome.
+
+#### Scenario: Real provider is the default production binding
+- **WHEN** inspecting the production Koin modules and `commonTest`
+- **THEN** the production `LocationProvider` is the real platform provider (not `StubLocationProvider`) AND `StubLocationProvider` returning `LatLng(-6.2, 106.8)` remains the test double
+
+#### Scenario: Repository outcome mapping is unchanged
+- **WHEN** comparing `NearbyTimelineRepository`'s status→`NearbyTimelineOutcome` mapping before and after this change
+- **THEN** the mapping is unchanged (no new `NearbyTimelineOutcome` member is introduced for location denial; the gate lives in the screen layer)
 

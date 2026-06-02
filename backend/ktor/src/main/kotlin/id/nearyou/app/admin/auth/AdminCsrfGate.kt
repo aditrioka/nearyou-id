@@ -5,11 +5,13 @@ import id.nearyou.app.common.clientIp
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Parameters
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.auth.principal
 import io.ktor.server.request.contentType
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respond
+import io.ktor.util.AttributeKey
 
 /**
  * CSRF middleware for the admin panel.
@@ -124,13 +126,36 @@ object AdminCsrfGate {
 
     private suspend fun readFormToken(call: ApplicationCall): String? =
         try {
-            call.receiveParameters()[FORM_FIELD_NAME]
+            val params = call.receiveParameters()
+            // Stash the parsed body so a state-changing handler can read other
+            // fields (e.g. a free-text `reason`) AFTER validation without a
+            // second raw receive — Ktor does NOT re-serve a consumed body
+            // without the DoubleReceive plugin. See [formParametersAfterValidation].
+            call.attributes.put(CONSUMED_FORM_PARAMETERS, params)
+            params[FORM_FIELD_NAME]
         } catch (_: Exception) {
             null
         }
 
+    /**
+     * The current request's form parameters, safe to read AFTER [validateCsrf].
+     * When the CSRF token arrived via the `_csrf` form field, the gate already
+     * parsed (and consumed) the body, so this returns the stashed instance; when
+     * it arrived via the `X-CSRF-Token` header (body untouched) this performs the
+     * first `receiveParameters()` read. Returns empty parameters for a body-less
+     * request. This realizes the "read the form field after the CSRF gate"
+     * contract without a second raw receive (which Ktor only supports with the
+     * DoubleReceive plugin).
+     */
+    suspend fun formParametersAfterValidation(call: ApplicationCall): Parameters =
+        call.attributes.getOrNull(CONSUMED_FORM_PARAMETERS)
+            ?: runCatching { call.receiveParameters() }.getOrDefault(Parameters.Empty)
+
     const val X_CSRF_TOKEN_HEADER = "X-CSRF-Token"
     const val FORM_FIELD_NAME = "_csrf"
+
+    /** Stash key for the form parameters the gate parsed while reading `_csrf`. */
+    private val CONSUMED_FORM_PARAMETERS: AttributeKey<Parameters> = AttributeKey("AdminCsrfConsumedFormParameters")
 
     private enum class TokenSource { HEADER, FORM_FIELD, MISSING }
 }

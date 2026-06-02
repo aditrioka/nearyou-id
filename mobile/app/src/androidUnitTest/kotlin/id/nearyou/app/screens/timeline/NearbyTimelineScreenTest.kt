@@ -7,6 +7,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
+import id.nearyou.app.location.FakeLocationPermissionController
+import id.nearyou.app.location.LocationPermissionController
+import id.nearyou.app.location.LocationPermissionStatus
 import id.nearyou.app.screens.home.HomeScreen
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
@@ -54,13 +57,26 @@ private const val HOME_PLACEHOLDER_TITLE = "NearYouID" // home_placeholder_title
 class NearbyTimelineScreenTest {
     private lateinit var fake: FakeNearbyTimelineFlow
 
+    // The Nearby surface is gated on location permission (mobile-location-permission-flow): bind a
+    // GRANTED FakeLocationPermissionController so these six-state render assertions reach the fetch
+    // path through the gate. The denied / rationale / granted-but-no-fix gate states are covered by
+    // NearbyLocationGateScreenTest.
     private fun installKoin(
         outcome: NearbyTimelineOutcome = NearbyTimelineOutcome.Loaded(emptyList(), null, null),
         suspendForever: Boolean = false,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeNearbyTimelineFlow(outcome = outcome, suspendForever = suspendForever)
-        startKoin { modules(module { single<NearbyTimelineFlow> { fake } }) }
+        startKoin {
+            modules(
+                module {
+                    single<NearbyTimelineFlow> { fake }
+                    single<LocationPermissionController> {
+                        FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
+                    }
+                },
+            )
+        }
     }
 
     @AfterTest
