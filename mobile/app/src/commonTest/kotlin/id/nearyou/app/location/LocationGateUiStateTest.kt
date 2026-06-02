@@ -16,17 +16,17 @@ import kotlin.test.assertEquals
  */
 class LocationGateUiStateTest {
     @Test
-    fun `granted projects to Granted (proceed-to-fetch)`() {
+    fun `granted projects to Granted proceed-to-fetch`() {
         assertEquals(LocationGateUiState.Granted, locationGateUiState(LocationPermissionStatus.GRANTED))
     }
 
     @Test
-    fun `denied projects to Denied (denied-fallback)`() {
+    fun `denied projects to Denied denied-fallback`() {
         assertEquals(LocationGateUiState.Denied, locationGateUiState(LocationPermissionStatus.DENIED))
     }
 
     @Test
-    fun `not-determined projects to Rationale (prompt-rationale)`() {
+    fun `not-determined projects to Rationale prompt-rationale`() {
         assertEquals(LocationGateUiState.Rationale, locationGateUiState(LocationPermissionStatus.NOT_DETERMINED))
     }
 }

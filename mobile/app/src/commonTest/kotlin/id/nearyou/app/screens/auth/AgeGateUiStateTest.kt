@@ -62,7 +62,7 @@ class AgeGateUiStateTest {
     // ----- ageGateUiState projection (exhaustive over SignUpOutcome) -----
 
     @Test
-    fun `initial state with a submittable DOB enables the Create CTA, no banner`() {
+    fun `initial state with a submittable DOB enables the Create CTA no banner`() {
         val state = ageGateUiState(outcome = null, dobSubmittable = true, inFlight = false)
         assertEquals(AgeGateCtaLabel.CREATE, state.ctaLabel)
         assertTrue(state.ctaEnabled)
@@ -77,7 +77,7 @@ class AgeGateUiStateTest {
     }
 
     @Test
-    fun `in-flight shows the loading label, disabled, no banner`() {
+    fun `in-flight shows the loading label disabled no banner`() {
         val state = ageGateUiState(outcome = null, dobSubmittable = true, inFlight = true)
         assertEquals(AgeGateCtaLabel.LOADING, state.ctaLabel)
         assertFalse(state.ctaEnabled)
@@ -92,7 +92,7 @@ class AgeGateUiStateTest {
     }
 
     @Test
-    fun `Blocked shows the blocked banner, Create label, CTA still enabled (no hard-block)`() {
+    fun `Blocked shows the blocked banner Create label CTA still enabled no hard-block`() {
         val state = ageGateUiState(SignUpOutcome.Blocked, dobSubmittable = true, inFlight = false)
         assertEquals(AgeGateCtaLabel.CREATE, state.ctaLabel)
         assertTrue(state.ctaEnabled, "the client must not hard-block — the user may re-submit")
@@ -106,7 +106,7 @@ class AgeGateUiStateTest {
     }
 
     @Test
-    fun `InvalidIdToken shows the token-invalid banner, Create label`() {
+    fun `InvalidIdToken shows the token-invalid banner Create label`() {
         val state = ageGateUiState(SignUpOutcome.InvalidIdToken, dobSubmittable = true, inFlight = false)
         assertEquals(AgeGateCtaLabel.CREATE, state.ctaLabel)
         assertEquals(AgeGateBanner.TOKEN_INVALID, state.banner)
@@ -120,7 +120,7 @@ class AgeGateUiStateTest {
     }
 
     @Test
-    fun `Success and Cancelled have no banner (navigation or no-op handles them)`() {
+    fun `Success and Cancelled have no banner navigation or no-op handles them`() {
         assertNull(ageGateUiState(SignUpOutcome.Success, dobSubmittable = true, inFlight = false).banner)
         assertNull(ageGateUiState(SignUpOutcome.Cancelled, dobSubmittable = true, inFlight = false).banner)
     }

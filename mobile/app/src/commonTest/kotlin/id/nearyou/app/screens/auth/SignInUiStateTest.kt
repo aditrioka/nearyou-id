@@ -16,7 +16,7 @@ import kotlin.test.assertNull
  */
 class SignInUiStateTest {
     @Test
-    fun `initial state shows the Google CTA, enabled, no banner`() {
+    fun `initial state shows the Google CTA enabled no banner`() {
         val state = signInUiState(outcome = null, inFlight = false)
         assertEquals(SignInCtaLabel.GOOGLE, state.ctaLabel)
         assertEquals(true, state.ctaEnabled)
@@ -24,7 +24,7 @@ class SignInUiStateTest {
     }
 
     @Test
-    fun `in-flight shows the loading label, disabled, no banner`() {
+    fun `in-flight shows the loading label disabled no banner`() {
         val state = signInUiState(outcome = null, inFlight = true)
         assertEquals(SignInCtaLabel.LOADING, state.ctaLabel)
         assertEquals(false, state.ctaEnabled)
@@ -39,7 +39,7 @@ class SignInUiStateTest {
     }
 
     @Test
-    fun `NoAccount shows no banner (Mobile #4 navigates to AgeGateScreen), Google label, enabled`() {
+    fun `NoAccount shows no banner Mobile 4 navigates to AgeGateScreen Google label enabled`() {
         // Mobile #4: 404 navigates to AgeGateScreen instead of showing the retired
         // signin_error_no_account banner — like Success, it's a transient navigation trigger.
         val state = signInUiState(SignInOutcome.NoAccount("g-id"), inFlight = false)
@@ -57,7 +57,7 @@ class SignInUiStateTest {
     }
 
     @Test
-    fun `NetworkError shows the retry label and network banner, enabled`() {
+    fun `NetworkError shows the retry label and network banner enabled`() {
         val state = signInUiState(SignInOutcome.NetworkError, inFlight = false)
         assertEquals(SignInCtaLabel.RETRY, state.ctaLabel)
         assertEquals(true, state.ctaEnabled)
@@ -65,7 +65,7 @@ class SignInUiStateTest {
     }
 
     @Test
-    fun `terminal InvalidIdToken keeps the initial Google label, enabled, with the token banner`() {
+    fun `terminal InvalidIdToken keeps the initial Google label enabled with the token banner`() {
         val state = signInUiState(SignInOutcome.InvalidIdToken, inFlight = false)
         assertEquals(SignInCtaLabel.GOOGLE, state.ctaLabel, "CTA returns to initial label after terminal 401")
         assertEquals(true, state.ctaEnabled)
@@ -81,7 +81,7 @@ class SignInUiStateTest {
     }
 
     @Test
-    fun `Success has no banner (navigation handles the transition)`() {
+    fun `Success has no banner navigation handles the transition`() {
         val state = signInUiState(SignInOutcome.Success, inFlight = false)
         assertNull(state.errorBanner)
     }

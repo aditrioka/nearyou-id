@@ -61,7 +61,7 @@ class SecureTokenStoreContractTest {
         }
 
     @Test
-    fun `clear on empty store is a no-op (does not throw)`() =
+    fun `clear on empty store is a no-op does not throw`() =
         runTest {
             val store = InMemoryTokenStore()
             store.clear()

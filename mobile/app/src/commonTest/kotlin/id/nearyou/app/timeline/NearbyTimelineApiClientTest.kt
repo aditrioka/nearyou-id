@@ -154,7 +154,7 @@ class NearbyTimelineApiClientTest {
     // ---- Negative regression: the shipped wire is mixed-case, NOT the spec's snake_case example. ----
 
     @Test
-    fun `snake_case-only post body fails to parse (camelCase wire binding is required)`() {
+    fun `snake_case-only post body fails to parse camelCase wire binding is required`() {
         val json =
             Json {
                 ignoreUnknownKeys = true
