@@ -36,7 +36,7 @@ PR [#118](https://github.com/aditrioka/nearyou-id/pull/118) (squash-merged 2026-
 
 **Non-Goals:**
 
-- **Authoring the "no hardcoded UI strings" Detekt rule.** Still deferred per existing `FOLLOW_UPS.md` entry `mobile-negative-requirement-ci-grep` (FOLLOW_UPS.md:735), which proposes the future OpenSpec change `mobile-negative-requirement-detekt-rule`. A [`grep`-shaped verification](#decision-7) stays in place; this change just retargets the future rule's expected accessor pattern from `MR.strings` to `Res.string`.
+- **Authoring the "no hardcoded UI strings" Detekt rule.** Still deferred per existing `FOLLOW_UPS.md` entry `mobile-negative-requirement-ci-grep` (FOLLOW_UPS.md), which proposes the future OpenSpec change `mobile-negative-requirement-detekt-rule`. A [`grep`-shaped verification](#decision-7) stays in place; this change just retargets the future rule's expected accessor pattern from `MR.strings` to `Res.string`.
 - **moko-mvvm migration.** Not in use (project already wired `org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose`, JetBrains' KMP fork of AndroidX Lifecycle, at Mobile #1). Skip.
 - **moko-permissions / moko-media adoption.** Not in use yet. Defer permissions library choice to Mobile #5/#6 when `mobile-nearby-timeline-screen` actually needs location permission. Lean Calf ([mohamedrejeb/Calf](https://github.com/MohamedRejeb/Calf)) at decision time, but pre-picking here is premature.
 - **Hand-tuned dark palette.** Still deferred per `shared-resources-moko-bootstrap` design.md Decision 3 (mechanically-derived dark stays).
@@ -196,7 +196,7 @@ iosTarget.binaries.framework {
 
 ### Decision 7: Grep-based "no hardcoded UI strings" verification retargets from `MR.strings` to `Res.string`
 
-**Choice:** Update the grep heuristic shape (currently archived in `shared-resources-moko-bootstrap` tasks.md Section 8) to accept `Res.string` / `Res.drawable` accessors instead of `MR.strings` / `MR.images`. This change ships an UPDATED grep heuristic in its own tasks.md Section 8 (re-derived from Mobile #2's shape, not just diff-copied — since the grep is a verification step, not a deliverable, it lives in tasks.md not in spec scenarios). The existing `FOLLOW_UPS.md` entry `mobile-negative-requirement-ci-grep` (at FOLLOW_UPS.md:735 — proposes the future OpenSpec change `mobile-negative-requirement-detekt-rule`) is updated to reference the new accessor pattern.
+**Choice:** Update the grep heuristic shape (currently archived in `shared-resources-moko-bootstrap` tasks.md Section 8) to accept `Res.string` / `Res.drawable` accessors instead of `MR.strings` / `MR.images`. This change ships an UPDATED grep heuristic in its own tasks.md Section 8 (re-derived from Mobile #2's shape, not just diff-copied — since the grep is a verification step, not a deliverable, it lives in tasks.md not in spec scenarios). The existing `FOLLOW_UPS.md` entry `mobile-negative-requirement-ci-grep` (at FOLLOW_UPS.md — proposes the future OpenSpec change `mobile-negative-requirement-detekt-rule`) is updated to reference the new accessor pattern.
 
 **Grep shape (lives in this change's tasks.md Section 8):**
 
