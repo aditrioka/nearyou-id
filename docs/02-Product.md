@@ -116,8 +116,8 @@ During the 72h window the user is **still effectively private** (app-layer short
 
 ### Overview
 
-- Text post (max 280 chars) + auto/manual location
-- Location: coordinate + address resolution + optional naming
+- Text post (max 280 chars) + automatic location (device-acquired GPS; no manual selection)
+- Location: coordinate + address resolution (auto-derived; no manual entry)
 - **Visibility model**: the post has no reach control from the author's side. A post "exists" at the author's location when it was created. The viewer chooses the radius.
 - Quota: Free 10/day, Premium unlimited
 - **Premium edit window of 30 minutes** with server-side validation + transactional atomicity + race protection
