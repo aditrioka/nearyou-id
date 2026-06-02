@@ -42,6 +42,16 @@ The mobile app SHALL ship a Voyager `Screen` implementation `PostCreationScreen`
 - **WHEN** inspecting the `@Serializable` request DTO and the captured request body
 - **THEN** the wire keys are `latitude` / `longitude` (NOT `lat` / `lng` / `actual_lat` / snake_case) so the body matches the shipped `CreatePostRequestDto` exactly
 
+#### Scenario: Non-2xx parses the error envelope into HttpError(status, errorCode)
+- **GIVEN** a `MockEngine` returning HTTP 400 `{"error":{"code":"content_too_long","message":"..."}}`
+- **WHEN** `createPost(...)` runs
+- **THEN** the result is `PostCreationApiResult.HttpError` carrying `status = 400` AND `errorCode = "content_too_long"` (the `{ "error": { "code" } }` envelope is parsed best-effort; a non-2xx is a value, never a thrown exception)
+
+#### Scenario: CancellationException is rethrown, not swallowed
+- **GIVEN** a `createPost(...)` call whose coroutine is cancelled mid-flight (the HTTP call throws `CancellationException`)
+- **WHEN** the client's catch handling runs
+- **THEN** the `CancellationException` is rethrown (structured concurrency unwinds) and is NOT mapped to `NetworkError` (mirrors `NearbyTimelineApiClient`'s cancellation discipline)
+
 ### Requirement: Success body parses minimally and no coordinate is rendered
 
 `PostCreationApiClient` SHALL parse the 201 response into a minimal `@Serializable CreatedPostDto(id: String)` that relies on the shared `Json`'s `ignoreUnknownKeys = true` to tolerate the remaining create-response fields. The create response's `distance_m` and `created_at` are **snake_case** (unlike the Nearby timeline's camelCase `distanceM`/`createdAt`); the minimal DTO MUST NOT depend on those fields, and a code comment SHALL record that the casing asymmetry is intentional. The echoed `latitude`/`longitude` in the 201 body (the author's actual coordinate) MUST NOT be read into any rendered field.
@@ -190,7 +200,7 @@ The post coordinate travels in the `POST /api/v1/posts` request **body**. This c
 
 #### Scenario: The create client does not log the body or coordinate
 - **WHEN** inspecting `PostCreationApiClient.kt` and `CreatePostRepository.kt`
-- **THEN** neither logs/`println`s the request body, the `latitude`/`longitude`, nor the serialized payload (any diagnostic sink carries only non-coordinate detail)
+- **THEN** neither logs/`println`s the request body, the `latitude`/`longitude`, nor the serialized payload AND the `CreatePostRepository`'s `diagnosticLog` sink signature is coordinate-free by construction (it accepts only `status`/`errorCode`-style primitives — never `content` or the `LatLng`), so the no-coordinate-logging discipline is structural, not merely review-enforced
 
 ### Requirement: Koin wiring behind the CreatePostFlow seam
 
@@ -202,15 +212,15 @@ The post coordinate travels in the `POST /api/v1/posts` request **body**. This c
 
 ### Requirement: New Bahasa Indonesia composer strings are declared in :shared:resources
 
-The change SHALL add the composer strings to `shared/resources/src/commonMain/composeResources/values/strings.xml` and reference each via the generated `Res.string.*` accessor (the CMP Resources codegen emits an accessor only for a declared `<string>`, so a missing key fails to compile). The new keys SHALL be: `post_create_title`, `post_create_content_placeholder`, `post_create_char_counter` (declared `formatted="true"`, taking the integer count), `cta_post`, `post_create_loading`, `post_create_error_empty`, `post_create_error_too_long`, `post_create_error_location`, `post_create_error_moderated`, `post_create_location_unavailable`. The `post_create_error_moderated` copy MUST be generic and MUST NOT contain any moderation keyword. `SharedStringsCatalogTest` SHALL be extended to reference every new accessor and its count assertion updated accordingly. (Reused existing strings: `signin_error_network`, `cta_retry`, `location_open_settings`.)
+The change SHALL add the composer strings to `shared/resources/src/commonMain/composeResources/values/strings.xml` and reference each via the generated `Res.string.*` accessor (the CMP Resources codegen emits an accessor only for a declared `<string>`, so a missing key fails to compile). The new keys SHALL be (10 total): `post_create_title`, `post_create_content_placeholder`, `post_create_char_counter` (declared `formatted="true"`, taking the integer count), `cta_post`, `post_create_loading`, `post_create_error_empty`, `post_create_error_too_long`, `post_create_error_location`, `post_create_error_moderated`, `post_create_location_unavailable`. The `post_create_error_moderated` copy MUST use the canonical backend rejection wording from `openspec/specs/post-creation/spec.md` § "Verdict.Reject" — `"Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi."` — which is generic and contains no moderation keyword. `SharedStringsCatalogTest` SHALL be extended to reference every new accessor and its declared-count assertion updated from 36 to **46** (the 3 reused strings — `signin_error_network`, `cta_retry`, `location_open_settings` — are already counted).
 
 #### Scenario: All new composer string keys are declared and accessible
 - **WHEN** `SharedStringsCatalogTest` (which references each new `Res.string.*` accessor by name) is compiled and run
-- **THEN** it compiles (every referenced key exists in `strings.xml`) AND its declared-count assertion matches the new total (the prior 36 plus the new keys)
+- **THEN** it compiles (every referenced key exists in `strings.xml`) AND its declared-count assertion equals 46 (the prior 36 plus the 10 new keys)
 
-#### Scenario: The moderation-rejection copy omits the matched keyword
+#### Scenario: The moderation-rejection copy is canonical and omits the matched keyword
 - **WHEN** inspecting the value of `post_create_error_moderated` in `strings.xml`
-- **THEN** the copy is a generic Bahasa Indonesia rejection message that contains no specific profanity/keyword token (matching the backend's keyword-omission discipline)
+- **THEN** it equals the canonical backend rejection wording `"Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi."` — a generic Bahasa Indonesia message with no specific profanity/keyword token (matching the backend's keyword-omission discipline)
 
 ### Requirement: Test coverage for the screen, projection, and networking
 

@@ -39,6 +39,24 @@ Format per entry:
 
 ---
 
+## post-creation-spec-error-enumeration-stale
+
+**Discovered during:** `mobile-post-creation-screen` `/next-change` Phase D multi-lens review (reconciliation check against `openspec/specs/post-creation/spec.md`).
+**Status:** open
+
+**Finding:** `openspec/specs/post-creation/spec.md` § "Error envelope" states the 400 codes "SHALL be **exactly** `content_empty`, `content_too_long`, `location_out_of_bounds`, `invalid_json`, and `unauthenticated`" — but the SAME spec's § "Verdict.Reject" requirement (folded in when `content-moderation-keyword-lists` archived into the post-creation capability) defines a sixth code `content_moderated_profanity` with message `"Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi."`. The "exactly [5]" enumeration is stale / internally contradictory; the backend (`Application.kt` StatusPages + `CreatePostService.ContentModeratedProfanityException`) emits 6 client-relevant 400 codes.
+
+**Specs at fault:** `openspec/specs/post-creation/spec.md` § "Error envelope" (the "exactly these codes" sentence).
+**Code at fault:** none — the backend is correct (emits `content_moderated_profanity`).
+**Docs at fault:** none.
+
+**Impact (if shipped):** Low — documentation-only inconsistency within one spec. Risk: a future reader trusting the "exactly [5]" line "corrects" a client (e.g. the new `mobile-post-creation` composer) to drop `content_moderated_profanity` handling, regressing the moderation-rejection UX. `mobile-post-creation-screen` handles all six correctly and flags this in its proposal + design D9.
+
+**Action items:**
+- [ ] Amend `openspec/specs/post-creation/spec.md` § "Error envelope" to include `content_moderated_profanity` and reconcile the "exactly" phrasing with the § "Verdict.Reject" requirement (regular docs PR; not OpenSpec).
+
+---
+
 ## observability-otel-collector-tail-sampling
 
 **Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 adversarial-lens finding #11 — the round-1 design § D4 force-keep `SpanProcessor` re-emitting via `Tracer.spanBuilder().setNoParent()` is structurally wrong: it creates a fresh root span detached from the original trace, breaking trace_id linkage in Tempo.
