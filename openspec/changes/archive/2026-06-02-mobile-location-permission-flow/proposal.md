@@ -18,7 +18,7 @@ The flagship Nearby screen (shipped in `mobile-nearby-timeline-screen`, [PR #128
 - Following/Global denial fallbacks ([`docs/03-UX-Design.md`](../../../docs/03-UX-Design.md) §78-79) — those screens don't exist yet; the intended behavior is documented but implementation defers to when they ship.
 - The broader analytics-consent onboarding screen — separate change.
 - The full linear onboarding sequence (age-gate → analytics-consent → location, [`docs/03-UX-Design.md`](../../../docs/03-UX-Design.md):57) — this change triggers location consent/permission **contextually** at the Nearby surface (design D4); wiring it into a linear onboarding flow waits on the analytics-consent screen.
-- The post-creation location picker → `mobile-post-creation-screen`.
+- The post-creation location capture → `mobile-post-creation-screen` (nature later narrowed to automatic-only — no manual picker; see `docs/02-Product.md`).
 - Stronger age assurance (Apple/Google age signals) → roadmap Pre-Launch #7.
 
 ## Capabilities

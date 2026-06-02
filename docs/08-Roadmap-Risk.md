@@ -145,7 +145,7 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 - **Age gate screen (DOB picker + 18+ flow)**
 - **Analytics consent screen (UU PDP opt-in)**
 - Consent flow (location + notifications)
-- Post creation + location picker + content length guard
+- Post creation (automatic device location; no manual picker) + content length guard
 - Nearby + Following + Global timeline + sliding window session tracking
 - Profile + settings (analytics consent toggle, block list management, suspension countdown UI)
 - Chat UI (block check, content length)

@@ -18,7 +18,7 @@ Constraints:
 **Non-Goals:**
 - Precise location + radius slider (→ `mobile-nearby-radius-slider`).
 - Following/Global denial fallbacks (those screens don't exist yet) — behavior documented, implementation deferred.
-- The broader analytics-consent onboarding screen; the post-creation location picker; stronger age assurance (roadmap Pre-Launch #7).
+- The broader analytics-consent onboarding screen; the post-creation location capture (now automatic-only — no manual picker); stronger age assurance (roadmap Pre-Launch #7).
 - Background/"always" location; continuous location streaming (one-shot acquisition per fetch is sufficient for the fixed 20km radius).
 
 ## Decisions
