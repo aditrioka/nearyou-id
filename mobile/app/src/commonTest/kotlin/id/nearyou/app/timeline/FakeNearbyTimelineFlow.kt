@@ -6,11 +6,15 @@ import kotlinx.coroutines.awaitCancellation
  * Test-only [NearbyTimelineFlow] for screen tests. Returns a pre-programmed [NearbyTimelineOutcome]
  * and counts invocations so a test can assert pull-to-refresh / retry re-invokes the fetch (mirrors
  * `FakeAuthFlow`). With [suspendForever] = true, `loadFirstPage` never returns — the screen stays
- * in-flight, so the Loading state can be asserted.
+ * in-flight, so the Loading state can be asserted. With [failWith] set, `loadFirstPage` throws it
+ * after counting the invocation — used to simulate the granted-but-no-fix path (the real
+ * `LocationProvider` throwing `LocationUnavailableException`), which the screen maps to the existing
+ * retryable error state.
  */
 class FakeNearbyTimelineFlow(
     private val outcome: NearbyTimelineOutcome = NearbyTimelineOutcome.Loaded(emptyList(), null, null),
     private val suspendForever: Boolean = false,
+    private val failWith: Throwable? = null,
 ) : NearbyTimelineFlow {
     var loadInvocationCount: Int = 0
         private set
@@ -18,6 +22,7 @@ class FakeNearbyTimelineFlow(
     override suspend fun loadFirstPage(): NearbyTimelineOutcome {
         loadInvocationCount++
         if (suspendForever) awaitCancellation()
+        failWith?.let { throw it }
         return outcome
     }
 }

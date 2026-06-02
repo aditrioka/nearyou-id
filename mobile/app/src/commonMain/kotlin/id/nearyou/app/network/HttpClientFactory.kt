@@ -38,6 +38,33 @@ private object PrintlnLogger : Logger {
 }
 
 /**
+ * Masks the VALUE of any `lat` / `lng` / `coord…` URL query parameter in a log line, so the
+ * now-real viewer coordinate never reaches debug logs via the `HttpClient`'s request-line logging
+ * (`LogLevel.HEADERS` logs the URL incl. its query string; the `Authorization`-header `sanitizeHeader`
+ * does NOT cover query params). Per `openspec/specs/mobile-location` § "Coordinate query parameters
+ * are masked in HTTP-client logs". Anchored to a `?`/`&` boundary so only whole param names match
+ * (e.g. `radius_m` is untouched); case-insensitive.
+ */
+private val COORDINATE_QUERY_PARAM_REGEX = Regex("([?&](?:lat|lng|coord[a-z]*)=)[^&#\\s]*", RegexOption.IGNORE_CASE)
+
+private fun maskCoordinateQueryParams(message: String): String =
+    COORDINATE_QUERY_PARAM_REGEX.replace(message) { match -> match.groupValues[1] + "***" }
+
+/**
+ * Decorates a [Logger] so every emitted line has its coordinate query-param values masked before it
+ * reaches the underlying logger (incl. a capturing test logger). Composes with the
+ * `Authorization`-header `sanitizeHeader`: the header sanitizer never sees the URL query string, so
+ * this closes the coordinate leak that sanitizer cannot.
+ */
+private class CoordinateMaskingLogger(
+    private val delegate: Logger,
+) : Logger {
+    override fun log(message: String) {
+        delegate.log(maskCoordinateQueryParams(message))
+    }
+}
+
+/**
  * Builds the single shared [HttpClient] for `:mobile:app`.
  *
  * 5.5a test strategy: [create] takes `apiBaseUrl` as a **parameter** (option (b)) rather than
@@ -54,7 +81,9 @@ private object PrintlnLogger : Logger {
  *    re-route) and returns `null` so the plugin surfaces a terminal 401.
  *  - `Logging` — installed ONLY when [installLogging] (debug builds). `LogLevel.HEADERS`
  *    (never `ALL`, which would log the raw refresh-token request body) + a mandatory
- *    `sanitizeHeader` masking `Authorization` to `***`.
+ *    `sanitizeHeader` masking `Authorization` to `***` + a [CoordinateMaskingLogger] wrapper that
+ *    masks `lat`/`lng`/`coord…` query-param VALUES (the Nearby coordinate travels in the URL query,
+ *    which the header sanitizer cannot reach) — `mobile-location-permission-flow`.
  *  - `DefaultRequest { url(apiBaseUrl) }`.
  */
 object HttpClientFactory {
@@ -115,7 +144,9 @@ object HttpClientFactory {
 
             if (installLogging) {
                 install(Logging) {
-                    this.logger = logger
+                    // Wrap the (possibly test-capturing) logger so coordinate query-param values are
+                    // masked in the logged request line, alongside the Authorization-header sanitizer.
+                    this.logger = CoordinateMaskingLogger(logger)
                     level = LogLevel.HEADERS
                     sanitizeHeader { header -> header.equals(HttpHeaders.Authorization, ignoreCase = true) }
                 }

@@ -19,6 +19,11 @@ import id.nearyou.resources.generated.resources.error_generic
 import id.nearyou.resources.generated.resources.home_placeholder_title
 import id.nearyou.resources.generated.resources.home_placeholder_version
 import id.nearyou.resources.generated.resources.loading
+import id.nearyou.resources.generated.resources.location_consent_allow
+import id.nearyou.resources.generated.resources.location_consent_body
+import id.nearyou.resources.generated.resources.location_consent_title
+import id.nearyou.resources.generated.resources.location_open_settings
+import id.nearyou.resources.generated.resources.nearby_location_denied
 import id.nearyou.resources.generated.resources.signin_error_banned
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.signin_error_no_account
@@ -81,12 +86,19 @@ class SharedStringsCatalogTest {
             Res.string.timeline_empty_nearby,
             Res.string.timeline_limit_hard,
             Res.string.timeline_limit_soft,
+            // mobile-location-permission-flow (consent rationale + denial fallback + settings CTA)
+            Res.string.location_consent_title,
+            Res.string.location_consent_body,
+            Res.string.location_consent_allow,
+            Res.string.nearby_location_denied,
+            Res.string.location_open_settings,
         )
 
     @Test
-    fun `all Mobile 2 3 4 and 5 string keys are declared`() {
-        // 10 (Mobile #2/#2.5) + 8 (Mobile #3) + 8 (Mobile #4) + 5 (Mobile #5 timeline) = 31.
-        assertEquals(31, allDeclaredStrings.size)
+    fun `all Mobile 2 3 4 and 5 plus location string keys are declared`() {
+        // 10 (Mobile #2/#2.5) + 8 (Mobile #3) + 8 (Mobile #4) + 5 (Mobile #5 timeline)
+        // + 5 (mobile-location-permission-flow) = 36.
+        assertEquals(36, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

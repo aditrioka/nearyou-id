@@ -12,6 +12,9 @@ import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.SignInOutcome
 import id.nearyou.app.auth.SignUpOutcome
+import id.nearyou.app.location.FakeLocationPermissionController
+import id.nearyou.app.location.LocationPermissionController
+import id.nearyou.app.location.LocationPermissionStatus
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
@@ -64,6 +67,12 @@ class RootRouterScreenTest {
                     // and loads on entry — provide a fast fake so the authenticated→Home route completes
                     // (an empty Loaded; the top-bar title renders in every state).
                     single<NearbyTimelineFlow> { FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null)) }
+                    // mobile-location-permission-flow: the Nearby surface is gated on a
+                    // LocationPermissionController. Bind a GRANTED fake so the authenticated→Home route
+                    // reaches the feed (its top-bar title is the HOME_MARKER).
+                    single<LocationPermissionController> {
+                        FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
+                    }
                 },
             )
         }

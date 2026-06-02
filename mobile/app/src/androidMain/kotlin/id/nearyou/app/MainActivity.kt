@@ -4,16 +4,30 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import id.nearyou.app.auth.CurrentActivityHolder
 import id.nearyou.app.di.initKoin
+import id.nearyou.app.location.LocationPermissionRequestBridge
 import org.koin.android.ext.koin.androidContext
 import org.koin.mp.KoinPlatformTools
 
 class MainActivity : ComponentActivity() {
     private val activityHolder: CurrentActivityHolder
         get() = KoinPlatformTools.defaultContext().get().get()
+
+    private val locationPermissionBridge: LocationPermissionRequestBridge
+        get() = KoinPlatformTools.defaultContext().get().get()
+
+    // Registered as a field initializer (before STARTED, as ActivityResultContracts requires); the
+    // coarse-location grant result is routed back to the suspend request via the Koin-singleton bridge
+    // (mobile-location-permission-flow). The bridge is resolved lazily inside the callback, so it is
+    // safe to register before initKoin runs in onCreate.
+    private val locationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            locationPermissionBridge.onResult(granted)
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -24,6 +38,10 @@ class MainActivity : ComponentActivity() {
         initKoin {
             androidContext(this@MainActivity.applicationContext)
         }
+
+        // Hand the registered launcher to the permission bridge (the Activity-result seam the
+        // AndroidLocationPermissionController drives).
+        locationPermissionBridge.launcher = locationPermissionLauncher
 
         setContent {
             App()
