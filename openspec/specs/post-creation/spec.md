@@ -130,7 +130,7 @@ V9 MUST NOT alter the shape, auth, validation, or response of `POST /api/v1/post
 
 ### Requirement: Post INSERT populates city_name and city_match_type via the 4-step fallback trigger
 
-As of V11, the `posts` INSERT path SHALL populate `city_name` and `city_match_type` via the `posts_set_city_tg` BEFORE INSERT trigger (see `region-polygons` capability), which runs the 4-step fallback ladder from [`docs/02-Product.md:192–196`](docs/02-Product.md): strict `ST_Contains` → 10 m buffered match with centroid tie-breaker → 50 km nearest-neighbor `fuzzy_match` → NULL.
+As of V11, the `posts` INSERT path SHALL populate `city_name` and `city_match_type` via the `posts_set_city_tg` BEFORE INSERT trigger (see `region-polygons` capability), which runs the 4-step fallback ladder from [`docs/02-Product.md–196`](docs/02-Product.md): strict `ST_Contains` → 10 m buffered match with centroid tie-breaker → 50 km nearest-neighbor `fuzzy_match` → NULL.
 
 Application code on the post-creation path MUST NOT supply `city_name` or `city_match_type` in its INSERT column list — those columns are reserved for the trigger. The caller's responsibility is unchanged: supply `content`, `latitude`, `longitude`, and the derived `display_location` + `actual_location`.
 
@@ -239,7 +239,7 @@ The migration MUST be idempotent against pre-existing `pg_trgm` (the `IF NOT EXI
 
 The verdict mapping is:
 - **`Verdict.Reject(matchedKeywords)`** → respond HTTP 400 with the existing error envelope, `error.code = "content_moderated_profanity"`, `error.message = "Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi."`. NO `posts` row is inserted, NO `moderation_queue` row is written. The matched keywords from the verdict are NOT included in the response body.
-- **`Verdict.Flag(matchedKeywords)`** → INSERT proceeds normally; in the same SQL transaction, INSERT one row into `moderation_queue` with `target_type = 'post'`, `target_id = <new_post_id>`, `trigger = 'uu_ite_keyword_match'`, `priority = 5`, `status = 'pending'`, `notes = NULL`. The INSERT uses `ON CONFLICT (target_type, target_id, trigger) DO NOTHING` (idempotency). The post is NOT auto-hidden (`is_auto_hidden = FALSE`); UU ITE Layer 2 is soft-flag only per [`docs/06-Security-Privacy.md:158`](../../../docs/06-Security-Privacy.md). Response is 201 with the canonical post payload (unchanged from the `Verdict.Allow` shape).
+- **`Verdict.Flag(matchedKeywords)`** → INSERT proceeds normally; in the same SQL transaction, INSERT one row into `moderation_queue` with `target_type = 'post'`, `target_id = <new_post_id>`, `trigger = 'uu_ite_keyword_match'`, `priority = 5`, `status = 'pending'`, `notes = NULL`. The INSERT uses `ON CONFLICT (target_type, target_id, trigger) DO NOTHING` (idempotency). The post is NOT auto-hidden (`is_auto_hidden = FALSE`); UU ITE Layer 2 is soft-flag only per [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md). Response is 201 with the canonical post payload (unchanged from the `Verdict.Allow` shape).
 - **`Verdict.Allow`** → INSERT proceeds normally; no `moderation_queue` row written. Response 201 unchanged.
 
 The moderator call site SHALL be the unique writer of the `Verdict.Reject` → HTTP 400 mapping in this handler — no other code path produces the same `error.code = "content_moderated_profanity"` envelope.

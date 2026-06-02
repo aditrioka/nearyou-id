@@ -55,7 +55,7 @@ The source dataset MUST be either BPS (CC-BY 4.0) or OpenStreetMap (`admin_level
 
 ### Requirement: Coastal kabupaten polygons extended by a 12nm maritime buffer at import time
 
-Per [`docs/02-Product.md:200–203`](docs/02-Product.md), coastal kabupaten polygons SHALL be extended by a 12 nautical mile (~22 km) maritime buffer in the import / dataset-prep step BEFORE the SQL INSERT statements are generated. The buffering MUST NOT be applied at query time — the trigger (see below) operates on the already-buffered polygons uniformly regardless of whether a region is inland or coastal.
+Per [`docs/02-Product.md–203`](docs/02-Product.md), coastal kabupaten polygons SHALL be extended by a 12 nautical mile (~22 km) maritime buffer in the import / dataset-prep step BEFORE the SQL INSERT statements are generated. The buffering MUST NOT be applied at query time — the trigger (see below) operates on the already-buffered polygons uniformly regardless of whether a region is inland or coastal.
 
 Posts inside the nearshore maritime buffer MUST therefore match step 1 (`ST_Contains`) of the fallback ladder, so `city_match_type = 'strict'` — not `'fuzzy_match'` — for posts in nearshore waters (e.g., Teluk Jakarta) that legitimately belong to a coastal kabupaten.
 
@@ -103,7 +103,7 @@ No other values are produced by the trigger. Adding a new value requires amendin
 
 ### Requirement: posts_set_city_tg BEFORE INSERT trigger implements the 4-step fallback ladder
 
-V11 SHALL create a PL/pgSQL function `posts_set_city_fn()` and a `BEFORE INSERT` trigger `posts_set_city_tg` on `posts` that runs `FOR EACH ROW`. The function body MUST implement the 4-step fallback ladder specified verbatim in [`docs/02-Product.md:192–196`](docs/02-Product.md) §"Polygon-Based Reverse Geocoding":
+V11 SHALL create a PL/pgSQL function `posts_set_city_fn()` and a `BEFORE INSERT` trigger `posts_set_city_tg` on `posts` that runs `FOR EACH ROW`. The function body MUST implement the 4-step fallback ladder specified verbatim in [`docs/02-Product.md–196`](docs/02-Product.md) §"Polygon-Based Reverse Geocoding":
 
 ```sql
 CREATE OR REPLACE FUNCTION posts_set_city_fn() RETURNS TRIGGER AS $$

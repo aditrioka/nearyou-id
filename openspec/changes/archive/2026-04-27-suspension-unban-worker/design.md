@@ -1,13 +1,13 @@
 ## Context
 
-[`docs/06-Security-Privacy.md:287-294`](docs/06-Security-Privacy.md) defines two distinct admin actions on a single `users` row:
+[`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) defines two distinct admin actions on a single `users` row:
 
 - **7-day suspension**: `UPDATE users SET is_banned = TRUE, suspended_until = NOW() + INTERVAL '7 days', token_version = token_version + 1`. Daily worker flips back when the window elapses.
 - **Permanent ban**: same but `suspended_until = NULL`. No automatic unban.
 
 The `age-gate` change (V3) shipped the `users.suspended_until TIMESTAMPTZ` column + the partial index `users_suspended_idx ON users(suspended_until) WHERE suspended_until IS NOT NULL` ([`docs/05-Implementation.md:226,242`](docs/05-Implementation.md)). The application-side suspend / permanent-ban writers do not exist yet (they'll ship with the Admin Panel in Phase 3.5), but the schema is ready.
 
-[`docs/05-Implementation.md:349-363`](docs/05-Implementation.md) provides the canonical SQL for the worker; [`docs/06-Security-Privacy.md:413-451`](docs/06-Security-Privacy.md) defines the OIDC auth contract for `/internal/*` endpoints.
+[`docs/05-Implementation.md:349-363`](docs/05-Implementation.md) provides the canonical SQL for the worker; [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) defines the OIDC auth contract for `/internal/*` endpoints.
 
 The just-shipped [`health-check-endpoints`](openspec/changes/archive/2026-04-27-health-check-endpoints/) change established two relevant precedents:
 - **Module-boundary discipline**: the "no vendor SDK outside `:infra:*`" invariant means the OIDC verifier must live in `:infra:oidc` (or similar), not in `:backend:ktor`.
@@ -149,7 +149,7 @@ The retry policy is appropriate for an idempotent operation — re-running the s
 **Decision**: The worker does NOT insert a `notifications` row when a user is unbanned. The user's next sign-in attempt or post action succeeds, which is the natural in-band signal.
 
 **Rationale**: Three options per the proposal:
-- **(A) Reuse `account_action_applied`** with `body_data = {action_type: "unban_applied", reason: "suspension_elapsed"}`. The UX copy ([`docs/03-UX-Design.md:184`](docs/03-UX-Design.md): "Akun kamu menerima tindakan moderasi") is generic and does not match a positive-restoration event. Risks user confusion ("did something else just happen?").
+- **(A) Reuse `account_action_applied`** with `body_data = {action_type: "unban_applied", reason: "suspension_elapsed"}`. The UX copy ([`docs/03-UX-Design.md`](docs/03-UX-Design.md): "Akun kamu menerima tindakan moderasi") is generic and does not match a positive-restoration event. Risks user confusion ("did something else just happen?").
 - **(B) Skip the notification** (this decision).
 - **(C) Add a new notification type** `account_action_lifted` with new UX copy. Requires updating the `notifications` schema CHECK enum, the `body_data` catalog in `docs/05-Implementation.md`, and the UX copy in `docs/03-UX-Design.md`. Spec amendment to the `in-app-notifications` capability. Worth the cost only if user research shows confusion.
 
@@ -191,7 +191,7 @@ In neither case does the row end up double-flipped or in an inconsistent state. 
 
 **Decision**: The OIDC plugin does NOT track `jti` claims and does NOT detect token replay within the token's `exp` window (Google OIDC tokens typically have a ~1-hour `exp`). An attacker who somehow captured a valid OIDC token (e.g., through an egress-log compromise of the staging Cloud Scheduler invocation logs) could in principle replay it for the lifetime of `exp`.
 
-The defense-in-depth layer for replay protection is the **GCP IAM Cloud-Scheduler-only-invoke** binding ([`docs/06-Security-Privacy.md:451`](docs/06-Security-Privacy.md): *"Defense in depth: network-level (GCP IAM Cloud Scheduler-only invoke) + token-level (OIDC verify origin)."*). The Cloud Run service is bound to allow only the dedicated Cloud Scheduler service account to invoke it, so a stolen-token replay from outside that service account never reaches the OIDC plugin in the first place.
+The defense-in-depth layer for replay protection is the **GCP IAM Cloud-Scheduler-only-invoke** binding ([`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md): *"Defense in depth: network-level (GCP IAM Cloud Scheduler-only invoke) + token-level (OIDC verify origin)."*). The Cloud Run service is bound to allow only the dedicated Cloud Scheduler service account to invoke it, so a stolen-token replay from outside that service account never reaches the OIDC plugin in the first place.
 
 **Rationale**: `jti` tracking would require persistent state (Redis or DB) for every successful invocation across `exp` window, plus a cleanup worker — significant ongoing cost for a marginal defense in a system already protected by GCP IAM. The token-level layer is intentionally focused on origin verification, not replay prevention.
 

@@ -77,7 +77,7 @@ The orchestrator SHALL compute the aggregate score as the per-call max across al
 score = moderationScore.maxScore()  // == categoryScores.values.max()
 ```
 
-The orchestrator SHALL apply the canonical thresholds from [`docs/06-Security-Privacy.md:163-164`](../../../../../docs/06-Security-Privacy.md):
+The orchestrator SHALL apply the canonical thresholds from [`docs/06-Security-Privacy.md`](../../../../../docs/06-Security-Privacy.md):
 - `score > 0.8` → `Outcome.AutoHide(score)`
 - `score > 0.6` AND `score ≤ 0.8` → `Outcome.FlagOnly(score)`
 - `score ≤ 0.6` → `Outcome.NoAction`

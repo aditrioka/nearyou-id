@@ -2,7 +2,7 @@
 
 The text-moderation pipeline today (per [`openspec/specs/content-moderation-keyword-lists/spec.md`](../../specs/content-moderation-keyword-lists/spec.md)) runs Layers 1+2 SYNCHRONOUSLY, before INSERT, via the `TextModerator.moderate(content): Verdict` orchestrator. Verdicts are `Allow`, `Reject` (Layer 1 profanity → HTTP 4xx pre-INSERT), or `Flag` (Layer 2 UU ITE → soft-flag, INSERT proceeds, queue row written in the same SQL transaction).
 
-[`docs/06-Security-Privacy.md:175-180`](../../../docs/06-Security-Privacy.md) prescribes a **third layer** that runs differently from Layers 1+2:
+[`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) prescribes a **third layer** that runs differently from Layers 1+2:
 
 > Layer 3: async post-INSERT toxicity classifier (3000ms timeout regional baseline for asia-southeast1, fail-open) — score >0.8 → set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed)
 
@@ -18,7 +18,7 @@ This change adds Layer 3 as a NEW capability rather than extending the existing 
 ## Goals / Non-Goals
 
 **Goals:**
-- Ship Layer 3 of the canonical multi-layer text-moderation pipeline per [`docs/06-Security-Privacy.md:153-184`](../../../docs/06-Security-Privacy.md).
+- Ship Layer 3 of the canonical multi-layer text-moderation pipeline per [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md).
 - Encapsulate the OpenAI Moderation API client behind a `:infra:openai-moderation` module, preserving the project's vendor-isolation invariant (`:backend:ktor` MUST NOT directly import third-party API SDKs per [`openspec/project.md`](../../project.md) § Module Structure). The public interface (`ModerationClient`) stays vendor-neutral via `Map<String, Double>` per-category scores so a future vendor swap doesn't require consumer changes.
 - Honor the `perspective_api_enabled` Firebase Remote Config kill-switch (already seeded since Pre-Phase 1 §18; flag name retained as a historical-artifact carve-out per the vendor-swap amendment) so operators can disable Layer 3 instantly without a backend redeploy.
 - Maintain fail-open posture: a vendor outage degrades moderation to Layers 1+2 only — silently from the user's perspective, with structured Sentry events for operator visibility.
@@ -32,9 +32,9 @@ This change adds Layer 3 as a NEW capability rather than extending the existing 
 - **Admin Panel review queue UI for Layer-3-flagged rows.** Phase 3.5 admin work (Weeks 11–13 per [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md)) owns admin UI. This change writes correctly-shaped queue rows; admin UI surfaces them via the existing `(target_type, target_id)` group + `trigger` filter.
 - **Anomaly metrics emission.** Phase 1 §29 (anomaly detection metrics) is a separate change. This change emits structured logs + Sentry events on a per-dispatch basis; aggregation into anomaly-detection metrics is downstream work.
 - **Privacy Policy / RoPA update.** User content sent to a third-party (OpenAI, hosted in the US) is a UU PDP disclosure surface — Pre-Launch task in [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md). Out of scope here as a code task.
-- **Score threshold A/B tuning.** Defaults follow [`docs/06-Security-Privacy.md:163-164`](../../../docs/06-Security-Privacy.md) (>0.8 / >0.6 / ≤0.6). Tuning happens via Remote Config overrides post-launch (see Open Question 2).
+- **Score threshold A/B tuning.** Defaults follow [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) (>0.8 / >0.6 / ≤0.6). Tuning happens via Remote Config overrides post-launch (see Open Question 2).
 - **OpenAI account-level rate-limit increase request.** The Moderation endpoint is free with no per-call charge; only constraint is the account-level requests-per-minute cap. Operational task — not a code change. Sentry WARN on HTTP 429 surfaces account-cap exhaustion.
-- **Dual-language support (Indonesian-tuned classifier).** OpenAI's `omni-moderation-latest` model explicitly supports Indonesian as a top-tier benchmarked language (per OpenAI's launch announcement) — this is a step up from the prior plan's "partial ID support" caveat. Switching to a self-hosted XLM-R model is a Month 6+ scope per [`docs/06-Security-Privacy.md:167`](../../../docs/06-Security-Privacy.md), explicitly out of scope.
+- **Dual-language support (Indonesian-tuned classifier).** OpenAI's `omni-moderation-latest` model explicitly supports Indonesian as a top-tier benchmarked language (per OpenAI's launch announcement) — this is a step up from the prior plan's "partial ID support" caveat. Switching to a self-hosted XLM-R model is a Month 6+ scope per [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md), explicitly out of scope.
 - **`moderation_queue.score` column.** The current V9 schema has no per-row score column. Admin disambiguation between AutoHide and FlagOnly outcomes is via the related row's `is_auto_hidden` state (TRUE for the high-score path, FALSE for the mid-score path), NOT via a queue-row column. Adding a `score NUMERIC(3,2)` column would require a Flyway migration and is deferred to a follow-up if admin review tooling needs explicit score capture.
 
 ## Decisions
@@ -83,7 +83,7 @@ Apply the canonical thresholds:
 - `score > 0.6` AND `score ≤ 0.8` → `Outcome.FlagOnly` (write queue row, no flip)
 - `score ≤ 0.6` → `Outcome.NoAction`
 
-**Why:** [`docs/06-Security-Privacy.md:163-164`](../../../docs/06-Security-Privacy.md) reads "Score >0.8 = auto-hide ... Score 0.6-0.8 = flag to moderation_queue only" — singular "score". The doc doesn't specify aggregation across the vendor's category set. `max(...)` is the conservative interpretation: any single high-toxicity category triggers; this matches the natural reading of "the score" against a per-category vector. Per-category weights would be product tuning; `max` is the deterministic baseline.
+**Why:** [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) reads "Score >0.8 = auto-hide ... Score 0.6-0.8 = flag to moderation_queue only" — singular "score". The doc doesn't specify aggregation across the vendor's category set. `max(...)` is the conservative interpretation: any single high-toxicity category triggers; this matches the natural reading of "the score" against a per-category vector. Per-category weights would be product tuning; `max` is the deterministic baseline.
 
 The `max(...)` approach is vendor-set-agnostic — it works whether the vendor returns 4 categories or 13. OpenAI's `omni-moderation-latest` returns 13; the orchestrator does not enumerate them. A future vendor swap that returns a different set of categories continues to work without changes in the orchestrator.
 
@@ -119,7 +119,7 @@ The orchestrator returns `Outcome.NoAction` on:
 
 The orchestrator SHALL NOT propagate any non-cancellation exception out of `moderate(...)`. `CancellationException` SHALL propagate per coroutine convention so structured cancellation works correctly through the dispatcher scope.
 
-**Why:** [`docs/06-Security-Privacy.md:179`](../../../docs/06-Security-Privacy.md) reads "3000ms timeout regional baseline for asia-southeast1, fail-open" (originally "500ms" in the pre-pivot doc; updated 2026-05-11 to match the empirical TTFB measurement from the production region). The user's content is already INSERTed; failing the dispatch silently preserves availability. The Layer 1+2 sync gates already ran successfully; Layer 3 is defense-in-depth. A flapping vendor endpoint MUST NOT degrade post-creation latency.
+**Why:** [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) reads "3000ms timeout regional baseline for asia-southeast1, fail-open" (originally "500ms" in the pre-pivot doc; updated 2026-05-11 to match the empirical TTFB measurement from the production region). The user's content is already INSERTed; failing the dispatch silently preserves availability. The Layer 1+2 sync gates already ran successfully; Layer 3 is defense-in-depth. A flapping vendor endpoint MUST NOT degrade post-creation latency.
 
 **Sentry deduplication:** Each dispatch failure emits a Sentry breadcrumb-level event keyed on `(failure_kind, layer3_endpoint_host)` so Sentry's built-in dedup suppresses event floods during sustained outages. Mirrors the `ModerationListLoader`'s in-call rate-limit pattern from [`content-moderation-keyword-lists/spec.md`](../../specs/content-moderation-keyword-lists/spec.md) § "Tier-fallback Sentry events emit at most once per `load(list)` call".
 
@@ -209,7 +209,7 @@ If a Remote Config push results in `flag_threshold > high_score_threshold` (a cr
 
 When the kill-switch read throws (Remote Config + all fallback tiers unavailable), the orchestrator fails OPEN to `enabled=true` AND emits a Sentry **ERROR** (not WARN). Failing OPEN means an operator-disabled state is silently re-enabled during Remote Config outages; this is operator-actionable and warrants paging.
 
-**Why:** The fail-open posture is correct for the dispatch outcome (defense-in-depth — keep Layer 3 protection on if we can't read the kill-switch). But the operator who disabled Layer 3 (perhaps because the vendor had an incident OR the API key leaked) needs to know the disable is being silently bypassed. Sentry ERROR vs WARN is the difference between "ops dashboard widget" and "PagerDuty alert". The canonical doc [`docs/06-Security-Privacy.md:179`](../../../docs/06-Security-Privacy.md) says "fail-open" referring to the timeout/error path's outcome (NoAction); it doesn't address the kill-switch *read* path specifically.
+**Why:** The fail-open posture is correct for the dispatch outcome (defense-in-depth — keep Layer 3 protection on if we can't read the kill-switch). But the operator who disabled Layer 3 (perhaps because the vendor had an incident OR the API key leaked) needs to know the disable is being silently bypassed. Sentry ERROR vs WARN is the difference between "ops dashboard widget" and "PagerDuty alert". The canonical doc [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) says "fail-open" referring to the timeout/error path's outcome (NoAction); it doesn't address the kill-switch *read* path specifically.
 
 **Alternatives considered:**
 - (a) Make the kill-switch fail-mode itself a Remote Config flag (`perspective_api_kill_switch_fail_mode = "open" | "closed"`, default open). **Rejected for v1**: adds a tunable that can itself be misconfigured; ERROR-on-fail-open Sentry alert handles the operator-visibility need without a new flag.

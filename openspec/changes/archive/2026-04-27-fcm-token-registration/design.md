@@ -1,6 +1,6 @@
 ## Context
 
-The Ktor backend has shipped 12 Flyway migrations and a complete Phase 1 schema for users, posts, blocks, follows, likes, replies, reports, notifications, region polygons, and a Premium FTS index. **Push notification infrastructure has not been built.** The `notifications` table (V10, [`openspec/specs/in-app-notifications/spec.md`](openspec/specs/in-app-notifications/spec.md)) persists in-app notifications but the parallel FCM-push leg ([`docs/02-Product.md:225`](docs/02-Product.md), [`docs/04-Architecture.md`](docs/04-Architecture.md)) cannot land until the server has device tokens to address.
+The Ktor backend has shipped 12 Flyway migrations and a complete Phase 1 schema for users, posts, blocks, follows, likes, replies, reports, notifications, region polygons, and a Premium FTS index. **Push notification infrastructure has not been built.** The `notifications` table (V10, [`openspec/specs/in-app-notifications/spec.md`](openspec/specs/in-app-notifications/spec.md)) persists in-app notifications but the parallel FCM-push leg ([`docs/02-Product.md`](docs/02-Product.md), [`docs/04-Architecture.md`](docs/04-Architecture.md)) cannot land until the server has device tokens to address.
 
 The canonical contract for the registration handshake lives in three places:
 

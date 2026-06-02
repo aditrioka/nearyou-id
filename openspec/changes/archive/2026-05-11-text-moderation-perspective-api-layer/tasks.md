@@ -1,7 +1,7 @@
 ## 1. Proposal review (this PR's proposal-review phase)
 
 - [x] 1.1 Run `openspec validate text-moderation-perspective-api-layer --strict` and confirm green
-- [x] 1.2 Canonical-docs reconciliation pass — diff every claim against `docs/06-Security-Privacy.md:153-184`, `docs/05-Implementation.md:520+` (`moderation_queue.trigger` enum), `docs/05-Implementation.md:1042` (`perspective_api_enabled` flag)
+- [x] 1.2 Canonical-docs reconciliation pass — diff every claim against `docs/06-Security-Privacy.md`, `docs/05-Implementation.md:520+` (`moderation_queue.trigger` enum), `docs/05-Implementation.md:1042` (`perspective_api_enabled` flag)
 - [x] 1.3 Open the change PR (`docs(openspec): propose text-moderation-perspective-api-layer`); branch name = change name; PR body summarizes Why + What Changes + Capabilities deltas
 - [x] 1.4 Multi-lens sub-agent review (general / security-and-invariant / OpenSpec format-and-correctness / test-coverage), then optional round-2 regression scan
 - [x] 1.5 qodo review at PR push (auto, GitHub-side)
@@ -111,8 +111,8 @@
 These docs are amended IN THIS CHANGE because the change introduces the surface they describe (new Remote Config flags, new attribute-aggregation interpretation, new operational behaviors). Per the canonical-docs reconciliation pass, NEW surfaces are documented in canonical docs as part of the change that introduces them — not deferred to a follow-up.
 
 - [x] 13.1 Update [`docs/05-Implementation.md:1042`](../../../docs/05-Implementation.md) § "Reserved / DESIGN" Firebase Remote Config flags list to add: `perspective_api_high_score_threshold` (number, default 0.8) and `perspective_api_flag_threshold` (number, default 0.6) with one-line descriptions
-- [x] 13.2 Update [`docs/06-Security-Privacy.md:160-166`](../../../docs/06-Security-Privacy.md) Layer 3 contract to canonicalize the attribute aggregation: append a clarifying sentence after line 162 (`Attributes: TOXICITY, ...`): "The score compared against the thresholds is the per-call max across all four attributes: `score = max(toxicity, severeToxicity, identityAttack, threat)`."
-- [x] 13.3 Update [`docs/06-Security-Privacy.md:160-166`](../../../docs/06-Security-Privacy.md) to canonicalize the threshold inclusivity convention: clarify that `score > 0.8` is strictly greater than (boundary value `0.80` falls into the FlagOnly band), `score > 0.6` strictly greater than for FlagOnly entry, `score ≤ 0.6` returns NoAction
+- [x] 13.2 Update [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) Layer 3 contract to canonicalize the attribute aggregation: append a clarifying sentence after line 162 (`Attributes: TOXICITY, ...`): "The score compared against the thresholds is the per-call max across all four attributes: `score = max(toxicity, severeToxicity, identityAttack, threat)`."
+- [x] 13.3 Update [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) to canonicalize the threshold inclusivity convention: clarify that `score > 0.8` is strictly greater than (boundary value `0.80` falls into the FlagOnly band), `score > 0.6` strictly greater than for FlagOnly entry, `score ≤ 0.6` returns NoAction
 - [x] 13.4 Update [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) Privacy section to note that user content is sent to a third-party (Google Perspective) for classification — flag as a Pre-Launch Privacy Policy update task (not a Privacy Policy text change in THIS change, but the docs surface needs to call out the dependency for the Pre-Launch checklist)
 - [x] 13.5 Update [`docs/05-Implementation.md:22`](../../../docs/05-Implementation.md) § Secrets list to add `perspective-api-key` (live list, since the slot will be provisioned in production once tag-deployed; mirror the `firebase-admin-sa` shape — env-namespaced via `staging-perspective-api-key` for staging)
 

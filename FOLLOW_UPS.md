@@ -463,7 +463,7 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Code at fault:** None — this is a future enhancement, not a bug.
 **Docs at fault:** None.
 
-**Impact (if shipped):** Low — 5-min staleness is acceptable for moderation (legal-advisor review is quarterly per [`docs/06-Security-Privacy.md:159`](docs/06-Security-Privacy.md)).
+**Impact (if shipped):** Low — 5-min staleness is acceptable for moderation (legal-advisor review is quarterly per [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md)).
 
 **Ambiguity to resolve first:** Endpoint shape — `POST /internal/moderation-list-bust` (clears all 3 keys) or per-list `?list=profanity`?
 

@@ -1,6 +1,6 @@
 ## Context
 
-`post-replies` (V8) shipped POST/GET/DELETE on `/api/v1/posts/{post_id}/replies` plus the V10 `post_replied` notification emit, but with no rate limiting — the V8 callout in [`docs/05-Implementation.md`](../../../docs/05-Implementation.md) § Post Replies Schema explicitly notes "rate limiting remain[s] deferred." The Free 20/day reply cap is documented as canonical at [`docs/01-Business.md:53`](../../../docs/01-Business.md), [`docs/02-Product.md:224`](../../../docs/02-Product.md), and [`docs/05-Implementation.md:1740`](../../../docs/05-Implementation.md) Layer 2.
+`post-replies` (V8) shipped POST/GET/DELETE on `/api/v1/posts/{post_id}/replies` plus the V10 `post_replied` notification emit, but with no rate limiting — the V8 callout in [`docs/05-Implementation.md`](../../../docs/05-Implementation.md) § Post Replies Schema explicitly notes "rate limiting remain[s] deferred." The Free 20/day reply cap is documented as canonical at [`docs/01-Business.md`](../../../docs/01-Business.md), [`docs/02-Product.md`](../../../docs/02-Product.md), and [`docs/05-Implementation.md:1740`](../../../docs/05-Implementation.md) Layer 2.
 
 `like-rate-limit` ([PR #37](https://github.com/aditrioka/nearyou-id/pull/37)) shipped the rate-limit infrastructure required to land this cap: a Redis-backed `RateLimiter` interface in `:core:domain`, a Lettuce-based `RedisRateLimiter` in `:infra:redis`, the `computeTTLToNextReset(userId)` WIB-stagger helper, the hash-tag key format, and the two Detekt rules (`RateLimitTtlRule` + `RedisHashTagRule`) that enforce conventions at every call site. That change's proposal explicitly named the 20/day reply cap as one of four hard prerequisites the new infra was built to serve. This change is the second consumer of the infra (the third if the V9 reports port is counted) and is intended as a near-mechanical port of the like-handler integration — same call sequence, same 429 envelope, same Remote Config flag pattern, scoped down to a single daily window (no burst) and with no idempotent-release path.
 
@@ -17,7 +17,7 @@ The reply path also already integrates with V9 (the auto-hide trigger on `target
 
 **Non-Goals:**
 
-- Burst (rolling-hour) limit on replies — replies have no burst clause per [`docs/02-Product.md:224`](../../../docs/02-Product.md). Future anti-bot work on replies, if needed, would be a separate change with its own design.
+- Burst (rolling-hour) limit on replies — replies have no burst clause per [`docs/02-Product.md`](../../../docs/02-Product.md). Future anti-bot work on replies, if needed, would be a separate change with its own design.
 - Rate-limiting GET `/api/v1/posts/{post_id}/replies` — read-side limits live at the timeline session/hourly layer per [`docs/05-Implementation.md`](../../../docs/05-Implementation.md). Mirrors the like-rate-limit precedent (which also did not rate-limit GET `/likes`).
 - Rate-limiting DELETE `/api/v1/posts/{post_id}/replies/{reply_id}` — the V8 author-only idempotent-204 contract MUST stay intact; rate-limiting deletes would let attackers prevent users from deleting their own replies.
 - Mobile-side UX copy for the 429 response — out of scope; mobile already handles 429 generically and the like-button surface from PR #37 is the precedent. A reply-button-specific copy update can ship later.
@@ -31,7 +31,7 @@ The reply path also already integrates with V9 (the auto-hide trigger on `target
 
 **Choice.** The reply handler runs exactly **one** rate limiter: a daily window keyed `{scope:rate_reply_day}:{user:<uuid>}`, capacity 20 (or `premium_reply_cap_override` if set), TTL via `computeTTLToNextReset(userId)`. No second limiter — no rolling-hour burst.
 
-**Why.** [`docs/02-Product.md:224`](../../../docs/02-Product.md) defines reply caps as "Free 20/day, Premium unlimited" — no burst clause. [`docs/02-Product.md:223`](../../../docs/02-Product.md) defines like caps as "Free 10/day, Premium unlimited (both tiers cap 500/hour burst)" — burst is explicitly called out. The asymmetry is canonical, not an oversight: replies are write-heavy in a way that invites a per-day cap (each row = one notification + one auto-hide-eligible target) but they don't have the same bot-fingerprint-via-velocity surface that likes do (likes are zero-effort on the user side; replies require typing 1–280 chars). Following the canonical line, the reply handler ships with daily-only.
+**Why.** [`docs/02-Product.md`](../../../docs/02-Product.md) defines reply caps as "Free 20/day, Premium unlimited" — no burst clause. [`docs/02-Product.md`](../../../docs/02-Product.md) defines like caps as "Free 10/day, Premium unlimited (both tiers cap 500/hour burst)" — burst is explicitly called out. The asymmetry is canonical, not an oversight: replies are write-heavy in a way that invites a per-day cap (each row = one notification + one auto-hide-eligible target) but they don't have the same bot-fingerprint-via-velocity surface that likes do (likes are zero-effort on the user side; replies require typing 1–280 chars). Following the canonical line, the reply handler ships with daily-only.
 
 **Alternatives considered.**
 
@@ -154,7 +154,7 @@ All three live in one feat commit on the same change branch (per the one-PR-per-
 
 - **`premium_reply_cap_override` does NOT apply to Premium users.** Premium skips the daily limiter entirely (matches the like flag's behavior). The override is for Free-tier dial adjustment only. If Premium ever needs a cap (e.g., abuse signal from a single Premium account), that's a separate ban/suspension decision, not a Remote Config dial.
 - **The daily cap counts INSERTs, not net replies — soft-deleted replies do consume slots.** A user who posts a reply, soft-deletes it, and tries to post another DOES consume two slots. This matches the like cap's "INSERT-counted, unlike doesn't release" rule and makes the cap predictable (every successful POST consumes one slot). Documented as a scenario in the post-replies spec delta.
-- **Pre-existing divergence to flag:** none found at scoping time or during round-1 review. The reply-cap line is consistent across `01-Business.md:53` (Free 20/day Unlimited), `02-Product.md:224` (Free 20/day, Premium unlimited), and `05-Implementation.md:1740` (Layer 2 table). If reconciliation surfaces during the review loop or `/opsx:apply`, file under `FOLLOW_UPS.md`.
+- **Pre-existing divergence to flag:** none found at scoping time or during round-1 review. The reply-cap line is consistent across `01-Business.md` (Free 20/day Unlimited), `02-Product.md` (Free 20/day, Premium unlimited), and `05-Implementation.md:1740` (Layer 2 table). If reconciliation surfaces during the review loop or `/opsx:apply`, file under `FOLLOW_UPS.md`.
 
 ## Open Questions
 

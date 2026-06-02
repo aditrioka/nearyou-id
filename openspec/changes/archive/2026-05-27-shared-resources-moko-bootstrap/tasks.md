@@ -52,7 +52,7 @@
        <string name="cta_cancel">Batal</string>
        <string name="cta_retry">Coba lagi</string>
        <string name="cta_close">Tutup</string>
-       <string name="loading">Sedang memuat…</string><!-- unicode ellipsis (U+2026) — matches docs/03-UX-Design.md:100 "Sedang memuat postingan…" convention; this is the generic loader, "postingan" qualifier dropped -->
+       <string name="loading">Sedang memuat…</string><!-- unicode ellipsis (U+2026) — matches docs/03-UX-Design.md "Sedang memuat postingan…" convention; this is the generic loader, "postingan" qualifier dropped -->
        <string name="empty_state_generic">Belum ada konten.</string>
        <string name="home_placeholder_title">NearYouID</string>
        <string name="home_placeholder_version">Versi %1$s</string>

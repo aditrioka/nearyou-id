@@ -19,7 +19,7 @@ Canonical references:
 **Goals:**
 - Ship a `GET /api/v1/timeline/global` endpoint with the same cursor shape, pagination cap, and block-exclusion invariants as Nearby + Following.
 - Land `admin_regions` as a seeded PostGIS reference table in a single Flyway migration.
-- Populate the pre-existing `posts.city_name` + `posts.city_match_type` columns (V4) via a BEFORE INSERT trigger implementing the 4-step fallback ladder from `docs/02-Product.md:192–196`, so the Global hot path is a pure keyset index scan with no spatial work at read time.
+- Populate the pre-existing `posts.city_name` + `posts.city_match_type` columns (V4) via a BEFORE INSERT trigger implementing the 4-step fallback ladder from `docs/02-Product.md–196`, so the Global hot path is a pure keyset index scan with no spatial work at read time.
 - Keep `actual_location` DB-side only: the trigger is a second sanctioned reader (alongside the admin path), never surfacing the coordinate or its lat/lng to any client.
 - Extend Nearby + Following response shapes with `city_name` so all three timelines present a consistent post payload.
 
@@ -45,7 +45,7 @@ All in one migration + one Ktor module + test coverage, mirroring the `nearby-ti
 
 The trigger writes to **existing** `posts.city_name` + `posts.city_match_type` columns (added in V4; see `backend/ktor/src/main/resources/db/migration/V4__post_creation.sql:22–23`). V11 adds zero new columns to `posts`.
 
-On `INSERT INTO posts`, the trigger runs the 4-step ladder specified verbatim in [`docs/02-Product.md:192–196`](docs/02-Product.md) §"Polygon-Based Reverse Geocoding":
+On `INSERT INTO posts`, the trigger runs the 4-step ladder specified verbatim in [`docs/02-Product.md–196`](docs/02-Product.md) §"Polygon-Based Reverse Geocoding":
 
 ```sql
 CREATE OR REPLACE FUNCTION posts_set_city_fn() RETURNS TRIGGER AS $$
@@ -127,7 +127,7 @@ Distance arguments use GEOGRAPHY semantics (meters), not geometry degrees — `a
 
 **Alternative considered:** Single-step `ST_Contains` only (drop steps 2–4). Rejected during the post-proposal reconciliation pass — Indonesia is an archipelago, and canonical docs explicitly prescribe the 4-step fallback to handle coastal points, boundary artifacts, and polygon-coverage gaps. Shipping single-step would systematically NULL-out thousands of legitimate posts; see PRs [#18](https://github.com/aditrioka/nearyou-id/pull/18) (skill + CLAUDE.md reconciliation pass) + [#19](https://github.com/aditrioka/nearyou-id/pull/19) (proposal amendment) for the incident write-up.
 
-**Alternative considered:** Redis `geocode:{geocell:<lat2dp>_<lng2dp>}` cache (per [`docs/02-Product.md:205`](docs/02-Product.md)). Deferred — the 4-step ladder is 1–5ms at current write rate. Redis cache makes sense at scale; its wiring belongs with the broader Redis rate-limit infrastructure change (Phase 1 item 24), not with this change.
+**Alternative considered:** Redis `geocode:{geocell:<lat2dp>_<lng2dp>}` cache (per [`docs/02-Product.md`](docs/02-Product.md)). Deferred — the 4-step ladder is 1–5ms at current write rate. Redis cache makes sense at scale; its wiring belongs with the broader Redis rate-limit infrastructure change (Phase 1 item 24), not with this change.
 
 ### Decision 3: Ship `admin_regions` schema + trigger in V11, seed in V12 (amended)
 
@@ -171,7 +171,7 @@ Open Decision #4 in `docs/08-Roadmap-Risk.md` leaves the source open between BPS
 
 If the BPS dataset is not practically obtainable in kabupaten/kota MULTIPOLYGON form (some vendors ship only province-level or rasterized PDFs), fall back to OSM `admin_level = 5` relations exported via Overpass. The decision is finalized in the migration header's licensing note; see **Open Question 1** for the explicit checkpoint.
 
-DKI Jakarta and Kepulauan Seribu receive explicit hand-curated entries at `level = 'kabupaten_kota'` per `docs/02-Product.md:187` — both datasets conflate them with "DKI Jakarta" at level 3, so the migration does a 5-row post-import fixup.
+DKI Jakarta and Kepulauan Seribu receive explicit hand-curated entries at `level = 'kabupaten_kota'` per `docs/02-Product.md` — both datasets conflate them with "DKI Jakarta" at level 3, so the migration does a 5-row post-import fixup.
 
 **Alternative considered:** Hand-curate only the top-30 kabupaten by population and use a catch-all "Indonesia" polygon for the rest. Rejected — half the posts in non-Jabodetabek Indonesia would label as "Indonesia," which is product-broken.
 
@@ -227,7 +227,7 @@ The existing `CoordinateJitterRule` (from the `coordinate-jitter` capability, sh
 - DB-side — no application reader gains access.
 - Write-path only — reverse-geocode happens once at INSERT, result stored as `city_name` string.
 - Never projected into any user-facing response JSON (only `city_name` is — a string, not a coordinate).
-- Aligned with `docs/02-Product.md:190` ("Queries use `actual_location`" … "since accuracy matters for administrative boundaries").
+- Aligned with `docs/02-Product.md` ("Queries use `actual_location`" … "since accuracy matters for administrative boundaries").
 
 The rule's current allowlist already permits the admin path. Extend the KDoc to list the INSERT trigger as the second sanctioned reader; no rule behavior change. If the lint rule scans `.sql` files under `db/migration/`, the migration file (which contains `ST_Contains(geom, NEW.actual_location::geometry)`) must be either (a) exempt from the rule like V5 is exempt from `BlockExclusionJoinRule`, or (b) covered by a dedicated annotation / header comment. Use pattern (a): add the V11 migration file to the `CoordinateJitterRule` allowlist alongside any pre-existing allowed files.
 
@@ -243,7 +243,7 @@ If a re-seed renames a region (e.g., "Kabupaten Nagan Raya" → "Nagan Raya" sty
 
 ### Decision 4a: Maritime 12nm buffer applied during import, not at query time
 
-Per [`docs/02-Product.md:200–203`](docs/02-Product.md): "Points at sea within 12 nautical miles of a coastal kabupaten's shoreline are assigned to that kabupaten. Buffer coastal kabupaten polygons by 12 nautical miles (~22km) maritime extension in the import script."
+Per [`docs/02-Product.md–203`](docs/02-Product.md): "Points at sea within 12 nautical miles of a coastal kabupaten's shoreline are assigned to that kabupaten. Buffer coastal kabupaten polygons by 12 nautical miles (~22km) maritime extension in the import script."
 
 This is a **data-engineering concern, not a query concern.** The import / dataset-prep step identifies coastal kabupaten polygons and applies `ST_Buffer(geom::geometry, <22km in degrees>)` (or equivalent geography-space buffer) before inserting. At query time, the trigger's 4-step ladder operates on the already-buffered polygons — step 1 (`ST_Contains`) matches posts in nearshore waters as if they were inside land.
 
@@ -273,7 +273,7 @@ The Global endpoint in this change rejects missing `Authorization` headers with 
 - **Risk:** `admin_regions` IDs drift across re-seeds (e.g., someone uses a new dataset with different codes). → **Mitigation:** Decision 8 explicitly fixes IDs at the dataset's stable code (BPS `kode_wilayah` / OSM relation ID). Migration header documents the rule. Re-seeds MUST UPDATE by ID, not DELETE + INSERT.
 - **Risk:** Trigger conflict with future `posts` write paths (e.g., admin backfill, bulk import). → **Mitigation:** Trigger's first check is `IF NEW.city_name IS NOT NULL THEN RETURN NEW` — callers that explicitly supply `city_name` short-circuit the 4-step ladder. Bulk imports and backfill jobs can either (a) supply `city_name` + `city_match_type` explicitly (trigger no-ops), or (b) run the 4-step SQL manually in their `UPDATE`. Design pattern matches V3's `reserved_usernames_protect_seed_trigger`.
 - **Risk:** Very large migration file (~15–25 MB WKT) triggers repo-size concerns or CI diff timeouts. → **Mitigation:** One-time cost. GitHub handles; CI `git diff` is unaffected because migration diffs are not reviewed line-by-line. Future polygon updates land as new versioned migrations — no edit churn on V11.
-- **Risk:** A polygon-coverage gap beyond 50 km (step-4 NULL) misleads users who expect every post to carry a label. → **Mitigation:** Product-acceptable per [`docs/02-Product.md:196`](docs/02-Product.md) — UI substitutes "Indonesia" / "Luar Indonesia" at the render layer. Response spec renders `""` (DB NULL → JSON empty string); client handles the substitution.
+- **Risk:** A polygon-coverage gap beyond 50 km (step-4 NULL) misleads users who expect every post to carry a label. → **Mitigation:** Product-acceptable per [`docs/02-Product.md`](docs/02-Product.md) — UI substitutes "Indonesia" / "Luar Indonesia" at the render layer. Response spec renders `""` (DB NULL → JSON empty string); client handles the substitution.
 - **Risk:** `city_match_type` values diverge from the enum vocabulary if a refresh migration adds a new step. → **Mitigation:** V11 locks the 4-value enum (`strict` / `buffered_10m` / `fuzzy_match` / NULL). Adding a step means amending `docs/02-Product.md` first (canonical), then proposing a change that bumps the enum with a CHECK constraint. No ad-hoc values.
 
 ## Migration Plan

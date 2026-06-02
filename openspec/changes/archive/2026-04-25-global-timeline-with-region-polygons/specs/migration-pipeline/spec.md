@@ -31,7 +31,7 @@ The V11 migration file SHALL open with a header comment block that includes:
 2. The attribution text required by the license, formatted as it must appear in the app's legal section.
 3. The list of read-path consumers that MUST bidirectionally join `user_blocks` on top of `visible_posts`: `nearby-timeline`, `following-timeline`, `global-timeline` (extending the list documented in V5 and V6 headers).
 4. A note that the `posts_set_city_tg` trigger is the first BEFORE INSERT trigger in the migration history AND that the `admin_regions` seed is the first spatially-seeded reference table.
-5. A note that the coastal kabupaten polygons were pre-buffered by 12 nm (~22 km) at import time per `docs/02-Product.md:200–203`.
+5. A note that the coastal kabupaten polygons were pre-buffered by 12 nm (~22 km) at import time per `docs/02-Product.md–203`.
 
 #### Scenario: Header present and non-empty
 - **WHEN** reading the first 50 lines of `V11__admin_regions.sql`

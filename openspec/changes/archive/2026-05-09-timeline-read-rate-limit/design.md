@@ -152,7 +152,7 @@ Steps 5 + 6 MUST run BEFORE the timeline DB query (no Postgres round-trip on cap
 
 Premium users (`subscription_status IN ('premium_active', 'premium_billing_retry')`) skip BOTH buckets entirely — no Redis calls at all. The bucket keys for Premium users are NEVER written. Mirrors the existing like/reply/chat limiter pattern.
 
-**Rationale:** Premium is "unlimited reads" per [`docs/01-Business.md:18`](../../../docs/01-Business.md). Skipping both buckets keeps the Premium read path Redis-free (lower latency, lower cost). The `subscription_status` is read from the auth-time principal (the `auth-jwt` plugin already loads it per the `auth-jwt` capability) — NO fresh DB SELECT in the rate-limit path.
+**Rationale:** Premium is "unlimited reads" per [`docs/01-Business.md`](../../../docs/01-Business.md). Skipping both buckets keeps the Premium read path Redis-free (lower latency, lower cost). The `subscription_status` is read from the auth-time principal (the `auth-jwt` plugin already loads it per the `auth-jwt` capability) — NO fresh DB SELECT in the rate-limit path.
 
 **Stale principal handling:** if the user's subscription expires between auth-time JWT issuance and a request, the JWT principal still says `premium_active` and the request bypasses both caps. On the next JWT refresh, the user becomes Free and is subject to both caps. This mirrors the `auth-jwt § Stale principal across an admin mid-flight flip` semantics. The window is bounded by JWT TTL.
 

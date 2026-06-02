@@ -2,7 +2,7 @@
 
 ## Context
 
-The text moderation pipeline has been canonical since Pre-Phase 1 but unbuilt: scaffolding (Remote Config keys, Secret Manager slot, reserved `moderation_queue.trigger` enum value) is in place, the [`docs/05-Implementation.md:1253`](../../../docs/05-Implementation.md) "Content Moderation Keyword Lists" stub is `Status: DESIGN`, and the multi-layer canonical at [`docs/06-Security-Privacy.md:151`](../../../docs/06-Security-Privacy.md) describes 3 tiers (manual blocklist, UU ITE wordlist, Perspective API) with this change covering tiers 1 and 2.
+The text moderation pipeline has been canonical since Pre-Phase 1 but unbuilt: scaffolding (Remote Config keys, Secret Manager slot, reserved `moderation_queue.trigger` enum value) is in place, the [`docs/05-Implementation.md:1253`](../../../docs/05-Implementation.md) "Content Moderation Keyword Lists" stub is `Status: DESIGN`, and the multi-layer canonical at [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) describes 3 tiers (manual blocklist, UU ITE wordlist, Perspective API) with this change covering tiers 1 and 2.
 
 Constraints inherited from the project posture:
 - **`secretKey(env, name)` helper for Secret Manager** ([`openspec/project.md`](../../project.md) § Critical invariants). Direct `client.accessSecretVersion("foo")` reads are a Detekt violation.
@@ -33,7 +33,7 @@ Stakeholders:
 - Premium username customization moderation (separate change). The matcher is reusable; the username-specific writer (`trigger = 'username_flagged'`) lives in that change.
 - Admin Panel keyword-list editor (Phase 3.5 admin work).
 - Quarterly UU ITE legal-advisor review cadence (operations runbook in [`docs/07-Operations.md`](../../../docs/07-Operations.md), not a spec).
-- Custom Indonesian dictionary / Hive Moderation paid (Month 6+ scope per [`docs/06-Security-Privacy.md:167`](../../../docs/06-Security-Privacy.md)).
+- Custom Indonesian dictionary / Hive Moderation paid (Month 6+ scope per [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md)).
 - Rebuilding the Aho-Corasick automaton on every Remote Config push (deferred follow-up — see D4).
 - Per-user / per-locale list selection (single global list per tier).
 
@@ -44,12 +44,12 @@ Stakeholders:
 A single profanity-blocklist match SHALL produce HTTP 400 with `code = "content_moderated_profanity"` + a Bahasa Indonesia user-facing message. No `posts` row is inserted, no `moderation_queue` row is written.
 
 **Why REJECT over auto-hide + queue**:
-- Layer 1 is "Manual keyword blocklist: profanity, slurs, scam patterns" ([`docs/06-Security-Privacy.md:155`](../../../docs/06-Security-Privacy.md)) — pre-curated, low-ambiguity terms by definition. Auto-hide-then-queue is the right pattern for ambiguous content (which is exactly what Layer 2 + Layer 3 cover); pre-curated terms warrant a sync UX.
+- Layer 1 is "Manual keyword blocklist: profanity, slurs, scam patterns" ([`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md)) — pre-curated, low-ambiguity terms by definition. Auto-hide-then-queue is the right pattern for ambiguous content (which is exactly what Layer 2 + Layer 3 cover); pre-curated terms warrant a sync UX.
 - Cleaner UX: user gets immediate "Konten ini mengandung kata yang tidak diperbolehkan." feedback. They can edit in place. Ghost-publishing then auto-hiding creates confusion ("did my post go through? where is it?") + an admin-review backlog of obviously-bad content.
 - Reduces moderation queue load: pre-curated profanity hits would dominate queue volume if auto-hidden, drowning the legitimate ambiguous-content review path.
-- **Asymmetry with Layer 2 is documented behavior**: [`docs/06-Security-Privacy.md:158`](../../../docs/06-Security-Privacy.md) explicitly carves out UU ITE as "soft flag to the moderation queue (not auto-hide)" — the implication is that Layer 1's behavior is *not* soft flag. REJECT is the natural reading.
+- **Asymmetry with Layer 2 is documented behavior**: [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) explicitly carves out UU ITE as "soft flag to the moderation queue (not auto-hide)" — the implication is that Layer 1's behavior is *not* soft flag. REJECT is the natural reading.
 
-**Canonical-doc reconciliation**: [`docs/06-Security-Privacy.md:180`](../../../docs/06-Security-Privacy.md) (the "If flagged" line inside the § Endpoint Flow code block at lines 173–181) says "If flagged: set is_auto_hidden = TRUE + insert moderation_queue row" without distinguishing layers. Reading the FULL code block carefully (lines 174–180):
+**Canonical-doc reconciliation**: [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) (the "If flagged" line inside the § Endpoint Flow code block at lines 173–181) says "If flagged: set is_auto_hidden = TRUE + insert moderation_queue row" without distinguishing layers. Reading the FULL code block carefully (lines 174–180):
 
 ```
 POST /api/v1/post
@@ -61,7 +61,7 @@ POST /api/v1/post
 → If flagged: set is_auto_hidden = TRUE + insert moderation_queue row
 ```
 
-The "If flagged" line sits AFTER `Insert post`. Combined with [`docs/06-Security-Privacy.md:158`](../../../docs/06-Security-Privacy.md) carve-out for UU ITE as soft-flag-not-auto-hide, the natural reading is: "If flagged" describes the **post-INSERT auto-hide path** that the async Perspective API (Layer 3) populates retroactively. Layer 2 (UU ITE sync) is the soft-flag pre-INSERT path. Layer 1 (profanity sync) is the REJECT pre-INSERT path that never reaches INSERT. **Action: amend `docs/06-Security-Privacy.md:180` to clarify "If flagged" describes the Layer 3 (Perspective) post-INSERT auto-hide; Layer 1 is sync REJECT pre-INSERT; Layer 2 is sync INSERT + queue + no auto-hide.** Logged as a `FOLLOW_UPS.md` entry — the amendment lands separately so canonical docs match the spec at archive time.
+The "If flagged" line sits AFTER `Insert post`. Combined with [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) carve-out for UU ITE as soft-flag-not-auto-hide, the natural reading is: "If flagged" describes the **post-INSERT auto-hide path** that the async Perspective API (Layer 3) populates retroactively. Layer 2 (UU ITE sync) is the soft-flag pre-INSERT path. Layer 1 (profanity sync) is the REJECT pre-INSERT path that never reaches INSERT. **Action: amend `docs/06-Security-Privacy.md` to clarify "If flagged" describes the Layer 3 (Perspective) post-INSERT auto-hide; Layer 1 is sync REJECT pre-INSERT; Layer 2 is sync INSERT + queue + no auto-hide.** Logged as a `FOLLOW_UPS.md` entry — the amendment lands separately so canonical docs match the spec at archive time.
 
 **Alternative considered (Option A)**: auto-hide + queue with a new trigger enum value `profanity_keyword_match`. Rejected:
 - Couples this change to a `moderation-queue` schema MODIFY (Flyway migration adding the enum).
@@ -119,8 +119,8 @@ The Redis cache layer uses a 5-minute fixed TTL keyed at `{scope:mod_list}:{tier
 When Remote Config is updated by an operator, the change propagates within 5 minutes max (TTL elapse + next loader call refreshes from Remote Config). No push-based invalidation, no cache busting endpoint.
 
 **Why TTL alone**:
-- 5-min staleness is acceptable for content moderation (legal-advisor review is quarterly per [`docs/06-Security-Privacy.md:159`](../../../docs/06-Security-Privacy.md)). Operator edits in the Admin Panel are not time-critical.
-- Push invalidation requires either Pub/Sub on Remote Config webhooks (Firebase doesn't emit them per the same constraint that makes the CSAM CF Tool webhook-less per [`docs/02-Product.md:373`](../../../docs/02-Product.md)) OR a polling endpoint (adds operational surface).
+- 5-min staleness is acceptable for content moderation (legal-advisor review is quarterly per [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md)). Operator edits in the Admin Panel are not time-critical.
+- Push invalidation requires either Pub/Sub on Remote Config webhooks (Firebase doesn't emit them per the same constraint that makes the CSAM CF Tool webhook-less per [`docs/02-Product.md`](../../../docs/02-Product.md)) OR a polling endpoint (adds operational surface).
 - Consistency with the existing Redis-backed feature flag pattern (`token_version` cache, 5-min TTL).
 
 **Aho-Corasick rebuild cost**: building the automaton from a list of ~50 patterns is sub-millisecond. Per-call rebuild is acceptable; no need to cache the *built* automaton object across calls. (If profiling shows it matters at p99, cache the built automaton with the same 5-min TTL — but defer until measured.)
@@ -129,18 +129,18 @@ When Remote Config is updated by an operator, the change propagates within 5 min
 
 ### D5 — UU ITE threshold: **honor `moderation_match_threshold` Remote Config value, not the literal "1 match" docs phrase**
 
-[`docs/06-Security-Privacy.md:158`](../../../docs/06-Security-Privacy.md) says "Higher threshold: 1 match = soft flag to the moderation queue (not auto-hide)" — a literal reading is "any single match triggers a flag." But:
+[`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) says "Higher threshold: 1 match = soft flag to the moderation queue (not auto-hide)" — a literal reading is "any single match triggers a flag." But:
 - Pre-Phase 1 §36 ([`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md)) defines `moderation_match_threshold` as a Remote Config parameter with default value 3, explicitly tied to "the Aho-Corasick matcher" (which is the matcher this change builds).
 - The default-3 makes operational sense: a single SARA-adjacent term in a long post is high false-positive surface (e.g., "saya orang Jawa" — which mentions an `antargolongan` term but isn't incitement); 3 distinct hits is closer to genuine UU ITE-pattern signal.
 
-The proposal honors the Remote Config parameter (3) and surfaces this as a canonical-doc reconciliation: amend [`docs/06-Security-Privacy.md:158`](../../../docs/06-Security-Privacy.md) to align "1 match" wording with the threshold-driven semantics. Logged as a `FOLLOW_UPS.md` entry; the amendment lands separately. **At runtime, the matcher reads the Remote Config value (default 3); operators can drop it to 1 if false-negative rate is unacceptable.**
+The proposal honors the Remote Config parameter (3) and surfaces this as a canonical-doc reconciliation: amend [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md) to align "1 match" wording with the threshold-driven semantics. Logged as a `FOLLOW_UPS.md` entry; the amendment lands separately. **At runtime, the matcher reads the Remote Config value (default 3); operators can drop it to 1 if false-negative rate is unacceptable.**
 
 ### D6 — Fail-closed vs fail-open posture
 
 **Loader posture**: the 4-tier ladder is fail-soft (each tier failure cascades to the next tier, with a Sentry WARN). If ALL FOUR tiers fail, the loader returns `emptyList()` and emits a Sentry ERROR `event = "moderation_list_unavailable" tier = "<list>"`. The downstream `TextModerator` interprets `emptyList()` as "no matches possible" — i.e., **fail-open** at the policy level: the post/reply/chat-message is allowed through (treated as `Verdict.Allow`).
 
 **Why fail-open**:
-- Availability over moderation strictness: a Remote Config outage + Secret Manager outage + missing repo file shouldn't block content publishing (matches the `perspective_api_enabled` 500ms-timeout fail-open posture for Layer 3 per [`docs/06-Security-Privacy.md:178`](../../../docs/06-Security-Privacy.md)).
+- Availability over moderation strictness: a Remote Config outage + Secret Manager outage + missing repo file shouldn't block content publishing (matches the `perspective_api_enabled` 500ms-timeout fail-open posture for Layer 3 per [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md)).
 - The repo file is checked into the binary (resource); Tier 3 cannot fail unless the JAR is corrupt.
 - Tier 4 (Secret Manager) is an explicit safety net; it would fail only if both Remote Config + the repo resource are gone, which is an operational catastrophe that warrants a Sentry-paged response.
 
@@ -210,9 +210,9 @@ The repo-committed `*.default.txt` files SHOULD ship with at least 1-2 placehold
 
 | Risk | Mitigation |
 |---|---|
-| **Remote Config outage degrades to repo-file (potentially stale) wordlist** | Sentry WARN at every fallback; repo file ships with the latest known-good wordlist + commit-time-stamped header so operators can audit staleness; quarterly UU ITE legal review (per [`docs/06-Security-Privacy.md:159`](../../../docs/06-Security-Privacy.md)) bumps the repo file. |
+| **Remote Config outage degrades to repo-file (potentially stale) wordlist** | Sentry WARN at every fallback; repo file ships with the latest known-good wordlist + commit-time-stamped header so operators can audit staleness; quarterly UU ITE legal review (per [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md)) bumps the repo file. |
 | **Aho-Corasick false positives on legitimate Indonesian text** (e.g., word collision with profanity term) | Word-boundary-aware matcher; manual quarterly review process surfaces false positives via admin reports; threshold parameter tunable (raise from 3 → 5 if FP rate spikes). Layer 1 REJECT is the highest-friction layer — if FP becomes a launch-blocker, downgrade Layer 1 from REJECT to soft-flag (D1 reversal — a single Remote Config change away if encoded as a flag). |
-| **Profanity wordlist bypass via leetspeak / unicode tricks** (`f@ggot`, `fµck`) | Out of scope for this change. Mitigation: the matcher is a stopgap per [`docs/06-Security-Privacy.md:160`](../../../docs/06-Security-Privacy.md); Phase 2 §16 Perspective API picks up the slack on patterns the keyword list misses. Heavier ID-language model lands Month 6+. |
+| **Profanity wordlist bypass via leetspeak / unicode tricks** (`f@ggot`, `fµck`) | Out of scope for this change. Mitigation: the matcher is a stopgap per [`docs/06-Security-Privacy.md`](../../../docs/06-Security-Privacy.md); Phase 2 §16 Perspective API picks up the slack on patterns the keyword list misses. Heavier ID-language model lands Month 6+. |
 | **Sentry event flood during sustained Remote Config outage** | Sentry-side dedup + 1-event-per-loader-call rate limit (D7); ERROR events fire only on full-fallthrough, not on tier-cascade. |
 | **Aho-Corasick build cost on hot path** | Sub-millisecond for ~50 patterns; profiling-deferred if it shows up at p99. Cache built automaton under same 5-min TTL if needed (follow-up). |
 | **`moderation_queue` admin volume from Layer 2 Flag rows** | Threshold default 3 (not the docs literal "1") keeps volume modest; Remote Config tunable. Admin Panel filtering ([`docs/07-Operations.md`](../../../docs/07-Operations.md) Phase 3.5) handles triage. |

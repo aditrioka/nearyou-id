@@ -1117,7 +1117,7 @@ Hash tag `{scope:<value>}` ensures same-scope keys land on the same Redis slot (
 >
 > Shipped per-endpoint limits:
 > - Like `POST /api/v1/posts/{post_id}/like`: 10/day Free + 500/h burst (both tiers), `premium_like_cap_override` flag, idempotent re-like releases the slot.
-> - Reply `POST /api/v1/posts/{post_id}/replies`: 20/day Free, unlimited Premium, daily-only (no burst per `02-Product.md:224`), `premium_reply_cap_override` flag, no `releaseMostRecent`.
+> - Reply `POST /api/v1/posts/{post_id}/replies`: 20/day Free, unlimited Premium, daily-only (no burst per `02-Product.md`), `premium_reply_cap_override` flag, no `releaseMostRecent`.
 > - Chat send `POST /api/v1/chat/{conversation_id}/messages`: 50/day Free, unlimited Premium, daily-only, `premium_chat_send_cap_override` flag, no `releaseMostRecent`. GET endpoints + POST `/conversations` are not per-endpoint rate-limited.
 >
 > Layers 1 / 3 / 4 remain future work.

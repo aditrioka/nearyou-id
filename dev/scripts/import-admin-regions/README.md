@@ -98,7 +98,7 @@ psql -h localhost -p 5433 -U postgres -d nearyou_dev -c \
 
 ## Coastal-kabupaten heuristic
 
-Per task 1.3.5 and `docs/02-Product.md:200–203`:
+Per task 1.3.5 and `docs/02-Product.md–203`:
 
 > A kabupaten is "coastal" if its centroid lies within 50 km of Indonesia's coastline. Coastline = `ST_Boundary(ST_Union(all_province_polygons))`.
 

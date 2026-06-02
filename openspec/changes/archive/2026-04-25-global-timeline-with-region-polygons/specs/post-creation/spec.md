@@ -2,7 +2,7 @@
 
 ### Requirement: Post INSERT populates city_name and city_match_type via the 4-step fallback trigger
 
-As of V11, the `posts` INSERT path SHALL populate `city_name` and `city_match_type` via the `posts_set_city_tg` BEFORE INSERT trigger (see `region-polygons` capability), which runs the 4-step fallback ladder from [`docs/02-Product.md:192–196`](docs/02-Product.md): strict `ST_Contains` → 10 m buffered match with centroid tie-breaker → 50 km nearest-neighbor `fuzzy_match` → NULL.
+As of V11, the `posts` INSERT path SHALL populate `city_name` and `city_match_type` via the `posts_set_city_tg` BEFORE INSERT trigger (see `region-polygons` capability), which runs the 4-step fallback ladder from [`docs/02-Product.md–196`](docs/02-Product.md): strict `ST_Contains` → 10 m buffered match with centroid tie-breaker → 50 km nearest-neighbor `fuzzy_match` → NULL.
 
 Application code on the post-creation path MUST NOT supply `city_name` or `city_match_type` in its INSERT column list — those columns are reserved for the trigger. The caller's responsibility is unchanged: supply `content`, `latitude`, `longitude`, and the derived `display_location` + `actual_location`.
 

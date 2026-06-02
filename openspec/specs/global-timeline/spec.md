@@ -182,7 +182,7 @@ The `liked_by_viewer` and `reply_count` fields MUST behave exactly as in the Nea
 
 ### Requirement: Global route delegates read-rate-limit accounting to `timeline-read-rate-limit`
 
-The `GET /api/v1/timeline/global` route handler SHALL delegate read-side rate-limit accounting (rolling 150-posts/hour hard cap + 50-posts/session soft cap, Free-tier only, Premium exempt) to the `timeline-read-rate-limit` capability per its full contract — for AUTHENTICATED callers only. Guest reads (when wired in a future change) are NOT covered by this requirement; guest read rate limiting (`10 posts/session + 30 posts/hour`) lands in a separate change MODIFYING `timeline-read-rate-limit` once the Layer 1 attestation-gated guest-session JWT issuance work ships (per [`docs/02-Product.md:181-183`](../../../docs/02-Product.md) + [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) Phase 1 item 25).
+The `GET /api/v1/timeline/global` route handler SHALL delegate read-side rate-limit accounting (rolling 150-posts/hour hard cap + 50-posts/session soft cap, Free-tier only, Premium exempt) to the `timeline-read-rate-limit` capability per its full contract — for AUTHENTICATED callers only. Guest reads (when wired in a future change) are NOT covered by this requirement; guest read rate limiting (`10 posts/session + 30 posts/hour`) lands in a separate change MODIFYING `timeline-read-rate-limit` once the Layer 1 attestation-gated guest-session JWT issuance work ships (per [`docs/02-Product.md`](../../../docs/02-Product.md) + [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) Phase 1 item 25).
 
 The route handler MUST:
 

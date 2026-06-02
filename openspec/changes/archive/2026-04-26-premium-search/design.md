@@ -36,7 +36,7 @@ Plus: the endpoint + service + repository + rate-limit wiring; tests; smoke scri
 - **Redis search-result cache**: `docs/05-Implementation.md:1189` says "if added at scale" — defer until p95 latency or DB CPU on this query justifies it. The GIN indexes are auto-maintained, so no re-index trigger plumbing is needed in the MVP.
 - **Re-index trigger plumbing on shadow-ban / unban / block / unblock**: only relevant once a Redis cache lands. The view + GIN combination handles correctness without extra hooks.
 - **Indonesian stopword / stemming dictionary**: `'simple'` tsvector config is the explicit MVP choice (`docs/05-Implementation.md:1159`); upgrade to a custom Indonesian dictionary or Meta XLM-R tokenizer service is deferred to Month 6+.
-- **Location-filtered search**: `docs/02-Product.md:278` ("No location filter (MVP)"). Adding a spatial filter would require deciding whether to use `display_location` (consistent with the Coordinate Fuzzing rule) and rethinking ranking.
+- **Location-filtered search**: `docs/02-Product.md` ("No location filter (MVP)"). Adding a spatial filter would require deciding whether to use `display_location` (consistent with the Coordinate Fuzzing rule) and rethinking ranking.
 - **Hashtag / mention indexing**: out of scope; FTS handles plain content tokens only.
 - **Search analytics / popular-query telemetry**: out of scope; Amplitude event taxonomy can land later behind analytics consent.
 
@@ -49,7 +49,7 @@ The capability is named `premium-search` (not `search`) to make the Premium gate
 **Alternatives considered:**
 
 - `search` — too generic; would obscure the Premium gate at the spec layer.
-- `post-search` — undersells the username component. Search covers both posts AND usernames per `docs/02-Product.md:275-276`.
+- `post-search` — undersells the username component. Search covers both posts AND usernames per `docs/02-Product.md`.
 
 ### Decision 2 — Hourly Layer-2 rate limit, NOT WIB-stagger daily
 
@@ -125,7 +125,7 @@ Even though Search is Premium-gated (and Premium requires an account anyway), th
 
 - **Trade-off: No Redis search-result cache means every query hits Postgres.** → Acceptable at MVP scale (hundreds to low thousands of Premium users); cache add is a clean retrofit if p95 ever approaches the timeline target (200ms per `docs/08-Roadmap-Risk.md` Phase 2 benchmark).
 
-- **Trade-off: No re-index hooks on shadow-ban / block events.** → Acceptable because the view + GIN combination always reflects current truth; the only thing missing is a cache layer that doesn't yet exist. **Note**: `docs/02-Product.md:282` declares "Re-index trigger: async job on every shadow ban / block / unban applied" as live infrastructure — this is documentation drift (the trigger has never existed, and the `view + GIN` approach makes it unnecessary until the Redis cache lands). Logged in `FOLLOW_UPS.md` § `premium-search-reindex-trigger-doc-divergence` for tracked resolution; this proposal does NOT amend `docs/02-Product.md` in-line per the skill convention (out-of-scope finding goes to FOLLOW_UPS, not silent doc edit).
+- **Trade-off: No re-index hooks on shadow-ban / block events.** → Acceptable because the view + GIN combination always reflects current truth; the only thing missing is a cache layer that doesn't yet exist. **Note**: `docs/02-Product.md` declares "Re-index trigger: async job on every shadow ban / block / unban applied" as live infrastructure — this is documentation drift (the trigger has never existed, and the `view + GIN` approach makes it unnecessary until the Redis cache lands). Logged in `FOLLOW_UPS.md` § `premium-search-reindex-trigger-doc-divergence` for tracked resolution; this proposal does NOT amend `docs/02-Product.md` in-line per the skill convention (out-of-scope finding goes to FOLLOW_UPS, not silent doc edit).
 
 - **Risk: GENERATED column ALTER TABLE rewrite cost on production-scale tables.** → V13 `ALTER TABLE posts ADD COLUMN content_tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED;` is a non-trivial DDL that rewrites every existing `posts` row to populate the new column. On staging (synthetic data, ~hundreds to low-thousands of rows) the lock is sub-second and acceptable. On production at MVP scale (single-digit thousands of rows pre-launch) the rewrite is also acceptable. **Mitigation for future scale**: at >100k rows, the recommended pattern shifts to (a) add the column NULLABLE first, (b) backfill in batches, (c) add the GENERATED constraint last — but the MVP simplification of one-shot ADD COLUMN is correct for the launch window. Pre-launch this is a non-issue. Document re-evaluation as a follow-up if production volume exceeds 100k posts before any other migration touches `posts`.
 
