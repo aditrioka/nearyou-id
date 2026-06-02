@@ -30,4 +30,13 @@ class FakeLocationPermissionController(
     override fun openAppSettings() {
         openAppSettingsCount++
     }
+
+    /**
+     * Test hook: simulate the OS permission changing OUTSIDE the app (e.g. the user toggling it in
+     * the system Settings screen). Used by the ON_RESUME re-check regression test — the gate must
+     * re-query and reflect this on the next foreground entry without a cold restart.
+     */
+    fun simulateExternalStatusChange(status: LocationPermissionStatus) {
+        currentStatus = status
+    }
 }

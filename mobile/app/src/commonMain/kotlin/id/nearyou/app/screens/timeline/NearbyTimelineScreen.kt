@@ -37,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import cafe.adriel.voyager.core.screen.Screen
 import id.nearyou.app.location.LocationConsentModal
 import id.nearyou.app.location.LocationGate
@@ -88,10 +90,14 @@ class NearbyTimelineScreen : Screen {
         val gateState by gate.state.collectAsState()
         val scope = rememberCoroutineScope()
 
-        // Query the OS permission on entry / re-entry. refresh() NEVER fires the OS prompt, so a prior
-        // denial does not re-nag the rationale on every Nearby visit (the "Buka Pengaturan" CTA is the
-        // only re-entry path) — spec § "A prior denial does not re-show the rationale on every Nearby visit".
-        LaunchedEffect(Unit) { gate.refresh() }
+        // Re-query the OS permission on every foreground entry (ON_RESUME), not just first composition,
+        // so returning from the OS Settings screen (via "Buka Pengaturan") immediately reflects a
+        // newly-granted permission — without a cold restart. refresh() NEVER fires the OS prompt, so a
+        // prior denial does not re-nag the rationale on every Nearby visit (the "Buka Pengaturan" CTA is
+        // the only re-entry path) — spec § "A prior denial does not re-show the rationale on every Nearby visit".
+        LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+            scope.launch { gate.refresh() }
+        }
 
         when (gateState) {
             LocationGateUiState.Loading -> LocationGateSpinner()

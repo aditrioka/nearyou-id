@@ -1,9 +1,14 @@
 package id.nearyou.app.screens.timeline
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -135,6 +140,45 @@ class NearbyLocationGateScreenTest {
             onNodeWithText(OPEN_SETTINGS).performClick()
             waitForIdle()
             assertEquals(1, fakeController.openAppSettingsCount, "Buka Pengaturan deep-links to settings")
+        }
+    }
+
+    // Regression (manual-verify finding): after the user enables location in the OS Settings and
+    // returns to the app, the gate re-checks on ON_RESUME and reaches the feed WITHOUT a cold restart
+    // (the bug was LaunchedEffect(Unit) refreshing only on first composition). Drives a real
+    // LifecycleRegistry so the screen's LifecycleEventEffect(ON_RESUME) fires on re-entry.
+    @Test
+    fun returnFromSettingsAfterGrant_refreshesToFeed_withoutColdRestart() {
+        installKoin(LocationPermissionStatus.DENIED)
+        val owner =
+            object : LifecycleOwner {
+                val registry = LifecycleRegistry.createUnsafe(this)
+
+                override val lifecycle: Lifecycle get() = registry
+            }
+        runComposeUiTest {
+            setContent {
+                CompositionLocalProvider(LocalLifecycleOwner provides owner) {
+                    KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } }
+                }
+            }
+            owner.registry.currentState = Lifecycle.State.RESUMED
+            waitForIdle()
+            // Initially denied → no fetch.
+            onNodeWithText(DENIAL).assertExists()
+            assertEquals(0, fakeFlow.loadInvocationCount)
+
+            // User enables location in Settings (status changes outside the app), then returns:
+            // ON_PAUSE/ON_STOP then ON_START/ON_RESUME — NO cold restart.
+            fakeController.simulateExternalStatusChange(LocationPermissionStatus.GRANTED)
+            owner.registry.currentState = Lifecycle.State.CREATED
+            owner.registry.currentState = Lifecycle.State.RESUMED
+            waitForIdle()
+
+            // The ON_RESUME re-check reached the feed.
+            onNodeWithText(DENIAL).assertDoesNotExist()
+            onNodeWithText(NEARBY_TITLE).assertExists()
+            assertEquals(1, fakeFlow.loadInvocationCount, "resume re-check reaches the fetch path")
         }
     }
 
