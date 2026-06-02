@@ -48,7 +48,7 @@
 
 ## 8. Follow-ups, validation, verification
 
-- [ ] 8.1 Add `FOLLOW_UPS.md` entries for the named deferrals: (a) `mobile-post-creation-manual-location` (map-pin); (b) Nearby-auto-refresh-on-return; (c) composer iOS flow-test parity (`mobile/app/src/iosTest`), mirroring the Nearby iOS flow tests shipped in [#143](https://github.com/aditrioka/nearyou-id/pull/143). (The `post-creation` spec L85-vs-`Verdict.Reject` error-enumeration reconciliation was already logged to `FOLLOW_UPS.md` during this change's proposal review.)
+- [ ] 8.1 `FOLLOW_UPS.md` entries are ALREADY LOGGED (during the proposal phase, per maintainer request): `mobile-post-creation-manual-location` (map-pin), `mobile-post-creation-refresh-nearby-on-return`, `mobile-post-creation-ios-flow-tests`, plus the `post-creation-spec-error-enumeration-stale` reconciliation entry. At apply: verify they are still valid and tick their action items as the corresponding code lands (do NOT re-add).
 - [ ] 8.2 Run `openspec validate mobile-post-creation-screen --strict` → green.
 - [ ] 8.3 Run `./gradlew ktlintCheck detekt :mobile:app:testDebugUnitTest :mobile:app:testDevReleaseUnitTest` → green (mirrors the pre-push lint+test gate; note the Release-variant run guards the `*ScreenTest` exclude).
 - [ ] 8.4 Manual runtime pass (device location actuals are not unit-testable): on an Android device + iOS sim, open the composer via the FAB, post a short text from a real location → 201 → pop to Home; verify the location-denied path shows the enable-location copy + "Buka Pengaturan"; confirm no coordinate appears in debug logs.

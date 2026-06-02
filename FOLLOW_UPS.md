@@ -57,6 +57,60 @@ Format per entry:
 
 ---
 
+## mobile-post-creation-manual-location
+
+**Discovered during:** `mobile-post-creation-screen` proposal (explicit deferral; design D1).
+**Status:** open
+
+**Finding:** `mobile-post-creation-screen` ships **device-location-only** — the post coordinate is taken from `LocationProvider.current()` at submit with no UI to adjust it. [`docs/02-Product.md`](docs/02-Product.md) § 2 Post System specifies "auto/manual location"; the manual path (drag a map pin to set the post location) is deferred because it needs a map-rendering SDK (a new substrate + library re-check gate) disproportionate to the composer MVP.
+
+**Specs at fault:** none — deliberate scope cut, documented in the `mobile-post-creation` design D1.
+**Code at fault:** none yet (parent change in flight, PR [#145](https://github.com/aditrioka/nearyou-id/pull/145)).
+**Docs at fault:** none.
+
+**Impact (if shipped):** N/A — deferred scope, not a bug. The composer is fully usable device-only; manual-pin is an enhancement.
+
+**Action items:**
+- [ ] After `mobile-post-creation-screen` ships, propose `mobile-post-creation-manual-location`: evaluate the current KMP map SDK landscape, add a map-pin picker that overrides the device coordinate before POST, honoring the same coordinate-envelope + HMAC-jitter contract.
+
+---
+
+## mobile-post-creation-refresh-nearby-on-return
+
+**Discovered during:** `mobile-post-creation-screen` proposal (deferral; design D8).
+**Status:** open
+
+**Finding:** On a successful post the composer pops back to Home but does NOT refresh the Nearby feed, so the just-created post is invisible until the user pulls-to-refresh (the feed re-fetches only on its own reload key / `ON_RESUME` gate, not on a child-screen pop). Showing it immediately needs a cross-screen reload signal.
+
+**Specs at fault:** none — deliberate, `mobile-post-creation` design D8.
+**Code at fault:** none yet (PR [#145](https://github.com/aditrioka/nearyou-id/pull/145) in flight).
+**Docs at fault:** none.
+
+**Impact (if shipped):** Minor UX rough edge — the post succeeds but is not reflected in Nearby until a manual pull-to-refresh.
+
+**Action items:**
+- [ ] After the composer ships, wire a one-shot Nearby reload on composer success (a shared reload trigger or a Voyager result) so the new post appears on return without a manual refresh.
+
+---
+
+## mobile-post-creation-ios-flow-tests
+
+**Discovered during:** `mobile-post-creation-screen` Phase D test-coverage lens.
+**Status:** open
+
+**Finding:** The composer's commonTest projection + MockEngine tests + the Android Robolectric screen test cover the logic, but there is no `mobile/app/src/iosTest` coverage. The Nearby capability got iOS flow tests as a SEPARATE change ([#143](https://github.com/aditrioka/nearyou-id/pull/143): `NearbyTimelineFlowIosTest` etc.); the composer should get the same parity treatment.
+
+**Specs at fault:** none.
+**Code at fault:** none yet (PR [#145](https://github.com/aditrioka/nearyou-id/pull/145) in flight).
+**Docs at fault:** none.
+
+**Impact (if shipped):** iOS-actual behavior of the composer flow is verified only by the manual iOS-sim pass, not by an automated `iosTest` — a parity gap vs the Nearby surface.
+
+**Action items:**
+- [ ] After the composer ships, add `mobile/app/src/iosTest` flow coverage mirroring #143's Nearby iOS flow tests (CMP 1.11.1 `runComposeUiTest`).
+
+---
+
 ## observability-otel-collector-tail-sampling
 
 **Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 adversarial-lens finding #11 — the round-1 design § D4 force-keep `SpanProcessor` re-emitting via `Tracer.spanBuilder().setNoParent()` is structurally wrong: it creates a fresh root span detached from the original trace, breaking trace_id linkage in Tempo.
