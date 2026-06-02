@@ -14,7 +14,7 @@ The test diagnoses the flake in its inline KDoc as "the hashCode distribution is
 
 The matching scenario in [`openspec/specs/rate-limit-infrastructure/spec.md:163-165`](../../specs/rate-limit-infrastructure/spec.md) ("for at least 999 of 1000 random pairs, the returned `Duration` values differ") is the canonical source of the test's tight threshold. Without realigning the spec, future maintainers re-deriving the test from the spec would re-introduce the same flaky bound.
 
-This change closes the flake. The `FOLLOW_UPS.md` entry [`compute-ttl-to-next-reset-test-flake`](../../../FOLLOW_UPS.md) sketches three approaches; the 2026-05-09 triage sweep promoted this entry as the single OpenSpec-shaped hand-off of the cycle (per [`FOLLOW_UPS.md:10`](../../../FOLLOW_UPS.md) intro: *"1 hand-off this sweep: `compute-ttl-to-next-reset-test-flake` → `harden-compute-ttl-test`"*).
+This change closes the flake. The `FOLLOW_UPS.md` entry [`compute-ttl-to-next-reset-test-flake`](../../../FOLLOW_UPS.md) sketches three approaches; the 2026-05-09 triage sweep promoted this entry as the single OpenSpec-shaped hand-off of the cycle (per [`FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) intro: *"1 hand-off this sweep: `compute-ttl-to-next-reset-test-flake` → `harden-compute-ttl-test`"*).
 
 ## Goals / Non-Goals
 
