@@ -1,6 +1,6 @@
 ## Why
 
-`post-likes-v7` (archived 2026-04-21) shipped likes and left Phase 2 item 3 in `docs/08-Roadmap-Risk.md:150` half-done: "Likes shipped in V7; reply deferred to V8." Replies are the next engagement primitive and the last social-write missing before Report/Notifications land (Phase 2 items 4–5). The `post_replies` DDL already exists verbatim at `docs/05-Implementation.md:716`, semantics at `docs/05-Implementation.md:731`, block-exclusion rule at `docs/05-Implementation.md:1306`, and `FROM post_replies` lint target at `docs/05-Implementation.md:1833`.
+`post-likes-v7` (archived 2026-04-21) shipped likes and left Phase 2 item 3 in `docs/08-Roadmap-Risk.md` half-done: "Likes shipped in V7; reply deferred to V8." Replies are the next engagement primitive and the last social-write missing before Report/Notifications land (Phase 2 items 4–5). The `post_replies` DDL already exists verbatim at `docs/05-Implementation.md:716`, semantics at `docs/05-Implementation.md:731`, block-exclusion rule at `docs/05-Implementation.md:1306`, and `FROM post_replies` lint target at `docs/05-Implementation.md:1833`.
 
 ## What Changes
 

@@ -6,7 +6,7 @@ The canonical contract for the registration handshake lives in three places:
 
 - [`docs/05-Implementation.md:1372-1400`](docs/05-Implementation.md) — schema (verbatim) + endpoint contract + cleanup paths.
 - [`docs/04-Architecture.md:515-527`](docs/04-Architecture.md) — registration trigger semantics (token refresh callback, login/logout) + the freshness signal `last_seen_at`.
-- [`docs/08-Roadmap-Risk.md:90`](docs/08-Roadmap-Risk.md) — Phase 1 item 18, "FCM token registration endpoint (`POST /api/v1/user/fcm-token`)".
+- [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) — Phase 1 item 18, "FCM token registration endpoint (`POST /api/v1/user/fcm-token`)".
 
 Stakeholders:
 - **Mobile clients** (Phase 3) — call `POST /api/v1/user/fcm-token` from the FCM SDK token-refresh callback and on app login. The endpoint contract is the boundary.
@@ -215,7 +215,7 @@ Reconciliation against canonical docs surfaced one minor silence-resolution and 
    - Freshness signal: [`docs/05-Implementation.md:1394`](docs/05-Implementation.md) `update last_seen_at = NOW() on every call` ↔ proposal § What Changes + spec scenarios.
    - Cleanup matrix: [`docs/05-Implementation.md:1397-1400`](docs/05-Implementation.md) (404/410 immediate + weekly stale) ↔ proposal § Out of scope (deferred to Phase 2 + Phase 3.5) + spec § Schema MUST support deferred GC contracts.
    - Module ownership: [`docs/04-Architecture.md:129`](docs/04-Architecture.md) "User module owns FCM token registration" ↔ proposal § Impact + design § Constraints (with the explicit "creates new `user/` package" note).
-   - Phase 1 placement: [`docs/08-Roadmap-Risk.md:90`](docs/08-Roadmap-Risk.md) Phase 1 item 18 ↔ proposal § Why.
+   - Phase 1 placement: [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Phase 1 item 18 ↔ proposal § Why.
 
 ## Open Questions
 

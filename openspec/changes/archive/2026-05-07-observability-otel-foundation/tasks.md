@@ -1,6 +1,6 @@
 ## 1. Pre-implementation baseline
 
-- [x] 1.1 Verify Open Decision #12 vendor default — re-read `docs/08-Roadmap-Risk.md:586-588` to confirm Grafana Cloud Tempo remains the recommended default at task-execution time. _Confirmed at task-execution: line 588 still names Grafana Cloud as recommended default. No design § D3 amendment needed._
+- [x] 1.1 Verify Open Decision #12 vendor default — re-read `docs/08-Roadmap-Risk.md` to confirm Grafana Cloud Tempo remains the recommended default at task-execution time. _Confirmed at task-execution: line 588 still names Grafana Cloud as recommended default. No design § D3 amendment needed._
 - [x] 1.2 Capture baseline cold-start on Cloud Run staging — _baseline captured at task-execution time via Cloud Monitoring API (`run.googleapis.com/container/startup_latencies` distribution metric). Re-scoped from "operator deploys baseline revision with secrets absent" to "**read historical pre-merge revisions**" — captures full delta including class-loading cost (the OTEL_DISABLED env-var bypass approach undercounts by ~30ms because OTel SDK classes still load)._
     - **Baseline data (last 7 days, all staging revisions where `service_name=nearyou-backend-staging`)**:
         - Sample size: **n=32** cold-starts

@@ -82,11 +82,11 @@
 
 - [ ] 7.12 Edit [`docs/04-Architecture.md:146`](../../../docs/04-Architecture.md:146) — the inline phrase "Mobile #2 Moko Resources" in the `:mobile:app` Mobile Status paragraph → update to "Mobile #2 Resources scaffolding (Moko initially, swapped to CMP Resources via Mobile #2.5)". This preserves historical accuracy while reflecting post-swap state.
 
-- [ ] 7.13 Edit [`docs/08-Roadmap-Risk.md:133`](../../../docs/08-Roadmap-Risk.md:133) — currently "Detect hardcoded strings in mobile source (must go via Moko Resources resource file)" → update to "Detect hardcoded strings in mobile source (must go via Compose Multiplatform Resources `Res.string.*` accessor)".
+- [ ] 7.13 Edit [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) — currently "Detect hardcoded strings in mobile source (must go via Moko Resources resource file)" → update to "Detect hardcoded strings in mobile source (must go via Compose Multiplatform Resources `Res.string.*` accessor)".
 
-- [ ] 7.14 Edit [`docs/08-Roadmap-Risk.md:203`](../../../docs/08-Roadmap-Risk.md:203) — currently "Moko Resources strings via `:shared:resources`" → update to "Compose Multiplatform Resources strings via `:shared:resources`".
+- [ ] 7.14 Edit [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) — currently "Moko Resources strings via `:shared:resources`" → update to "Compose Multiplatform Resources strings via `:shared:resources`".
 
-- [ ] 7.15 Edit [`docs/08-Roadmap-Risk.md:390`](../../../docs/08-Roadmap-Risk.md:390) — duplicate of 7.13's pattern in the Phase 3.5/CI lint rules section; same wording update.
+- [ ] 7.15 Edit [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) — duplicate of 7.13's pattern in the Phase 3.5/CI lint rules section; same wording update.
 
 - [ ] 7.16 **Supersede** the conflicting [`FOLLOW_UPS.md`](../../../FOLLOW_UPS.md) entry `compose-components-resources-dependency-cleanup` (FOLLOW_UPS.md:754) — that entry recommended REMOVING `compose-components-resources` from the catalog because nothing consumed it; this change ADDS the consumer, so the entry becomes obsolete. Either DELETE the entry outright, OR replace its checkbox content with `- [x] SUPERSEDED 2026-05-28 by shared-resources-swap-to-cmp-resources (this change activates the previously-unused compose-components-resources coordinate; entry is no longer applicable).`
 

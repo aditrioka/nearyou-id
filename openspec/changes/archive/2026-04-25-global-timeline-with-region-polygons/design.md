@@ -105,7 +105,7 @@ Distance arguments use GEOGRAPHY semantics (meters), not geometry degrees — `a
 
 **Why denormalize the match name (not just the FK):**
 - Global's hot path becomes a simple keyset on `(created_at DESC, id DESC)` against `visible_posts` — no `ST_Contains` per row, no JOIN, no polygon scan.
-- `admin_regions` has ~540 rows, but a 4-step ladder against multipolygon GIST indexes is 1–5 ms per INSERT. At Global p95 <200 ms ([`docs/08-Roadmap-Risk.md:169`](docs/08-Roadmap-Risk.md)) with 30 rows/page, that's 30–150 ms budget spent on something we can pre-compute once.
+- `admin_regions` has ~540 rows, but a 4-step ladder against multipolygon GIST indexes is 1–5 ms per INSERT. At Global p95 <200 ms ([`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md)) with 30 rows/page, that's 30–150 ms budget spent on something we can pre-compute once.
 - City names change very rarely (kabupaten/kota boundaries are politically stable); staleness risk is real but bounded. When a polygon re-seed does land, the optional backfill job re-runs the 4-step ladder against the affected posts.
 
 **Why `city_match_type` (provenance tag):**
@@ -211,7 +211,7 @@ Shape notes:
 - `p.city_name` is projected directly from `visible_posts`.
 - Both directional `user_blocks` NOT-IN subqueries remain — `BlockExclusionJoinRule` passes.
 
-**Alternative considered:** `FROM posts` (not `visible_posts`) + explicit `is_auto_hidden = FALSE` and shadow-ban filters inline. Rejected — mandatory use of `visible_posts` is a CI lint rule (`docs/08-Roadmap-Risk.md:84` Coding Conventions § Shadow-ban safety). No exceptions outside admin paths.
+**Alternative considered:** `FROM posts` (not `visible_posts`) + explicit `is_auto_hidden = FALSE` and shadow-ban filters inline. Rejected — mandatory use of `visible_posts` is a CI lint rule (`docs/08-Roadmap-Risk.md` Coding Conventions § Shadow-ban safety). No exceptions outside admin paths.
 
 ### Decision 6: Nearby + Following responses gain `city_name` (additive; no behavior change)
 

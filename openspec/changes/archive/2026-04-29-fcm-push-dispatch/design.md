@@ -352,7 +352,7 @@ This decision is forward-defensive — no health-check probe is implemented in t
 
 ## Migration Plan
 
-1. **Pre-deploy (operator)**: populate `firebase-admin-sa` (prod) and `staging-firebase-admin-sa` (staging) GCP Secret Manager slots with the Firebase service-account JSON downloaded from the Firebase Console (`Settings > Service accounts > Generate new private key`). Slot names already reserved per [`docs/08-Roadmap-Risk.md:51`](../../../docs/08-Roadmap-Risk.md).
+1. **Pre-deploy (operator)**: populate `firebase-admin-sa` (prod) and `staging-firebase-admin-sa` (staging) GCP Secret Manager slots with the Firebase service-account JSON downloaded from the Firebase Console (`Settings > Service accounts > Generate new private key`). Slot names already reserved per [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md).
 2. **Code merge**: lands the `:infra:fcm` module + `FcmDispatcher` impl + DI wiring + tests + lib pin + README sync. No Flyway migration. No schema change. No new endpoint.
 3. **Deploy to staging** (auto via `main` branch per `openspec/project.md` § Environments). Smoke test:
    - Register a test FCM token via `POST /api/v1/user/fcm-token` from a staging mobile build.
