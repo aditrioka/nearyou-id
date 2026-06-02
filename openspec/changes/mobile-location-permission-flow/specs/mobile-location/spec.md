@@ -64,7 +64,7 @@ The change SHALL model the permission-gate result as a Compose-free state type a
 
 ### Requirement: Android and iOS platform configuration declare coarse location
 
-The Android manifest SHALL declare `<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />` and SHALL NOT declare `ACCESS_FINE_LOCATION`. The iOS `Info.plist` SHALL declare `NSLocationWhenInUseUsageDescription` with a user-facing justification string. The Android runtime permission request SHALL go through the existing `CurrentActivityHolder` / Activity-result seam; iOS SHALL use `CLLocationManager.requestWhenInUseAuthorization`.
+The Android manifest SHALL declare `<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />` and SHALL NOT declare `ACCESS_FINE_LOCATION`. The iOS `Info.plist` SHALL declare `NSLocationWhenInUseUsageDescription` with a user-facing justification string. The Android runtime permission request SHALL go through an Activity-result seam — a `RequestPermission` `ActivityResultLauncher` registered by `MainActivity` and bridged to the `suspend` request via `LocationPermissionRequestBridge`, a sibling of the existing `CurrentActivityHolder` seam (permission results use a different `ActivityResultContract` than Credential Manager's account-picker flow). iOS SHALL use `CLLocationManager.requestWhenInUseAuthorization`.
 
 #### Scenario: Android manifest declares coarse and not fine
 - **WHEN** inspecting the Android manifest

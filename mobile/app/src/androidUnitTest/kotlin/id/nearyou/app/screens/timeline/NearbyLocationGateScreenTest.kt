@@ -20,6 +20,7 @@ import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.timeline.fakeNearbyPost
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.location_consent_allow
+import id.nearyou.resources.generated.resources.location_consent_body
 import id.nearyou.resources.generated.resources.location_consent_title
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
@@ -42,6 +43,9 @@ private const val NEARBY_TITLE = "Post dari lokasi ini"
 private const val DENIAL = "Aktifkan lokasi untuk lihat postingan sekitar"
 private const val OPEN_SETTINGS = "Buka Pengaturan"
 private const val CONSENT_TITLE = "Aktifkan lokasi kamu"
+private const val CONSENT_BODY =
+    "NearYouID memakai lokasi perkiraan kamu untuk menampilkan postingan di sekitar. " +
+        "Lokasi hanya diambil saat kamu membuka halaman ini dan tidak pernah dibagikan ke pengguna lain."
 private const val CONSENT_ALLOW = "Izinkan lokasi"
 private const val ERROR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
 private const val RETRY = "Coba lagi"
@@ -203,12 +207,14 @@ class NearbyLocationGateScreenTest {
         var denial = ""
         var openSettings = ""
         var consentTitle = ""
+        var consentBody = ""
         var consentAllow = ""
         runComposeUiTest {
             setContent {
                 denial = stringResource(Res.string.nearby_location_denied)
                 openSettings = stringResource(Res.string.location_open_settings)
                 consentTitle = stringResource(Res.string.location_consent_title)
+                consentBody = stringResource(Res.string.location_consent_body)
                 consentAllow = stringResource(Res.string.location_consent_allow)
             }
             waitForIdle()
@@ -216,6 +222,7 @@ class NearbyLocationGateScreenTest {
         assertEquals(DENIAL, denial)
         assertEquals(OPEN_SETTINGS, openSettings)
         assertEquals(CONSENT_TITLE, consentTitle)
+        assertEquals(CONSENT_BODY, consentBody)
         assertEquals(CONSENT_ALLOW, consentAllow)
     }
 }
