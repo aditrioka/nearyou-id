@@ -408,7 +408,7 @@ The Firebase service-account JSON MUST NOT be read via direct `System.getenv("FI
 #### Scenario: Staging profile reads the staging-namespaced secret
 
 - **WHEN** the backend starts in the staging profile AND `secretKey(env, "firebase-admin-sa")` is invoked
-- **THEN** the helper resolves to the GCP Secret Manager slot named `staging-firebase-admin-sa` (per the namespace convention recorded in [`docs/08-Roadmap-Risk.md:51`](../../../docs/08-Roadmap-Risk.md))
+- **THEN** the helper resolves to the GCP Secret Manager slot named `staging-firebase-admin-sa` (per the namespace convention recorded in [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) § Pre-Phase 1 #34)
 
 #### Scenario: Test profile skips Firebase Admin SDK initialization
 

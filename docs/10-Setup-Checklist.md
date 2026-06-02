@@ -259,7 +259,7 @@ OTel foundation shipped 2026-05-07 via PR #66 `observability-otel-foundation` �
 - Amplitude org ID: `428773`
 - Staging project ID: `814353`
 - Pending wiring: `staging-amplitude-api-key` not yet in `.github/workflows/deploy-staging.yml --set-secrets` — will be added when backend `:infra:amplitude` module wires SDK init (separate OpenSpec change, per Phase 1 line 89 schedule)
-- Pending Pre-Launch test (`08-Roadmap-Risk.md:339`): "Analytics consent suppression tested (Amplitude opt-out silent)" — gated on `:infra:amplitude` module landing first
+- Pending Pre-Launch test (`08-Roadmap-Risk.md` § Pre-Launch security review checklist): "Analytics consent suppression tested (Amplitude opt-out silent)" — gated on `:infra:amplitude` module landing first
 
 ### 3.9 Resend (transactional email)
 
