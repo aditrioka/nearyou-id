@@ -6,9 +6,10 @@
 ## 2. commonMain — caching decorator + clock seam
 
 - [ ] 2.1 Add named constants with rationale KDoc (design D4): in-process warm staleness `60s`, Android `maxUpdateAgeMillis 90s`, acquisition ceiling `durationMillis`/iOS timeout `12s`.
-- [ ] 2.2 Implement `CachingLocationProvider` in `commonMain` (`id.nearyou.app.timeline` or `…location`) implementing `LocationProvider`, wrapping a delegate `LocationProvider`, holding `(LatLng, TimeMark)`; `current()` returns the held fix when `mark.elapsedNow() < stalenessWindow`, else delegates and stores (specs: "Consumers share one in-process warm fix").
+- [ ] 2.2 Implement `CachingLocationProvider` in `commonMain` package `id.nearyou.app.location` (co-located with the actuals it wraps + `LocationUnavailableException`) implementing `LocationProvider`, wrapping a delegate `LocationProvider`, holding `(LatLng, TimeMark)`; `current()` returns the held fix when `mark.elapsedNow() < stalenessWindow` (exclusive bound), else delegates and stores (specs: "Consumers share one in-process warm fix").
 - [ ] 2.3 Inject a `kotlin.time.TimeSource` seam (default `TimeSource.Monotonic`); make NO wall-clock / `Clock.System.now()` call for staleness (design D3; spec scenario "Staleness uses an injected clock").
 - [ ] 2.4 Make NO logging/diagnostic call carrying the coordinate from the decorator (hold it privately, return to caller only) (design D6; spec scenario "Acquired coordinate is never logged").
+- [ ] 2.5 Single-flight the check-delegate-store critical section with a `kotlinx.coroutines.sync.Mutex` so concurrent `current()` on a cold/expired holder share **one** acquisition (design D7; spec scenario "Concurrent cold-holder calls share one acquisition").
 
 ## 3. Android actual — CurrentLocationRequest tuning
 
@@ -18,7 +19,7 @@
 
 ## 4. iOS actual — timeout ceiling + cached-fix reuse
 
-- [ ] 4.1 In `IosLocationProvider`, check `CLLocationManager.location` and reuse it when its `timestamp` is within the staleness window before calling `requestLocation()` (spec: "iOS reuses a recent cached fix").
+- [ ] 4.1 In `IosLocationProvider`, check `CLLocationManager.location` and reuse it when its `timestamp` is within the staleness window before calling `requestLocation()` (spec: "iOS reuses a recent cached fix"); do NOT log the coordinate or the `timestamp` on the reuse branch (guarded by 6.8).
 - [ ] 4.2 Wrap the one-shot `requestLocation()` acquisition in `withTimeout`/`withTimeoutOrNull` (~12s, defensive ceiling above the internal ~10s) resolving to `LocationUnavailableException` on expiry (spec: "iOS acquisition is timeout-bounded"); keep `kCLLocationAccuracyReduced`, when-in-use only.
 
 ## 5. Koin wiring — qualifier + decorator binding
@@ -32,8 +33,11 @@
 - [ ] 6.1 `commonTest` decorator test (counting fake device source + `TestTimeSource`): two `current()` within the window → exactly one acquisition + same coordinate (spec: "Warm fix reused across consumers").
 - [ ] 6.2 `commonTest`: advance `TestTimeSource` past the window → second `current()` re-delegates (count → 2) (spec: "An expired fix is re-acquired").
 - [ ] 6.3 `commonTest`: decorator wrapping a fake that throws `LocationUnavailableException` → `current()` propagates it, returns no stale/sentinel coordinate (spec: "A delegate timeout surfaces as LocationUnavailableException").
-- [ ] 6.4 Source-inspection guard test (strip comments first per repo precedent): assert `AndroidLocationProvider` uses `CurrentLocationRequest` with `setDurationMillis` + `setMaxUpdateAgeMillis` + `setGranularity(GRANULARITY_COARSE)` and NOT the 2-arg `getCurrentLocation` overload; assert no `ACCESS_FINE_LOCATION`.
-- [ ] 6.5 Source-inspection: `IosLocationProvider` wraps `requestLocation()` in a coroutine timeout and checks `CLLocationManager.location` timestamp; no background/"Always" authorization.
+- [ ] 6.4 Source-inspection guard test (strip comments first per repo precedent — else the file's own KDoc trips the scan): assert `AndroidLocationProvider` uses `CurrentLocationRequest` with `setDurationMillis` + `setMaxUpdateAgeMillis` + `setGranularity(GRANULARITY_COARSE)` and NOT the 2-arg `getCurrentLocation` overload; assert no `ACCESS_FINE_LOCATION`.
+- [ ] 6.5 Source-inspection: `IosLocationProvider` wraps `requestLocation()` in a coroutine timeout AND checks `CLLocationManager.location` with a `timestamp`-comparison token AND a nil/absent fall-through guard; no background/"Always" authorization.
+- [ ] 6.6 `commonTest` concurrency test: two `current()` launched via `async`/`awaitAll` on a cold holder backed by a counting fake whose acquisition suspends until both callers await → exactly ONE delegate acquisition + same coordinate (spec: "Concurrent cold-holder calls share one acquisition"; design D7 single-flight).
+- [ ] 6.7 `commonTest` staleness-boundary test: advance `TestTimeSource` to elapsed == `stalenessWindow` exactly → second `current()` re-acquires (count increments), pinning the exclusive `<` bound (spec: "A fix exactly at the staleness window is re-acquired").
+- [ ] 6.8 Extend the source-scan no-logging guard to the new coordinate-holder: `PostCreationSourceGuardTest` scans a hardcoded file list and will NOT pick up `CachingLocationProvider` — add it (and the tuned `AndroidLocationProvider` / `IosLocationProvider`) to that comment-stripping guard (or a sibling `LocationSourceGuardTest`), asserting no `println` / `Log.` / `NSLog` / `Napier` / `LogLevel.BODY`/`ALL` and no coordinate-or-`timestamp`-bearing diagnostic call (security N1/N2; design D6 — makes the no-coordinate-logging property test-enforced, not just review-enforced).
 
 ## 7. Validate, gate, verify, sync
 
