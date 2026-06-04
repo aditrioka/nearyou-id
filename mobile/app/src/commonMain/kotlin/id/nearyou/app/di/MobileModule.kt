@@ -8,6 +8,9 @@ import id.nearyou.app.config.apiBaseUrl
 import id.nearyou.app.config.httpClientEngine
 import id.nearyou.app.config.isDebugBuild
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.post.CreatePostFlow
+import id.nearyou.app.post.CreatePostRepository
+import id.nearyou.app.post.PostCreationApiClient
 import id.nearyou.app.timeline.NearbyTimelineApiClient
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineRepository
@@ -58,6 +61,15 @@ val mobileModule =
         single { SessionIdProvider() }
         single { NearbyTimelineRepository(get(), get(), get()) }
         single<NearbyTimelineFlow> { get<NearbyTimelineRepository>() }
+
+        // mobile-post-creation-screen — the create-post graph. Reuses the shared HttpClient, the
+        // platform-bound LocationProvider, and the platform-bound LocationPermissionController (both
+        // supplied by each platformModule via mobile-location-permission-flow) — NO new location /
+        // permission binding is introduced. CreatePostRepository is bound behind the CreatePostFlow
+        // seam so a FakeCreatePostFlow can drive the screen tests (the concrete stays resolvable).
+        single { PostCreationApiClient(get()) }
+        single { CreatePostRepository(get(), get(), get()) }
+        single<CreatePostFlow> { get<CreatePostRepository>() }
     }
 
 /**

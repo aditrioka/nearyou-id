@@ -54,4 +54,21 @@
     <string name="location_consent_allow">Izinkan lokasi</string>
     <string name="nearby_location_denied">Aktifkan lokasi untuk lihat postingan sekitar</string>
     <string name="location_open_settings">Buka Pengaturan</string>
+
+    <!-- mobile-post-creation-screen. `post_create_error_moderated` is DOCS-CANONICAL — byte-identical
+         to openspec/specs/post-creation/spec.md § "Verdict.Reject" error.message (generic + keyword-free,
+         mirroring the backend's keyword-omission discipline); do NOT reword it. The other 9 keys are
+         derived Bahasa Indonesia copy consistent with the Mobile #3/#4/#5 register (docs/03-UX-Design.md
+         has no post-composer copy section) — FLAGGED FOR UX REVIEW (design D9 / Open Question 1). The 3
+         reused strings (signin_error_network, cta_retry, location_open_settings) are declared above. -->
+    <string name="post_create_title">Buat postingan</string>
+    <string name="post_create_content_placeholder">Apa yang sedang terjadi di sekitarmu?</string>
+    <string name="post_create_char_counter" formatted="true">%1$d/280</string>
+    <string name="cta_post">Posting</string>
+    <string name="post_create_loading">Sedang memposting…</string>
+    <string name="post_create_error_empty">Postingan tidak boleh kosong.</string>
+    <string name="post_create_error_too_long">Postingan maksimal 280 karakter.</string>
+    <string name="post_create_error_location">Lokasi kamu di luar jangkauan layanan.</string>
+    <string name="post_create_error_moderated">Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi.</string>
+    <string name="post_create_location_unavailable">Aktifkan lokasi untuk membuat postingan.</string>
 </resources>
