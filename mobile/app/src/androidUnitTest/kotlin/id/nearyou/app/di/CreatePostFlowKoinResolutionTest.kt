@@ -2,6 +2,7 @@ package id.nearyou.app.di
 
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.TokenStore
+import id.nearyou.app.location.CachingLocationProvider
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.post.CreatePostFlow
@@ -10,6 +11,7 @@ import id.nearyou.app.timeline.LocationProvider
 import id.nearyou.app.timeline.StubLocationProvider
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
@@ -19,12 +21,13 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * Focused Koin-wiring check for mobile-post-creation-screen (task 6.2): the real [mobileModule]
- * resolves [CreatePostFlow] (→ the concrete [CreatePostRepository]) when the platform-side leaf
- * dependencies it REUSES — `TokenStore`, `LocationProvider`, `LocationPermissionController` — are
- * supplied as test doubles (production binds them in each `platformModule`). This confirms the three
- * new singles are wired and that the repository consumes the EXISTING location/permission bindings
- * (no new binding introduced).
+ * Focused Koin-wiring check for mobile-post-creation-screen (task 6.2) + mobile-location-acquisition-
+ * tuning: the real [mobileModule] resolves [CreatePostFlow] (→ the concrete [CreatePostRepository])
+ * when the platform-side leaf dependencies it REUSES — `TokenStore`, the `named("deviceLocation")`
+ * device `LocationProvider`, `LocationPermissionController` — are supplied as test doubles (production
+ * binds them in each `platformModule`). Also asserts the unqualified `LocationProvider` consumers
+ * inject resolves to the [CachingLocationProvider] decorator wrapping that qualified device provider
+ * (spec § "Production binds the caching decorator over the real provider; stub retained for tests").
  *
  * Lives in androidUnitTest (not commonTest) because resolving the graph instantiates the shared
  * `HttpClient` via the platform `httpClientEngine()` / `apiBaseUrl` actuals — the Android (OkHttp +
@@ -47,11 +50,13 @@ class CreatePostFlowKoinResolutionTest {
     @Test
     fun mobileModule_resolvesCreatePostFlow_behindTheRepository() {
         // Only the leaf deps the create-post subtree needs are stubbed; the platform Google /
-        // activity bindings are NOT loaded (Koin resolves lazily, so they are never touched).
+        // activity bindings are NOT loaded (Koin resolves lazily, so they are never touched). The
+        // device LocationProvider is bound behind named("deviceLocation") — the same qualifier each
+        // platformModule uses — so mobileModule's unqualified CachingLocationProvider decorator wraps it.
         val stubPlatform =
             module {
                 single<TokenStore> { InMemoryTokenStore() }
-                single<LocationProvider> { StubLocationProvider() }
+                single<LocationProvider>(named("deviceLocation")) { StubLocationProvider() }
                 single<LocationPermissionController> { FakeLocationPermissionController() }
             }
         val koin = startKoin { modules(mobileModule, stubPlatform) }.koin
@@ -60,5 +65,11 @@ class CreatePostFlowKoinResolutionTest {
         assertTrue(flow is CreatePostRepository, "CreatePostFlow must bind to the concrete CreatePostRepository")
         // The flow seam and the concrete resolve to the SAME singleton (single<CreatePostFlow> { get<…>() }).
         assertSame(koin.get<CreatePostRepository>(), flow, "the seam returns the same CreatePostRepository single")
+        // The unqualified LocationProvider consumers inject is the caching decorator over the device
+        // provider — NOT the raw device/stub provider (mobile-location-acquisition-tuning wiring).
+        assertTrue(
+            koin.get<LocationProvider>() is CachingLocationProvider,
+            "the unqualified LocationProvider must be the CachingLocationProvider decorator",
+        )
     }
 }

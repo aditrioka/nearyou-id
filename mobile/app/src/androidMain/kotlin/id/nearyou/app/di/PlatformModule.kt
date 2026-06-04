@@ -13,6 +13,7 @@ import id.nearyou.app.location.LocationPermissionRequestBridge
 import id.nearyou.app.timeline.LocationProvider
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.Module
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 actual val platformModule: Module =
@@ -29,6 +30,9 @@ actual val platformModule: Module =
         // StubLocationProvider as the production binding; the controller drives the runtime
         // ACCESS_COARSE_LOCATION request through the Activity-result bridge (set by MainActivity).
         single { LocationPermissionRequestBridge() }
-        single<LocationProvider> { AndroidLocationProvider(androidContext()) }
+        // mobile-location-acquisition-tuning — the real provider binds behind a qualifier; the
+        // unqualified LocationProvider consumers inject is the CachingLocationProvider decorator
+        // (mobileModule), which wraps this. Two LocationProvider bindings would clash without it.
+        single<LocationProvider>(named("deviceLocation")) { AndroidLocationProvider(androidContext()) }
         single<LocationPermissionController> { AndroidLocationPermissionController(androidContext(), get()) }
     }
