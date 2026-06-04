@@ -86,6 +86,10 @@ class LocationSourceGuardTest {
         assertTrue(iosProvider.contains("timestamp"), "the cached-fix reuse must compare CLLocationManager.location.timestamp")
         assertTrue(iosProvider.contains("timeIntervalSinceNow"), "staleness must be computed from the cached fix timestamp")
         assertTrue(iosProvider.contains("?: return null"), "a nil/absent cached fix must fall through to a fresh acquisition")
+        assertTrue(
+            iosProvider.contains("LocationUnavailableException"),
+            "timeout/failure must resolve to LocationUnavailableException",
+        )
         assertTrue(iosProvider.contains("kCLLocationAccuracyReduced"), "iOS must keep reduced (coarse) accuracy")
         assertFalse(iosProvider.contains("requestAlwaysAuthorization"), "iOS must not request Always/background authorization")
     }
@@ -112,20 +116,34 @@ class LocationSourceGuardTest {
     @Test
     fun decoratorAndActuals_neverLogTheCoordinateOrTimestamp() {
         val logToken = Regex("""\bLog\.""") // android.util.Log.d/e/w/i/v
+        // K/N stdout call distinct from println(...) (which `print` is NOT a prefix-match for: print\s*\(
+        // does not match "println("); guards the iOS actual against a bare print(coordinate).
+        val printToken = Regex("""\bprint\s*\(""")
         for ((name, src) in listOf(
             "CachingLocationProvider" to decorator,
             "AndroidLocationProvider" to androidProvider,
             "IosLocationProvider" to iosProvider,
         )) {
             assertFalse(src.contains("println"), "$name must not println (the coordinate must never be logged)")
+            assertFalse(printToken.containsMatchIn(src), "$name must not print( the coordinate (Kotlin/Native stdout)")
             assertFalse(logToken.containsMatchIn(src), "$name must not use android.util.Log")
             assertFalse(src.contains("NSLog"), "$name must not NSLog")
+            assertFalse(src.contains("os_log"), "$name must not os_log")
             assertFalse(src.contains("Napier"), "$name must not log via Napier")
+            assertFalse(src.contains("Timber"), "$name must not log via Timber")
             assertFalse(src.contains("LogLevel.BODY"), "$name must not widen logging to BODY")
             assertFalse(src.contains("LogLevel.ALL"), "$name must not widen logging to ALL")
         }
         // With NO diagnostic call site present in any of the three, the held coordinate / cached-fix
         // timestamp cannot reach one — the no-coordinate-logging invariant is structurally guaranteed.
+    }
+
+    @Test
+    fun decorator_usesInjectedClockSeam_notWallClock() {
+        // Spec "Staleness uses an injected clock, not a wall-clock call": both THEN clauses —
+        // (a) accepts a TimeSource seam, AND (b) makes no Clock.System / wall-clock call.
+        assertTrue(decorator.contains("TimeSource"), "the decorator must accept an injected TimeSource seam")
+        assertFalse(decorator.contains("Clock.System"), "staleness must not use a wall-clock Clock.System call")
     }
 
     // ---- stub retained for tests ----
