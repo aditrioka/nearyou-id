@@ -71,6 +71,8 @@ class PostCreationUiStateTest {
         assertEquals(1, emoji.codePointLength(), "a surrogate pair is one code point")
         assertEquals(3, ("a" + emoji + "b").codePointLength())
         assertEquals(1, "\uD83D".codePointLength(), "a lone high surrogate counts as one")
+        assertEquals(1, "\uDE00".codePointLength(), "a lone low surrogate counts as one")
+        assertEquals(2, "\uD83Da".codePointLength(), "a high surrogate NOT followed by a low counts as one, then the next char")
     }
 
     @Test

@@ -87,7 +87,13 @@ class CreatePostRepository(
                         PostCreationOutcome.Error
                     }
                 }
+            // 5xx (server-side) → retryable. Kept as an explicit arm rather than folded into `else`
+            // to mirror NearbyTimelineRepository and leave a self-documenting slot for a future
+            // distinct 5xx outcome.
             error.status in 500..599 -> PostCreationOutcome.NetworkError
+            // Any other unenumerated status (e.g. an unexpected non-401 4xx) → the DEFINED retryable
+            // NetworkError, NOT a generic "submit failed" fallthrough. 401 never reaches here: the
+            // shipped Auth plugin consumes it upstream (terminal 401 → re-route to sign-in).
             else -> PostCreationOutcome.NetworkError
         }
 }

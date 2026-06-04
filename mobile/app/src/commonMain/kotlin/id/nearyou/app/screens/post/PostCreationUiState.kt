@@ -2,9 +2,11 @@ package id.nearyou.app.screens.post
 
 import id.nearyou.app.post.PostCreationOutcome
 
-/** The server-authoritative max post length — 280 Unicode code points per `post-creation` spec
- *  § "Content length guard". The client gate counts code points for the live counter + submit-enable;
- *  the server remains the NFKC authority (design D5). */
+/** The post length limit — 280 code points (`post-creation` spec § "Content length guard"). The
+ *  client gate counts RAW Unicode code points (no NFKC) for the live counter + submit-enable; the
+ *  server NFKC-normalizes + trims authoritatively (design D5), so the client gate is only a UX nicety
+ *  that prevents the obvious doomed round-trip (a rare divergence surfaces as the server's
+ *  `content_too_long`/`content_empty` banner). */
 const val MAX_POST_CONTENT_CODE_POINTS: Int = 280
 
 /**
