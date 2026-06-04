@@ -40,31 +40,6 @@ Format per entry:
 
 ---
 
-## mobile-location-acquisition-latency
-
-**Discovered during:** `mobile-post-creation-screen` apply §8.4 (on-device Android pass — Samsung SM-A176B / Android 16, `staging`). The composer's "Sedang memposting…" hung **~30s** before the POST fired; a second submit took **>46s**. Root-caused live (logcat + `dumpsys location`).
-
-**Status:** open
-
-**Finding:** `AndroidLocationProvider.current()` ([`mobile/app/src/androidMain/kotlin/id/nearyou/app/location/AndroidLocationProvider.kt:35-43`](mobile/app/src/androidMain/kotlin/id/nearyou/app/location/AndroidLocationProvider.kt)) calls the 2-arg `getCurrentLocation(PRIORITY_BALANCED_POWER_ACCURACY, token)` with **no `CurrentLocationRequest`** — so no `maxUpdateAgeMillis` (a recent cached fix is rejected) and no `setDurationMillis` (the wait is **unbounded**, no timeout). The `lastLocation` fallback only fires if `getCurrentLocation` returns `null`, which it does not (it eventually succeeds after the long cold acquisition), so the cached fix is effectively never used. Each `current()` call re-acquires a fresh fix **independently** — there is no shared warm-fix cache between the Nearby feed and the composer. On-device evidence: `dumpsys location` showed the last cached fixes were 10–12h old; the location subsystem (`NSLocationManager_FLP`) ran 22:17:15→22:17:42 (~27s) before `FusedLocation` delivered the coarse fix; the POST fired 19ms later and the round-trip itself was only ~3s. iOS has the same one-shot pattern (`mobile/app/src/iosMain/kotlin/id/nearyou/app/location/IosLocationProvider.kt`, `requestLocation`, no cache/timeout tuning). The comparison-app "feels instant" because those apps **pre-warm** + reuse a recent fix (and some use background location, which nearyou-id deliberately does NOT) rather than acquiring cold at point-of-use.
-
-**Specs at fault:** `openspec/specs/mobile-location/spec.md` — leaves acquisition latency / staleness / timeout unspecified (a behavioral gap; the spec only says "best-effort: `getCurrentLocation` + `getLastLocation` fallback").
-**Code at fault:** `mobile/app/src/androidMain/kotlin/id/nearyou/app/location/AndroidLocationProvider.kt` (+ `mobile/app/src/iosMain/kotlin/id/nearyou/app/location/IosLocationProvider.kt`). Surfaced — but not caused — by `mobile-post-creation-screen`'s composer (the first **write** path where the user actively waits for a fix at submit time; the Nearby read path waits too, but a feed-load spinner is less jarring).
-**Docs at fault:** none (no latency target was ever documented).
-
-**Impact (if shipped):** UX rough edge for a location-first app — on a cold-cache device the composer (and the Nearby first load) can sit on a spinner 30–46s+; with no `setDurationMillis`, a genuine no-signal scenario can hang far longer (the only escape is backgrounding). A pre-launch quality concern: it makes the core write loop feel broken even though it is functionally correct.
-
-**Ambiguity to resolve first:** (1) acceptable staleness for a "post from here" coordinate (proposed `maxUpdateAge` ~60–120s) + acquisition timeout (proposed `durationMillis` ~10–15s); (2) whether to add a brief **foreground** `requestLocationUpdates` to keep the fix warm — MUST stay within the coarse / when-in-use / **no `ACCESS_BACKGROUND_LOCATION`** UU-PDP posture (no background location, unlike dating apps); (3) whether a Premium "faster/more-accurate fix" tier is wanted — if so it is a **product decision** that must land in `docs/02-Product.md` FIRST (today Premium differentiates on Nearby *radius* (Free 20km · Premium 10/20/50/100km), NOT location-refresh speed; a "Premium background refresh" would contradict the documented privacy stance and is not recommended).
-
-**Action items:**
-- [ ] Introduce a shared in-memory "last good location" holder, updated whenever any screen acquires a fix (Nearby feed + composer), so the composer reads a warm fix instantly instead of re-acquiring.
-- [ ] Tune acquisition: explicit `CurrentLocationRequest` with `setMaxUpdateAgeMillis` (~60–120s) + `setDurationMillis` (~10–15s timeout) + `setGranularity(GRANULARITY_COARSE)`; try `lastLocation` (with an age check) first, then `getCurrentLocation`. Mirror the tuning + timeout on iOS (`IosLocationProvider`).
-- [ ] Pre-warm location on Home entry / permission-grant (the Nearby feed already acquires on entry — reuse its result rather than re-acquiring in the composer).
-- [ ] Add a composer "Mengambil lokasi…" sub-state so a slow acquisition reads as progress (not a hang); on timeout, surface the existing `LocationUnavailable` banner.
-- [ ] (If product wants it) decide + document any Premium location-refresh differentiation in `docs/02-Product.md` BEFORE coding — and only within the no-background-location posture.
-
----
-
 ## mobile-post-creation-refresh-nearby-on-return
 
 **Discovered during:** `mobile-post-creation-screen` proposal (deferral; design D8).
