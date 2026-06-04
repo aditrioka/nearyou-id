@@ -12,6 +12,7 @@ import id.nearyou.resources.generated.resources.cta_cancel
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_continue
 import id.nearyou.resources.generated.resources.cta_create_account
+import id.nearyou.resources.generated.resources.cta_post
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.cta_signin_google
 import id.nearyou.resources.generated.resources.empty_state_generic
@@ -24,6 +25,15 @@ import id.nearyou.resources.generated.resources.location_consent_body
 import id.nearyou.resources.generated.resources.location_consent_title
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
+import id.nearyou.resources.generated.resources.post_create_char_counter
+import id.nearyou.resources.generated.resources.post_create_content_placeholder
+import id.nearyou.resources.generated.resources.post_create_error_empty
+import id.nearyou.resources.generated.resources.post_create_error_location
+import id.nearyou.resources.generated.resources.post_create_error_moderated
+import id.nearyou.resources.generated.resources.post_create_error_too_long
+import id.nearyou.resources.generated.resources.post_create_loading
+import id.nearyou.resources.generated.resources.post_create_location_unavailable
+import id.nearyou.resources.generated.resources.post_create_title
 import id.nearyou.resources.generated.resources.signin_error_banned
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.signin_error_no_account
@@ -92,13 +102,26 @@ class SharedStringsCatalogTest {
             Res.string.location_consent_allow,
             Res.string.nearby_location_denied,
             Res.string.location_open_settings,
+            // mobile-post-creation-screen (composer title/placeholder/counter/CTA/loading + per-error
+            // banners). The 3 reused strings (signin_error_network, cta_retry, location_open_settings)
+            // are already counted above; these 10 are net-new.
+            Res.string.post_create_title,
+            Res.string.post_create_content_placeholder,
+            Res.string.post_create_char_counter,
+            Res.string.cta_post,
+            Res.string.post_create_loading,
+            Res.string.post_create_error_empty,
+            Res.string.post_create_error_too_long,
+            Res.string.post_create_error_location,
+            Res.string.post_create_error_moderated,
+            Res.string.post_create_location_unavailable,
         )
 
     @Test
-    fun `all Mobile 2 3 4 and 5 plus location string keys are declared`() {
+    fun `all Mobile 2 3 4 and 5 plus location and post-creation string keys are declared`() {
         // 10 (Mobile #2/#2.5) + 8 (Mobile #3) + 8 (Mobile #4) + 5 (Mobile #5 timeline)
-        // + 5 (mobile-location-permission-flow) = 36.
-        assertEquals(36, allDeclaredStrings.size)
+        // + 5 (mobile-location-permission-flow) + 10 (mobile-post-creation-screen) = 46.
+        assertEquals(46, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

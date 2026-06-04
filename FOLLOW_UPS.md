@@ -39,6 +39,85 @@ Format per entry:
 
 ---
 
+## mobile-location-acquisition-latency
+
+**Discovered during:** `mobile-post-creation-screen` apply §8.4 (on-device Android pass — Samsung SM-A176B / Android 16, `staging`). The composer's "Sedang memposting…" hung **~30s** before the POST fired; a second submit took **>46s**. Root-caused live (logcat + `dumpsys location`).
+
+**Status:** open
+
+**Finding:** `AndroidLocationProvider.current()` ([`mobile/app/src/androidMain/kotlin/id/nearyou/app/location/AndroidLocationProvider.kt:35-43`](mobile/app/src/androidMain/kotlin/id/nearyou/app/location/AndroidLocationProvider.kt)) calls the 2-arg `getCurrentLocation(PRIORITY_BALANCED_POWER_ACCURACY, token)` with **no `CurrentLocationRequest`** — so no `maxUpdateAgeMillis` (a recent cached fix is rejected) and no `setDurationMillis` (the wait is **unbounded**, no timeout). The `lastLocation` fallback only fires if `getCurrentLocation` returns `null`, which it does not (it eventually succeeds after the long cold acquisition), so the cached fix is effectively never used. Each `current()` call re-acquires a fresh fix **independently** — there is no shared warm-fix cache between the Nearby feed and the composer. On-device evidence: `dumpsys location` showed the last cached fixes were 10–12h old; the location subsystem (`NSLocationManager_FLP`) ran 22:17:15→22:17:42 (~27s) before `FusedLocation` delivered the coarse fix; the POST fired 19ms later and the round-trip itself was only ~3s. iOS has the same one-shot pattern (`mobile/app/src/iosMain/kotlin/id/nearyou/app/location/IosLocationProvider.kt`, `requestLocation`, no cache/timeout tuning). The comparison-app "feels instant" because those apps **pre-warm** + reuse a recent fix (and some use background location, which nearyou-id deliberately does NOT) rather than acquiring cold at point-of-use.
+
+**Specs at fault:** `openspec/specs/mobile-location/spec.md` — leaves acquisition latency / staleness / timeout unspecified (a behavioral gap; the spec only says "best-effort: `getCurrentLocation` + `getLastLocation` fallback").
+**Code at fault:** `mobile/app/src/androidMain/kotlin/id/nearyou/app/location/AndroidLocationProvider.kt` (+ `mobile/app/src/iosMain/kotlin/id/nearyou/app/location/IosLocationProvider.kt`). Surfaced — but not caused — by `mobile-post-creation-screen`'s composer (the first **write** path where the user actively waits for a fix at submit time; the Nearby read path waits too, but a feed-load spinner is less jarring).
+**Docs at fault:** none (no latency target was ever documented).
+
+**Impact (if shipped):** UX rough edge for a location-first app — on a cold-cache device the composer (and the Nearby first load) can sit on a spinner 30–46s+; with no `setDurationMillis`, a genuine no-signal scenario can hang far longer (the only escape is backgrounding). A pre-launch quality concern: it makes the core write loop feel broken even though it is functionally correct.
+
+**Ambiguity to resolve first:** (1) acceptable staleness for a "post from here" coordinate (proposed `maxUpdateAge` ~60–120s) + acquisition timeout (proposed `durationMillis` ~10–15s); (2) whether to add a brief **foreground** `requestLocationUpdates` to keep the fix warm — MUST stay within the coarse / when-in-use / **no `ACCESS_BACKGROUND_LOCATION`** UU-PDP posture (no background location, unlike dating apps); (3) whether a Premium "faster/more-accurate fix" tier is wanted — if so it is a **product decision** that must land in `docs/02-Product.md` FIRST (today Premium differentiates on Nearby *radius* (Free 20km · Premium 10/20/50/100km), NOT location-refresh speed; a "Premium background refresh" would contradict the documented privacy stance and is not recommended).
+
+**Action items:**
+- [ ] Introduce a shared in-memory "last good location" holder, updated whenever any screen acquires a fix (Nearby feed + composer), so the composer reads a warm fix instantly instead of re-acquiring.
+- [ ] Tune acquisition: explicit `CurrentLocationRequest` with `setMaxUpdateAgeMillis` (~60–120s) + `setDurationMillis` (~10–15s timeout) + `setGranularity(GRANULARITY_COARSE)`; try `lastLocation` (with an age check) first, then `getCurrentLocation`. Mirror the tuning + timeout on iOS (`IosLocationProvider`).
+- [ ] Pre-warm location on Home entry / permission-grant (the Nearby feed already acquires on entry — reuse its result rather than re-acquiring in the composer).
+- [ ] Add a composer "Mengambil lokasi…" sub-state so a slow acquisition reads as progress (not a hang); on timeout, surface the existing `LocationUnavailable` banner.
+- [ ] (If product wants it) decide + document any Premium location-refresh differentiation in `docs/02-Product.md` BEFORE coding — and only within the no-background-location posture.
+
+---
+
+## post-creation-spec-error-enumeration-stale
+
+**Discovered during:** `mobile-post-creation-screen` `/next-change` Phase D multi-lens review (reconciliation check against `openspec/specs/post-creation/spec.md`).
+**Status:** open
+
+**Finding:** `openspec/specs/post-creation/spec.md` § "Error envelope" states the 400 codes "SHALL be **exactly** `content_empty`, `content_too_long`, `location_out_of_bounds`, `invalid_json`, and `unauthenticated`" — but the SAME spec's § "Verdict.Reject" requirement (folded in when `content-moderation-keyword-lists` archived into the post-creation capability) defines a sixth code `content_moderated_profanity` with message `"Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi."`. The "exactly [5]" enumeration is stale / internally contradictory; the backend (`Application.kt` StatusPages + `CreatePostService.ContentModeratedProfanityException`) emits 6 client-relevant 400 codes.
+
+**Specs at fault:** `openspec/specs/post-creation/spec.md` § "Error envelope" (the "exactly these codes" sentence).
+**Code at fault:** none — the backend is correct (emits `content_moderated_profanity`).
+**Docs at fault:** none.
+
+**Impact (if shipped):** Low — documentation-only inconsistency within one spec. Risk: a future reader trusting the "exactly [5]" line "corrects" a client (e.g. the new `mobile-post-creation` composer) to drop `content_moderated_profanity` handling, regressing the moderation-rejection UX. `mobile-post-creation-screen` handles all six correctly and flags this in its proposal + design D9.
+
+**Action items:**
+- [ ] Amend `openspec/specs/post-creation/spec.md` § "Error envelope" to include `content_moderated_profanity` and reconcile the "exactly" phrasing with the § "Verdict.Reject" requirement (regular docs PR; not OpenSpec).
+
+---
+
+## mobile-post-creation-refresh-nearby-on-return
+
+**Discovered during:** `mobile-post-creation-screen` proposal (deferral; design D8).
+**Status:** open
+
+**Finding:** On a successful post the composer pops back to Home but does NOT refresh the Nearby feed, so the just-created post is invisible until the user pulls-to-refresh (the feed re-fetches only on its own reload key / `ON_RESUME` gate, not on a child-screen pop). Showing it immediately needs a cross-screen reload signal.
+
+**Specs at fault:** none — deliberate, `mobile-post-creation` design D8.
+**Code at fault:** none yet (PR [#145](https://github.com/aditrioka/nearyou-id/pull/145) in flight).
+**Docs at fault:** none.
+
+**Impact (if shipped):** Minor UX rough edge — the post succeeds but is not reflected in Nearby until a manual pull-to-refresh.
+
+**Action items:**
+- [ ] After the composer ships, wire a one-shot Nearby reload on composer success (a shared reload trigger or a Voyager result) so the new post appears on return without a manual refresh.
+
+---
+
+## mobile-post-creation-ios-flow-tests
+
+**Discovered during:** `mobile-post-creation-screen` Phase D test-coverage lens.
+**Status:** open
+
+**Finding:** The composer's commonTest projection + MockEngine tests + the Android Robolectric screen test cover the logic, but there is no `mobile/app/src/iosTest` coverage. The Nearby capability got iOS flow tests as a SEPARATE change ([#143](https://github.com/aditrioka/nearyou-id/pull/143): `NearbyTimelineFlowIosTest` etc.); the composer should get the same parity treatment.
+
+**Specs at fault:** none.
+**Code at fault:** none yet (PR [#145](https://github.com/aditrioka/nearyou-id/pull/145) in flight).
+**Docs at fault:** none.
+
+**Impact (if shipped):** iOS-actual behavior of the composer flow is verified only by the manual iOS-sim pass, not by an automated `iosTest` — a parity gap vs the Nearby surface.
+
+**Action items:**
+- [ ] After the composer ships, add `mobile/app/src/iosTest` flow coverage mirroring #143's Nearby iOS flow tests (CMP 1.11.1 `runComposeUiTest`).
+
+---
+
 ## observability-otel-collector-tail-sampling
 
 **Discovered during:** `observability-otel-foundation` `/next-change` Phase D round-3 adversarial-lens finding #11 — the round-1 design § D4 force-keep `SpanProcessor` re-emitting via `Tracer.spanBuilder().setNoParent()` is structurally wrong: it creates a fresh root span detached from the original trace, breaking trace_id linkage in Tempo.
