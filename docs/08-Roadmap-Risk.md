@@ -154,7 +154,7 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 - In-app notifications list UI (backed by `/api/v1/notifications`)
 - `DistanceRenderer` from `:shared:distance` module (cross-runtime with backend)
 - Pure DIY Google/Apple Sign-In wrapper (expect/actual)
-- Attestation expect/actual abstraction (`:infra:attestation`)
+- Attestation expect/actual abstraction (`:infra:attestation`) — also bundles platform device-fingerprint generation: when it lands, the mobile `SignInRequest` / `RefreshRequest` gain the `device_fingerprint_hash` field (today omitted — Mobile #3 ships `{provider, id_token}` only; spec-optional per `auth-signin` "MUST NOT be required for sign-in to succeed", so refresh-token rows persist `device_fingerprint_hash = NULL` until then)
 - FCM token registration on token refresh callback
 - Remote Config client fetch on cold start + foreground
 - Sentry KMP setup via `:infra:sentry` (unified with backend Sentry)
@@ -167,7 +167,7 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 - Core Location bridge (~2 days)
 - APNs + `.p8` key integration (~2 days)
 - StoreKit subscription (~4 days)
-- Sign in with Apple Swift bridge + cinterop (~6 days)
+- Sign in with Apple Swift bridge + cinterop (~6 days) — **eventual-state iOS primary auth**. Mobile #3 (`mobile-auth-google-signin-flow`) shipped Google-on-iOS as a substrate-proving stopgap; the swap adds an `AppleSignInClient` iosMain actual (`ASAuthorizationController`), flips the iOS primary CTA to "Masuk dengan Apple" (keep Google as Android primary), and maps the Apple identity-token exchange onto the existing `/signin` contract (`provider: "apple"`, already backend-supported). **App Store Review Guideline 4.8 gate** — Sign in with Apple is required once other social logins are offered.
 - App Attest bridge (~3 days)
 - Apple S2S notification endpoint + Apple JWKS verification (~1 day)
 - "Restore Purchases" button in Settings (mandatory per App Store Review 3.1.1)
@@ -299,7 +299,7 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
    - **Content length guard tested** (501-char post rejected, 2001-char chat rejected)
    - **Search authorization tested** (Free tier rejects, Premium allows, rate limit)
    - **Notifications API tested** (unread count accurate, mark-read persists, pagination, 90-day purge)
-   - **Admin panel role scope test**: `admin_app` role cannot run DDL, cannot UPDATE/DELETE `admin_actions_log`, can read `csam_detection_archive.encrypted_metadata` only via the admin decrypt helper
+   - **Admin panel role scope test**: `admin_app` role cannot run DDL, cannot UPDATE/DELETE `admin_actions_log`, can read `csam_detection_archive.encrypted_metadata` only via the admin decrypt helper. **Gate: production `admin_app` role provisioned + `REVOKE UPDATE, DELETE ON admin_actions_log` applied** via [`dev/scripts/provision-admin-app-staging.sh`](../dev/scripts/provision-admin-app-staging.sh) with `PROJECT_OVERRIDE=nearyou-production` (staging done 2026-05-17; procedure in [`docs/07-Operations.md`](07-Operations.md) § Data Access Pattern)
    - **iOS PrivacyInfo.xcprivacy validator** (Apple-provided tool)
    - **Premium username customization tests**: Free user gets paywall, Premium user succeeds within cooldown rules, 30-day cooldown enforced (second attempt within window → 429), reserved candidate → rejected, on-release-hold candidate → rejected, profanity/UU ITE candidate → `username_flagged` queue entry + rejection, feature flag OFF → 503, Downgrade-to-Free keeps custom username (no revert) but blocks further changes
    - **Username history release hold test**: Alice changes `oldname` → `newname`; Bob's attempt to claim `oldname` during the 30-day window is rejected; after 30 days elapses, `oldname` becomes claimable

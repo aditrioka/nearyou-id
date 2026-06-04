@@ -29,6 +29,8 @@ The admin Ktor service connects to Supabase Postgres using a dedicated, scoped D
 
 Direct SQL console access is never exposed to admin users; every administrative DB change happens through the Ktor admin module.
 
+**Role provisioning (operational, not Flyway-managed).** The `admin_app` per-table grants + the `REVOKE UPDATE, DELETE ON admin_actions_log` are applied out-of-band — Supabase is the canonical surface for role permissions, and putting `REVOKE ... FROM admin_app` in Flyway would fail the integration-test Postgres (which doesn't provision `admin_app`). Provision via the idempotent [`dev/scripts/provision-admin-app-staging.sh`](../dev/scripts/provision-admin-app-staging.sh) (Cloud Run Job: enumerated per-table grants on the base tables + views, role is `LOGIN`, no `ALTER DEFAULT PRIVILEGES`, no `BYPASSRLS`). **Staging:** done 2026-05-17 (PR [#109](https://github.com/aditrioka/nearyou-id/pull/109)); connection string at `staging-admin-app-db-connection-string` + 3 companion slots, all granted `secretAccessor` to the Cloud Run runtime SA. **Production:** run the same script with `PROJECT_OVERRIDE=nearyou-production` + slot overrides — create the prod password slot first (the script fail-fasts if absent). Precondition for any production admin code path that writes `admin_actions_log`.
+
 ### Core Features
 
 - **Report Queue**: reads from `reports` + joins `moderation_queue`. Filter by status/type, actions (Hide, Dismiss, Suspend, Ban, Shadow ban). Filter "post has edit history" to prioritize.

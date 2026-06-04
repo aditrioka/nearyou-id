@@ -113,7 +113,7 @@ Users with a legitimate device but failed attestation (custom ROM, LineageOS non
    - Re-check attestation at post creation (lightweight assertion)
 4. **One identifier = 1 active account**. Ban is sticky at the identifier level. Google + Apple = 2 separate identifiers, 2 separate accounts (no linking by design).
 5. **Shadow ban capability** (see the Shadow Ban section).
-6. **Device fingerprint: best-effort correlation signal, NOT primary defense**.
+6. **Device fingerprint: best-effort correlation signal, NOT primary defense**. The mobile `SignInRequest` / `RefreshRequest` bodies carry `device_fingerprint_hash` only once platform attestation (Play Integrity / App Attest) ships the fingerprint generation; until then the field is omitted (spec-optional per `auth-signin`) and refresh-token rows persist with `device_fingerprint_hash = NULL`. Lands with the mobile attestation integration ([`docs/08-Roadmap-Risk.md`](08-Roadmap-Risk.md) § Phase 3).
 
 ---
 
