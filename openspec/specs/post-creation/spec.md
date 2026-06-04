@@ -82,7 +82,7 @@ The 201 response body SHALL contain exactly the fields `id`, `content`, `latitud
 
 ### Requirement: Error envelope matches existing auth routes
 
-All 4xx responses SHALL use the envelope `{ "error": { "code": "<kebab-or-snake>", "message": "<human-readable>" } }` already established by `/api/v1/auth/*`. Error codes SHALL be exactly `content_empty`, `content_too_long`, `location_out_of_bounds`, `invalid_json`, and `unauthenticated` (the last emitted by the `Authentication` plugin, not by the route handler).
+All 4xx responses SHALL use the envelope `{ "error": { "code": "<kebab-or-snake>", "message": "<human-readable>" } }` already established by `/api/v1/auth/*`. The route handler's own 400 codes SHALL be `content_empty`, `content_too_long`, `location_out_of_bounds`, `invalid_json`, and `content_moderated_profanity` (the last defined by the § "Verdict.Reject" requirement below, folded in when `content-moderation-keyword-lists` archived into this capability), plus `unauthenticated` emitted by the `Authentication` plugin (not by the route handler).
 
 #### Scenario: Error envelope for content_too_long
 - **WHEN** the request is rejected for exceeding 280 code points

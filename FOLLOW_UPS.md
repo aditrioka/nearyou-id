@@ -13,6 +13,7 @@ Transient working file for findings discovered during a change cycle that are NO
   - **2026-05-30** (full sweep, post-archive of `mobile-auth-google-signin-flow`) — 38 → 32 open, 0 rot. Closed 6 (3 docs-only fixes inline + 1 migrated to `docs/08-Roadmap-Risk.md` Pre-Launch + 2 accept-the-gap deletes); `system-actor-and-worker-audit-rows` promoted to `/next-change`. Breach = genuine deferred-work volume (PR #122 `mobile-auth-signin-*` cluster + otel cluster), not rot.
   - **2026-05-31** (targeted, `mobile-nearby-timeline-screen` apply §11.1) — added 6 Mobile-#5 deferrals → 37 open.
   - **2026-06-01** (full sweep) — 37 → 35 open, 0 rot. Migrated 2 to [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Pre-Launch #6/#7 (`mobile-location-permission-flow`, `mobile-age-gate-stronger-verification` — the latter surfaces the **PP 17/2025 "PP TUNAS"** age-assurance deadline, previously absent from the roadmap). Surfaced a 6-entry test-coverage chore-PR scope (`fcm-payload-structural-tests`, `fcm-shutdown-drain-deterministic-tests`, `fcm-end-to-end-composite-test`, `reply-rate-limit-moderator-spy`, `chat-block-check-moderator-spy`, `mobile-theme-light-dark-direct-test` — the last still open because its two theme color-scheme scenarios remain untested in `:mobile:app` despite Mobile #5 shipping; merging the bundle → ~29 open). Kept 7 dormant-until-external-trigger entries (GitHub-Issues migration deferred; still solo-operator); promotions deferred. **Ended 35 open, 5 over the limit** — residual is verified-still-valid deferred work, not rot; the test-coverage bundle is the next drawdown lever.
+  - **2026-06-04** (full sweep) — 32 → 28 open, **0 rot**: all 32 verified still-valid against current code/specs/docs (zero silently-resolved, zero superseded). Migrated 3 launch-gated entries to their canonical homes (`mobile-auth-signin-apple-ios` → [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) § Phase 3 iOS; `mobile-auth-signin-attestation-fingerprint-hash` → `docs/08` § Phase 3 + [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) § Attestation; `admin-app-revoke-staging-and-prod` residual → [`docs/07-Operations.md`](docs/07-Operations.md) § Data Access Pattern + Pre-Launch gate). Reconciled `post-creation-spec-error-enumeration-stale` inline (the `post-creation` spec's "exactly [5] codes" line now includes the 6th, `content_moderated_profanity`). Promoted `mobile-location-acquisition-latency` to a `/next-change` hand-off (entry stays open until that change ships). User accepted the remaining 28 as verified-valid backlog (no forced accept-the-gap deletes); GitHub-Issues migration still deferred (solo-operator). Audit trail in this sweep's PR.
 
 Format per entry:
 
@@ -61,24 +62,6 @@ Format per entry:
 - [ ] Pre-warm location on Home entry / permission-grant (the Nearby feed already acquires on entry — reuse its result rather than re-acquiring in the composer).
 - [ ] Add a composer "Mengambil lokasi…" sub-state so a slow acquisition reads as progress (not a hang); on timeout, surface the existing `LocationUnavailable` banner.
 - [ ] (If product wants it) decide + document any Premium location-refresh differentiation in `docs/02-Product.md` BEFORE coding — and only within the no-background-location posture.
-
----
-
-## post-creation-spec-error-enumeration-stale
-
-**Discovered during:** `mobile-post-creation-screen` `/next-change` Phase D multi-lens review (reconciliation check against `openspec/specs/post-creation/spec.md`).
-**Status:** open
-
-**Finding:** `openspec/specs/post-creation/spec.md` § "Error envelope" states the 400 codes "SHALL be **exactly** `content_empty`, `content_too_long`, `location_out_of_bounds`, `invalid_json`, and `unauthenticated`" — but the SAME spec's § "Verdict.Reject" requirement (folded in when `content-moderation-keyword-lists` archived into the post-creation capability) defines a sixth code `content_moderated_profanity` with message `"Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi."`. The "exactly [5]" enumeration is stale / internally contradictory; the backend (`Application.kt` StatusPages + `CreatePostService.ContentModeratedProfanityException`) emits 6 client-relevant 400 codes.
-
-**Specs at fault:** `openspec/specs/post-creation/spec.md` § "Error envelope" (the "exactly these codes" sentence).
-**Code at fault:** none — the backend is correct (emits `content_moderated_profanity`).
-**Docs at fault:** none.
-
-**Impact (if shipped):** Low — documentation-only inconsistency within one spec. Risk: a future reader trusting the "exactly [5]" line "corrects" a client (e.g. the new `mobile-post-creation` composer) to drop `content_moderated_profanity` handling, regressing the moderation-rejection UX. `mobile-post-creation-screen` handles all six correctly and flags this in its proposal + design D9.
-
-**Action items:**
-- [ ] Amend `openspec/specs/post-creation/spec.md` § "Error envelope" to include `content_moderated_profanity` and reconcile the "exactly" phrasing with the § "Verdict.Reject" requirement (regular docs PR; not OpenSpec).
 
 ---
 
@@ -244,35 +227,6 @@ Format per entry:
 - [ ] File OpenSpec change `otel-attribute-rule-psi-context-restricted-mode-a` that adds PSI-context-restricted Mode A enforcement firing only in setAttribute-like call sites; the change MODIFIES Tier 1 Group A to re-introduce `"user_id"` (or adds a new tier with PSI restriction scoped to `"user_id"`).
 - [ ] Validate against the 12 pre-existing `"user_id"` literal sites (SQL columns / `@SerialName` JSON / Ktor route params) — none should fire under the PSI-restricted mode (regression test asserts each existing site passes).
 - [ ] Delete this `FOLLOW_UPS.md` entry once the change merges.
-
----
-
-## admin-app-revoke-staging-and-prod
-
-**Discovered during:** `admin-schema-bootstrap` `/opsx:apply` Section 7 — direct psql to staging Supabase was blocked by Supabase's IPv6-only direct-Postgres host (the dev environment is IPv4-only). The V16 Flyway migration shipped successfully via Cloud Run Jobs, but the `admin_app` REVOKE statements per [`docs/05-Implementation.md:1208`](docs/05-Implementation.md) and [`docs/07-Operations.md` § Data Access Pattern](docs/07-Operations.md) are operational (NOT Flyway-managed per `admin-schema-bootstrap/design.md` D4) and were NOT applied during the deploy.
-**Status:** in-progress — **staging COMPLETE (2026-05-17)**, production pending. Provisioned via [`dev/scripts/provision-admin-app-staging.sh`](dev/scripts/provision-admin-app-staging.sh) (Cloud Run Job pattern, idempotent, enumerated per-table grants, no `ALTER DEFAULT PRIVILEGES`, no `BYPASSRLS`). Verified by connecting AS admin_app: `current_user = admin_app`, `SELECT count(*) FROM admin_users = 0`, `SELECT count(*) FROM admin_actions_log = 0`. The REVOKE on `admin_actions_log` (UPDATE + DELETE) landed in the same idempotent script. Connection string stored at `staging-admin-app-db-connection-string` GCP Secret Manager slot (+ 3 companion slots for user/password/jdbc-url shape, all granted `secretAccessor` to the Cloud Run runtime SA). Entry stays open until production gets the same treatment + the runbook record lands.
-
-**Finding:** [`docs/05-Implementation.md:1208`](docs/05-Implementation.md) states `admin_actions_log` immutability "is enforced at the role level for `admin_app`" (UPDATE/DELETE revoked). [`docs/07-Operations.md` § Data Access Pattern](docs/07-Operations.md) prescribes the same. The V16 migration deliberately excludes role-level REVOKE/GRANT statements per [`admin-schema-bootstrap/design.md`](openspec/changes/archive/2026-05-17-admin-schema-bootstrap/design.md) D4 (Supabase Console is the canonical surface for role permissions; including `REVOKE ... FROM admin_app` in Flyway would fail in the integration-test Postgres which doesn't provision `admin_app`). The REVOKE landing is therefore an operational follow-up.
-
-**Specs at fault:** None — `openspec/specs/admin-schema/spec.md` (post-archive) Requirement 6 correctly enumerates GRANT/REVOKE as out of scope for V16.
-**Code at fault:** None — V16 is environment-portable by design (verified by spec scenario "Migration applies cleanly without admin_app role" + by the successful CI integration-test runs against a vanilla Postgres without admin_app).
-**Docs at fault:** None — both [`docs/05-Implementation.md:1208`](docs/05-Implementation.md) and [`docs/07-Operations.md`](docs/07-Operations.md) correctly describe the end state; the operational gap is the REVOKE not yet being applied to staging Supabase.
-
-**Impact (if shipped):** Operationally low until Admin #2 / Admin #3 ship. Today zero admin rows exist and zero admin code writes audit rows, so the absence of role-level REVOKE has no exploitable surface. Once Admin #3 lands the first admin-login flow and Admin #4 lands the audit-log viewer, the REVOKE becomes load-bearing — a compromised `admin_app` connection without the REVOKE could mutate `admin_actions_log` (defeating the immutability invariant). Pre-condition for any production admin code: REVOKE applied to both staging AND production Supabase.
-
-**Ambiguity to resolve first:** None. SQL is straightforward:
-```sql
-REVOKE UPDATE, DELETE ON admin_actions_log FROM admin_app;
-```
-Apply via Supabase Console → SQL Editor on each environment. If `admin_app` role doesn't yet exist (Pre-Phase 1 #28 not run), this errors with "role admin_app does not exist" — in that case, defer to the `admin_app`-role-provisioning task and bundle the REVOKE alongside the role CREATE.
-
-**Action items:**
-- [x] **Provision the `admin_app` Postgres role in staging Supabase** per [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Pre-Phase 1 #28. Done 2026-05-17 via [`dev/scripts/provision-admin-app-staging.sh`](dev/scripts/provision-admin-app-staging.sh) (PR [#109](https://github.com/aditrioka/nearyou-id/pull/109)). Role is `LOGIN`, enumerated per-table grants on 23 base tables + 2 views, `REVOKE UPDATE, DELETE ON admin_actions_log` in place, no `ALTER DEFAULT PRIVILEGES`, no `BYPASSRLS`.
-- [x] **Store the staging `admin_app` connection string** at `staging-admin-app-db-connection-string` (combined DSN per Pre-Phase 1 #28 prescription) + 3 companion slots (`staging-admin-app-db-{user,password,url}`) following the existing main-app slot-split pattern. All 4 slots granted `secretAccessor` to the Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com` per [`docs/07-Operations.md` § Secret Management Runbook](docs/07-Operations.md).
-- [ ] Once production is provisioned, run the script with `PROJECT_OVERRIDE=nearyou-production` + appropriate slot overrides. Production-equivalent password slot must be created first (the script fail-fasts if absent).
-- [ ] Record the role-provisioning procedure in the deployment runbook at [`docs/07-Operations.md`](docs/07-Operations.md) § Data Access Pattern (or in a new admin-app provisioning runbook the Admin #2 lifecycle will introduce — Admin #2's `tasks.md` SHOULD call this out as a gate). The script itself + this entry serve as the operational record until that runbook lands.
-- [ ] Block Admin #2 squash-merge until at minimum the staging admin_app role exists AND the REVOKE has landed. **Staging side: cleared.** Admin #2 can proceed on staging-track work.
-- [ ] Delete this `FOLLOW_UPS.md` entry once production also has the role AND the runbook records the procedure.
 
 ---
 
@@ -618,46 +572,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] File OpenSpec change `mobile-negative-requirement-detekt-rule` that adds a Detekt rule `MobileScaffoldNegativeRequirementsRule` to `:lint:detekt-rules`, scanning `:mobile:app` `src/commonMain/kotlin` for the six forbidden identifier patterns enumerated in the spec scenarios — **plus** the hardcoded-UI-strings axis from [`openspec/project.md`](openspec/project.md) § Coding Conventions ("Mobile strings: no hardcoded UI strings; must go through Compose Multiplatform Resources"), for which `shared-resources-swap-to-cmp-resources` (PR [#119](https://github.com/aditrioka/nearyou-id/pull/119)) ships an interim grep step in `tasks.md` Section 8.7. The eventual Detekt rule should cover both axes under a single rule, accepting `stringResource(Res.string.X)` / `Res.string.X` / `// hardcoded-string-allow:` as the valid accessor patterns (NOT the legacy `MR.strings.X` from Mobile #2's pre-swap Moko shipping). Wire the Detekt source-set extension in `build-logic`.
 - [ ] Delete this entry once the rule ships AND Mobile #3's `proposal.md` updates the `mobile-app-scaffold` spec's negative requirements to acknowledge auth identifiers now belong to dedicated namespaces.
 
-## mobile-auth-signin-apple-ios
-
-**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) `/next-change` Phase A.4 — the user chose "Google Sign-In on both Android + iOS" so the substrate-proving change ships one SDK end-to-end; iOS-primary = Apple Sign-In is deferred.
-**Status:** open
-
-**Finding:** Two canonical docs prescribe iOS primary auth = Apple Sign-In at the eventual state — [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Auth Flow line 38 (`2. iOS: "Masuk dengan Apple" (primary, user-facing)`) and [`docs/04-Architecture.md`](docs/04-Architecture.md) § Tech Stack (`Auth | Google Sign-In (Android Credential Manager) + Apple Sign-In`). Mobile #3 ships Google on iOS as a substrate-proving stopgap (one SDK on both platforms is simpler to integrate end-to-end + carries less Apple-Developer-cert setup risk for the first auth integration). The Apple-Sign-In-iOS swap is real outstanding work.
-
-**Specs at fault:** None — `openspec/specs/mobile-auth-signin/spec.md` (post-archive) ships Google-on-both deliberately; this follow-up adds the Apple path.
-**Code at fault:** None — `GoogleSignInClient` iosMain is correct for Mobile #3; the Apple path is additive.
-**Docs at fault:** None directly — the Mobile #3 status-tag note was added to `docs/03-UX-Design.md` § Auth Flow + `docs/04-Architecture.md` § Tech Stack in the 2026-05-30 triage sweep (formerly tracked by the `docs-ios-primary-auth-mobile-3-vs-eventual-state` entry, now closed).
-
-**Impact (if shipped):** iOS users sign in with Google rather than the docs-prescribed Apple Sign-In. Functionally complete; the gap is the eventual-state UX + App Store review expectations (Apple requires Sign in with Apple when other social logins are offered, per App Store Review Guideline 4.8 — a launch-readiness concern, not an MVP blocker).
-
-**Ambiguity to resolve first:** Whether Apple Sign-In iOS bundles with Mobile #4 (age-gate/signup) or ships as its own change. Apple Developer Program enrollment + entitlements + cert setup are the gating cost.
-
-**Action items:**
-- [ ] File OpenSpec change `mobile-auth-signin-apple-ios` adding an `AppleSignInClient` iosMain actual (`ASAuthorizationController` / Sign in with Apple) + swapping the iOS primary CTA to "Masuk dengan Apple"; keep Google as the Android primary; map the Apple identity-token exchange onto the same backend `/signin` contract (`provider: "apple"`, already supported by `auth-signin`).
-- [ ] Delete this entry once that change ships.
-
----
-
-## mobile-auth-signin-attestation-fingerprint-hash
-
-**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Decision 9 — the `/signin` + `/refresh` request bodies omit `device_fingerprint_hash` because attestation (Play Integrity / App Attest) hasn't landed.
-**Status:** open
-
-**Finding:** `auth-signin/spec.md` accepts `device_fingerprint_hash` as optional ("MUST NOT be required for sign-in to succeed"). Mobile #3's `SignInRequest` carries only `{provider, id_token}` (verified by the §5.8a test + §9.6 grep). Fingerprint generation requires platform-specific entropy that lands canonically alongside attestation per [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) § Attestation.
-
-**Specs at fault:** `openspec/specs/mobile-auth-signin/spec.md` (post-archive) — the "signin request body does not carry device_fingerprint_hash" scenario is intentional-for-now; the attestation change flips it.
-**Code at fault:** [`AuthApiClient.kt`](mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/AuthApiClient.kt) `SignInRequest` (no fingerprint field).
-**Docs at fault:** None — `docs/06-Security-Privacy.md` § Attestation already names this as the landing context.
-
-**Impact (if shipped):** Refresh-token rows persist with `device_fingerprint_hash = NULL` (compatible with the schema). No anti-abuse fingerprint binding until attestation lands — accepted pre-launch risk.
-
-**Action items:**
-- [ ] File OpenSpec change `mobile-auth-signin-attestation-fingerprint-hash` (likely bundled with the Play Integrity / App Attest change) that adds platform fingerprint generation + the `device_fingerprint_hash` body field to `SignInRequest` / `RefreshRequest`.
-- [ ] Delete this entry once attestation + the fingerprint field ship.
-
----
-
 ## mobile-auth-signin-logout-wire-up
 
 **Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Non-Goals — no Settings screen ships in Mobile #3, so the backend logout endpoints have no mobile caller.
@@ -836,3 +750,5 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] Delete this entry once the limiter ships.
 
 **Cap note (2026-06-02):** adding this entry brings `FOLLOW_UPS.md` to ~30 open entries — at the 30-entry hard limit. Added per CLAUDE.md "documented debt is still debt"; flag as a candidate for the next `/triage-follow-ups` sweep (the verified-still-valid deferred-work backlog + the GitHub-Issues migration noted in the 2026-06-01 sweep remain the drawdown levers).
+
+**Update (2026-06-04 sweep):** the count was actually 32 at sweep time (the 2026-06-02 note's "~30" undercounted). Post-triage the file is **28 open, under the limit** — drawn down via 3 canonical-doc migrations + 1 inline spec reconciliation, all verified still-valid (0 rot). See the intro's 2026-06-04 sweep-log entry. The GitHub-Issues migration remains the standing lever if the solo-operator backlog grows again.
