@@ -39,7 +39,7 @@ class PostCreationUiStateTest {
     }
 
     @Test
-    fun `280 code points enabled and not over-limit, 281 over-limit and disabled`() {
+    fun `280 code points enabled and not over-limit then 281 over-limit and disabled`() {
         val at = postCreationUiState(content = "a".repeat(280), outcome = null, inFlight = false)
         assertEquals(280, at.charCount)
         assertTrue(at.submitEnabled, "exactly 280 is submittable")
@@ -118,7 +118,7 @@ class PostCreationUiStateTest {
     }
 
     @Test
-    fun `projected state carries no PII (success id is dropped)`() {
+    fun `projected state carries no PII so the success id is dropped`() {
         val rendered = postCreationUiState("halo", PostCreationOutcome.Success("SECRET-POST-ID-0193"), false).toString()
         assertFalse(rendered.contains("SECRET-POST-ID-0193"), "the success post id must not reach the UI state: $rendered")
     }
