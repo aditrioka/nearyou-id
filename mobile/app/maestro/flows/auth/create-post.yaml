@@ -1,0 +1,16 @@
+# create-post — AUTH-GATED (Phase 2 test-login required). Exercises the post composer.
+# Uses HomeScreen FAB "cta_post" + PostCreationScreen testTag POST_CONTENT_FIELD_TAG = "postContentField".
+appId: ${APP_ID}
+tags:
+  - auth-gated
+---
+- launchApp
+# - runFlow: ../_auth/test-login.yaml   # Phase 2
+- tapOn:
+    id: "cta_post"                 # HomeScreen FAB (confirm: testTag vs contentDescription against live UI)
+- assertVisible:
+    id: "postContentField"
+- inputText: "Maestro smoke: lagi di Senayan nih"
+- takeScreenshot: composer-filled
+# - tapOn: "Post"                  # TODO: confirm the submit-button selector against live UI
+# - assertVisible: "Maestro smoke: lagi di Senayan nih"

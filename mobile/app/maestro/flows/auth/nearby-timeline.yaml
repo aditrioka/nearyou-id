@@ -1,0 +1,14 @@
+# nearby-timeline — AUTH-GATED. Requires the Phase 2 dev-only test-login (auth bypass) to reach
+# an authenticated session; until then this flow stops at Sign-In.
+# Uses the existing Compose testTag NEARBY_TIMELINE_LIST_TAG = "nearbyTimelineList".
+appId: ${APP_ID}
+tags:
+  - auth-gated
+---
+- launchApp
+# - runFlow: ../_auth/test-login.yaml   # Phase 2: inject a seeded test session here
+- assertVisible:
+    id: "nearbyTimelineList"
+- takeScreenshot: nearby
+- scroll
+- takeScreenshot: nearby-scrolled
