@@ -68,9 +68,13 @@ source-set isolation.
 
 ## Selectors
 
-Prefer stable `testTag`s over text. Existing: `postContentField`, `nearbyTimelineList`, FAB `cta_post`.
-When a flow needs an element without a stable handle, add a `Modifier.testTag(...)` in the Compose
-source (cheap, robust on both Android **and** iOS where Compose→Skia makes the a11y tree sparse).
+Flows currently use **text selectors** (e.g. `"Posting"`, `"Buat postingan"`). The app's Compose
+`testTag`s (`postContentField`, `nearbyTimelineList`, …) are NOT yet addressable by Maestro `id:` —
+Compose testTags only surface to UiAutomator/Maestro when `testTagsAsResourceId = true` is enabled at
+the Android Compose root. Enabling it (debug-gated) is a small follow-up that would make all existing
+testTags `id:`-addressable and the flows language-independent; the API was not available via the
+CMP `compose-ui` artifact on the first attempt, so it's deferred rather than rushed. Until then, keep
+text selectors and update them if UI copy changes.
 
 ## CI (apply manually)
 

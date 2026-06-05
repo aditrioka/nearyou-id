@@ -110,6 +110,7 @@ CI runs **both** lint frameworks; passing only one is insufficient. `:mobile:app
 - **Source-scan guard test trips on its own KDoc:** strip comments before a forbidden-token scan, else the file's own "MUST NOT println" doc trips it.
 - **CI heavy lanes skipped after a force-push:** CI's path filter reads `github.event.before`; a rebase orphans it → "bad object" → empty diff → code lanes skip. Fix with a tiny fast-forward re-poke commit.
 - **Docs-only commit cancels in-progress code CI:** `cancel-in-progress` + the docs path filter can leave a code commit with zero CI signal — don't push a docs tick before the code commit's CI finishes.
+- **Auth/test-login verification false positive:** `adb install -r` PRESERVES app data, so a leftover session makes the app land on Home regardless of whether your login/injection actually worked. ALWAYS start auth-flow verification from a wiped state (`adb shell pm clear <appId>` or Maestro `clearState`) and first confirm the clean state shows Sign-In — otherwise "it reached Home" proves nothing. (Caught in the Phase 2 dev test-login verification.)
 
 ---
 

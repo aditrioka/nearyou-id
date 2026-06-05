@@ -1,0 +1,31 @@
+# Reusable sub-flow — dev test-login (auth bypass). DEV FLAVOR ONLY: DevTestLoginActivity lives in
+# mobile/app/src/dev/ and is physically absent from staging/production APKs.
+#
+# Injects a session via the dev deep link so auth-gated flows skip Google/Apple social login
+# (which automation can't drive). Tokens come from the existing offline scripts:
+#   USER_ID=$(dev/scripts/seed-test-user.sh --google-id-hash maestro-test)   # seed a users row
+#   TEST_ACCESS=$(dev/scripts/mint-dev-jwt.sh --user-id "$USER_ID")          # server-signed JWT
+#   TEST_EXP=<future epoch millis>
+# For a nav-only smoke (no backend), ANY non-empty TEST_ACCESS works — RootRouterScreen routes on
+# token PRESENCE; the Ktor Auth plugin only validates on the first authenticated API call.
+appId: ${APP_ID}
+---
+# Start from a WIPED state. Without this, a leftover session from a prior run lands on Home
+# regardless of the injection — masking a broken injector as a false positive (learned the hard
+# way: an `adb install -r` preserves app data, so the first "proof" was confounded by a stale token).
+# clearState makes "landed on Home" definitively attributable to THIS deep-link injection.
+- clearState
+- openLink: "nearyou-dev://test-login?access=${TEST_ACCESS}&refresh=${TEST_REFRESH}&exp=${TEST_EXP}"
+# Proof we routed PAST Sign-In into the authenticated Home host: its composer FAB (the `cta_post`
+# string, rendered "Posting") is always present, independent of backend/location/timeline state.
+# (The Nearby timeline body needs a reachable backend + granted location + nearby data to render
+# `nearbyTimelineList`; that is a separate "state" prerequisite, not part of the auth proof.)
+# clearState also wiped the location grant, so the Nearby host raises its location pre-permission
+# dialog over the UI. Dismiss it ("Batal") — we only need to be PAST Sign-In on the authenticated
+# Home host (the composer FAB stays); granting real location + nearby data is a separate concern.
+- runFlow:
+    when:
+      visible: "Batal"
+    commands:
+      - tapOn: "Batal"
+- assertVisible: "Posting"

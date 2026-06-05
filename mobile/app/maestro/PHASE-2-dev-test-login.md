@@ -1,8 +1,13 @@
 # Phase 2 — dev-only test-login (auth bypass) for the Maestro harness
 
-Status: **designed + grounded, NOT yet implemented.** Implement on this branch (`tooling/maestro-test-harness`)
-with full context — it is security-sensitive (an auth bypass) and the on-device verification step must
-not be skipped. This doc is precise enough to execute fast.
+Status: **IMPLEMENTED + verified on-device (Android).** Controlled clean-slate verification:
+`adb uninstall` → `:mobile:app:clean` rebuild → fresh `adb install` → baseline launch shows **Sign-In**
+(clean = unauthenticated) → the dev test-login deep link routes to the **authenticated Home** → the
+`create-post` Maestro flow PASSES end-to-end (clearState → deep link → dismiss location dialog → tap FAB
+→ composer → type → screenshot). Guard confirmed: `DevTestLoginActivity` is **absent** from the staging
+APK manifest + dex and **present** in the dev dex. Lint gate (ktlint + detekt + `testDevDebugUnitTest`)
+green. iOS dev-login remains a follow-up (flavor source sets are Android-only). The design below is what
+shipped; the `id:` testTag selector note is captured under "Selectors" in the README.
 
 ## Why this is needed
 

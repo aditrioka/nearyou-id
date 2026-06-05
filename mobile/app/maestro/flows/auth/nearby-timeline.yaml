@@ -5,10 +5,9 @@ appId: ${APP_ID}
 tags:
   - auth-gated
 ---
-- launchApp
-# - runFlow: ../_auth/test-login.yaml   # Phase 2: inject a seeded test session here
-- assertVisible:
-    id: "nearbyTimelineList"
+- runFlow: ../_auth/test-login.yaml   # Phase 2: dev test-login (auth bypass)
+# Reached the authenticated Nearby host (its header). Asserting actual post items / the
+# `nearbyTimelineList` id needs a reachable backend + seeded nearby data + granted location
+# (a separate "state" prerequisite) AND testTagsAsResourceId for id: selectors — see README "Selectors".
+- assertVisible: "Post dari lokasi ini"
 - takeScreenshot: nearby
-- scroll
-- takeScreenshot: nearby-scrolled
