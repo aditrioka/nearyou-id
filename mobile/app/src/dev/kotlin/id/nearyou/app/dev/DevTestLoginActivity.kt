@@ -25,6 +25,9 @@ import org.koin.mp.KoinPlatformTools
  *
  *   adb shell am start -a android.intent.action.VIEW \
  *     -d "nearyou-dev://test-login?access=<jwt>&refresh=<jwt>&exp=<epochMillis>" id.nearyou.app.dev
+ *
+ * Nav-library-agnostic: depends only on token presence in [TokenStore] + [MainActivity], so it
+ * survived the Voyager -> Navigation 3 migration (#149) unchanged (create-post flow re-verified green).
  */
 class DevTestLoginActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
