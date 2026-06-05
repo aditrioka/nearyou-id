@@ -1,18 +1,13 @@
 package id.nearyou.app.screens.post
 
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
-import cafe.adriel.voyager.core.screen.Screen
-import cafe.adriel.voyager.navigator.Navigator
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.location.FakeLocationPermissionController
@@ -75,21 +70,16 @@ private const val ECHO_COORD_201_BODY =
     """{"id":"p1","content":"halo","latitude":-6.21,"longitude":106.85,""" +
         """"distance_m":null,"created_at":"2026-06-04T00:00:00Z"}"""
 
-/** A minimal base screen so the success→pop can be asserted (the home surface reappears). */
-private class MarkerScreen : Screen {
-    @Composable
-    override fun Content() {
-        Text("BASE_MARKER")
-    }
-}
-
 /**
  * Render + interaction coverage of `PostCreationScreen` via the Robolectric-backed CMP UI runner
- * (task 7.4). The outcome→state projection is covered purely by `PostCreationUiStateTest`; this
- * suite verifies the composable renders the canonical strings for the initial / loading / success /
- * per-error states, that typing drives the CTA-enable gate, that the LocationUnavailable settings
- * CTA invokes `openAppSettings()`, that success pops, and that NO coordinate / id leaks into the
- * rendered tree (PII discipline).
+ * (task 7.3), migrated off Voyager. The composer is composed directly with a recording `onPostCreated`
+ * callback (the Nav3 pop is `backStack.removeLastOrNull()`, wired by `appEntryProvider`; the screen's
+ * contract is "Success → invoke onPostCreated", which the recording callback asserts — the spec § "Success
+ * pops back to the home surface" explicitly allows a recording pop callback). The outcome→state
+ * projection is covered purely by `PostCreationUiStateTest`; this suite verifies the composable renders
+ * the canonical strings for the initial / loading / success / per-error states, that typing drives the
+ * CTA-enable gate, that the LocationUnavailable settings CTA invokes `openAppSettings()`, that success
+ * invokes the pop, and that NO coordinate / id leaks into the rendered tree (PII discipline).
  *
  * `@Suppress("DEPRECATION")` + `KoinContext`: see `SignInScreenTest` for why this is retained for the
  * multi-test JVM startKoin/stopKoin cycle.
@@ -123,7 +113,7 @@ class PostCreationScreenTest {
     fun initialRender_showsTitlePlaceholderZeroCounterDisabledCta() {
         installKoin(FakeCreatePostFlow())
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(PostCreationScreen()) } } }
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}) } } }
             onNodeWithText(TITLE).assertExists()
             onNodeWithText(PLACEHOLDER).assertExists()
             onNodeWithText(COUNTER_ZERO).assertExists()
@@ -135,7 +125,7 @@ class PostCreationScreenTest {
     fun typingValidContent_enablesCta_andUpdatesCounter() {
         installKoin(FakeCreatePostFlow())
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(PostCreationScreen()) } } }
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}) } } }
             onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
             onNodeWithText("4/280").assertExists()
             onNodeWithText(CTA_POST).assertIsEnabled()
@@ -146,7 +136,7 @@ class PostCreationScreenTest {
     fun typing281CodePoints_disablesCta() {
         installKoin(FakeCreatePostFlow())
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(PostCreationScreen()) } } }
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}) } } }
             onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("a".repeat(281))
             onNodeWithText("281/280").assertExists()
             onNodeWithText(CTA_POST).assertIsNotEnabled()
@@ -157,7 +147,7 @@ class PostCreationScreenTest {
     fun loadingState_showsLoadingCopyAndDisabledCta() {
         installKoin(FakeCreatePostFlow(suspendForever = true))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(PostCreationScreen()) } } }
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}) } } }
             onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
             onNodeWithText(CTA_POST).performClick()
             waitForIdle()
@@ -184,7 +174,7 @@ class PostCreationScreenTest {
     ) {
         installKoin(FakeCreatePostFlow(outcome = outcome))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(PostCreationScreen()) } } }
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}) } } }
             onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
             onNodeWithText(CTA_POST).performClick()
             waitForIdle()
@@ -196,7 +186,7 @@ class PostCreationScreenTest {
     fun locationUnavailableOutcome_showsBannerAndSettingsCta_thatInvokesOpenAppSettings() {
         installKoin(FakeCreatePostFlow(outcome = PostCreationOutcome.LocationUnavailable))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(PostCreationScreen()) } } }
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}) } } }
             onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
             onNodeWithText(CTA_POST).performClick()
             waitForIdle()
@@ -213,7 +203,7 @@ class PostCreationScreenTest {
         val fake = FakeCreatePostFlow(outcome = PostCreationOutcome.NetworkError)
         installKoin(fake)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(PostCreationScreen()) } } }
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}) } } }
             onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
             onNodeWithText(CTA_POST).performClick()
             waitForIdle()
@@ -226,16 +216,17 @@ class PostCreationScreenTest {
     }
 
     @Test
-    fun success_popsBackToHome_andRendersNoSuccessIdNorTitle() {
+    fun success_invokesPopCallback_andRendersNoSuccessId() {
+        var popped = 0
         installKoin(FakeCreatePostFlow(outcome = PostCreationOutcome.Success("SECRET-POST-ID-9999")))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(listOf(MarkerScreen(), PostCreationScreen())) } } }
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = { popped++ }) } } }
             onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
             onNodeWithText(CTA_POST).performClick()
             waitForIdle()
-            // The composer popped → the home surface (MarkerScreen) is current again.
-            onNodeWithText("BASE_MARKER").assertExists()
-            onNodeWithText(TITLE).assertDoesNotExist()
+            // Success → the composer invokes its pop callback (appEntryProvider wires it to
+            // backStack.removeLastOrNull()).
+            assertEquals(1, popped, "Success invokes the pop callback exactly once")
             // PII: the success post id is never rendered.
             onNodeWithText("SECRET-POST-ID-9999", substring = true).assertDoesNotExist()
         }
@@ -268,13 +259,14 @@ class PostCreationScreenTest {
                 },
             )
         }
+        var popped = false
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(listOf(MarkerScreen(), PostCreationScreen())) } } }
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = { popped = true }) } } }
             onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
             onNodeWithText(CTA_POST).performClick()
             // The REAL repository's submit is an async network call (not synchronous like the fake),
-            // so waitForIdle may return before the success pop lands — wait for the home surface.
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("BASE_MARKER").fetchSemanticsNodes().isNotEmpty() }
+            // so waitForIdle may return before the success pop callback fires — wait for the callback.
+            waitUntil(timeoutMillis = 5_000) { popped }
             onNodeWithText("-6.21", substring = true).assertDoesNotExist()
             onNodeWithText("106.85", substring = true).assertDoesNotExist()
         }

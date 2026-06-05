@@ -4,15 +4,11 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
-import cafe.adriel.voyager.navigator.Navigator
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
-import id.nearyou.app.auth.InMemoryTokenStore
-import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
-import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
@@ -31,9 +27,11 @@ private const val SIGNIN_MARKER = "Masuk dengan Google"
 
 /**
  * iOS counterpart to the Robolectric [RootRouterScreenTest] — the auth-gated start-destination
- * decision run natively on the iOS simulator. `waitUntil` is used (not `waitForIdle`) because the
- * splash `CircularProgressIndicator` is an infinite animation that never reaches global idle. See
- * [id.nearyou.app.screens.auth.SignInFlowIosTest] for the v1-API + iosTest-placement rationale.
+ * decision run natively on the iOS simulator, migrated to the Nav3 [TestNavHost] (the real
+ * [appEntryProvider] over a `rememberNavBackStack` seeded with `RootRoute`). `waitUntil` is used (not
+ * `waitForIdle`) because the splash `CircularProgressIndicator` is an infinite animation that never
+ * reaches global idle. See [id.nearyou.app.screens.auth.SignInFlowIosTest] for the v1-API +
+ * iosTest-placement rationale.
  */
 @Suppress("DEPRECATION")
 @OptIn(ExperimentalTestApi::class)
@@ -44,7 +42,9 @@ class RootRouterFlowIosTest {
             modules(
                 module {
                     single { authFlow }
-                    single { SessionInvalidator(InMemoryTokenStore()) }
+                    // The unauthenticated route lands on SignInScreen, which koinInjects a
+                    // PendingSignupIdentity (the in-memory id_token holder).
+                    single { PendingSignupIdentity() }
                     // Authenticated route lands on Home → NearbyTimelineScreen, which koinInjects a
                     // NearbyTimelineFlow + a LocationPermissionController; a fast GRANTED fake lets the
                     // route reach the feed (its top-bar title is the HOME_MARKER).
@@ -69,7 +69,7 @@ class RootRouterFlowIosTest {
     fun authenticated_routesToHome() {
         installKoin(FakeAuthFlow(authenticated = true))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(RootRouterScreen()) } } }
+            setContent { KoinContext { TestNavHost(RootRoute) } }
             waitUntil(timeoutMillis = 5_000) {
                 onAllNodesWithText(HOME_MARKER).fetchSemanticsNodes().isNotEmpty()
             }
@@ -83,7 +83,7 @@ class RootRouterFlowIosTest {
     fun unauthenticated_routesToSignIn() {
         installKoin(FakeAuthFlow(authenticated = false))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(RootRouterScreen()) } } }
+            setContent { KoinContext { TestNavHost(RootRoute) } }
             waitUntil(timeoutMillis = 5_000) {
                 onAllNodesWithText(SIGNIN_MARKER).fetchSemanticsNodes().isNotEmpty()
             }

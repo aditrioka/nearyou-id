@@ -5,17 +5,13 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
-import cafe.adriel.voyager.navigator.Navigator
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
-import id.nearyou.app.auth.InMemoryTokenStore
-import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.SignInOutcome
 import id.nearyou.app.auth.SignUpOutcome
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
-import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
@@ -39,17 +35,16 @@ private const val SIGNIN_MARKER = "Masuk dengan Google" // SignInScreen CTA — 
 private const val LOGO_DESC = "NearYouID" // brand-logo contentDescription (app_name)
 
 /**
- * Routing coverage of `RootRouterScreen` via the Robolectric CMP UI runner (§6.8 a/b/c/f).
- * Uses `waitUntil` (not `waitForIdle`) because the splash `CircularProgressIndicator` is an
- * infinite animation that never reaches global idle. The token-expiry BOUNDARY logic
- * (now+1 / exactly-now) is covered by `AuthRepositoryTest.isAuthenticated`; at the screen
- * level every authenticated state routes to Home, so 6.8d/e collapse into 6.8a here.
+ * Routing coverage of `RootRouterScreen` via the Robolectric CMP UI runner (§6.8 a/b/c/f), migrated
+ * from the Voyager `Navigator(Screen())` harness to the Nav3 [TestNavHost] (the real
+ * [appEntryProvider] over a `rememberNavBackStack` seeded with `RootRoute`): the router replaces
+ * itself at launch via `backStack.replaceAll(HomeRoute/SignInRoute)`, and the visible destination
+ * post-route is asserted (`mobile-auth-signin` § "RootRouterScreen routes based on token presence").
+ * Uses `waitUntil` (not `waitForIdle`) because the splash `CircularProgressIndicator` is an infinite
+ * animation that never reaches global idle.
  *
  * Koin is started BEFORE `runComposeUiTest` (the composition's `koinInject` captures the scope
- * eagerly — starting it inside the test lambda races a closed scope).
- *
- * `@Suppress("DEPRECATION")`: see `SignInScreenTest` for why `KoinContext` (deprecated in
- * koin-compose 4.1.0) is retained for the multi-test JVM start/stop cycle.
+ * eagerly). `@Suppress("DEPRECATION")`: see `SignInScreenTest` for why `KoinContext` is retained.
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
@@ -62,9 +57,11 @@ class RootRouterScreenTest {
             modules(
                 module {
                     single { authFlow }
-                    single { SessionInvalidator(InMemoryTokenStore()) }
-                    // HomeScreen now hosts NearbyTimelineScreen, which koinInjects a NearbyTimelineFlow
-                    // and loads on entry — provide a fast fake so the authenticated→Home route completes
+                    // The unauthenticated route lands on SignInScreen, which koinInjects a
+                    // PendingSignupIdentity (the in-memory id_token holder).
+                    single { PendingSignupIdentity() }
+                    // The authenticated route lands on Home → NearbyTimelineScreen, which koinInjects a
+                    // NearbyTimelineFlow and loads on entry — provide a fast fake so the route completes
                     // (an empty Loaded; the top-bar title renders in every state).
                     single<NearbyTimelineFlow> { FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null)) }
                     // mobile-location-permission-flow: the Nearby surface is gated on a
@@ -88,7 +85,7 @@ class RootRouterScreenTest {
     fun authenticated_routesToHome() {
         installKoin(FakeAuthFlow(authenticated = true))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(RootRouterScreen()) } } }
+            setContent { KoinContext { TestNavHost(RootRoute) } }
             waitUntil(timeoutMillis = 5_000) {
                 onAllNodesWithText(HOME_MARKER).fetchSemanticsNodes().isNotEmpty()
             }
@@ -103,7 +100,7 @@ class RootRouterScreenTest {
     fun unauthenticated_routesToSignIn() {
         installKoin(FakeAuthFlow(authenticated = false))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(RootRouterScreen()) } } }
+            setContent { KoinContext { TestNavHost(RootRoute) } }
             waitUntil(timeoutMillis = 5_000) {
                 onAllNodesWithText(SIGNIN_MARKER).fetchSemanticsNodes().isNotEmpty()
             }
@@ -136,7 +133,7 @@ class RootRouterScreenTest {
         runComposeUiTest {
             // Freeze the clock so the infinite spinner animation does not advance.
             mainClock.autoAdvance = false
-            setContent { KoinContext { NearYouTheme { Navigator(RootRouterScreen()) } } }
+            setContent { KoinContext { TestNavHost(RootRoute) } }
 
             onNodeWithContentDescription(LOGO_DESC).assertExists()
             onNodeWithText(HOME_MARKER).assertDoesNotExist()

@@ -99,10 +99,14 @@ class PostCreationSourceGuardTest {
 
     @Test
     fun postCreationScreen_popsOnSuccess_andSignalsNoNearbyReload() {
-        assertTrue(screen.contains("navigator.pop()"), "success must pop back to the home surface")
-        // No cross-screen Nearby reload is signalled on success (deferred to the follow-up).
+        // Success invokes the hoisted pop callback (appEntryProvider wires it to
+        // backStack.removeLastOrNull(), the Nav3 equivalent of pop — mobile-nav-swap-to-navigation3).
+        assertTrue(screen.contains("onPostCreated()"), "success must invoke the pop callback")
+        // No cross-screen Nearby reload is signalled on success (deferred to the follow-up): no shared
+        // reload trigger, and no Nav3 ResultEventBus / nav result consumed by the Nearby feed.
         assertFalse(screen.contains("NearbyTimeline"), "the composer must not reference NearbyTimeline (no reload signal)")
         assertFalse(screen.contains("reload"), "the composer must not signal a Nearby reload on success")
+        assertFalse(screen.contains("ResultEventBus"), "the composer must not consume a Nav3 ResultEventBus result")
     }
 
     @Test

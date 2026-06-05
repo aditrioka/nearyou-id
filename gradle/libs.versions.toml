@@ -24,7 +24,14 @@ flyway = "11.10.5"
 h2database = "2.4.240"
 hikaricp = "6.3.2"
 junit = "4.13.2"
-koin = "4.1.0"
+# Koin bumped 4.1.0 → 4.2.1 by `mobile-nav-swap-to-navigation3`: the official
+# `io.insert-koin:koin-compose-navigation3` integration has no 4.1.x line (earliest release
+# 4.2.0-alpha1; 4.2.1 hard-requires `koin-compose:4.2.1`), so adopting Navigation 3's Koin
+# integration requires Koin 4.2.x. Verified via apply-phase library re-check (2026-06-05).
+# The bump is project-wide (backend `koin-ktor`/`koin-logger-slf4j` + mobile) — a minor
+# version bump over stable APIs (`install(Koin)`, `slf4jLogger()`, `module{}`, `inject()`);
+# the `:backend:ktor:test` gate guards backend behavior.
+koin = "4.2.1"
 kotest = "5.9.1"
 kotlin = "2.3.20"
 kotlinx-coroutines = "1.10.2"
@@ -42,13 +49,16 @@ samstevens-totp = "1.7.1"
 slf4j = "2.0.16"
 material3 = "1.10.0-alpha05"
 postgresql-jdbc = "42.7.7"
-# Voyager pinned to 1.1.0-beta03 because it is the only Voyager release with explicit
-# Koin 4.x support. The 1.0.1 stable line (Dec 2024) predates Koin 4.0.0 (Aug 2024) and
-# the `voyager-koin` integration in 1.0.1 binds Koin 3.x APIs that conflict with the
-# project's `koin = "4.1.0"` pin. Pre-stable pins are precedented in this project
-# (material3 alpha, OTel alpha BOMs, semconv RC). Re-evaluate when Voyager cuts a
-# stable 1.1.0 — track at the `mobile-app-scaffold-replace-wizard` archive notes.
-voyager = "1.1.0-beta03"
+# Navigation 3 — JetBrains Compose Multiplatform port of AndroidX Navigation 3
+# (`org.jetbrains.androidx.navigation3`). Replaces Voyager via `mobile-nav-swap-to-navigation3`
+# (the archived `mobile-app-scaffold-replace-wizard` Decision 1 pre-authorized the swap once
+# state-restoration became load-bearing). Pinned to the STABLE 1.1.1 release — the apply-phase
+# library re-check (2026-06-05) confirmed the CMP port has cut stable (release train
+# 1.1.0-rc01 → 1.1.0 → 1.1.1), so the proposal's "pre-stable alpha" concern is moot. Full KMP
+# target set incl. iosArm64 + iosSimulatorArm64. Only `navigation3-ui` is published as a CMP
+# artifact (it brings `navigation3-runtime`/`-common` + `savedstate` transitively); there is no
+# separate `org.jetbrains.androidx.navigation3:navigation3-runtime` to declare.
+navigation3 = "1.1.1"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -62,6 +72,10 @@ androidx-activity-compose = { module = "androidx.activity:activity-compose", ver
 compose-uiTooling = { module = "org.jetbrains.compose.ui:ui-tooling", version.ref = "composeMultiplatform" }
 androidx-lifecycle-viewmodelCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
 androidx-lifecycle-runtimeCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
+# Navigation 3 per-entry ViewModel scoping (JetBrains CMP port; commonMain + iOS targets). Pairs
+# with `rememberViewModelStoreNavEntryDecorator()` so a screen's ViewModel survives the entry going
+# off-screen and is cleared only when the entry is popped (mobile-nav-swap-to-navigation3 Decision 5).
+androidx-lifecycle-viewmodelNavigation3 = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "androidx-lifecycle" }
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
 compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
@@ -133,10 +147,12 @@ koin-ktor = { module = "io.insert-koin:koin-ktor", version.ref = "koin" }
 koin-loggerSlf4j = { module = "io.insert-koin:koin-logger-slf4j", version.ref = "koin" }
 koin-compose = { module = "io.insert-koin:koin-compose", version.ref = "koin" }
 koin-composeViewmodel = { module = "io.insert-koin:koin-compose-viewmodel", version.ref = "koin" }
+# Koin ⇄ Navigation 3 integration (Koin 4.2.x; @KoinExperimentalAPI). Replaces `voyager-koin`.
+koin-composeNavigation3 = { module = "io.insert-koin:koin-compose-navigation3", version.ref = "koin" }
 
-# Voyager: KMP navigation framework + Koin integration. See § `voyager` pin rationale.
-voyager-navigator = { module = "cafe.adriel.voyager:voyager-navigator", version.ref = "voyager" }
-voyager-koin = { module = "cafe.adriel.voyager:voyager-koin", version.ref = "voyager" }
+# Navigation 3 (JetBrains CMP port): the single navigation host. Declare only `navigation3-ui`
+# — it transitively brings `navigation3-runtime`/`-common` + `savedstate`. See § `navigation3` pin.
+navigation3-ui = { module = "org.jetbrains.androidx.navigation3:navigation3-ui", version.ref = "navigation3" }
 
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 flyway-databasePostgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }

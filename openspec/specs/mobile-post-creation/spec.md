@@ -1,32 +1,35 @@
 # mobile-post-creation Specification
 
 ## Purpose
-The mobile content-creation surface in `:mobile:app` — the first authoring screen and the write half of the core loop. `PostCreationScreen` (a Voyager `Screen` opened by a home-surface FAB) renders a Material 3 composer (multiline content field, a live Unicode-code-point `N/280` counter, a "Posting" CTA, an outcome-driven error banner) under `NearYouTheme`, calls the shipped `POST /api/v1/posts` through a status+`error.code`-driven `CreatePostRepository` / `CreatePostFlow` seam, and acquires the post coordinate from the already-shipped `LocationProvider` at submit time — **permission-gated** via the shipped `LocationPermissionController` so the un-guarded platform provider is never called under a denied permission (device-location-only; no map, no manual pin). PII discipline is enforced: the post-body coordinate is never logged (logging is never widened past `LogLevel.HEADERS`) and the echoed actual `latitude`/`longitude` are never rendered. Every UI string is sourced via `:shared:resources` `Res.string.*`. The Bearer token and 401 refresh are owned by the shipped `HttpClient` `Auth` plugin (never reimplemented here). This mirrors the layering of `mobile-nearby-timeline` + `mobile-age-gate` + `mobile-auth-signin`.
-
+The mobile content-creation surface in `:mobile:app` — the first authoring screen and the write half of the core loop. `PostCreationScreen` (a composable opened by a home-surface FAB) renders a Material 3 composer (multiline content field, a live Unicode-code-point `N/280` counter, a "Posting" CTA, an outcome-driven error banner) under `NearYouTheme`, calls the shipped `POST /api/v1/posts` through a status+`error.code`-driven `CreatePostRepository` / `CreatePostFlow` seam, and acquires the post coordinate from the already-shipped `LocationProvider` at submit time — **permission-gated** via the shipped `LocationPermissionController` so the un-guarded platform provider is never called under a denied permission (device-location-only; no map, no manual pin). PII discipline is enforced: the post-body coordinate is never logged (logging is never widened past `LogLevel.HEADERS`) and the echoed actual `latitude`/`longitude` are never rendered. Every UI string is sourced via `:shared:resources` `Res.string.*`. The Bearer token and 401 refresh are owned by the shipped `HttpClient` `Auth` plugin (never reimplemented here). This mirrors the layering of `mobile-nearby-timeline` + `mobile-age-gate` + `mobile-auth-signin`.
 ## Requirements
 ### Requirement: PostCreationScreen renders the composer surface
 
-The mobile app SHALL ship a Voyager `Screen` implementation `PostCreationScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/post/PostCreationScreen.kt`) that renders the post composer. The screen SHALL display: (a) a top-bar/title via `stringResource(Res.string.post_create_title)`; (b) a multiline content input field whose placeholder is `stringResource(Res.string.post_create_content_placeholder)`; (c) a live character counter via `stringResource(Res.string.post_create_char_counter)` formatted with the current Unicode-code-point count; (d) a "Posting" CTA via `stringResource(Res.string.cta_post)` that is disabled while the content is empty/over-limit/in-flight; (e) the loading / success / per-error states per the § "Screen state mapping" requirement. No hardcoded UI string literals SHALL appear in the screen source. The screen SHALL render under `NearYouTheme` (light/dark).
+The mobile app SHALL ship a composable `PostCreationScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/post/PostCreationScreen.kt`), mapped from the `PostCreationRoute` `NavKey` by the `entryProvider`, that renders the post composer. The screen SHALL display: (a) a top-bar/title via `stringResource(Res.string.post_create_title)`; (b) a multiline content input field whose placeholder is `stringResource(Res.string.post_create_content_placeholder)`; (c) a live character counter via `stringResource(Res.string.post_create_char_counter)` formatted with the current Unicode-code-point count; (d) a "Posting" CTA via `stringResource(Res.string.cta_post)` that is disabled while the content is empty/over-limit/in-flight; (e) the loading / success / per-error states per the § "Screen state mapping" requirement. No hardcoded UI string literals SHALL appear in the screen source. The screen SHALL render under `NearYouTheme` (light/dark).
 
 #### Scenario: Initial render shows title, placeholder, zero counter, disabled CTA
-- **WHEN** a test composes `PostCreationScreen().Content()` under `NearYouTheme` with a `FakeCreatePostFlow` and no text entered
+
+- **WHEN** a test composes the `PostCreationScreen` composable under `NearYouTheme` with a `FakeCreatePostFlow` and no text entered
 - **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.post_create_title)` AND a field showing the `post_create_content_placeholder` text AND a counter node reflecting a count of `0` AND the "Posting" CTA is present in a disabled state
 
 #### Scenario: No hardcoded UI strings in PostCreationScreen source
+
 - **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/post/PostCreationScreen.kt`
 - **THEN** every `Text(...)` / placeholder / `contentDescription = ...` / similar UI-string-bearing call site sources its text via `stringResource(Res.string.<name>)`; zero literal string arguments appear in such call sites
 
 ### Requirement: A home-surface FAB opens the composer; existing routing and the Nearby screen are unchanged
 
-`HomeScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt`) SHALL render a `FloatingActionButton` that, when activated, pushes `PostCreationScreen` onto the Voyager navigator. `HomeScreen` SHALL continue to host the Nearby feed as its body (the `mobile-nearby-timeline` § "HomeScreen hosts NearbyTimelineScreen" requirement is preserved) and `RootRouterScreen` SHALL continue to route the authenticated path to `HomeScreen` (the `mobile-auth-signin` routing requirement is unchanged). This change MUST NOT modify `NearbyTimelineScreen` (the `mobile-nearby-timeline` capability gains no delta); the FAB is hosted by `HomeScreen`, keeping `NearbyTimelineScreen` navigation-free.
+`HomeScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt`) SHALL render a `FloatingActionButton` that, when activated, appends `PostCreationRoute` to the navigation back stack (the Nav3 equivalent of a push). `HomeScreen` SHALL continue to host the Nearby feed as its body (the `mobile-nearby-timeline` § "HomeScreen hosts NearbyTimelineScreen" requirement is preserved) and the authenticated path SHALL continue to route to `HomeRoute` (the `mobile-auth-signin` routing **target** is unchanged; only the back-stack mechanism is migrated by `mobile-nav-swap-to-navigation3`). `NearbyTimelineScreen` SHALL remain **navigation-free** — it gains no back-stack reference; the FAB + back-stack append live in `HomeScreen` (the `mobile-nearby-timeline` capability gains no behavioral delta beyond the `Screen`→composable conversion the nav swap applies uniformly).
 
 #### Scenario: HomeScreen renders a compose FAB that pushes the composer
-- **WHEN** a test composes `HomeScreen().Content()` under `NearYouTheme` within a Voyager `Navigator` and activates the compose FAB
-- **THEN** a `FloatingActionButton` node is present AND activating it results in `PostCreationScreen` being pushed onto the navigator (the composer surface becomes the current screen)
 
-#### Scenario: NearbyTimelineScreen source is not modified by this change
-- **WHEN** inspecting the diff of this change against `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt`
-- **THEN** `NearbyTimelineScreen.kt` is unchanged (the FAB + navigation live in `HomeScreen`; the `mobile-nearby-timeline` capability has no delta)
+- **WHEN** a test composes the `HomeScreen` composable under `NearYouTheme` hosted in a `NavDisplay` over a test back stack (or with a recording navigate-to callback) and activates the compose FAB
+- **THEN** a `FloatingActionButton` node is present AND activating it appends `PostCreationRoute` to the back stack (the composer surface becomes the current entry)
+
+#### Scenario: NearbyTimelineScreen remains navigation-free
+
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt`
+- **THEN** `NearbyTimelineScreen` holds no back-stack reference and contains no FAB / navigation affordance (the FAB + back-stack append live in `HomeScreen`); the nav swap only converts it from a Voyager `Screen` to a plain composable, adding no navigation logic
 
 ### Requirement: Create request targets POST /api/v1/posts with the device coordinate
 
@@ -159,7 +162,7 @@ The mobile app SHALL model the screen state as a Compose-free `PostCreationUiSta
 
 The screen SHALL render the projected state with all copy via `stringResource`:
 - **Loading** (`inFlight`) → the CTA shows `stringResource(Res.string.post_create_loading)` and is disabled.
-- **Success** → the screen pops back to the home surface via the Voyager navigator (`navigator.pop()`); no coordinate is rendered.
+- **Success** → the screen removes its own entry from the back stack (`backStack.removeLastOrNull()`, the Nav3 equivalent of pop) to return to the home surface; no coordinate is rendered.
 - **ContentEmpty** → a banner with `stringResource(Res.string.post_create_error_empty)`.
 - **ContentTooLong** → a banner with `stringResource(Res.string.post_create_error_too_long)`.
 - **LocationOutOfBounds** → a banner with `stringResource(Res.string.post_create_error_location)`.
@@ -186,8 +189,8 @@ The screen SHALL render the projected state with all copy via `stringResource`:
 
 #### Scenario: Success pops back to the home surface
 - **GIVEN** a `FakeCreatePostFlow` returning `Success`
-- **WHEN** the composer submits successfully within a Voyager `Navigator`
-- **THEN** the navigator pops `PostCreationScreen` (the home surface becomes current again)
+- **WHEN** the composer submits successfully within a `NavDisplay` over a test back stack (or with a recording pop callback)
+- **THEN** the composer's entry is removed from the back stack (`backStack.removeLastOrNull()`) and the home surface becomes current again
 
 ### Requirement: Post location is automatic-only (device-acquired); no manual selection
 
@@ -204,14 +207,16 @@ The composer SHALL set the post coordinate SOLELY from the device location provi
 
 ### Requirement: Successful post returns to Home; Nearby auto-refresh on return is deferred
 
-On a `Success` outcome the composer SHALL `navigator.pop()` back to the home surface and SHALL NOT signal the Nearby feed to re-fetch; the newly-created post becomes visible on the next manual pull-to-refresh / `ON_RESUME`. Cross-screen auto-refresh-on-return is NOT implemented in this change and is deferred to a follow-up `mobile-post-creation-refresh-nearby-on-return`.
+On a `Success` outcome the composer SHALL remove its own entry from the back stack (`backStack.removeLastOrNull()`, the Nav3 equivalent of pop) to return to the home surface, and SHALL NOT signal the Nearby feed to re-fetch; the newly-created post becomes visible on the next manual pull-to-refresh / `ON_RESUME`. Cross-screen auto-refresh-on-return is NOT implemented in this change and is deferred to a follow-up `mobile-post-creation-refresh-nearby-on-return`.
 
 #### Scenario: No Nearby reload is signalled on success
+
 - **WHEN** inspecting the composer's `Success` handling
-- **THEN** it calls `navigator.pop()` AND does NOT invoke any Nearby reload / re-fetch trigger (no shared reload signal, no Voyager result consumed by the Nearby feed)
+- **THEN** it removes the composer entry from the back stack (`backStack.removeLastOrNull()`) AND does NOT invoke any Nearby reload / re-fetch trigger (no shared reload signal, and no Nav3 `ResultEventBus` / nav result consumed by the Nearby feed)
 
 #### Scenario: FOLLOW_UPS tracks the Nearby-refresh follow-up
-- **WHEN** inspecting `FOLLOW_UPS.md` after this change is applied
+
+- **WHEN** inspecting `FOLLOW_UPS.md`
 - **THEN** the file contains an entry `mobile-post-creation-refresh-nearby-on-return`
 
 ### Requirement: The post-body coordinate is never logged and logging is not widened

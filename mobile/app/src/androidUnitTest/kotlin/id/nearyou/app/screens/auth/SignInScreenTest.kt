@@ -7,12 +7,12 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
-import cafe.adriel.voyager.navigator.Navigator
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
-import id.nearyou.app.auth.InMemoryTokenStore
-import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.SignInOutcome
+import id.nearyou.app.screens.routing.PendingSignupIdentity
+import id.nearyou.app.screens.routing.SignInRoute
+import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.theme.NearYouTheme
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
@@ -37,19 +37,18 @@ private const val AGE_GATE_TITLE = "Verifikasi usia kamu" // AgeGateScreen title
 
 /**
  * Render + interaction coverage of `SignInScreen` via the Robolectric-backed CMP UI runner
- * (§6.7 a/b/c/d/e/i). The platform-agnostic outcome→state mapping is also covered by the pure
- * `SignInUiStateTest`; this suite verifies the actual composable renders + reacts.
+ * (§6.7 a/b/c/d/e/i), migrated off Voyager. On-screen states (initial / tap / banned / network / PII)
+ * compose the `SignInScreen(onSignedIn, onNoAccount)` composable directly with recording lambdas; the
+ * 404→age-gate navigation is asserted by hosting the real [TestNavHost] over `SignInRoute` and
+ * verifying the AgeGate surface lands (the screen sets `PendingSignupIdentity` then appends
+ * `AgeGateRoute`). The platform-agnostic outcome→state mapping is also covered by `SignInUiStateTest`.
  *
  * Koin is started BEFORE `runComposeUiTest` (the composition's `koinInject` captures the scope
- * eagerly — starting it inside the test lambda races a closed scope). `sdk = 33` matches the
- * cached Robolectric android-all jar; `ui-test-manifest` (debug dep) supplies the host activity.
- *
- * `@Suppress("DEPRECATION")`: `KoinContext` is deprecated in koin-compose 4.1.0 ("setup with
- * startKoin()"), but that assumes a clean single-start. In this multi-test JVM the
- * global-context fallback caches a stale/closed scope across the per-test startKoin/stopKoin
- * cycle, so `koinInject` hits a closed scope without an explicit re-bind. `KoinContext` re-binds
- * the composition to the freshly-started test Koin; keep it until koin-compose offers a
- * non-deprecated test seam.
+ * eagerly). `@Suppress("DEPRECATION")`: `KoinContext` is deprecated in koin-compose ("setup with
+ * startKoin()"), but that assumes a clean single-start. In this multi-test JVM the global-context
+ * fallback caches a stale/closed scope across the per-test startKoin/stopKoin cycle, so `koinInject`
+ * hits a closed scope without an explicit re-bind. `KoinContext` re-binds the composition to the
+ * freshly-started test Koin; keep it until koin-compose offers a non-deprecated test seam.
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
@@ -65,7 +64,8 @@ class SignInScreenTest {
             modules(
                 module {
                     single<AuthFlow> { fake }
-                    single { SessionInvalidator(InMemoryTokenStore()) }
+                    // SignInScreen sets this on the 404 path; AgeGateScreen reads it after navigation.
+                    single { PendingSignupIdentity() }
                 },
             )
         }
@@ -81,7 +81,7 @@ class SignInScreenTest {
     fun initialRender_showsCtaTitleAndDisclosure() {
         installKoin(SignInOutcome.Cancelled)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).assertExists()
             onNodeWithText(TITLE).assertExists()
             onNodeWithText(DISCLOSURE).assertExists()
@@ -93,23 +93,24 @@ class SignInScreenTest {
     fun tappingCta_invokesSignIn() {
         installKoin(SignInOutcome.Cancelled)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).performClick()
             waitForIdle()
             assertEquals(1, fake.signInInvocationCount)
         }
     }
 
-    // 7.11 (Mobile #4 MODIFIED 404 routing) — NoAccount navigates to AgeGateScreen carrying the
-    // id_token; NO signin_error_no_account banner is shown on SignInScreen.
+    // 7.11 (Mobile #4 MODIFIED 404 routing) — NoAccount sets the in-memory identity + navigates to
+    // AgeGateScreen; NO signin_error_no_account banner is shown on SignInScreen. Hosted in the real
+    // TestNavHost so the actual SignInRoute → AgeGateRoute transition is exercised end-to-end.
     @Test
     fun noAccount_navigatesToAgeGate_withNoSignInBanner() {
         installKoin(SignInOutcome.NoAccount("g-id"))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
+            setContent { KoinContext { TestNavHost(SignInRoute) } }
             onNodeWithText(CTA_GOOGLE).performClick()
             waitForIdle()
-            // Landed on AgeGateScreen (its title renders)…
+            // Landed on AgeGateScreen (its title renders, fed by the in-memory PendingSignupIdentity)…
             onNodeWithText(AGE_GATE_TITLE).assertExists()
             // …and the retired no-account banner is NOT shown anywhere.
             onNodeWithText(ERR_NO_ACCOUNT).assertDoesNotExist()
@@ -122,7 +123,7 @@ class SignInScreenTest {
     fun bannedOutcome_disablesCtaAndRejectsSecondTap() {
         installKoin(SignInOutcome.Banned)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).performClick()
             waitForIdle()
 
@@ -142,7 +143,7 @@ class SignInScreenTest {
     fun networkErrorOutcome_showsRetryLabelAndNetworkBanner() {
         installKoin(SignInOutcome.NetworkError)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).performClick()
             waitForIdle()
             onNodeWithText(ERR_NETWORK).assertExists()
@@ -153,12 +154,13 @@ class SignInScreenTest {
     // 6.7i — no error-state UI renders Google email / displayName. Structural: the screen never
     // receives PII (AuthRepository consumes it only for the API body; SignInOutcome carries none).
     // Uses Banned (a state that REMAINS on SignInScreen) — 404 no longer produces a SignInScreen
-    // error state (it navigates to AgeGateScreen, whose PII discipline is covered by AgeGateScreenTest).
+    // error state (it sets PendingSignupIdentity and navigates to AgeGateRoute, whose PII discipline
+    // is covered by AgeGateScreenTest).
     @Test
     fun errorState_rendersNoGooglePii() {
         installKoin(SignInOutcome.Banned)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).performClick()
             waitForIdle()
             onNodeWithText("test@example.com", substring = true).assertDoesNotExist()

@@ -1,23 +1,49 @@
 package id.nearyou.app
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.tooling.preview.Preview
-import cafe.adriel.voyager.navigator.CurrentScreen
-import cafe.adriel.voyager.navigator.Navigator
-import id.nearyou.app.screens.routing.RootRouterScreen
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.navigation3.ui.NavDisplay
+import id.nearyou.app.screens.routing.RootRoute
 import id.nearyou.app.screens.routing.SessionExpiryEffect
+import id.nearyou.app.screens.routing.appEntryProvider
+import id.nearyou.app.screens.routing.navSavedStateConfiguration
 import id.nearyou.app.theme.NearYouTheme
 
+/**
+ * The single Navigation 3 host. A developer-owned [rememberNavBackStack] (seeded with `RootRoute`
+ * and carrying the polymorphic [navSavedStateConfiguration] so it is saveable on iOS) is rendered by
+ * [NavDisplay] over [appEntryProvider]'s route→composable mapping. `entryDecorators` wires (in the
+ * canonical order) `rememberSaveableStateHolderNavEntryDecorator()` (per-entry `rememberSaveable`
+ * state) THEN `rememberViewModelStoreNavEntryDecorator()` (per-entry `ViewModelStore`), so a screen's
+ * `koinViewModel` is scoped to its `NavEntry` — it survives the entry going off-screen (e.g. Home
+ * while the composer is on top) and is cleared only when the entry is popped (design Decision 5;
+ * this is why returning from the composer does NOT re-fetch the Nearby feed).
+ */
 @Composable
 @Preview
 fun App() {
     NearYouTheme {
-        Navigator(RootRouterScreen()) { navigator ->
-            // A terminal 401 (bearer refresh failed → store cleared) re-routes to the
-            // unauthenticated entry surface from any foreground screen. The effect outlives
-            // the start-destination router (which replaces itself at launch).
-            SessionExpiryEffect(navigator)
-            CurrentScreen()
-        }
+        val backStack = rememberNavBackStack(navSavedStateConfiguration, RootRoute)
+        // A terminal 401 (bearer refresh failed → store cleared) re-routes to the unauthenticated
+        // entry surface from any foreground screen. The effect outlives the start-destination router
+        // (which replaces itself at launch). Hosted in screens/routing so App.kt names no auth-flow id.
+        SessionExpiryEffect(backStack)
+        // Build the entry map once per back-stack instance (not per recomposition): the back stack is
+        // stable across recompositions, so the route→composable mapping never needs rebuilding.
+        val entryProvider = remember(backStack) { appEntryProvider(backStack) }
+        NavDisplay(
+            backStack = backStack,
+            onBack = { backStack.removeLastOrNull() },
+            entryDecorators =
+                listOf(
+                    rememberSaveableStateHolderNavEntryDecorator(),
+                    rememberViewModelStoreNavEntryDecorator(),
+                ),
+            entryProvider = entryProvider,
+        )
     }
 }

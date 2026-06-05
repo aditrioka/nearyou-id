@@ -4,12 +4,12 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
-import cafe.adriel.voyager.navigator.Navigator
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
-import id.nearyou.app.auth.InMemoryTokenStore
-import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.SignInOutcome
+import id.nearyou.app.screens.routing.PendingSignupIdentity
+import id.nearyou.app.screens.routing.SignInRoute
+import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -35,17 +35,18 @@ private const val AGE_GATE_TITLE = "Verifikasi usia kamu" // AgeGateScreen title
  * iOS counterpart to the Robolectric [SignInScreenTest] — the SAME render + sign-in→age-gate
  * navigation flow, executed natively on the iOS simulator via `:mobile:app:iosSimulatorArm64Test`
  * + the Compose Multiplatform `runComposeUiTest` runner. This is the coverage the Android-only
- * Robolectric suite cannot give: it proves the shared Compose UI + Voyager navigation + Koin DI +
+ * Robolectric suite cannot give: it proves the shared Compose UI + Navigation 3 + Koin DI +
  * compose-resource loading all work on the real iOS Kotlin/Native target. Fakes are reused from
- * `commonTest` (`FakeAuthFlow`, `InMemoryTokenStore`).
+ * `commonTest` (`FakeAuthFlow`). On-screen states compose the `SignInScreen(...)` composable directly;
+ * the 404→age-gate navigation is asserted by hosting the real [TestNavHost] over `SignInRoute`.
  *
  * Placed in `iosTest` (not `commonTest`) deliberately: the Android UI tests need Robolectric's
  * `@RunWith`/`@Config` (JVM-only), so a shared `commonTest` UI test would fail to find a host on
  * the Android unit-test target. `iosTest` keeps the Android build untouched.
  *
  * Uses the v1 `runComposeUiTest` (deprecated in CMP 1.11 but functional; UnconfinedTestDispatcher)
- * to mirror the proven Android patterns 1:1 and de-risk the first iOS UI test. Migrating both
- * suites to the v2 API (`androidx.compose.ui.test.v2`, StandardTestDispatcher) is a clean follow-up.
+ * to mirror the proven Android patterns 1:1. Migrating both suites to the v2 API
+ * (`androidx.compose.ui.test.v2`, StandardTestDispatcher) is a clean follow-up.
  */
 @Suppress("DEPRECATION")
 @OptIn(ExperimentalTestApi::class)
@@ -59,7 +60,7 @@ class SignInFlowIosTest {
             modules(
                 module {
                     single<AuthFlow> { fake }
-                    single { SessionInvalidator(InMemoryTokenStore()) }
+                    single { PendingSignupIdentity() }
                 },
             )
         }
@@ -75,7 +76,7 @@ class SignInFlowIosTest {
     fun initialRender_showsCtaTitleAndDisclosure() {
         installKoin(SignInOutcome.Cancelled)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).assertExists()
             onNodeWithText(TITLE).assertExists()
             onNodeWithText(DISCLOSURE).assertExists()
@@ -87,19 +88,19 @@ class SignInFlowIosTest {
     fun tappingCta_invokesSignIn() {
         installKoin(SignInOutcome.Cancelled)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).performClick()
             waitForIdle()
             assertEquals(1, fake.signInInvocationCount)
         }
     }
 
-    // NoAccount (404) navigates to AgeGateScreen carrying the id_token; NO no-account banner shown.
+    // NoAccount (404) sets the in-memory identity + navigates to AgeGateScreen; NO no-account banner shown.
     @Test
     fun noAccount_navigatesToAgeGate_withNoSignInBanner() {
         installKoin(SignInOutcome.NoAccount("g-id"))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
+            setContent { KoinContext { TestNavHost(SignInRoute) } }
             onNodeWithText(CTA_GOOGLE).performClick()
             waitForIdle()
             onNodeWithText(AGE_GATE_TITLE).assertExists()
@@ -112,7 +113,7 @@ class SignInFlowIosTest {
     fun networkError_showsRetryLabelAndNetworkBanner() {
         installKoin(SignInOutcome.NetworkError)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(SignInScreen()) } } }
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).performClick()
             waitForIdle()
             onNodeWithText(ERR_NETWORK).assertExists()

@@ -13,6 +13,7 @@ import id.nearyou.app.network.HttpClientFactory
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.CreatePostRepository
 import id.nearyou.app.post.PostCreationApiClient
+import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.timeline.LocationProvider
 import id.nearyou.app.timeline.NearbyTimelineApiClient
 import id.nearyou.app.timeline.NearbyTimelineFlow
@@ -54,6 +55,12 @@ val mobileModule =
         // Bind the AuthFlow interface to the concrete AuthRepository so screens depend on the
         // testable seam while the concrete remains resolvable.
         single<AuthFlow> { get<AuthRepository>() }
+
+        // mobile-nav-swap-to-navigation3 — the in-memory holder for the verified Google id_token
+        // carried from the sign-in no-account path (SignInScreen sets it) to the age-gate signup
+        // flow (AgeGateScreen reads it). A single so both screens share one instance; never
+        // persisted, never on a NavKey (design Decision 4).
+        single { PendingSignupIdentity() }
 
         // mobile-location-acquisition-tuning — the unqualified LocationProvider both Nearby and the
         // composer inject is the in-process warm-fix decorator (single-flighted, injected monotonic

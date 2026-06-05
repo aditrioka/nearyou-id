@@ -121,7 +121,7 @@ Redis Streams provide:
 :infra:oidc               shipped — internal endpoint OIDC verification
 :infra:otel               shipped — OpenTelemetry tracing (commit f9a78f8, archive 2026-05-07-observability-otel-foundation)
 :backend:ktor             shipped — Ktor routes, DI wiring via Koin
-:mobile:app               shipped — Voyager nav + Koin DI + Material 3 theme + HomeScreen placeholder (see § Mobile Status below)
+:mobile:app               shipped — Navigation 3 nav + Koin DI + Material 3 theme + HomeScreen placeholder (see § Mobile Status below)
 :lint:detekt-rules        shipped — 7 custom Detekt rules
 ```
 
@@ -143,7 +143,7 @@ Redis Streams provide:
 
 ### Mobile Status
 
-`:mobile:app` ships a production-shaped Compose Multiplatform scaffold (per the `mobile-app-scaffold-replace-wizard` change): a single `App()` composable in commonMain wrapping a Voyager `Navigator` inside a `NearYouTheme` (Material 3 light + dark, system-preference-driven); Koin DI initialized via an idempotent `initKoin()` helper called from Android `MainActivity.onCreate` and from the iOS Swift `iOSApp.init()` block (which then renders `ContentView` → `UIViewControllerRepresentable` → Kotlin `MainViewController()` → `App()`); one placeholder `HomeScreen` as the start destination, rendering only a "NearYouID" label + version. The scaffold has zero networking, zero auth, zero feature behavior — those concerns ship in subsequent mobile changes per [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority (Mobile #2 / #2.5 Resources scaffolding — Moko initially, swapped to CMP Resources; #3 Google Sign-In, #4 age gate, #5 first product screen). **Sections of this doc that describe mobile-side rendering of features (NSE iOS push handling, App Group setup, push payload handling, attestation flow, etc.) remain forward-looking design** — they describe contracts the backend already serves, but the consumer side is built incrementally over Mobile #2-5+.
+`:mobile:app` ships a production-shaped Compose Multiplatform scaffold (per the `mobile-app-scaffold-replace-wizard` change): a single `App()` composable in commonMain wrapping a Navigation 3 `NavDisplay` (over a developer-owned `rememberNavBackStack` of `@Serializable NavKey` routes — swapped from Voyager via `mobile-nav-swap-to-navigation3`, which deliberately supersedes the prior Voyager statement) inside a `NearYouTheme` (Material 3 light + dark, system-preference-driven); Koin DI initialized via an idempotent `initKoin()` helper called from Android `MainActivity.onCreate` and from the iOS Swift `iOSApp.init()` block (which then renders `ContentView` → `UIViewControllerRepresentable` → Kotlin `MainViewController()` → `App()`); one placeholder `HomeScreen` as the start destination, rendering only a "NearYouID" label + version. The scaffold has zero networking, zero auth, zero feature behavior — those concerns ship in subsequent mobile changes per [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority (Mobile #2 / #2.5 Resources scaffolding — Moko initially, swapped to CMP Resources; #3 Google Sign-In, #4 age gate, #5 first product screen). **Sections of this doc that describe mobile-side rendering of features (NSE iOS push handling, App Group setup, push payload handling, attestation flow, etc.) remain forward-looking design** — they describe contracts the backend already serves, but the consumer side is built incrementally over Mobile #2-5+.
 
 ### Backend Modules (inside `:backend:ktor`)
 

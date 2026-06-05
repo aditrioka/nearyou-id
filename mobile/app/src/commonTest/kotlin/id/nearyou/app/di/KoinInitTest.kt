@@ -1,5 +1,6 @@
 package id.nearyou.app.di
 
+import id.nearyou.app.screens.routing.PendingSignupIdentity
 import org.koin.core.context.stopKoin
 import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
@@ -40,6 +41,19 @@ class KoinInitTest {
         // the second call MUST NOT replace the existing Koin application. Same instance
         // reference before and after the second invocation.
         assertSame(first, second, "Second initKoin() call must be a no-op (same Koin instance)")
+    }
+
+    @Test
+    fun pendingSignupIdentity_resolvesFromTheRealGraph() {
+        // 6.2 — the nav-swap's new binding resolves from the production graph (mobileModule). It has
+        // no dependencies, so Koin constructs it without needing any platform binding; this guards
+        // against a missing `single { PendingSignupIdentity() }` registration.
+        initKoin()
+        val koin = KoinPlatformTools.defaultContext().get()
+        assertNotNull(
+            koin.getOrNull<PendingSignupIdentity>(),
+            "PendingSignupIdentity must resolve from the real mobileModule",
+        )
     }
 
     @Test

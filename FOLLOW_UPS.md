@@ -54,7 +54,7 @@ Format per entry:
 **Impact (if shipped):** Minor UX rough edge — the post succeeds but is not reflected in Nearby until a manual pull-to-refresh.
 
 **Action items:**
-- [ ] After the composer ships, wire a one-shot Nearby reload on composer success (a shared reload trigger or a Voyager result) so the new post appears on return without a manual refresh.
+- [ ] After the composer ships, wire a one-shot Nearby reload on composer success (a shared reload trigger or a Nav3 `ResultEventBus` signal) so the new post appears on return without a manual refresh.
 
 ---
 
@@ -727,3 +727,44 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Cap note (2026-06-02):** adding this entry brings `FOLLOW_UPS.md` to ~30 open entries — at the 30-entry hard limit. Added per CLAUDE.md "documented debt is still debt"; flag as a candidate for the next `/triage-follow-ups` sweep (the verified-still-valid deferred-work backlog + the GitHub-Issues migration noted in the 2026-06-01 sweep remain the drawdown levers).
 
 **Update (2026-06-04 sweep):** the count was actually 32 at sweep time (the 2026-06-02 note's "~30" undercounted). Post-triage the file is **28 open, under the limit** — drawn down via 3 canonical-doc migrations + 1 inline spec reconciliation, all verified still-valid (0 rot). See the intro's 2026-06-04 sweep-log entry. The GitHub-Issues migration remains the standing lever if the solo-operator backlog grows again.
+
+---
+
+## mobile-nav3-adaptive-scenes
+
+**Discovered during:** `mobile-nav-swap-to-navigation3` proposal (deferral; Non-Goals).
+**Status:** open
+
+**Finding:** The Voyager→Navigation 3 swap establishes the single-pane `NavDisplay` host but does NOT adopt Nav3's adaptive multi-pane **Scenes** / list-detail layouts (`androidx.compose.material3.adaptive` + a Nav3 `SceneStrategy`). There is no tablet / foldable target yet, so a single-pane host is correct for the MVP phone surface; the adaptive scene strategy lands when a larger-screen target appears.
+
+**Specs at fault:** none — deliberate, `mobile-nav-swap-to-navigation3` Non-Goals.
+**Code at fault:** none — the single-pane `NavDisplay` is the intended MVP shape.
+**Docs at fault:** none.
+
+**Impact (if shipped):** none today (phone-only MVP). Without it, a future tablet/foldable build renders single-pane where a list-detail two-pane would be more appropriate.
+
+**Action items:**
+- [ ] When a tablet / foldable target is added, file OpenSpec change `mobile-nav3-adaptive-scenes` adopting a Nav3 `SceneStrategy` (`material3-adaptive-navigation3`) for list-detail layouts; declare the `org.jetbrains.androidx.navigation3` adaptive artifact then (it is deliberately NOT on the classpath today).
+- [ ] Delete this entry once the change merges.
+
+---
+
+## mobile-home-tab-host
+
+**Discovered during:** `mobile-nav-swap-to-navigation3` proposal (deferral; Non-Goals) — forward-referenced by `mobile-post-creation` (the home-surface FAB is "conceptually one composer affordance across all three future tabs").
+
+**Status:** open
+
+**Finding:** `HomeScreen` is a thin host rendering `NearbyTimelineScreen` + the composer FAB. The Nearby / Following / Global **tab host** with multiple back stacks (one saveable back stack per tab, per `docs/02-Product.md` "Nearby and Following are home") is NOT built — `HomeRoute` maps to a single-feed host today. Nav3 supports per-tab back stacks (multiple `NavDisplay`s or a tab-keyed back-stack map), which is the natural shape once Following / Global feeds ship.
+
+**Specs at fault:** none — deliberate, `mobile-nav-swap-to-navigation3` Non-Goals.
+**Code at fault:** none — the single-feed `HomeScreen` host is the intended MVP shape.
+**Docs at fault:** none.
+
+**Impact (if shipped):** none today (only the Nearby feed exists). The tab host is the precondition for surfacing the Following + Global timelines as sibling home tabs.
+
+**Action items:**
+- [ ] When the Following / Global feeds ship, file OpenSpec change `mobile-home-tab-host` introducing the Nearby/Following/Global tab host over per-tab Nav3 back stacks; the composer FAB stays at the home level (one affordance across tabs).
+- [ ] Delete this entry once the change merges.
+
+**Cap note (2026-06-05):** `mobile-nav-swap-to-navigation3` added these 2 deferral entries → **29 open, under the 30-entry limit**. Both are clean Non-Goals deferrals (no half-implemented code); the GitHub-Issues migration noted in the 2026-06-01 sweep remains the standing drawdown lever.
