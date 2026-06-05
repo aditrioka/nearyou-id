@@ -145,24 +145,11 @@ fun AgeGateScreen(
     // The DOB field shows the picked ISO date (YYYY-MM-DD) or the picker affordance copy.
     val dobFieldText = selectedDob?.toString() ?: stringResource(Res.string.age_gate_dob_picker_cta)
 
-    // Navigate from an effect (never mutate the back stack during composition). clear() the in-memory
-    // identity on every terminal exit so the verified token does not linger past the flow:
-    //  - Success → clear + replaceAll(HomeRoute) (same terminus as sign-in).
-    //  - AccountExists (409) → clear + replaceAll(SignInRoute).
-    // Blocked / InvalidIdToken / RetryableError keep the user on this screen to read the banner and
-    // do NOT clear (a retryable error may be resubmitted with the same identity).
+    // Navigate from an effect (never mutate the back stack during composition). The terminal-exit
+    // clear()-then-navigate decision is the pure [handleAgeGateTerminalOutcome] seam (unit-tested in
+    // AgeGateOutcomeHandlerTest) so the holder-lifecycle contract is verified without driving the DOB UI.
     LaunchedEffect(outcome) {
-        when (outcome) {
-            SignUpOutcome.Success -> {
-                pendingSignupIdentity.clear()
-                onSignedUp()
-            }
-            SignUpOutcome.AccountExists -> {
-                pendingSignupIdentity.clear()
-                onExitToSignIn()
-            }
-            else -> Unit
-        }
+        handleAgeGateTerminalOutcome(outcome, pendingSignupIdentity, onSignedUp, onExitToSignIn)
     }
 
     Column(
@@ -249,6 +236,36 @@ fun AgeGateScreen(
             },
             onDismiss = { showPicker = false },
         )
+    }
+}
+
+/**
+ * The terminal-exit decision for [AgeGateScreen], extracted as a pure seam so the holder-lifecycle
+ * contract (design Decision 4 + `mobile-age-gate` § "The pending identity is cleared on every terminal
+ * exit but survives a retryable error") is unit-testable without driving the Material 3 DOB picker:
+ *
+ *  - [SignUpOutcome.Success] → `clear()` the in-memory identity + [onSignedUp] (→ HomeRoute).
+ *  - [SignUpOutcome.AccountExists] (409) → `clear()` + [onExitToSignIn] (→ SignInRoute).
+ *  - [SignUpOutcome.Blocked] / [SignUpOutcome.InvalidIdToken] / [SignUpOutcome.RetryableError] /
+ *    [SignUpOutcome.Cancelled] / `null` → no-op: the user stays on the screen to read the banner, and
+ *    the holder is NOT cleared (a retryable error may be resubmitted with the same identity).
+ */
+internal fun handleAgeGateTerminalOutcome(
+    outcome: SignUpOutcome?,
+    pendingSignupIdentity: PendingSignupIdentity,
+    onSignedUp: () -> Unit,
+    onExitToSignIn: () -> Unit,
+) {
+    when (outcome) {
+        SignUpOutcome.Success -> {
+            pendingSignupIdentity.clear()
+            onSignedUp()
+        }
+        SignUpOutcome.AccountExists -> {
+            pendingSignupIdentity.clear()
+            onExitToSignIn()
+        }
+        else -> Unit
     }
 }
 

@@ -14,6 +14,13 @@ import kotlin.test.assertTrue
  * "Serialized back stack containing AgeGateRoute carries no id_token"). The identity lives ONLY in
  * the holder; `AgeGateRoute` is a parameterless marker, so no serialized navigation state can carry
  * the token. Serialization goes through the PRODUCTION [navSavedStateConfiguration] module.
+ *
+ * Note on the vehicle: this uses kotlinx `Json` with the production `SerializersModule` (the
+ * cross-platform commonTest-friendly path) rather than Nav3's `SavedState` encoder. The byte-scan is
+ * a backstop — the REAL guarantee is structural: `AgeGateRoute` is a `data object` with zero
+ * serializable properties, so NO encoder (Json or SavedState) can emit the token. If a future
+ * contributor added an `idToken` field to `AgeGateRoute`, this test would fail AND the
+ * `mobile-age-gate` "AgeGateRoute declares no identity property" scenario would be violated.
  */
 class PendingSignupIdentityNotSerializedTest {
     private val json = Json { serializersModule = navSavedStateConfiguration.serializersModule }

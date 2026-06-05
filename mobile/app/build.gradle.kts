@@ -71,9 +71,12 @@ kotlin {
             implementation(libs.koin.compose)
             implementation(libs.koin.composeViewmodel)
             // mobile-nav-swap-to-navigation3 — Navigation 3 (JetBrains CMP port) replaces Voyager.
-            // `navigation3-ui` brings navigation3-runtime/-common transitively; `koin-composeNavigation3`
-            // is the Koin 4.2.x integration replacing `voyager-koin`. The @Serializable NavKey routes
-            // rely on the kotlinxSerialization plugin (already applied above).
+            // `navigation3-ui` brings navigation3-runtime/-common transitively; the @Serializable NavKey
+            // routes rely on the kotlinxSerialization plugin (already applied above). `koin-composeNavigation3`
+            // (the Koin 4.2.x Nav3 integration, replacing `voyager-koin`) is FORWARD-WIRED: no symbol from it
+            // is referenced yet because entry-scoped `koinViewModel` + the ViewModel-store decorator are
+            // deferred (design Decision 5 — every screen is stateless and resolves singletons via
+            // `koinInject` from `koin-compose`). It lands in use with the first ViewModel-backed screen.
             implementation(libs.navigation3.ui)
             implementation(libs.koin.composeNavigation3)
             implementation(projects.shared.resources)

@@ -31,6 +31,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 private const val TITLE = "Verifikasi usia kamu"
 private const val DOB_LABEL = "Tanggal lahir"
@@ -41,13 +42,18 @@ private const val BLOCKED_COPY = "Platform ini hanya tersedia untuk pengguna usi
 private const val ACCOUNT_EXISTS_COPY = "Akun sudah terdaftar. Silakan masuk."
 
 /**
- * Render coverage of `AgeGateScreen` via the Robolectric-backed CMP UI runner (Mobile #4, tasks
- * 7.1 / 7.10 / 7.12 / 7.15), migrated off Voyager. The verified identity is now read from the
- * in-memory `PendingSignupIdentity` holder (seeded via the test Koin module), NOT a constructor arg.
- * The DOB-validation + outcome→state projection is covered purely by `AgeGateUiStateTest`; this suite
- * verifies the composable renders the canonical strings, leaks no PII, does not auto-fire signup on
- * entry, and re-routes to SignIn on a restored back stack with an absent identity (the process-death
- * guard, task 7.4).
+ * Render coverage of `AgeGateScreen` via the Robolectric-backed CMP UI runner (Mobile #4 +
+ * `mobile-nav-swap-to-navigation3` tasks 7.1 / 7.4 / 7.10 / 7.12 / 7.15), migrated off Voyager. The
+ * verified identity is read from the in-memory `PendingSignupIdentity` holder (seeded via the test
+ * Koin module, NOT a constructor arg). The DOB-validation + outcome→state projection is covered by
+ * `AgeGateUiStateTest`; the holder primitive by `PendingSignupIdentityTest`; and the terminal-exit
+ * clear/navigate decision (Success / AccountExists clear + route; retryable survives) by the pure
+ * `AgeGateOutcomeHandlerTest` (which tests the production `handleAgeGateTerminalOutcome` seam without
+ * driving the Material 3 DOB picker — whose day cells expose only a locale-formatted
+ * `contentDescription`, not addressable text). This suite verifies the composable renders the
+ * canonical strings, leaks no PII, does not auto-fire signup on entry, and — the process-death guard
+ * — re-routes to SignIn (and leaves the holder cleared) on a restored back stack with an absent
+ * identity.
  *
  * `@Suppress("DEPRECATION")` + `KoinContext`: see `SignInScreenTest` for why this is retained for
  * the multi-test JVM startKoin/stopKoin cycle.
@@ -58,6 +64,7 @@ private const val ACCOUNT_EXISTS_COPY = "Akun sudah terdaftar. Silakan masuk."
 @OptIn(ExperimentalTestApi::class)
 class AgeGateScreenTest {
     private lateinit var fake: FakeAuthFlow
+    private lateinit var holder: PendingSignupIdentity
     private val today = LocalDate(2026, 5, 31)
 
     private fun installKoin(
@@ -66,14 +73,13 @@ class AgeGateScreenTest {
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeAuthFlow(signUpOutcome = signUpOutcome)
+        // Capture the holder instance so the process-death guard test can assert it ends up cleared.
+        holder = PendingSignupIdentity().apply { if (seedIdentity != null) set(seedIdentity) }
         startKoin {
             modules(
                 module {
                     single<AuthFlow> { fake }
-                    // Seed the in-memory holder with the stub identity (the sign-in no-account path
-                    // would have set it before appending AgeGateRoute). A null seed = the process-death
-                    // case (holder did not survive) for the re-route guard test.
-                    single { PendingSignupIdentity().apply { if (seedIdentity != null) set(seedIdentity) } }
+                    single { holder }
                 },
             )
         }
@@ -125,25 +131,23 @@ class AgeGateScreenTest {
     }
 
     // 7.4 — restored back stack on AgeGateRoute with an EMPTY PendingSignupIdentity (it did not survive
-    // process death) re-routes to SignInRoute and does NOT render the signup form (mobile-age-gate §
-    // "Restored back stack on AgeGateRoute with absent identity re-routes to SignInScreen"). Hosted in
-    // the real TestNavHost so the one-shot re-route (replaceAll(SignInRoute)) is exercised end-to-end.
+    // process death) re-routes to SignInRoute, does NOT render the signup form, and leaves the holder
+    // cleared (mobile-age-gate § "Restored back stack on AgeGateRoute with absent identity ..."). Hosted
+    // in the real TestNavHost so the one-shot re-route (replaceAll(SignInRoute)) is exercised end-to-end.
     @Test
     fun restoredBackStackOnAgeGateRoute_absentIdentity_reRoutesToSignIn_andDoesNotRenderForm() {
         installKoin(seedIdentity = null)
         runComposeUiTest {
             setContent { KoinContext { TestNavHost(RootRoute, SignInRoute, AgeGateRoute) } }
             waitForIdle()
-            // The absent-identity guard re-routed to SignInRoute — the SignIn CTA is visible…
-            onNodeWithText(SIGNIN_CTA).assertExists()
-            // …and the signup form (its title) was NOT rendered.
-            onNodeWithText(TITLE).assertDoesNotExist()
+            onNodeWithText(SIGNIN_CTA).assertExists() // the absent-identity guard re-routed to SignInRoute…
+            onNodeWithText(TITLE).assertDoesNotExist() // …and the signup form was NOT rendered.
+            assertNull(holder.peek(), "the absent-identity guard leaves the holder cleared")
         }
     }
 
     // 7.12 — the Mobile #4 strings carry their exact canonical Bahasa Indonesia copy. Captured via
-    // `stringResource` (the same runtime-resolution path the render assertions rely on), so this
-    // verifies values without the navigation race of the account-exists banner.
+    // `stringResource` (the same runtime-resolution path the render assertions rely on).
     @Test
     fun mobile4Strings_haveExactCanonicalText() {
         var blocked = ""

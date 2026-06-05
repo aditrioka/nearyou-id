@@ -1,6 +1,7 @@
 package id.nearyou.app
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
@@ -28,11 +29,14 @@ fun App() {
         // entry surface from any foreground screen. The effect outlives the start-destination router
         // (which replaces itself at launch). Hosted in screens/routing so App.kt names no auth-flow id.
         SessionExpiryEffect(backStack)
+        // Build the entry map once per back-stack instance (not per recomposition): the back stack is
+        // stable across recompositions, so the route→composable mapping never needs rebuilding.
+        val entryProvider = remember(backStack) { appEntryProvider(backStack) }
         NavDisplay(
             backStack = backStack,
             onBack = { backStack.removeLastOrNull() },
             entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator()),
-            entryProvider = appEntryProvider(backStack),
+            entryProvider = entryProvider,
         )
     }
 }

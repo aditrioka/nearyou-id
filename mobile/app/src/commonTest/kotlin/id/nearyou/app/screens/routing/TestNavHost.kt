@@ -2,6 +2,7 @@ package id.nearyou.app.screens.routing
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberNavBackStack
@@ -28,11 +29,12 @@ fun TestNavHost(
     NearYouTheme {
         val backStack = rememberNavBackStack(navSavedStateConfiguration, *start)
         SideEffect { onBackStack(backStack) }
+        val entryProvider = remember(backStack) { appEntryProvider(backStack) }
         NavDisplay(
             backStack = backStack,
             onBack = { backStack.removeLastOrNull() },
             entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator()),
-            entryProvider = appEntryProvider(backStack),
+            entryProvider = entryProvider,
         )
     }
 }

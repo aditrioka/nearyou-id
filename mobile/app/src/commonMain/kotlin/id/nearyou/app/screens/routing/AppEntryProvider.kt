@@ -49,6 +49,10 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             )
         }
         entry<PostCreationRoute> {
+            // `removeLastOrNull()` is size-safe by construction: PostCreationRoute is only ever appended
+            // ATOP HomeRoute (the home-surface FAB), so popping it leaves HomeRoute — never an empty stack
+            // (which NavDisplay would reject). No defensive size guard is added, so a future misuse that
+            // makes PostCreationRoute the sole entry fails loudly rather than silently no-op'ing.
             PostCreationScreen(onPostCreated = { backStack.removeLastOrNull() })
         }
     }
