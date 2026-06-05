@@ -59,11 +59,12 @@ log line Z means …") → **you** open the mp4/PNGs and validate the behavior. 
 | `flows/auth/nearby-timeline.yaml` | **Phase 2** | tagged `auth-gated`; needs dev test-login |
 | `flows/auth/create-post.yaml` | **Phase 2** | tagged `auth-gated`; FAB → composer |
 
-**Phase 2 (separate OpenSpec change):** a `dev`-only test-login (auth bypass) injects a seeded session
-so `auth-gated` flows can run past Sign-In. Until then, Google/Apple social login can't be driven
-(the provider UI lives outside the app sandbox + actively blocks bots — bypass is the standard pattern,
-not driving the real provider). Building blocks already in repo: `dev/scripts/mint-dev-jwt.sh`,
-`dev/scripts/seed-test-user.sh`.
+**Phase 2 (this branch — see [`PHASE-2-dev-test-login.md`](./PHASE-2-dev-test-login.md)):** a `dev`-only
+test-login (auth bypass) injects a seeded session so `auth-gated` flows can run past Sign-In. Until then,
+Google/Apple social login can't be driven (the provider UI lives outside the app sandbox + actively blocks
+bots — bypass is the standard pattern, not driving the real provider). Design is grounded + ready; backend
+is untouched (reuses `dev/scripts/mint-dev-jwt.sh` + `dev/scripts/seed-test-user.sh`); guard = dev flavor
+source-set isolation.
 
 ## Selectors
 
