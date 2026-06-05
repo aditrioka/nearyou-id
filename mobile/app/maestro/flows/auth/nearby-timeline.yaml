@@ -1,0 +1,13 @@
+# nearby-timeline — AUTH-GATED. Requires the Phase 2 dev-only test-login (auth bypass) to reach
+# an authenticated session; until then this flow stops at Sign-In.
+# Uses the existing Compose testTag NEARBY_TIMELINE_LIST_TAG = "nearbyTimelineList".
+appId: ${APP_ID}
+tags:
+  - auth-gated
+---
+- runFlow: ../_auth/test-login.yaml   # Phase 2: dev test-login (auth bypass)
+# Reached the authenticated Nearby host (its header). Asserting actual post items / the
+# `nearbyTimelineList` id needs a reachable backend + seeded nearby data + granted location
+# (a separate "state" prerequisite) AND testTagsAsResourceId for id: selectors — see README "Selectors".
+- assertVisible: "Post dari lokasi ini"
+- takeScreenshot: nearby

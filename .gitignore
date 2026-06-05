@@ -33,3 +33,6 @@ iosApp/*.xcworkspace/
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 
+# Maestro E2E run artifacts (screenshots, mp4, logs, JUnit). Regenerated per run; never commit.
+mobile/app/maestro/artifacts/
+

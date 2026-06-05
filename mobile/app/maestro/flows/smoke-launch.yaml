@@ -1,0 +1,7 @@
+# smoke-launch — smallest proof the harness works: launch the app + capture a screenshot.
+# No auth, no backend. Flavor-agnostic: pass APP_ID via the maestro-run.sh wrapper
+#   dev/scripts/maestro-run.sh mobile/app/maestro/flows/smoke-launch.yaml --app-id id.nearyou.app.staging
+appId: ${APP_ID}
+---
+- launchApp
+- takeScreenshot: launch

@@ -1,0 +1,6 @@
+# Maestro workspace config — https://docs.maestro.dev/
+# Run all currently-runnable flows (skip Phase 2 auth-gated ones):
+#   dev/scripts/maestro-run.sh mobile/app/maestro/flows --app-id id.nearyou.app.staging
+# then add `--exclude-tags auth-gated` once auth-gated flows are tagged (they are).
+flows:
+  - flows/**
