@@ -76,7 +76,7 @@ class NearbyTimelineFlowIosTest {
     fun granted_content_showsTitleAndPost() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "HALO_SEKITAR")), null, null))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(TITLE).assertExists()
             onNodeWithText("HALO_SEKITAR").assertExists()
             assertEquals(1, fake.loadInvocationCount, "load fires exactly once on entry")
@@ -88,7 +88,7 @@ class NearbyTimelineFlowIosTest {
     fun granted_loading_showsLoadingCopy() {
         installKoin(suspendForever = true)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(LOADING).assertExists()
         }
     }
@@ -98,7 +98,7 @@ class NearbyTimelineFlowIosTest {
     fun granted_empty_showsSparseCopyNotHardLimit() {
         installKoin(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(EMPTY).assertExists()
             onNodeWithText(LIMIT_HARD).assertDoesNotExist()
         }
@@ -109,7 +109,7 @@ class NearbyTimelineFlowIosTest {
     fun granted_hardLimit_showsLimitCopyNotEmpty() {
         installKoin(NearbyTimelineOutcome.Loaded(emptyList(), null, UpsellDto(hard = true)))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(LIMIT_HARD).assertExists()
             onNodeWithText(EMPTY).assertDoesNotExist()
         }
@@ -120,7 +120,7 @@ class NearbyTimelineFlowIosTest {
     fun granted_softLimit_showsPostsAndBanner() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "SOFT_POST")), null, UpsellDto(soft = true)))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText("SOFT_POST").assertExists()
             onNodeWithText(LIMIT_SOFT).assertExists()
         }
@@ -131,7 +131,7 @@ class NearbyTimelineFlowIosTest {
     fun granted_error_showsNetworkCopyAndRetry_andRetryReInvokes() {
         installKoin(NearbyTimelineOutcome.NetworkError)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(ERROR_NETWORK).assertExists()
             onNodeWithText(RETRY).assertExists()
             assertEquals(1, fake.loadInvocationCount)
@@ -146,7 +146,7 @@ class NearbyTimelineFlowIosTest {
     fun denied_showsDenialFallbackWithOpenSettings() {
         installKoin(locationStatus = LocationPermissionStatus.DENIED)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(LOC_DENIED).assertExists()
             onNodeWithText(LOC_OPEN_SETTINGS).assertExists()
         }
@@ -157,7 +157,7 @@ class NearbyTimelineFlowIosTest {
     fun notDetermined_showsConsentRationale() {
         installKoin(locationStatus = LocationPermissionStatus.NOT_DETERMINED)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(LOC_ALLOW).assertExists()
         }
     }

@@ -97,7 +97,7 @@ class NearbyLocationGateScreenTest {
     fun denied_showsDenialFallback_andIssuesNoFetch() {
         installKoin(LocationPermissionStatus.DENIED)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             waitForIdle()
             onNodeWithText(DENIAL).assertExists()
             onNodeWithText(OPEN_SETTINGS).assertExists()
@@ -111,7 +111,7 @@ class NearbyLocationGateScreenTest {
     fun granted_runsTheFetchPath_andShowsNoDenialCopy() {
         installKoin(LocationPermissionStatus.GRANTED)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             waitForIdle()
             onNodeWithText(NEARBY_TITLE).assertExists()
             onNodeWithText("GATED_POST").assertExists()
@@ -126,7 +126,7 @@ class NearbyLocationGateScreenTest {
     fun grantedButNoFix_showsExistingRetryableErrorState() {
         installKoin(LocationPermissionStatus.GRANTED, failWith = LocationUnavailableException())
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             waitForIdle()
             onNodeWithText(ERROR_NETWORK).assertExists()
             onNodeWithText(RETRY).assertExists()
@@ -138,7 +138,7 @@ class NearbyLocationGateScreenTest {
     fun bukaPengaturanCta_invokesOpenAppSettings() {
         installKoin(LocationPermissionStatus.DENIED)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             waitForIdle()
             assertEquals(0, fakeController.openAppSettingsCount)
             onNodeWithText(OPEN_SETTINGS).performClick()
@@ -163,7 +163,7 @@ class NearbyLocationGateScreenTest {
         runComposeUiTest {
             setContent {
                 CompositionLocalProvider(LocalLifecycleOwner provides owner) {
-                    KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } }
+                    KoinContext { NearYouTheme { NearbyTimelineScreen() } }
                 }
             }
             owner.registry.currentState = Lifecycle.State.RESUMED
@@ -191,7 +191,7 @@ class NearbyLocationGateScreenTest {
     fun notDetermined_surfacesTheConsentModal_andDoesNotFetch() {
         installKoin(LocationPermissionStatus.NOT_DETERMINED)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             waitForIdle()
             onNodeWithText(CONSENT_TITLE).assertExists()
             onNodeWithText(CONSENT_ALLOW).assertExists()

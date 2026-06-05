@@ -89,7 +89,7 @@ class NearbyTimelineScreenTest {
     fun initialRender_showsTitleAndPostContent() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "HALO_SEKITAR")), null, null))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(TITLE).assertExists()
             onNodeWithText("HALO_SEKITAR").assertExists()
             assertEquals(1, fake.loadInvocationCount, "load fires exactly once on entry")
@@ -101,7 +101,7 @@ class NearbyTimelineScreenTest {
     fun loadingState_showsLoadingCopy() {
         installKoin(suspendForever = true)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(LOADING).assertExists()
         }
     }
@@ -111,7 +111,7 @@ class NearbyTimelineScreenTest {
     fun emptyState_showsSparseCopy_notHardLimit() {
         installKoin(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(EMPTY).assertExists()
             onNodeWithText(LIMIT_HARD).assertDoesNotExist()
         }
@@ -122,7 +122,7 @@ class NearbyTimelineScreenTest {
     fun hardLimit_showsLimitCopy_notEmptyCopy() {
         installKoin(NearbyTimelineOutcome.Loaded(emptyList(), null, UpsellDto(hard = true)))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(LIMIT_HARD).assertExists()
             onNodeWithText(EMPTY).assertDoesNotExist()
         }
@@ -133,7 +133,7 @@ class NearbyTimelineScreenTest {
     fun softLimit_showsPostsAndBanner() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "SOFT_POST")), null, UpsellDto(soft = true)))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText("SOFT_POST").assertExists()
             onNodeWithText(LIMIT_SOFT).assertExists()
         }
@@ -144,7 +144,7 @@ class NearbyTimelineScreenTest {
     fun errorState_showsNetworkCopyAndRetry_andRetryReInvokes() {
         installKoin(NearbyTimelineOutcome.NetworkError)
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(ERROR_NETWORK).assertExists()
             onNodeWithText(RETRY).assertExists()
             assertEquals(1, fake.loadInvocationCount)
@@ -159,7 +159,7 @@ class NearbyTimelineScreenTest {
     fun distance_isRenderedThroughTheSharedRenderer() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "DIST_POST", distanceM = 7600.0)), null, null))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText("8km").assertExists()
         }
     }
@@ -170,7 +170,7 @@ class NearbyTimelineScreenTest {
         val emptyCityPost = fakeNearbyPost(content = "EMPTY_CITY_POST", cityName = "", distanceM = 1234.5)
         installKoin(NearbyTimelineOutcome.Loaded(listOf(emptyCityPost), null, null))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText("EMPTY_CITY_POST").assertExists()
             onNodeWithText("5km").assertExists() // metadata row renders (distance) without a city label
             onNodeWithText("\"\"").assertDoesNotExist() // no literal empty-quotes leaked
@@ -195,7 +195,7 @@ class NearbyTimelineScreenTest {
             ),
         )
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText("PII_POST").assertExists()
             onNodeWithText("11111111-1111-1111-1111-111111111111", substring = true).assertDoesNotExist()
             onNodeWithText("-6.21", substring = true).assertDoesNotExist()
@@ -208,7 +208,7 @@ class NearbyTimelineScreenTest {
     fun pullToRefresh_reInvokesFetch() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "REFRESH_POST")), null, null))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             assertEquals(1, fake.loadInvocationCount)
             onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).performTouchInput { swipeDown() }
             waitForIdle()
@@ -222,7 +222,7 @@ class NearbyTimelineScreenTest {
     fun homeScreen_hostsNearbyTimeline_notThePlaceholder() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "HOSTED_POST")), null, null))
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { HomeScreen().Content() } } }
+            setContent { KoinContext { NearYouTheme { HomeScreen(onOpenComposer = {}) } } }
             onNodeWithText(TITLE).assertExists()
             onNodeWithText("HOSTED_POST").assertExists()
             onNodeWithText(HOME_PLACEHOLDER_TITLE).assertDoesNotExist()

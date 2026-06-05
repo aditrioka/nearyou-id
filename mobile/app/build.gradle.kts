@@ -70,8 +70,12 @@ kotlin {
             implementation(libs.koin.core)
             implementation(libs.koin.compose)
             implementation(libs.koin.composeViewmodel)
-            implementation(libs.voyager.navigator)
-            implementation(libs.voyager.koin)
+            // mobile-nav-swap-to-navigation3 — Navigation 3 (JetBrains CMP port) replaces Voyager.
+            // `navigation3-ui` brings navigation3-runtime/-common transitively; `koin-composeNavigation3`
+            // is the Koin 4.2.x integration replacing `voyager-koin`. The @Serializable NavKey routes
+            // rely on the kotlinxSerialization plugin (already applied above).
+            implementation(libs.navigation3.ui)
+            implementation(libs.koin.composeNavigation3)
             implementation(projects.shared.resources)
             // mobile-nearby-timeline-screen — DistanceRenderer.render + LatLng (the jitter
             // algorithm ships transitively; JITTER_SECRET never does — backend-injected only).

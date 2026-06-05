@@ -39,7 +39,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import cafe.adriel.voyager.core.screen.Screen
 import id.nearyou.app.location.LocationConsentModal
 import id.nearyou.app.location.LocationGate
 import id.nearyou.app.location.LocationGateUiState
@@ -81,38 +80,41 @@ const val NEARBY_TIMELINE_LIST_TAG: String = "nearbyTimelineList"
  * The gate is a **pre-fetch** screen state, orthogonal to the six fetch-outcome states:
  * `NearbyTimelineRepository`'s status→outcome mapping is unchanged (granted-but-no-fix reuses the
  * existing retryable error state, no new outcome member).
+ *
+ * Holds NO navigation dependency (no back-stack reference, no FAB), so `HomeScreen` can call
+ * `NearbyTimelineScreen()` directly as its body — the nav swap only converts it from a Voyager
+ * `Screen` to a plain composable (`mobile-post-creation` § "NearbyTimelineScreen remains
+ * navigation-free").
  */
-class NearbyTimelineScreen : Screen {
-    @Composable
-    override fun Content() {
-        val controller = koinInject<LocationPermissionController>()
-        val gate = remember { LocationGate(controller) }
-        val gateState by gate.state.collectAsState()
-        val scope = rememberCoroutineScope()
+@Composable
+fun NearbyTimelineScreen() {
+    val controller = koinInject<LocationPermissionController>()
+    val gate = remember { LocationGate(controller) }
+    val gateState by gate.state.collectAsState()
+    val scope = rememberCoroutineScope()
 
-        // Re-query the OS permission on every foreground entry (ON_RESUME), not just first composition,
-        // so returning from the OS Settings screen (via "Buka Pengaturan") immediately reflects a
-        // newly-granted permission — without a cold restart. refresh() NEVER fires the OS prompt, so a
-        // prior denial does not re-nag the rationale on every Nearby visit (the "Buka Pengaturan" CTA is
-        // the only re-entry path) — spec § "A prior denial does not re-show the rationale on every Nearby visit".
-        LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-            scope.launch { gate.refresh() }
-        }
+    // Re-query the OS permission on every foreground entry (ON_RESUME), not just first composition,
+    // so returning from the OS Settings screen (via "Buka Pengaturan") immediately reflects a
+    // newly-granted permission — without a cold restart. refresh() NEVER fires the OS prompt, so a
+    // prior denial does not re-nag the rationale on every Nearby visit (the "Buka Pengaturan" CTA is
+    // the only re-entry path) — spec § "A prior denial does not re-show the rationale on every Nearby visit".
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        scope.launch { gate.refresh() }
+    }
 
-        when (gateState) {
-            LocationGateUiState.Loading -> LocationGateSpinner()
-            LocationGateUiState.Rationale -> {
-                // Neutral backdrop while the consent rationale modal is up; accepting fires the OS
-                // prompt, declining drops to the denial fallback (no OS prompt forced).
-                LocationGateSpinner()
-                LocationConsentModal(
-                    onAccept = { scope.launch { gate.onRationaleAccepted() } },
-                    onDecline = { gate.onRationaleDeclined() },
-                )
-            }
-            LocationGateUiState.Denied -> LocationDeniedState(onOpenSettings = { controller.openAppSettings() })
-            LocationGateUiState.Granted -> NearbyFeed()
+    when (gateState) {
+        LocationGateUiState.Loading -> LocationGateSpinner()
+        LocationGateUiState.Rationale -> {
+            // Neutral backdrop while the consent rationale modal is up; accepting fires the OS
+            // prompt, declining drops to the denial fallback (no OS prompt forced).
+            LocationGateSpinner()
+            LocationConsentModal(
+                onAccept = { scope.launch { gate.onRationaleAccepted() } },
+                onDecline = { gate.onRationaleDeclined() },
+            )
         }
+        LocationGateUiState.Denied -> LocationDeniedState(onOpenSettings = { controller.openAppSettings() })
+        LocationGateUiState.Granted -> NearbyFeed()
     }
 }
 

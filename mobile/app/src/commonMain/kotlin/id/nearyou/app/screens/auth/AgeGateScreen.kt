@@ -31,12 +31,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.screen.Screen
-import cafe.adriel.voyager.navigator.LocalNavigator
-import cafe.adriel.voyager.navigator.currentOrThrow
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.SignUpOutcome
-import id.nearyou.app.screens.home.HomeScreen
+import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.age_gate_dob_label
 import id.nearyou.resources.generated.resources.age_gate_dob_picker_cta
@@ -61,15 +58,27 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
 /**
- * Mobile #4 signup-new-user surface, reached when sign-in reports no existing account
- * (`SignInOutcome.NoAccount` → `SignInScreen` pushes this screen). Renders the brand logo + age
- * title + explainer + a date-of-birth field (Material 3 `DatePicker`) + a "Buat akun" CTA, all
- * theme-aware and consistent with `SignInScreen`/`HomeScreen`.
+ * Mobile #4 signup-new-user surface ([AgeGateRoute][id.nearyou.app.screens.routing.AgeGateRoute]),
+ * reached when sign-in reports no existing account (404 → `SignInScreen` sets [PendingSignupIdentity]
+ * and appends `AgeGateRoute`). Renders the brand logo + age title + explainer + a date-of-birth field
+ * (Material 3 `DatePicker`) + a "Buat akun" CTA, all theme-aware and consistent with
+ * `SignInScreen`/`HomeScreen`.
  *
- * The verified Google [idToken] is carried in from the sign-in `404` (design D3) — reused for the
- * `/signup` call, NEVER re-fetched on entry (no second Google sheet) and NEVER rendered into any
- * UI string. The Google `email`/`displayName` are deliberately NOT passed to this screen (PII
- * discipline, design D7) — only the `id_token` is needed for the request body.
+ * **Identity (design Decision 4):** the verified Google `id_token` is read from the in-memory
+ * [PendingSignupIdentity] holder via a **non-clearing** [PendingSignupIdentity.peek] (so a network
+ * retry can resubmit the same identity) — NOT from an `AgeGateRoute` field (which would serialize it
+ * on iOS). It is reused for the `/signup` call, NEVER re-fetched on entry (no second Google sheet)
+ * and NEVER rendered into any UI string.
+ *
+ * **Process-death guard (`mobile-age-gate` § "Restored back stack on AgeGateRoute with absent
+ * identity"):** a restored back stack can land on `AgeGateRoute` with the in-memory holder empty
+ * (it does not survive process death). On entry with an absent identity the screen emits a one-shot
+ * re-route to `SignInRoute` (via [onExitToSignIn]) and does NOT render the signup form.
+ *
+ * **Holder lifecycle:** [PendingSignupIdentity.clear] is called on every **terminal** exit — Success
+ * (→ Home via [onSignedUp]), AccountExists (→ SignIn via [onExitToSignIn]), and the absent-identity
+ * re-route (→ SignIn) — but NOT on a retryable in-screen error (network/5xx), where the user may
+ * resubmit with the same identity.
  *
  * The DOB picker is NOT constrained to 18+ (design D1): an under-18 date MUST be selectable and
  * submittable so the server can populate the anti-DOB-shopping blocklist; client validation is
@@ -77,149 +86,169 @@ import org.koin.compose.koinInject
  *
  * Every user-facing string is sourced via `stringResource(Res.string.*)` — no literals.
  */
-class AgeGateScreen(
-    private val idToken: String,
-    private val today: LocalDate = systemToday(),
-) : Screen {
-    @Composable
-    override fun Content() {
-        val authFlow = koinInject<AuthFlow>()
-        val navigator = LocalNavigator.currentOrThrow
-        val scope = rememberCoroutineScope()
+@Composable
+fun AgeGateScreen(
+    onSignedUp: () -> Unit,
+    onExitToSignIn: () -> Unit,
+    today: LocalDate = systemToday(),
+) {
+    val authFlow = koinInject<AuthFlow>()
+    val pendingSignupIdentity = koinInject<PendingSignupIdentity>()
+    val idToken = pendingSignupIdentity.peek()
 
-        var selectedDobMillis by remember { mutableStateOf<Long?>(null) }
-        var showPicker by remember { mutableStateOf(false) }
-        var outcome by remember { mutableStateOf<SignUpOutcome?>(null) }
-        var inFlight by remember { mutableStateOf(false) }
+    // Process-death guard: a restored back stack may land on AgeGateRoute with the in-memory holder
+    // empty. Re-route to SignInRoute once and DO NOT render the signup form (the `if (idToken == null)`
+    // early-return below). clear() is idempotent — defense-in-depth on the terminal-exit contract.
+    LaunchedEffect(idToken == null) {
+        if (idToken == null) {
+            pendingSignupIdentity.clear()
+            onExitToSignIn()
+        }
+    }
+    if (idToken == null) return
 
-        val selectedDob: LocalDate? = selectedDobMillis?.let { dobFromUtcMillis(it) }
-        val uiState =
-            ageGateUiState(
-                outcome = outcome,
-                dobSubmittable = isDobSubmittable(selectedDob, today),
-                inFlight = inFlight,
-            )
+    val scope = rememberCoroutineScope()
 
-        val logo =
-            if (isSystemInDarkTheme()) Res.drawable.logo_brand_dark else Res.drawable.logo_brand_light
+    var selectedDobMillis by remember { mutableStateOf<Long?>(null) }
+    var showPicker by remember { mutableStateOf(false) }
+    var outcome by remember { mutableStateOf<SignUpOutcome?>(null) }
+    var inFlight by remember { mutableStateOf(false) }
 
-        val ctaText =
-            when (uiState.ctaLabel) {
-                AgeGateCtaLabel.CREATE -> stringResource(Res.string.cta_create_account)
-                AgeGateCtaLabel.RETRY -> stringResource(Res.string.cta_retry)
-                AgeGateCtaLabel.LOADING -> stringResource(Res.string.signup_loading)
-            }
+    val selectedDob: LocalDate? = selectedDobMillis?.let { dobFromUtcMillis(it) }
+    val uiState =
+        ageGateUiState(
+            outcome = outcome,
+            dobSubmittable = isDobSubmittable(selectedDob, today),
+            inFlight = inFlight,
+        )
 
-        val bannerText: String? =
-            uiState.banner?.let { banner ->
-                when (banner) {
-                    AgeGateBanner.BLOCKED -> stringResource(Res.string.age_gate_under18_blocked)
-                    AgeGateBanner.ACCOUNT_EXISTS -> stringResource(Res.string.signup_error_account_exists)
-                    AgeGateBanner.TOKEN_INVALID -> stringResource(Res.string.signin_error_token_invalid)
-                    AgeGateBanner.NETWORK -> stringResource(Res.string.signin_error_network)
-                }
-            }
+    val logo =
+        if (isSystemInDarkTheme()) Res.drawable.logo_brand_dark else Res.drawable.logo_brand_light
 
-        // The DOB field shows the picked ISO date (YYYY-MM-DD) or the picker affordance copy.
-        val dobFieldText = selectedDob?.toString() ?: stringResource(Res.string.age_gate_dob_picker_cta)
+    val ctaText =
+        when (uiState.ctaLabel) {
+            AgeGateCtaLabel.CREATE -> stringResource(Res.string.cta_create_account)
+            AgeGateCtaLabel.RETRY -> stringResource(Res.string.cta_retry)
+            AgeGateCtaLabel.LOADING -> stringResource(Res.string.signup_loading)
+        }
 
-        // Navigate from an effect (never mutate the navigator during composition):
-        //  - Success → replace the stack with Home (same terminus as sign-in).
-        //  - AccountExists (409) → route back to SignInScreen.
-        // Blocked / InvalidIdToken / RetryableError keep the user on this screen to read the banner.
-        LaunchedEffect(outcome) {
-            when (outcome) {
-                SignUpOutcome.Success -> navigator.replaceAll(HomeScreen())
-                SignUpOutcome.AccountExists -> navigator.replaceAll(SignInScreen())
-                else -> Unit
+    val bannerText: String? =
+        uiState.banner?.let { banner ->
+            when (banner) {
+                AgeGateBanner.BLOCKED -> stringResource(Res.string.age_gate_under18_blocked)
+                AgeGateBanner.ACCOUNT_EXISTS -> stringResource(Res.string.signup_error_account_exists)
+                AgeGateBanner.TOKEN_INVALID -> stringResource(Res.string.signin_error_token_invalid)
+                AgeGateBanner.NETWORK -> stringResource(Res.string.signin_error_network)
             }
         }
 
-        Column(
-            modifier =
-                Modifier
-                    .background(MaterialTheme.colorScheme.background)
-                    .safeContentPadding()
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+    // The DOB field shows the picked ISO date (YYYY-MM-DD) or the picker affordance copy.
+    val dobFieldText = selectedDob?.toString() ?: stringResource(Res.string.age_gate_dob_picker_cta)
+
+    // Navigate from an effect (never mutate the back stack during composition). clear() the in-memory
+    // identity on every terminal exit so the verified token does not linger past the flow:
+    //  - Success → clear + replaceAll(HomeRoute) (same terminus as sign-in).
+    //  - AccountExists (409) → clear + replaceAll(SignInRoute).
+    // Blocked / InvalidIdToken / RetryableError keep the user on this screen to read the banner and
+    // do NOT clear (a retryable error may be resubmitted with the same identity).
+    LaunchedEffect(outcome) {
+        when (outcome) {
+            SignUpOutcome.Success -> {
+                pendingSignupIdentity.clear()
+                onSignedUp()
+            }
+            SignUpOutcome.AccountExists -> {
+                pendingSignupIdentity.clear()
+                onExitToSignIn()
+            }
+            else -> Unit
+        }
+    }
+
+    Column(
+        modifier =
+            Modifier
+                .background(MaterialTheme.colorScheme.background)
+                .safeContentPadding()
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Image(
+            painter = painterResource(logo),
+            contentDescription = stringResource(Res.string.app_name),
+            modifier = Modifier.size(120.dp),
+        )
+        Text(
+            text = stringResource(Res.string.age_gate_title),
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 24.dp),
+        )
+        Text(
+            text = stringResource(Res.string.age_gate_explainer),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        Text(
+            text = stringResource(Res.string.age_gate_dob_label),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+        )
+        OutlinedButton(
+            onClick = { showPicker = true },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         ) {
-            Image(
-                painter = painterResource(logo),
-                contentDescription = stringResource(Res.string.app_name),
-                modifier = Modifier.size(120.dp),
-            )
+            Text(text = dobFieldText)
+        }
+        if (bannerText != null) {
             Text(
-                text = stringResource(Res.string.age_gate_title),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 24.dp),
-            )
-            Text(
-                text = stringResource(Res.string.age_gate_explainer),
+                text = bannerText,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.error,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 12.dp),
+                modifier = Modifier.padding(top = 16.dp),
             )
-            Text(
-                text = stringResource(Res.string.age_gate_dob_label),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
-            )
-            OutlinedButton(
-                onClick = { showPicker = true },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            ) {
-                Text(text = dobFieldText)
-            }
-            if (bannerText != null) {
-                Text(
-                    text = bannerText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-            }
-            Button(
-                onClick = {
-                    // Defense-in-depth: reject taps when the CTA is logically disabled (no
-                    // submittable DOB / in-flight), even if a synthetic click slips past `enabled`.
-                    if (!uiState.ctaEnabled) return@Button
-                    val dob = selectedDob ?: return@Button
-                    scope.launch {
-                        inFlight = true
-                        try {
-                            outcome = authFlow.signUpWithGoogle(idToken, dob)
-                        } finally {
-                            // Reset even if the launch job is cancelled mid-call (config change /
-                            // screen disposal) so the CTA never sticks on "loading".
-                            inFlight = false
-                        }
+        }
+        Button(
+            onClick = {
+                // Defense-in-depth: reject taps when the CTA is logically disabled (no
+                // submittable DOB / in-flight), even if a synthetic click slips past `enabled`.
+                if (!uiState.ctaEnabled) return@Button
+                val dob = selectedDob ?: return@Button
+                scope.launch {
+                    inFlight = true
+                    try {
+                        outcome = authFlow.signUpWithGoogle(idToken, dob)
+                    } finally {
+                        // Reset even if the launch job is cancelled mid-call (config change /
+                        // screen disposal) so the CTA never sticks on "loading".
+                        inFlight = false
                     }
-                },
-                enabled = uiState.ctaEnabled,
-                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
-            ) {
-                Text(text = ctaText)
-            }
+                }
+            },
+            enabled = uiState.ctaEnabled,
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+        ) {
+            Text(text = ctaText)
         }
+    }
 
-        if (showPicker) {
-            DobPickerDialog(
-                initialMillis = selectedDobMillis,
-                today = today,
-                onConfirm = { picked ->
-                    if (picked != null) selectedDobMillis = picked
-                    showPicker = false
-                },
-                onDismiss = { showPicker = false },
-            )
-        }
+    if (showPicker) {
+        DobPickerDialog(
+            initialMillis = selectedDobMillis,
+            today = today,
+            onConfirm = { picked ->
+                if (picked != null) selectedDobMillis = picked
+                showPicker = false
+            },
+            onDismiss = { showPicker = false },
+        )
     }
 }
 

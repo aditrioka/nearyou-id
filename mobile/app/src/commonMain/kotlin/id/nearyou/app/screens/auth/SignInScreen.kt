@@ -24,12 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.screen.Screen
-import cafe.adriel.voyager.navigator.LocalNavigator
-import cafe.adriel.voyager.navigator.currentOrThrow
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.SignInOutcome
-import id.nearyou.app.screens.home.HomeScreen
+import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.account_separation_disclosure
 import id.nearyou.resources.generated.resources.app_name
@@ -48,122 +45,131 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
 /**
- * Unauthenticated entry surface: brand logo + title + "Masuk dengan Google" CTA + the
- * account-separation disclosure footnote. The CTA drives `AuthFlow.signInWithGoogle()`; the
- * resulting [SignInOutcome] flows through [signInUiState] to set the CTA label / enabled
- * state / error banner per Decision 7. On [SignInOutcome.Success] the navigator replaces the
- * stack with `HomeScreen`.
+ * Unauthenticated entry surface ([SignInRoute][id.nearyou.app.screens.routing.SignInRoute]): brand
+ * logo + title + "Masuk dengan Google" CTA + the account-separation disclosure footnote. The CTA
+ * drives `AuthFlow.signInWithGoogle()`; the resulting [SignInOutcome] flows through [signInUiState]
+ * to set the CTA label / enabled state / error banner per Decision 7.
+ *
+ * Routing is hoisted into [onSignedIn] (Success → `backStack.replaceAll(HomeRoute)`) and
+ * [onNoAccount] (404 no-account → `backStack.add(AgeGateRoute)`), wired by
+ * [appEntryProvider][id.nearyou.app.screens.routing.appEntryProvider]. On the 404 path the screen
+ * sets [PendingSignupIdentity] with the verified Google `id_token` BEFORE invoking [onNoAccount], so
+ * the signup flow reuses the identity without a second Google ceremony — the token is held
+ * in-memory only, never carried on `AgeGateRoute` (design Decision 4).
  *
  * Every user-facing string is sourced via `stringResource(Res.string.*)` — no literals.
  */
-class SignInScreen : Screen {
-    @Composable
-    override fun Content() {
-        val authFlow = koinInject<AuthFlow>()
-        val navigator = LocalNavigator.currentOrThrow
-        val scope = rememberCoroutineScope()
+@Composable
+fun SignInScreen(
+    onSignedIn: () -> Unit,
+    onNoAccount: () -> Unit,
+) {
+    val authFlow = koinInject<AuthFlow>()
+    val pendingSignupIdentity = koinInject<PendingSignupIdentity>()
+    val scope = rememberCoroutineScope()
 
-        var outcome by remember { mutableStateOf<SignInOutcome?>(null) }
-        var inFlight by remember { mutableStateOf(false) }
+    var outcome by remember { mutableStateOf<SignInOutcome?>(null) }
+    var inFlight by remember { mutableStateOf(false) }
 
-        val uiState = signInUiState(outcome = outcome, inFlight = inFlight)
+    val uiState = signInUiState(outcome = outcome, inFlight = inFlight)
 
-        val logo =
-            if (isSystemInDarkTheme()) Res.drawable.logo_brand_dark else Res.drawable.logo_brand_light
+    val logo =
+        if (isSystemInDarkTheme()) Res.drawable.logo_brand_dark else Res.drawable.logo_brand_light
 
-        val ctaText =
-            when (uiState.ctaLabel) {
-                SignInCtaLabel.GOOGLE -> stringResource(Res.string.cta_signin_google)
-                SignInCtaLabel.RETRY -> stringResource(Res.string.cta_retry)
-                SignInCtaLabel.LOADING -> stringResource(Res.string.signin_loading)
-            }
+    val ctaText =
+        when (uiState.ctaLabel) {
+            SignInCtaLabel.GOOGLE -> stringResource(Res.string.cta_signin_google)
+            SignInCtaLabel.RETRY -> stringResource(Res.string.cta_retry)
+            SignInCtaLabel.LOADING -> stringResource(Res.string.signin_loading)
+        }
 
-        val bannerText: String? =
-            uiState.errorBanner?.let { banner ->
-                when (banner) {
-                    SignInErrorBanner.BANNED -> stringResource(Res.string.signin_error_banned)
-                    SignInErrorBanner.NETWORK -> stringResource(Res.string.signin_error_network)
-                    SignInErrorBanner.TOKEN_INVALID -> stringResource(Res.string.signin_error_token_invalid)
-                }
-            }
-
-        // Navigate from an effect (never mutate the navigator during composition):
-        //  - Success → replace the stack with Home (authenticated terminus).
-        //  - NoAccount (404) → push AgeGateScreen carrying the verified Google id_token so the
-        //    Mobile #4 signup flow reuses it without a second Google ceremony (no banner shown).
-        LaunchedEffect(outcome) {
-            when (val current = outcome) {
-                SignInOutcome.Success -> navigator.replaceAll(HomeScreen())
-                is SignInOutcome.NoAccount -> {
-                    navigator.push(AgeGateScreen(current.idToken))
-                    // Clear the consumed outcome so a system-back from the age gate (which returns
-                    // here) cannot re-fire this effect and re-push the screen — the user lands on a
-                    // clean, initial SignInScreen instead of a back-trap.
-                    outcome = null
-                }
-                else -> Unit
+    val bannerText: String? =
+        uiState.errorBanner?.let { banner ->
+            when (banner) {
+                SignInErrorBanner.BANNED -> stringResource(Res.string.signin_error_banned)
+                SignInErrorBanner.NETWORK -> stringResource(Res.string.signin_error_network)
+                SignInErrorBanner.TOKEN_INVALID -> stringResource(Res.string.signin_error_token_invalid)
             }
         }
 
-        Column(
-            modifier =
-                Modifier
-                    .background(MaterialTheme.colorScheme.background)
-                    .safeContentPadding()
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Image(
-                painter = painterResource(logo),
-                contentDescription = stringResource(Res.string.app_name),
-                modifier = Modifier.size(120.dp),
-            )
-            Text(
-                text = stringResource(Res.string.signin_screen_title),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 24.dp),
-            )
-            if (bannerText != null) {
-                Text(
-                    text = bannerText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
+    // Navigate from an effect (never mutate the back stack during composition):
+    //  - Success → replaceAll(HomeRoute) (authenticated terminus, via onSignedIn).
+    //  - NoAccount (404) → set the verified id_token in the in-memory holder, then append
+    //    AgeGateRoute (via onNoAccount) so the Mobile #4 signup flow reuses it without a second
+    //    Google ceremony (no banner shown). The token is NEVER carried on AgeGateRoute.
+    LaunchedEffect(outcome) {
+        when (val current = outcome) {
+            SignInOutcome.Success -> onSignedIn()
+            is SignInOutcome.NoAccount -> {
+                pendingSignupIdentity.set(current.idToken)
+                onNoAccount()
+                // Clear the consumed outcome so returning here (system-back from the age gate, which
+                // leaves SignInRoute in the back stack with its retained state) cannot re-fire this
+                // effect and re-append AgeGateRoute — the user lands on a clean, initial SignInScreen.
+                outcome = null
             }
-            Button(
-                onClick = {
-                    // Defense-in-depth: reject taps when the CTA is logically disabled
-                    // (Banned / in-flight), even if a synthetic click slips past `enabled`.
-                    if (!uiState.ctaEnabled) return@Button
-                    scope.launch {
-                        inFlight = true
-                        try {
-                            outcome = authFlow.signInWithGoogle()
-                        } finally {
-                            // Reset even if the launch job is cancelled mid-ceremony (config
-                            // change / screen disposal) so the CTA never sticks on "loading".
-                            inFlight = false
-                        }
+            else -> Unit
+        }
+    }
+
+    Column(
+        modifier =
+            Modifier
+                .background(MaterialTheme.colorScheme.background)
+                .safeContentPadding()
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Image(
+            painter = painterResource(logo),
+            contentDescription = stringResource(Res.string.app_name),
+            modifier = Modifier.size(120.dp),
+        )
+        Text(
+            text = stringResource(Res.string.signin_screen_title),
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 24.dp),
+        )
+        if (bannerText != null) {
+            Text(
+                text = bannerText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+        }
+        Button(
+            onClick = {
+                // Defense-in-depth: reject taps when the CTA is logically disabled
+                // (Banned / in-flight), even if a synthetic click slips past `enabled`.
+                if (!uiState.ctaEnabled) return@Button
+                scope.launch {
+                    inFlight = true
+                    try {
+                        outcome = authFlow.signInWithGoogle()
+                    } finally {
+                        // Reset even if the launch job is cancelled mid-ceremony (config
+                        // change / screen disposal) so the CTA never sticks on "loading".
+                        inFlight = false
                     }
-                },
-                enabled = uiState.ctaEnabled,
-                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
-            ) {
-                Text(text = ctaText)
-            }
-            Text(
-                text = stringResource(Res.string.account_separation_disclosure),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 24.dp),
-            )
+                }
+            },
+            enabled = uiState.ctaEnabled,
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+        ) {
+            Text(text = ctaText)
         }
+        Text(
+            text = stringResource(Res.string.account_separation_disclosure),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 24.dp),
+        )
     }
 }

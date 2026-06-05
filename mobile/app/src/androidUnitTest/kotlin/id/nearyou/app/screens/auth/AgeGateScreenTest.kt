@@ -4,12 +4,14 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
-import cafe.adriel.voyager.navigator.Navigator
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
-import id.nearyou.app.auth.InMemoryTokenStore
-import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.SignUpOutcome
+import id.nearyou.app.screens.routing.AgeGateRoute
+import id.nearyou.app.screens.routing.PendingSignupIdentity
+import id.nearyou.app.screens.routing.RootRoute
+import id.nearyou.app.screens.routing.SignInRoute
+import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.age_gate_title
@@ -34,14 +36,18 @@ private const val TITLE = "Verifikasi usia kamu"
 private const val DOB_LABEL = "Tanggal lahir"
 private const val CREATE_CTA = "Buat akun"
 private const val LOGO_DESC = "NearYouID" // brand-logo contentDescription (app_name)
+private const val SIGNIN_CTA = "Masuk dengan Google" // SignInScreen CTA — proves the absent-identity re-route landed
 private const val BLOCKED_COPY = "Platform ini hanya tersedia untuk pengguna usia 18 tahun ke atas."
 private const val ACCOUNT_EXISTS_COPY = "Akun sudah terdaftar. Silakan masuk."
 
 /**
  * Render coverage of `AgeGateScreen` via the Robolectric-backed CMP UI runner (Mobile #4, tasks
- * 7.1 / 7.10 / 7.12 / 7.15). The DOB-validation + outcome→state projection is covered purely by
- * `AgeGateUiStateTest`; this suite verifies the actual composable renders the canonical strings,
- * leaks no PII, and does not auto-fire signup on entry.
+ * 7.1 / 7.10 / 7.12 / 7.15), migrated off Voyager. The verified identity is now read from the
+ * in-memory `PendingSignupIdentity` holder (seeded via the test Koin module), NOT a constructor arg.
+ * The DOB-validation + outcome→state projection is covered purely by `AgeGateUiStateTest`; this suite
+ * verifies the composable renders the canonical strings, leaks no PII, does not auto-fire signup on
+ * entry, and re-routes to SignIn on a restored back stack with an absent identity (the process-death
+ * guard, task 7.4).
  *
  * `@Suppress("DEPRECATION")` + `KoinContext`: see `SignInScreenTest` for why this is retained for
  * the multi-test JVM startKoin/stopKoin cycle.
@@ -54,14 +60,20 @@ class AgeGateScreenTest {
     private lateinit var fake: FakeAuthFlow
     private val today = LocalDate(2026, 5, 31)
 
-    private fun installKoin(signUpOutcome: SignUpOutcome = SignUpOutcome.Success) {
+    private fun installKoin(
+        signUpOutcome: SignUpOutcome = SignUpOutcome.Success,
+        seedIdentity: String? = "g-id",
+    ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeAuthFlow(signUpOutcome = signUpOutcome)
         startKoin {
             modules(
                 module {
                     single<AuthFlow> { fake }
-                    single { SessionInvalidator(InMemoryTokenStore()) }
+                    // Seed the in-memory holder with the stub identity (the sign-in no-account path
+                    // would have set it before appending AgeGateRoute). A null seed = the process-death
+                    // case (holder did not survive) for the re-route guard test.
+                    single { PendingSignupIdentity().apply { if (seedIdentity != null) set(seedIdentity) } }
                 },
             )
         }
@@ -77,7 +89,7 @@ class AgeGateScreenTest {
     fun initialRender_showsTitleDobLabelCreateCtaAndLogo() {
         installKoin()
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(AgeGateScreen("g-id", today)) } } }
+            setContent { KoinContext { NearYouTheme { AgeGateScreen(onSignedUp = {}, onExitToSignIn = {}, today = today) } } }
             onNodeWithText(TITLE).assertExists()
             onNodeWithText(DOB_LABEL).assertExists()
             onNodeWithText(CREATE_CTA).assertExists()
@@ -86,30 +98,46 @@ class AgeGateScreenTest {
     }
 
     // 7.15 — merely reaching/composing AgeGateScreen does NOT invoke the signup flow (and thus no
-    // second Google ceremony): the carried id_token is used only on a CTA tap, not on entry.
+    // second Google ceremony): the held id_token is used only on a CTA tap, not on entry.
     @Test
     fun composingScreen_doesNotAutoFireSignup() {
         installKoin()
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(AgeGateScreen("g-id", today)) } } }
+            setContent { KoinContext { NearYouTheme { AgeGateScreen(onSignedUp = {}, onExitToSignIn = {}, today = today) } } }
             waitForIdle()
             assertEquals(0, fake.signUpInvocationCount, "signup must not fire on screen entry")
         }
     }
 
-    // 7.10 — no age-gate UI renders the Google PII. Structural: the screen receives ONLY the
-    // id_token (never email/displayName), and every banner is a static Res.string key (proven by
-    // AgeGateUiStateTest), so no state can surface the identity payload. The id_token itself is
-    // also never rendered (used only in the request body).
+    // 7.10 — no age-gate UI renders the Google PII nor the held id_token. Structural: the screen reads
+    // ONLY the id_token from the holder (never email/displayName), every banner is a static Res.string
+    // key (proven by AgeGateUiStateTest), and the id_token is used only in the request body.
     @Test
     fun screen_rendersNoGooglePiiNorIdToken() {
-        installKoin(SignUpOutcome.Blocked)
+        installKoin(SignUpOutcome.Blocked, seedIdentity = "g-id-SENTINEL")
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { Navigator(AgeGateScreen("g-id-SENTINEL", today)) } } }
+            setContent { KoinContext { NearYouTheme { AgeGateScreen(onSignedUp = {}, onExitToSignIn = {}, today = today) } } }
             waitForIdle()
             onNodeWithText("g-id-SENTINEL", substring = true).assertDoesNotExist()
             onNodeWithText("test@example.com", substring = true).assertDoesNotExist()
             onNodeWithText("Test User", substring = true).assertDoesNotExist()
+        }
+    }
+
+    // 7.4 — restored back stack on AgeGateRoute with an EMPTY PendingSignupIdentity (it did not survive
+    // process death) re-routes to SignInRoute and does NOT render the signup form (mobile-age-gate §
+    // "Restored back stack on AgeGateRoute with absent identity re-routes to SignInScreen"). Hosted in
+    // the real TestNavHost so the one-shot re-route (replaceAll(SignInRoute)) is exercised end-to-end.
+    @Test
+    fun restoredBackStackOnAgeGateRoute_absentIdentity_reRoutesToSignIn_andDoesNotRenderForm() {
+        installKoin(seedIdentity = null)
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(RootRoute, SignInRoute, AgeGateRoute) } }
+            waitForIdle()
+            // The absent-identity guard re-routed to SignInRoute — the SignIn CTA is visible…
+            onNodeWithText(SIGNIN_CTA).assertExists()
+            // …and the signup form (its title) was NOT rendered.
+            onNodeWithText(TITLE).assertDoesNotExist()
         }
     }
 
