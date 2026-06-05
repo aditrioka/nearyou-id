@@ -40,16 +40,16 @@ Every navigation route SHALL be a `@Serializable` type implementing `NavKey`, an
 - **WHEN** inspecting the navigation host in `mobile/app/src/commonMain/kotlin/id/nearyou/app/`
 - **THEN** the back stack is created via `rememberNavBackStack` passed the `SavedStateConfiguration` carrying the polymorphic `NavKey` `SerializersModule` (NOT a reflection-defaulted back stack that would fail to save on iOS)
 
-### Requirement: NavDisplay scopes per-entry saveable state via entry decorators
+### Requirement: NavDisplay scopes per-entry saveable state and ViewModels via entry decorators
 
-The `NavDisplay` SHALL include `rememberSaveableStateHolderNavEntryDecorator()` in its `entryDecorators` so each `NavEntry` receives its own `SaveableStateRegistry` — per-screen `rememberSaveable` state (e.g. the composer draft, the Nearby location-gate state machine) is scoped to its entry and retained while that entry remains in the back stack. Per-entry `ViewModel` scoping (`rememberViewModelStoreNavEntryDecorator()` + the `lifecycle-viewmodel-navigation3` artifact) is NOT required by this capability and SHALL be deferred until a screen first scopes a `ViewModel` to its entry; the current stateless `koinInject`-based screens resolve singletons from the global Koin scope unaffected by navigation.
+The `NavDisplay` SHALL include, in its `entryDecorators` (in this order), `rememberSaveableStateHolderNavEntryDecorator()` so each `NavEntry` receives its own `SaveableStateRegistry` (per-screen `rememberSaveable` state — e.g. the composer draft — is scoped to its entry and retained while that entry remains in the back stack) **and** `rememberViewModelStoreNavEntryDecorator()` (from the `org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-navigation3` artifact) so each `NavEntry` receives its own `ViewModelStore`. A screen MAY scope a `ViewModel` to its entry via `viewModel { … }`; that ViewModel SHALL survive the entry going off-screen (e.g. while another destination is on top) and SHALL be cleared only when the entry is popped off the back stack. The Nearby feed is the first such screen (its load state is held in a `HomeRoute`-scoped ViewModel so returning from the composer does not re-fetch — see `mobile-nearby-timeline`).
 
-#### Scenario: NavDisplay wires the saveable-state-holder decorator
+#### Scenario: NavDisplay wires both entry decorators
 
 - **WHEN** inspecting the `NavDisplay` declaration in `mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt`
-- **THEN** its `entryDecorators` list includes `rememberSaveableStateHolderNavEntryDecorator()`
+- **THEN** its `entryDecorators` list includes `rememberSaveableStateHolderNavEntryDecorator()` AND `rememberViewModelStoreNavEntryDecorator()`
 
-#### Scenario: No unused ViewModel-store decorator or artifact is introduced
+#### Scenario: The per-entry ViewModel-store artifact is declared
 
-- **WHEN** inspecting `mobile/app/build.gradle.kts` and the `NavDisplay` declaration
-- **THEN** neither `rememberViewModelStoreNavEntryDecorator()` nor the `org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-navigation3` dependency is present (deferred until the first ViewModel-backed screen)
+- **WHEN** inspecting the version catalog (`gradle/libs.versions.toml`) and `mobile/app/build.gradle.kts`
+- **THEN** the `org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-navigation3` dependency is declared (pinned to the project's `androidx-lifecycle` version) and added to the `:mobile:app` `commonMain` dependencies

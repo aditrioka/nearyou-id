@@ -25,10 +25,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -39,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.location.LocationConsentModal
 import id.nearyou.app.location.LocationGate
 import id.nearyou.app.location.LocationGateUiState
@@ -60,7 +59,6 @@ import id.nearyou.resources.theme.locationPin
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import kotlin.coroutines.cancellation.CancellationException
 
 /** Test tag on the scrollable post list — lets the screen test target a pull-to-refresh swipe. */
 const val NEARBY_TIMELINE_LIST_TAG: String = "nearbyTimelineList"
@@ -70,12 +68,13 @@ const val NEARBY_TIMELINE_LIST_TAG: String = "nearbyTimelineList"
  * (`mobile-location-permission-flow`). Injects [LocationPermissionController] and drives a
  * [LocationGate] that, on entry, projects the OS permission status to one of: prompt the UU-PDP
  * consent rationale (→ OS prompt), proceed to the fetch, or show the denial fallback. The granted
- * branch ([NearbyFeed]) is the previously-shipped feed: it injects [NearbyTimelineFlow], holds the
- * [NearbyTimelineOutcome] + in-flight flag in `remember`, and (re)loads via a `LaunchedEffect` keyed
- * on a reload counter (pull-to-refresh + error-retry both re-fetch). Renders the six fetch states
- * (loading / content / empty / error / rate-limit-hard / rate-limit-soft) per the screen-state-mapping
- * spec, all copy via `stringResource` (zero literals), under `NearYouTheme` tokens. Holds NO
- * navigation dependency, so `HomeScreen` can embed `Content()` directly.
+ * branch ([NearbyFeed]) is the previously-shipped feed: it injects [NearbyTimelineFlow] and observes
+ * a `HomeRoute`-scoped [NearbyTimelineViewModel] that holds the [NearbyTimelineOutcome] + in-flight
+ * flag and (re)loads page 1 (pull-to-refresh + error-retry both re-fetch). Hoisting that load state
+ * into a NavEntry-scoped ViewModel is what makes returning from the composer reuse the loaded feed
+ * instead of re-fetching (design Decision 5). Renders the six fetch states (loading / content / empty
+ * / error / rate-limit-hard / rate-limit-soft) per the screen-state-mapping spec, all copy via
+ * `stringResource` (zero literals), under `NearYouTheme` tokens.
  *
  * The gate is a **pre-fetch** screen state, orthogonal to the six fetch-outcome states:
  * `NearbyTimelineRepository`'s status→outcome mapping is unchanged (granted-but-no-fix reuses the
@@ -119,43 +118,30 @@ fun NearbyTimelineScreen() {
 }
 
 /**
- * The granted-permission Nearby feed: the previously-shipped fetch path, unchanged except that a
- * coordinate-acquisition failure (the real provider throwing [id.nearyou.app.location.LocationUnavailableException]
- * when permission is granted but no fix is obtainable) is caught here and mapped to the EXISTING
- * retryable error state — NO new [NearbyTimelineOutcome] member (spec § "Granted but no coordinate
- * obtainable maps to the existing retryable error state"; the repository's sealed outcome is unchanged).
+ * The granted-permission Nearby feed: the previously-shipped fetch path, with its load state hoisted
+ * into a `HomeRoute`-scoped [NearbyTimelineViewModel] (resolved via `viewModel { … }` under the
+ * `rememberViewModelStoreNavEntryDecorator`). Hoisting it off the composition is the
+ * reload-on-return fix (mobile-nav-swap-to-navigation3 Decision 5): the VM survives `HomeRoute` going
+ * off-screen while the composer is on top, so popping back reuses the loaded feed instead of
+ * re-fetching. A coordinate-acquisition failure still maps to the EXISTING retryable error state in
+ * the VM — NO new [NearbyTimelineOutcome] member (spec § "Granted but no coordinate obtainable maps
+ * to the existing retryable error state").
  */
 @Composable
 private fun NearbyFeed() {
     val flow = koinInject<NearbyTimelineFlow>()
-    var outcome by remember { mutableStateOf<NearbyTimelineOutcome?>(null) }
-    var inFlight by remember { mutableStateOf(false) }
-    // Incrementing this re-keys the LaunchedEffect → re-fetches page 1. Both pull-to-refresh and the
-    // error-retry control increment it (shared reload path). `next_cursor` is retained on Loaded but
-    // NOT consumed for load-more (deferred to mobile-nearby-timeline-infinite-scroll).
-    var reloadKey by remember { mutableStateOf(0) }
-
-    LaunchedEffect(reloadKey) {
-        inFlight = true
-        try {
-            outcome = flow.loadFirstPage()
-        } catch (cancellation: CancellationException) {
-            // Never swallow cancellation — let structured concurrency unwind (mirrors AuthApiClient).
-            throw cancellation
-        } catch (_: Throwable) {
-            // Granted-but-no-fix: the provider could not acquire a coordinate → existing retryable
-            // error state (network copy + retry). No new NearbyTimelineOutcome member is introduced.
-            outcome = NearbyTimelineOutcome.NetworkError
-        } finally {
-            inFlight = false
-        }
-    }
+    val viewModel = viewModel { NearbyTimelineViewModel(flow) }
+    val outcome by viewModel.outcome.collectAsState()
+    val inFlight by viewModel.inFlight.collectAsState()
 
     NearbyTimelineContent(
         uiState = nearbyTimelineUiState(outcome, inFlight),
         isRefreshing = inFlight,
-        onRefresh = { reloadKey++ },
-        onRetry = { reloadKey++ },
+        // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload
+        // path). `next_cursor` is retained on Loaded but NOT consumed for load-more (deferred to
+        // mobile-nearby-timeline-infinite-scroll).
+        onRefresh = viewModel::reload,
+        onRetry = viewModel::reload,
     )
 }
 

@@ -2,7 +2,6 @@ package id.nearyou.app.screens.routing
 
 import java.io.File
 import kotlin.test.Test
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** Strips block comments (incl. KDoc) then line comments, so an explanatory comment mentioning the
@@ -42,29 +41,27 @@ class VoyagerAbsenceScanTest {
     }
 
     @Test
-    fun noDeferredViewModelStoreDecoratorOrArtifactIsIntroduced() {
-        // mobile-app-scaffold § "No unused ViewModel-store decorator or artifact is introduced"
-        // (design Decision 5 — per-entry ViewModel scoping is deferred until the first ViewModel-backed
-        // screen). Needles assembled from fragments so this guard does not flag itself.
+    fun viewModelStoreDecoratorAndArtifactAreWired() {
+        // mobile-app-scaffold § "NavDisplay scopes per-entry ViewModel state via entry decorators"
+        // (design Decision 5 — un-deferred: Home is the first ViewModel-backed screen, so the Nearby
+        // feed's load state survives the composer round-trip). The per-entry ViewModel-store decorator
+        // is wired in App() and the artifact is declared in the catalog. Needles assembled from
+        // fragments so this guard does not flag itself.
         val vmDecorator = "rememberViewModelStore" + "NavEntryDecorator"
         val vmArtifact = "lifecycle-viewmodel-" + "navigation3"
-        val srcRoot = File(findRepoRoot(), "mobile/app/src")
 
-        val decoratorOffenders =
-            srcRoot.walkTopDown()
-                .filter { it.isFile && it.extension == "kt" }
-                .filter { it.readText().stripComments().contains(vmDecorator) }
-                .map { it.relativeTo(srcRoot).path }
-                .toList()
+        val app = File(findRepoRoot(), "mobile/app/src/commonMain/kotlin/id/nearyou/app/App.kt").readText().stripComments()
         assertTrue(
-            decoratorOffenders.isEmpty(),
-            "the ViewModel-store NavEntry decorator must stay deferred (Decision 5), but found in: $decoratorOffenders",
+            app.contains(vmDecorator),
+            "App() must wire the per-entry ViewModel-store NavEntry decorator (Decision 5 un-deferred)",
         )
 
-        val buildFile = File(findRepoRoot(), "mobile/app/build.gradle.kts").readText().stripComments()
-        assertFalse(
-            buildFile.contains(vmArtifact),
-            "the lifecycle-viewmodel-navigation3 artifact must stay deferred (Decision 5)",
+        // The module coordinate (with hyphens) lives in the version catalog; build.gradle uses the
+        // camelCase accessor, so scan the catalog for the artifact declaration.
+        val catalog = File(findRepoRoot(), "gradle/libs.versions.toml").readText()
+        assertTrue(
+            catalog.contains(vmArtifact),
+            "the lifecycle-viewmodel-navigation3 artifact must be declared in the version catalog",
         )
     }
 

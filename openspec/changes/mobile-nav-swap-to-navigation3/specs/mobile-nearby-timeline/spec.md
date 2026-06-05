@@ -27,3 +27,26 @@ The existing `HomeScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/ap
 
 - **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/RootRouterScreen.kt`
 - **THEN** the authenticated branch routes to `HomeRoute` (the `HomeScreen` composable) — the routing **target** is unchanged (Home); the back-stack mechanism is the Nav3 form migrated by `mobile-nav-swap-to-navigation3`
+
+## ADDED Requirements
+
+### Requirement: Nearby feed load state is scoped to the Home NavEntry and survives the composer round-trip
+
+The Nearby feed's first-page load state (the fetched outcome + the in-flight flag + the reload trigger) SHALL be held in a `HomeRoute`-scoped ViewModel (`NearbyTimelineViewModel`, resolved via `viewModel { … }` under the `NavDisplay`'s `rememberViewModelStoreNavEntryDecorator()` — see `mobile-app-scaffold` § "NavDisplay scopes per-entry saveable state and ViewModels via entry decorators"), NOT in composition-scoped `remember`. The first page SHALL load exactly once on the ViewModel's construction; pull-to-refresh and the error-retry control SHALL re-fetch page 1 via the ViewModel. Because the ViewModel survives `HomeRoute` going off-screen (e.g. while the post composer is on top) and is cleared only when `HomeRoute` is popped, opening the composer and returning SHALL NOT re-fetch the Nearby feed — the already-loaded posts are shown immediately. A coordinate-acquisition failure SHALL continue to map to the existing retryable `NearbyTimelineOutcome.NetworkError` (no new outcome member).
+
+#### Scenario: ViewModel loads once on construction and reloads on pull-to-refresh / retry
+
+- **GIVEN** a `commonTest` `NearbyTimelineViewModel` over a `FakeNearbyTimelineFlow`
+- **WHEN** the ViewModel is constructed
+- **THEN** `loadFirstPage()` is invoked exactly once and the outcome is exposed; AND a subsequent `reload()` invokes `loadFirstPage()` a second time
+
+#### Scenario: A load failure maps to the existing retryable error
+
+- **GIVEN** a `FakeNearbyTimelineFlow` whose `loadFirstPage()` throws
+- **WHEN** the `NearbyTimelineViewModel` loads
+- **THEN** its exposed outcome is `NearbyTimelineOutcome.NetworkError` (the existing retryable state — no new outcome member is introduced)
+
+#### Scenario: NearbyFeed observes the entry-scoped ViewModel, not composition-local remember
+
+- **WHEN** inspecting `NearbyFeed` in `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt`
+- **THEN** the feed's `outcome` / `inFlight` are observed from a `viewModel { NearbyTimelineViewModel(...) }` (collected via `collectAsState`), and the load is NOT driven by a composition-local `LaunchedEffect` over a `remember`-ed reload counter (so the load state is not lost when `HomeRoute` is disposed while the composer is on top)

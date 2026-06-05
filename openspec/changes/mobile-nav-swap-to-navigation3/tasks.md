@@ -16,7 +16,18 @@
 ## 3. App host — `App.kt`
 
 - [x] 3.1 Rewrite `App()` to: `NearYouTheme { val backStack = rememberNavBackStack(navSavedStateConfig, RootRoute); SessionExpiryEffect(backStack); NavDisplay(backStack = backStack, onBack = { backStack.removeLastOrNull() }, entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator()), entryProvider = appEntryProvider(backStack, …)) }`. Remove all `cafe.adriel.voyager.*` imports (`Navigator`, `CurrentScreen`). (`mobile-app-scaffold` § Typed navigation host + § NavDisplay entry decorators.)
-- [x] 3.2 Confirm `entryDecorators` includes ONLY `rememberSaveableStateHolderNavEntryDecorator()` — NOT `rememberViewModelStoreNavEntryDecorator()` and NOT the `lifecycle-viewmodel-navigation3` dependency (deferred; `mobile-app-scaffold` § "No unused ViewModel-store decorator or artifact is introduced").
+- [x] 3.2 `entryDecorators` includes BOTH `rememberSaveableStateHolderNavEntryDecorator()` AND `rememberViewModelStoreNavEntryDecorator()` (Decision 5 un-deferred during `/opsx:apply` 9.5 — see § 3.5; `mobile-app-scaffold` § "NavDisplay scopes per-entry saveable state and ViewModels via entry decorators").
+
+## 3.5 Nearby feed reload-on-return fix — VM-scoped entry state (Decision 5 un-deferred)
+
+On-device manual testing (9.5) surfaced the Nav3 "state-loss on back" papercut: opening the composer disposed `HomeRoute`, so returning re-fired the feed's `remember`+`LaunchedEffect` load → the Nearby feed re-fetched every return (perceived-inconsistent due to the 60s/90s `LocationTuning` warm-fix window). Fixed with the canonical Nav3 pattern (verified against the Android save-state doc + `android/nav3-recipes` + the Koin Nav3 doc): scope the feed's load state to a `HomeRoute` ViewModel under `rememberViewModelStoreNavEntryDecorator()`.
+
+- [x] 3.5.1 Add `org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-navigation3` (JetBrains CMP port, `version.ref = androidx-lifecycle` = `2.10.0`) to `gradle/libs.versions.toml` + `mobile/app/build.gradle.kts` `commonMain`.
+- [x] 3.5.2 Wire `rememberViewModelStoreNavEntryDecorator()` into `App.kt` (and `TestNavHost`) `entryDecorators` after the saveable-state decorator (canonical order).
+- [x] 3.5.3 Add `screens/timeline/NearbyTimelineViewModel.kt` (`androidx.lifecycle.ViewModel`) holding `outcome` / `inFlight` + `reload()`; first load on `init`; load failure → existing `NearbyTimelineOutcome.NetworkError`.
+- [x] 3.5.4 Refactor `NearbyFeed` to observe `viewModel { NearbyTimelineViewModel(flow) }` (the `flow` is `koinInject`-ed; androidx `viewModel` — no Koin VM registration, so the screen-test modules are unchanged); remove the `remember`+`LaunchedEffect`+reloadKey load. The `LocationGate` stays `remember`-ed (its `ON_RESUME` re-check is intentional + fast).
+- [x] 3.5.5 NEW `commonTest` `NearbyTimelineViewModelTest`: loads once on construction, `reload()` re-fetches, failure → `NetworkError` (runs on Android + iOS).
+- [x] 3.5.6 Invert the `VoyagerAbsenceScanTest` VM-decorator guard → assert the decorator IS wired in `App.kt` + the artifact IS in the catalog. The existing Nearby `*ScreenTest` / `*FlowIosTest` are unchanged (the bare-compose `viewModel { }` resolves the test host's `ViewModelStore`; verified green on Robolectric + iOS sim).
 
 ## 4. Screen conversions (Voyager `Screen` → plain `@Composable`)
 
