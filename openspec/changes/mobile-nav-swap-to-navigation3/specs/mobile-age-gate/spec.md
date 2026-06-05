@@ -16,13 +16,19 @@ The mobile app SHALL ship a composable `AgeGateScreen` (file: `mobile/app/src/co
 
 ### Requirement: AgeGateScreen reuses the verified Google identity from the sign-in no-account path
 
-`AgeGateScreen` SHALL obtain the verified Google identity (the `id_token` from the `GoogleSignInResult.Success` that produced the backend `404 user_not_found`) from an **in-memory `PendingSignupIdentity` holder** so the signup call reuses it — the sign-in no-account path sets the holder (`pendingSignupIdentity.set(idToken)`) immediately before appending `AgeGateRoute` to the back stack. The identity SHALL NOT be carried as a property on the `AgeGateRoute` `NavKey` (which would write it into the serialized back stack on iOS — see § The verified id_token is never written to the serialized back stack). `AgeGateScreen` (and the flow reaching it) SHALL NOT trigger a fresh `GoogleSignInClient.signIn()` ceremony on entry — the user MUST NOT see a second Google account sheet for one continuous registration. The held `id_token` MUST NOT be logged and MUST NOT be rendered into any UI string.
+`AgeGateScreen` SHALL obtain the verified Google identity (the `id_token` from the `GoogleSignInResult.Success` that produced the backend `404 user_not_found`) from an **in-memory `PendingSignupIdentity` holder** so the signup call reuses it — the sign-in no-account path sets the holder (`pendingSignupIdentity.set(idToken)`) immediately before appending `AgeGateRoute` to the back stack. The identity SHALL NOT be carried as a property on the `AgeGateRoute` `NavKey` (which would write it into the serialized back stack on iOS — see § The verified id_token is never written to the serialized back stack). `AgeGateScreen` (and the flow reaching it) SHALL NOT trigger a fresh `GoogleSignInClient.signIn()` ceremony on entry — the user MUST NOT see a second Google account sheet for one continuous registration. The held `id_token` MUST NOT be logged and MUST NOT be rendered into any UI string. The holder SHALL be read with a **non-clearing** accessor (so an in-screen retryable error can resubmit with the same identity) AND SHALL be cleared (`clear()`) on every **terminal** transition OUT of the age-gate flow — `Success`, `AccountExists`, and the absent-identity re-route to `SignInRoute` — so the verified `id_token` does not linger in process memory past the flow. It SHALL NOT be cleared on a retryable in-screen error (network/5xx) where the user may resubmit.
 
 #### Scenario: Entering AgeGateScreen does not re-invoke the Google ceremony
 
 - **GIVEN** a stub `GoogleSignInClient` that records each `signIn()` invocation, AND a sign-in flow that has just received `404 user_not_found` for a `GoogleSignInResult.Success(idToken="g-id", ...)` and has set `PendingSignupIdentity` to that identity
 - **WHEN** the flow appends `AgeGateRoute` to the back stack and the `AgeGateScreen` composable is composed
 - **THEN** `GoogleSignInClient.signIn()` has NOT been invoked a second time as part of reaching or composing `AgeGateScreen` (the `id_token` read from the `PendingSignupIdentity` holder is reused)
+
+#### Scenario: The pending identity is cleared on every terminal exit but survives a retryable error
+
+- **GIVEN** `AgeGateScreen` entered with `PendingSignupIdentity` holding `id_token = "g-id"`
+- **WHEN** the flow reaches a terminal outcome — `Success` (route to `HomeRoute`), `AccountExists` (route to `SignInRoute`), or the absent-identity re-route (route to `SignInRoute`)
+- **THEN** `PendingSignupIdentity` is cleared (a subsequent non-clearing read returns `null`); AND, separately, when the flow instead hits a retryable in-screen error (network/5xx) the holder is NOT cleared (a resubmit re-reads the same `"g-id"` identity)
 
 ### Requirement: Account-exists collision routes to sign-in
 
@@ -68,3 +74,8 @@ Because Nav3's back stack is serialized on iOS (per `mobile-app-scaffold` § "Ba
 
 - **WHEN** inspecting the `AgeGateRoute` `NavKey` declaration in `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/`
 - **THEN** `AgeGateRoute` is a parameterless marker (e.g. a `data object`) with no `idToken` / identity property; the verified identity is read from the `PendingSignupIdentity` Koin singleton instead
+
+#### Scenario: AgeGateScreen sources the identity from the holder, not a route argument
+
+- **WHEN** inspecting `AgeGateScreen` and the `entryProvider`'s `entry<AgeGateRoute>` mapping
+- **THEN** `AgeGateScreen` reads the verified identity from `PendingSignupIdentity` (the in-memory holder) and NOT from any `AgeGateRoute` field or `entryProvider`-supplied identity argument — symmetric to the write-side guard (the route carries no identity, and the screen does not expect one from the route), so neither side of the boundary can reintroduce the token into the serialized back stack
