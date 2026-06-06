@@ -88,7 +88,7 @@ The like control's initial state SHALL come from the `likedByViewer` route paylo
 
 ### Requirement: Replies list mirrors the shipped snake_case wire with loading, empty, and error states
 
-`ReplyApiClient` SHALL issue `GET /api/v1/posts/{post_id}/replies` and parse `@Serializable` DTOs whose wire names match the SHIPPED backend serialization in `backend/ktor/.../engagement/ReplyRoutes.kt` (`ReplyDto` / `ReplyListResponse`) — **snake_case**, NOT the timelines' camelCase. Specifically: `ReplyDto` = `id` (bare String), `@SerialName("post_id") postId`, `@SerialName("author_id") authorId`, `content` (bare), `@SerialName("is_auto_hidden") isAutoHidden` (Boolean), `@SerialName("created_at") createdAt`, `@SerialName("updated_at") updatedAt: String?`, `@SerialName("deleted_at") deletedAt: String?`; `ReplyListResponse` = `replies: List<ReplyDto>` (bare), `@SerialName("next_cursor") nextCursor: String? = null`. The `next_cursor` key is snake_case and MUST differ from the timelines' camelCase `nextCursor`. The screen SHALL render reply cards showing `content` + the `created_at` treatment only — NO author identity (the wire carries only `author_id`, never rendered) — within one of: a loading state (`stringResource(Res.string.timeline_loading)`), an empty state (`stringResource(Res.string.post_detail_replies_empty)`), the reply-card list, or an error state (`stringResource(Res.string.signin_error_network)` + a `stringResource(Res.string.cta_retry)` control). `next_cursor` SHALL be parsed + retained but cursor load-more is NOT wired in this change (see § "By-id post fetch and replies infinite-scroll are deferred").
+`ReplyApiClient` SHALL issue `GET /api/v1/posts/{post_id}/replies` and parse `@Serializable` DTOs whose wire names match the SHIPPED backend serialization in `backend/ktor/.../engagement/ReplyRoutes.kt` (`ReplyDto` / `ReplyListResponse`) — **snake_case**, NOT the timelines' camelCase. Specifically: `ReplyDto` = `id` (bare String), `@SerialName("post_id") postId`, `@SerialName("author_id") authorId`, `content` (bare), `@SerialName("is_auto_hidden") isAutoHidden` (Boolean), `@SerialName("created_at") createdAt`, `@SerialName("updated_at") updatedAt: String?`, `@SerialName("deleted_at") deletedAt: String?`; `ReplyListResponse` = `replies: List<ReplyDto>` (bare), `@SerialName("next_cursor") nextCursor: String? = null`. The `next_cursor` key is snake_case and MUST differ from the timelines' camelCase `nextCursor`. The screen SHALL render reply cards showing `content` + the `created_at` treatment only — NO author identity (the wire carries only `author_id`, never rendered) — within one of: a loading state (`stringResource(Res.string.timeline_loading)`), an empty state (`stringResource(Res.string.post_detail_replies_empty)`), the reply-card list, or an error state (`stringResource(Res.string.signin_error_network)` + a `stringResource(Res.string.cta_retry)` control). `next_cursor` SHALL be parsed + retained but cursor load-more is NOT wired in this change (see § "By-id post fetch and replies infinite-scroll are deferred"). A returned reply MAY carry `is_auto_hidden = true` ONLY when it is the viewer's OWN reply (the backend's author-bypass `is_auto_hidden = FALSE OR author_id = :viewer` — `backend/ktor/.../PostReplyRepository.kt` — means no other reply with the flag set is ever returned); in v1 the `is_auto_hidden` flag SHALL be **parsed but NOT surfaced** (the viewer's own auto-hidden reply renders identically to a live reply, matching the backend's author-bypass intent) — no "under review" badge or dimming is added in this change. Similarly `deleted_at` is faithfully parsed (DTO mirrors the wire) but is effectively dead on this list path (the backend excludes `deleted_at IS NOT NULL` rows).
 
 #### Scenario: Replies parse against the shipped snake_case wire
 
@@ -112,9 +112,15 @@ The like control's initial state SHALL come from the `likedByViewer` route paylo
 - **WHEN** the reply card renders
 - **THEN** the rendered tree contains NO node whose text contains `"11111111-1111-1111-1111-111111111111"` (only `content` + the timestamp treatment appear)
 
+#### Scenario: Viewer's own auto-hidden reply is parsed but rendered normally (v1)
+
+- **GIVEN** a reply returned with `is_auto_hidden = true` (the only reachable case: it is the viewer's own reply, per the backend author-bypass)
+- **WHEN** the reply card renders
+- **THEN** parsing succeeds AND the card renders identically to a live reply (no "under review" badge, no dimming) — the flag is parsed but not surfaced in v1
+
 ### Requirement: Reply composer posts with a 280-code-point guard, local append, and cap upsell
 
-The reply composer SHALL render a multiline field (placeholder `stringResource(Res.string.post_detail_reply_placeholder)`), a live `N/280` counter via `stringResource(Res.string.post_detail_reply_counter)` computed in **Unicode code points** (NOT UTF-16 units), and a "Balas" CTA via `stringResource(Res.string.cta_reply)` that is disabled while content is empty / over-limit / in-flight. Submitting SHALL call `POST /api/v1/posts/{post_id}/replies` with the body `{ "content": "<text>" }` (bare `content`, matching the shipped `ReplyCreateRequest`). The repository SHALL map results to a sealed `ReplyPostOutcome`: `201` → `Success(reply)` (the returned `ReplyDto` is appended to the in-memory list AND the displayed reply count is incremented — the list is NOT re-fetched); `429` → `RateLimited(retryAfterSeconds)` (surfaces `stringResource(Res.string.post_detail_reply_cap_upsell)`); `400 invalid_request` → `ContentEmpty` / `ContentTooLong`; `404` → `PostGone`; `5xx`/network-IO → `NetworkError`. Bearer + 401 refresh are owned by the shipped `Auth` plugin.
+The reply composer SHALL render a multiline field (placeholder `stringResource(Res.string.post_detail_reply_placeholder)`), a live `N/280` counter via `stringResource(Res.string.post_detail_reply_counter)` computed in **Unicode code points** (NOT UTF-16 units), and a "Balas" CTA via `stringResource(Res.string.cta_reply)` that is disabled while content is empty / over-limit / in-flight. **Empty-vs-over-limit is a CLIENT-side concern** — the pre-submit code-point projection disables the CTA so the client never submits empty or >280 content; there is no server round-trip to distinguish "empty" from "too long" (and the backend would not provide one — see below). Submitting SHALL call `POST /api/v1/posts/{post_id}/replies` with the body `{ "content": "<text>" }`. The request DTO declares `content: String` (non-null), **deliberately tightening** the shipped `ReplyCreateRequest(content: String? = null)` — the client always sends a non-null `content` (the wire's nullable+default is backend input-leniency, irrelevant to an outbound-only request DTO). The repository SHALL map results to a sealed `ReplyPostOutcome`: `201` → `Success(reply)` (the returned `ReplyDto` is appended to the in-memory list AND the displayed reply count is incremented — the list is NOT re-fetched); `429` → `RateLimited(retryAfterSeconds)` (surfaces `stringResource(Res.string.post_detail_reply_cap_upsell)`); `400 invalid_request` → a single `InvalidContent` outcome (the SHIPPED backend emits the **same** `invalid_request` code for both empty and >280 content — `backend/ktor/.../engagement/ReplyRoutes.kt` `respondInvalidRequest`, message-only difference — so the client MUST NOT assume a server empty-vs-too-long distinction; this is a defensive edge given the client guard, mapped to a retryable banner with a logged diagnostic, NOT a crash, NOT a silent no-op); `404` → `PostGone`; `5xx`/network-IO → `NetworkError`. Bearer + 401 refresh are owned by the shipped `Auth` plugin.
 
 #### Scenario: 280 code points enabled, 281 over-limit and disabled
 
@@ -138,11 +144,16 @@ The reply composer SHALL render a multiline field (placeholder `stringResource(R
 - **WHEN** `postReply(...)` returns `ReplyPostOutcome.RateLimited(retryAfterSeconds = 3600)`
 - **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.post_detail_reply_cap_upsell)`
 
-#### Scenario: 400 invalid_request maps to the empty/too-long banner
+#### Scenario: 400 invalid_request maps to a single InvalidContent outcome (no server empty/too-long split)
 
-- **GIVEN** a `MockEngine` returning `400 {"error":{"code":"invalid_request"}}` for an over-limit reply
+- **GIVEN** a `MockEngine` returning `400 {"error":{"code":"invalid_request"}}` (the single code the backend emits for both empty and over-limit content)
 - **WHEN** the repository processes the response
-- **THEN** the outcome is `ContentTooLong` (or `ContentEmpty` for empty content) — NOT a generic failure
+- **THEN** the outcome is the single `InvalidContent` (retryable, with a logged diagnostic) — NOT two distinct `ContentEmpty`/`ContentTooLong` server outcomes, and NOT a generic wildcard failure
+
+#### Scenario: Empty/over-limit is gated client-side before any POST
+
+- **GIVEN** the composer projection with empty content, and again with a 281-code-point string
+- **THEN** in both cases the "Balas" CTA is disabled (the over-limit flag set for the 281 case) so no `POST /api/v1/posts/{post_id}/replies` is issued — the empty-vs-too-long UX is driven by the client projection, not a server response
 
 ### Requirement: Every fetch outcome maps to exactly one sealed member with no generic fallthrough
 
@@ -222,17 +233,17 @@ This change SHALL route ALL like/reply interaction through `PostDetailScreen`. T
 
 ### Requirement: By-id post fetch and replies infinite-scroll are deferred
 
-This change SHALL NOT implement a `GET /api/v1/posts/{id}` by-id fetch (none exists on the backend; the header is built from nav args) NOR cursor-based load-more for the replies list (`next_cursor` is parsed + retained but not consumed). Both are deferred; `FOLLOW_UPS.md` SHALL contain entries `backend-single-post-get-endpoint` (owned by the future notifications deep-link change) and `mobile-post-detail-replies-infinite-scroll`.
+This change SHALL NOT implement a `GET /api/v1/posts/{id}` by-id fetch (none exists on the backend; the header is built from nav args) NOR cursor-based load-more for the replies list (`next_cursor` is parsed + retained but not consumed). Both are deferred. To avoid deepening the `FOLLOW_UPS.md` 30-entry cap breach, the replies load-more deferral SHALL **extend the existing `mobile-nearby-timeline-infinite-scroll` entry** (the same entry the Global feed already extended) rather than open a new one; `FOLLOW_UPS.md` SHALL contain a NEW entry `backend-single-post-get-endpoint` (owned by the future notifications deep-link change) and the existing `mobile-nearby-timeline-infinite-scroll` entry SHALL be amended to note that replies load-more is also pending.
 
 #### Scenario: next_cursor is parsed but no load-more request is issued
 
 - **WHEN** inspecting the replies repository/screen for cursor usage
 - **THEN** `next_cursor` is parsed + retained on the `Loaded` outcome but is NOT consumed to issue a follow-up `cursor=`-bearing `GET /replies` request in this change
 
-#### Scenario: FOLLOW_UPS tracks both deferrals
+#### Scenario: FOLLOW_UPS tracks both deferrals without a redundant new entry
 
 - **WHEN** inspecting `FOLLOW_UPS.md`
-- **THEN** it contains entries `backend-single-post-get-endpoint` AND `mobile-post-detail-replies-infinite-scroll`
+- **THEN** it contains a new entry `backend-single-post-get-endpoint` AND the existing `mobile-nearby-timeline-infinite-scroll` entry is amended to cover the replies load-more (no separate `mobile-post-detail-replies-infinite-scroll` entry is opened)
 
 ### Requirement: Test coverage for the screen, projection, wire, and iOS flow
 

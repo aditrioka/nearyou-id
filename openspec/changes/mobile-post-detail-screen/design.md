@@ -60,7 +60,7 @@ The shipped `ReplyDto` exposes only `author_id` (UUID), which is PII and never r
 All like/reply interaction lives on `PostDetailScreen`. Inline-card like/reply shortcuts are deferred (`FOLLOW_UPS mobile-post-detail-inline-card-actions`) so v1 ships one cohesive surface.
 
 ### D9 — Reply 201 appends locally; no list re-fetch; infinite scroll deferred
-On a successful reply POST the returned `ReplyDto` is appended to the in-memory list and the displayed reply count is incremented — the list is NOT re-fetched. `next_cursor` is parsed + retained on the `Loaded` outcome but load-more is not wired (`FOLLOW_UPS mobile-post-detail-replies-infinite-scroll`), mirroring the timeline infinite-scroll deferral.
+On a successful reply POST the returned `ReplyDto` is appended to the in-memory list and the displayed reply count is incremented — the list is NOT re-fetched. `next_cursor` is parsed + retained on the `Loaded` outcome but load-more is not wired; this deferral **amends the existing `mobile-nearby-timeline-infinite-scroll` FOLLOW_UP** (the entry the Global feed already extended) rather than opening a new one, to avoid deepening the FOLLOW_UPS 30-entry cap breach. The reply 400 path maps to a single `InvalidContent` outcome — the shipped backend emits one `invalid_request` code for both empty and over-limit content, so empty-vs-too-long is gated client-side (the pre-submit code-point projection disables the CTA), not derived from the server response.
 
 ## Risks / Trade-offs
 
