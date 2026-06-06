@@ -39,7 +39,7 @@
 ## 7. Koin wiring
 
 - [x] 7.1 `di/MobileModule.kt`: register `GlobalTimelineApiClient` + `GlobalTimelineRepository` singletons; bind `single<GlobalTimelineFlow> { get<GlobalTimelineRepository>() }`; reuse the existing `SessionIdProvider` single (do NOT register a second).
-- [ ] 7.2 Confirm Koin graph resolves (extend `KoinInitTest` / a `CreatePostFlowKoinResolutionTest`-style check for the Global graph + tab host).
+- [x] 7.2 Confirm Koin graph resolves (extend `KoinInitTest` / a `CreatePostFlowKoinResolutionTest`-style check for the Global graph + tab host).
 
 ## 8. Tests — commonTest
 
@@ -47,29 +47,29 @@
 - [x] 8.2 `GlobalTimelineApiClientTest` (MockEngine): first-page request path `/api/v1/timeline/global` with NO `lat`/`lng`/`radius_m`/`cursor`; `X-Session-Id` present + equals the shared provider's id; full shipped-wire parse (incl. no `distanceM`); snake_case-only negative regression; `upsell`/`nextCursor` absence tolerated.
 - [x] 8.3 `GlobalTimelineRepositoryTest` (MockEngine): 200→Loaded(posts,cursor,upsell); hard-cap 200(empty+hard)→Loaded; 5xx/IO→NetworkError; 400→retryable Error; exactly-one-outcome / no-fallthrough.
 - [x] 8.4 `GlobalTimelineViewModelTest`: loads once on construction; `reload()` re-fetches; throwing flow → NetworkError.
-- [ ] 8.5 Tab-host commonTest: selected-`Tab` saved-state round-trip (3.2); no-re-fetch-on-tab-switch invariant via `FakeNearbyTimelineFlow` + `FakeGlobalTimelineFlow` counters (`mobile-home-tab-host` § "Returning to a feed tab does not re-fetch" + `mobile-nearby-timeline` § "Switching tabs and returning to Nearby does not re-fetch").
+- [x] 8.5 Tab-host commonTest: selected-`Tab` saved-state round-trip (3.2); no-re-fetch-on-tab-switch invariant via `FakeNearbyTimelineFlow` + `FakeGlobalTimelineFlow` counters (`mobile-home-tab-host` § "Returning to a feed tab does not re-fetch" + `mobile-nearby-timeline` § "Switching tabs and returning to Nearby does not re-fetch").
 - [x] 8.6 Add `FakeGlobalTimelineFlow` test double (mirror `FakeNearbyTimelineFlow`).
 
 ## 9. Tests — Robolectric screen tests (Android)
 
-- [ ] 9.1 `GlobalTimelineScreenTest`: initial render (title) + all six visual states via `FakeGlobalTimelineFlow`; PII/no-distance assertions (no `authorUserId`, no raw coords, no distance string); empty `city_name` tolerated. Use `waitUntil` for any MockEngine-backed assertion (Fake flow is synchronous; real network submit isn't awaited by `waitForIdle`).
-- [ ] 9.2 Tab-host screen test (`HomeTabHostScreenTest` or extend `HomeScreenFabTest`): three labelled tabs; selecting a tab swaps the body; FAB present on each tab + pushes `PostCreationRoute` to root stack; Following placeholder renders + issues no fetch (MockEngine captures zero `/timeline/following`); Nearby empty-state `cta_see_global` switches to the Global tab.
-- [ ] 9.3 Update the existing Nearby/Home screen tests for tab-host hosting: re-verify ALL SIX Nearby states (loading / content / empty / error / rate-limit-hard / rate-limit-soft) still render correctly under the tab host, PLUS the new empty-state "lihat Global" CTA (do not drop the hard/soft assertions during the rework).
-- [ ] 9.4 Add all new `*ScreenTest` globs to the `mobile/app/build.gradle.kts` Release-variant `tasks.withType<Test>()` exclude block (ui-test-manifest host is debug-only); verify `:mobile:app:testDevReleaseUnitTest` passes.
+- [x] 9.1 `GlobalTimelineScreenTest`: initial render (title) + all six visual states via `FakeGlobalTimelineFlow`; PII/no-distance assertions (no `authorUserId`, no raw coords, no distance string); empty `city_name` tolerated. Use `waitUntil` for any MockEngine-backed assertion (Fake flow is synchronous; real network submit isn't awaited by `waitForIdle`).
+- [x] 9.2 Tab-host screen test (`HomeTabHostScreenTest` or extend `HomeScreenFabTest`): three labelled tabs; selecting a tab swaps the body; FAB present on each tab + pushes `PostCreationRoute` to root stack; Following placeholder renders + issues no fetch (MockEngine captures zero `/timeline/following`); Nearby empty-state `cta_see_global` switches to the Global tab.
+- [x] 9.3 Update the existing Nearby/Home screen tests for tab-host hosting: re-verify ALL SIX Nearby states (loading / content / empty / error / rate-limit-hard / rate-limit-soft) still render correctly under the tab host, PLUS the new empty-state "lihat Global" CTA (do not drop the hard/soft assertions during the rework).
+- [x] 9.4 Add all new `*ScreenTest` globs to the `mobile/app/build.gradle.kts` Release-variant `tasks.withType<Test>()` exclude block (ui-test-manifest host is debug-only); verify `:mobile:app:testDevReleaseUnitTest` passes.
 
 ## 10. Tests — iOS flow (iosTest)
 
-- [ ] 10.1 Add an iOS flow test under `mobile/app/src/iosTest/...` (mirror `NearbyTimelineFlowIosTest`) exercising the tab host on the simulator (tab switch + Global feed render); use kotlin.test `@Test`, K/N-legal fn names (no `,()#`).
+- [x] 10.1 Add an iOS flow test under `mobile/app/src/iosTest/...` (mirror `NearbyTimelineFlowIosTest`) exercising the tab host on the simulator (tab switch + Global feed render); use kotlin.test `@Test`, K/N-legal fn names (no `,()#`).
 
 ## 11. Verify (build + lint gate)
 
-- [ ] 11.1 `./gradlew ktlintCheck detekt` (root-level detekt) — green.
-- [ ] 11.2 `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` — green (flavor-qualified per `reference_mobile_gate_flavor_qualified_tasks`).
+- [x] 11.1 `./gradlew ktlintCheck detekt` (root-level detekt) — green.
+- [x] 11.2 `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` — green (flavor-qualified per `reference_mobile_gate_flavor_qualified_tasks`).
 - [ ] 11.3 (Optional, recommended) Manual smoke via the verify-loop: run the app, sign in, confirm the three tabs render, Global shows live posts, Following shows the placeholder, the Nearby empty-state CTA jumps to Global, and the FAB opens the composer over the tab bar.
-- [ ] 11.4 Staging deploy / smoke: **N/A** — mobile-only change, no backend/runtime/schema impact (mark Section N/A in the archive commit body).
+- [x] 11.4 Staging deploy / smoke: **N/A** — mobile-only change, no backend/runtime/schema impact (mark Section N/A in the archive commit body).
 
 ## 12. Docs + follow-ups
 
-- [ ] 12.1 Delete the `mobile-home-tab-host` and `mobile-timeline-empty-global-cta` entries from `FOLLOW_UPS.md` (shipped by this change).
-- [ ] 12.2 Add `FOLLOW_UPS.md` entries: `mobile-following-timeline-screen` (deferred real Following feed; MODIFIES `mobile-home-tab-host` § "Following tab renders the deferred placeholder") and `mobile-home-tab-host-per-tab-backstacks` (deferred per-tab `NavDisplay` back stacks, for the first intra-tab destination — MODIFIES `mobile-home-tab-host` § "Tab selection is serializable and survives process death"); extend the existing `mobile-nearby-timeline-infinite-scroll` entry to note Global also defers load-more.
-- [ ] 12.3 No new module added → no `dev/module-descriptions.txt` / README sync needed. Confirm.
+- [x] 12.1 Delete the `mobile-home-tab-host` and `mobile-timeline-empty-global-cta` entries from `FOLLOW_UPS.md` (shipped by this change).
+- [x] 12.2 Add `FOLLOW_UPS.md` entries: `mobile-following-timeline-screen` (deferred real Following feed; MODIFIES `mobile-home-tab-host` § "Following tab renders the deferred placeholder") and `mobile-home-tab-host-per-tab-backstacks` (deferred per-tab `NavDisplay` back stacks, for the first intra-tab destination — MODIFIES `mobile-home-tab-host` § "Tab selection is serializable and survives process death"); extend the existing `mobile-nearby-timeline-infinite-scroll` entry to note Global also defers load-more.
+- [x] 12.3 No new module added → no `dev/module-descriptions.txt` / README sync needed. Confirm.
