@@ -1,54 +1,54 @@
 ## 1. Pre-flight
 
-- [ ] 1.1 Confirm worktree gradle can build `:mobile:app` (copy `local.properties` SDK pointer into the worktree if absent).
-- [ ] 1.2 Pre-implementation library re-check: **N/A** — this change introduces no new `gradle/libs.versions.toml` pin and activates no previously-unused library (Navigation 3, Koin, Ktor KMP client, Compose Multiplatform Resources are all already pinned + actively used). Drop the one-line "no new substrate; re-check skipped" note in the first feat commit body (per `openspec/project.md` § Pre-implementation library re-check).
-- [ ] 1.3 Re-read the SHIPPED Global wire (`backend/ktor/.../timeline/TimelineRoutes.kt` `GlobalPostDto`/`GlobalResponse`) at apply time to confirm field names/casing haven't drifted since proposal (camelCase `id`/`authorUserId`/`content`/`latitude`/`longitude`/`createdAt`; `@SerialName` `city_name`/`liked_by_viewer`/`reply_count`; **no `distanceM`**; bare `nextCursor` + optional `upsell`).
+- [x] 1.1 Confirm worktree gradle can build `:mobile:app` (copy `local.properties` SDK pointer into the worktree if absent).
+- [x] 1.2 Pre-implementation library re-check: **N/A** — this change introduces no new `gradle/libs.versions.toml` pin and activates no previously-unused library (Navigation 3, Koin, Ktor KMP client, Compose Multiplatform Resources are all already pinned + actively used). Drop the one-line "no new substrate; re-check skipped" note in the first feat commit body (per `openspec/project.md` § Pre-implementation library re-check).
+- [x] 1.3 Re-read the SHIPPED Global wire (`backend/ktor/.../timeline/TimelineRoutes.kt` `GlobalPostDto`/`GlobalResponse`) at apply time to confirm field names/casing haven't drifted since proposal (camelCase `id`/`authorUserId`/`content`/`latitude`/`longitude`/`createdAt`; `@SerialName` `city_name`/`liked_by_viewer`/`reply_count`; **no `distanceM`**; bare `nextCursor` + optional `upsell`).
 
 ## 2. Strings in :shared:resources
 
-- [ ] 2.1 Add Bahasa Indonesia `Res.string` entries: `tab_nearby`, `tab_following`, `tab_global`, `timeline_global_title` ("*Seluruh Indonesia*"), `timeline_following_placeholder` ("*Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu.*"), `cta_see_global` ("*Lihat Global*"), plus icon `contentDescription` strings for the three tabs. Do NOT add `timeline_empty_global` — the Global empty-skeleton state reuses the existing `timeline_loading` (same copy; avoids a verbatim duplicate).
-- [ ] 2.2 Reuse existing strings where they already fit (`timeline_loading` — also for the Global empty-skeleton state; `signin_error_network`, `cta_retry`, `cta_post`, `timeline_empty_nearby`, `timeline_limit_hard`, `timeline_limit_soft`) — do NOT duplicate.
-- [ ] 2.3 Update `SharedStringsCatalogTest` (commonTest) to cover the new keys AND bump its pinned catalog-count assertion (the shipped `mobile-post-creation` spec pins an exact total as a regression guard) by the number of keys actually added (the 3 tab labels + 3 tab `contentDescription`s + `timeline_global_title` + `timeline_following_placeholder` + `cta_see_global`); confirm the grep-based "no hardcoded UI strings" guard still passes against the new screens.
+- [x] 2.1 Add Bahasa Indonesia `Res.string` entries: `tab_nearby`, `tab_following`, `tab_global`, `timeline_global_title` ("*Seluruh Indonesia*"), `timeline_following_placeholder` ("*Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu.*"), `cta_see_global` ("*Lihat Global*"), plus icon `contentDescription` strings for the three tabs. Do NOT add `timeline_empty_global` — the Global empty-skeleton state reuses the existing `timeline_loading` (same copy; avoids a verbatim duplicate).
+- [x] 2.2 Reuse existing strings where they already fit (`timeline_loading` — also for the Global empty-skeleton state; `signin_error_network`, `cta_retry`, `cta_post`, `timeline_empty_nearby`, `timeline_limit_hard`, `timeline_limit_soft`) — do NOT duplicate.
+- [x] 2.3 Update `SharedStringsCatalogTest` (commonTest) to cover the new keys AND bump its pinned catalog-count assertion (the shipped `mobile-post-creation` spec pins an exact total as a regression guard) by the number of keys actually added (the 3 tab labels + 3 tab `contentDescription`s + `timeline_global_title` + `timeline_following_placeholder` + `cta_see_global`); confirm the grep-based "no hardcoded UI strings" guard still passes against the new screens.
 
 ## 3. Tab selection model (serializable Tab enum)
 
-- [ ] 3.1 Add a `@Serializable enum class Tab { Nearby, Following, Global }` (e.g. `screens/home/Tab.kt`); the tab host holds the selected `Tab` in `rememberSaveable`. Add NO new tab-root `NavKey`s — per-tab `NavDisplay` back stacks are deferred (design D1).
-- [ ] 3.2 commonTest: the selected `Tab` saves + restores via the `rememberSaveable` saver (serializable-enum path, iOS-safe) — `mobile-home-tab-host` § "Selected tab survives a saved-state round-trip".
+- [x] 3.1 Add a `@Serializable enum class Tab { Nearby, Following, Global }` (e.g. `screens/home/Tab.kt`); the tab host holds the selected `Tab` in `rememberSaveable`. Add NO new tab-root `NavKey`s — per-tab `NavDisplay` back stacks are deferred (design D1).
+- [x] 3.2 commonTest: the selected `Tab` saves + restores via the `rememberSaveable` saver (serializable-enum path, iOS-safe) — `mobile-home-tab-host` § "Selected tab survives a saved-state round-trip".
 
 ## 4. Global feed plumbing (mirror Nearby, minus distance/spatial params)
 
-- [ ] 4.1 `timeline/GlobalTimelineApiClient.kt`: define `@Serializable GlobalPostDto` (NO `distanceM`) + `GlobalResponseDto` + reuse the shared `UpsellDto`; `fetchGlobal(cursor)` issues `GET /api/v1/timeline/global` with NO `lat`/`lng`/`radius_m`, optional `cursor`, and the `X-Session-Id` header from the existing `SessionIdProvider`.
-- [ ] 4.2 `timeline/GlobalTimelineFlow.kt` (interface + `GlobalTimelineOutcome` sealed type) + `timeline/GlobalTimelineRepository.kt`: HTTP-status-driven mapping (200→`Loaded`; 401→`Auth` plugin; 400→retryable `Error`; 5xx/IO→`NetworkError`), no generic fallthrough.
-- [ ] 4.3 `screens/timeline/GlobalTimelineUiState.kt`: pure `GlobalTimelineUiState` + `globalTimelineUiState(outcome, inFlight)` projection (6 states; no PII).
-- [ ] 4.4 `screens/timeline/GlobalTimelineViewModel.kt`: `HomeRoute`-scoped VM; loads once on construction; `reload()` re-fetches; failure → `NetworkError`.
-- [ ] 4.5 `screens/timeline/GlobalTimelineScreen.kt`: navigation-free composable; title `timeline_global_title`; pull-to-refresh `LazyColumn`; six-state mapping; post card renders `city_name` + `content` + `created_at` + read-only `liked_by_viewer`/`reply_count`, **no distance**, **no `authorUserId`/raw coords**; all copy via `stringResource`.
+- [x] 4.1 `timeline/GlobalTimelineApiClient.kt`: define `@Serializable GlobalPostDto` (NO `distanceM`) + `GlobalResponseDto` + reuse the shared `UpsellDto`; `fetchGlobal(cursor)` issues `GET /api/v1/timeline/global` with NO `lat`/`lng`/`radius_m`, optional `cursor`, and the `X-Session-Id` header from the existing `SessionIdProvider`.
+- [x] 4.2 `timeline/GlobalTimelineFlow.kt` (interface + `GlobalTimelineOutcome` sealed type) + `timeline/GlobalTimelineRepository.kt`: HTTP-status-driven mapping (200→`Loaded`; 401→`Auth` plugin; 400→retryable `Error`; 5xx/IO→`NetworkError`), no generic fallthrough.
+- [x] 4.3 `screens/timeline/GlobalTimelineUiState.kt`: pure `GlobalTimelineUiState` + `globalTimelineUiState(outcome, inFlight)` projection (6 states; no PII).
+- [x] 4.4 `screens/timeline/GlobalTimelineViewModel.kt`: `HomeRoute`-scoped VM; loads once on construction; `reload()` re-fetches; failure → `NetworkError`.
+- [x] 4.5 `screens/timeline/GlobalTimelineScreen.kt`: navigation-free composable; title `timeline_global_title`; pull-to-refresh `LazyColumn`; six-state mapping; post card renders `city_name` + `content` + `created_at` + read-only `liked_by_viewer`/`reply_count`, **no distance**, **no `authorUserId`/raw coords**; all copy via `stringResource`.
 
 ## 5. Tab host (HomeScreen rework)
 
-- [ ] 5.1 Rework `screens/home/HomeScreen.kt` into a `Scaffold` with a Material 3 `NavigationBar` (Nearby/Following/Global, labels via `stringResource`) + the home-level FAB (`onOpenComposer`, unchanged) + `rememberSaveable` selected tab (default **Nearby**).
-- [ ] 5.2 Render the selected tab's screen directly in `HomeScreen`'s body via `when(selectedTab)` (NO per-tab `NavDisplay`), so each feed screen composes under the `HomeRoute` scope and its `viewModel { }` resolves to the `HomeRoute` store (design D1/D2).
-- [ ] 5.3 Wire tab content: Nearby → `NearbyTimelineScreen` (with `onSeeGlobal = { select Global tab }`); Global → `GlobalTimelineScreen`; Following → `screens/timeline/FollowingPlaceholderScreen.kt` (renders `timeline_following_placeholder`, issues NO fetch, wires no following API client).
-- [ ] 5.4 FAB pushes `PostCreationRoute` onto the **root** back stack (above `HomeRoute`) — verify it is present on every tab and never duplicated / never pushed into a per-tab stack.
-- [ ] 5.5 Confirm `AppEntryProvider.kt` maps `HomeRoute` to the tab host; confirm `RootRouterScreen` still routes authenticated → `HomeRoute` (no routing-target edit). No new `entryProvider` entries are needed (no new routes added — tabs are host-internal state, the composer route already exists).
+- [x] 5.1 Rework `screens/home/HomeScreen.kt` into a `Scaffold` with a Material 3 `NavigationBar` (Nearby/Following/Global, labels via `stringResource`) + the home-level FAB (`onOpenComposer`, unchanged) + `rememberSaveable` selected tab (default **Nearby**).
+- [x] 5.2 Render the selected tab's screen directly in `HomeScreen`'s body via `when(selectedTab)` (NO per-tab `NavDisplay`), so each feed screen composes under the `HomeRoute` scope and its `viewModel { }` resolves to the `HomeRoute` store (design D1/D2).
+- [x] 5.3 Wire tab content: Nearby → `NearbyTimelineScreen` (with `onSeeGlobal = { select Global tab }`); Global → `GlobalTimelineScreen`; Following → `screens/timeline/FollowingPlaceholderScreen.kt` (renders `timeline_following_placeholder`, issues NO fetch, wires no following API client).
+- [x] 5.4 FAB pushes `PostCreationRoute` onto the **root** back stack (above `HomeRoute`) — verify it is present on every tab and never duplicated / never pushed into a per-tab stack.
+- [x] 5.5 Confirm `AppEntryProvider.kt` maps `HomeRoute` to the tab host; confirm `RootRouterScreen` still routes authenticated → `HomeRoute` (no routing-target edit). No new `entryProvider` entries are needed (no new routes added — tabs are host-internal state, the composer route already exists).
 
 ## 6. Nearby tab: empty-state CTA + feed-state scoping
 
-- [ ] 6.1 Add `onSeeGlobal: () -> Unit` (default no-op) to `NearbyTimelineScreen`; render the `cta_see_global` CTA in the empty state, invoking it. Keep `NearbyTimelineScreen` navigation-free (no back-stack reference).
-- [ ] 6.2 Confirm `NearbyTimelineViewModel` is resolved under the `HomeRoute` NavEntry (already is) so it survives both the composer round-trip AND tab switches — no re-fetch on tab return.
+- [x] 6.1 Add `onSeeGlobal: () -> Unit` (default no-op) to `NearbyTimelineScreen`; render the `cta_see_global` CTA in the empty state, invoking it. Keep `NearbyTimelineScreen` navigation-free (no back-stack reference).
+- [x] 6.2 Confirm `NearbyTimelineViewModel` is resolved under the `HomeRoute` NavEntry (already is) so it survives both the composer round-trip AND tab switches — no re-fetch on tab return.
 
 ## 7. Koin wiring
 
-- [ ] 7.1 `di/MobileModule.kt`: register `GlobalTimelineApiClient` + `GlobalTimelineRepository` singletons; bind `single<GlobalTimelineFlow> { get<GlobalTimelineRepository>() }`; reuse the existing `SessionIdProvider` single (do NOT register a second).
+- [x] 7.1 `di/MobileModule.kt`: register `GlobalTimelineApiClient` + `GlobalTimelineRepository` singletons; bind `single<GlobalTimelineFlow> { get<GlobalTimelineRepository>() }`; reuse the existing `SessionIdProvider` single (do NOT register a second).
 - [ ] 7.2 Confirm Koin graph resolves (extend `KoinInitTest` / a `CreatePostFlowKoinResolutionTest`-style check for the Global graph + tab host).
 
 ## 8. Tests — commonTest
 
-- [ ] 8.1 `GlobalTimelineUiStateTest`: projection maps each of inFlight / Loaded(non-empty,no upsell) / Loaded(empty,no upsell) / Loaded(empty,hard) / Loaded(non-empty,soft) / NetworkError to its state.
-- [ ] 8.2 `GlobalTimelineApiClientTest` (MockEngine): first-page request path `/api/v1/timeline/global` with NO `lat`/`lng`/`radius_m`/`cursor`; `X-Session-Id` present + equals the shared provider's id; full shipped-wire parse (incl. no `distanceM`); snake_case-only negative regression; `upsell`/`nextCursor` absence tolerated.
-- [ ] 8.3 `GlobalTimelineRepositoryTest` (MockEngine): 200→Loaded(posts,cursor,upsell); hard-cap 200(empty+hard)→Loaded; 5xx/IO→NetworkError; 400→retryable Error; exactly-one-outcome / no-fallthrough.
-- [ ] 8.4 `GlobalTimelineViewModelTest`: loads once on construction; `reload()` re-fetches; throwing flow → NetworkError.
+- [x] 8.1 `GlobalTimelineUiStateTest`: projection maps each of inFlight / Loaded(non-empty,no upsell) / Loaded(empty,no upsell) / Loaded(empty,hard) / Loaded(non-empty,soft) / NetworkError to its state.
+- [x] 8.2 `GlobalTimelineApiClientTest` (MockEngine): first-page request path `/api/v1/timeline/global` with NO `lat`/`lng`/`radius_m`/`cursor`; `X-Session-Id` present + equals the shared provider's id; full shipped-wire parse (incl. no `distanceM`); snake_case-only negative regression; `upsell`/`nextCursor` absence tolerated.
+- [x] 8.3 `GlobalTimelineRepositoryTest` (MockEngine): 200→Loaded(posts,cursor,upsell); hard-cap 200(empty+hard)→Loaded; 5xx/IO→NetworkError; 400→retryable Error; exactly-one-outcome / no-fallthrough.
+- [x] 8.4 `GlobalTimelineViewModelTest`: loads once on construction; `reload()` re-fetches; throwing flow → NetworkError.
 - [ ] 8.5 Tab-host commonTest: selected-`Tab` saved-state round-trip (3.2); no-re-fetch-on-tab-switch invariant via `FakeNearbyTimelineFlow` + `FakeGlobalTimelineFlow` counters (`mobile-home-tab-host` § "Returning to a feed tab does not re-fetch" + `mobile-nearby-timeline` § "Switching tabs and returning to Nearby does not re-fetch").
-- [ ] 8.6 Add `FakeGlobalTimelineFlow` test double (mirror `FakeNearbyTimelineFlow`).
+- [x] 8.6 Add `FakeGlobalTimelineFlow` test double (mirror `FakeNearbyTimelineFlow`).
 
 ## 9. Tests — Robolectric screen tests (Android)
 
