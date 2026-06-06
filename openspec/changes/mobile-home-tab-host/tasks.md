@@ -10,11 +10,10 @@
 - [ ] 2.2 Reuse existing strings where they already fit (`timeline_loading`, `signin_error_network`, `cta_retry`, `cta_post`, `timeline_empty_nearby`, `timeline_limit_hard`, `timeline_limit_soft`) — do NOT duplicate.
 - [ ] 2.3 Update `SharedStringsCatalogTest` (commonTest) to cover the new keys; confirm the grep-based "no hardcoded UI strings" guard still passes against the new screens.
 
-## 3. Tab-root NavKeys + serialization
+## 3. Tab selection model (serializable Tab enum)
 
-- [ ] 3.1 Add `@Serializable data object NearbyTabRoot`, `FollowingTabRoot`, `GlobalTabRoot : NavKey` to `screens/routing/NavKeys.kt`.
-- [ ] 3.2 Register all three in the `AppNavSerialization` polymorphic `SerializersModule` (alongside the existing root keys).
-- [ ] 3.3 commonTest: each tab-root key serializes + decodes round-trip via the `AppNavSerialization` configuration (iOS-safe saved-state path) — `mobile-home-tab-host` § "Per-tab back stacks round-trip through serialization".
+- [ ] 3.1 Add a `@Serializable enum class Tab { Nearby, Following, Global }` (e.g. `screens/home/Tab.kt`); the tab host holds the selected `Tab` in `rememberSaveable`. Add NO new tab-root `NavKey`s — per-tab `NavDisplay` back stacks are deferred (design D1).
+- [ ] 3.2 commonTest: the selected `Tab` saves + restores via the `rememberSaveable` saver (serializable-enum path, iOS-safe) — `mobile-home-tab-host` § "Selected tab survives a saved-state round-trip".
 
 ## 4. Global feed plumbing (mirror Nearby, minus distance/spatial params)
 
@@ -27,10 +26,10 @@
 ## 5. Tab host (HomeScreen rework)
 
 - [ ] 5.1 Rework `screens/home/HomeScreen.kt` into a `Scaffold` with a Material 3 `NavigationBar` (Nearby/Following/Global, labels via `stringResource`) + the home-level FAB (`onOpenComposer`, unchanged) + `rememberSaveable` selected tab (default **Nearby**).
-- [ ] 5.2 Per-tab back stacks: `rememberSaveable` map `Tab → NavBackStack` seeded with each tab-root key; render the active tab via its own `NavDisplay` with `rememberViewModelStoreNavEntryDecorator()` + `rememberSavedStateNavEntryDecorator()` (mirror the root host).
+- [ ] 5.2 Render the selected tab's screen directly in `HomeScreen`'s body via `when(selectedTab)` (NO per-tab `NavDisplay`), so each feed screen composes under the `HomeRoute` scope and its `viewModel { }` resolves to the `HomeRoute` store (design D1/D2).
 - [ ] 5.3 Wire tab content: Nearby → `NearbyTimelineScreen` (with `onSeeGlobal = { select Global tab }`); Global → `GlobalTimelineScreen`; Following → `screens/timeline/FollowingPlaceholderScreen.kt` (renders `timeline_following_placeholder`, issues NO fetch, wires no following API client).
 - [ ] 5.4 FAB pushes `PostCreationRoute` onto the **root** back stack (above `HomeRoute`) — verify it is present on every tab and never duplicated / never pushed into a per-tab stack.
-- [ ] 5.5 Update `AppEntryProvider.kt` / `BackStackExtensions.kt` as needed so `HomeRoute` maps to the tab host and tab-root keys map to their screens; confirm `RootRouterScreen` still routes authenticated → `HomeRoute` (no routing-target edit).
+- [ ] 5.5 Confirm `AppEntryProvider.kt` maps `HomeRoute` to the tab host; confirm `RootRouterScreen` still routes authenticated → `HomeRoute` (no routing-target edit). No new `entryProvider` entries are needed (no new routes added — tabs are host-internal state, the composer route already exists).
 
 ## 6. Nearby tab: empty-state CTA + feed-state scoping
 
@@ -48,7 +47,7 @@
 - [ ] 8.2 `GlobalTimelineApiClientTest` (MockEngine): first-page request path `/api/v1/timeline/global` with NO `lat`/`lng`/`radius_m`/`cursor`; `X-Session-Id` present + equals the shared provider's id; full shipped-wire parse (incl. no `distanceM`); snake_case-only negative regression; `upsell`/`nextCursor` absence tolerated.
 - [ ] 8.3 `GlobalTimelineRepositoryTest` (MockEngine): 200→Loaded(posts,cursor,upsell); hard-cap 200(empty+hard)→Loaded; 5xx/IO→NetworkError; 400→retryable Error; exactly-one-outcome / no-fallthrough.
 - [ ] 8.4 `GlobalTimelineViewModelTest`: loads once on construction; `reload()` re-fetches; throwing flow → NetworkError.
-- [ ] 8.5 Tab-host commonTest: tab-root `NavKey` serialization round-trip (3.3); no-re-fetch-on-tab-switch invariant via `FakeNearbyTimelineFlow` + `FakeGlobalTimelineFlow` counters (`mobile-home-tab-host` § "Returning to a feed tab does not re-fetch" + `mobile-nearby-timeline` § "Switching tabs and returning to Nearby does not re-fetch").
+- [ ] 8.5 Tab-host commonTest: selected-`Tab` saved-state round-trip (3.2); no-re-fetch-on-tab-switch invariant via `FakeNearbyTimelineFlow` + `FakeGlobalTimelineFlow` counters (`mobile-home-tab-host` § "Returning to a feed tab does not re-fetch" + `mobile-nearby-timeline` § "Switching tabs and returning to Nearby does not re-fetch").
 - [ ] 8.6 Add `FakeGlobalTimelineFlow` test double (mirror `FakeNearbyTimelineFlow`).
 
 ## 9. Tests — Robolectric screen tests (Android)
@@ -72,5 +71,5 @@
 ## 12. Docs + follow-ups
 
 - [ ] 12.1 Delete the `mobile-home-tab-host` and `mobile-timeline-empty-global-cta` entries from `FOLLOW_UPS.md` (shipped by this change).
-- [ ] 12.2 Add a `FOLLOW_UPS.md` entry `mobile-following-timeline-screen` (the deferred real Following feed; MODIFIES `mobile-home-tab-host` § "Following tab renders the deferred placeholder"); extend the existing `mobile-nearby-timeline-infinite-scroll` entry to note Global also defers load-more.
+- [ ] 12.2 Add `FOLLOW_UPS.md` entries: `mobile-following-timeline-screen` (deferred real Following feed; MODIFIES `mobile-home-tab-host` § "Following tab renders the deferred placeholder") and `mobile-home-tab-host-per-tab-backstacks` (deferred per-tab `NavDisplay` back stacks, for the first intra-tab destination — MODIFIES `mobile-home-tab-host` § "Tab selection is serializable and survives process death"); extend the existing `mobile-nearby-timeline-infinite-scroll` entry to note Global also defers load-more.
 - [ ] 12.3 No new module added → no `dev/module-descriptions.txt` / README sync needed. Confirm.

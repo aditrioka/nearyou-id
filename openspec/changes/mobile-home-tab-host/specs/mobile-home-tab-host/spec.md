@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Nearby/Following/Global tab host in `:mobile:app`. `HomeScreen` is repurposed from a single-feed host into a Material 3 `NavigationBar` host over **per-tab Navigation-3 back stacks** — one saveable `NavKey` back stack per tab, each rendered by its own `NavDisplay` with the established per-entry ViewModel + saved-state decorators — so each tab carries independent navigation state for the intra-tab pushes (post detail, profile) the tabs will gain. The composer FAB stays at the home level (one affordance shared across all three tabs) and pushes `PostCreationRoute` onto the **root** back stack so the composer overlays the tab bar. The Nearby tab hosts the shipped `NearbyTimelineScreen`; the Global tab hosts the new `GlobalTimelineScreen` (`mobile-global-timeline`); the Following tab renders a documented empty-state placeholder and issues NO network fetch (the real Following feed is deferred — there is no follow-action UI yet — and tracked by `FOLLOW_UPS.md` `mobile-following-timeline-screen`). Feed load-state ViewModels are scoped to the `HomeRoute` NavEntry so switching tabs and round-tripping through the composer never re-fetches. Every label/copy is sourced via `:shared:resources`; the authenticated default tab is Nearby. This closes the `FOLLOW_UPS.md` entries `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`.
+The Nearby/Following/Global tab host in `:mobile:app`. `HomeScreen` is repurposed from a single-feed host into a Material 3 `NavigationBar` host whose body renders the selected tab's screen **directly under the `HomeRoute` scope** — selection is a `rememberSaveable` serializable `Tab` enum, NOT per-tab `NavDisplay` back stacks. Because each tab's feed screen composes directly under the `HomeRoute` NavEntry, its feed load-state ViewModel (resolved via `viewModel { }` inside the screen, exactly as the shipped Nearby feed already does) is `HomeRoute`-scoped and survives both tab switches and the composer round-trip with no re-fetch. Per-tab `NavDisplay` back stacks are **deferred** to the first intra-tab destination (post detail / profile) — there is no intra-tab navigation in this change, so building them now would be vestigial; the deferral is tracked by `FOLLOW_UPS.md` `mobile-home-tab-host-per-tab-backstacks`. The composer FAB stays at the home level (one affordance shared across all three tabs) and pushes `PostCreationRoute` onto the **root** back stack so the composer overlays the tab bar. The Nearby tab hosts the shipped `NearbyTimelineScreen`; the Global tab hosts the new `GlobalTimelineScreen` (`mobile-global-timeline`); the Following tab renders a documented empty-state placeholder and issues NO network fetch (the real Following feed is deferred — there is no follow-action UI yet — and tracked by `FOLLOW_UPS.md` `mobile-following-timeline-screen`). Every label/copy is sourced via `:shared:resources`; the authenticated default tab is Nearby. This closes the `FOLLOW_UPS.md` entries `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`.
 
 ## ADDED Requirements
 
@@ -26,30 +26,30 @@ The Nearby/Following/Global tab host in `:mobile:app`. `HomeScreen` is repurpose
 - **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt`
 - **THEN** every `Text(...)` / `contentDescription = ...` / label call site sources its text via `stringResource(Res.string.<name>)`; zero literal string arguments appear in such call sites
 
-### Requirement: Per-tab Navigation-3 back stacks are serializable and iOS-safe
+### Requirement: Tab selection is serializable and survives process death
 
-The tab host SHALL maintain one Navigation-3 back stack per tab — a `rememberSaveable` map `Tab → NavBackStack` (each a saveable `NavKey` list seeded with that tab's root key) — and render the active tab through its own `NavDisplay` carrying the same `rememberViewModelStoreNavEntryDecorator()` + `rememberSavedStateNavEntryDecorator()` used by the root host (`mobile-app-scaffold` § "NavDisplay scopes per-entry saveable state and ViewModels via entry decorators"). The three tab-root keys (`NearbyTabRoot`, `FollowingTabRoot`, `GlobalTabRoot`) SHALL be `@Serializable` `data object`s declared in `screens/routing/NavKeys.kt` and registered in the `AppNavSerialization` polymorphic `SerializersModule`, so the per-tab back stacks are saveable on Kotlin/Native (iOS), where Nav3's reflection-based serialization is unavailable (`mobile-app-scaffold` § "Back stack uses serializable NavKey routes for cross-platform state restoration"). No tab-root key SHALL carry a PII payload.
+The selected tab SHALL be modeled as a `@Serializable` `Tab` enum (Nearby / Following / Global) held in `rememberSaveable`, so the active tab survives configuration change and process death on every target including Kotlin/Native (iOS), where reflection-based saving is unavailable. The tab host SHALL render the selected tab's screen **directly under the `HomeRoute` scope** (NOT inside a per-tab `NavDisplay`), so each feed screen's `viewModel { }` resolves to the `HomeRoute` NavEntry store. Per-tab `NavDisplay` back stacks are **deferred** until a tab gains an intra-tab destination (post detail / profile) — tracked by `FOLLOW_UPS.md` `mobile-home-tab-host-per-tab-backstacks`; this change adds NO new tab-root `NavKey`s.
 
-#### Scenario: Tab-root keys are serializable and registered
+#### Scenario: Selected tab survives a saved-state round-trip
 
-- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/NavKeys.kt` and `AppNavSerialization.kt`
-- **THEN** `NearbyTabRoot`, `FollowingTabRoot`, and `GlobalTabRoot` are each `@Serializable` AND each is registered as a polymorphic `NavKey` subclass in the `SerializersModule`
+- **GIVEN** a commonTest that sets the selected `Tab` and saves + restores it via the `rememberSaveable` saver (the serializable-enum path)
+- **WHEN** the saved value is restored
+- **THEN** the restored selection equals the original `Tab` (no `SerializationException`) — proving the iOS-safe saved-state path
 
-#### Scenario: Per-tab back stacks round-trip through serialization
+#### Scenario: No per-tab NavDisplay or tab-root NavKey is introduced
 
-- **GIVEN** a commonTest that builds each tab's back stack and serializes it via the `AppNavSerialization` configuration (the same path exercised for the root back stack)
-- **WHEN** the serialized state is decoded
-- **THEN** each tab-root key decodes back to its original `data object` (no `SerializationException`), proving the iOS saved-state path
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt` and `screens/routing/NavKeys.kt`
+- **THEN** the tab host renders the selected tab's screen directly (no nested per-tab `NavDisplay`) AND no `NearbyTabRoot` / `FollowingTabRoot` / `GlobalTabRoot` `NavKey` is declared (per-tab back stacks are deferred)
 
 ### Requirement: The composer FAB stays at the home level and pushes onto the root back stack
 
-The tab host SHALL render a single `FloatingActionButton` (the composer affordance, labelled via `stringResource(Res.string.cta_post)`) at the `HomeScreen` level — visible regardless of the selected tab — that invokes the injected `onOpenComposer` lambda, which appends `PostCreationRoute` to the **root** back stack (above `HomeRoute`), so the composer overlays the entire surface including the `NavigationBar`. The FAB MUST NOT be duplicated per tab and MUST NOT push into a per-tab back stack.
+The tab host SHALL render a single `FloatingActionButton` (the composer affordance, labelled via `stringResource(Res.string.cta_post)`) at the `HomeScreen` level — visible regardless of the selected tab — that invokes the injected `onOpenComposer` lambda, which appends `PostCreationRoute` to the **root** back stack (above `HomeRoute`), so the composer overlays the entire surface including the `NavigationBar`. The FAB MUST NOT be duplicated per tab; it pushes onto the root back stack only.
 
 #### Scenario: FAB is present on every tab and pushes the composer onto the root stack
 
 - **GIVEN** the tab host composed over a test root back stack (or with a recording `onOpenComposer` callback)
 - **WHEN** the FAB is activated while the Nearby tab is selected, and again while the Global tab is selected
-- **THEN** a single `FloatingActionButton` is present in both cases AND each activation appends `PostCreationRoute` to the root back stack (or invokes the recording callback) — never into a per-tab back stack
+- **THEN** a single `FloatingActionButton` is present in both cases AND each activation appends `PostCreationRoute` to the root back stack (or invokes the recording callback)
 
 ### Requirement: The authenticated default tab is Nearby
 
@@ -62,7 +62,7 @@ When the tab host is first composed for an authenticated session, the selected t
 
 ### Requirement: Tab switching preserves each tab's state and never re-fetches
 
-Switching between tabs SHALL preserve each tab's navigation state (its `rememberSaveable` back stack) and each feed's already-loaded state. Because the Nearby and Global feed load-state ViewModels are scoped to the `HomeRoute` NavEntry (`mobile-nearby-timeline` § "Nearby feed load state is scoped …" and `mobile-global-timeline` § "Global feed load state is scoped …"), leaving a feed tab and returning to it SHALL NOT trigger a re-fetch — the previously loaded posts render immediately.
+Switching between tabs SHALL preserve the selected-tab value and each feed's already-loaded state. Because the Nearby and Global feed load-state ViewModels are scoped to the `HomeRoute` NavEntry (`mobile-nearby-timeline` § "Nearby feed load state is scoped …" and `mobile-global-timeline` § "Global feed load state is scoped …") and each feed screen composes directly under that scope, leaving a feed tab and returning to it SHALL NOT trigger a re-fetch — the previously loaded posts render immediately.
 
 #### Scenario: Returning to a feed tab does not re-fetch
 
@@ -87,7 +87,7 @@ The Following tab SHALL render a documented empty-state placeholder whose copy i
 
 ### Requirement: Test coverage for the tab host
 
-The change SHALL ship: (1) a Robolectric `HomeTabHostScreenTest` (or the existing `HomeScreenTest`/`HomeScreenFabTest` extended) under `mobile/app/src/androidUnitTest/...` covering the three labelled tabs, tab switching swapping the body, the FAB present on each tab, and the Following placeholder — added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention, since the `ui-test-manifest` host activity is debug-only); (2) a commonTest covering tab-root `NavKey` serialization round-trip + the no-re-fetch-on-tab-switch invariant via fakes; (3) an iOS flow test under `mobile/app/src/iosTest/...` (mirroring `NearbyTimelineFlowIosTest`) exercising the tab host on the simulator.
+The change SHALL ship: (1) a Robolectric `HomeTabHostScreenTest` (or the existing `HomeScreenTest`/`HomeScreenFabTest` extended) under `mobile/app/src/androidUnitTest/...` covering the three labelled tabs, tab switching swapping the body, the FAB present on each tab, and the Following placeholder — added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention, since the `ui-test-manifest` host activity is debug-only); (2) a commonTest covering the selected-`Tab`-enum saved-state round-trip + the no-re-fetch-on-tab-switch invariant via fakes; (3) an iOS flow test under `mobile/app/src/iosTest/...` (mirroring `NearbyTimelineFlowIosTest`) exercising the tab host on the simulator.
 
 #### Scenario: Tab-host tests exist and are discoverable
 

@@ -18,21 +18,21 @@ The backend `GET /api/v1/timeline/global` is **shipped** (`TimelineRoutes.kt` `g
 
 ## Decisions
 
-### D1 — Tab host = `NavigationBar` over per-tab Nav3 back stacks (nested `NavDisplay`s)
+### D1 — Tab host = `NavigationBar` + serializable `Tab` enum (screens render directly under `HomeRoute`)
 
-`HomeScreen` becomes a `Scaffold` with a Material 3 `NavigationBar` (3 items) + the home-level FAB. The body renders the **selected tab's** content through per-tab Navigation-3 back stacks: a `rememberSaveable` map `Tab → NavBackStack` (one saveable `NavKey` list per tab, seeded with that tab's root key), each rendered by its own `NavDisplay` carrying the same `rememberViewModelStoreNavEntryDecorator()` + `rememberSavedStateNavEntryDecorator()` the root host uses. Selected tab is `rememberSaveable`. New tab-root keys (`NearbyTabRoot`, `FollowingTabRoot`, `GlobalTabRoot`) are `@Serializable` `data object`s registered in the `AppNavSerialization` polymorphic `SerializersModule` exactly like the existing keys (Nav3 reflection serialization is unavailable on Kotlin/Native — `mobile-app-scaffold` § "Back stack uses serializable NavKey routes").
+`HomeScreen` becomes a `Scaffold` with a Material 3 `NavigationBar` (3 items) + the home-level FAB. The body is a `when(selectedTab)` that renders the selected tab's screen **directly** (Nearby → `NearbyTimelineScreen`, Following → `FollowingPlaceholderScreen`, Global → `GlobalTimelineScreen`). `selectedTab` is a `@Serializable` `Tab` enum held in `rememberSaveable` (iOS-safe; no reflection). The tab screens compose directly under the `HomeRoute` NavEntry — there is **no** per-tab `NavDisplay`, and **no** new tab-root `NavKey`s are added.
 
-*Rationale:* the whole point of a "tab host" (vs a tab switcher) is independent per-tab navigation — a future post-detail / profile push must land in the active tab's stack without touching siblings. Building the per-tab back-stack scaffold now matches the spec source (`FOLLOW_UPS.md` `mobile-home-tab-host`: "*over per-tab Nav3 back stacks*") and avoids a host rework when the first intra-tab destination lands.
+*Rationale:* there is no intra-tab navigation in this change (no post detail / profile yet), so per-tab back stacks would be vestigial structure with nothing to push. Rendering screens directly under `HomeRoute` keeps each feed's `viewModel { }` resolving to the `HomeRoute` store (D2) — exactly how the shipped Nearby feed already resolves its VM — so no-refetch-on-tab-switch falls out for free and the shipped Nearby screen needs **no** VM-resolution change.
 
-*Alternative (rejected):* a single `rememberSaveable` tab enum with a `when(tab){…}` rendering each screen directly, no per-tab back stacks. Smaller, but carries no per-tab navigation state — it would need a full host rework the moment any tab gains an intra-tab push, and it doesn't match the spec source's stated shape.
+*Alternative (rejected): per-tab `NavDisplay` back stacks now* (the shape `FOLLOW_UPS.md` `mobile-home-tab-host` sketched). Rejected for this change because (a) it adds back-stack scaffolding with no intra-tab destination to use it, and (b) a `viewModel { }` resolved *inside* a per-tab `NavDisplay` scopes to that per-tab NavEntry, whose store is cleared on tab switch → re-fetch on every tab return, contradicting the no-refetch requirement; preserving `HomeRoute` scoping would force hoisting both feed VMs out of their screens (a needless refactor of the shipped Nearby screen). Per-tab `NavDisplay` back stacks are deferred to the first intra-tab destination (`FOLLOW_UPS.md` `mobile-home-tab-host-per-tab-backstacks`).
 
 ### D2 — Feed load-state ViewModels scoped to the `HomeRoute` NavEntry (survive tab switch + composer)
 
-The Nearby and Global feed load-state (`NearbyTimelineViewModel`, new `GlobalTimelineViewModel`) are resolved under the **`HomeRoute`** NavEntry ViewModel store (the existing root-`NavDisplay` decorator), NOT under the per-tab NavEntry stores. The per-tab back stacks (D1) hold *navigation* state; the feeds' *load* state lives at the home level.
+The Nearby and Global feed load-state (`NearbyTimelineViewModel`, new `GlobalTimelineViewModel`) resolve via `viewModel { }` **inside their screens**, which — because the screens compose directly under `HomeRoute` (D1) — binds them to the `HomeRoute` NavEntry ViewModel store (the root-`NavDisplay` decorator). `HomeRoute` stays in the root back stack across both tab switches (selection is host state) and the composer round-trip (the composer is pushed *above* `HomeRoute` — D3), so the feed VMs are retained: switching away from a feed tab and back, or opening the composer and returning, re-reads the same VM with its loaded state — no re-fetch.
 
-*Rationale:* `HomeRoute` stays in the root back stack across both tab switches and the composer round-trip (the composer is pushed *above* `HomeRoute` — D3), so a home-scoped ViewModel is the simplest construct that guarantees "no re-fetch on tab switch / composer return." This is a faithful extension of the existing `mobile-nearby-timeline` requirement ("Nearby feed load state is scoped to the Home NavEntry … survives the composer round-trip") — the scoping is unchanged; it now additionally survives tab switches, and a second (Global) feed VM joins it under the same entry.
+*Rationale:* this is a faithful extension of the shipped `mobile-nearby-timeline` requirement ("Nearby feed load state is scoped to the Home NavEntry … survives the composer round-trip") — the scoping mechanism is **unchanged**; it now additionally survives tab switches, and a second (Global) feed VM joins it under the same entry.
 
-*Alternative (rejected):* scope each feed VM to its per-tab NavEntry store. Cleaner conceptually, but an inactive tab's `NavDisplay` subtree may be disposed on switch, clearing its NavEntry `ViewModelStore` and forcing a re-fetch on return — the exact behavior we must avoid.
+*Alternative (rejected):* per-tab NavEntry scoping — see D1; an inactive tab's store would be cleared on switch, forcing a re-fetch.
 
 ### D3 — Composer FAB stays at the home level and pushes onto the ROOT back stack
 
@@ -70,8 +70,8 @@ New `Res.string` entries: three tab labels, the Following-placeholder copy, the 
 
 ## Risks / Trade-offs
 
-- **Nested `NavDisplay`s (root + per-tab) ViewModel-store lifecycle is subtle** → D2 sidesteps the trap by scoping feed VMs to `HomeRoute`, not per-tab entries; a commonTest asserts no re-fetch across tab switch + composer round-trip.
-- **Per-tab back stacks add structure with no user-visible payoff yet** (no intra-tab nav in this change) → accepted: it is the designated tab-host scaffold and avoids a later host rework; the cost is a `rememberSaveable` map + three tab-root keys.
+- **Feed-VM lifecycle across tab switches is subtle** → D1/D2 keep both feed screens directly under `HomeRoute`, so `viewModel { }` resolves to the `HomeRoute` store and survives tab switches (and the shipped Nearby VM resolution is unchanged); a commonTest asserts no re-fetch across tab switch + composer round-trip.
+- **Per-tab `NavDisplay` back stacks are deferred** (no intra-tab nav in this change) → accepted: building them now is vestigial structure with nothing to push; they land with the first intra-tab destination (`FOLLOW_UPS.md` `mobile-home-tab-host-per-tab-backstacks`). The tab host still delivers the bottom-nav shell + shared FAB + per-tab feed-state preservation.
 - **Global DTO casing drift** (copying the stale snake_case spec JSON instead of the shipped wire) → mitigated by D4 + a negative regression test (snake_case-only body must NOT populate the camelCase fields), mirroring the Nearby guard.
 - **Global "empty" is essentially unreachable** (all-Indonesia feed) → still specified as a state for completeness; the realistic edge is the loading skeleton.
 - **Scope is on the larger side** (tab host + a full second feed + two MODIFIED capabilities) → the pieces are genuinely inseparable (a tab host can't ship an empty Global tab when the data is ready, and a Global screen needs a tab to live in); kept lean by reusing `SessionIdProvider` and deferring the shared-card extraction.
@@ -82,4 +82,5 @@ Pure additive mobile change, no runtime/data migration. Ships behind the normal 
 
 ## Open Questions
 
-- **Default authenticated tab (D5): Nearby vs Global?** Proposed: Nearby (preserves current landing). Flip to Global if the product prefers the "entry point" framing even for authenticated users. Low-stakes; resolvable at review.
+- **Default authenticated tab (D5): RESOLVED → Nearby** (proposal review, 2026-06-06). The authenticated default is Nearby (preserves the current landing; "Nearby and Following are home"). The guest pre-login "Default tab: Global" remains deferred with the guest flow.
+- **Navigation model (D1): RESOLVED → Approach A** (proposal review, 2026-06-06). Tab selection via a serializable `Tab` enum with screens rendered directly under `HomeRoute`; per-tab `NavDisplay` back stacks deferred to the first intra-tab destination.
