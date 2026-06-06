@@ -11,10 +11,18 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0A6BE1C1AD2E86CDD71CE247 /* Prod Debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Prod Debug.xcconfig"; path = "Configuration/Prod Debug.xcconfig"; sourceTree = SOURCE_ROOT; };
+		1CF65DAC80C5D55219E7D31B /* Pods-iosApp.staging debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-iosApp.staging debug.xcconfig"; path = "Target Support Files/Pods-iosApp/Pods-iosApp.staging debug.xcconfig"; sourceTree = "<group>"; };
+		21029AF35807907B8E6E8258 /* Pods-iosApp.dev debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-iosApp.dev debug.xcconfig"; path = "Target Support Files/Pods-iosApp/Pods-iosApp.dev debug.xcconfig"; sourceTree = "<group>"; };
 		983F19E36B805A2FD3EF44E9 /* Pods-iosApp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-iosApp.release.xcconfig"; path = "Target Support Files/Pods-iosApp/Pods-iosApp.release.xcconfig"; sourceTree = "<group>"; };
+		989628F2FC4E80441376B3D7 /* Prod Release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Prod Release.xcconfig"; path = "Configuration/Prod Release.xcconfig"; sourceTree = SOURCE_ROOT; };
 		A162B2BA21AE873EE1804076 /* Pods_iosApp.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_iosApp.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		A706E87FD128F4BF18816427 /* Pods-iosApp.prod debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-iosApp.prod debug.xcconfig"; path = "Target Support Files/Pods-iosApp/Pods-iosApp.prod debug.xcconfig"; sourceTree = "<group>"; };
+		C0A862367708DBDBBA10F245 /* Pods-iosApp.prod release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-iosApp.prod release.xcconfig"; path = "Target Support Files/Pods-iosApp/Pods-iosApp.prod release.xcconfig"; sourceTree = "<group>"; };
 		C4AB8A528952B75B4E866C6F /* NearYouID.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NearYouID.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4ED749D9764338A2C89777F /* Dev Debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Dev Debug.xcconfig"; path = "Configuration/Dev Debug.xcconfig"; sourceTree = SOURCE_ROOT; };
 		DCCA488E3DD96D26E85A27CD /* Pods-iosApp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-iosApp.debug.xcconfig"; path = "Target Support Files/Pods-iosApp/Pods-iosApp.debug.xcconfig"; sourceTree = "<group>"; };
+		E0E4494687B786015D8B9C2E /* Staging Debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Staging Debug.xcconfig"; path = "Configuration/Staging Debug.xcconfig"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -73,6 +81,10 @@
 				67FFCB4CAEE8743D43E0901F /* Products */,
 				E6801CCFC8F43C5082CA987C /* Pods */,
 				ED743012779CEB14B2FF8445 /* Frameworks */,
+				C4ED749D9764338A2C89777F /* Dev Debug.xcconfig */,
+				E0E4494687B786015D8B9C2E /* Staging Debug.xcconfig */,
+				0A6BE1C1AD2E86CDD71CE247 /* Prod Debug.xcconfig */,
+				989628F2FC4E80441376B3D7 /* Prod Release.xcconfig */,
 			);
 			sourceTree = "<group>";
 		};
@@ -81,6 +93,10 @@
 			children = (
 				DCCA488E3DD96D26E85A27CD /* Pods-iosApp.debug.xcconfig */,
 				983F19E36B805A2FD3EF44E9 /* Pods-iosApp.release.xcconfig */,
+				21029AF35807907B8E6E8258 /* Pods-iosApp.dev debug.xcconfig */,
+				1CF65DAC80C5D55219E7D31B /* Pods-iosApp.staging debug.xcconfig */,
+				A706E87FD128F4BF18816427 /* Pods-iosApp.prod debug.xcconfig */,
+				C0A862367708DBDBBA10F245 /* Pods-iosApp.prod release.xcconfig */,
 			);
 			name = Pods;
 			path = Pods;
@@ -489,6 +505,7 @@
 		};
 		C0FFEE00DEC0DE0000000005 /* Dev Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C4ED749D9764338A2C89777F /* Dev Debug.xcconfig */;
 			baseConfigurationReferenceAnchor = FAE8D998B21D3B0289EDE24D /* Configuration */;
 			baseConfigurationReferenceRelativePath = "Dev Debug.xcconfig";
 			buildSettings = {
@@ -518,6 +535,7 @@
 		};
 		C0FFEE00DEC0DE0000000006 /* Staging Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = E0E4494687B786015D8B9C2E /* Staging Debug.xcconfig */;
 			baseConfigurationReferenceAnchor = FAE8D998B21D3B0289EDE24D /* Configuration */;
 			baseConfigurationReferenceRelativePath = "Staging Debug.xcconfig";
 			buildSettings = {
@@ -547,6 +565,7 @@
 		};
 		C0FFEE00DEC0DE0000000007 /* Prod Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0A6BE1C1AD2E86CDD71CE247 /* Prod Debug.xcconfig */;
 			baseConfigurationReferenceAnchor = FAE8D998B21D3B0289EDE24D /* Configuration */;
 			baseConfigurationReferenceRelativePath = "Prod Debug.xcconfig";
 			buildSettings = {
@@ -576,6 +595,7 @@
 		};
 		C0FFEE00DEC0DE0000000008 /* Prod Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 989628F2FC4E80441376B3D7 /* Prod Release.xcconfig */;
 			baseConfigurationReferenceAnchor = FAE8D998B21D3B0289EDE24D /* Configuration */;
 			baseConfigurationReferenceRelativePath = "Prod Release.xcconfig";
 			buildSettings = {
