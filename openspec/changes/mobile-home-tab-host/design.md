@@ -7,7 +7,7 @@ The backend `GET /api/v1/timeline/global` is **shipped** (`TimelineRoutes.kt` `g
 ## Goals / Non-Goals
 
 **Goals:**
-- A Nearby/Following/Global bottom-nav tab host with **per-tab Navigation-3 back stacks**, the home-level composer FAB shared across tabs, and iOS-safe back-stack serialization.
+- A Nearby/Following/Global bottom-nav tab host (Material 3 `NavigationBar` + a serializable `Tab` enum, each tab's screen rendered directly under the `HomeRoute` scope; per-tab `NavDisplay` back stacks deferred — D1), the home-level composer FAB shared across tabs, and iOS-safe tab-selection serialization.
 - The Global tab rendering the **live** `GET /api/v1/timeline/global` feed, mirroring the shipped Nearby plumbing and the shipped distance-less wire.
 - The Nearby empty state gaining a "lihat Global" CTA (closes `mobile-timeline-empty-global-cta`).
 - The Following tab as a **documented empty-state placeholder** that issues no fetch, with the deferral captured as explicit requirements.

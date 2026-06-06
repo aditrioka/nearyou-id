@@ -6,9 +6,9 @@
 
 ## 2. Strings in :shared:resources
 
-- [ ] 2.1 Add Bahasa Indonesia `Res.string` entries: `tab_nearby`, `tab_following`, `tab_global`, `timeline_global_title` ("*Seluruh Indonesia*"), `timeline_empty_global`, `timeline_following_placeholder` ("*Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu.*"), `cta_see_global` ("*Lihat Global*"), plus icon `contentDescription` strings for the three tabs.
-- [ ] 2.2 Reuse existing strings where they already fit (`timeline_loading`, `signin_error_network`, `cta_retry`, `cta_post`, `timeline_empty_nearby`, `timeline_limit_hard`, `timeline_limit_soft`) — do NOT duplicate.
-- [ ] 2.3 Update `SharedStringsCatalogTest` (commonTest) to cover the new keys; confirm the grep-based "no hardcoded UI strings" guard still passes against the new screens.
+- [ ] 2.1 Add Bahasa Indonesia `Res.string` entries: `tab_nearby`, `tab_following`, `tab_global`, `timeline_global_title` ("*Seluruh Indonesia*"), `timeline_following_placeholder` ("*Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu.*"), `cta_see_global` ("*Lihat Global*"), plus icon `contentDescription` strings for the three tabs. Do NOT add `timeline_empty_global` — the Global empty-skeleton state reuses the existing `timeline_loading` (same copy; avoids a verbatim duplicate).
+- [ ] 2.2 Reuse existing strings where they already fit (`timeline_loading` — also for the Global empty-skeleton state; `signin_error_network`, `cta_retry`, `cta_post`, `timeline_empty_nearby`, `timeline_limit_hard`, `timeline_limit_soft`) — do NOT duplicate.
+- [ ] 2.3 Update `SharedStringsCatalogTest` (commonTest) to cover the new keys AND bump its pinned catalog-count assertion (the shipped `mobile-post-creation` spec pins an exact total as a regression guard) by the number of keys actually added (the 3 tab labels + 3 tab `contentDescription`s + `timeline_global_title` + `timeline_following_placeholder` + `cta_see_global`); confirm the grep-based "no hardcoded UI strings" guard still passes against the new screens.
 
 ## 3. Tab selection model (serializable Tab enum)
 
@@ -54,7 +54,7 @@
 
 - [ ] 9.1 `GlobalTimelineScreenTest`: initial render (title) + all six visual states via `FakeGlobalTimelineFlow`; PII/no-distance assertions (no `authorUserId`, no raw coords, no distance string); empty `city_name` tolerated. Use `waitUntil` for any MockEngine-backed assertion (Fake flow is synchronous; real network submit isn't awaited by `waitForIdle`).
 - [ ] 9.2 Tab-host screen test (`HomeTabHostScreenTest` or extend `HomeScreenFabTest`): three labelled tabs; selecting a tab swaps the body; FAB present on each tab + pushes `PostCreationRoute` to root stack; Following placeholder renders + issues no fetch (MockEngine captures zero `/timeline/following`); Nearby empty-state `cta_see_global` switches to the Global tab.
-- [ ] 9.3 Update the existing Nearby/Home screen tests for the tab-host hosting (Nearby tab content + empty-state CTA).
+- [ ] 9.3 Update the existing Nearby/Home screen tests for tab-host hosting: re-verify ALL SIX Nearby states (loading / content / empty / error / rate-limit-hard / rate-limit-soft) still render correctly under the tab host, PLUS the new empty-state "lihat Global" CTA (do not drop the hard/soft assertions during the rework).
 - [ ] 9.4 Add all new `*ScreenTest` globs to the `mobile/app/build.gradle.kts` Release-variant `tasks.withType<Test>()` exclude block (ui-test-manifest host is debug-only); verify `:mobile:app:testDevReleaseUnitTest` passes.
 
 ## 10. Tests — iOS flow (iosTest)
