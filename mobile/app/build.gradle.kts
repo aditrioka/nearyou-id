@@ -196,7 +196,7 @@ android {
 // RuntimeException. Skip those classes in release unit-test tasks; they are build-type-agnostic (they
 // exercise the composable, not the build type) and run fully in the debug variants. Non-UI unit tests
 // (e.g. PostCreationSourceGuardTest, CreatePostFlowKoinResolutionTest, GlobalTimelineKoinResolutionTest,
-// FollowingTimelineAbsenceScanTest) still run in every variant.
+// FollowingTabNoFetchScanTest) still run in every variant.
 tasks.withType<Test>().configureEach {
     if (name.contains("Release")) {
         exclude(

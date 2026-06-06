@@ -216,4 +216,39 @@ class HomeTabHostScreenTest {
             assertEquals(1, globalFake.loadInvocationCount, "returning to Global must not re-fetch (VM retained)")
         }
     }
+
+    // mobile-global-timeline § "Global feed load state is scoped to the HomeRoute NavEntry and survives
+    // tab switch and the composer round-trip" — hosted under the REAL TestNavHost(HomeRoute), switching to
+    // the Global tab then round-tripping through the composer (PostCreationRoute pushed ABOVE HomeRoute on
+    // the root stack, so HomeRoute goes off-screen) must NOT re-fetch the Global feed: the
+    // rememberViewModelStoreNavEntryDecorator retains the HomeRoute-scoped Global VM while HomeRoute is off
+    // -screen. This is the Global analogue of HomeScreenFabTest.fabRoundTripToComposer (which proves the
+    // same for Nearby), closing the Global side of the HomeRoute-scoping invariant under the real decorator.
+    @Test
+    fun globalFeedVm_survivesComposerRoundTrip_underHomeRouteScope() {
+        installKoin()
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(HomeRoute, onBackStack = { backStack = it }) } }
+            // Land on Nearby (default), then switch to the Global tab → it loads exactly once.
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(TAB_GLOBAL).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(GLOBAL_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(1, globalFake.loadInvocationCount, "Global loads once on first show")
+
+            // Open the composer (FAB → append PostCreationRoute to the ROOT stack) — HomeRoute off-screen.
+            onNodeWithText(FAB_POST).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(COMPOSER_TITLE).fetchSemanticsNodes().isNotEmpty() }
+
+            // …then pop back to Home — still on the Global tab (selectedTab is rememberSaveable, preserved
+            // by the SaveableStateHolder decorator) and the HomeRoute-scoped Global VM survived.
+            runOnIdle { backStack.removeLastOrNull() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(GLOBAL_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(
+                1,
+                globalFake.loadInvocationCount,
+                "returning from the composer must not re-fetch the Global feed (the HomeRoute-scoped VM is retained)",
+            )
+        }
+    }
 }
