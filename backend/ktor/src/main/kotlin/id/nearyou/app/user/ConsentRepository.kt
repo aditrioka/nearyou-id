@@ -26,16 +26,18 @@ import javax.sql.DataSource
  */
 class ConsentRepository(private val dataSource: DataSource) {
     /**
-     * Writes the consent triple for [userId]. Returns `true` if a row matched
-     * (the user exists — always the case for a post-auth caller), `false`
-     * otherwise.
+     * Writes the consent triple for [userId] (full-object replace). The JWT-`sub`
+     * caller's row always exists — the `sub` is FK-anchored (`configureUserJwt`
+     * validates `sub ∈ public.users`) and `analytics_consent` is `NOT NULL DEFAULT`
+     * — so a 0-row update is unreachable post-auth; the result is therefore not
+     * surfaced.
      */
     suspend fun updateConsent(
         userId: UUID,
         analytics: Boolean,
         crash: Boolean,
         adsPersonalization: Boolean,
-    ): Boolean =
+    ) {
         withContext(Dispatchers.IO) {
             val json =
                 """{"analytics":$analytics,"crash":$crash,"ads_personalization":$adsPersonalization}"""
@@ -43,10 +45,11 @@ class ConsentRepository(private val dataSource: DataSource) {
                 conn.prepareStatement(SQL_UPDATE).use { ps ->
                     ps.setString(1, json)
                     ps.setObject(2, userId)
-                    ps.executeUpdate() > 0
+                    ps.executeUpdate()
                 }
             }
         }
+    }
 
     private companion object {
         const val SQL_UPDATE =
