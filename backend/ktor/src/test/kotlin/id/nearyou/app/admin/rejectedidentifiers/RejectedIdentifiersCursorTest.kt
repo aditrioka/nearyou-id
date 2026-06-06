@@ -59,5 +59,10 @@ class RejectedIdentifiersCursorTest : StringSpec({
         RejectedIdentifiersCursor.decode(b64("123456|not-a-uuid")).shouldBeNull()
         RejectedIdentifiersCursor.decode(b64("|11111111-2222-3333-4444-555555555555")).shouldBeNull()
         RejectedIdentifiersCursor.decode(b64("123456|")).shouldBeNull()
+        // A micros field too large for Long overflows toLong() with a
+        // NumberFormatException (an IllegalArgumentException) → null, not a throw.
+        RejectedIdentifiersCursor.decode(
+            b64("99999999999999999999999999999999|11111111-2222-3333-4444-555555555555"),
+        ).shouldBeNull()
     }
 })

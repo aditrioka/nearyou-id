@@ -4,7 +4,10 @@
    hx-target swapped in place — the count summary lives INSIDE it so it stays
    in sync with the active filters on every swap. Every value is
    Pebble-autoescaped on output — no `raw` filter is used on any value
-   (defense-in-depth; `rejected_identifiers` has no free-text column). #}
+   (defense-in-depth; `rejected_identifiers` has no free-text column). This
+   covers the `identifier_hash` rendered in the `title="..."` attribute too:
+   Pebble's default escaper is HTML-context, so `< > & " '` are entity-encoded
+   in attribute position, not only in element text. #}
 <div id="rejected-identifiers-table">
     {# Per-reason / per-type count summary scoped to the active filters. Counts
        the WHOLE filtered set (not just this page) so a rejection-volume spike

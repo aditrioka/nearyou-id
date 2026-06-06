@@ -250,6 +250,52 @@ class AdminRejectedIdentifiersRouteTest : StringSpec({
         }
     }
 
+    "6.3 — malformed cursor falls back to the newest page (200, no error)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        seed("cursor-fallback-row", reason = "age_under_18")
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.get("/admin/rejected-identifiers?cursor=not-a-valid-cursor") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "cursor-fallback-row" // malformed cursor ignored, newest page rendered
+        }
+    }
+
+    "6.3 — last page (≤ page size) omits the older pagination control" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        seed("only-1", reason = "age_under_18", at = base.plusSeconds(1))
+        seed("only-2", reason = "age_under_18", at = base.plusSeconds(2))
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body =
+                client.get("/admin/rejected-identifiers") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            body shouldContain "only-1"
+            body shouldContain "only-2"
+            body shouldNotContain "pagination-older" // no older page → no control rendered
+        }
+    }
+
+    "hash-only PII discipline — the rendered row exposes the hash, not a raw identifier or /admin/users cross-link" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        seed("hash-pii-guard", reason = "age_under_18")
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            // Use the HTMX fragment (no layout nav, which itself links /admin/users)
+            // so the assertion is scoped to the table rows, per the spec scenario.
+            val fragment =
+                client.get("/admin/rejected-identifiers") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header("HX-Request", "true")
+                }.bodyAsText()
+            fragment shouldContain "hash-pii-guard" // the hash IS shown
+            fragment shouldNotContain "/admin/users" // no cross-link to a users record
+            fragment shouldNotContain "@" // no resolved email / raw identifier
+        }
+    }
+
     "6.11 — read_only admin can view the rejected-identifiers list" {
         val admin = seedAdmin(role = "read_only")
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
