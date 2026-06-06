@@ -14,7 +14,7 @@ Transient working file for findings discovered during a change cycle that are NO
   - **2026-05-31** (targeted, `mobile-nearby-timeline-screen` apply §11.1) — added 6 Mobile-#5 deferrals → 37 open.
   - **2026-06-01** (full sweep) — 37 → 35 open, 0 rot. Migrated 2 to [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Pre-Launch #6/#7 (`mobile-location-permission-flow`, `mobile-age-gate-stronger-verification` — the latter surfaces the **PP 17/2025 "PP TUNAS"** age-assurance deadline, previously absent from the roadmap). Surfaced a 6-entry test-coverage chore-PR scope (`fcm-payload-structural-tests`, `fcm-shutdown-drain-deterministic-tests`, `fcm-end-to-end-composite-test`, `reply-rate-limit-moderator-spy`, `chat-block-check-moderator-spy`, `mobile-theme-light-dark-direct-test` — the last still open because its two theme color-scheme scenarios remain untested in `:mobile:app` despite Mobile #5 shipping; merging the bundle → ~29 open). Kept 7 dormant-until-external-trigger entries (GitHub-Issues migration deferred; still solo-operator); promotions deferred. **Ended 35 open, 5 over the limit** — residual is verified-still-valid deferred work, not rot; the test-coverage bundle is the next drawdown lever.
   - **2026-06-04** (full sweep) — 32 → 28 open, **0 rot**: all 32 verified still-valid against current code/specs/docs (zero silently-resolved, zero superseded). Migrated 3 launch-gated entries to their canonical homes (`mobile-auth-signin-apple-ios` → [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) § Phase 3 iOS; `mobile-auth-signin-attestation-fingerprint-hash` → `docs/08` § Phase 3 + [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) § Attestation; `admin-app-revoke-staging-and-prod` residual → [`docs/07-Operations.md`](docs/07-Operations.md) § Data Access Pattern + Pre-Launch gate). Reconciled `post-creation-spec-error-enumeration-stale` inline (the `post-creation` spec's "exactly [5] codes" line now includes the 6th, `content_moderated_profanity`). Promoted `mobile-location-acquisition-latency` to a `/next-change` hand-off (entry stays open until that change ships). User accepted the remaining 28 as verified-valid backlog (no forced accept-the-gap deletes); GitHub-Issues migration still deferred (solo-operator). Audit trail in this sweep's PR.
-  - **2026-06-06** (targeted, `admin-rejected-identifiers-viewer` archive) — two same-day archives (`mobile-env-launcher-icons` then `admin-rejected-identifiers-viewer`) each added 1 deferral → **31 open, 1 over the soft cap**. Per the "next add MUST sweep first" rule a targeted re-verification ran over the 8 likeliest-resolved entries (sub-agent, with file:line/CI/spec evidence): **0 rot — all 8 still-valid**, consistent with the 2026-06-04 full sweep. Nothing prunable, so the file rests at **31 open: verified-valid deferred work, not rot** (cf. the 2026-06-01 "35 open, 5 over — not rot" posture). Standing drawdown levers: merge `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`; GitHub-Issues migration (still solo-operator). Per-entry detail in the consolidated sweep note at end-of-file.
+  - **2026-06-06** (targeted, `admin-rejected-identifiers-viewer` archive) — three same-day changes landed: `mobile-env-launcher-icons` (+1), `mobile-home-tab-host` (net 0 — deleted 2 precondition entries, added 2), and `admin-rejected-identifiers-viewer` (+1) → **31 open, 1 over the soft cap**. Per the "next add MUST sweep first" rule a targeted re-verification ran over the 8 likeliest-resolved entries (sub-agent, with file:line/CI/spec evidence): **0 rot — all 8 still-valid**, consistent with the 2026-06-04 full sweep. Nothing prunable, so the file rests at **31 open: verified-valid deferred work, not rot** (cf. the 2026-06-01 "35 open, 5 over — not rot" posture). Standing drawdown levers: merge `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`; GitHub-Issues migration (still solo-operator). Per-entry detail in the consolidated sweep note at end-of-file.
 
 Format per entry:
 
@@ -654,36 +654,17 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D8 — the screen renders page 1 (≤ 30 posts) + pull-to-refresh; `next_cursor` is parsed/retained but load-more is deferred.
 **Status:** open
 
-**Finding:** [`NearbyTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineFlow.kt) is parsed + retained, and [`NearbyTimelineApiClient.fetchNearby`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineApiClient.kt) accepts a `cursor` param, but the screen never issues a follow-up `cursor=`-bearing request. The backend `nearby-timeline` spec supports cursor pagination; only the mobile load-more UX (scroll-to-end detection + append) is missing.
+**Finding:** [`NearbyTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineFlow.kt) is parsed + retained, and [`NearbyTimelineApiClient.fetchNearby`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineApiClient.kt) accepts a `cursor` param, but the screen never issues a follow-up `cursor=`-bearing request. The backend `nearby-timeline` spec supports cursor pagination; only the mobile load-more UX (scroll-to-end detection + append) is missing. **Extended by `mobile-home-tab-host` (2026-06-06):** the new Global feed mirrors this exactly — [`GlobalTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/GlobalTimelineFlow.kt) is parsed/retained and [`GlobalTimelineApiClient.fetchGlobal`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/GlobalTimelineApiClient.kt) accepts a `cursor`, but no load-more is wired. This follow-up now covers load-more for BOTH the Nearby and Global feeds.
 
-**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "Pull-to-refresh re-fetches the first page; infinite scroll is deferred" defers this deliberately.
-**Code at fault:** None — the cursor plumbing exists; the load-more trigger is additive.
+**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "Pull-to-refresh re-fetches the first page; infinite scroll is deferred" (and the matching `mobile-global-timeline` § "Pull-to-refresh re-fetches the first page; infinite scroll is deferred") defer this deliberately.
+**Code at fault:** None — the cursor plumbing exists on both feeds; the load-more trigger is additive.
 **Docs at fault:** None.
 
-**Impact (if shipped):** Users see only the first 30 nearby posts until load-more lands. Acceptable for the scaffold; a real feed needs pagination.
+**Impact (if shipped):** Users see only the first page of Nearby AND Global posts until load-more lands. Acceptable for the scaffold; a real feed needs pagination.
 
 **Action items:**
-- [ ] File OpenSpec change `mobile-nearby-timeline-infinite-scroll` adding scroll-to-end detection in the `LazyColumn`, a `loadNextPage(cursor)` path on `NearbyTimelineFlow`, and append-to-list state handling.
-- [ ] Delete this entry once load-more ships.
-
----
-
-## mobile-timeline-empty-global-cta
-
-**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D7 — the empty-state copy implies a switch-to-Global action, but no Global screen exists yet, so the message renders without the button.
-**Status:** open
-
-**Finding:** The empty state renders `timeline_empty_nearby` ("*Area kamu belum ramai. Sementara lihat dari seluruh Indonesia dulu?*", [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Empty State) as a message only. The copy implies a "lihat Global" affordance, but there is no Global-timeline screen to navigate to, so shipping the button would create a dead control. The switch-to-Global CTA lands once a Global screen exists (a future tab-bar / Global-timeline change).
-
-**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "Screen state mapping" renders the empty message only, deferring the affordance.
-**Code at fault:** None — the message-only empty state is intentional.
-**Docs at fault:** None.
-
-**Impact (if shipped):** The empty-area copy hints at an action the user can't take yet. Low — the message still informs; the affordance is additive once Global exists.
-
-**Action items:**
-- [ ] Once a Global-timeline screen ships, add a "lihat Global" CTA to the Nearby empty state that navigates to it (likely bundled with the Nearby/Following/Global tab-bar change).
-- [ ] Delete this entry once the empty-state Global CTA is wired.
+- [ ] File OpenSpec change `mobile-nearby-timeline-infinite-scroll` adding scroll-to-end detection in the `LazyColumn`, a `loadNextPage(cursor)` path on `NearbyTimelineFlow` **and `GlobalTimelineFlow`**, and append-to-list state handling for **both feeds**.
+- [ ] Delete this entry once load-more ships for both feeds.
 
 ---
 
@@ -750,25 +731,41 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## mobile-home-tab-host
+## mobile-following-timeline-screen
 
-**Discovered during:** `mobile-nav-swap-to-navigation3` proposal (deferral; Non-Goals) — forward-referenced by `mobile-post-creation` (the home-surface FAB is "conceptually one composer affordance across all three future tabs").
-
+**Discovered during:** `mobile-home-tab-host` `/opsx:apply` — design D6 ships the Following tab as a documented empty-state placeholder that issues NO fetch (no follow-action UI exists on mobile, so a live feed would be perpetually empty + untestable end-to-end).
 **Status:** open
 
-**Finding:** `HomeScreen` is a thin host rendering `NearbyTimelineScreen` + the composer FAB. The Nearby / Following / Global **tab host** with multiple back stacks (one saveable back stack per tab, per `docs/02-Product.md` "Nearby and Following are home") is NOT built — `HomeRoute` maps to a single-feed host today. Nav3 supports per-tab back stacks (multiple `NavDisplay`s or a tab-keyed back-stack map), which is the natural shape once Following / Global feeds ship.
+**Finding:** The Following tab renders [`FollowingPlaceholderScreen`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/FollowingPlaceholderScreen.kt) (`timeline_following_placeholder` copy) and wires NO Following-timeline API client / repository / flow (structurally guarded by `FollowingTabNoFetchScanTest`). The real Following feed (`GET /api/v1/timeline/following`, shipped backend) is deferred until a follow-action UI exists to make the feed non-empty. The deferral is captured as explicit `mobile-home-tab-host` spec requirements (positive: placeholder renders via `Res.string`; negative-guard: no following fetch / no client wired) so this follow-up has a requirement to MODIFY.
 
-**Specs at fault:** none — deliberate, `mobile-nav-swap-to-navigation3` Non-Goals.
-**Code at fault:** none — the single-feed `HomeScreen` host is the intended MVP shape.
-**Docs at fault:** none.
+**Specs at fault:** None — `openspec/specs/mobile-home-tab-host/spec.md` § "Following tab renders the deferred placeholder and issues no fetch" defers this deliberately; this follow-up MODIFIES that requirement to introduce the live feed.
+**Code at fault:** None — the placeholder is the intended MVP shape; the shipped `GlobalTimeline*` seam is the copy-adapt template for the Following seam.
+**Docs at fault:** None.
 
-**Impact (if shipped):** none today (only the Nearby feed exists). The tab host is the precondition for surfacing the Following + Global timelines as sibling home tabs.
+**Impact (if shipped):** The Following tab shows a static "follow someone" placeholder until the real feed + follow-action UI land. Acceptable — there is no follow UI yet, so the feed would be empty regardless.
 
 **Action items:**
-- [ ] When the Following / Global feeds ship, file OpenSpec change `mobile-home-tab-host` introducing the Nearby/Following/Global tab host over per-tab Nav3 back stacks; the composer FAB stays at the home level (one affordance across tabs).
-- [ ] Delete this entry once the change merges.
+- [ ] File OpenSpec change `mobile-following-timeline-screen` adding `FollowingTimelineApiClient`/`Flow`/`Repository` + `FollowingTimelineScreen` (mirror the `GlobalTimeline*` seam) calling `GET /api/v1/timeline/following`, MODIFYING `mobile-home-tab-host` § "Following tab renders the deferred placeholder and issues no fetch" to replace the placeholder with the live feed; likely bundled with (or after) a follow-action UI so the feed is non-empty.
+- [ ] Delete this entry once the Following feed ships.
 
-**Cap note (2026-06-05):** `mobile-nav-swap-to-navigation3` added these 2 deferral entries → **29 open, under the 30-entry limit**. Both are clean Non-Goals deferrals (no half-implemented code); the GitHub-Issues migration noted in the 2026-06-01 sweep remains the standing drawdown lever.
+---
+
+## mobile-home-tab-host-per-tab-backstacks
+
+**Discovered during:** `mobile-home-tab-host` proposal review (Nav-model decision A) + `/opsx:apply` design D1 — the tab host renders each tab's screen directly under `HomeRoute` (selection via a serializable `Tab` enum in `rememberSaveable`), NOT per-tab `NavDisplay` back stacks, because there is no intra-tab navigation yet (no post detail / profile), so per-tab back stacks would be vestigial structure with nothing to push.
+**Status:** open
+
+**Finding:** [`HomeScreen`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt) holds the selected `Tab` in `rememberSaveable` and renders the tab's screen via `when(selectedTab)` directly under the `HomeRoute` `NavEntry`, so each feed's `viewModel { }` is `HomeRoute`-scoped and survives tab switches (design D1/D2). No tab-root `NavKey` and no per-tab `NavDisplay` are declared. Per-tab back stacks (one saveable back stack per tab — the shape the original `mobile-home-tab-host` FOLLOW_UP sketched) land with the FIRST intra-tab destination (post detail / profile / chat): a `viewModel { }` resolved *inside* a per-tab `NavDisplay` scopes to that per-tab entry, whose store clears on tab switch → re-fetch, contradicting the no-refetch requirement — so introducing per-tab back stacks needs the design rework D1 deferred (hoisting the feed VMs out to preserve `HomeRoute` scoping).
+
+**Specs at fault:** None — `openspec/specs/mobile-home-tab-host/spec.md` § "Tab selection is serializable and survives process death" deliberately defers per-tab `NavDisplay` back stacks (scenario "No per-tab NavDisplay or tab-root NavKey is introduced"); this follow-up MODIFIES that requirement when an intra-tab destination appears.
+**Code at fault:** None — the direct-render tab host is the intended shape with no intra-tab nav.
+**Docs at fault:** None.
+
+**Impact (if shipped):** None today (no intra-tab navigation exists). Without per-tab back stacks, the first intra-tab destination (e.g. tapping a post → detail) has no per-tab stack to push onto; that lands with the destination.
+
+**Action items:**
+- [ ] When the first intra-tab destination ships (post detail / profile), file OpenSpec change `mobile-home-tab-host-per-tab-backstacks` introducing per-tab `NavDisplay` back stacks (a tab-keyed back-stack map) while preserving the `HomeRoute`-scoped feed-VM no-refetch invariant; MODIFIES `mobile-home-tab-host` § "Tab selection is serializable and survives process death".
+- [ ] Delete this entry once per-tab back stacks ship.
 
 ---
 
@@ -818,8 +815,8 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] **(env-config completion)** Add a dedicated `Production` iOS build configuration wired to `Production.xcconfig` (`.nearyou.app` + `AppIcon`), remove the `Debug`/`Release` APPICON hardcodes (now safe once a Production config resolves cobalt), and fix per-configuration Pods wiring (`Config.xcconfig` → debug Pods for all configs today).
 - [ ] Delete this entry once the iOS dev icon + the env-config completion both ship (or are ruled out).
 
-**Cap note (2026-06-06):** `mobile-env-launcher-icons` added this 1 deferral entry → **30 open, at the 30-entry hard limit** (not breached). Clean Non-Goals deferral (no half-implemented code — iOS dev icon intentionally absent). The next entry-add MUST force a `/triage-follow-ups` sweep first.
+**Cap note (2026-06-06):** two changes landed this day — `mobile-home-tab-host` shipped (deleted its 2 precondition entries `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks` — net 0) and `mobile-env-launcher-icons` added `mobile-env-launcher-icons-ios-dev-icon` (+1) → **30 open, at the 30-entry hard limit** (not breached). The next entry-add MUST force a `/triage-follow-ups` sweep first.
 
 ---
 
-**Sweep + cap note (2026-06-06, `admin-rejected-identifiers-viewer` archive).** The `admin-rejected-identifiers-viewer` archive added `admin-rejected-identifiers-clear-action` on top of the just-merged `mobile-env-launcher-icons` archive that had filled the file to 30 → **31 open, 1 over the soft cap**. Per the "next add MUST force a sweep first" rule, a targeted sweep ran: the 8 likeliest-resolved entries (`mobile-auth-signin-logout-wire-up`, `mobile-auth-signin-android-instrumented-encryption-test`, `mobile-ios-ci-link-task`, `ci-paths-filter-switch-to-dorny`, `mobile-negative-requirement-ci-grep`, `mobile-post-creation-ios-flow-tests`, `mobile-auth-signin-credential-manager-legacy-fallback`, `firebase-admin-server-template-evaluate-bypass-removal`) were each re-verified against current code / CI / specs and ALL are still-valid — **0 rot**, consistent with the 2026-06-04 full sweep. There is nothing resolved to prune, so the file legitimately rests at **31 open: verified-valid deferred work, not rot** (mirrors the 2026-06-01 sweep's "35 open, 5 over — not rot" posture). Standing drawdown levers: merge the in-progress `ci/mobile-android-emulator-encryption-test` branch (commit `c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`; and the GitHub-Issues migration (deferred, solo-operator). The next add still gates on a fuller sweep or one of those levers landing.
+**Sweep + cap note (2026-06-06, `admin-rejected-identifiers-viewer` archive).** The `admin-rejected-identifiers-viewer` archive then added `admin-rejected-identifiers-clear-action` on top of the 30 above → **31 open, 1 over the soft cap**. Per the "next add MUST force a sweep first" rule, a targeted sweep ran: the 8 likeliest-resolved entries (`mobile-auth-signin-logout-wire-up`, `mobile-auth-signin-android-instrumented-encryption-test`, `mobile-ios-ci-link-task`, `ci-paths-filter-switch-to-dorny`, `mobile-negative-requirement-ci-grep`, `mobile-post-creation-ios-flow-tests`, `mobile-auth-signin-credential-manager-legacy-fallback`, `firebase-admin-server-template-evaluate-bypass-removal`) were each re-verified against current code / CI / specs and ALL are still-valid — **0 rot**, consistent with the 2026-06-04 full sweep. There is nothing resolved to prune, so the file legitimately rests at **31 open: verified-valid deferred work, not rot** (mirrors the 2026-06-01 sweep's "35 open, 5 over — not rot" posture). Standing drawdown levers: merge the in-progress `ci/mobile-android-emulator-encryption-test` branch (commit `c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`; and the GitHub-Issues migration (deferred, solo-operator). The next add still gates on a fuller sweep or one of those levers landing.
