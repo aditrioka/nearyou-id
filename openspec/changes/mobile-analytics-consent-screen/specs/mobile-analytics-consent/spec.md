@@ -6,7 +6,7 @@ The mobile app SHALL ship a screen `ConsentScreen` (file: `mobile/app/src/common
 
 #### Scenario: Initial render shows title, three toggles, and the continue CTA
 
-- **WHEN** a `commonTest` runs `runComposeUiTest { setContent { NearYouTheme { ConsentScreen(...).Content() } } }` against a fresh composition
+- **WHEN** a Compose UI test (Robolectric `runComposeUiTest`, in `androidUnitTest` per the repo's established screen-test sourceset) renders `NearYouTheme { ConsentScreen(...) }` against a fresh composition
 - **THEN** the rendered tree contains a node whose text matches the runtime value of `stringResource(Res.string.consent_title)` AND nodes whose text matches each of `consent_analytics_label`, `consent_crash_label`, `consent_ads_label` AND a clickable node whose text matches `stringResource(Res.string.consent_cta_continue)`
 
 #### Scenario: No hardcoded UI strings in ConsentScreen source
@@ -31,7 +31,7 @@ The mobile app SHALL ship a screen `ConsentScreen` (file: `mobile/app/src/common
 
 ### Requirement: Continue submits the current toggle triple via PATCH and routes Home on 200
 
-On continue-CTA tap, `ConsentRepository.submitConsent(analytics, crash, adsPersonalization)` SHALL issue `PATCH /api/v1/user/consent` (via the existing `Auth { bearer }`-interceptor `HttpClient`) with body `{"analytics": <toggle>, "crash": <toggle>, "ads_personalization": <toggle>}` (snake_case `@SerialName`). On HTTP `200`, a navigation event routing to `HomeScreen` (via `RootRouterScreen`) SHALL be emitted; no token write occurs (the screen does not touch `SecureTokenStore`).
+On continue-CTA tap, `ConsentRepository.submitConsent(analytics, crash, adsPersonalization)` SHALL issue `PATCH /api/v1/user/consent` (via the existing `Auth { bearer }`-interceptor `HttpClient`) with body `{"analytics": <toggle>, "crash": <toggle>, "ads_personalization": <toggle>}` (snake_case `@SerialName`). On HTTP `200`, a navigation event routing to `HomeScreen` (via the `ConsentScreen` `onDone` callback wired in `AppEntryProvider` — `replaceAll(HomeRoute)`; NOT `RootRouterScreen`) SHALL be emitted; no token write occurs (the screen does not touch `SecureTokenStore`).
 
 #### Scenario: Submit issues the canonical PATCH with the toggle triple and routes Home on 200
 
@@ -86,13 +86,23 @@ A `ConsentRoute` `@Serializable data object` SHALL be added to `mobile/app/src/c
 - **WHEN** `ConsentRoute` is serialized and deserialized via the `AppNavSerialization` polymorphic configuration
 - **THEN** the round-trip succeeds (the route is registered in the polymorphic module) AND `ConsentRoute` declares no identity property
 
+### Requirement: ConsentRoute REPLACES the age-gate entry; back-press cannot re-enter the age gate
+
+The signup-`201` transition SHALL navigate to `ConsentRoute` via `replaceAll` (NOT a `push`/append onto the existing back stack), so the `AgeGateRoute` entry is cleared and a system back gesture on `ConsentScreen` cannot return the user to the age gate (the account is already created and tokens persisted; re-entering the age gate would be incorrect). After this transition the back stack SHALL contain `ConsentRoute` as its only/top entry with no `AgeGateRoute` beneath it.
+
+#### Scenario: After signup-201, the back stack holds ConsentRoute with no AgeGateRoute beneath
+
+- **GIVEN** a back stack on `AgeGateRoute` and a signup that returns `201`
+- **WHEN** the signup-success transition runs
+- **THEN** the resulting back stack contains `ConsentRoute` (top) AND does NOT contain `AgeGateRoute` (it was replaced, not pushed) — so a back gesture cannot navigate to the age gate
+
 ### Requirement: ConsentScreen and its repository never log the token, sub, or response body
 
-`ConsentScreen`, `ConsentViewModel`, `ConsentApiClient`, and `ConsentRepository` SHALL NOT log the bearer token, the JWT `sub`, or the PATCH response body. The Ktor client `LogLevel` used by this path MUST NOT include bodies (consistent with Mobile #3's `LogLevel.HEADERS` posture).
+No source file under `screens/consent/**` or `consent/**` (the entire consent package surface — `ConsentScreen`, `ConsentViewModel`, `ConsentApiClient`, `ConsentRepository`, `ConsentFlow`, and any sibling) SHALL log the bearer token, the JWT `sub`, or the PATCH response body. The Ktor client `LogLevel` used by this path MUST NOT include bodies (consistent with Mobile #3's `LogLevel.HEADERS` posture).
 
 #### Scenario: Consent sources contain no token/sub/body log argument
 
-- **WHEN** inspecting the `screens/consent/` and `consent/` source files
+- **WHEN** inspecting every source file under `screens/consent/**` and `consent/**` (the scan globs the package, not an enumerated file list, so a later-added file like `ConsentFlow` is covered)
 - **THEN** no logging call site passes the bearer token, the `Authorization` header, the JWT `sub`, or the PATCH response body as a logged argument
 
 ### Requirement: A failed persist offers a non-trapping proceed-to-Home; the happy path shows no skip

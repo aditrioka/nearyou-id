@@ -25,7 +25,7 @@ It is a **launch-gating legal requirement**, not a nice-to-have: [`docs/08-Roadm
 
 ## Impact
 
-- **Code**: NEW `backend/ktor/.../user/ConsentRoutes.kt` + request/response DTOs + the consent repository/service write path + Koin wiring; `:mobile:app` commonMain (`screens/consent/ConsentScreen.kt`, `ConsentUiState.kt`, `ConsentViewModel`, `consent/ConsentApiClient.kt` + `ConsentRepository.kt` + `ConsentFlow`, `ConsentRoute` in `screens/routing/NavKeys.kt` + `AppNavSerialization`, the `RootRouterScreen` 201-terminus swap, `di/MobileModule.kt`); `:shared:resources` strings.
+- **Code**: NEW `backend/ktor/.../user/ConsentRoutes.kt` + request/response DTOs + the consent repository/service write path + Koin wiring; `:mobile:app` commonMain (`screens/consent/ConsentScreen.kt`, `ConsentUiState.kt`, `ConsentViewModel`, `consent/ConsentApiClient.kt` + `ConsentRepository.kt` + `ConsentFlow`, `ConsentRoute` in `screens/routing/NavKeys.kt` + `AppNavSerialization`, the signup-`201`-terminus swap in `AppEntryProvider.kt` — the `AgeGateScreen(onSignedUp = …)` callback that today calls `replaceAll(HomeRoute)` — and the `ConsentRoute`→`ConsentScreen` mapping there, `di/MobileModule.kt`); `:shared:resources` strings. (`RootRouterScreen` only handles cold-start token-presence routing and is NOT the 201 terminus.)
 - **APIs**: NEW `PATCH /api/v1/user/consent` (authenticated). No other endpoint changes.
 - **Schema**: none — `users.analytics_consent` JSONB already exists (V2). **Zero Flyway migrations** (no migration-number contention with any in-flight change).
 - **Dependencies**: none added.

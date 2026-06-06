@@ -42,7 +42,7 @@ The `UPDATE` SHALL target only the JWT-`sub` user's row (`WHERE id = :jwtSub`). 
 
 ### Requirement: Malformed or partial bodies are rejected with 400 and never partially apply
 
-The route SHALL reject a body that is not the complete `{analytics, crash, ads_personalization}` triple of booleans — a missing key, an extra unknown key, or a non-boolean value SHALL produce `400` with no write. Rationale: the full-object-write semantics require all three keys; accepting a partial body would silently default the omitted keys.
+The route SHALL reject a body that is not the complete `{analytics, crash, ads_personalization}` triple of booleans — a **missing key** or a **non-boolean value** SHALL produce `400` with no write (achieved via non-nullable `Boolean` DTO fields: a missing key raises `MissingFieldException` and a type mismatch raises a `SerializationException`, both mapped to `400`). Rationale: the full-object-write semantics require all three keys; accepting a partial body would silently default the omitted keys. **Unknown extra keys are ignored, NOT rejected** — this is the app-wide `ContentNegotiation { Json { ignoreUnknownKeys = true } }` posture (`backend/.../Application.kt`) and matches the `FcmTokenRoutes` precedent; the endpoint does not introduce a route-local strict `Json` to reject them (an extra key cannot corrupt the write, since only the three canonical fields are read).
 
 #### Scenario: Missing a key is rejected
 
