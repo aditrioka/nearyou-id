@@ -35,6 +35,7 @@
             <li><a href="/admin/reports">Reports</a></li>
             <li><a href="/admin/users">Users</a></li>
             <li><a href="/admin/actions-log">Audit log</a></li>
+            <li><a href="/admin/rejected-identifiers">Rejected identifiers</a></li>
             {% if csrfToken is not null %}
             <li>
                 <form action="/admin/logout" method="POST" style="display: inline;">
