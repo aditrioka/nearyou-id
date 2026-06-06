@@ -87,4 +87,22 @@
     <string name="consent_cta_continue">Simpan &amp; lanjutkan</string>
     <string name="consent_error_retryable">Gagal menyimpan preferensi. Coba lagi.</string>
     <string name="consent_skip">Lewati untuk sekarang</string>
+    <!-- mobile-home-tab-host + mobile-global-timeline. `timeline_global_title` ("Seluruh Indonesia"),
+         `timeline_following_placeholder`, and `cta_see_global` ("Lihat Global") are SPEC-CANONICAL —
+         byte-identical to openspec/changes/mobile-home-tab-host/specs (tasks.md 2.1 / docs/03-UX-Design.md
+         § Empty State + docs/02-Product.md § Global Timeline). The tab labels keep the product's canonical
+         "Nearby / Following / Global" names (docs/02-Product.md § Timeline Features) so the CTA + placeholder
+         that reference "Nearby"/"Global" point at visibly-matching tab labels. The 3 icon content
+         descriptions are derived a11y copy (descriptive, not label duplicates) — FLAGGED FOR UX REVIEW. The
+         Global empty-skeleton + error/retry states reuse timeline_loading / signin_error_network / cta_retry
+         (declared above) — no new keys (avoids a verbatim timeline_loading duplicate). -->
+    <string name="tab_nearby">Nearby</string>
+    <string name="tab_following">Following</string>
+    <string name="tab_global">Global</string>
+    <string name="tab_nearby_icon_description">Postingan di sekitar kamu</string>
+    <string name="tab_following_icon_description">Postingan dari yang kamu ikuti</string>
+    <string name="tab_global_icon_description">Postingan dari seluruh Indonesia</string>
+    <string name="timeline_global_title">Seluruh Indonesia</string>
+    <string name="timeline_following_placeholder">Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu.</string>
+    <string name="cta_see_global">Lihat Global</string>
 </resources>

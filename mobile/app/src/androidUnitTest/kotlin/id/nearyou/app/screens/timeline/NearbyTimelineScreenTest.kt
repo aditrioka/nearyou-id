@@ -38,6 +38,7 @@ private const val LIMIT_HARD = "Kamu sudah mencapai batas baca untuk jam ini. Co
 private const val LIMIT_SOFT = "Kamu lagi aktif-aktifnya! Premium membuka akses baca tanpa batas."
 private const val ERROR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
 private const val RETRY = "Coba lagi"
+private const val SEE_GLOBAL = "Lihat Global" // cta_see_global — the empty-state tab-switch CTA
 private const val HOME_PLACEHOLDER_TITLE = "NearYouID" // home_placeholder_title (no longer rendered)
 
 /**
@@ -106,14 +107,33 @@ class NearbyTimelineScreenTest {
         }
     }
 
-    // 8.3 — empty area (Loaded, empty, no upsell) shows the sparse copy, NOT the hard-limit copy.
+    // 8.3 / 9.3 — empty area (Loaded, empty, no upsell) shows the sparse copy + the new "lihat Global"
+    // CTA, NOT the hard-limit copy.
     @Test
-    fun emptyState_showsSparseCopy_notHardLimit() {
+    fun emptyState_showsSparseCopyAndSeeGlobalCta_notHardLimit() {
         installKoin(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             onNodeWithText(EMPTY).assertExists()
+            onNodeWithText(SEE_GLOBAL).assertExists()
             onNodeWithText(LIMIT_HARD).assertDoesNotExist()
+        }
+    }
+
+    // 9.3 / mobile-nearby-timeline § "Empty-state CTA switches to the Global tab" — the empty-state CTA
+    // invokes the hoisted onSeeGlobal lambda (the tab host wires it to select the Global tab). Asserted
+    // at the screen level via a recording callback; the host-level tab switch is covered by
+    // HomeTabHostScreenTest.nearbyEmptyState_seeGlobalCta_switchesToGlobalTab.
+    @Test
+    fun emptyState_seeGlobalCta_invokesTheHoistedCallback() {
+        installKoin(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
+        var seeGlobalCount = 0
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen(onSeeGlobal = { seeGlobalCount++ }) } } }
+            onNodeWithText(SEE_GLOBAL).assertExists()
+            onNodeWithText(SEE_GLOBAL).performClick()
+            waitForIdle()
+            assertEquals(1, seeGlobalCount, "the empty-state CTA invokes the hoisted onSeeGlobal lambda")
         }
     }
 

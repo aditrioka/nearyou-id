@@ -17,6 +17,9 @@ import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.CreatePostRepository
 import id.nearyou.app.post.PostCreationApiClient
 import id.nearyou.app.screens.routing.PendingSignupIdentity
+import id.nearyou.app.timeline.GlobalTimelineApiClient
+import id.nearyou.app.timeline.GlobalTimelineFlow
+import id.nearyou.app.timeline.GlobalTimelineRepository
 import id.nearyou.app.timeline.LocationProvider
 import id.nearyou.app.timeline.NearbyTimelineApiClient
 import id.nearyou.app.timeline.NearbyTimelineFlow
@@ -89,6 +92,15 @@ val mobileModule =
         single { SessionIdProvider() }
         single { NearbyTimelineRepository(get(), get(), get()) }
         single<NearbyTimelineFlow> { get<NearbyTimelineRepository>() }
+
+        // mobile-global-timeline — the Global feed graph (mobile-home-tab-host Global tab). Mirrors the
+        // Nearby seam, minus the LocationProvider (Global has no spatial filter). REUSES the existing
+        // SessionIdProvider single above (the X-Session-Id soft-cap bucket is shared across feeds — do
+        // NOT register a second). GlobalTimelineFlow is bound to the concrete repository so a
+        // FakeGlobalTimelineFlow can drive the screen tests.
+        single { GlobalTimelineApiClient(get()) }
+        single { GlobalTimelineRepository(get(), get()) }
+        single<GlobalTimelineFlow> { get<GlobalTimelineRepository>() }
 
         // mobile-post-creation-screen — the create-post graph. Reuses the shared HttpClient, the
         // unqualified LocationProvider (the CachingLocationProvider decorator above, shared with
