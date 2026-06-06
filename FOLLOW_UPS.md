@@ -766,4 +766,27 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] When the first intra-tab destination ships (post detail / profile), file OpenSpec change `mobile-home-tab-host-per-tab-backstacks` introducing per-tab `NavDisplay` back stacks (a tab-keyed back-stack map) while preserving the `HomeRoute`-scoped feed-VM no-refetch invariant; MODIFIES `mobile-home-tab-host` § "Tab selection is serializable and survives process death".
 - [ ] Delete this entry once per-tab back stacks ship.
 
-**Cap note (2026-06-06):** `mobile-home-tab-host` shipped — deleted its 2 precondition entries (`mobile-home-tab-host` + `mobile-timeline-empty-global-cta`) and added these 2 deferral entries (`mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks`): **net 0 change to the open count** (29, under the 30-entry limit). The GitHub-Issues migration noted in the 2026-06-01 sweep remains the standing drawdown lever.
+---
+
+## mobile-env-launcher-icons-ios-dev-icon
+
+**Discovered during:** `mobile-env-launcher-icons` proposal (deferral; design Decision 6) + apply.
+
+**Status:** open
+
+**Finding:** Android differentiates the launcher icon across all three environments (`dev` #15803D / `staging` #C2410C / `production` #1E4FD6) via flavor `res/` overrides. iOS ships only `production` (cobalt `AppIcon`) + `staging` (`AppIcon-Staging`, #C2410C); there is NO separate iOS **dev** icon. iOS "dev" maps to the local Debug-on-simulator build, which is already unambiguous about which build is running, so a dedicated iOS dev configuration/scheme/icon was judged not worth the added Xcode-project surface for v1. Android remains the canonical 3-environment surface.
+
+**Specs at fault:** none — deliberate, `mobile-env-launcher-icons` design Decision 6 (the `shared-resources` *environment-differentiated* requirement scopes iOS to staging + production).
+**Code at fault:** none — iOS dev icon intentionally absent.
+**Docs at fault:** none.
+
+**Impact (if shipped):** none today — iOS dev runs from Xcode on the simulator. The gap only matters if a distinct iOS **dev** build is ever distributed (e.g., a TestFlight internal dev lane) and needs at-a-glance visual separation from staging.
+
+**Also covers — iOS env-config completion (broadened during `mobile-env-launcher-icons` apply):** the apply shipped a `Staging` build configuration + shared scheme that resolves `AppIcon-Staging` + `id.nearyou.app.staging` (verified via `xcodebuild -showBuildSettings`), but did NOT remove the `Debug`/`Release` `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` hardcodes (removing them would regress production to the staging icon, since `Config.xcconfig` is the staging-flavored base). Consequently `Release` still carries the `.staging` bundle id + cobalt icon, and there is no dedicated `.nearyou.app` production build configuration yet. `Config.xcconfig` also `#include`s the *debug* Pods xcconfig for every config (its own comment flags proper per-config Pods wiring as a follow-up).
+
+**Action items:**
+- [ ] If a distributed iOS dev build is introduced, add a `Dev` iOS build configuration + shared scheme + `AppIcon-Dev` (forest green #15803D) mirroring the staging wiring, and set `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev` in a `Dev.xcconfig`.
+- [ ] **(env-config completion)** Add a dedicated `Production` iOS build configuration wired to `Production.xcconfig` (`.nearyou.app` + `AppIcon`), remove the `Debug`/`Release` APPICON hardcodes (now safe once a Production config resolves cobalt), and fix per-configuration Pods wiring (`Config.xcconfig` → debug Pods for all configs today).
+- [ ] Delete this entry once the iOS dev icon + the env-config completion both ship (or are ruled out).
+
+**Cap note (2026-06-06):** two changes landed this day — `mobile-home-tab-host` shipped (deleted its 2 precondition entries `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks` — net 0) and `mobile-env-launcher-icons` added `mobile-env-launcher-icons-ios-dev-icon` (+1) → **30 open, at the 30-entry hard limit** (not breached). The next entry-add MUST force a `/triage-follow-ups` sweep first.
