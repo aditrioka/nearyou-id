@@ -14,6 +14,7 @@ import id.nearyou.resources.generated.resources.cta_continue
 import id.nearyou.resources.generated.resources.cta_create_account
 import id.nearyou.resources.generated.resources.cta_post
 import id.nearyou.resources.generated.resources.cta_retry
+import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.cta_signin_google
 import id.nearyou.resources.generated.resources.empty_state_generic
 import id.nearyou.resources.generated.resources.error_generic
@@ -42,7 +43,15 @@ import id.nearyou.resources.generated.resources.signin_loading
 import id.nearyou.resources.generated.resources.signin_screen_title
 import id.nearyou.resources.generated.resources.signup_error_account_exists
 import id.nearyou.resources.generated.resources.signup_loading
+import id.nearyou.resources.generated.resources.tab_following
+import id.nearyou.resources.generated.resources.tab_following_icon_description
+import id.nearyou.resources.generated.resources.tab_global
+import id.nearyou.resources.generated.resources.tab_global_icon_description
+import id.nearyou.resources.generated.resources.tab_nearby
+import id.nearyou.resources.generated.resources.tab_nearby_icon_description
 import id.nearyou.resources.generated.resources.timeline_empty_nearby
+import id.nearyou.resources.generated.resources.timeline_following_placeholder
+import id.nearyou.resources.generated.resources.timeline_global_title
 import id.nearyou.resources.generated.resources.timeline_limit_hard
 import id.nearyou.resources.generated.resources.timeline_limit_soft
 import id.nearyou.resources.generated.resources.timeline_loading
@@ -115,13 +124,28 @@ class SharedStringsCatalogTest {
             Res.string.post_create_error_location,
             Res.string.post_create_error_moderated,
             Res.string.post_create_location_unavailable,
+            // mobile-home-tab-host + mobile-global-timeline (3 tab labels + 3 tab icon content
+            // descriptions + the Global title + the Following placeholder + the "lihat Global" CTA).
+            // The Global empty/error states reuse timeline_loading / signin_error_network / cta_retry
+            // (already counted above) — no new keys for those.
+            Res.string.tab_nearby,
+            Res.string.tab_following,
+            Res.string.tab_global,
+            Res.string.tab_nearby_icon_description,
+            Res.string.tab_following_icon_description,
+            Res.string.tab_global_icon_description,
+            Res.string.timeline_global_title,
+            Res.string.timeline_following_placeholder,
+            Res.string.cta_see_global,
         )
 
     @Test
     fun `all Mobile 2 3 4 and 5 plus location and post-creation string keys are declared`() {
         // 10 (Mobile #2/#2.5) + 8 (Mobile #3) + 8 (Mobile #4) + 5 (Mobile #5 timeline)
-        // + 5 (mobile-location-permission-flow) + 10 (mobile-post-creation-screen) = 46.
-        assertEquals(46, allDeclaredStrings.size)
+        // + 5 (mobile-location-permission-flow) + 10 (mobile-post-creation-screen)
+        // + 9 (mobile-home-tab-host: 3 tab labels + 3 tab icon descriptions + Global title
+        // + Following placeholder + lihat-Global CTA) = 55.
+        assertEquals(55, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }
