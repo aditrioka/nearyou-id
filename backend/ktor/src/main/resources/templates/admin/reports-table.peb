@@ -1,0 +1,59 @@
+{# Swappable report-queue table fragment. Rendered standalone for HTMX requests
+   (HX-Request: true) and {% include %}d by reports.peb for full-page
+   navigation. The #reports-table id is the hx-target swapped in place. Every
+   value is Pebble-autoescaped on output (spec: All rendered values are
+   HTML-escaped) — no `raw` filter is used on any value, including the
+   user-controlled reason_note and the joined reporter username. #}
+<div id="reports-table">
+{% if hasRows %}
+    <table>
+        <thead>
+            <tr>
+                <th>Time (UTC)</th>
+                <th>Target</th>
+                <th>Reason</th>
+                <th>Note</th>
+                <th>Status</th>
+                <th>Reporter</th>
+                <th>Queue</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td>{{ row.createdAt }}</td>
+                <td>
+                    {{ row.targetType }} /
+                    {% if row.actionUserId is not null %}
+                    <a href="/admin/users?q={{ row.actionUserId }}">{{ row.targetId }}</a>
+                    {% else %}
+                    {{ row.targetId }}
+                    {% endif %}
+                </td>
+                <td>{{ row.reasonCategory }}</td>
+                <td>{{ row.reasonNote }}</td>
+                <td>{{ row.status }}</td>
+                <td>{{ row.reporter }}</td>
+                <td>
+                    {% if row.hasQueue %}
+                    {{ row.queueTrigger }} (priority {{ row.queuePriority }}, {{ row.queueStatus }})
+                    {% else %}
+                    —
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if olderUrl is not null %}
+    <a class="pagination-older"
+       href="{{ olderUrl }}"
+       hx-get="{{ olderUrl }}"
+       hx-target="#reports-table"
+       hx-swap="outerHTML"
+       hx-push-url="true">Older &rarr;</a>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No reports match the current filters.</p>
+{% endif %}
+</div>
