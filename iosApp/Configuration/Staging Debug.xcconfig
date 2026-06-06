@@ -1,0 +1,4 @@
+// Per-configuration xcconfig for the `Staging Debug` build configuration (mobile-ios-build-config-matrix).
+// env values (Staging.xcconfig) + the debug Pods base (confirmed by `pod install`).
+#include "Staging.xcconfig"
+#include "../Pods/Target Support Files/Pods-iosApp/Pods-iosApp.staging debug.xcconfig"

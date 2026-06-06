@@ -153,6 +153,33 @@ class LauncherIconBackgroundTest {
             cobaltRe.containsMatchIn(rawSource("iosApp/Configuration/Production.xcconfig")),
             "Production.xcconfig must set ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon (cobalt production)",
         )
+        // mobile-ios-build-config-matrix: the Dev env config selects the forest-green AppIcon-Dev.
+        val devRe = Regex("""(?m)^[ \t]*ASSETCATALOG_COMPILER_APPICON_NAME\s*=\s*AppIcon-Dev""")
+        assertTrue(
+            devRe.containsMatchIn(rawSource("iosApp/Configuration/Dev.xcconfig")),
+            "Dev.xcconfig must set ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev",
+        )
+    }
+
+    @Test
+    fun iosPbxproj_hasNoAppIconHardcode() {
+        // mobile-ios-build-config-matrix review F2: the icon resolves per-config from xcconfig, so the
+        // project.pbxproj target buildSettings must carry NO ASSETCATALOG_COMPILER_APPICON_NAME hardcode
+        // (which would override the xcconfig). Linux-CI guard for the "no hardcode" spec scenario.
+        val pbxproj = rawSource("iosApp/iosApp.xcodeproj/project.pbxproj")
+        assertFalse(
+            pbxproj.contains("ASSETCATALOG_COMPILER_APPICON_NAME"),
+            "project.pbxproj must NOT hardcode ASSETCATALOG_COMPILER_APPICON_NAME — the icon resolves per-config from xcconfig",
+        )
+    }
+
+    @Test
+    fun iosDevAppIconSet_existsAsSingleUniversalEntry() {
+        val contents = rawSource("iosApp/iosApp/Assets.xcassets/AppIcon-Dev.appiconset/Contents.json")
+        assertTrue(contents.contains("\"app-icon-1024.png\""), "AppIcon-Dev must reference app-icon-1024.png")
+        assertFalse(contents.contains("luminosity"), "AppIcon-Dev must be a single universal entry (no dark/tinted variants)")
+        val png = File(repoRoot, "iosApp/iosApp/Assets.xcassets/AppIcon-Dev.appiconset/app-icon-1024.png")
+        assertTrue(png.exists(), "the AppIcon-Dev 1024 PNG must be present")
     }
 
     @Test

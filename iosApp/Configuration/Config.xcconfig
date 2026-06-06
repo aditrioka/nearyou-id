@@ -1,9 +1,8 @@
-// CocoaPods integration (Mobile #3): the project uses this custom xcconfig as its base, so
-// `pod install` could not auto-set the Pods base config — pull it in explicitly here.
-// NOTE (smoke-expedient): includes the *Debug* Pods xcconfig because the staging device smoke
-// builds the Debug config. Proper per-config wiring (Debug↔Pods-iosApp.debug,
-// Release↔Pods-iosApp.release, ideally a dedicated Staging build config) is a follow-up.
-#include "../Pods/Target Support Files/Pods-iosApp/Pods-iosApp.debug.xcconfig"
+// CocoaPods: the Pods xcconfig #include is intentionally NOT here (mobile-ios-build-config-matrix
+// review F1). Config.xcconfig is the shared base; the build-type-correct Pods xcconfig
+// (Pods-iosApp.<config>.xcconfig) is #included by each PER-CONFIG xcconfig instead
+// (Dev Debug.xcconfig / Staging Debug.xcconfig / Prod Debug.xcconfig / Prod Release.xcconfig) —
+// a single base can't include both debug + release Pods for Prod Debug + Prod Release.
 
 TEAM_ID=
 
