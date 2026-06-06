@@ -6,6 +6,11 @@
 // a misconfigured production build fails fast rather than silently hitting a wrong host.
 PRODUCT_BUNDLE_IDENTIFIER=id.nearyou.app
 
+// Launcher icon (mobile-env-launcher-icons) — the ONLY config that resolves the cobalt production
+// AppIcon, overriding the staging-tinted base default from Config.xcconfig. This is the user-facing
+// production icon and is byte-identical to what Mobile #2.5 shipped.
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+
 // `//` is an xcconfig comment — built from $(NY_SLASH) (inherited from Config.xcconfig) so the
 // URL isn't silently truncated to "https:". The `.PLACEHOLDER` host keeps the deliberate
 // fail-fast until production infra is provisioned. See Config.xcconfig for the full rationale.

@@ -768,3 +768,25 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] Delete this entry once the change merges.
 
 **Cap note (2026-06-05):** `mobile-nav-swap-to-navigation3` added these 2 deferral entries → **29 open, under the 30-entry limit**. Both are clean Non-Goals deferrals (no half-implemented code); the GitHub-Issues migration noted in the 2026-06-01 sweep remains the standing drawdown lever.
+
+---
+
+## mobile-env-launcher-icons-ios-dev-icon
+
+**Discovered during:** `mobile-env-launcher-icons` proposal (deferral; design Decision 6) + apply.
+
+**Status:** open
+
+**Finding:** Android differentiates the launcher icon across all three environments (`dev` #15803D / `staging` #C2410C / `production` #1E4FD6) via flavor `res/` overrides. iOS ships only `production` (cobalt `AppIcon`) + `staging` (`AppIcon-Staging`, #C2410C); there is NO separate iOS **dev** icon. iOS "dev" maps to the local Debug-on-simulator build, which is already unambiguous about which build is running, so a dedicated iOS dev configuration/scheme/icon was judged not worth the added Xcode-project surface for v1. Android remains the canonical 3-environment surface.
+
+**Specs at fault:** none — deliberate, `mobile-env-launcher-icons` design Decision 6 (the `shared-resources` *environment-differentiated* requirement scopes iOS to staging + production).
+**Code at fault:** none — iOS dev icon intentionally absent.
+**Docs at fault:** none.
+
+**Impact (if shipped):** none today — iOS dev runs from Xcode on the simulator. The gap only matters if a distinct iOS **dev** build is ever distributed (e.g., a TestFlight internal dev lane) and needs at-a-glance visual separation from staging.
+
+**Action items:**
+- [ ] If a distributed iOS dev build is introduced, add a `Dev` iOS build configuration + shared scheme + `AppIcon-Dev` (forest green #15803D) mirroring the staging wiring, and set `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev` in a `Dev.xcconfig`.
+- [ ] Delete this entry once shipped (or if iOS dev distribution is ruled out).
+
+**Cap note (2026-06-06):** `mobile-env-launcher-icons` added this 1 deferral entry → **30 open, at the 30-entry hard limit** (not breached). Clean Non-Goals deferral (no half-implemented code — iOS dev icon intentionally absent). The next entry-add MUST force a `/triage-follow-ups` sweep first.
