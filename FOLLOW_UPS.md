@@ -768,6 +768,46 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
+## admin-report-queue-resolution-actions
+
+**Discovered during:** `admin-report-queue-viewer` archive §8.2 (deferred-by-design; recorded as the spec requirement "Report resolution write-back and the edit-history filter are explicitly deferred").
+
+**Status:** open
+
+**Finding:** The `admin-report-queue` read viewer (`GET /admin/reports`, Admin #6) deliberately ships read-only — it surfaces the backlog and deep-links the offending user to `/admin/users`, but provides NO surface to resolve a report in place. The write-back half (mark a report actioned/dismissed → set `reports.status` / `reports.reviewed_by` / `reports.reviewed_at`, set `moderation_queue.resolution` / `resolved_by` / `resolved_at`, and write one immutable `admin_actions_log` audit row, all atomically) is the natural fast-follow — exactly as `admin-actions-log-viewer` (read) preceded `admin-user-moderation` (write). The `moderation_queue.resolution` 8-enum + `reports.status` 3-enum shipped at V9; the `reviewed_by`/`resolved_by` → `admin_users(id) ON DELETE SET NULL` FKs shipped at V16.
+
+**Specs at fault:** none — `openspec/specs/admin-report-queue/spec.md` § "Report resolution write-back and the edit-history filter are explicitly deferred" positively requires this be a separate change.
+**Code at fault:** none — the read route is correctly mutation-free (verified by the read-only negative-guard test).
+**Docs at fault:** none — `docs/07-Operations.md` § Core Features "Report Queue" now lists the in-row resolution actions as Still DESIGN.
+
+**Impact (if shipped):** closes the moderation loop in-panel (today a moderator resolves by clicking through to `/admin/users` suspend/unban; the queue row's own `status` stays `pending` until this lands). Role-gated + CSRF-gated like `admin-user-moderation`.
+
+**Action items:**
+- [ ] File OpenSpec change `admin-report-queue-resolution-actions`: POST resolution endpoint(s) under the admin gate (CSRF + role-gated), atomic status transitions on `reports` + `moderation_queue`, one `admin_actions_log` row per action, in-row resolution controls in the `reports-table.peb` fragment.
+- [ ] Delete this entry once the change merges.
+
+---
+
+## admin-report-queue-has-edit-history-filter
+
+**Discovered during:** `admin-report-queue-viewer` archive §8.2 (deferred-by-design; recorded as the same spec requirement).
+
+**Status:** open
+
+**Finding:** `docs/07-Operations.md` § Core Features "Report Queue" lists a "post has edit history to prioritize" filter. The shipped viewer omits it: the composable filter set is `status` / `target_type` / `reason_category` / `trigger` / `from`–`to`, none of which expresses "the reported post has been edited." Implementing it needs an `EXISTS` join against `post_edits` (keyed on the report's `target_id` when `target_type = 'post'`), out of scope for the read-only v1. The viewer already tolerates the param: `GET /admin/reports?has_edit_history=true` is ignored (200, no filtering) — verified by spec scenario "The edit-history prioritization filter is absent."
+
+**Specs at fault:** none — the spec's deferral requirement names this filter explicitly as a follow-up.
+**Code at fault:** none.
+**Docs at fault:** none — `docs/07-Operations.md` now marks the edit-history filter as Still DESIGN.
+
+**Impact (if shipped):** lets a moderator prioritize reports on edited posts (a common evasion pattern — post clean, edit to violating). Low-complexity once v1 exists: one more composable `EXISTS (SELECT 1 FROM post_edits …)` predicate + a checkbox in the filter form.
+
+**Action items:**
+- [ ] Add the `has_edit_history` filter to the report-queue query (`EXISTS` over `post_edits` for `target_type='post'`) + a checkbox in the filter form, as a small follow-up change (or fold into `admin-report-queue-resolution-actions`).
+- [ ] Delete this entry once shipped.
+
+---
+
 ## mobile-env-launcher-icons-ios-dev-icon
 
 **Discovered during:** `mobile-env-launcher-icons` proposal (deferral; design Decision 6) + apply.
@@ -789,4 +829,4 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] **(env-config completion)** Add a dedicated `Production` iOS build configuration wired to `Production.xcconfig` (`.nearyou.app` + `AppIcon`), remove the `Debug`/`Release` APPICON hardcodes (now safe once a Production config resolves cobalt), and fix per-configuration Pods wiring (`Config.xcconfig` → debug Pods for all configs today).
 - [ ] Delete this entry once the iOS dev icon + the env-config completion both ship (or are ruled out).
 
-**Cap note (2026-06-06):** two changes landed this day — `mobile-home-tab-host` shipped (deleted its 2 precondition entries `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks` — net 0) and `mobile-env-launcher-icons` added `mobile-env-launcher-icons-ios-dev-icon` (+1) → **30 open, at the 30-entry hard limit** (not breached). The next entry-add MUST force a `/triage-follow-ups` sweep first.
+**Cap note (2026-06-06):** A busy day — three changes touched this file (merge-reconciled): `mobile-home-tab-host` (#153) shipped (deleted its 2 precondition entries `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks` — net 0); `mobile-env-launcher-icons` (#155) added `mobile-env-launcher-icons-ios-dev-icon` (+1, → 30 at the limit); and `admin-report-queue-viewer` (#154) archive §8.2 added 2 spec-mandated deferral entries (`admin-report-queue-resolution-actions` + `admin-report-queue-has-edit-history-filter`) → **32 open, 2 over the 30-entry hard cap**. The 2 admin entries are spec-obliged (the `admin-report-queue` spec's "explicitly deferred" requirement); not rot (all clean deferred-by-design, zero half-implemented code). A `/triage-follow-ups` sweep is now OVERDUE (2 over); the test-coverage bundle (2026-06-04 note) + the GitHub-Issues migration remain the drawdown levers.
