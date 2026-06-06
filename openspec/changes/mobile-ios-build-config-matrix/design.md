@@ -26,7 +26,7 @@ Canonical doc state: [`docs/04-Architecture.md`](../../../docs/04-Architecture.m
 - No icon-asset change (`AppIcon-Staging.appiconset`, `AppIcon.appiconset`, Android flavor `colors.xml` untouched).
 - No backend/schema/API/security surface; no `gradle/libs.versions.toml` change.
 - No real production deploy (the production API stays a fail-fast placeholder until prod infra is provisioned).
-- Not adding an iOS `dev` launcher icon by default (Decision 3 open question — dev reuses the staging tint unless the user opts in).
+- ~~Not adding an iOS `dev` launcher icon~~ (RESOLVED at apply: the user opted into full 3-icon parity — a real `AppIcon-Dev` `#15803D` ships in this change per Decision 1; no longer a non-goal).
 
 ## Decisions
 
@@ -70,7 +70,7 @@ project 'iosApp/iosApp.xcodeproj',
 
 ### Decision 3 — APPICON resolves from xcconfig per config (remove the hardcodes)
 
-Remove the `Debug`/`Release` `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` hardcodes from `project.pbxproj` (`:307` / `:336`). This is now **safe** because a dedicated production config resolves cobalt via `Production.xcconfig` (`= AppIcon`). Resolution per config: `Staging *` → `AppIcon-Staging`, `Prod *` → `AppIcon`, `Dev *` → `AppIcon-Staging` (the **iOS dev icon stays deferred** per the FOLLOW_UP). Verified per config via `xcodebuild -showBuildSettings | grep APPICON`. **Open question:** the user MAY opt to add a real iOS dev icon (`AppIcon-Dev`, forest green `#15803D`) here instead of reusing staging — surface in the matrix confirmation.
+Remove the `Debug`/`Release` `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` hardcodes from `project.pbxproj` (`:307` / `:336`). This is now **safe** because a dedicated production config resolves cobalt via `Production.xcconfig` (`= AppIcon`). Resolution per config: `Staging *` → `AppIcon-Staging`, `Prod *` → `AppIcon`, `Dev Debug` → `AppIcon-Dev` (forest green `#15803D`). Verified per config via `xcodebuild -showBuildSettings | grep APPICON`. **✅ Resolved at apply (user, 2026-06-06):** the user opted into full 3-icon iOS parity — a real `AppIcon-Dev.appiconset` (`#15803D`) shipped in this change (per Decision 1), so the iOS dev icon is NO longer deferred. The `mobile-env-launcher-icons-ios-dev-icon` FOLLOW_UP is fully resolved.
 
 ### Decision 4 — pbxproj edit technique (reuse #155)
 
@@ -94,5 +94,5 @@ No runtime migration. Production end-user experience unchanged (production asset
 
 ## Open Questions
 
-- **The matrix (Decision 1)** — confirm the config set (recommend option b: Dev Debug / Staging Debug / Staging Release / Prod Release) + the iOS `dev` bundle id (`.dev` vs reuse `.staging`) with the user before the heavy apply.
-- **iOS dev icon (Decision 3)** — add a real `AppIcon-Dev` (`#15803D`) now, or keep dev reusing the staging tint (current default)?
+- ~~**The matrix (Decision 1)**~~ — ✅ RESOLVED (user, 2026-06-06): option **(a)** `Dev Debug` / `Staging Debug` / `Prod Debug` / `Prod Release`; iOS `dev` bundle id = `id.nearyou.app.dev` (true side-by-side, not `.staging` reuse).
+- ~~**iOS dev icon (Decision 3)**~~ — ✅ RESOLVED (user, 2026-06-06): a real `AppIcon-Dev` (`#15803D`) ships in this change (full 3-icon iOS parity).

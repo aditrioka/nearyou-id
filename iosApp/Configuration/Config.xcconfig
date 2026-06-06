@@ -9,8 +9,9 @@ TEAM_ID=
 PRODUCT_NAME=NearYouID
 // Set target-scoped (in the app's base xcconfig, NOT a global xcodebuild override — that would
 // clobber the embedded Pod frameworks' bundle IDs and break install). Must match the iOS OAuth
-// client's registered bundle ID (id.nearyou.app.staging). The base defaults to staging while iOS
-// is single-env scaffolding; per-env build configs (Staging/Production) are a follow-up.
+// client's registered bundle ID (id.nearyou.app.staging). The base defaults to staging as a
+// FAIL-SAFE; the per-config matrix (Dev/Staging/Prod × build-type, mobile-ios-build-config-matrix)
+// overrides PRODUCT_BUNDLE_IDENTIFIER per build configuration via Dev/Staging/Production.xcconfig.
 PRODUCT_BUNDLE_IDENTIFIER=id.nearyou.app.staging
 
 CURRENT_PROJECT_VERSION=1
@@ -19,9 +20,10 @@ MARKETING_VERSION=1.0
 // Launcher icon (mobile-env-launcher-icons). The base config is staging-flavored (staging bundle
 // id + staging API above), so its default icon is the staging tint — which also FAIL-SAFES: any
 // build config that forgets to set this inherits the clearly-non-production staging icon, never the
-// cobalt production one. Production.xcconfig overrides this to AppIcon. NOTE: takes effect only once
-// the hardcoded ASSETCATALOG_COMPILER_APPICON_NAME is removed from the target buildSettings in
-// project.pbxproj (xcconfig is below target buildSettings in precedence) — see tasks.md §3.3 (manual).
+// cobalt production one. Production.xcconfig overrides this to AppIcon (cobalt); Dev.xcconfig to
+// AppIcon-Dev (forest green). The target-buildSettings APPICON hardcode was REMOVED in
+// mobile-ios-build-config-matrix (xcconfig is below target buildSettings in precedence), so the
+// xcconfig now drives the launcher icon per build configuration.
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Staging
 
 // Mobile #3 (mobile-auth-google-signin-flow). Base defaults — the staging values double as

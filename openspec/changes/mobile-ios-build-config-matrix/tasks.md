@@ -10,7 +10,7 @@
 - [x] 2.3 Per-config resolution: `Dev.xcconfig` → `AppIcon-Dev` + `.dev` + `localhost:8080` (+ Info.plist `NSAllowsLocalNetworking` ATS exception); `Staging.xcconfig` → `AppIcon-Staging` + `.staging`; `Production.xcconfig` → `AppIcon` + `.nearyou.app` + placeholder. Per-config xcconfigs (`<Config>.xcconfig`) `#include` env + Pods.
 - [x] 2.4 Committed 3 shared schemes (`iosApp (Dev/Staging/Production).xcscheme`) under `xcshareddata/xcschemes/` (Production: Run/Test=`Prod Debug`, Archive/Profile=`Prod Release`).
 - [x] 2.5 Verified headlessly: `plutil -lint` OK; `xcodebuild -list` = 4 configs + 3 schemes; `xcodebuild -showBuildSettings` per config resolves the exact bundle id + API + APPICON (incl. `id.nearyou.app.dev`); zero `ASSETCATALOG_COMPILER_APPICON_NAME` in pbxproj.
-- [x] 2.6 Extended `LauncherIconBackgroundTest` (F2): pbxproj-no-APPICON-hardcode assertion + `Dev.xcconfig`→`AppIcon-Dev` + `AppIcon-Dev` appiconset (Linux-CI guards). Mobile gate green.
+- [x] 2.6 Extended `LauncherIconBackgroundTest` (F2): pbxproj-no-APPICON-hardcode assertion + `Dev.xcconfig`→`AppIcon-Dev` + `AppIcon-Dev` appiconset (Linux-CI guards). **Impl-review addendum (2026-06-06):** + `iosPerConfigXcconfigs_layerEnvXcconfigAndMatchingPodsBase` (each of the 4 leaf `<Config>.xcconfig`s `#include`s its env xcconfig + matching `Pods-iosApp.<config>.xcconfig`) + `buildGradle_mapsAllFourMatrixConfigsToNativeBuildType` (all 4 `xcodeConfigurationToNativeBuildType` mappings) — Linux-CI guards so a rename can't silently break the per-config Pods link / KMP framework sync (test-coverage lens). Mobile gate green.
 
 ## 3. CocoaPods per-config wiring + pod install (heavy)
 
@@ -23,7 +23,7 @@
 
 ## 4. Real-build verification (the part #155 could NOT do)
 
-- [x] 4.1 `xcodebuild build` the **workspace** for a debug-typed (`Staging Debug`) AND a release-typed (`Prod Release`) config (simulator destination, `CODE_SIGNING_ALLOWED=NO`) — **both BUILD SUCCEEDED**, proving the per-config Pods base links (KMP `ComposeApp` framework + GoogleSignIn et al.).
+- [x] 4.1 `xcodebuild build` the **workspace** for a debug-typed (`Staging Debug`) AND a release-typed (`Prod Release`) config (simulator destination, `CODE_SIGNING_ALLOWED=NO`) — **both BUILD SUCCEEDED**, proving the per-config Pods base links (KMP `ComposeApp` framework + GoogleSignIn et al.). **Impl-review addendum (2026-06-06):** also real-built `Dev Debug` (**BUILD SUCCEEDED**) — closes the test-coverage lens's novel-surface gap (the iOS-dev `localhost` API + `NSAllowsLocalNetworking` ATS exception + `AppIcon-Dev` are unique to `Dev Debug`, exercised by neither `Staging Debug` nor `Prod Release`).
 - [ ] 4.2 (Optional) Launch the dev/staging/production configs on the iOS simulator and eyeball the 3 distinct icons (green/orange/cobalt). Build-setting + asset resolution already verified; this is a final visual confirmation.
 
 ## 5. Docs + specs + validate
