@@ -54,7 +54,7 @@
 
 ## 7. Staging smoke (pre-archive, lightweight)
 
-- [ ] 7.1 `gh workflow run deploy-staging.yml --ref admin-report-queue-viewer`; poll the deploy run to green.
+- [x] 7.1 `gh workflow run deploy-staging.yml --ref admin-report-queue-viewer`; poll the deploy run to green. (Run [27048492595](https://github.com/aditrioka/nearyou-id/actions/runs/27048492595) → success; `RUN_FLYWAY_ON_STARTUP=true` + healthy revision ⇒ V19 applied on staging Supabase. Unauthenticated `GET /admin/reports` on staging → 302 `/admin/login` confirms the route is mounted + auth-gated on the deployed revision.)
 - [ ] 7.2 Log in to the staging admin panel (Argon2id + TOTP) and `GET /admin/reports`: confirm the page renders, an existing seeded report appears, a filter narrows results, pagination works, and a deep-link points at `/admin/users?q=…`. (Tick this section N/A in the archive commit body only if a staging admin login is unavailable — do not skip silently.)
 
 ## 8. Docs + follow-ups
