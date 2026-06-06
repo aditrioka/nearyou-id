@@ -653,36 +653,17 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D8 — the screen renders page 1 (≤ 30 posts) + pull-to-refresh; `next_cursor` is parsed/retained but load-more is deferred.
 **Status:** open
 
-**Finding:** [`NearbyTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineFlow.kt) is parsed + retained, and [`NearbyTimelineApiClient.fetchNearby`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineApiClient.kt) accepts a `cursor` param, but the screen never issues a follow-up `cursor=`-bearing request. The backend `nearby-timeline` spec supports cursor pagination; only the mobile load-more UX (scroll-to-end detection + append) is missing.
+**Finding:** [`NearbyTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineFlow.kt) is parsed + retained, and [`NearbyTimelineApiClient.fetchNearby`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineApiClient.kt) accepts a `cursor` param, but the screen never issues a follow-up `cursor=`-bearing request. The backend `nearby-timeline` spec supports cursor pagination; only the mobile load-more UX (scroll-to-end detection + append) is missing. **Extended by `mobile-home-tab-host` (2026-06-06):** the new Global feed mirrors this exactly — [`GlobalTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/GlobalTimelineFlow.kt) is parsed/retained and [`GlobalTimelineApiClient.fetchGlobal`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/GlobalTimelineApiClient.kt) accepts a `cursor`, but no load-more is wired. This follow-up now covers load-more for BOTH the Nearby and Global feeds.
 
-**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "Pull-to-refresh re-fetches the first page; infinite scroll is deferred" defers this deliberately.
-**Code at fault:** None — the cursor plumbing exists; the load-more trigger is additive.
+**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "Pull-to-refresh re-fetches the first page; infinite scroll is deferred" (and the matching `mobile-global-timeline` § "Pull-to-refresh re-fetches the first page; infinite scroll is deferred") defer this deliberately.
+**Code at fault:** None — the cursor plumbing exists on both feeds; the load-more trigger is additive.
 **Docs at fault:** None.
 
-**Impact (if shipped):** Users see only the first 30 nearby posts until load-more lands. Acceptable for the scaffold; a real feed needs pagination.
+**Impact (if shipped):** Users see only the first page of Nearby AND Global posts until load-more lands. Acceptable for the scaffold; a real feed needs pagination.
 
 **Action items:**
-- [ ] File OpenSpec change `mobile-nearby-timeline-infinite-scroll` adding scroll-to-end detection in the `LazyColumn`, a `loadNextPage(cursor)` path on `NearbyTimelineFlow`, and append-to-list state handling.
-- [ ] Delete this entry once load-more ships.
-
----
-
-## mobile-timeline-empty-global-cta
-
-**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D7 — the empty-state copy implies a switch-to-Global action, but no Global screen exists yet, so the message renders without the button.
-**Status:** open
-
-**Finding:** The empty state renders `timeline_empty_nearby` ("*Area kamu belum ramai. Sementara lihat dari seluruh Indonesia dulu?*", [`docs/03-UX-Design.md`](docs/03-UX-Design.md) § Empty State) as a message only. The copy implies a "lihat Global" affordance, but there is no Global-timeline screen to navigate to, so shipping the button would create a dead control. The switch-to-Global CTA lands once a Global screen exists (a future tab-bar / Global-timeline change).
-
-**Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "Screen state mapping" renders the empty message only, deferring the affordance.
-**Code at fault:** None — the message-only empty state is intentional.
-**Docs at fault:** None.
-
-**Impact (if shipped):** The empty-area copy hints at an action the user can't take yet. Low — the message still informs; the affordance is additive once Global exists.
-
-**Action items:**
-- [ ] Once a Global-timeline screen ships, add a "lihat Global" CTA to the Nearby empty state that navigates to it (likely bundled with the Nearby/Following/Global tab-bar change).
-- [ ] Delete this entry once the empty-state Global CTA is wired.
+- [ ] File OpenSpec change `mobile-nearby-timeline-infinite-scroll` adding scroll-to-end detection in the `LazyColumn`, a `loadNextPage(cursor)` path on `NearbyTimelineFlow` **and `GlobalTimelineFlow`**, and append-to-list state handling for **both feeds**.
+- [ ] Delete this entry once load-more ships for both feeds.
 
 ---
 
@@ -749,25 +730,41 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## mobile-home-tab-host
+## mobile-following-timeline-screen
 
-**Discovered during:** `mobile-nav-swap-to-navigation3` proposal (deferral; Non-Goals) — forward-referenced by `mobile-post-creation` (the home-surface FAB is "conceptually one composer affordance across all three future tabs").
-
+**Discovered during:** `mobile-home-tab-host` `/opsx:apply` — design D6 ships the Following tab as a documented empty-state placeholder that issues NO fetch (no follow-action UI exists on mobile, so a live feed would be perpetually empty + untestable end-to-end).
 **Status:** open
 
-**Finding:** `HomeScreen` is a thin host rendering `NearbyTimelineScreen` + the composer FAB. The Nearby / Following / Global **tab host** with multiple back stacks (one saveable back stack per tab, per `docs/02-Product.md` "Nearby and Following are home") is NOT built — `HomeRoute` maps to a single-feed host today. Nav3 supports per-tab back stacks (multiple `NavDisplay`s or a tab-keyed back-stack map), which is the natural shape once Following / Global feeds ship.
+**Finding:** The Following tab renders [`FollowingPlaceholderScreen`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/FollowingPlaceholderScreen.kt) (`timeline_following_placeholder` copy) and wires NO Following-timeline API client / repository / flow (structurally guarded by `FollowingTabNoFetchScanTest`). The real Following feed (`GET /api/v1/timeline/following`, shipped backend) is deferred until a follow-action UI exists to make the feed non-empty. The deferral is captured as explicit `mobile-home-tab-host` spec requirements (positive: placeholder renders via `Res.string`; negative-guard: no following fetch / no client wired) so this follow-up has a requirement to MODIFY.
 
-**Specs at fault:** none — deliberate, `mobile-nav-swap-to-navigation3` Non-Goals.
-**Code at fault:** none — the single-feed `HomeScreen` host is the intended MVP shape.
-**Docs at fault:** none.
+**Specs at fault:** None — `openspec/specs/mobile-home-tab-host/spec.md` § "Following tab renders the deferred placeholder and issues no fetch" defers this deliberately; this follow-up MODIFIES that requirement to introduce the live feed.
+**Code at fault:** None — the placeholder is the intended MVP shape; the shipped `GlobalTimeline*` seam is the copy-adapt template for the Following seam.
+**Docs at fault:** None.
 
-**Impact (if shipped):** none today (only the Nearby feed exists). The tab host is the precondition for surfacing the Following + Global timelines as sibling home tabs.
+**Impact (if shipped):** The Following tab shows a static "follow someone" placeholder until the real feed + follow-action UI land. Acceptable — there is no follow UI yet, so the feed would be empty regardless.
 
 **Action items:**
-- [ ] When the Following / Global feeds ship, file OpenSpec change `mobile-home-tab-host` introducing the Nearby/Following/Global tab host over per-tab Nav3 back stacks; the composer FAB stays at the home level (one affordance across tabs).
-- [ ] Delete this entry once the change merges.
+- [ ] File OpenSpec change `mobile-following-timeline-screen` adding `FollowingTimelineApiClient`/`Flow`/`Repository` + `FollowingTimelineScreen` (mirror the `GlobalTimeline*` seam) calling `GET /api/v1/timeline/following`, MODIFYING `mobile-home-tab-host` § "Following tab renders the deferred placeholder and issues no fetch" to replace the placeholder with the live feed; likely bundled with (or after) a follow-action UI so the feed is non-empty.
+- [ ] Delete this entry once the Following feed ships.
 
-**Cap note (2026-06-05):** `mobile-nav-swap-to-navigation3` added these 2 deferral entries → **29 open, under the 30-entry limit**. Both are clean Non-Goals deferrals (no half-implemented code); the GitHub-Issues migration noted in the 2026-06-01 sweep remains the standing drawdown lever.
+---
+
+## mobile-home-tab-host-per-tab-backstacks
+
+**Discovered during:** `mobile-home-tab-host` proposal review (Nav-model decision A) + `/opsx:apply` design D1 — the tab host renders each tab's screen directly under `HomeRoute` (selection via a serializable `Tab` enum in `rememberSaveable`), NOT per-tab `NavDisplay` back stacks, because there is no intra-tab navigation yet (no post detail / profile), so per-tab back stacks would be vestigial structure with nothing to push.
+**Status:** open
+
+**Finding:** [`HomeScreen`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt) holds the selected `Tab` in `rememberSaveable` and renders the tab's screen via `when(selectedTab)` directly under the `HomeRoute` `NavEntry`, so each feed's `viewModel { }` is `HomeRoute`-scoped and survives tab switches (design D1/D2). No tab-root `NavKey` and no per-tab `NavDisplay` are declared. Per-tab back stacks (one saveable back stack per tab — the shape the original `mobile-home-tab-host` FOLLOW_UP sketched) land with the FIRST intra-tab destination (post detail / profile / chat): a `viewModel { }` resolved *inside* a per-tab `NavDisplay` scopes to that per-tab entry, whose store clears on tab switch → re-fetch, contradicting the no-refetch requirement — so introducing per-tab back stacks needs the design rework D1 deferred (hoisting the feed VMs out to preserve `HomeRoute` scoping).
+
+**Specs at fault:** None — `openspec/specs/mobile-home-tab-host/spec.md` § "Tab selection is serializable and survives process death" deliberately defers per-tab `NavDisplay` back stacks (scenario "No per-tab NavDisplay or tab-root NavKey is introduced"); this follow-up MODIFIES that requirement when an intra-tab destination appears.
+**Code at fault:** None — the direct-render tab host is the intended shape with no intra-tab nav.
+**Docs at fault:** None.
+
+**Impact (if shipped):** None today (no intra-tab navigation exists). Without per-tab back stacks, the first intra-tab destination (e.g. tapping a post → detail) has no per-tab stack to push onto; that lands with the destination.
+
+**Action items:**
+- [ ] When the first intra-tab destination ships (post detail / profile), file OpenSpec change `mobile-home-tab-host-per-tab-backstacks` introducing per-tab `NavDisplay` back stacks (a tab-keyed back-stack map) while preserving the `HomeRoute`-scoped feed-VM no-refetch invariant; MODIFIES `mobile-home-tab-host` § "Tab selection is serializable and survives process death".
+- [ ] Delete this entry once per-tab back stacks ship.
 
 ---
 
@@ -832,6 +829,4 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] **(env-config completion)** Add a dedicated `Production` iOS build configuration wired to `Production.xcconfig` (`.nearyou.app` + `AppIcon`), remove the `Debug`/`Release` APPICON hardcodes (now safe once a Production config resolves cobalt), and fix per-configuration Pods wiring (`Config.xcconfig` → debug Pods for all configs today).
 - [ ] Delete this entry once the iOS dev icon + the env-config completion both ship (or are ruled out).
 
-**Cap note (2026-06-06):** `mobile-env-launcher-icons` added this 1 deferral entry → **30 open, at the 30-entry hard limit** (not breached). Clean Non-Goals deferral (no half-implemented code — iOS dev icon intentionally absent). The next entry-add MUST force a `/triage-follow-ups` sweep first.
-
-**Cap note (2026-06-06, merge reconciliation):** `admin-report-queue-viewer` archive §8.2 then added 2 spec-mandated deferral entries (`admin-report-queue-resolution-actions` + `admin-report-queue-has-edit-history-filter`, above) on top of `mobile-env-launcher-icons` (#155, +1 the same day) → **32 open, 2 over the 30-entry hard cap**. The 2 admin entries are spec-obliged (the `admin-report-queue` spec's "explicitly deferred" requirement). Not rot — all clean deferred-by-design follow-ups with zero half-implemented code. A `/triage-follow-ups` sweep is now OVERDUE (2 over); the test-coverage bundle (2026-06-04 note) + the GitHub-Issues migration remain the drawdown levers.
+**Cap note (2026-06-06):** A busy day — three changes touched this file (merge-reconciled): `mobile-home-tab-host` (#153) shipped (deleted its 2 precondition entries `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks` — net 0); `mobile-env-launcher-icons` (#155) added `mobile-env-launcher-icons-ios-dev-icon` (+1, → 30 at the limit); and `admin-report-queue-viewer` (#154) archive §8.2 added 2 spec-mandated deferral entries (`admin-report-queue-resolution-actions` + `admin-report-queue-has-edit-history-filter`) → **32 open, 2 over the 30-entry hard cap**. The 2 admin entries are spec-obliged (the `admin-report-queue` spec's "explicitly deferred" requirement); not rot (all clean deferred-by-design, zero half-implemented code). A `/triage-follow-ups` sweep is now OVERDUE (2 over); the test-coverage bundle (2026-06-04 note) + the GitHub-Issues migration remain the drawdown levers.

@@ -47,6 +47,7 @@ import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.distance.DistanceRenderer
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_retry
+import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
 import id.nearyou.resources.generated.resources.signin_error_network
@@ -80,13 +81,16 @@ const val NEARBY_TIMELINE_LIST_TAG: String = "nearbyTimelineList"
  * `NearbyTimelineRepository`'s status→outcome mapping is unchanged (granted-but-no-fix reuses the
  * existing retryable error state, no new outcome member).
  *
- * Holds NO navigation dependency (no back-stack reference, no FAB), so `HomeScreen` can call
- * `NearbyTimelineScreen()` directly as its body — the nav swap only converts it from a Voyager
- * `Screen` to a plain composable (`mobile-post-creation` § "NearbyTimelineScreen remains
- * navigation-free").
+ * Holds NO navigation dependency (no back-stack reference, no FAB), so the tab host can render
+ * `NearbyTimelineScreen(...)` directly as the Nearby tab's content (`mobile-post-creation` §
+ * "NearbyTimelineScreen remains navigation-free"). The empty state renders the "lihat Global" CTA,
+ * which invokes the hoisted [onSeeGlobal] lambda — a host-level **tab-state** callback (the tab host
+ * wires it to select the Global tab), NOT a back-stack reference, so the navigation-free property is
+ * preserved (`mobile-nearby-timeline` § "Empty area shows the sparse-area copy plus a lihat-Global
+ * CTA"). [onSeeGlobal] defaults to a no-op so direct (non-tab-host) composition stays valid.
  */
 @Composable
-fun NearbyTimelineScreen() {
+fun NearbyTimelineScreen(onSeeGlobal: () -> Unit = {}) {
     val controller = koinInject<LocationPermissionController>()
     val gate = remember { LocationGate(controller) }
     val gateState by gate.state.collectAsState()
@@ -113,7 +117,7 @@ fun NearbyTimelineScreen() {
             )
         }
         LocationGateUiState.Denied -> LocationDeniedState(onOpenSettings = { controller.openAppSettings() })
-        LocationGateUiState.Granted -> NearbyFeed()
+        LocationGateUiState.Granted -> NearbyFeed(onSeeGlobal = onSeeGlobal)
     }
 }
 
@@ -128,7 +132,7 @@ fun NearbyTimelineScreen() {
  * to the existing retryable error state").
  */
 @Composable
-private fun NearbyFeed() {
+private fun NearbyFeed(onSeeGlobal: () -> Unit) {
     val flow = koinInject<NearbyTimelineFlow>()
     val viewModel = viewModel { NearbyTimelineViewModel(flow) }
     val outcome by viewModel.outcome.collectAsState()
@@ -142,6 +146,9 @@ private fun NearbyFeed() {
         // mobile-nearby-timeline-infinite-scroll).
         onRefresh = viewModel::reload,
         onRetry = viewModel::reload,
+        // The empty-state "lihat Global" CTA — a host-level tab-switch callback (the tab host selects
+        // the Global tab), NOT a back-stack reference, so the screen stays navigation-free.
+        onSeeGlobal = onSeeGlobal,
     )
 }
 
@@ -189,6 +196,7 @@ private fun NearbyTimelineContent(
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
+    onSeeGlobal: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -202,7 +210,7 @@ private fun NearbyTimelineContent(
         ) {
             when (uiState) {
                 NearbyTimelineUiState.Loading -> LoadingState()
-                NearbyTimelineUiState.Empty -> CenteredMessage(stringResource(Res.string.timeline_empty_nearby))
+                NearbyTimelineUiState.Empty -> NearbyEmptyState(onSeeGlobal = onSeeGlobal)
                 NearbyTimelineUiState.HardLimit -> CenteredMessage(stringResource(Res.string.timeline_limit_hard))
                 NearbyTimelineUiState.Error -> ErrorState(onRetry = onRetry)
                 is NearbyTimelineUiState.Content -> PostList(posts = uiState.posts)
@@ -268,6 +276,32 @@ private fun ErrorState(onRetry: () -> Unit) {
         )
         Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
             Text(text = stringResource(Res.string.cta_retry))
+        }
+    }
+}
+
+/**
+ * The sparse-area empty state: the `timeline_empty_nearby` copy ("Area kamu belum ramai…") plus a
+ * "lihat Global" CTA that invokes the hoisted [onSeeGlobal] (the tab host selects the Global tab).
+ * Closes `mobile-timeline-empty-global-cta` — the empty copy implied the affordance; the CTA was
+ * deferred until a Global surface existed (`mobile-nearby-timeline` § "Empty area shows the
+ * sparse-area copy plus a lihat-Global CTA").
+ */
+@Composable
+private fun NearbyEmptyState(onSeeGlobal: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = stringResource(Res.string.timeline_empty_nearby),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Button(onClick = onSeeGlobal, modifier = Modifier.padding(top = 16.dp)) {
+            Text(text = stringResource(Res.string.cta_see_global))
         }
     }
 }
