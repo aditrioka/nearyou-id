@@ -66,8 +66,8 @@
 - [x] 8.7 `ConsentRoute` serialization round-trips through `AppNavSerialization`; declares no identity property.
 - [x] 8.8 If `ConsentScreenTest` uses the Robolectric ui-test-manifest host activity, ADD it to the Release-variant test exclude (the host activity is debug-only → `testDevReleaseUnitTest` would throw). Verify with `:mobile:app:testDevReleaseUnitTest`, not just Debug.
 - [x] 8.9 iOS: a `src/iosTest` flow test (kotlin.test `@Test`, NOT Kotest — commonTest Kotest doesn't run on Kotlin/Native) covering the PATCH-body + route-on-200 path; run `:mobile:app:iosSimulatorArm64Test`. Confirm `ConsentRoute` + `ConsentScreen` compose on iOS (`linkDebugFrameworkIosSimulatorArm64` locally — CI/Linux can't catch K/N link issues).
-- [ ] 8.10 Inter-capability seam test (`androidUnitTest` flow): thread signup-`201` → the `AppEntryProvider` `onSignedUp` `replaceAll(ConsentRoute)` → assert `ConsentScreen` actually composes from that terminus (closes the gap between the `mobile-age-gate` MODIFIED nav-event assertion and the `ConsentRoute`→`ConsentScreen` mapping in 7.2).
-- [ ] 8.11 Back-stack/replaceAll test: after the signup-`201` transition, assert the back stack contains `ConsentRoute` (top) with NO `AgeGateRoute` beneath (replaced, not pushed) — so a back gesture cannot re-enter the age gate (per the `mobile-analytics-consent` "ConsentRoute REPLACES the age-gate entry" requirement).
+- [x] 8.10 Inter-capability seam test (`androidUnitTest` flow): thread signup-`201` → the `AppEntryProvider` `onSignedUp` `replaceAll(ConsentRoute)` → assert `ConsentScreen` actually composes from that terminus (closes the gap between the `mobile-age-gate` MODIFIED nav-event assertion and the `ConsentRoute`→`ConsentScreen` mapping in 7.2).
+- [x] 8.11 Back-stack/replaceAll test: after the signup-`201` transition, assert the back stack contains `ConsentRoute` (top) with NO `AgeGateRoute` beneath (replaced, not pushed) — so a back gesture cannot re-enter the age gate (per the `mobile-analytics-consent` "ConsentRoute REPLACES the age-gate entry" requirement).
 
 ## 9. Deferred-as-explicit-requirement + FOLLOW_UPS
 

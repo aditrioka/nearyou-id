@@ -12,6 +12,8 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentOutcome
 import id.nearyou.app.consent.FakeConsentFlow
+import id.nearyou.app.screens.routing.ConsentRoute
+import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.consent_ads_desc
@@ -87,6 +89,23 @@ class ConsentScreenTest {
             switches[0].assertIsOff()
             switches[1].assertIsOn()
             switches[2].assertIsOff()
+        }
+    }
+
+    // 8.10 (route mapping) — ConsentRoute renders ConsentScreen through the REAL appEntryProvider
+    // (hosted by TestNavHost). The signup-201 → ConsentRoute leg itself is wired in AppEntryProvider
+    // (replaceAll(ConsentRoute), asserted structurally in ConsentSourceGuardTest); driving it through
+    // the real age-gate DOB picker is impractical (the picker's day cells expose only a
+    // locale-formatted contentDescription — the same limitation mobile-age-gate documented), so the
+    // Success→navigate decision is covered by the pure ConsentOutcomeHandlerTest instead.
+    @Test
+    fun consentRoute_viaTestNavHost_rendersConsentScreen() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(ConsentRoute) } }
+            waitForIdle()
+            onNodeWithText(TITLE).assertExists()
+            onNodeWithText(CONTINUE_CTA).assertExists()
         }
     }
 

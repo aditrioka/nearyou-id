@@ -37,4 +37,34 @@ class ConsentSourceGuardTest {
             }
         }
     }
+
+    /**
+     * 8.11 (back-stack semantics, structural) — the signup-success leg REPLACES `AgeGateRoute` with
+     * `ConsentRoute` (so the back stack holds `ConsentRoute` with no `AgeGateRoute` beneath →
+     * back-press cannot re-enter the age gate), and the consent-done leg REPLACES with `HomeRoute`.
+     * Both must use `replaceAll`, never `add` (push). Asserted on `AppEntryProvider` source because
+     * driving the full age-gate → consent transition requires the DOB picker (impractical, per the
+     * `mobile-age-gate` test limitation); `replaceAll` itself is a verified Nav3 primitive.
+     */
+    @Test
+    fun appEntryProvider_reachesConsentAndHomeViaReplaceAll_notPush() {
+        val stripped =
+            File("src/commonMain/kotlin/id/nearyou/app/screens/routing/AppEntryProvider.kt")
+                .readText()
+                .replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
+                .replace(Regex("//[^\n]*"), "")
+        assertTrue(
+            stripped.contains("replaceAll(ConsentRoute)"),
+            "age-gate signup-success must replaceAll(ConsentRoute)",
+        )
+        assertTrue(
+            !stripped.contains("add(ConsentRoute)"),
+            "ConsentRoute must be REPLACED in (not pushed onto) the stack — back-press must not reach the age gate",
+        )
+        assertTrue(
+            Regex("entry<ConsentRoute>.*?replaceAll\\(HomeRoute\\)", RegexOption.DOT_MATCHES_ALL)
+                .containsMatchIn(stripped),
+            "the ConsentRoute entry's onDone must replaceAll(HomeRoute)",
+        )
+    }
 }
