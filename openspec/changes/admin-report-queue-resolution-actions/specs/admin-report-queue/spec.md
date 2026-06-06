@@ -35,7 +35,7 @@ Serving `GET /admin/reports` (with any filter or cursor parameters) SHALL NOT wr
 
 ### Requirement: Authenticated report-status resolution endpoint
 
-The system SHALL serve `POST /admin/reports/{id}/resolve` as an authenticated route wired INSIDE the `authenticate(ADMIN_AUTH_NAME)` block (so the `admin-login` session middleware gates it). On a valid session with a valid CSRF token and a write-capable admin role, it SHALL accept a `decision` form field constrained to `{actioned, dismissed}` and, in ONE database transaction, set `reports.status` to that value, set `reports.reviewed_by` to the acting admin's id, set `reports.reviewed_at` to the current time, and write exactly one `admin_actions_log` row with `action_type = 'report_resolved'` (recording the before/after status). The transition SHALL apply only to a report currently in `status = 'pending'` (conditional update; the already-resolved case is governed by the idempotency requirement).
+The system SHALL serve `POST /admin/reports/{id}/resolve` as an authenticated route wired INSIDE the `authenticate(ADMIN_AUTH_NAME)` block. On a valid session with a valid CSRF token and a write-capable admin role, it SHALL accept a `decision` form field constrained to `{actioned, dismissed}` and, in ONE database transaction, set `reports.status` to that value, set `reports.reviewed_by` to the acting admin's id, set `reports.reviewed_at` to the current time, and write exactly one `admin_actions_log` row with `action_type = 'report_resolved'` (recording before/after status in `after_state`). The transition SHALL apply only to a report currently in `status = 'pending'` (conditional update; idempotency requirement governs the already-resolved case). This endpoint performs bookkeeping only — it SHALL NOT perform user or content enforcement (that is the moderation-queue resolution endpoint's role).
 
 #### Scenario: A pending report is marked actioned
 - **GIVEN** an authenticated write-role admin session with a valid CSRF token AND a `reports` row with `status = 'pending'`
@@ -48,92 +48,155 @@ The system SHALL serve `POST /admin/reports/{id}/resolve` as an authenticated ro
 - **WHEN** the client sends `POST /admin/reports/{id}/resolve` with `decision=dismissed`
 - **THEN** that report's `status` SHALL become `dismissed` AND `reviewed_by` + `reviewed_at` SHALL be set AND exactly one `report_resolved` audit row SHALL be written
 
-### Requirement: Authenticated moderation-queue resolution endpoint
+### Requirement: Authenticated moderation-queue resolution endpoint performs the named enforcement
 
-The system SHALL serve `POST /admin/moderation-queue/{id}/resolve` as an authenticated route wired INSIDE the `authenticate(ADMIN_AUTH_NAME)` block. On a valid session with a valid CSRF token and a write-capable admin role, it SHALL accept a `resolution` form field constrained to the content/author resolution subset (`keep`, `hide`, `delete`, `shadow_ban_author`, `suspend_author_7d`, `ban_author`) and, in ONE database transaction, set `moderation_queue.status = 'resolved'`, set `moderation_queue.resolution` to that value, set `resolved_by` to the acting admin's id, set `resolved_at` to the current time, and write exactly one `admin_actions_log` row with `action_type = 'moderation_queue_resolved'`. The transition SHALL apply only to a queue row currently in `status = 'pending'`. The username-moderation resolutions `accept_flagged_username` / `reject_flagged_username` (and the `username_flagged` trigger) are OUT OF SCOPE for this endpoint — they are owned by the future Premium Username Change Oversight feature (`docs/07-Operations.md` § Core Features), which carries its own 10/hour rate limit + override-on-resubmit + manual-handle-release semantics this generic endpoint does not express; this endpoint SHALL reject those values without a write.
+The system SHALL serve `POST /admin/moderation-queue/{id}/resolve` as an authenticated route wired INSIDE the `authenticate(ADMIN_AUTH_NAME)` block. On a valid session with a valid CSRF token and a sufficiently-roled admin (per the role-gating requirement), it SHALL accept a `resolution` form field constrained to the enforcement subset `{keep, hide, suspend_author_7d, ban_author, shadow_ban_author}` and, in ONE database transaction, set `moderation_queue.status = 'resolved'` + `resolution` + `resolved_by` + `resolved_at`, **perform the enforcement that resolution names** (per the content-resolution and author-resolution requirements), and write exactly one `admin_actions_log` row with `action_type = 'moderation_queue_resolved'` whose `after_state` records both the `resolution` value and the enforcement effect. The transition SHALL apply only to a queue row currently in `status = 'pending'`. The values `delete`, `accept_flagged_username`, and `reject_flagged_username` are OUT OF SCOPE and SHALL be rejected (see the malformed/out-of-scope requirement): `delete` is not in the in-row action set (`docs/07-Operations.md` § Core Features lists Hide/Dismiss/Suspend/Ban/Shadow-ban), and the username resolutions are owned by the future Premium Username Change Oversight feature.
 
-#### Scenario: A pending queue item is resolved with a recorded resolution
-- **GIVEN** an authenticated write-role admin session with a valid CSRF token AND a `moderation_queue` row with `status = 'pending'`
+#### Scenario: A pending queue item is resolved and the resolution is recorded
+- **GIVEN** an authenticated write-role admin session with a valid CSRF token AND a `moderation_queue` row with `status = 'pending'` for a `post` target
 - **WHEN** the client sends `POST /admin/moderation-queue/{id}/resolve` with `resolution=hide`
 - **THEN** that queue row's `status` SHALL become `resolved` AND `resolution` SHALL be `hide` AND `resolved_by` + `resolved_at` SHALL be set
-- **AND** exactly one `admin_actions_log` row with `action_type = 'moderation_queue_resolved'` SHALL be written
+- **AND** exactly one `admin_actions_log` row with `action_type = 'moderation_queue_resolved'` SHALL be written whose `after_state` records `resolution = hide`
 
-### Requirement: Intrinsic auto-hide visibility toggle on keep/hide
+### Requirement: Content resolutions perform the visibility change
 
-When resolving a `moderation_queue` row whose `trigger = 'auto_hide_3_reports'`, the system SHALL apply the content-visibility effect intrinsic to that auto-hide signal, in the same transaction as the resolution: `resolution = keep` SHALL set the target's `is_auto_hidden = FALSE` (restoring visibility — the inverse of the V9 auto-hide trigger), and `resolution = hide` SHALL leave `is_auto_hidden = TRUE`. The toggle SHALL apply to `posts` (`target_type = 'post'`) and `post_replies` (`target_type = 'reply'`). For `target_type` values without an `is_auto_hidden` column (`user`, `chat_message`), the toggle SHALL be a no-op and the resolution SHALL still succeed. This change SHALL NOT perform any other content mutation (no soft-delete; see the record-not-enforce requirement).
+When the resolution is a content action and the queue row's `target_type ∈ {post, reply}`, the system SHALL perform the visibility change in the same transaction as the queue resolution: `keep` SHALL set the target's `is_auto_hidden = FALSE` (restoring visibility — the inverse of the V9-era application-level auto-hide writer in `ReportService`, NOT a DB trigger), and `hide` SHALL set `is_auto_hidden = TRUE`. The toggle SHALL apply to both `posts` (`target_type = 'post'`) and `post_replies` (`target_type = 'reply'`). For a `keep`/`hide` resolution whose `target_type ∈ {user, chat_message}` (no `is_auto_hidden` column), the resolution SHALL be rejected with a message and SHALL perform no write (a content action is not applicable to a user/chat target).
 
 #### Scenario: keep restores visibility of an auto-hidden post
-- **GIVEN** an `auto_hide_3_reports` queue row for a `post` whose `is_auto_hidden = TRUE`
+- **GIVEN** a `moderation_queue` row for a `post` whose `is_auto_hidden = TRUE`
 - **WHEN** the queue row is resolved with `resolution=keep`
-- **THEN** that post's `is_auto_hidden` SHALL become `FALSE` (visibility restored) in the same transaction as the queue resolution
+- **THEN** that post's `is_auto_hidden` SHALL become `FALSE` in the same transaction as the queue resolution
 
-#### Scenario: hide leaves the post hidden
-- **GIVEN** an `auto_hide_3_reports` queue row for a `post` whose `is_auto_hidden = TRUE`
+#### Scenario: hide hides a reply target
+- **GIVEN** a `moderation_queue` row for a `reply` (`target_type = 'reply'`) whose `is_auto_hidden = FALSE`
 - **WHEN** the queue row is resolved with `resolution=hide`
-- **THEN** that post's `is_auto_hidden` SHALL remain `TRUE`
+- **THEN** that reply's `post_replies.is_auto_hidden` SHALL become `TRUE`
 
-#### Scenario: keep on a user-target queue row is a no-op (no error)
-- **GIVEN** a queue row with `target_type = 'user'` (a table with no `is_auto_hidden` column)
-- **WHEN** the queue row is resolved with `resolution=keep`
-- **THEN** no `is_auto_hidden` write SHALL be attempted AND the resolution SHALL succeed without error
+#### Scenario: A content resolution on a user target is rejected
+- **GIVEN** a `moderation_queue` row with `target_type = 'user'`
+- **WHEN** the queue row is resolved with `resolution=keep` (or `hide`)
+- **THEN** the resolution SHALL be rejected with a message AND no `is_auto_hidden` write SHALL occur AND no queue mutation SHALL occur (a content action is not applicable to a user target)
+
+### Requirement: Author resolutions perform user-state enforcement on the resolved author
+
+When the resolution is an author action (`suspend_author_7d`, `ban_author`, `shadow_ban_author`), the system SHALL resolve the offending author from the queue row's target (`post`→author, `reply`→author, `user`→self, `chat_message`→sender, using `LEFT JOIN`s) and perform the enforcement on that author in the same transaction as the queue resolution. `suspend_author_7d` SHALL apply the shipped 7-day suspension (reusing the `admin-user-moderation` suspend path: `is_banned = TRUE`, `suspended_until = NOW() + INTERVAL '7 days'`, plus the sanitized `account_action_applied` notification, plus the soft-deleted/already-permanently-banned guards). `ban_author` SHALL apply a permanent ban (`is_banned = TRUE`, `suspended_until = NULL`) plus the `account_action_applied` notification. `shadow_ban_author` SHALL set `users.is_shadow_banned = TRUE`. When the author cannot be resolved (hard-deleted target), the resolution SHALL be rejected with no write. When a suspend guard rejects (target soft-deleted, or already permanently banned), the resolution SHALL be rejected and the queue SHALL NOT be marked resolved.
+
+#### Scenario: suspend_author_7d suspends the post's author
+- **GIVEN** a `moderation_queue` row for a `post` authored by user `A` (not banned, not deleted)
+- **WHEN** the queue row is resolved with `resolution=suspend_author_7d`
+- **THEN** user `A` SHALL have `is_banned = TRUE` AND `suspended_until` ≈ NOW() + 7 days AND an `account_action_applied` notification SHALL be inserted for `A`
+- **AND** the queue row SHALL be `resolved` with `resolution = suspend_author_7d` AND exactly one `moderation_queue_resolved` audit row SHALL be written
+
+#### Scenario: ban_author permanently bans the resolved author
+- **GIVEN** an owner/admin session AND a `moderation_queue` row whose resolved author is user `A` (not banned)
+- **WHEN** the queue row is resolved with `resolution=ban_author`
+- **THEN** user `A` SHALL have `is_banned = TRUE` AND `suspended_until = NULL` (permanent) AND an `account_action_applied` notification SHALL be inserted for `A`
+
+#### Scenario: shadow_ban_author sets the shadow-ban flag
+- **GIVEN** a `moderation_queue` row whose resolved author is user `A` (`is_shadow_banned = FALSE`)
+- **WHEN** the queue row is resolved with `resolution=shadow_ban_author`
+- **THEN** user `A` SHALL have `is_shadow_banned = TRUE`
+
+#### Scenario: A hard-deleted target whose author cannot be resolved is rejected
+- **GIVEN** a `moderation_queue` row whose target row has been hard-deleted (no resolvable author)
+- **WHEN** the queue row is resolved with an author resolution (e.g. `ban_author`)
+- **THEN** the resolution SHALL be rejected with a message AND no `users` mutation AND no queue mutation SHALL occur
+
+#### Scenario: suspend on an already-permanently-banned author is rejected without resolving the queue
+- **GIVEN** a `moderation_queue` row whose resolved author is already permanently banned (`is_banned = TRUE`, `suspended_until = NULL`)
+- **WHEN** the queue row is resolved with `resolution=suspend_author_7d`
+- **THEN** the suspend SHALL be rejected (no downgrade) AND the queue row SHALL remain `pending` AND no audit row SHALL be written
+
+### Requirement: ban_author is restricted to the owner/admin tier
+
+Issuing a permanent ban via `resolution=ban_author` SHALL require the owner or admin role, mirroring the existing rule that lifting a permanent ban is owner/admin-only (`admin-user-moderation`). An admin whose role is `moderator` (otherwise write-capable) SHALL be rejected when selecting `ban_author`, with no `users` mutation and no queue mutation. The tier check SHALL be enforced inside the resolution transaction so the rejection writes nothing.
+
+#### Scenario: A moderator cannot ban via resolution
+- **GIVEN** an authenticated `moderator`-role admin with a valid CSRF token AND a `pending` queue row
+- **WHEN** the client sends `POST /admin/moderation-queue/{id}/resolve` with `resolution=ban_author`
+- **THEN** the request SHALL be rejected AND user state SHALL be unchanged (`is_banned` not set) AND the queue row SHALL remain `pending` AND no audit row SHALL be written
+
+#### Scenario: An owner or admin can ban via resolution
+- **GIVEN** an authenticated `admin`-role session with a valid CSRF token AND a `pending` queue row whose resolved author is not banned
+- **WHEN** the client sends `resolution=ban_author`
+- **THEN** the author SHALL be permanently banned AND the queue row SHALL be `resolved`
+
+### Requirement: shadow_ban_author writes no user-facing notification (stealth invariant)
+
+Because a shadow ban is, by design, invisible to the affected user, resolving with `resolution=shadow_ban_author` SHALL NOT insert any `notifications` row for the author (no `account_action_applied`, no other type). The action SHALL still write its `admin_actions_log` row for accountability. By contrast, `suspend_author_7d` and `ban_author` SHALL insert the sanitized `account_action_applied` notification.
+
+#### Scenario: Shadow-ban inserts no notification
+- **GIVEN** a `moderation_queue` row whose resolved author is user `A` AND a known count of `A`'s `notifications` rows
+- **WHEN** the queue row is resolved with `resolution=shadow_ban_author`
+- **THEN** `A`'s `notifications` row count SHALL be unchanged (no notification inserted) AND `A`'s `is_shadow_banned` SHALL be `TRUE` AND a `moderation_queue_resolved` audit row SHALL be written
+
+#### Scenario: Suspend inserts the account_action_applied notification
+- **GIVEN** a `moderation_queue` row whose resolved author is user `A`
+- **WHEN** the queue row is resolved with `resolution=suspend_author_7d`
+- **THEN** exactly one `account_action_applied` notification SHALL be inserted for `A`
 
 ### Requirement: Resolution writes are session-, CSRF-, and write-role-gated
 
-Both resolution endpoints SHALL enforce, in order, the `admin-login` session gate, then CSRF validation, then the write-role gate — mirroring `admin-user-moderation`. An unauthenticated (or expired/revoked/idle-timed-out) request SHALL redirect 302 to `/admin/login` and write nothing. A request whose CSRF token is missing or invalid SHALL return 403, emit the existing `admin_csrf_violation` audit entry, and perform no resolution write. An authenticated admin whose role is not write-capable (`AdminRoleGate.requireWriteRole`) SHALL be rejected with no resolution write. CSRF SHALL be validated BEFORE the role gate.
+Both resolution endpoints SHALL enforce, in order, the `admin-login` session gate, then CSRF validation, then the role gate — mirroring `admin-user-moderation`. An unauthenticated (or expired/revoked/idle-timed-out) request SHALL redirect 302 to `/admin/login` and write nothing. A request whose CSRF token is missing or invalid SHALL return 403, emit the `admin_csrf_violation` audit entry, and perform no write. An authenticated admin whose role is not write-capable (`AdminRoleGate.requireWriteRole`) SHALL be rejected with no write. CSRF SHALL be validated BEFORE the role gate.
 
 #### Scenario: Unauthenticated resolution request redirects and writes nothing
 - **WHEN** a client sends `POST /admin/reports/{id}/resolve` (or `POST /admin/moderation-queue/{id}/resolve`) with no valid `__Host-admin_session` cookie
-- **THEN** the response status SHALL be 302 with `Location: /admin/login` AND no `reports` / `moderation_queue` / `admin_actions_log` row SHALL be written
+- **THEN** the response status SHALL be 302 with `Location: /admin/login` AND no `reports` / `moderation_queue` / `users` / `admin_actions_log` row SHALL be written
 
 #### Scenario: Missing or invalid CSRF token is rejected and audited
 - **GIVEN** an authenticated admin session
 - **WHEN** the client sends a resolution `POST` without a valid CSRF token
-- **THEN** the response status SHALL be 403 AND an `admin_csrf_violation` audit entry SHALL be recorded AND no resolution write SHALL occur
+- **THEN** the response status SHALL be 403 AND an `admin_csrf_violation` audit entry SHALL be recorded AND no resolution/enforcement write SHALL occur
+
+#### Scenario: CSRF is validated before the role gate
+- **GIVEN** an authenticated admin whose role is NOT write-capable (`read_only`)
+- **WHEN** the client sends a resolution `POST` WITHOUT a valid CSRF token
+- **THEN** the rejection SHALL be the CSRF rejection (403 + `admin_csrf_violation`), demonstrating CSRF is evaluated before the role gate, AND no write SHALL occur
 
 #### Scenario: A non-write-role admin is gated
-- **GIVEN** an authenticated admin whose role is not write-capable AND a valid CSRF token
+- **GIVEN** an authenticated `read_only` admin AND a valid CSRF token
 - **WHEN** the client sends a resolution `POST`
-- **THEN** the request SHALL be rejected by the write-role gate AND no `reports` / `moderation_queue` row SHALL be mutated
+- **THEN** the request SHALL be rejected by the role gate AND no `reports` / `moderation_queue` / `users` row SHALL be mutated
 
-### Requirement: Resolution records the decision without performing author or content-deletion enforcement
+### Requirement: Enforcement, resolution, and audit are atomic
 
-The resolution endpoints SHALL record the moderator's decision but SHALL NOT perform author-level enforcement or content soft-deletion. Recording `resolution ∈ {suspend_author_7d, ban_author, shadow_ban_author}` SHALL NOT modify the `users` table (no change to `is_banned`, `suspended_until`, `is_shadow_banned`, or `token_version`), and `resolution = delete` SHALL NOT soft-delete the target content (no change to the target's `deleted_at`). Author enforcement remains reachable via the existing `/admin/users` deep-link rendered by the report-queue listing. This boundary SHALL be stated in the in-row controls so a moderator is not misled into believing recording a resolution enforces it.
+For every resolution, the enforcement write(s), the `reports`/`moderation_queue` status write, and the `admin_actions_log` row (plus any `account_action_applied` notification) SHALL commit or roll back together in one transaction. There SHALL be no observable partial state — no enforcement applied without its audit row, no queue marked `resolved` without the enforcement, and no audit row without the state change.
 
-#### Scenario: Recording ban_author does not modify the users table
-- **GIVEN** a queue row whose offending author is user `A` with `is_banned = FALSE`
-- **WHEN** the queue row is resolved with `resolution=ban_author`
-- **THEN** `moderation_queue.resolution` SHALL record `ban_author` AND user `A`'s row SHALL be unchanged (`is_banned` still `FALSE`, `token_version` unchanged)
+#### Scenario: An audit-write failure rolls back the enforcement and the resolution
+- **GIVEN** a `pending` `moderation_queue` row for a `post` whose `is_auto_hidden = TRUE`, AND the audit insert is made to fail (fault injection, as in the `admin-user-moderation` rollback tests)
+- **WHEN** the queue row is resolved with `resolution=keep`
+- **THEN** the transaction SHALL roll back: the post's `is_auto_hidden` SHALL remain `TRUE`, the queue row SHALL remain `pending`, and no `admin_actions_log` row SHALL be written
 
-#### Scenario: Recording delete does not soft-delete the content
-- **GIVEN** an `auto_hide_3_reports` queue row for a `post` whose `deleted_at IS NULL`
-- **WHEN** the queue row is resolved with `resolution=delete`
-- **THEN** the queue row SHALL record `resolution = delete` AND the post's `deleted_at` SHALL remain `NULL` (no soft-delete performed by this endpoint)
+### Requirement: Malformed, out-of-scope, and repeat resolution inputs are tolerated and idempotent
 
-### Requirement: Malformed and repeat resolution inputs are tolerated and idempotent
-
-The resolution endpoints SHALL tolerate malformed input without a 5xx and SHALL be idempotent. A malformed path `{id}` (not a UUID) SHALL return 400 with no write. An out-of-enum `decision` / `resolution` value SHALL be rejected without any partial write and without an audit row (re-render with a message, never a 5xx). Re-resolving an already-resolved (non-`pending`) row SHALL be a safe no-op: the conditional `UPDATE ... WHERE status = 'pending'` affects zero rows, so no status change occurs, no duplicate `admin_actions_log` row is written, and no error is returned. This also serializes the two-admins-resolve-the-same-row race (the loser is a no-op).
+The resolution endpoints SHALL tolerate bad input without a 5xx and SHALL be idempotent. A malformed path `{id}` (not a UUID) SHALL return 400 with no write. A `decision`/`resolution` value outside the accepted allowlist SHALL be rejected via a server-side check BEFORE any DB write (never relying on a DB `CHECK` to throw, which would surface as a 5xx): this includes out-of-enum garbage AND the in-enum-but-out-of-scope values `delete`, `accept_flagged_username`, `reject_flagged_username`. Re-resolving an already-resolved (non-`pending`) row SHALL be a safe no-op: the conditional `UPDATE … WHERE status = 'pending'` affects zero rows, so no enforcement is performed, no status changes, no duplicate `admin_actions_log` row is written, and no error is returned (this also serializes the two-admins-resolve-the-same-row race — the loser is a no-op).
 
 #### Scenario: Malformed id yields 400 with no write
 - **WHEN** an authenticated write-role admin sends `POST /admin/reports/not-a-uuid/resolve` with a valid CSRF token
-- **THEN** the response status SHALL be 400 AND no `reports` / `moderation_queue` / `admin_actions_log` row SHALL be written
+- **THEN** the response status SHALL be 400 AND no `reports` / `moderation_queue` / `users` / `admin_actions_log` row SHALL be written
 
-#### Scenario: Out-of-enum value is rejected without a partial write
-- **WHEN** an authenticated write-role admin sends `POST /admin/moderation-queue/{id}/resolve` with `resolution=not-an-enum-value` and a valid CSRF token
-- **THEN** no `moderation_queue` row SHALL be mutated AND no `admin_actions_log` row SHALL be written AND the response SHALL NOT be a 5xx
-
-#### Scenario: Out-of-scope username resolution is rejected without a write
-- **GIVEN** a `moderation_queue` row (e.g. one with `trigger = 'username_flagged'`)
-- **WHEN** an authenticated write-role admin sends `POST /admin/moderation-queue/{id}/resolve` with `resolution=accept_flagged_username` (or `reject_flagged_username`) and a valid CSRF token
-- **THEN** the value SHALL be rejected with no `moderation_queue` mutation and no `admin_actions_log` row (it is owned by the Premium Username Change Oversight feature, not this endpoint), and the response SHALL NOT be a 5xx
+#### Scenario: Out-of-scope resolution value is rejected before any DB write
+- **GIVEN** a `moderation_queue` row
+- **WHEN** an authenticated write-role admin sends `POST /admin/moderation-queue/{id}/resolve` with `resolution=delete` (or `accept_flagged_username`, or a non-enum garbage value) and a valid CSRF token
+- **THEN** the value SHALL be rejected by the server-side allowlist with no `moderation_queue`/`users` mutation and no `admin_actions_log` row AND the response SHALL NOT be a 5xx
 
 #### Scenario: Re-resolving an already-resolved row is a safe no-op
-- **GIVEN** a `moderation_queue` row already in `status = 'resolved'` with a recorded `resolution`
+- **GIVEN** a `moderation_queue` row already in `status = 'resolved'` with a recorded `resolution`, and a known `admin_actions_log` count
 - **WHEN** an authenticated write-role admin sends `POST /admin/moderation-queue/{id}/resolve` again with a valid CSRF token
-- **THEN** no second `admin_actions_log` row SHALL be written AND the existing `resolution` / `resolved_by` SHALL be unchanged AND no error SHALL be returned
+- **THEN** no enforcement SHALL be re-performed AND no second `admin_actions_log` row SHALL be written (count unchanged) AND the existing `resolution`/`resolved_by` SHALL be unchanged AND no error SHALL be returned
+
+### Requirement: Resolving a queue item does not cascade to sibling reports
+
+Resolving a `moderation_queue` item SHALL NOT auto-transition the `reports` rows that share the same `(target_type, target_id)` — those reports' `status` SHALL remain `pending` until each is explicitly resolved via the report-status endpoint. (Auto-cascade is deliberately deferred; this negative guard documents the v1 behavior so a follow-up has an explicit requirement to MODIFY.)
+
+#### Scenario: Sibling reports stay pending after a queue item is resolved
+- **GIVEN** a `moderation_queue` row (`trigger = auto_hide_3_reports`) for a `post` target AND three `pending` `reports` rows for that same `(target_type, target_id)`
+- **WHEN** the queue row is resolved with `resolution=hide`
+- **THEN** the queue row SHALL become `resolved` AND all three `reports` rows SHALL remain `status = pending`
 
 ### Requirement: In-row resolution controls render escaped, HTMX-partial with a no-JS fallback
 
-The report-queue table SHALL render in-row resolution controls — a per-row form carrying the session CSRF token plus a `decision`/`resolution` selector that posts to the resolution endpoint. Every dynamic value rendered into the controls SHALL be HTML-escaped. The controls SHALL function under both modes: an `HX-Request: true` request SHALL return only the swappable table fragment, and a plain `GET` SHALL return the full page. A successful resolution SHALL re-render the re-queried table fragment for an HTMX request, or 303-redirect back to the (filter-preserving) queue for the no-JS path.
+The report-queue table SHALL render in-row resolution controls — a per-row form carrying the session CSRF token plus a `decision`/`resolution` selector that posts to the resolution endpoint. Because the resolution actions take effect immediately (Suspend/Ban/Shadow-ban are destructive user-state changes), the controls SHALL make the destructive, immediate nature clear (e.g. a confirm affordance / explicit labels) rather than implying a deferred or record-only decision. Every dynamic value rendered into the controls SHALL be HTML-escaped. An `HX-Request: true` request SHALL return only the swappable table fragment; a plain `GET` SHALL return the full page. A successful resolution SHALL re-render the re-queried table fragment for an HTMX request, or 303-redirect back to the (filter-preserving) queue for the no-JS path.
 
 #### Scenario: A resolution control is rendered for a resolvable row
 - **GIVEN** an authenticated session AND a `pending` report whose target has a representative `moderation_queue` row
