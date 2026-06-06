@@ -123,6 +123,33 @@ class ReportQueueRepositoryTest : StringSpec({
         all.toSet().size shouldBe 3 // no duplicates, none skipped
     }
 
+    "5.17c — pagination composes with a status filter (cursor stays filtered + non-overlapping)" {
+        val reporter = user()
+        val base = Instant.parse("2090-04-15T00:00:00Z")
+        // 3 pending (newest→oldest) interleaved with a dismissed row that must never surface.
+        ReportQueueTestSupport.seedReport(dataSource, reporter, "user", user(), base.plusSeconds(1), status = "pending", reasonNote = "p-1")
+        ReportQueueTestSupport.seedReport(
+            dataSource,
+            reporter,
+            "user",
+            user(),
+            base.plusSeconds(2),
+            status = "dismissed",
+            reasonNote = "d-x",
+        )
+        ReportQueueTestSupport.seedReport(dataSource, reporter, "user", user(), base.plusSeconds(3), status = "pending", reasonNote = "p-2")
+        ReportQueueTestSupport.seedReport(dataSource, reporter, "user", user(), base.plusSeconds(4), status = "pending", reasonNote = "p-3")
+
+        val page1 = repo.query(windowQuery(base, pageSize = 2, status = "pending"))
+        page1.rows.map { it.reasonNote } shouldBe listOf("p-3", "p-2")
+        page1.rows.all { it.status == "pending" } shouldBe true
+        page1.nextCursor.shouldNotBeNull()
+
+        val page2 = repo.query(windowQuery(base, pageSize = 2, status = "pending", cursor = page1.nextCursor))
+        page2.rows.map { it.reasonNote } shouldBe listOf("p-1") // strictly older, still filtered, no overlap, dismissed excluded
+        page2.rows.all { it.status == "pending" } shouldBe true
+    }
+
     "5.6 — filters narrow + compose with AND (status / target_type / reason_category)" {
         val reporter = user()
         val base = Instant.parse("2090-05-01T00:00:00Z")
