@@ -118,7 +118,64 @@ class LauncherIconBackgroundTest {
                 xml.contains("@color/ic_launcher_background"),
                 "$icon must reference @color/ic_launcher_background (the per-flavor-overridable color)",
             )
+            assertTrue(
+                xml.contains("@drawable/ic_launcher_monochrome"),
+                "$icon must reference the shared @drawable/ic_launcher_monochrome layer (not env-overridden)",
+            )
         }
+    }
+
+    // ---- iOS staging icon selection (static CI guard: the xcodebuild -showBuildSettings check
+    //      can't run in Linux CI, so pin the source-of-truth files that drive that resolution) ----
+
+    @Test
+    fun iosStagingAppIconSet_existsAsSingleUniversalEntry() {
+        val contents = rawSource("iosApp/iosApp/Assets.xcassets/AppIcon-Staging.appiconset/Contents.json")
+        assertTrue(contents.contains("\"app-icon-1024.png\""), "AppIcon-Staging must reference app-icon-1024.png")
+        assertTrue(contents.contains("\"1024x1024\""), "AppIcon-Staging entry must be 1024x1024")
+        assertTrue(contents.contains("\"universal\""), "AppIcon-Staging must use the universal idiom")
+        assertFalse(contents.contains("luminosity"), "AppIcon-Staging must be a single universal entry (no dark/tinted variants)")
+        val png = File(repoRoot, "iosApp/iosApp/Assets.xcassets/AppIcon-Staging.appiconset/app-icon-1024.png")
+        assertTrue(png.exists(), "the AppIcon-Staging 1024 PNG must be present")
+    }
+
+    @Test
+    fun iosXcconfigs_selectStagingIconForNonProductionAndCobaltForProduction() {
+        val stagingRe = Regex("""(?m)^[ \t]*ASSETCATALOG_COMPILER_APPICON_NAME\s*=\s*AppIcon-Staging""")
+        val cobaltRe = Regex("""(?m)^[ \t]*ASSETCATALOG_COMPILER_APPICON_NAME\s*=\s*AppIcon(?![-\w])""")
+        for (cfg in listOf("Config.xcconfig", "Staging.xcconfig")) {
+            assertTrue(
+                stagingRe.containsMatchIn(rawSource("iosApp/Configuration/$cfg")),
+                "$cfg must set ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Staging",
+            )
+        }
+        assertTrue(
+            cobaltRe.containsMatchIn(rawSource("iosApp/Configuration/Production.xcconfig")),
+            "Production.xcconfig must set ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon (cobalt production)",
+        )
+    }
+
+    @Test
+    fun iosStagingIconSource_usesStagingTintAndGeneratorViewBox() {
+        val svg = rawSource("dev/assets/icon-src/icon-staging.svg")
+        assertTrue(svg.contains("#C2410C"), "the iOS staging icon source SVG must use the staging tint #C2410C")
+        assertTrue(
+            svg.contains("viewBox=\"0 0 108 108\""),
+            "the source SVG must declare viewBox=\"0 0 108 108\" (generate-ios-app-icons.sh contract)",
+        )
+    }
+
+    // ---- dormant alternate icon is NOT env-differentiated (spec: not touched by this change) ----
+
+    @Test
+    fun dormantAlternateIcon_remainsBlueOnWhite_notEnvTinted() {
+        val alt = rawSource("mobile/app/src/androidMain/res/mipmap-anydpi-v26/ic_launcher_alt.xml")
+        assertTrue(alt.contains("@android:color/white"), "the dormant alt icon must stay blue-on-white")
+        assertTrue(alt.contains("@drawable/ic_launcher_foreground_alt"), "the alt icon must reference its own foreground")
+        assertFalse(
+            alt.contains("@color/ic_launcher_background"),
+            "the alt icon must NOT use the env-differentiated background color (it is not env-tinted)",
+        )
     }
 
     private companion object {
