@@ -107,6 +107,11 @@ When the resolution is an author action (`suspend_author_7d`, `ban_author`, `sha
 - **WHEN** the queue row is resolved with `resolution=suspend_author_7d`
 - **THEN** the suspend SHALL be rejected (no downgrade) AND the queue row SHALL remain `pending` AND no audit row SHALL be written
 
+#### Scenario: An author action on a user target resolves to that user itself
+- **GIVEN** a `moderation_queue` row with `target_type = 'user'` and `target_id = <U>` (`U.is_shadow_banned = FALSE`)
+- **WHEN** the queue row is resolved with `resolution=shadow_ban_author`
+- **THEN** user `<U>` itself SHALL have `is_shadow_banned = TRUE` (the author of a `user` target is the user itself; a `chat_message` target resolves to its sender analogously)
+
 ### Requirement: ban_author is restricted to the owner/admin tier
 
 Issuing a permanent ban via `resolution=ban_author` SHALL require the owner or admin role, mirroring the existing rule that lifting a permanent ban is owner/admin-only (`admin-user-moderation`). An admin whose role is `moderator` (otherwise write-capable) SHALL be rejected when selecting `ban_author`, with no `users` mutation and no queue mutation. The tier check SHALL be enforced inside the resolution transaction so the rejection writes nothing.
