@@ -58,5 +58,5 @@
 ## 8. Staging smoke (N/A) + docs + follow-ups
 
 - [x] 8.1 **Staging smoke: N/A** — read-only admin view with no runtime-config / secret / rate-limit / schema surface; no `deploy-staging.yml` branch deploy required. Record N/A in the archive commit body.
-- [ ] 8.2 At archive time, flip `docs/07-Operations.md` § Core Features "Rejected Identifiers Viewer" from DESIGN to partially-shipped (read-only half) — note the deferred clear action.
+- [x] 8.2 At archive time, flip `docs/07-Operations.md` § Core Features "Rejected Identifiers Viewer" from DESIGN to partially-shipped (read-only half) — note the deferred clear action.
 - [x] 8.3 Log `admin-rejected-identifiers-clear-action` to `FOLLOW_UPS.md` (the manual support-clear write surface: role + CSRF + audit-log + rate-limit via the `admin-destructive-action-rate-limit` limiter). Optionally log `admin-rejected-identifiers-keyset-index` (the `(rejected_at DESC, id DESC)` index lever) if cardinality grows.
