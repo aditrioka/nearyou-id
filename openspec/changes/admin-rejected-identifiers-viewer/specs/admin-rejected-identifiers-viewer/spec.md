@@ -55,9 +55,29 @@ The system SHALL paginate the rejected-identifiers list using a keyset cursor ov
 - **WHEN** `GET /admin/rejected-identifiers` is served
 - **THEN** no "older" pagination control SHALL be rendered (there are no older rows)
 
-### Requirement: Composable, index-aligned filtering
+#### Scenario: Exact page-size boundary omits the older control; one more row shows it
 
-The system SHALL accept the query parameters `reason`, `identifier_type`, `from`, and `to`, each filtering the rejected-identifiers list and composing with logical AND. `reason` SHALL match exactly one of the allowed values (`age_under_18`, `attestation_persistent_fail`). `identifier_type` SHALL match exactly one of the allowed values (`google`, `apple`). `from` and `to` SHALL bound `rejected_at` (inclusive lower; `to` inclusive of the whole named day via an exclusive `< to + 1 day` upper bound). All filter values SHALL be applied via parameterized query placeholders — never string-interpolated into SQL.
+- **GIVEN** an authenticated session AND EXACTLY page-size matching rows
+- **WHEN** `GET /admin/rejected-identifiers` is served with no cursor
+- **THEN** all page-size rows SHALL be rendered AND no "older" control SHALL be present (there is no older row)
+- **AND** WHEN one additional older row is then present (page-size + 1 total) and the same request is re-served, the newest page-size rows SHALL be rendered AND an "older" control SHALL be present (the fixed-page fencepost holds at the exact boundary)
+
+#### Scenario: Rows sharing an identical rejected_at paginate by the id tiebreaker without loss or duplication
+
+- **GIVEN** an authenticated session AND two or more rows with an IDENTICAL `rejected_at` value but distinct `id`s, positioned so the page boundary falls between them (`rejected_at` defaults to `NOW()`, so a signup burst can write colliding timestamps)
+- **WHEN** the client pages through via the "older" cursor across that boundary
+- **THEN** every such row SHALL appear exactly once across the pages (the `(rejected_at, id) < (?, ?)` row-value predicate's `id DESC` tiebreaker prevents both skipping and duplication at the boundary)
+
+#### Scenario: The older-link cursor carries the active filters
+
+- **GIVEN** an authenticated session AND more than one page of rows matching a `reason` filter
+- **WHEN** the client follows the "older" control rendered for `GET /admin/rejected-identifiers?reason=age_under_18`
+- **THEN** the followed URL SHALL retain `reason=age_under_18` alongside the `cursor` parameter
+- **AND** the next page SHALL remain filtered to `reason=age_under_18` (filter + pagination compose; the paginated URL stays shareable)
+
+### Requirement: Composable filtering
+
+The system SHALL accept the query parameters `reason`, `identifier_type`, `from`, and `to`, each filtering the rejected-identifiers list and composing with logical AND. `reason` SHALL match exactly one of the allowed values (`age_under_18`, `attestation_persistent_fail`). `identifier_type` SHALL match exactly one of the allowed values (`google`, `apple`). `from` and `to` SHALL bound `rejected_at` (a `TIMESTAMPTZ`) interpreted in **UTC** — `from` inclusive from the start of that UTC day; `to` inclusive of the whole UTC day via an exclusive `< to + 1 day` (UTC) upper bound — matching the shipped `admin-actions-log-viewer` date-boundary convention (its route parses both via `atStartOfDay(ZoneOffset.UTC)`). All filter values SHALL be applied via parameterized query placeholders — never string-interpolated into SQL. (No `(rejected_at, id)` index is shipped — see `design.md` D2 — so "index-aligned" is intentionally NOT claimed for this capability; the filters are served by scan over the low-cardinality table.)
 
 #### Scenario: Filtering by reason returns only matching rows
 
@@ -78,12 +98,18 @@ The system SHALL accept the query parameters `reason`, `identifier_type`, `from`
 - **WHEN** `GET /admin/rejected-identifiers?reason=age_under_18&identifier_type=google` is served
 - **THEN** every rendered row SHALL satisfy BOTH `reason = age_under_18` AND `identifier_type = google`
 
-#### Scenario: Date range bounds rejected_at with inclusive whole-day upper bound
+#### Scenario: Date range bounds rejected_at in UTC with inclusive whole-day upper bound
 
-- **GIVEN** an authenticated session AND rows on `2026-05-20`, `2026-05-25`, and `2026-05-30`
+- **GIVEN** an authenticated session AND rows whose `rejected_at` fall on `2026-05-20`, `2026-05-25`, and `2026-05-30` (test fixtures pinned with EXPLICIT UTC offsets — never CI-host-local time — so the boundary is deterministic across runners)
 - **WHEN** `GET /admin/rejected-identifiers?from=2026-05-25&to=2026-05-25` is served
-- **THEN** the `2026-05-25` row(s) SHALL be rendered (the whole of 2026-05-25 is included)
+- **THEN** the row(s) within the whole UTC day `[2026-05-25T00:00:00Z, 2026-05-26T00:00:00Z)` SHALL be rendered
 - **AND** the `2026-05-20` and `2026-05-30` rows SHALL NOT be rendered
+
+#### Scenario: A row near the UTC day boundary is bucketed by its UTC date
+
+- **GIVEN** an authenticated session AND a row whose `rejected_at` is `2026-05-25T23:30:00Z`
+- **WHEN** `GET /admin/rejected-identifiers?from=2026-05-25&to=2026-05-25` is served
+- **THEN** that row SHALL be rendered (it falls within the UTC day 2026-05-25 regardless of the server's local timezone — a +07:00 WIB interpretation would wrongly push it to the 26th, which this convention does not do)
 
 ### Requirement: Malformed filter inputs are handled safely without error or injection
 
@@ -114,7 +140,7 @@ The system SHALL tolerate malformed filter inputs without returning a 500 and wi
 
 ### Requirement: Per-reason and per-type count summary reflects the active filter scope
 
-The system SHALL render a count summary alongside the table that reports, for the **current filter scope**, the number of matching rows broken down by `reason` and by `identifier_type`. The summary exists to surface rejection-volume spikes (the "`rejected_identifiers` insert rate" / "age gate rejection rate" anomaly signals) at a glance. The counts SHALL reflect the applied filters (it is a summary of the filtered result set, not of the whole table when filters are present).
+The system SHALL render a count summary alongside the table that reports, for the **current filter scope**, the number of matching rows broken down by `reason` AND by `identifier_type`. The summary exists to surface rejection-volume spikes (the "`rejected_identifiers` insert rate" / "age gate rejection rate" anomaly signals) at a glance. The counts SHALL reflect the applied filters (a summary of the filtered result set, not of the whole table when filters are present) but SHALL NOT be limited by pagination — they count the ENTIRE filtered result set (ignoring the keyset cursor and page size), not just the rows on the current page.
 
 #### Scenario: Summary reflects both reasons when unfiltered
 
@@ -126,7 +152,19 @@ The system SHALL render a count summary alongside the table that reports, for th
 
 - **GIVEN** an authenticated session AND rows of both reasons
 - **WHEN** `GET /admin/rejected-identifiers?reason=age_under_18` is served
-- **THEN** the rendered summary's `attestation_persistent_fail` count SHALL be zero (or that bucket omitted), reflecting that the active filter scopes the summary to `age_under_18`
+- **THEN** the rendered summary SHALL report the `age_under_18` count (matching the filtered rows) AND SHALL NOT report a non-zero `attestation_persistent_fail` count (that bucket is either shown as zero or omitted) — the active filter scopes the summary to `age_under_18`
+
+#### Scenario: Summary breaks down by identifier_type
+
+- **GIVEN** an authenticated session AND rows with `identifier_type` values `google` and `apple`
+- **WHEN** `GET /admin/rejected-identifiers` is served with no filters
+- **THEN** the rendered summary SHALL show a `google` count AND an `apple` count reflecting the respective row totals
+
+#### Scenario: Summary counts the whole filtered set, not just the current page
+
+- **GIVEN** an authenticated session AND more matching rows than the fixed page size
+- **WHEN** `GET /admin/rejected-identifiers` is served (the newest page)
+- **THEN** the summary's total count SHALL equal the full number of matching rows (a value greater than the page size), NOT the page-size number of rows currently displayed
 
 ### Requirement: HTMX partial swap with plain-GET progressive enhancement
 
@@ -218,3 +256,10 @@ The system SHALL render an explicit empty-state message when no `rejected_identi
 - **WHEN** `GET /admin/rejected-identifiers?from=2999-01-01` is served (a date range that matches no rows)
 - **THEN** the response status SHALL be 200
 - **AND** the rendered body SHALL contain an empty-state indicator (e.g., a "no entries" message) rather than a table of rows or an error page
+
+#### Scenario: Empty state also renders inside the HTMX fragment
+
+- **GIVEN** an authenticated session
+- **WHEN** `GET /admin/rejected-identifiers?from=2999-01-01` is served with header `HX-Request: true`
+- **THEN** the response status SHALL be 200
+- **AND** the returned `#rejected-identifiers-table` fragment SHALL contain the empty-state indicator (not a blank/empty fragment or an error)
