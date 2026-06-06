@@ -28,6 +28,11 @@ The system SHALL serve `GET /admin/reports` as an authenticated route, wired INS
 - **THEN** the response status SHALL be 200
 - **AND** the rendered body SHALL show an empty-state message (never a 404 or 500)
 
+#### Scenario: Reporter is resolved to a human-readable identity
+- **GIVEN** an authenticated session AND a report whose `reporter_id` references a `users` row with a known `username`
+- **WHEN** `GET /admin/reports` is served
+- **THEN** the rendered row SHALL contain the reporter's resolved `username`, not the bare `reporter_id` UUID alone
+
 ### Requirement: Keyset pagination over (created_at, id) with a fixed page size
 
 The system SHALL paginate the report queue using a keyset cursor over `(created_at, id)` in descending order with a fixed page size. It SHALL NOT use SQL `OFFSET`. When more rows exist beyond the current page, the system SHALL render an "older" navigation control carrying an opaque cursor encoding the last-displayed row's `(created_at, id)`; following that control SHALL return the next-older page whose first row immediately precedes the cursor in `created_at DESC, id DESC` order. A malformed or absent cursor SHALL be treated as a request for the first (newest) page, never an error.
@@ -53,6 +58,22 @@ The system SHALL paginate the report queue using a keyset cursor over `(created_
 - **GIVEN** an authenticated session AND exactly one page or fewer of matching rows
 - **WHEN** `GET /admin/reports` is served
 - **THEN** no "older" pagination control SHALL be rendered
+
+#### Scenario: Exactly one full page omits the older control (boundary)
+- **GIVEN** an authenticated session AND exactly the page-size number of matching rows (no more)
+- **WHEN** `GET /admin/reports` is served with no cursor
+- **THEN** the rendered table SHALL contain exactly the page-size number of rows
+- **AND** no "older" pagination control SHALL be rendered (there is no further page)
+
+#### Scenario: The id tiebreaker prevents skip/duplicate when created_at ties across the page boundary
+- **GIVEN** an authenticated session AND two or more `reports` rows sharing an identical `created_at` (e.g. a report and its auto-hide enqueue in one transaction) with distinct `id`, positioned so the page boundary falls between them
+- **WHEN** the client loads the first page and then follows the "older" cursor
+- **THEN** every tied-`created_at` row SHALL appear exactly once across the two pages (none skipped, none duplicated), because the cursor orders by `(created_at, id) DESC`
+
+#### Scenario: Pagination composes with an active filter
+- **GIVEN** an authenticated session AND more than one page of `status = pending` rows (alongside non-pending rows)
+- **WHEN** the client loads `GET /admin/reports?status=pending` and follows the "older" cursor with `status=pending` still applied
+- **THEN** the second page rows SHALL all be strictly older than the first page's last row AND SHALL all have `status = pending` AND no first-page row SHALL reappear
 
 ### Requirement: Composable, index-aligned, parameterized filtering
 
@@ -92,14 +113,30 @@ The system SHALL accept the query parameters `status`, `target_type`, `reason_ca
 - **WHEN** an authenticated client sends `GET /admin/reports?status=pending'); DROP TABLE reports;--`
 - **THEN** the response status SHALL be 200 (or an empty/normal result) AND the `reports` table SHALL still exist (the value is bound as a parameter, never interpolated into SQL)
 
+### Requirement: Malformed filter inputs are tolerated, never error
+
+The system SHALL handle malformed or out-of-domain filter values leniently — it SHALL return HTTP 200 (with an empty or normal result), never a 4xx/5xx error, when a filter value is unparseable or out of its expected domain. An unparseable `from` / `to` date SHALL be ignored (treated as no date bound). An out-of-enum `status` / `target_type` / `reason_category` / `trigger` value SHALL be applied as a literal predicate (yielding zero matches), not rejected. A `from` later than `to` SHALL yield an empty result, not an error. This mirrors the lenient-on-malformed-input contract of `admin-actions-log-viewer`.
+
+#### Scenario: Unparseable date is ignored
+- **WHEN** an authenticated client sends `GET /admin/reports?from=13th-of-never`
+- **THEN** the response status SHALL be 200 AND the date filter SHALL be ignored (no date bound applied), not treated as an error
+
+#### Scenario: Out-of-enum filter value yields zero matches, not an error
+- **WHEN** an authenticated client sends `GET /admin/reports?status=not-an-enum-value` (or an over-long value)
+- **THEN** the response status SHALL be 200 AND the rendered body SHALL show the empty state (the value is bound as a literal that matches no row), never a 400 or 500
+
+#### Scenario: from later than to yields an empty result
+- **WHEN** an authenticated client sends `GET /admin/reports?from=<dayC>&to=<dayA>` where `dayC` is after `dayA`
+- **THEN** the response status SHALL be 200 AND the rendered body SHALL show the empty state, not an error
+
 ### Requirement: moderation_queue context attached as a single representative row
 
-The system SHALL attach `moderation_queue` context to each report via a single representative row selected by `LEFT JOIN LATERAL (… ORDER BY priority ASC, created_at DESC LIMIT 1)` keyed on the report's `(target_type, target_id)`. When a representative row exists, the rendered report row SHALL display its `trigger` and `priority`. When no `moderation_queue` row exists for the report's target (e.g. a report below the 3-reporter auto-hide threshold), the report row SHALL render without queue context and SHALL NOT error. A target with multiple `moderation_queue` rows (multiple triggers) SHALL produce exactly one display row for each report (no fan-out).
+The system SHALL attach `moderation_queue` context to each report via a single representative row selected by `LEFT JOIN LATERAL (… ORDER BY priority ASC, created_at DESC LIMIT 1)` keyed on the report's `(target_type, target_id)`. When a representative row exists, the rendered report row SHALL display its `trigger`, `priority`, and queue `status`. When no `moderation_queue` row exists for the report's target (e.g. a report below the 3-reporter auto-hide threshold), the report row SHALL render without queue context and SHALL NOT error. A target with multiple `moderation_queue` rows (multiple triggers) SHALL produce exactly one display row for each report (no fan-out).
 
-#### Scenario: Report with a moderation_queue row shows trigger and priority
-- **GIVEN** an authenticated session AND a report whose `(target_type, target_id)` has a `moderation_queue` row with `trigger = auto_hide_3_reports`
+#### Scenario: Report with a moderation_queue row shows trigger, priority, and queue status
+- **GIVEN** an authenticated session AND a report whose `(target_type, target_id)` has a `moderation_queue` row with `trigger = auto_hide_3_reports` and `status = pending`
 - **WHEN** `GET /admin/reports` is served
-- **THEN** that report's rendered row SHALL display the queue `trigger` and `priority`
+- **THEN** that report's rendered row SHALL display the queue `trigger`, `priority`, and queue `status`
 
 #### Scenario: Report without a moderation_queue row renders without queue context
 - **GIVEN** an authenticated session AND a report whose `(target_type, target_id)` has NO `moderation_queue` row
@@ -174,6 +211,11 @@ Serving `GET /admin/reports` (with any filter or cursor parameters) SHALL NOT wr
 - **WHEN** `GET /admin/reports` is served (with and without filters/cursor)
 - **THEN** the `admin_actions_log` row count SHALL be unchanged
 - **AND** no `reports` or `moderation_queue` row SHALL be inserted, updated, or deleted
+
+#### Scenario: Only GET is mounted on the report-queue surface
+- **GIVEN** an authenticated session
+- **WHEN** the client sends `POST /admin/reports`
+- **THEN** the response status SHALL be 405 (Method Not Allowed) — only `GET` is mounted on this surface by this change
 
 ### Requirement: Report resolution write-back and the edit-history filter are explicitly deferred
 

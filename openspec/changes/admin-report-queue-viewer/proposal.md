@@ -19,14 +19,14 @@ This is the first admin **business** read surface after `admin-actions-log-viewe
 ## Capabilities
 
 ### New Capabilities
-- `admin-report-queue`: the read-only admin Report Queue surface (`GET /admin/reports`) — authenticated + role-gated reports triage table with `moderation_queue` join, keyset pagination, composable filters, HTML-escaped HTMX rendering, deep-links to the user-moderation action surface, and the explicit read-only + deferred-resolution requirements.
+- `admin-report-queue`: the read-only admin Report Queue surface (`GET /admin/reports`) — authenticated, session-gated (not role-restricted) reports triage table with `moderation_queue` join, keyset pagination, composable filters (with lenient malformed-input handling), HTML-escaped HTMX rendering, deep-links to the user-moderation action surface, and the explicit read-only + deferred-resolution requirements.
 
 ### Modified Capabilities
 <!-- None. The viewer is purely additive: it reads reports + moderation_queue + users (admin-module raw-read exemption) without changing their requirements, and consumes the admin-login / admin-panel-scaffold gate + layout without modifying them. -->
 
 ## Impact
 
-- **Code**: `:backend:ktor` `admin` package — new `ReportQueueRoute` + Pebble template(s) + a read-only repository/query over `reports` ⟕ `moderation_queue` (+ `users`/`admin_users` joins for display). Mounted inside the existing `authenticate(ADMIN_AUTH_NAME)` block. Reuses the `admin-panel-scaffold` base layout, the `admin-login` `AdminPrincipal`/role gate, and the keyset-cursor + HTMX-fragment patterns established by `admin-actions-log-viewer`. The 31-LOC `moderation` admin-queue stub may be retired/replaced.
+- **Code**: `:backend:ktor` `admin` package — new `ReportQueueRoute` + Pebble template(s) + a read-only repository/query over `reports` ⟕ `moderation_queue` (+ `users`/`admin_users` joins for display). Mounted inside the existing `authenticate(ADMIN_AUTH_NAME)` block, under the `app/admin/` package so the admin-module lint exemption applies (the `moderation` package's exemption is narrowly `Report*`-file-scoped and is NOT the right home for this route). Reuses the `admin-panel-scaffold` base layout, the `admin-login` session gate + `AdminPrincipal`, and the keyset-cursor + HTMX-fragment patterns established by `admin-actions-log-viewer`.
 - **Schema / migrations**: none required; at most one index-only `V19` migration (decided in design). `reports`, `moderation_queue`, and their `admin_users` FKs already shipped (V9, V16).
 - **Lint/invariants**: admin module is exempt from the `visible_*`-view + block-exclusion rules (raw reads of `reports`/`moderation_queue`/`users` permitted, mirroring `admin-user-moderation`). All filter values applied via parameterized JDBC placeholders. No new secret reads, no rate-limit surface, no new `libs.versions.toml` pin.
 - **Docs**: aligns with `docs/07-Operations.md` §Core Features "Report Queue" (flips it from DESIGN to partially-shipped at archive time); `docs/02-Product.md` §4 Report System.
