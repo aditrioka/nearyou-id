@@ -1,0 +1,90 @@
+# Tasks — mobile-analytics-consent-screen
+
+## 1. Setup & pre-flight
+
+- [ ] 1.1 Confirm NO new library pin is introduced — Ktor KMP client + `Auth { bearer }`, Material 3 `Switch`, Navigation 3 serializable `NavKey`, kotlinx.serialization, and CMP Resources are all already on the `:mobile:app` / `:backend:ktor` classpaths. Substrate re-check is skip-eligible per `openspec/project.md` § Pre-implementation library re-check (extending an already-active library is not substrate selection). Record the skip rationale in the first feat commit body.
+- [ ] 1.2 Confirm `users.analytics_consent` exists at `backend/ktor/src/main/resources/db/migration/V2__auth_foundation.sql:22` with default `{"analytics": false, "crash": true, "ads_personalization": false}` — NO new Flyway migration in this change (verify the next `V<N>__*.sql` slot is untouched, so there is zero migration-number contention with in-flight changes).
+- [ ] 1.3 Confirm `analytics_consent` is on NEITHER the username-write NOR the privacy-flag-write Detekt allowlist (those guard `username` / `private_profile_opt_in` only) — so the consent `UPDATE users` needs no `// @allow-*-write` annotation. Grep `:lint:detekt-rules` to confirm; if a general `UPDATE users` rule exists, add the appropriate annotation + note it here.
+- [ ] 1.4 Re-read the contracts this change consumes/mirrors: `backend/ktor/.../user/FcmTokenRoutes.kt` (authed-self `/api/v1/user/*` route pattern + its test), the mobile `AuthApiClient` + `Auth { bearer }` interceptor (Mobile #3), and `screens/routing/RootRouterScreen.kt` + `NavKeys.kt` + `AppNavSerialization.kt` (the `replaceAll` routing + polymorphic NavKey registration).
+
+## 2. Backend — `PATCH /api/v1/user/consent`
+
+- [ ] 2.1 Create `backend/ktor/src/main/kotlin/id/nearyou/app/user/ConsentRoutes.kt` with `PATCH /api/v1/user/consent` inside the authenticated route block (same `authenticate` guard the other `/api/v1/user/*` routes use). Resolve the user identity from the JWT `sub`.
+- [ ] 2.2 Add the request DTO `@Serializable data class ConsentUpdateRequest(analytics: Boolean, crash: Boolean, adsPersonalization: Boolean)` with `@SerialName` snake_case (`analytics`, `crash`, `ads_personalization`) and the response DTO echoing the stored triple. Reject a body that is not the complete boolean triple (missing key / non-boolean / unknown key) → `400` (configure kotlinx.serialization to fail on missing/unknown as appropriate).
+- [ ] 2.3 Implement the write path (a `ConsentRepository`/service method on the user/data layer) that full-object-writes `users.analytics_consent` for `WHERE id = :jwtSub` only — `UPDATE users SET analytics_consent = :jsonb WHERE id = :sub`. Own-content write (raw allowed); serialize the triple to the canonical 3-key JSONB object. Return the stored value for the `200` response.
+- [ ] 2.4 Wire the route + repository into Koin (mirror the FCM-token wiring) and register the route in the app's routing module.
+- [ ] 2.5 Ensure the handler logs NO token / `Authorization` header / JWT `sub` / request-or-response body (per the `analytics-consent-update` PII requirement).
+
+## 3. Backend tests (`:backend:ktor`)
+
+- [ ] 3.1 `200` happy path: seeded user at V2 default + valid token → `PATCH` with `{analytics:true, crash:false, ads_personalization:true}` → `200`, response echoes the triple, and `SELECT analytics_consent FROM users WHERE id = U` equals the written object (DB-tagged test against the service-container Postgres).
+- [ ] 3.2 Full-object-replace: a user at all-`true` → `PATCH` all-`false` → stored object is exactly all-`false` with exactly the 3 canonical keys (no merge, no stray keys).
+- [ ] 3.3 Own-row authz: user `A`'s `PATCH` updates only `A`; user `B`'s consent is unchanged.
+- [ ] 3.4 `401`: missing bearer → `401`, no row mutated; invalid token → `401`, no row mutated.
+- [ ] 3.5 `400`: missing a key → `400`, row unchanged; non-boolean value → `400`, row unchanged.
+- [ ] 3.6 Source-scan guard: assert the `ConsentRoutes.kt` source contains no log call site passing the token / `Authorization` / `sub` / body — **strip comments before scanning** (so the file's own KDoc mentioning those words doesn't trip the scan, per the source-scan-guard precedent).
+
+## 4. Strings (`:shared:resources`)
+
+- [ ] 4.1 Add the `consent_*` strings to `shared/resources/src/commonMain/composeResources/values/strings.xml` with the exact text from the `shared-resources` ADDED spec (`consent_title`, `consent_explainer`, `consent_analytics_label`/`_desc`, `consent_crash_label`/`_desc`, `consent_ads_label`/`_desc`, `consent_cta_continue`, `consent_error_retryable`, `consent_skip`).
+- [ ] 4.2 Verify `consent_analytics_desc` / `consent_crash_desc` / `consent_ads_desc` are byte-identical to the three data-summary bullets in `docs/03-UX-Design.md` § "Analytics & Tracking Consent Screen (UU PDP)".
+- [ ] 4.3 Do NOT rewrite or remove any earlier (Mobile #2–#7) string.
+- [ ] 4.4 Build `:shared:resources` so CMP Resources codegen regenerates the `Res.string.*` accessors for the new keys.
+
+## 5. ConsentScreen UI (commonMain)
+
+- [ ] 5.1 Create `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/consent/ConsentScreen.kt` rendering: title (`consent_title`), explainer (`consent_explainer`), three Material 3 `Switch` rows with label + description (`consent_analytics_*`, `consent_crash_*`, `consent_ads_*`), and the continue CTA (`consent_cta_continue`). Render under `NearYouTheme`, consistent with `AgeGateScreen`.
+- [ ] 5.2 Create `ConsentUiState.kt` with the toggle triple + screen state (Editing / Submitting / RetryableError / TokenInvalid / Success). Initial toggle values = analytics OFF, crash ON, ads OFF — injectable (a default-values parameter), NOT read from platform state, and NOT fetched via a GET.
+- [ ] 5.3 Ensure every UI string flows through `stringResource(Res.string.X)` — zero hardcoded literals.
+- [ ] 5.4 Render `Submitting` (disable CTA / show progress), `RetryableError` (`consent_error_retryable` + `cta_retry` + — only now — `consent_skip`), and `TokenInvalid` (`signin_error_token_invalid`) per the `mobile-analytics-consent` spec. The skip affordance MUST NOT be present before a failed submit.
+
+## 6. Consent flow — ApiClient + repository + outcome mapping (commonMain)
+
+- [ ] 6.1 Create `mobile/app/src/commonMain/kotlin/id/nearyou/app/consent/ConsentApiClient.kt` issuing `PATCH /api/v1/user/consent` with the snake_case triple body via the existing `Auth { bearer }`-interceptor `HttpClient`.
+- [ ] 6.2 Create `ConsentRepository.submitConsent(analytics, crash, adsPersonalization): ConsentOutcome` + the `ConsentOutcome` sealed type (`Success`, `Retryable`, `TokenInvalid`). Map status-driven (NOT on a parsed `error.code`): `200`→Success; `401`→TokenInvalid; `5xx`/`503`/IO→Retryable; `400`→Retryable + logged diagnostic. No generic else-branch routing Home.
+- [ ] 6.3 Add the in-flight guard (`isInFlight` / `Mutex.tryLock` or CTA-disabled-while-loading) so a double-tap fires exactly one `PATCH`.
+- [ ] 6.4 Never log the token / `Authorization` / `sub` / response body in any consent source file.
+- [ ] 6.5 Koin-wire `ConsentApiClient` + `ConsentRepository` + `ConsentViewModel` in `di/MobileModule.kt`.
+
+## 7. Routing — ConsentRoute + age-gate 201-terminus swap
+
+- [ ] 7.1 Add `@Serializable data object ConsentRoute : NavKey` to `screens/routing/NavKeys.kt` (parameterless, no identity payload) and register it in the `AppNavSerialization` polymorphic `SerializersModule`.
+- [ ] 7.2 Map `ConsentRoute` → `ConsentScreen` in `appEntryProvider` (the NavKey→composable mapping).
+- [ ] 7.3 Swap the age-gate signup-`201` terminus: in the path that today does `replaceAll(HomeRoute)` after signup success, route to `ConsentRoute` instead (per the `mobile-age-gate` MODIFIED requirement). Consent submit success → `replaceAll(HomeRoute)`; the consent skip (post-failure) → `replaceAll(HomeRoute)`.
+- [ ] 7.4 Confirm the returning-user sign-in (`/signin 200`) terminus is UNCHANGED (still `HomeRoute` directly — consent is signup-path-only).
+
+## 8. Mobile tests
+
+- [ ] 8.1 `commonTest` `runComposeUiTest` `ConsentScreen` render: title + three toggle labels + continue CTA present; default toggle states (analytics OFF, crash ON, ads OFF).
+- [ ] 8.2 `commonTest` no-hardcoded-strings source scan on `ConsentScreen.kt` (+ the other consent sources) — **strip comments first** (per the source-scan-guard precedent).
+- [ ] 8.3 Flow test (MockEngine): continue with toggles {analytics ON, crash OFF, ads ON} → captured `PATCH /api/v1/user/consent` body parses as `{"analytics":true,"crash":false,"ads_personalization":true}` → routes Home on `200`. Toggling a switch changes the submitted value.
+- [ ] 8.4 Flow test: no consent-read (`GET`) request is issued on screen entry.
+- [ ] 8.5 Outcome mapping tests: `503`/IO → `Retryable` (no nav, `consent_error_retryable` shown); `401` → `TokenInvalid` (no nav); `400` → `Retryable` + diagnostic. Double-tap continue → exactly one `PATCH`.
+- [ ] 8.6 Non-trapping test: skip affordance absent before failure; after a `503` it appears and routes Home. For Robolectric `*ScreenTest` exercising the real MockEngine submit, poll the end-state with `waitUntil` (NOT `waitForIdle` — the network submit isn't awaited by idle, per the async-repo-screen-test precedent).
+- [ ] 8.7 `ConsentRoute` serialization round-trips through `AppNavSerialization`; declares no identity property.
+- [ ] 8.8 If `ConsentScreenTest` uses the Robolectric ui-test-manifest host activity, ADD it to the Release-variant test exclude (the host activity is debug-only → `testDevReleaseUnitTest` would throw). Verify with `:mobile:app:testDevReleaseUnitTest`, not just Debug.
+- [ ] 8.9 iOS: a `src/iosTest` flow test (kotlin.test `@Test`, NOT Kotest — commonTest Kotest doesn't run on Kotlin/Native) covering the PATCH-body + route-on-200 path; run `:mobile:app:iosSimulatorArm64Test`. Confirm `ConsentRoute` + `ConsentScreen` compose on iOS (`linkDebugFrameworkIosSimulatorArm64` locally — CI/Linux can't catch K/N link issues).
+
+## 9. Deferred-as-explicit-requirement + FOLLOW_UPS
+
+- [ ] 9.1 Add `FOLLOW_UPS.md` entry `mobile-analytics-consent-settings-toggle` — the Settings-screen consent re-edit path (`GET /api/v1/user/consent` per design OQ2 + a Settings screen). Depends on a Settings screen that does not exist yet.
+- [ ] 9.2 Add `FOLLOW_UPS.md` entry `mobile-analytics-consent-persist-hardening` — reliable persist (retry/queue) so a failed PATCH cannot leave a future tracking SDK mismatched. Becomes load-bearing only once the suppress-wrappers land. (Tracked by an explicit spec requirement so the follow-up has something to MODIFY.)
+- [ ] 9.3 Add `FOLLOW_UPS.md` entry `mobile-analytics-consent-rootrouter-regate` — `consent_completed_at` flag + RootRouter consent re-gate for returning token-bearing users. Deferred; safe-defaults make it benign for MVP.
+- [ ] 9.4 Verify each deferred behavior has BOTH a positive + negative-guard scenario in the `mobile-analytics-consent` spec (it does — re-confirm at archive that the FOLLOW_UPS entries still match the spec wording).
+
+## 10. Validation, lint, pre-push gate
+
+- [ ] 10.1 `openspec validate mobile-analytics-consent-screen --strict` green.
+- [ ] 10.2 Pre-push gate (per CLAUDE.md): `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally (CI runs BOTH ktlint + detekt — passing only detekt is insufficient).
+- [ ] 10.3 Mobile gate (flavor-qualified): `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` (NOT the ambiguous `testDebugUnitTest`); `:shared:resources` Robolectric tests; detekt is root-level. Worktree needs a copied `local.properties` SDK pointer.
+- [ ] 10.4 Confirm the mobile no-hardcoded-UI-strings grep guard passes against the new `ConsentScreen` (all strings via `Res.string.*`).
+
+## 11. Pre-archive staging smoke (backend endpoint has runtime impact)
+
+- [ ] 11.1 Manual branch deploy: `gh workflow run deploy-staging.yml --ref mobile-analytics-consent-screen`; poll the deploy run.
+- [ ] 11.2 Smoke `PATCH /api/v1/user/consent` against the branch deploy with a real staging token (200 + DB round-trip; 401 unauth; 400 malformed). Add/extend `dev/scripts/smoke-mobile-analytics-consent-screen.sh` if a smoke script is warranted. Tick this Section before `/opsx:archive`.
+
+## 12. Docs / PR upkeep
+
+- [ ] 12.1 Keep PR #157 title + body current at each phase boundary (proposal-review complete → first feat commit retitle `feat(mobile): mobile-analytics-consent-screen` → section landings → archive-ready), per `openspec/project.md` § "PR title and body MUST stay current".
+- [ ] 12.2 No new Gradle module is added, so no README module-list sync is needed (verify: this change adds files to existing modules only).
