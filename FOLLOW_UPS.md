@@ -14,7 +14,7 @@ Transient working file for findings discovered during a change cycle that are NO
   - **2026-05-31** (targeted, `mobile-nearby-timeline-screen` apply §11.1) — added 6 Mobile-#5 deferrals → 37 open.
   - **2026-06-01** (full sweep) — 37 → 35 open, 0 rot. Migrated 2 to [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Pre-Launch #6/#7 (`mobile-location-permission-flow`, `mobile-age-gate-stronger-verification` — the latter surfaces the **PP 17/2025 "PP TUNAS"** age-assurance deadline, previously absent from the roadmap). Surfaced a 6-entry test-coverage chore-PR scope (`fcm-payload-structural-tests`, `fcm-shutdown-drain-deterministic-tests`, `fcm-end-to-end-composite-test`, `reply-rate-limit-moderator-spy`, `chat-block-check-moderator-spy`, `mobile-theme-light-dark-direct-test` — the last still open because its two theme color-scheme scenarios remain untested in `:mobile:app` despite Mobile #5 shipping; merging the bundle → ~29 open). Kept 7 dormant-until-external-trigger entries (GitHub-Issues migration deferred; still solo-operator); promotions deferred. **Ended 35 open, 5 over the limit** — residual is verified-still-valid deferred work, not rot; the test-coverage bundle is the next drawdown lever.
   - **2026-06-04** (full sweep) — 32 → 28 open, **0 rot**: all 32 verified still-valid against current code/specs/docs (zero silently-resolved, zero superseded). Migrated 3 launch-gated entries to their canonical homes (`mobile-auth-signin-apple-ios` → [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) § Phase 3 iOS; `mobile-auth-signin-attestation-fingerprint-hash` → `docs/08` § Phase 3 + [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) § Attestation; `admin-app-revoke-staging-and-prod` residual → [`docs/07-Operations.md`](docs/07-Operations.md) § Data Access Pattern + Pre-Launch gate). Reconciled `post-creation-spec-error-enumeration-stale` inline (the `post-creation` spec's "exactly [5] codes" line now includes the 6th, `content_moderated_profanity`). Promoted `mobile-location-acquisition-latency` to a `/next-change` hand-off (entry stays open until that change ships). User accepted the remaining 28 as verified-valid backlog (no forced accept-the-gap deletes); GitHub-Issues migration still deferred (solo-operator). Audit trail in this sweep's PR.
-  - **2026-06-06** (targeted, `admin-rejected-identifiers-viewer` archive) — three same-day changes landed: `mobile-env-launcher-icons` (+1), `mobile-home-tab-host` (net 0 — deleted 2 precondition entries, added 2), and `admin-rejected-identifiers-viewer` (+1) → **31 open, 1 over the soft cap**. Per the "next add MUST sweep first" rule a targeted re-verification ran over the 8 likeliest-resolved entries (sub-agent, with file:line/CI/spec evidence): **0 rot — all 8 still-valid**, consistent with the 2026-06-04 full sweep. Nothing prunable, so the file rests at **31 open: verified-valid deferred work, not rot** (cf. the 2026-06-01 "35 open, 5 over — not rot" posture). Standing drawdown levers: merge `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`; GitHub-Issues migration (still solo-operator). Per-entry detail in the consolidated sweep note at end-of-file.
+  - **2026-06-06** (targeted, `admin-rejected-identifiers-viewer` archive) — **four** same-day changes merge-reconciled: `mobile-env-launcher-icons` (+1), `mobile-home-tab-host` (net 0 — deleted 2 precondition entries, added 2), `admin-report-queue-viewer` (+2 spec-mandated), and `admin-rejected-identifiers-viewer` (+1) → **33 open, 3 over the soft cap**. Per the "next add MUST sweep first" rule a targeted re-verification ran over the 8 likeliest-resolved entries (sub-agent, with file:line/CI/spec evidence): **0 rot — all 8 still-valid**, consistent with the 2026-06-04 full sweep. Nothing prunable, so the file rests at **31 open: verified-valid deferred work, not rot** (cf. the 2026-06-01 "35 open, 5 over — not rot" posture). Standing drawdown levers: merge `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`; GitHub-Issues migration (still solo-operator). Per-entry detail in the consolidated sweep note at end-of-file.
 
 Format per entry:
 
@@ -790,7 +790,47 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] Resolve the rate-limiter dependency first (`admin-destructive-action-rate-limit`).
 - [ ] Delete this entry once the clear action ships.
 
-**Cap note:** this entry plus the concurrent `mobile-env-launcher-icons` archive took the file to **31 open** — see the consolidated 2026-06-06 sweep note at the end of this file (a targeted sweep ran per the "next add MUST sweep first" rule and found 0 rot, so nothing was prunable). The optional `admin-rejected-identifiers-keyset-index` lever (design.md D2) is intentionally NOT logged (it stays a contingency in the change's design.md until cardinality actually grows).
+**Cap note:** see the consolidated 2026-06-06 cap + sweep note at the end of this file for the day's full accounting (a targeted sweep found 0 rot — nothing prunable). The optional `admin-rejected-identifiers-keyset-index` lever (design.md D2) is intentionally NOT logged (it stays a contingency in the change's design.md until cardinality actually grows).
+
+---
+
+## admin-report-queue-resolution-actions
+
+**Discovered during:** `admin-report-queue-viewer` archive §8.2 (deferred-by-design; recorded as the spec requirement "Report resolution write-back and the edit-history filter are explicitly deferred").
+
+**Status:** open
+
+**Finding:** The `admin-report-queue` read viewer (`GET /admin/reports`, Admin #6) deliberately ships read-only — it surfaces the backlog and deep-links the offending user to `/admin/users`, but provides NO surface to resolve a report in place. The write-back half (mark a report actioned/dismissed → set `reports.status` / `reports.reviewed_by` / `reports.reviewed_at`, set `moderation_queue.resolution` / `resolved_by` / `resolved_at`, and write one immutable `admin_actions_log` audit row, all atomically) is the natural fast-follow — exactly as `admin-actions-log-viewer` (read) preceded `admin-user-moderation` (write). The `moderation_queue.resolution` 8-enum + `reports.status` 3-enum shipped at V9; the `reviewed_by`/`resolved_by` → `admin_users(id) ON DELETE SET NULL` FKs shipped at V16.
+
+**Specs at fault:** none — `openspec/specs/admin-report-queue/spec.md` § "Report resolution write-back and the edit-history filter are explicitly deferred" positively requires this be a separate change.
+**Code at fault:** none — the read route is correctly mutation-free (verified by the read-only negative-guard test).
+**Docs at fault:** none — `docs/07-Operations.md` § Core Features "Report Queue" now lists the in-row resolution actions as Still DESIGN.
+
+**Impact (if shipped):** closes the moderation loop in-panel (today a moderator resolves by clicking through to `/admin/users` suspend/unban; the queue row's own `status` stays `pending` until this lands). Role-gated + CSRF-gated like `admin-user-moderation`.
+
+**Action items:**
+- [ ] File OpenSpec change `admin-report-queue-resolution-actions`: POST resolution endpoint(s) under the admin gate (CSRF + role-gated), atomic status transitions on `reports` + `moderation_queue`, one `admin_actions_log` row per action, in-row resolution controls in the `reports-table.peb` fragment.
+- [ ] Delete this entry once the change merges.
+
+---
+
+## admin-report-queue-has-edit-history-filter
+
+**Discovered during:** `admin-report-queue-viewer` archive §8.2 (deferred-by-design; recorded as the same spec requirement).
+
+**Status:** open
+
+**Finding:** `docs/07-Operations.md` § Core Features "Report Queue" lists a "post has edit history to prioritize" filter. The shipped viewer omits it: the composable filter set is `status` / `target_type` / `reason_category` / `trigger` / `from`–`to`, none of which expresses "the reported post has been edited." Implementing it needs an `EXISTS` join against `post_edits` (keyed on the report's `target_id` when `target_type = 'post'`), out of scope for the read-only v1. The viewer already tolerates the param: `GET /admin/reports?has_edit_history=true` is ignored (200, no filtering) — verified by spec scenario "The edit-history prioritization filter is absent."
+
+**Specs at fault:** none — the spec's deferral requirement names this filter explicitly as a follow-up.
+**Code at fault:** none.
+**Docs at fault:** none — `docs/07-Operations.md` now marks the edit-history filter as Still DESIGN.
+
+**Impact (if shipped):** lets a moderator prioritize reports on edited posts (a common evasion pattern — post clean, edit to violating). Low-complexity once v1 exists: one more composable `EXISTS (SELECT 1 FROM post_edits …)` predicate + a checkbox in the filter form.
+
+**Action items:**
+- [ ] Add the `has_edit_history` filter to the report-queue query (`EXISTS` over `post_edits` for `target_type='post'`) + a checkbox in the filter form, as a small follow-up change (or fold into `admin-report-queue-resolution-actions`).
+- [ ] Delete this entry once shipped.
 
 ---
 
@@ -815,8 +855,4 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] **(env-config completion)** Add a dedicated `Production` iOS build configuration wired to `Production.xcconfig` (`.nearyou.app` + `AppIcon`), remove the `Debug`/`Release` APPICON hardcodes (now safe once a Production config resolves cobalt), and fix per-configuration Pods wiring (`Config.xcconfig` → debug Pods for all configs today).
 - [ ] Delete this entry once the iOS dev icon + the env-config completion both ship (or are ruled out).
 
-**Cap note (2026-06-06):** two changes landed this day — `mobile-home-tab-host` shipped (deleted its 2 precondition entries `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks` — net 0) and `mobile-env-launcher-icons` added `mobile-env-launcher-icons-ios-dev-icon` (+1) → **30 open, at the 30-entry hard limit** (not breached). The next entry-add MUST force a `/triage-follow-ups` sweep first.
-
----
-
-**Sweep + cap note (2026-06-06, `admin-rejected-identifiers-viewer` archive).** The `admin-rejected-identifiers-viewer` archive then added `admin-rejected-identifiers-clear-action` on top of the 30 above → **31 open, 1 over the soft cap**. Per the "next add MUST force a sweep first" rule, a targeted sweep ran: the 8 likeliest-resolved entries (`mobile-auth-signin-logout-wire-up`, `mobile-auth-signin-android-instrumented-encryption-test`, `mobile-ios-ci-link-task`, `ci-paths-filter-switch-to-dorny`, `mobile-negative-requirement-ci-grep`, `mobile-post-creation-ios-flow-tests`, `mobile-auth-signin-credential-manager-legacy-fallback`, `firebase-admin-server-template-evaluate-bypass-removal`) were each re-verified against current code / CI / specs and ALL are still-valid — **0 rot**, consistent with the 2026-06-04 full sweep. There is nothing resolved to prune, so the file legitimately rests at **31 open: verified-valid deferred work, not rot** (mirrors the 2026-06-01 sweep's "35 open, 5 over — not rot" posture). Standing drawdown levers: merge the in-progress `ci/mobile-android-emulator-encryption-test` branch (commit `c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`; and the GitHub-Issues migration (deferred, solo-operator). The next add still gates on a fuller sweep or one of those levers landing.
+**Cap note + sweep (2026-06-06).** A busy reconciliation day — **four** changes touched this file (merge-reconciled in the `admin-rejected-identifiers-viewer` archive branch): `mobile-home-tab-host` (#153, **net 0** — deleted `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks`); `mobile-env-launcher-icons` (#155, **+1** `mobile-env-launcher-icons-ios-dev-icon`); `admin-report-queue-viewer` (#154, **+2** spec-mandated `admin-report-queue-resolution-actions` + `admin-report-queue-has-edit-history-filter`); and `admin-rejected-identifiers-viewer` (**+1** `admin-rejected-identifiers-clear-action`) → **33 open, 3 over the 30-entry soft cap**. Every addition is spec-obliged or a clean deferred-by-design Non-Goal (zero half-implemented code). Per the "next add MUST sweep first" rule a targeted sweep ran (the 8 likeliest-resolved entries — `mobile-auth-signin-logout-wire-up`, `mobile-auth-signin-android-instrumented-encryption-test`, `mobile-ios-ci-link-task`, `ci-paths-filter-switch-to-dorny`, `mobile-negative-requirement-ci-grep`, `mobile-post-creation-ios-flow-tests`, `mobile-auth-signin-credential-manager-legacy-fallback`, `firebase-admin-server-template-evaluate-bypass-removal` — each re-verified against current code / CI / specs): **0 rot, all still-valid**, consistent with the 2026-06-04 full sweep. Nothing is prunable, so the file rests at **33 open: verified-valid deferred work, not rot** (cf. the 2026-06-01 "35 open, 5 over — not rot" posture). A full `/triage-follow-ups` sweep is now **OVERDUE**; standing drawdown levers: the 2026-06-04 test-coverage bundle, merging `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`, and the GitHub-Issues migration (solo-operator).

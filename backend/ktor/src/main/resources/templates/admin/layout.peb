@@ -32,7 +32,7 @@
     </header>
     <nav>
         <ul>
-            <li><a href="#">Reports (stub)</a></li>
+            <li><a href="/admin/reports">Reports</a></li>
             <li><a href="/admin/users">Users</a></li>
             <li><a href="/admin/actions-log">Audit log</a></li>
             <li><a href="/admin/rejected-identifiers">Rejected identifiers</a></li>
