@@ -79,7 +79,7 @@ On **Android** the differentiation SHALL be delivered via gradle product-flavor 
 #### Scenario: iOS staging build selects a staging-tinted AppIcon
 
 - **WHEN** building the iOS app under the `Staging` build configuration / scheme
-- **THEN** `ASSETCATALOG_COMPILER_APPICON_NAME` resolves to `AppIcon-Staging` (provided by `iosApp/Configuration/Staging.xcconfig` and no longer hardcoded to `AppIcon` in `project.pbxproj`) AND `iosApp/iosApp/Assets.xcassets/AppIcon-Staging.appiconset/` exists containing a 1024×1024 PNG whose background is the staging tint `#C2410C`; the production/default build resolves `AppIcon` (the existing cobalt icon, unchanged)
+- **THEN** `ASSETCATALOG_COMPILER_APPICON_NAME` resolves to `AppIcon-Staging` (provided by `iosApp/Configuration/Staging.xcconfig` and no longer hardcoded to `AppIcon` in `project.pbxproj`) AND `iosApp/iosApp/Assets.xcassets/AppIcon-Staging.appiconset/` exists containing a single universal 1024×1024 PNG whose background is the staging tint `#C2410C`; the **`Release` (production) build configuration** resolves `AppIcon` (the existing cobalt icon, unchanged) — note the base default is staging-flavored, so this is asserted of the production *configuration*, not of an unqualified "default" build
 
 #### Scenario: Pre-API-26 Android raster fallback is shared, not per-flavor (accepted limitation)
 
