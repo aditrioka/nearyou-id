@@ -768,3 +768,28 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] Delete this entry once the change merges.
 
 **Cap note (2026-06-05):** `mobile-nav-swap-to-navigation3` added these 2 deferral entries → **29 open, under the 30-entry limit**. Both are clean Non-Goals deferrals (no half-implemented code); the GitHub-Issues migration noted in the 2026-06-01 sweep remains the standing drawdown lever.
+
+---
+
+## admin-rejected-identifiers-clear-action
+
+**Discovered during:** `admin-rejected-identifiers-viewer` (`/opsx:apply` §8.3; design D3 defers the manual support-clear write action — the read-only viewer ships first).
+
+**Status:** open
+
+**Finding:** `admin-rejected-identifiers-viewer` ships the read-only `GET /admin/rejected-identifiers` triage table but NOT the manual support-clear action — the admin removal of a `rejected_identifiers` row so a falsely-rejected legitimate adult can re-verify (the "purgeable via legitimate adult re-verification workflow" path in [`docs/05-Implementation.md`](docs/05-Implementation.md) § Rejected Identifiers Schema). Until the clear action ships, clearing a rejected identifier remains the existing out-of-band raw-SQL `DELETE` a human runs against the Supabase dashboard. The viewer captures this as an explicit spec requirement ("The manual support-clear action is deferred to a fast-follow change") + a negative guard ("No clear / remove control is wired in this change"), so the fast-follow has a concrete requirement to MODIFY rather than inventing scope.
+
+**Specs at fault:** none — `admin-rejected-identifiers-viewer` (post-archive) deliberately scopes out the write action; this follow-up MODIFIES the deferral requirement into the actual clear capability.
+**Code at fault:** none — there is no half-implemented mutation to fix; the deferral is clean (read-only repository + GET-only route).
+**Docs at fault:** none — `docs/07-Operations.md` § Core Features already describes the viewer's clear half as the deferred action; `docs/05-Implementation.md` names the re-verification workflow.
+
+**Impact (if shipped):** Low-during-MVP (single trusted operator; the raw-SQL clear path works today and the viewer at least makes the row discoverable — find the hash, then run the existing manual clear). The clear action is materially more sensitive than the read view (destructive, must be role-gated + CSRF-gated + audit-logged + rate-limited), which is exactly why it is isolated into its own change.
+
+**Ambiguity to resolve first:** Rate-limiter substrate — the clear action MUST be rate-limited per the destructive-action budget, which depends on `admin-destructive-action-rate-limit` (its own open `FOLLOW_UPS.md` entry; substrate = Redis sliding-window vs `admin_actions_log` COUNT, unresolved there). Sequence this change AFTER (or co-design it WITH) the rate-limiter so the clear action lands behind a working limiter rather than re-deferring it.
+
+**Action items:**
+- [ ] File an OpenSpec change `admin-rejected-identifiers-clear-action`: a role-gated + CSRF-gated + audit-logged (`admin_actions_log`, e.g. action type `rejected_identifier_cleared`) + rate-limited `POST`/`DELETE` to remove a `rejected_identifiers` row, MODIFYing the viewer's deferral requirement.
+- [ ] Resolve the rate-limiter dependency first (`admin-destructive-action-rate-limit`).
+- [ ] Delete this entry once the clear action ships.
+
+**Cap note (2026-06-06):** `admin-rejected-identifiers-viewer` added this 1 entry → **30 open, at the 30-entry hard limit**. Added per CLAUDE.md "documented debt is still debt"; the optional `admin-rejected-identifiers-keyset-index` lever (design.md D2) is intentionally NOT logged here (it stays a contingency in the change's design.md until cardinality actually grows) to avoid breaching the cap. Flag for the next `/triage-follow-ups` sweep; the GitHub-Issues migration noted in the 2026-06-01 sweep remains the standing drawdown lever.
