@@ -148,13 +148,12 @@ fun Route.adminReportResolution(
             QueueResolutionOutcome.RejectedSuspendGuard ->
                 call.respondReportsView(reportQueueRepo, csrfHmacKeyProvider, body, MSG_SUSPEND_GUARD)
             QueueResolutionOutcome.ForbiddenBanTier ->
-                call.respondReportsView(
-                    reportQueueRepo,
-                    csrfHmacKeyProvider,
-                    body,
-                    MSG_BAN_TIER,
-                    status = HttpStatusCode.Forbidden,
-                )
+                // 200 + message (NOT 403), consistent with the sibling rejection
+                // branches above — so the message renders in the swapped table
+                // fragment under HTMX (htmx does not swap a 4xx body by default).
+                // The base role gate already 403s a non-write role; this tier
+                // rejection is an in-band "no change made" outcome.
+                call.respondReportsView(reportQueueRepo, csrfHmacKeyProvider, body, MSG_BAN_TIER)
         }
     }
 }
@@ -212,7 +211,6 @@ private suspend fun ApplicationCall.respondReportsView(
     csrfHmacKeyProvider: () -> ByteArray,
     body: Parameters,
     message: String,
-    status: HttpStatusCode = HttpStatusCode.OK,
 ) {
     val isHtmx = request.headers[HX_REQUEST] == "true"
     val filters = parseReportFilters { body[it] }
@@ -231,7 +229,7 @@ private suspend fun ApplicationCall.respondReportsView(
             }
         }
     val template = if (isHtmx) "reports-table.peb" else "reports.peb"
-    respond(status, PebbleContent(template, model))
+    respond(HttpStatusCode.OK, PebbleContent(template, model))
 }
 
 private const val HX_REQUEST = "HX-Request"

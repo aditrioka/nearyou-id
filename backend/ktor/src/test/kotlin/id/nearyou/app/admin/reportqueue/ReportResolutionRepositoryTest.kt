@@ -83,6 +83,8 @@ class ReportResolutionRepositoryTest : StringSpec({
         targetId: UUID,
     ): UUID = ReportQueueTestSupport.seedReport(dataSource, reporterId, targetType, targetId, BASE)
 
+    fun seedChatMessage(senderId: UUID): UUID = ReportQueueTestSupport.seedChatMessage(dataSource, senderId).also { seededIds += it }
+
     val ip = "203.0.113.9"
     val ua = "resolution-test-agent/1.0"
 
@@ -266,6 +268,32 @@ class ReportResolutionRepositoryTest : StringSpec({
         state.isBanned shouldBe true
         state.suspendedUntil.shouldBeNull()
         queueAudit(queue) shouldHaveSize 0
+    }
+
+    "4.4g an author action on a reply target resolves to the REPLY's author (not the post's)" {
+        val admin = seedAdmin()
+        val postAuthor = seedUser()
+        val replyAuthor = seedUser()
+        val post = seedPost(postAuthor)
+        val reply = seedReply(post, replyAuthor)
+        val queue = seedQueue("reply", reply)
+
+        resolveQueue(queue, QueueResolution.SUSPEND_AUTHOR_7D, admin) shouldBe QueueResolutionOutcome.Applied
+
+        // The reply's author is suspended; the post's author is untouched.
+        ReportResolutionTestSupport.loadUserModeration(dataSource, replyAuthor).isBanned shouldBe true
+        ReportResolutionTestSupport.loadUserModeration(dataSource, postAuthor).isBanned shouldBe false
+    }
+
+    "4.4h an author action on a chat_message target resolves to the message sender" {
+        val admin = seedAdmin()
+        val sender = seedUser(isShadowBanned = false)
+        val message = seedChatMessage(sender)
+        val queue = seedQueue("chat_message", message)
+
+        resolveQueue(queue, QueueResolution.SHADOW_BAN_AUTHOR, admin) shouldBe QueueResolutionOutcome.Applied
+
+        ReportResolutionTestSupport.loadUserModeration(dataSource, sender).isShadowBanned shouldBe true
     }
 
     // ===================== 4.5 ban tier ========================================

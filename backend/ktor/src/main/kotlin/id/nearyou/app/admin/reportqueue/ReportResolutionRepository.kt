@@ -224,8 +224,9 @@ class ReportResolutionRepository(
                                 }
 
                                 QueueResolution.SHADOW_BAN_AUTHOR -> {
-                                    // Stealth invariant (design D9): NO notification —
-                                    // a shadow ban is invisible to the affected user.
+                                    // Stealth invariant (design D2 matrix + D9): NO
+                                    // notification — a shadow ban is invisible to the
+                                    // affected user.
                                     applyShadowBan(conn, authorId)
                                     buildJsonObject { put("is_shadow_banned", JsonPrimitive(true)) }
                                 }
