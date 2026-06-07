@@ -54,6 +54,17 @@ end
 
 platform :ios, '13.0'
 
+# Per-configuration Pods mapping (mobile-ios-build-config-matrix). The project's build configs are
+# the env × build-type matrix; CocoaPods must know each one's debug/release base so `pod install`
+# generates a Pods-iosApp.<config>.xcconfig per config (debug-typed → debug Pods, release-typed →
+# release Pods). Each per-config xcconfig (iosApp/Configuration/<Config>.xcconfig) #includes its
+# matching generated Pods xcconfig. Without this, CocoaPods can't map the custom config names.
+project 'iosApp.xcodeproj',
+  'Dev Debug' => :debug,
+  'Staging Debug' => :debug,
+  'Prod Debug' => :debug,
+  'Prod Release' => :release
+
 target 'iosApp' do
   use_frameworks!
   pod 'app', :path => '../mobile/app'
