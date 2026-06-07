@@ -3,9 +3,12 @@ package id.nearyou.app.screens.notifications
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.swipeDown
 import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.MarkReadResult
 import id.nearyou.app.notifications.NotificationsFlow
@@ -283,6 +286,23 @@ class NotificationsScreenTest {
                 timeoutMillis = 5_000,
             ) { onAllNodesWithTag(NOTIFICATION_UNREAD_DOT_TAG, useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
             assertEquals(1, fake.markAllReadInvocationCount, "mark-all-read issued the read-all request")
+        }
+    }
+
+    // Spec § "Pull-to-refresh re-invokes the fetch" — a pull-down on the list re-fires the first-page load
+    // (mirroring the timeline screen tests' swipe via the list test tag).
+    @Test
+    fun pullToRefresh_reInvokesFetch() {
+        installKoin(NotificationsOutcome.Loaded(listOf(fakeNotification(type = "post_liked")), null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NotificationsScreen() } } }
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText(COPY_POST_LIKED, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            assertEquals(1, fake.loadInvocationCount)
+            onNodeWithTag(NOTIFICATIONS_LIST_TAG).performTouchInput { swipeDown() }
+            waitForIdle()
+            assertEquals(2, fake.loadInvocationCount, "pull-to-refresh re-invokes the fetch")
         }
     }
 }

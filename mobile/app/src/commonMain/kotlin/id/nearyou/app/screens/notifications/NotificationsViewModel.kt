@@ -92,7 +92,10 @@ class NotificationsViewModel(
      */
     fun markAllRead() {
         val current = _outcome.value as? NotificationsOutcome.Loaded ?: return
-        val snapshot = current.items
+        // Capture the IDs we actually flip (the currently-unread rows) so a failure reverts ONLY those,
+        // mapping over the CURRENT list — an interleaved reload's newer rows survive (no whole-list clobber
+        // / no resurrecting of since-removed rows), mirroring the per-id discipline of markRead's revert.
+        val flippedIds = current.items.filter { it.readAt == null }.map { it.id }.toSet()
         _outcome.value = current.copy(items = current.items.map { it.asRead() })
         viewModelScope.launch {
             val result =
@@ -107,7 +110,7 @@ class NotificationsViewModel(
                 is MarkAllReadResult.Success -> Unit // keep the flip
                 MarkAllReadResult.Failed -> {
                     val now = _outcome.value as? NotificationsOutcome.Loaded ?: return@launch
-                    _outcome.value = now.copy(items = snapshot)
+                    _outcome.value = now.copy(items = now.items.map { if (it.id in flippedIds) it.asUnread() else it })
                 }
             }
         }
@@ -128,4 +131,9 @@ private const val OPTIMISTIC_READ_AT = "optimistic"
 
 private fun NotificationDto.asRead(): NotificationDto = if (readAt != null) this else copy(readAt = OPTIMISTIC_READ_AT)
 
+/**
+ * Reverts an optimistic read flip back to unread. **Only valid on rows we optimistically flipped from a
+ * null `read_at`** — `markRead` early-returns on already-read rows, and `markAllRead` reverts only the IDs
+ * it flipped, so this is never applied to a genuinely server-read row (which it would silently un-read).
+ */
 private fun NotificationDto.asUnread(): NotificationDto = copy(readAt = null)
