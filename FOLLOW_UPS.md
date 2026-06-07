@@ -15,6 +15,7 @@ Transient working file for findings discovered during a change cycle that are NO
   - **2026-06-01** (full sweep) — 37 → 35 open, 0 rot. Migrated 2 to [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Pre-Launch #6/#7 (`mobile-location-permission-flow`, `mobile-age-gate-stronger-verification` — the latter surfaces the **PP 17/2025 "PP TUNAS"** age-assurance deadline, previously absent from the roadmap). Surfaced a 6-entry test-coverage chore-PR scope (`fcm-payload-structural-tests`, `fcm-shutdown-drain-deterministic-tests`, `fcm-end-to-end-composite-test`, `reply-rate-limit-moderator-spy`, `chat-block-check-moderator-spy`, `mobile-theme-light-dark-direct-test` — the last still open because its two theme color-scheme scenarios remain untested in `:mobile:app` despite Mobile #5 shipping; merging the bundle → ~29 open). Kept 7 dormant-until-external-trigger entries (GitHub-Issues migration deferred; still solo-operator); promotions deferred. **Ended 35 open, 5 over the limit** — residual is verified-still-valid deferred work, not rot; the test-coverage bundle is the next drawdown lever.
   - **2026-06-04** (full sweep) — 32 → 28 open, **0 rot**: all 32 verified still-valid against current code/specs/docs (zero silently-resolved, zero superseded). Migrated 3 launch-gated entries to their canonical homes (`mobile-auth-signin-apple-ios` → [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) § Phase 3 iOS; `mobile-auth-signin-attestation-fingerprint-hash` → `docs/08` § Phase 3 + [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) § Attestation; `admin-app-revoke-staging-and-prod` residual → [`docs/07-Operations.md`](docs/07-Operations.md) § Data Access Pattern + Pre-Launch gate). Reconciled `post-creation-spec-error-enumeration-stale` inline (the `post-creation` spec's "exactly [5] codes" line now includes the 6th, `content_moderated_profanity`). Promoted `mobile-location-acquisition-latency` to a `/next-change` hand-off (entry stays open until that change ships). User accepted the remaining 28 as verified-valid backlog (no forced accept-the-gap deletes); GitHub-Issues migration still deferred (solo-operator). Audit trail in this sweep's PR.
   - **2026-06-06** (targeted, `admin-rejected-identifiers-viewer` archive) — **four** same-day changes merge-reconciled: `mobile-env-launcher-icons` (+1), `mobile-home-tab-host` (net 0 — deleted 2 precondition entries, added 2), `admin-report-queue-viewer` (+2 spec-mandated), and `admin-rejected-identifiers-viewer` (+1) → **33 open, 3 over the soft cap**. Per the "next add MUST sweep first" rule a targeted re-verification ran over the 8 likeliest-resolved entries (sub-agent, with file:line/CI/spec evidence): **0 rot — all 8 still-valid**, consistent with the 2026-06-04 full sweep. Nothing prunable, so the file rests at **31 open: verified-valid deferred work, not rot** (cf. the 2026-06-01 "35 open, 5 over — not rot" posture). Standing drawdown levers: merge `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`; GitHub-Issues migration (still solo-operator). Per-entry detail in the consolidated sweep note at end-of-file.
+  - **2026-06-07** (full `/triage-follow-ups` sweep, run before `mobile-post-detail-screen` apply §8 per the over-cap rule) — **32 → 24 open, 0 rot** (all 32 re-verified still-valid against current code / specs / changes-archive / open-PRs; zero silently-resolved). Aggressive drawdown: **deleted 1 obsolete** (`mobile-negative-requirement-ci-grep` — the six scaffold negative-grep scenarios are moot post-Mobile-#3–#8 now that networking/auth legitimately ship in dedicated namespaces, and the no-hardcoded-strings axis is enforced by per-screen `*SourceGuardTest` + `SharedStringsCatalogTest`); **migrated 3 launch/ops-gated** to [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) (`mobile-ios-ci-link-task` + `mobile-auth-signin-android-instrumented-encryption-test` → § Pre-Launch item 8; `admin-destructive-action-rate-limit` → § Pre-Launch item 9); **migrated 4 mobile feature follow-ups** to `docs/08` § Phase 3 "Post-scaffold refinements" (`mobile-nearby-radius-slider`, `mobile-following-timeline-screen`, `mobile-timeline-relative-timestamp`, `mobile-nav3-adaptive-scenes`). Left the 2 `admin-report-queue-*` entries (in-progress via PR [#160](https://github.com/aditrioka/nearyou-id/pull/160) — self-delete on archive). `mobile-post-detail-screen` then adds 3 entries → **27 open, under cap**.
 
 Format per entry:
 
@@ -505,49 +506,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## mobile-ios-ci-link-task
-
-**Discovered during:** `mobile-app-scaffold-replace-wizard` design.md Decision 6 + tasks.md Section 9 — iOS framework link CI was explicitly deferred because [`.github/workflows/ci.yml`](.github/workflows/ci.yml) does NOT currently run on a macOS runner (the project's CI is Linux-only), and wiring this up requires a paid macOS runner + Pod install step + codesign infrastructure for any future archive task.
-**Status:** open
-
-**Finding:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) `lint` / `test` / `migrate-supabase-parity` jobs all run on `ubuntu-latest`. There is no Linux-side way to invoke `:mobile:app:linkDebugFrameworkIosSimulatorArm64` because Kotlin/Native's iOS targets require Xcode + the macOS SDK. Until iOS CI lands, iOS build regressions can only be caught by the author running `./gradlew :mobile:app:linkDebugFrameworkIosSimulatorArm64` locally on macOS during each mobile change's lifecycle. The `mobile-app-scaffold-replace-wizard` change verifies iOS locally per task 8.2 — every subsequent mobile change (#2-5) MUST do the same.
-
-**Specs at fault:** None — `mobile-app-scaffold` spec requirement "Android and iOS targets build green" includes both targets, but the scenario "iOS framework link passes locally" is explicitly local-only because CI doesn't run it.
-**Code at fault:** None — the production code builds correctly on iOS; CI just doesn't verify it.
-**Docs at fault:** None.
-
-**Impact (if shipped):** iOS build silently regresses between mobile changes if an author forgets to verify iOS locally. Risk grows as Mobile #2-5 land features that aren't structurally identical across Android + iOS (e.g., expect/actual splits). Currently mitigated by the convention that every mobile change author MUST run iOS locally before pushing — but that's a soft enforcement.
-
-**Ambiguity to resolve first:** Runner cost vs frequency. GitHub Actions macOS minutes are ~10x the cost of Linux minutes. Options: (a) macOS runner on every mobile-touching PR, (b) macOS runner only on PRs that touch `mobile/**` or `iosApp/**` via path filter, (c) macOS runner only on PRs whose title matches `feat(mobile)` / `fix(mobile)`. Decide at proposal time.
-
-**Update (2026-06-01) — CI feasibility research:** Confirmed possible on GitHub-hosted runners — they offer Apple-silicon macOS runners (up to M2) that run Xcode + the iOS simulator; the current Linux-only CI is a cost choice, NOT a hard limit. Cost nuance to weigh: macOS bills at ~10× the Linux multiplier and **free minutes are Linux-only** (100 macOS min draws 1000 from the allowance), and GitHub's Xcode images lag release + cap at M2 (the Jan-2026 ~39% hosted-runner price cut lowers macOS to ≈ $0.048/min but keeps the multiplier). Platform options for a KMP repo: (a) a **path-filtered `macos-14` lane on GitHub Actions** — lowest friction, one system, recommended for this build-verification job; (b) **Codemagic** (KMP-native: official `codemagic.yaml` sample, M2 + automatic signing, pay-as-you-go) if signing/release automation later gets painful; (c) **Bitrise** (mobile-first, M4 Pro, new Xcode <24h). **Xcode Cloud** (25 free hrs, auto-signing) is Apple-ecosystem-only → poor fit for shared KMP CI. Ref: [GitHub Actions runner pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing).
-
-**Action items:**
-- [ ] File regular PR (not OpenSpec — pure CI infra) `ci/mobile-ios-link-task` that adds a `mobile-ios-link` job to `.github/workflows/ci.yml` running on `macos-14` (or whichever Xcode-bundled runner is current), invoking `./gradlew :mobile:app:linkDebugFrameworkIosSimulatorArm64`. Wire path filter to `mobile/**` + `iosApp/**` + `gradle/libs.versions.toml` + `settings.gradle.kts` to bound cost.
-- [ ] Update the `merge-gate` job's required-status-check matrix to include `mobile-ios-link` so the iOS build is mandatory at merge time on mobile-touching PRs.
-- [ ] Delete this entry once the workflow change merges.
-
----
-
-## mobile-negative-requirement-ci-grep
-
-**Discovered during:** `mobile-app-scaffold-replace-wizard` round-1 review test-coverage lens finding B3 — six negative-requirement grep scenarios in `mobile-app-scaffold/spec.md` (no Ktor client, no ad-hoc HTTP, no auth identifiers, no FCM identifiers, no hardcoded API URLs, no backend/infra module deps) declare "WHEN grepping ... THEN no matches" but no CI step / Detekt rule enforces them.
-**Status:** open
-
-**Finding:** [`mobile-app-scaffold/spec.md` Requirement "Scaffold does not introduce networking, auth, or feature behavior"](openspec/specs/mobile-app-scaffold/spec.md) has six negative-grep scenarios. A future PR that adds `io.ktor:ktor-client-core` to `mobile/app/build.gradle.kts` or sneaks in `signIn` / `fcmToken` / `nearyou\.id` hardcoded URL references would ship green today — none of the existing CI lanes catch these. The canonical defense pattern in this project is a Detekt rule (see [`RawFromPostsRule`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/RawFromPostsRule.kt), [`BlockExclusionJoinRule`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/BlockExclusionJoinRule.kt), [`RedisHashTagRule`](lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/RedisHashTagRule.kt)) but extending Detekt to scan `:mobile:app` requires extending the Detekt source-set configuration (currently scoped to `:backend:ktor`'s `src/main/kotlin` only per [`build-logic/src/main/kotlin/nearyou.ktor.gradle.kts:20`](build-logic/src/main/kotlin/nearyou.ktor.gradle.kts)).
-
-**Specs at fault:** [`mobile-app-scaffold/spec.md`](openspec/specs/mobile-app-scaffold/spec.md) — six scenarios are spec'd but not enforced.
-**Code at fault:** None — the scaffold itself does NOT contain any forbidden identifier; the gap is enforcement against future regressions.
-**Docs at fault:** None.
-
-**Impact (if shipped without enforcement):** Mobile #3 (Google Sign-In) is the first change that legitimately adds auth identifiers — at that point the spec scenarios become moot for the mobile module's commonMain surface (auth lives in a dedicated namespace). The window of risk is the period before Mobile #3 ships. Specifically: Mobile #2 (`shared-resources-moko-bootstrap`) is a docs/strings-only change with no real auth-identifier risk; a coincidental violation is improbable but not impossible without a CI grep.
-
-**Ambiguity to resolve first:** Detekt source-set extension cost. Options: (a) extend Detekt to scan `:mobile:app` `src/commonMain/kotlin` only — clean, mirrors backend pattern; (b) add a one-off shell script run in CI that greps `mobile/app/src/{commonMain,androidMain,iosMain}` — simpler but less integrated; (c) accept the gap until Mobile #3 ships and the negative requirements become obsolete.
-
-**Action items:**
-- [ ] File OpenSpec change `mobile-negative-requirement-detekt-rule` that adds a Detekt rule `MobileScaffoldNegativeRequirementsRule` to `:lint:detekt-rules`, scanning `:mobile:app` `src/commonMain/kotlin` for the six forbidden identifier patterns enumerated in the spec scenarios — **plus** the hardcoded-UI-strings axis from [`openspec/project.md`](openspec/project.md) § Coding Conventions ("Mobile strings: no hardcoded UI strings; must go through Compose Multiplatform Resources"), for which `shared-resources-swap-to-cmp-resources` (PR [#119](https://github.com/aditrioka/nearyou-id/pull/119)) ships an interim grep step in `tasks.md` Section 8.7. The eventual Detekt rule should cover both axes under a single rule, accepting `stringResource(Res.string.X)` / `Res.string.X` / `// hardcoded-string-allow:` as the valid accessor patterns (NOT the legacy `MR.strings.X` from Mobile #2's pre-swap Moko shipping). Wire the Detekt source-set extension in `build-logic`.
-- [ ] Delete this entry once the rule ships AND Mobile #3's `proposal.md` updates the `mobile-app-scaffold` spec's negative requirements to acknowledge auth identifiers now belong to dedicated namespaces.
-
 ## mobile-auth-signin-logout-wire-up
 
 **Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) Non-Goals — no Settings screen ships in Mobile #3, so the backend logout endpoints have no mobile caller.
@@ -607,48 +565,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-## mobile-auth-signin-android-instrumented-encryption-test
-
-**Discovered during:** `mobile-auth-google-signin-flow` (Mobile #3) `/opsx:apply` §3.5 — the Android raw-byte-leak encryption test for `SecureTokenStore` (DataStore + Tink) was deferred for lack of instrumented-test infra.
-**Status:** open
-
-**Finding:** `tasks.md` §3.5 specifies an Android test that writes `TokenPair("at-SENTINEL", "rt-SENTINEL", t)` then asserts NO file under the DataStore dir OR the Tink keyset dir contains the plaintext sentinels (+ a keyset-regeneration assertion). This needs the REAL Tink `AndroidKeysetManager` + Android Keystore crypto, which Robolectric does NOT faithfully emulate (its Keystore shadow may no-op the AEAD, making a raw-byte-leak assertion meaningless). Mobile #3 wired Robolectric for the Compose UI tests (`:mobile:app` androidUnitTest), but the encryption-leak test specifically needs a real device/emulator (`connectedAndroidTest`). Runtime correctness is currently covered by the §10.4 + §10.4b device smoke (real-token round-trip, uninstall/reinstall keyset regeneration); the architectural assertions (no `EncryptedSharedPreferences`, canonical master-key URI, no `kSecAttrAccessGroup`) are covered by the §9.10a-d CI greps.
-
-**Specs at fault:** None — the round-trip contract is covered by `SecureTokenStoreContractTest`; this is the at-rest-encryption RUNTIME proof.
-**Code at fault:** None — [`SecureTokenStore.kt`](mobile/app/src/androidMain/kotlin/id/nearyou/app/auth/SecureTokenStore.kt) androidMain is architecturally correct; the gap is automated runtime verification.
-**Docs at fault:** None.
-
-**Impact (if shipped without resolving):** A future refactor that accidentally drops the Tink AEAD wrap (e.g., writing the TokenPair as plain DataStore JSON) would not trip a CI assertion — only the §9.10b grep (no `EncryptedSharedPreferences`) + device smoke catch it. The raw-byte-leak guarantee has no fast-feedback automated test.
-
-**Ambiguity to resolve first:** `connectedAndroidTest` needs a CI emulator runner (doesn't exist in `.github/workflows/ci.yml` today — see `mobile-ios-ci-link-task` for the analogous macOS-runner cost question). Decide emulator-CI cost vs. relying on device smoke.
-
-**Update (2026-06-01) — CI feasibility research:** The "emulator CI lane doesn't exist" premise is **outdated** — GitHub-hosted **Linux** runners run KVM-accelerated Android emulators since **April 2024** ([`reactivecircus/android-emulator-runner`](https://github.com/ReactiveCircus/android-emulator-runner) on `ubuntu-latest`, free-minutes, no paid macOS lane), which unblocks the cheap path. Caveat specific to THIS test: the Tink AEAD raw-byte-leak assertion exercises the Android **Keystore-backed** master key, and a software emulator may not faithfully emulate hardware-backed AEAD — same risk the Finding flags for Robolectric. So if the leak assertion proves meaningless on an emulator, the real-device fallback is **Firebase Test Lab** (a physical-device `androidInstrumentedTest` run), NOT a self-hosted device. Ref: [GitHub: hardware-accelerated Android virtualization (Apr 2024)](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/).
-
-**Action items:**
-- [ ] File a change adding an `androidInstrumentedTest` `SecureTokenStoreEncryptionTest` (raw-byte-leak + keyset-regeneration assertions per §3.5) once an Android-emulator CI lane exists (or run it as a documented manual gate).
-- [ ] Delete this entry once the instrumented encryption test ships.
-
----
-
-## mobile-nearby-radius-slider
-
-**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D2 — the request uses `NEARBY_RADIUS_M = 20000` (Free-tier fixed 20 km); the radius slider is deferred (it depends on Premium-tier UX that isn't built).
-**Status:** open
-
-**Finding:** [`NEARBY_RADIUS_M`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineRepository.kt) is a single named constant (`20_000`) carrying the Free-tier fixed radius per [`docs/02-Product.md`](docs/02-Product.md) § Nearby Timeline ("*Free: stuck at 20km*"). The 4-position slider (10/20/50/100 km) with the Free-bounce-back-and-upsell + Premium-pick behavior is NOT shipped — the constant is the single site the follow-up generalizes.
-
-**Specs at fault:** None.
-**Code at fault:** None — `NEARBY_RADIUS_M` is the intended single generalization site.
-**Docs at fault:** None — `docs/02-Product.md` § Nearby Timeline already describes the Free/Premium radius behavior.
-
-**Impact (if shipped):** Free users cannot adjust the radius (it's the intended Free behavior); Premium radius selection is unavailable until Premium-tier UX + the slider land.
-
-**Action items:**
-- [ ] File OpenSpec change `mobile-nearby-radius-slider` adding the 10/20/50/100 km slider, the Free-bounce-back-to-20km + upsell behavior, and the Premium-pick path; replace the `NEARBY_RADIUS_M` call-site usage with the selected radius.
-- [ ] Delete this entry once the slider ships.
-
----
-
 ## mobile-nearby-timeline-infinite-scroll
 
 **Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D8 — the screen renders page 1 (≤ 30 posts) + pull-to-refresh; `next_cursor` is parsed/retained but load-more is deferred.
@@ -665,88 +581,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Action items:**
 - [ ] File OpenSpec change `mobile-nearby-timeline-infinite-scroll` adding scroll-to-end detection in the `LazyColumn`, a `loadNextPage(cursor)` path on `NearbyTimelineFlow` **and `GlobalTimelineFlow`**, and append-to-list state handling for **both feeds**.
 - [ ] Delete this entry once load-more ships for both feeds.
-
----
-
-## mobile-timeline-relative-timestamp
-
-**Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) `/opsx:apply` §6.2 — the post card renders the `createdAt` DATE portion ("2026-05-31"), not a relative label ("2j lalu"), because relative formatting needs a localized unit-string set + a clock seam.
-**Status:** open
-
-**Finding:** [`NearbyTimelineScreen.postDateLabel`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt) renders `createdAt.substringBefore('T')` (the ISO date). Design D9 prescribes a "relative `created_at`" but a proper relative formatter ("baru saja" / "5 menit lalu" / "2 jam lalu" / "kemarin") needs (a) a localized Bahasa Indonesia unit-string set — which would extend this change's declared 5-string timeline surface (spec drift) — and (b) an injected clock for deterministic testing. Shipping the date is deterministic, needs no new strings, and is honest for a scaffold; relative formatting is a polish refinement.
-
-**Specs at fault:** None — no `mobile-nearby-timeline` spec scenario asserts `created_at` rendering; D9 is the delegated "Claude proposes" visual.
-**Code at fault:** None — `postDateLabel` is a correct, deterministic scaffold choice.
-**Docs at fault:** None.
-
-**Impact (if shipped):** The card shows an absolute date rather than a friendly relative label. Low — informative either way; relative time is a UX polish.
-
-**Action items:**
-- [ ] File a change (or fold into a later timeline-polish change) adding a pure `relativeTime(createdAtIso, now)` formatter + a localized BI unit-string set (`timeline_time_just_now` / `_minutes_ago` / `_hours_ago` / `_yesterday` / …), replacing `postDateLabel` at the card metadata row; inject the clock for deterministic tests.
-- [ ] Delete this entry once relative timestamps ship.
-
----
-
-## admin-destructive-action-rate-limit
-
-**Discovered during:** `admin-suspend-unban-user-action` (Admin #5) `/opsx:apply` §11.1 — design D11 defers the per-admin destructive-action rate limiter (`docs/07-Operations.md` § Security: "Rate limit destructive actions: 20/hour per admin") to a focused follow-up.
-**Status:** open
-
-**Finding:** The admin panel's first state-changing actions (suspend / unban, `admin-user-moderation`) ship with NO per-admin rate limit. [`docs/07-Operations.md`](docs/07-Operations.md) § Security prescribes "20/hour per admin" for destructive actions; design D11 defers it because a correct limiter needs its own substrate decision that would balloon this first-write change. **This is deferred-MITIGATED, not a non-risk:** [`docs/07-Operations.md`](docs/07-Operations.md) explicitly notes TOTP is phishable (evilginx2), so the project's own threat model contemplates a phished admin session — without the limiter, such a session can mass-suspend (reversibly) at unbounded rate until the 30-min idle / 8-hour absolute session cap fires. Interim mitigations bound the blast radius: CSRF, the idle + absolute session caps, the IAP network gate, the full immutable audit trail, and reversibility (every suspend is undoable via unban).
-
-**Specs at fault:** None — `admin-user-moderation` (post-archive) deliberately scopes out the limiter; this follow-up adds the requirement (a MODIFIED `admin-user-moderation` requirement or a new shared `admin-action-rate-limit` capability gating all admin writes).
-**Code at fault:** None — there is no half-implemented limiter to fix; the deferral is clean.
-**Docs at fault:** None — `docs/07-Operations.md` § Security already names the "20/hour per admin" target.
-
-**Impact (if shipped):** Low-during-MVP (single trusted operator; the multi-admin period is gated behind WebAuthn per `admin-login`), rising with admin headcount. A compromised/phished admin session is the motivating threat; the audit trail + reversibility make the damage detectable and undoable, but unbounded-rate mass-suspension is a real (if recoverable) abuse vector until the limiter lands.
-
-**Ambiguity to resolve first:** Counter substrate. Options: (a) a Redis-backed per-admin sliding-window counter (reuses the existing `RedisRateLimiter` machinery + the `{scope:<admin_id>}` hash-tag pattern, but a destructive-action limiter that *fails soft* when Redis is down is a weaker guarantee), vs (b) a `COUNT(*) FROM admin_actions_log WHERE admin_id = ? AND created_at > NOW() - INTERVAL '1 hour'` DB check (no new infra, authoritative, no fail-soft hole, but a read-per-write coupled to the audit-table write cadence). Resolve in the follow-up's design.md; (b) is the likely first cut given low admin write volume.
-
-**Action items:**
-- [ ] File an OpenSpec change adding a per-admin destructive-action rate limiter (~20/hour) gating `POST /admin/users/{id}/suspend` + `/unban` (and future admin writes), with the substrate decision (Redis sliding-window vs `admin_actions_log` COUNT) resolved in its design.md.
-- [ ] Delete this entry once the limiter ships.
-
-**Cap note (2026-06-02):** adding this entry brings `FOLLOW_UPS.md` to ~30 open entries — at the 30-entry hard limit. Added per CLAUDE.md "documented debt is still debt"; flag as a candidate for the next `/triage-follow-ups` sweep (the verified-still-valid deferred-work backlog + the GitHub-Issues migration noted in the 2026-06-01 sweep remain the drawdown levers).
-
-**Update (2026-06-04 sweep):** the count was actually 32 at sweep time (the 2026-06-02 note's "~30" undercounted). Post-triage the file is **28 open, under the limit** — drawn down via 3 canonical-doc migrations + 1 inline spec reconciliation, all verified still-valid (0 rot). See the intro's 2026-06-04 sweep-log entry. The GitHub-Issues migration remains the standing lever if the solo-operator backlog grows again.
-
----
-
-## mobile-nav3-adaptive-scenes
-
-**Discovered during:** `mobile-nav-swap-to-navigation3` proposal (deferral; Non-Goals).
-**Status:** open
-
-**Finding:** The Voyager→Navigation 3 swap establishes the single-pane `NavDisplay` host but does NOT adopt Nav3's adaptive multi-pane **Scenes** / list-detail layouts (`androidx.compose.material3.adaptive` + a Nav3 `SceneStrategy`). There is no tablet / foldable target yet, so a single-pane host is correct for the MVP phone surface; the adaptive scene strategy lands when a larger-screen target appears.
-
-**Specs at fault:** none — deliberate, `mobile-nav-swap-to-navigation3` Non-Goals.
-**Code at fault:** none — the single-pane `NavDisplay` is the intended MVP shape.
-**Docs at fault:** none.
-
-**Impact (if shipped):** none today (phone-only MVP). Without it, a future tablet/foldable build renders single-pane where a list-detail two-pane would be more appropriate.
-
-**Action items:**
-- [ ] When a tablet / foldable target is added, file OpenSpec change `mobile-nav3-adaptive-scenes` adopting a Nav3 `SceneStrategy` (`material3-adaptive-navigation3`) for list-detail layouts; declare the `org.jetbrains.androidx.navigation3` adaptive artifact then (it is deliberately NOT on the classpath today).
-- [ ] Delete this entry once the change merges.
-
----
-
-## mobile-following-timeline-screen
-
-**Discovered during:** `mobile-home-tab-host` `/opsx:apply` — design D6 ships the Following tab as a documented empty-state placeholder that issues NO fetch (no follow-action UI exists on mobile, so a live feed would be perpetually empty + untestable end-to-end).
-**Status:** open
-
-**Finding:** The Following tab renders [`FollowingPlaceholderScreen`](mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/FollowingPlaceholderScreen.kt) (`timeline_following_placeholder` copy) and wires NO Following-timeline API client / repository / flow (structurally guarded by `FollowingTabNoFetchScanTest`). The real Following feed (`GET /api/v1/timeline/following`, shipped backend) is deferred until a follow-action UI exists to make the feed non-empty. The deferral is captured as explicit `mobile-home-tab-host` spec requirements (positive: placeholder renders via `Res.string`; negative-guard: no following fetch / no client wired) so this follow-up has a requirement to MODIFY.
-
-**Specs at fault:** None — `openspec/specs/mobile-home-tab-host/spec.md` § "Following tab renders the deferred placeholder and issues no fetch" defers this deliberately; this follow-up MODIFIES that requirement to introduce the live feed.
-**Code at fault:** None — the placeholder is the intended MVP shape; the shipped `GlobalTimeline*` seam is the copy-adapt template for the Following seam.
-**Docs at fault:** None.
-
-**Impact (if shipped):** The Following tab shows a static "follow someone" placeholder until the real feed + follow-action UI land. Acceptable — there is no follow UI yet, so the feed would be empty regardless.
-
-**Action items:**
-- [ ] File OpenSpec change `mobile-following-timeline-screen` adding `FollowingTimelineApiClient`/`Flow`/`Repository` + `FollowingTimelineScreen` (mirror the `GlobalTimeline*` seam) calling `GET /api/v1/timeline/following`, MODIFYING `mobile-home-tab-host` § "Following tab renders the deferred placeholder and issues no fetch" to replace the placeholder with the live feed; likely bundled with (or after) a follow-action UI so the feed is non-empty.
-- [ ] Delete this entry once the Following feed ships.
 
 ---
 
@@ -783,11 +617,11 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 **Impact (if shipped):** Low-during-MVP (single trusted operator; the raw-SQL clear path works today and the viewer at least makes the row discoverable — find the hash, then run the existing manual clear). The clear action is materially more sensitive than the read view (destructive, must be role-gated + CSRF-gated + audit-logged + rate-limited), which is exactly why it is isolated into its own change.
 
-**Ambiguity to resolve first:** Rate-limiter substrate — the clear action MUST be rate-limited per the destructive-action budget, which depends on `admin-destructive-action-rate-limit` (its own open `FOLLOW_UPS.md` entry; substrate = Redis sliding-window vs `admin_actions_log` COUNT, unresolved there). Sequence this change AFTER (or co-design it WITH) the rate-limiter so the clear action lands behind a working limiter rather than re-deferring it.
+**Ambiguity to resolve first:** Rate-limiter substrate — the clear action MUST be rate-limited per the destructive-action budget, which depends on the per-admin destructive-action rate limiter (migrated to [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) § Pre-Launch item 9 in the 2026-06-07 triage; substrate = Redis sliding-window vs `admin_actions_log` COUNT, decided at its design time). Sequence this change AFTER (or co-design it WITH) the rate-limiter so the clear action lands behind a working limiter rather than re-deferring it.
 
 **Action items:**
 - [ ] File an OpenSpec change `admin-rejected-identifiers-clear-action`: a role-gated + CSRF-gated + audit-logged (`admin_actions_log`, e.g. action type `rejected_identifier_cleared`) + rate-limited `POST`/`DELETE` to remove a `rejected_identifiers` row, MODIFYing the viewer's deferral requirement.
-- [ ] Resolve the rate-limiter dependency first (`admin-destructive-action-rate-limit`).
+- [ ] Resolve the rate-limiter dependency first (the per-admin destructive-action limiter — [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) § Pre-Launch item 9).
 - [ ] Delete this entry once the clear action ships.
 
 **Cap note:** see the consolidated 2026-06-06 cap + sweep note at the end of this file for the day's full accounting (a targeted sweep found 0 rot — nothing prunable). The optional `admin-rejected-identifiers-keyset-index` lever (design.md D2) is intentionally NOT logged (it stays a contingency in the change's design.md until cardinality actually grows).
@@ -832,4 +666,4 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] Add the `has_edit_history` filter to the report-queue query (`EXISTS` over `post_edits` for `target_type='post'`) + a checkbox in the filter form, as a small follow-up change (or fold into `admin-report-queue-resolution-actions`).
 - [ ] Delete this entry once shipped.
 
-**Cap note + sweep (2026-06-06).** A busy reconciliation week — **five** changes touched this file (merge-reconciled across branches): `mobile-home-tab-host` (#153, **net 0** — deleted `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks`); `mobile-env-launcher-icons` (#155, **+1** `mobile-env-launcher-icons-ios-dev-icon`); `admin-report-queue-viewer` (#154, **+2** spec-mandated `admin-report-queue-resolution-actions` + `admin-report-queue-has-edit-history-filter`); `admin-rejected-identifiers-viewer` (#156, **+1** `admin-rejected-identifiers-clear-action`); and `mobile-ios-build-config-matrix` (#158, **−1** — see below). The #156 archive ran a targeted sweep (the 8 likeliest-resolved entries — `mobile-auth-signin-logout-wire-up`, `mobile-auth-signin-android-instrumented-encryption-test`, `mobile-ios-ci-link-task`, `ci-paths-filter-switch-to-dorny`, `mobile-negative-requirement-ci-grep`, `mobile-post-creation-ios-flow-tests`, `mobile-auth-signin-credential-manager-legacy-fallback`, `firebase-admin-server-template-evaluate-bypass-removal` — each re-verified against current code / CI / specs): **0 rot, all still-valid**, consistent with the 2026-06-04 full sweep. **`mobile-ios-build-config-matrix` (#158)** then shipped BOTH halves of `mobile-env-launcher-icons-ios-dev-icon` — the dedicated iOS `Prod Debug` / `Prod Release` build configs (`.nearyou.app` + cobalt `AppIcon`), the removed `Debug`/`Release` APPICON hardcodes + per-config Pods wiring, AND a real `AppIcon-Dev` (forest green `#15803D`) dev icon via the env × build-type matrix — so that entry is **deleted** (−1). Net: 33 (origin/main after #156) − 1 = **32 open, 2 over the 30-entry soft cap**. Every remaining entry is spec-obliged or a clean deferred-by-design Non-Goal (zero half-implemented code). A full `/triage-follow-ups` sweep is **OVERDUE**; standing drawdown levers: the 2026-06-04 test-coverage bundle, merging `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`, and the GitHub-Issues migration (solo-operator).
+**Cap note + sweep (2026-06-06).** A busy reconciliation week — **five** changes touched this file (merge-reconciled across branches): `mobile-home-tab-host` (#153, **net 0** — deleted `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks`); `mobile-env-launcher-icons` (#155, **+1** `mobile-env-launcher-icons-ios-dev-icon`); `admin-report-queue-viewer` (#154, **+2** spec-mandated `admin-report-queue-resolution-actions` + `admin-report-queue-has-edit-history-filter`); `admin-rejected-identifiers-viewer` (#156, **+1** `admin-rejected-identifiers-clear-action`); and `mobile-ios-build-config-matrix` (#158, **−1** — see below). The #156 archive ran a targeted sweep (the 8 likeliest-resolved entries — `mobile-auth-signin-logout-wire-up`, `mobile-auth-signin-android-instrumented-encryption-test`, `mobile-ios-ci-link-task`, `ci-paths-filter-switch-to-dorny`, `mobile-negative-requirement-ci-grep`, `mobile-post-creation-ios-flow-tests`, `mobile-auth-signin-credential-manager-legacy-fallback`, `firebase-admin-server-template-evaluate-bypass-removal` — each re-verified against current code / CI / specs): **0 rot, all still-valid**, consistent with the 2026-06-04 full sweep. **`mobile-ios-build-config-matrix` (#158)** then shipped BOTH halves of `mobile-env-launcher-icons-ios-dev-icon` — the dedicated iOS `Prod Debug` / `Prod Release` build configs (`.nearyou.app` + cobalt `AppIcon`), the removed `Debug`/`Release` APPICON hardcodes + per-config Pods wiring, AND a real `AppIcon-Dev` (forest green `#15803D`) dev icon via the env × build-type matrix — so that entry is **deleted** (−1). Net: 33 (origin/main after #156) − 1 = **32 open, 2 over the 30-entry soft cap**. Every remaining entry is spec-obliged or a clean deferred-by-design Non-Goal (zero half-implemented code). A full `/triage-follow-ups` sweep is **OVERDUE**; standing drawdown levers: the 2026-06-04 test-coverage bundle, merging `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`, and the GitHub-Issues migration (solo-operator). **→ Superseded by the 2026-06-07 full sweep (see intro log): 32 → 24 open via 1 obsolescence-delete + 7 migrations to [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md); the OVERDUE flag is cleared. (`mobile-auth-signin-android-instrumented-encryption-test` was migrated to `docs/08` § Pre-Launch item 8, so the `c21c630` lever now resolves a roadmap item, not a `FOLLOW_UPS.md` entry.)**
