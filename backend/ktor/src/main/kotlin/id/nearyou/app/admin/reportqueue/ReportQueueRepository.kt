@@ -91,6 +91,7 @@ class ReportQueueRepository(
                     SELECT r.id, r.created_at, r.target_type, r.target_id,
                            r.reason_category, r.reason_note, r.status,
                            r.reporter_id, reporter.username AS reporter_username,
+                           mq.id AS queue_id,
                            mq.trigger AS queue_trigger, mq.priority AS queue_priority,
                            mq.status AS queue_status,
                            CASE r.target_type
@@ -102,7 +103,7 @@ class ReportQueueRepository(
                       FROM reports r
                       LEFT JOIN users reporter ON reporter.id = r.reporter_id
                       LEFT JOIN LATERAL (
-                          SELECT mqj.trigger, mqj.priority, mqj.status
+                          SELECT mqj.id, mqj.trigger, mqj.priority, mqj.status
                             FROM moderation_queue mqj
                            WHERE mqj.target_type = r.target_type
                              AND mqj.target_id = r.target_id
@@ -142,6 +143,7 @@ class ReportQueueRepository(
                                 status = rs.getString("status"),
                                 reporterId = rs.getObject("reporter_id", UUID::class.java),
                                 reporterUsername = rs.getString("reporter_username"),
+                                queueId = rs.getObject("queue_id", UUID::class.java),
                                 queueTrigger = rs.getString("queue_trigger"),
                                 queuePriority = rs.getObject("queue_priority") as? Number,
                                 queueStatus = rs.getString("queue_status"),
@@ -187,6 +189,7 @@ data class ReportQueueRow(
     val status: String,
     val reporterId: UUID,
     val reporterUsername: String?,
+    val queueId: UUID?,
     val queueTrigger: String?,
     val queuePriority: Number?,
     val queueStatus: String?,

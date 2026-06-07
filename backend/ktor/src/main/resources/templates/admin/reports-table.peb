@@ -1,10 +1,29 @@
 {# Swappable report-queue table fragment. Rendered standalone for HTMX requests
    (HX-Request: true) and {% include %}d by reports.peb for full-page
-   navigation. The #reports-table id is the hx-target swapped in place. Every
-   value is Pebble-autoescaped on output (spec: All rendered values are
-   HTML-escaped) — no `raw` filter is used on any value, including the
-   user-controlled reason_note and the joined reporter username. #}
+   navigation. The #reports-table id is the hx-target swapped in place.
+
+   In-row resolution controls (admin-report-queue-resolution-actions): each row
+   carries a report-decision form (actioned/dismissed — bookkeeping only) and,
+   when the target has a representative moderation_queue row, a queue-resolution
+   form that PERFORMS enforcement (keep/hide content, suspend/ban/shadow-ban the
+   author). Suspend/Ban/Shadow-ban are IMMEDIATE, destructive user-state changes
+   — the hx-confirm affordance + explicit labels make that clear.
+
+   Every value is Pebble-autoescaped on output (spec: All rendered values are
+   HTML-escaped) — no `raw` filter is used on any value, including the user-
+   controlled reason_note + the joined reporter username + the carried-through
+   filter values.
+
+   CSRF: on the full-page (no-JS) render `csrfToken` is present, so the in-row
+   `_csrf` hidden fields populate for the no-JS POST path. On the HTMX-fragment
+   render `csrfToken` is omitted (mirrors users-result.peb) — JS is enabled
+   there, so the layout's htmx:configRequest hook adds the X-CSRF-Token header
+   from the meta tag instead. The hidden filter inputs let a no-JS resolution
+   303-redirect (and an HTMX re-render) preserve the active filters. #}
 <div id="reports-table">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
 {% if hasRows %}
     <table>
         <thead>
@@ -16,6 +35,7 @@
                 <th>Status</th>
                 <th>Reporter</th>
                 <th>Queue</th>
+                <th>Resolve</th>
             </tr>
         </thead>
         <tbody>
@@ -39,6 +59,53 @@
                     {{ row.queueTrigger }} (priority {{ row.queuePriority }}, {{ row.queueStatus }})
                     {% else %}
                     —
+                    {% endif %}
+                </td>
+                <td class="resolve-cell">
+                    {# Report bookkeeping decision — sets reports.status, performs
+                       NO user/content enforcement. #}
+                    <form class="resolve-report"
+                          action="/admin/reports/{{ row.id }}/resolve"
+                          method="POST"
+                          hx-post="/admin/reports/{{ row.id }}/resolve"
+                          hx-target="#reports-table"
+                          hx-swap="outerHTML">
+                        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                        {% for f in filters %}<input type="hidden" name="{{ f.key }}" value="{{ f.value }}">{% endfor %}
+                        <label>Decision
+                            <select name="decision">
+                                <option value="actioned">actioned</option>
+                                <option value="dismissed">dismissed</option>
+                            </select>
+                        </label>
+                        <button type="submit">Resolve report</button>
+                    </form>
+
+                    {% if row.hasQueue %}
+                    {# Queue resolution — PERFORMS enforcement IMMEDIATELY. keep/hide
+                       toggle content visibility (post/reply only); suspend/ban/shadow-
+                       ban act on the author at once. hx-confirm surfaces a confirm step
+                       under HTMX; the labels spell out the immediate effect. #}
+                    <form class="resolve-queue"
+                          action="/admin/moderation-queue/{{ row.queueId }}/resolve"
+                          method="POST"
+                          hx-post="/admin/moderation-queue/{{ row.queueId }}/resolve"
+                          hx-target="#reports-table"
+                          hx-swap="outerHTML"
+                          hx-confirm="This resolution takes effect immediately. Suspend / Ban / Shadow-ban act on the author now. Continue?">
+                        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                        {% for f in filters %}<input type="hidden" name="{{ f.key }}" value="{{ f.value }}">{% endfor %}
+                        <label>Queue action (immediate, destructive)
+                            <select name="resolution">
+                                <option value="keep">keep — restore (un-hide) content [post/reply]</option>
+                                <option value="hide">hide content [post/reply]</option>
+                                <option value="suspend_author_7d">suspend author 7 days</option>
+                                <option value="ban_author">permanently ban author</option>
+                                <option value="shadow_ban_author">shadow-ban author (silent)</option>
+                            </select>
+                        </label>
+                        <button type="submit">Apply &amp; resolve</button>
+                    </form>
                     {% endif %}
                 </td>
             </tr>

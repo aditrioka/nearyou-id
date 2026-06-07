@@ -5,7 +5,7 @@ import id.nearyou.app.admin.auth.AdminAuthProvider
 import id.nearyou.app.admin.auth.HashUtil
 import id.nearyou.app.admin.reportqueue.ReportQueueQuery
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
-import id.nearyou.app.admin.reportqueue.ReportQueueRow
+import id.nearyou.app.admin.reportqueue.toViewMap
 import io.ktor.server.application.call
 import io.ktor.server.pebble.PebbleContent
 import io.ktor.server.response.respond
@@ -13,7 +13,6 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import java.net.URLEncoder
 import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 
 /**
  * `GET /admin/reports` — the read-only Report Queue moderator triage view
@@ -45,49 +44,14 @@ fun Route.adminReportQueue(
 ) {
     get("/reports") {
         val params = call.request.queryParameters
-
-        val status = params["status"]?.trim()?.takeIf { it.isNotEmpty() }?.take(STATUS_MAX)
-        val targetType = params["target_type"]?.trim()?.takeIf { it.isNotEmpty() }?.take(TARGET_TYPE_MAX)
-        val reasonCategory = params["reason_category"]?.trim()?.takeIf { it.isNotEmpty() }?.take(REASON_CATEGORY_MAX)
-        val trigger = params["trigger"]?.trim()?.takeIf { it.isNotEmpty() }?.take(TRIGGER_MAX)
-        val from = params["from"]?.trim()?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
-        val to = params["to"]?.trim()?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+        val filters = parseReportFilters { params[it] }
         val cursor = ActionLogCursor.decode(params["cursor"])
 
-        // Date boundaries are interpreted in UTC: `from` is inclusive from the
-        // start of that UTC day; `to` is inclusive of the whole UTC day via an
-        // exclusive `< to + 1 day` upper bound (design.md D2 / spec).
-        val fromInclusive = from?.atStartOfDay(ZoneOffset.UTC)?.toInstant()
-        val toExclusive = to?.plusDays(1)?.atStartOfDay(ZoneOffset.UTC)?.toInstant()
-
-        val query =
-            ReportQueueQuery(
-                status = status,
-                targetType = targetType,
-                reasonCategory = reasonCategory,
-                trigger = trigger,
-                fromInclusive = fromInclusive,
-                toExclusive = toExclusive,
-                cursor = cursor,
-            )
-        val page = repo.query(query)
-
-        // Echo the active filters back (canonical, post-parse) so the form
-        // repopulates + the "older" link preserves them.
-        val activeFilters =
-            buildList {
-                status?.let { add("status" to it) }
-                targetType?.let { add("target_type" to it) }
-                reasonCategory?.let { add("reason_category" to it) }
-                trigger?.let { add("trigger" to it) }
-                from?.let { add("from" to it.toString()) }
-                to?.let { add("to" to it.toString()) }
-            }
-        val filters = activeFilters.toMap()
+        val page = repo.query(filters.toQuery(cursor))
 
         val olderUrl =
             page.nextCursor?.let { next ->
-                val pairs = activeFilters + ("cursor" to next.encode())
+                val pairs = filters.echo + ("cursor" to next.encode())
                 "/admin/reports?" +
                     pairs.joinToString("&") { (k, v) ->
                         "$k=${URLEncoder.encode(v, Charsets.UTF_8)}"
@@ -99,7 +63,7 @@ fun Route.adminReportQueue(
             buildMap<String, Any> {
                 put("rows", page.rows.map { it.toViewMap() })
                 put("hasRows", page.rows.isNotEmpty())
-                put("filters", filters)
+                put("filters", filters.echoMap)
                 olderUrl?.let { put("olderUrl", it) }
 
                 if (!isHtmx) {
@@ -121,31 +85,75 @@ private const val STATUS_MAX = 16 // VARCHAR(16) column width
 private const val TARGET_TYPE_MAX = 16 // VARCHAR(16) column width
 private const val REASON_CATEGORY_MAX = 32 // VARCHAR(32) column width
 private const val TRIGGER_MAX = 32 // VARCHAR(32) column width
-private const val EM_DASH = "—"
 
-private val CREATED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
+// Row → template-model shaping is shared with the resolution route's
+// post-action table re-render — see `ReportQueueRow.toViewMap` in
+// `id.nearyou.app.admin.reportqueue.ReportQueueView`.
 
 /**
- * Pre-format a report row into display values for the template. NULL columns
- * become an em-dash placeholder; the resolved offending-user id (for the
- * deep-link) stays null when the target was hard-deleted so the template
- * renders the bare `target_id` with no link. Pebble autoescaping escapes every
- * value on output — including the user-controlled `reason_note` and the joined
- * `reporter` username — so no value needs manual escaping here.
+ * The parsed, canonical report-queue filter set. Shared by `GET /admin/reports`
+ * (reads query params) and the resolution route's post-action re-render (reads
+ * the form body's hidden filter inputs) so the two surfaces apply IDENTICAL
+ * filter semantics — including the UTC date-boundary math (`from` inclusive from
+ * the start of the UTC day; `to` inclusive of the whole UTC day via an exclusive
+ * `< to + 1 day` upper bound, design.md D2). [echo] is the canonical post-parse
+ * key/value list for form-repopulation, the "older" link, and the no-JS
+ * redirect — so filters survive a resolution round-trip.
  */
-private fun ReportQueueRow.toViewMap(): Map<String, Any?> =
-    mapOf(
-        "createdAt" to CREATED_AT_FORMAT.format(createdAt),
-        "targetType" to targetType,
-        "targetId" to targetId.toString(),
-        "reasonCategory" to reasonCategory,
-        "reasonNote" to (reasonNote ?: EM_DASH),
-        "status" to status,
-        "reporter" to (reporterUsername ?: reporterId.toString()),
-        "hasQueue" to (queueTrigger != null),
-        "queueTrigger" to (queueTrigger ?: EM_DASH),
-        "queuePriority" to (queuePriority?.toString() ?: EM_DASH),
-        "queueStatus" to (queueStatus ?: EM_DASH),
-        // null → template renders the bare target_id with no action link.
-        "actionUserId" to actionUserId?.toString(),
+internal data class ReportFilters(
+    val status: String?,
+    val targetType: String?,
+    val reasonCategory: String?,
+    val trigger: String?,
+    val fromInclusive: java.time.Instant?,
+    val toExclusive: java.time.Instant?,
+    val echo: List<Pair<String, String>>,
+) {
+    fun toQuery(cursor: ActionLogCursor? = null): ReportQueueQuery =
+        ReportQueueQuery(
+            status = status,
+            targetType = targetType,
+            reasonCategory = reasonCategory,
+            trigger = trigger,
+            fromInclusive = fromInclusive,
+            toExclusive = toExclusive,
+            cursor = cursor,
+        )
+
+    val echoMap: Map<String, String> get() = echo.toMap()
+}
+
+/**
+ * Parse + canonicalize the report-queue filters from a generic [get] accessor
+ * (query params for the GET listing; the consumed form body for the resolution
+ * re-render). Lenient (design.md — never 4xx): each text filter is trimmed,
+ * blank-dropped, and width-capped; an unparseable date is ignored; out-of-enum
+ * values pass through to bind as zero-match literals downstream.
+ */
+internal fun parseReportFilters(get: (String) -> String?): ReportFilters {
+    val status = get("status")?.trim()?.takeIf { it.isNotEmpty() }?.take(STATUS_MAX)
+    val targetType = get("target_type")?.trim()?.takeIf { it.isNotEmpty() }?.take(TARGET_TYPE_MAX)
+    val reasonCategory = get("reason_category")?.trim()?.takeIf { it.isNotEmpty() }?.take(REASON_CATEGORY_MAX)
+    val trigger = get("trigger")?.trim()?.takeIf { it.isNotEmpty() }?.take(TRIGGER_MAX)
+    val from = get("from")?.trim()?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+    val to = get("to")?.trim()?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+
+    val echo =
+        buildList {
+            status?.let { add("status" to it) }
+            targetType?.let { add("target_type" to it) }
+            reasonCategory?.let { add("reason_category" to it) }
+            trigger?.let { add("trigger" to it) }
+            from?.let { add("from" to it.toString()) }
+            to?.let { add("to" to it.toString()) }
+        }
+    return ReportFilters(
+        status = status,
+        targetType = targetType,
+        reasonCategory = reasonCategory,
+        trigger = trigger,
+        fromInclusive = from?.atStartOfDay(ZoneOffset.UTC)?.toInstant(),
+        toExclusive = to?.plusDays(1)?.atStartOfDay(ZoneOffset.UTC)?.toInstant(),
+        echo = echo,
     )
+}
