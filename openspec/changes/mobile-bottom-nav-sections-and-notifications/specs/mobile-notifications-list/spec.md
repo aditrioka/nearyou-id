@@ -2,7 +2,7 @@
 
 ### Requirement: NotificationsScreen renders the in-app notifications surface
 
-The mobile app SHALL ship a composable `NotificationsScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/notifications/NotificationsScreen.kt`) that renders the authenticated caller's notification feed. The screen SHALL display: (a) a top-bar title via `stringResource(Res.string.notifications_title)` ("*Notifikasi*") with a back affordance (it is a root-back-stack destination); (b) a scrollable list of notification rows (per the § "Notification row renders type-keyed copy" requirement) wrapped in a pull-to-refresh container; (c) the loading / content / empty / error states per the § "Screen state mapping" requirement; (d) a "mark all read" action per the § "Mark-all-read action" requirement. No hardcoded UI string literals SHALL appear in the screen source. The screen SHALL render under `NearYouTheme` (light/dark).
+The mobile app SHALL ship a composable `NotificationsScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/notifications/NotificationsScreen.kt`) that renders the authenticated caller's notification feed. The screen is **navigation-free** — it holds no back-stack reference and is embedded by the shell as the Notifikasi section's content (mirroring how `GlobalTimelineScreen` is embedded by the Home tab host); it therefore has NO back affordance (the user leaves via the bottom-nav sections). The screen SHALL display: (a) a top-bar title via `stringResource(Res.string.notifications_title)` ("*Notifikasi*"); (b) a scrollable list of notification rows (per the § "Notification row renders type-keyed copy" requirement) wrapped in a pull-to-refresh container; (c) the loading / content / empty / error states per the § "Screen state mapping" requirement; (d) a "mark all read" action per the § "Mark-all-read action" requirement. No hardcoded UI string literals SHALL appear in the screen source. The screen SHALL render under `NearYouTheme` (light/dark).
 
 #### Scenario: Initial render shows the notifications title
 
@@ -16,7 +16,7 @@ The mobile app SHALL ship a composable `NotificationsScreen` (file: `mobile/app/
 
 ### Requirement: Notifications fetch targets the canonical endpoint with Bearer auth and an opaque cursor
 
-`NotificationsApiClient` SHALL issue `GET /api/v1/notifications` (the canonical endpoint per `openspec/specs/in-app-notifications/spec.md`). The first-page request SHALL omit the `cursor` parameter and MAY set `limit`. When a subsequent page is requested, the `cursor` query parameter SHALL be the **opaque `next_cursor` token** returned by the prior response, passed back **verbatim** (the client MUST NOT parse, reformat, or treat it as a timestamp). The Bearer `Authorization` header is attached by the shipped `HttpClient` `Auth` plugin (this capability MUST NOT reimplement token attachment). The list `unread` filter, when used, SHALL be the query parameter `unread=true` (NOT `unread_only`).
+`NotificationsApiClient` SHALL issue `GET /api/v1/notifications` (the canonical endpoint; the path source of truth is the SHIPPED `backend/ktor/src/main/kotlin/id/nearyou/app/notifications/NotificationRoutes.kt`). The first-page request SHALL omit the `cursor` parameter and MAY set `limit`. When a subsequent page is requested, the `cursor` query parameter SHALL be the **opaque `next_cursor` token** returned by the prior response, passed back **verbatim** (the client MUST NOT parse, reformat, or treat it as a timestamp). The Bearer `Authorization` header is attached by the shipped `HttpClient` `Auth` plugin (this capability MUST NOT reimplement token attachment). The list `unread` filter, when used, SHALL be the query parameter `unread=true` (NOT `unread_only`).
 
 #### Scenario: First-page request shape
 
@@ -48,7 +48,7 @@ The shared `Json` (`ignoreUnknownKeys = true`, `explicitNulls = false`) SHALL be
 #### Scenario: Stale-spec field names would NOT populate — regression guard
 
 - **GIVEN** a MockEngine returning an unread-count body `{ "unread_count": 3 }` and a read-all body `{ "marked": 5 }` (the stale-spec shapes, NOT the shipped wire)
-- **THEN** the parsed unread-count DTO's `count` does NOT equal 3 (the `unread_count` key is absent under the shipped DTO) AND the parsed read-all DTO's `marked_read` does NOT equal 5 — a fixture MUST use the shipped keys (`count`, `marked_read`) so this regression cannot slip in
+- **THEN** the parsed unread-count DTO's `count` is absent/default (the `unread_count` key does not populate it) AND the parsed read-all DTO's `marked_read` is absent/default — a fixture MUST use the shipped keys (`count`, `marked_read`) so this regression cannot slip in
 
 #### Scenario: body_data is non-null and absent next_cursor tolerated
 
@@ -57,7 +57,7 @@ The shared `Json` (`ignoreUnknownKeys = true`, `explicitNulls = false`) SHALL be
 
 ### Requirement: Notification row renders type-keyed generic-actor copy, with no PII, tolerating every enum value
 
-Each notification row SHALL render type-keyed Bahasa Indonesia copy via `stringResource`, derived from `NotificationDto.type` plus `body_data` excerpts (e.g. `post_excerpt`, `reply_excerpt`). Because the shipped list endpoint returns only `actor_user_id` (a UUID) and NO actor username, rows SHALL render a **generic actor** ("Seseorang …") and SHALL NEVER render the raw `actor_user_id` or `target_id` UUID in any UI node, nor log it. The row SHALL map at minimum `post_liked`, `post_replied`, `followed`, `post_auto_hidden`, and `chat_message` to distinct copy, and SHALL render a safe generic fallback (e.g. "Notifikasi baru") for the remaining reserved `type` values AND for any unknown/future `type` value (no crash). A row's read/unread state (derived from `read_at`) SHALL be visually distinct.
+Each notification row SHALL render type-keyed Bahasa Indonesia copy via `stringResource`, derived from `NotificationDto.type` plus `body_data` excerpts (e.g. `post_excerpt`, `reply_excerpt`, `preview`). Because the shipped list endpoint returns only `actor_user_id` (a UUID) and NO actor username, rows SHALL render a **generic actor** ("Seseorang …") and SHALL NEVER render the raw `actor_user_id` or `target_id` UUID in any UI node, nor log it. (This includes `chat_message`, which `docs/03-UX-Design.md` renders as "Pesan baru dari {username}" — v1 drops to generic copy pending the deferred actor-username enrichment.) The row SHALL map at minimum `post_liked`, `post_replied`, `followed`, `post_auto_hidden`, and `chat_message` to distinct copy, and SHALL render a safe generic fallback (e.g. "Notifikasi baru") for the remaining reserved `type` values AND for any unknown/future `type` value (no crash). A row's read/unread state (derived from `read_at`) SHALL be visually distinct. A row whose `body_data` is missing its expected excerpt key SHALL render the base type copy without crashing.
 
 #### Scenario: actor_user_id and target_id UUIDs are not in the rendered tree
 
@@ -70,6 +70,11 @@ Each notification row SHALL render type-keyed Bahasa Indonesia copy via `stringR
 - **WHEN** a row has `type = "some_future_type"` not in the known set
 - **THEN** the row renders the generic fallback copy (`stringResource`) AND no exception is thrown
 
+#### Scenario: Missing body_data excerpt renders base copy without crashing
+
+- **WHEN** a `post_liked` row has `body_data = {}` (no `post_excerpt` key)
+- **THEN** the row renders the base `post_liked` copy AND no exception is thrown
+
 #### Scenario: Read vs unread rows are visually distinct
 
 - **GIVEN** one row with `read_at = null` and one with `read_at` set
@@ -80,7 +85,7 @@ Each notification row SHALL render type-keyed Bahasa Indonesia copy via `stringR
 `NotificationsRepository` SHALL map each fetch result to exactly one member of a sealed `NotificationsOutcome`, keyed on the HTTP **status code** and transport-failure type (NOT on a parsed `error.code`), with no generic "load failed" fallthrough:
 - **HTTP 200** → `Loaded(items, nextCursor)`.
 - **HTTP 401** → handled upstream by the shipped Ktor `Auth` `refreshTokens` (terminal 401 → `SessionInvalidator` clears the store + re-routes to `SignInScreen`). The repository MUST NOT reimplement 401 refresh/retry.
-- **HTTP 400** (`invalid_cursor` — not expected on the always-valid first page) → a retryable `Error` outcome with a diagnostic emitted to logs (NOT a silent no-op, NOT a crash).
+- **HTTP 400** (`invalid_cursor` — not expected on the always-valid first page) → a retryable `Error` outcome with a diagnostic emitted to logs (NOT a silent no-op, NOT a crash). The diagnostic MUST carry only the HTTP status / outcome type — NEVER `actor_user_id`, `target_id`, `body_data`, the response body, or any token.
 - **HTTP 5xx or network/IO failure** → `NetworkError` (retryable).
 
 #### Scenario: 200 maps to Loaded carrying items and cursor
@@ -94,6 +99,11 @@ Each notification row SHALL render type-keyed Bahasa Indonesia copy via `stringR
 - **GIVEN** a MockEngine returning bare HTTP 500 (or throwing `IOException`)
 - **WHEN** the repository processes the result
 - **THEN** the outcome is `NetworkError` AND no crash occurs
+
+#### Scenario: Error diagnostics carry no PII or body
+
+- **WHEN** the repository emits a diagnostic for an HTTP 400 (or any non-200) outcome
+- **THEN** the logged diagnostic contains only the HTTP status and/or the `NotificationsOutcome` type AND contains NO `actor_user_id` / `target_id` / `body_data` / raw response body / token (mirroring the shipped `GlobalTimelineRepository` log discipline)
 
 #### Scenario: Every fetch result maps to exactly one outcome
 
@@ -122,7 +132,7 @@ The screen state SHALL be modeled as a Compose-free `NotificationsUiState` (data
 
 ### Requirement: Tapping a row marks it read; deep-link navigation is deferred
 
-Tapping a notification row SHALL issue `PATCH /api/v1/notifications/{id}/read` and optimistically flip that row to the read state. A `204 No Content` response SHALL confirm success; a `404` (code `not_found` — already-read, not-owned, or non-existent) SHALL be treated as a no-op (the row remains/flips to read; no error surfaced). This change SHALL NOT navigate to the notification's target post/reply/profile on tap — those destination screens do not exist yet. This deferral is captured as a negative-guard so the follow-up `mobile-notifications-deep-link-targets` has a requirement to MODIFY.
+Tapping a notification row SHALL issue `PATCH /api/v1/notifications/{id}/read` and optimistically flip that row to the read state. A `204 No Content` response SHALL confirm success; a `404` (code `not_found` — already-read, not-owned, or non-existent) SHALL be treated as a no-op (the row remains/flips to read; no error surfaced). On any OTHER failure (5xx / network-IO), the optimistic flip SHALL be reverted to unread and NO blocking error surfaced (the next refresh reconciles). This change SHALL NOT navigate to the notification's target post/reply/profile on tap — those destination screens do not exist yet (blocked on the in-flight `mobile-post-detail` screen AND a backend `GET /api/v1/posts/{id}` by-id endpoint). This deferral is captured as a negative-guard so the follow-up `mobile-notifications-deep-link-targets` has a requirement to MODIFY.
 
 #### Scenario: Tapping an unread row marks it read
 
@@ -135,6 +145,12 @@ Tapping a notification row SHALL issue `PATCH /api/v1/notifications/{id}/read` a
 - **GIVEN** `PATCH /api/v1/notifications/{id}/read` returns `404 { "error": { "code": "not_found" } }`
 - **WHEN** the row is tapped
 - **THEN** no blocking error is surfaced AND the row renders as read (idempotent-looking)
+
+#### Scenario: Transport failure reverts the optimistic flip
+
+- **GIVEN** `PATCH /api/v1/notifications/{id}/read` returns HTTP 500 (or throws `IOException`) AND a rendered unread row
+- **WHEN** the row is tapped (optimistically flipped to read)
+- **THEN** the row reverts to the unread state AND no blocking error is surfaced
 
 #### Scenario: Tapping a row wires no navigation to a post/reply/profile route (deferred)
 
@@ -166,29 +182,9 @@ The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equiv
 - **WHEN** inspecting the repository/screen for cursor usage
 - **THEN** `next_cursor` is parsed and retained on `Loaded` but is NOT consumed to issue a follow-up `cursor=`-bearing request in this change
 
-### Requirement: HomeScreen exposes a notifications entry-point pushing NotificationsRoute, with a one-shot unread badge
-
-`HomeScreen` SHALL render a notifications entry-point (a bell `IconButton` with an icon + `contentDescription` via `stringResource(Res.string.notifications_open)`) at the home level — visible regardless of the selected tab — that invokes an injected `onOpenNotifications` lambda which appends a new `NotificationsRoute` `NavKey` to the **root** back stack (above `HomeRoute`), so `NotificationsScreen` overlays the tab bar (mirroring the composer FAB → `PostCreationRoute`). The entry-point SHALL show a **one-shot unread badge** sourced from `GET /api/v1/notifications/unread-count` (`{ count }`), fetched on Home (re)composition/resume and refreshed when returning from `NotificationsScreen`; the badge is shown only when `count > 0`. Live/push/polling badge updates are explicitly deferred.
-
-#### Scenario: Bell pushes NotificationsRoute onto the root back stack
-
-- **GIVEN** the tab host composed over a test root back stack (or a recording `onOpenNotifications` callback)
-- **WHEN** the bell is activated while the Nearby tab is selected, and again while the Global tab is selected
-- **THEN** a single notifications entry-point is present in both cases AND each activation appends `NotificationsRoute` to the root back stack (or invokes the recording callback)
-
-#### Scenario: Unread badge shows when count > 0 and hides at zero
-
-- **GIVEN** the unread-count endpoint returns `{ "count": 4 }`
-- **THEN** the bell renders an unread badge; AND **WHEN** it returns `{ "count": 0 }` the badge is absent
-
-#### Scenario: Badge is one-shot (no live updates wired)
-
-- **WHEN** inspecting the unread-count wiring on `HomeScreen`
-- **THEN** the count is fetched on composition/resume + on return from `NotificationsScreen` only AND no polling timer / push-driven live subscription is wired (live updates deferred)
-
 ### Requirement: ApiClient, Repository, ViewModel wired as Koin singletons behind a testable seam
 
-`NotificationsApiClient` and `NotificationsRepository` SHALL be registered in the commonMain Koin `mobileModule`. `NotificationsRepository` SHALL be bound behind a `NotificationsFlow` interface (`single<NotificationsFlow> { get<NotificationsRepository>() }`) so a `FakeNotificationsFlow` can drive the screen tests, mirroring the Global/Nearby seam. The `NotificationsViewModel` SHALL be resolved via `viewModel { … }` scoped to the `NotificationsRoute` NavEntry (NOT `HomeRoute`), loading the first page once on construction and re-fetching on pull-to-refresh / retry.
+`NotificationsApiClient` and `NotificationsRepository` SHALL be registered in the commonMain Koin `mobileModule`. `NotificationsRepository` SHALL be bound behind a `NotificationsFlow` interface (`single<NotificationsFlow> { get<NotificationsRepository>() }`) so a `FakeNotificationsFlow` can drive the screen tests, mirroring the Global/Nearby seam. The `NotificationsViewModel` SHALL be resolved via `viewModel { … }` scoped to the shell NavEntry (so it survives bottom-nav section switches without re-fetch, mirroring the `HomeRoute`-scoped feed ViewModels), loading the first page once on first composition of the Notifikasi section and re-fetching on pull-to-refresh / retry.
 
 #### Scenario: Koin registers the notifications graph behind the flow interface
 
@@ -203,12 +199,12 @@ The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equiv
 
 ### Requirement: Test coverage for the screen, projection, and networking
 
-The change SHALL ship: (1) a Robolectric `NotificationsScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the initial render plus each of the four visual states + the mark-read-on-tap + mark-all-read behaviors via a `FakeNotificationsFlow`, added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention, since the `ui-test-manifest` host activity is debug-only); (2) a commonTest `NotificationsUiStateTest` for the pure outcome→state projection; (3) MockEngine-backed `NotificationsApiClient` / `NotificationsRepository` tests verifying the endpoint path, the opaque-cursor pass-back, the shipped-wire parsing (with the stale-spec negative-regression guard), and the status→outcome mapping (incl. the `204`/`404` mark-read paths); (4) an iOS flow test under `mobile/app/src/iosTest/...` (mirroring `NearbyTimelineFlowIosTest`) exercising the screen on the simulator, with Kotlin/Native-legal test function names.
+The change SHALL ship: (1) a Robolectric `NotificationsScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the initial render plus each of the four visual states + the mark-read-on-tap (204 + 404 no-op + transport-failure revert) + mark-all-read + read/unread visual + the no-UUID-in-tree PII assertion + the unknown-`type` fallback + missing-`body_data` rendering via a `FakeNotificationsFlow`, added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention, since the `ui-test-manifest` host activity is debug-only); (2) a commonTest `NotificationsUiStateTest` for the pure outcome→state projection AND a `NotificationsViewModel` loads-once/reload test over `FakeNotificationsFlow`; (3) MockEngine-backed `NotificationsApiClient` / `NotificationsRepository` tests verifying the endpoint path, the opaque-cursor pass-back-verbatim, the shipped-wire parsing (with the stale-spec negative-regression guard + the no-PII-in-diagnostic assertion), and the status→outcome mapping (incl. the `204`/`404` mark-read paths); (4) an iOS flow test under `mobile/app/src/iosTest/...` (mirroring `NearbyTimelineFlowIosTest`) exercising the screen on the simulator, with Kotlin/Native-legal test function names. (The Notifikasi-section badge + section-render tests live in the `mobile-home-tab-host` shell tests.)
 
 #### Scenario: Test classes exist and are discoverable
 
 - **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest`
-- **THEN** `NotificationsScreenTest`, `NotificationsUiStateTest`, and the `NotificationsApiClient`/`Repository` MockEngine tests are discovered AND each documented state / mapping corresponds to at least one `@Test`
+- **THEN** `NotificationsScreenTest`, `NotificationsUiStateTest`, the `NotificationsViewModel` test, and the `NotificationsApiClient`/`Repository` MockEngine tests are discovered AND each documented state / mapping / row behavior corresponds to at least one `@Test`
 
 #### Scenario: Screen test is excluded from the Release variant
 
