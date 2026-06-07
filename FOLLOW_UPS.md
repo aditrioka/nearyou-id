@@ -833,3 +833,64 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] Delete this entry once shipped.
 
 **Cap note + sweep (2026-06-06).** A busy reconciliation week — **five** changes touched this file (merge-reconciled across branches): `mobile-home-tab-host` (#153, **net 0** — deleted `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks`); `mobile-env-launcher-icons` (#155, **+1** `mobile-env-launcher-icons-ios-dev-icon`); `admin-report-queue-viewer` (#154, **+2** spec-mandated `admin-report-queue-resolution-actions` + `admin-report-queue-has-edit-history-filter`); `admin-rejected-identifiers-viewer` (#156, **+1** `admin-rejected-identifiers-clear-action`); and `mobile-ios-build-config-matrix` (#158, **−1** — see below). The #156 archive ran a targeted sweep (the 8 likeliest-resolved entries — `mobile-auth-signin-logout-wire-up`, `mobile-auth-signin-android-instrumented-encryption-test`, `mobile-ios-ci-link-task`, `ci-paths-filter-switch-to-dorny`, `mobile-negative-requirement-ci-grep`, `mobile-post-creation-ios-flow-tests`, `mobile-auth-signin-credential-manager-legacy-fallback`, `firebase-admin-server-template-evaluate-bypass-removal` — each re-verified against current code / CI / specs): **0 rot, all still-valid**, consistent with the 2026-06-04 full sweep. **`mobile-ios-build-config-matrix` (#158)** then shipped BOTH halves of `mobile-env-launcher-icons-ios-dev-icon` — the dedicated iOS `Prod Debug` / `Prod Release` build configs (`.nearyou.app` + cobalt `AppIcon`), the removed `Debug`/`Release` APPICON hardcodes + per-config Pods wiring, AND a real `AppIcon-Dev` (forest green `#15803D`) dev icon via the env × build-type matrix — so that entry is **deleted** (−1). Net: 33 (origin/main after #156) − 1 = **32 open, 2 over the 30-entry soft cap**. Every remaining entry is spec-obliged or a clean deferred-by-design Non-Goal (zero half-implemented code). A full `/triage-follow-ups` sweep is **OVERDUE**; standing drawdown levers: the 2026-06-04 test-coverage bundle, merging `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`, and the GitHub-Issues migration (solo-operator).
+
+---
+
+## mobile-analytics-consent-settings-toggle
+
+**Discovered during:** `mobile-analytics-consent-screen` proposal (Non-Goals) + design OQ2.
+**Status:** open
+
+**Finding:** The consent screen writes `users.analytics_consent` at onboarding (signup path) via `PATCH /api/v1/user/consent`, but there is no Settings path to RE-EDIT consent post-onboarding. `docs/03-UX-Design.md` § Analytics & Tracking Consent Screen specifies "Settings page allows the user to change the toggle (applies going forward)". The re-edit path needs a `GET /api/v1/user/consent` (design OQ2: `200 {analytics, crash, ads_personalization}`, same authz as the PATCH) + a Settings screen that does not exist yet.
+
+**Specs at fault:** none — deliberate `mobile-analytics-consent` Non-Goal (no Settings screen exists).
+**Code at fault:** none — the onboarding-write path is the intended MVP shape.
+**Docs at fault:** none.
+
+**Impact (if shipped):** none today. Without it, a user who wants to change consent after onboarding has no in-app path until a Settings screen ships.
+
+**Action items:**
+- [ ] When a mobile Settings screen lands, add `GET /api/v1/user/consent` (per design OQ2) + the Settings consent-toggle UI reusing the existing `PATCH /api/v1/user/consent` + `ConsentApiClient`/`ConsentRepository`.
+- [ ] Delete this entry once the Settings consent toggle ships.
+
+---
+
+## mobile-analytics-consent-persist-hardening
+
+**Discovered during:** `mobile-analytics-consent-screen` design D4 (deferred).
+**Status:** open
+
+**Finding:** On a `PATCH /api/v1/user/consent` failure, `ConsentScreen` offers a retry + a non-trapping "Lewati untuk sekarang" skip that proceeds to Home keeping the server's prior (default) value — it does NOT background-retry/queue the failed write. Safe TODAY because no tracking SDK reads `analytics_consent` yet. Once the Amplitude/Sentry/AdMob suppress-wrappers land, a failed-then-skipped submit could leave a wrapper tracking against the user's intended (but unpersisted) choice. The `mobile-analytics-consent` spec captures this as an explicit "Reliable consent persistence is deferred" requirement + negative-guard scenario (so this entry has a requirement to MODIFY).
+
+**Specs at fault:** none — `mobile-analytics-consent` § "Reliable consent persistence is deferred" is the MODIFY target.
+**Code at fault:** `mobile/app/src/commonMain/kotlin/id/nearyou/app/consent/ConsentFlow.kt` (`ConsentRepository` — no retry/queue beyond the in-screen retry).
+**Docs at fault:** none.
+
+**Impact (if shipped):** none until the consent-aware SDK suppress-wrappers land; then a failed persist could mismatch tracking against the user's choice (UU-PDP-relevant).
+
+**Action items:**
+- [ ] When the consent-aware suppress-wrappers (`:infra:amplitude` / `:infra:sentry` / AdMob UMP) land, add reliable persistence (retry/queue, or block-on-success) so a failed consent PATCH cannot leave a tracking SDK mismatched — MODIFY the `mobile-analytics-consent` "Reliable consent persistence is deferred" requirement.
+- [ ] Delete this entry once reliable persist ships.
+
+---
+
+## mobile-analytics-consent-rootrouter-regate
+
+**Discovered during:** `mobile-analytics-consent-screen` design D4 (deferred).
+**Status:** open
+
+**Finding:** `ConsentScreen` lives only in the signup→Home transition (`AppEntryProvider` `entry<AgeGateRoute> onSignedUp = replaceAll(ConsentRoute)`). A user who force-quits at the consent screen holds a valid token, so the next launch routes straight to `HomeRoute` (consent bypassed). This change deliberately does NOT add a `consent_completed_at` flag + a `RootRouterScreen` consent re-gate, because the V2 defaults are privacy-safe (analytics=false/ads=false; crash=true is the documented opt-out-able default) and no SDK reads consent yet → the bypass is benign for MVP. The `mobile-analytics-consent` spec captures this as an explicit "RootRouter does not re-gate … (deferred)" requirement + negative-guard scenario.
+
+**Specs at fault:** none — `mobile-analytics-consent` § "RootRouter does not re-gate returning token-bearing users on consent completion (deferred)" is the MODIFY target.
+**Code at fault:** none — the no-re-gate is the intended MVP shape (safe defaults make it benign).
+**Docs at fault:** none.
+
+**Impact (if shipped):** none today. Once the suppress-wrappers land, a bypassing user sits at the V2 default rather than an explicit choice — acceptable (privacy-safe) but worth hardening alongside persist-hardening.
+
+**Action items:**
+- [ ] When the suppress-wrappers land (sequence AFTER this re-gate), add a `consent_completed_at` (or equivalent) flag + a `RootRouterScreen` check that interposes `ConsentRoute` for a token-bearing user who never completed consent — MODIFY the `mobile-analytics-consent` "RootRouter does not re-gate …" requirement.
+- [ ] Delete this entry once the re-gate ships.
+
+---
+
+**Cap note (2026-06-07, `mobile-analytics-consent-screen` merge-reconcile):** appended this change's 3 spec-required deferrals (`-settings-toggle`, `-persist-hardening`, `-rootrouter-regate`) on top of origin/main's reconciled 32 → **35 open, 5 over the 30-entry cap**. All spec-obliged — each is referenced by name in a `mobile-analytics-consent` negative-guard scenario or Non-Goal; zero rot, zero half-implemented code. The OVERDUE `/triage-follow-ups` sweep is the drawdown lever.

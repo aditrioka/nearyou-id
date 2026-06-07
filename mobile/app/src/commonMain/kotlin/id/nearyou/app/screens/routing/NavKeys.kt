@@ -41,3 +41,12 @@ data object AgeGateRoute : NavKey
 /** Post-composer surface, opened by the home-surface FAB. */
 @Serializable
 data object PostCreationRoute : NavKey
+
+/**
+ * Analytics & Tracking Consent surface (the `mobile-analytics-consent` capability), reached after
+ * age-gate signup success. A parameterless marker — the user identity lives in the persisted token,
+ * never in the serialized back stack. The signup-success transition REPLACES `AgeGateRoute` with
+ * this route (not a push), so back-press on the consent screen cannot return to the age gate.
+ */
+@Serializable
+data object ConsentRoute : NavKey

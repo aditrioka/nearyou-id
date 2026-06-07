@@ -72,6 +72,21 @@
     <string name="post_create_error_moderated">Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi.</string>
     <string name="post_create_location_unavailable">Aktifkan lokasi untuk membuat postingan.</string>
 
+    <!-- mobile-analytics-consent-screen. The three `consent_*_desc` strings are BYTE-IDENTICAL to the
+         data-summary bullets in docs/03-UX-Design.md § "Analytics & Tracking Consent Screen (UU PDP)"
+         (the only consent copy the doc pins verbatim); the title / explainer / labels / CTA / error /
+         skip are derived BI copy consistent with the Mobile #3/#4/#5 register. -->
+    <string name="consent_title">Privasi &amp; data</string>
+    <string name="consent_explainer">Pilih data yang boleh kami kumpulkan untuk meningkatkan NearYouID. Kamu bisa mengubahnya kapan saja di Pengaturan.</string>
+    <string name="consent_analytics_label">Analitik penggunaan</string>
+    <string name="consent_analytics_desc">Bantu kami perbaiki aplikasi dengan data penggunaan anonim (Amplitude)</string>
+    <string name="consent_crash_label">Laporan crash</string>
+    <string name="consent_crash_desc">Laporkan crash otomatis untuk perbaikan bug (Sentry)</string>
+    <string name="consent_ads_label">Personalisasi iklan</string>
+    <string name="consent_ads_desc">Iklan dapat disesuaikan dengan minat kamu (Google AdMob UMP)</string>
+    <string name="consent_cta_continue">Simpan &amp; lanjutkan</string>
+    <string name="consent_error_retryable">Gagal menyimpan preferensi. Coba lagi.</string>
+    <string name="consent_skip">Lewati untuk sekarang</string>
     <!-- mobile-home-tab-host + mobile-global-timeline. `timeline_global_title` ("Seluruh Indonesia"),
          `timeline_following_placeholder`, and `cta_see_global` ("Lihat Global") are SPEC-CANONICAL —
          byte-identical to openspec/changes/mobile-home-tab-host/specs (tasks.md 2.1 / docs/03-UX-Design.md

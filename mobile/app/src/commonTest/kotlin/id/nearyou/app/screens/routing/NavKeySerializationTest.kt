@@ -20,7 +20,8 @@ class NavKeySerializationTest {
 
     @Test
     fun everyRouteKey_roundTripsThroughThePolymorphicModule() {
-        val routes: List<NavKey> = listOf(RootRoute, SignInRoute, HomeRoute, AgeGateRoute, PostCreationRoute)
+        val routes: List<NavKey> =
+            listOf(RootRoute, SignInRoute, HomeRoute, AgeGateRoute, PostCreationRoute, ConsentRoute)
         for (route in routes) {
             val encoded = json.encodeToString(navKeySerializer, route)
             val decoded = json.decodeFromString(navKeySerializer, encoded)

@@ -217,6 +217,7 @@ tasks.withType<Test>().configureEach {
             "**/NearYouThemeTest*",
             "**/PostCreationScreenTest*",
             "**/HomeScreenFabTest*",
+            "**/ConsentScreenTest*",
             "**/GlobalTimelineScreenTest*",
             "**/HomeTabHostScreenTest*",
         )
