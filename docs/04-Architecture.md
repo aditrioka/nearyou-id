@@ -330,7 +330,7 @@ val connectionString = secretManager.access("${secretPrefix}admin-app-db-connect
 
 **Mobile client config**:
 - Android build flavors: `staging` (points at `api-staging.nearyou.id`, attestation bypass), `production` (points at `api.nearyou.id`, attestation enforce)
-- iOS xcconfig schemes: `Staging`, `Production` with `API_BASE_URL` and Firebase `GoogleService-Info.plist` swapped via build settings
+- iOS **env × build-type build-configuration matrix** (`mobile-ios-build-config-matrix`, mirroring Android's flavor × build-type variants): `Dev Debug`, `Staging Debug`, `Prod Debug`, `Prod Release` — each a committed Xcode build configuration + shared scheme. Each config's `iosApp/Configuration/<Config>.xcconfig` `#include`s its env xcconfig (`Dev`/`Staging`/`Production.xcconfig` — bundle id, `APP_API_BASE_URL`, `ASSETCATALOG_COMPILER_APPICON_NAME`) **and** its CocoaPods-generated `Pods-iosApp.<config>.xcconfig` (debug- or release-typed), so `pod install`'s per-config mapping links the correct Pods. Resolution: `Dev Debug` → `id.nearyou.app.dev` + `localhost:8080` + `AppIcon-Dev`; `Staging Debug` → `.staging` + `api-staging.nearyou.id` + `AppIcon-Staging`; `Prod Debug`/`Prod Release` → `id.nearyou.app` + the fail-fast placeholder API + cobalt `AppIcon`. No `ASSETCATALOG_COMPILER_APPICON_NAME` is hardcoded in `project.pbxproj` (icon resolves per-config from xcconfig).
 - QA testers get the staging flavor via Firebase App Distribution / TestFlight internal
 - Public App Store + Play Store listings ship the production flavor only
 

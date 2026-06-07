@@ -153,6 +153,88 @@ class LauncherIconBackgroundTest {
             cobaltRe.containsMatchIn(rawSource("iosApp/Configuration/Production.xcconfig")),
             "Production.xcconfig must set ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon (cobalt production)",
         )
+        // mobile-ios-build-config-matrix: the Dev env config selects the forest-green AppIcon-Dev.
+        val devRe = Regex("""(?m)^[ \t]*ASSETCATALOG_COMPILER_APPICON_NAME\s*=\s*AppIcon-Dev""")
+        assertTrue(
+            devRe.containsMatchIn(rawSource("iosApp/Configuration/Dev.xcconfig")),
+            "Dev.xcconfig must set ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev",
+        )
+    }
+
+    @Test
+    fun iosPbxproj_hasNoAppIconHardcode() {
+        // mobile-ios-build-config-matrix review F2: the icon resolves per-config from xcconfig, so the
+        // project.pbxproj target buildSettings must carry NO ASSETCATALOG_COMPILER_APPICON_NAME hardcode
+        // (which would override the xcconfig). Linux-CI guard for the "no hardcode" spec scenario.
+        val pbxproj = rawSource("iosApp/iosApp.xcodeproj/project.pbxproj")
+        assertFalse(
+            pbxproj.contains("ASSETCATALOG_COMPILER_APPICON_NAME"),
+            "project.pbxproj must NOT hardcode ASSETCATALOG_COMPILER_APPICON_NAME — the icon resolves per-config from xcconfig",
+        )
+    }
+
+    @Test
+    fun iosDevAppIconSet_existsAsSingleUniversalEntry() {
+        val contents = rawSource("iosApp/iosApp/Assets.xcassets/AppIcon-Dev.appiconset/Contents.json")
+        assertTrue(contents.contains("\"app-icon-1024.png\""), "AppIcon-Dev must reference app-icon-1024.png")
+        assertFalse(contents.contains("luminosity"), "AppIcon-Dev must be a single universal entry (no dark/tinted variants)")
+        val png = File(repoRoot, "iosApp/iosApp/Assets.xcassets/AppIcon-Dev.appiconset/app-icon-1024.png")
+        assertTrue(png.exists(), "the AppIcon-Dev 1024 PNG must be present")
+    }
+
+    // ---- iOS per-config xcconfig + KMP build-type wiring (mobile-ios-build-config-matrix). Each leaf
+    //      `<Config>.xcconfig` layers its env xcconfig + the build-type-correct Pods base, and each
+    //      custom config name maps to a Kotlin/Native build type in build.gradle.kts. These drive the
+    //      per-config Pods link + the `ComposeApp` framework sync; the real `xcodebuild build` proof
+    //      can't run in Linux CI, so pin both statically (a rename here would silently break the
+    //      framework build with CI green — the gap the impl-review test-coverage lens flagged). ----
+
+    @Test
+    fun iosPerConfigXcconfigs_layerEnvXcconfigAndMatchingPodsBase() {
+        // config → (env xcconfig it #includes, matching Pods base it #includes)
+        val matrix =
+            listOf(
+                Triple("Dev Debug", "Dev.xcconfig", "Pods-iosApp.dev debug.xcconfig"),
+                Triple("Staging Debug", "Staging.xcconfig", "Pods-iosApp.staging debug.xcconfig"),
+                Triple("Prod Debug", "Production.xcconfig", "Pods-iosApp.prod debug.xcconfig"),
+                Triple("Prod Release", "Production.xcconfig", "Pods-iosApp.prod release.xcconfig"),
+            )
+        for ((config, envInclude, podsBase) in matrix) {
+            val xcconfig = rawSource("iosApp/Configuration/$config.xcconfig")
+            assertTrue(
+                xcconfig.contains("#include \"$envInclude\""),
+                "the `$config` per-config xcconfig must #include its env xcconfig \"$envInclude\"",
+            )
+            assertTrue(
+                xcconfig.contains(podsBase),
+                "the `$config` per-config xcconfig must #include its matching Pods base \"$podsBase\" " +
+                    "(debug-typed config → debug Pods, release-typed → release Pods)",
+            )
+        }
+    }
+
+    @Test
+    fun buildGradle_mapsAllFourMatrixConfigsToNativeBuildType() {
+        // Without these, the KMP cocoapods plugin fails the ComposeApp framework sync with
+        // "Could not identify build type for Kotlin framework 'ComposeApp' ... CONFIGURATION=Prod Release".
+        val gradle = rawSource("mobile/app/build.gradle.kts")
+        val mappings =
+            listOf(
+                "Dev Debug" to "DEBUG",
+                "Staging Debug" to "DEBUG",
+                "Prod Debug" to "DEBUG",
+                "Prod Release" to "RELEASE",
+            )
+        for ((config, type) in mappings) {
+            val re =
+                Regex(
+                    """xcodeConfigurationToNativeBuildType\[\s*"${Regex.escape(config)}"\s*]\s*=\s*NativeBuildType\.$type""",
+                )
+            assertTrue(
+                re.containsMatchIn(gradle),
+                "build.gradle.kts must map xcodeConfigurationToNativeBuildType[\"$config\"] = NativeBuildType.$type",
+            )
+        }
     }
 
     @Test

@@ -1,5 +1,6 @@
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType
 
 plugins {
     id("nearyou.kotlin.multiplatform")
@@ -25,6 +26,14 @@ kotlin {
         summary = "NearYou Mobile App — ComposeApp KMP framework"
         homepage = "https://nearyou.id"
         ios.deploymentTarget = "13.0"
+        // mobile-ios-build-config-matrix: map the custom Xcode build-configuration matrix names to
+        // Kotlin/Native build types. The KMP cocoapods plugin only auto-detects the default
+        // Debug/Release configs; without this it fails the ComposeApp framework sync with
+        // "Could not identify build type for Kotlin framework 'ComposeApp' ... CONFIGURATION=Prod Release".
+        xcodeConfigurationToNativeBuildType["Dev Debug"] = NativeBuildType.DEBUG
+        xcodeConfigurationToNativeBuildType["Staging Debug"] = NativeBuildType.DEBUG
+        xcodeConfigurationToNativeBuildType["Prod Debug"] = NativeBuildType.DEBUG
+        xcodeConfigurationToNativeBuildType["Prod Release"] = NativeBuildType.RELEASE
         framework {
             baseName = "ComposeApp"
             isStatic = true

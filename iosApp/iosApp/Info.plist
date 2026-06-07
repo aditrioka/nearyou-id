@@ -13,6 +13,14 @@
 	     the iosMain `apiBaseUrl` actual via NSBundle.objectForInfoDictionaryKey("ApiBaseUrl"). -->
 	<key>ApiBaseUrl</key>
 	<string>$(APP_API_BASE_URL)</string>
+	<!-- ATS: permit cleartext http:// ONLY to the local network (localhost / *.local / link-local),
+	     for the `Dev Debug` config's localhost:8080 backend (mobile-ios-build-config-matrix). This does
+	     NOT permit arbitrary cleartext — staging/production use https://, so they are unaffected. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<!-- Google Sign-In iOS client ID. Per env this is the CLIENT_ID from the matching
 	     GoogleService-Info.plist. Placeholder until Google Cloud Console provisioning
 	     (dev/docs/google-cloud-oauth-clients.md). GoogleSignIn v7+ reads this key. -->
