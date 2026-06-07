@@ -10,6 +10,8 @@ import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
+import id.nearyou.app.notifications.FakeNotificationsFlow
+import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.FakeCreatePostFlow
 import id.nearyou.app.screens.routing.HomeRoute
@@ -86,6 +88,9 @@ class HomeTabHostScreenTest {
                     }
                     // The FAB appends PostCreationRoute, whose screen injects the CreatePostFlow seam.
                     single<CreatePostFlow> { FakeCreatePostFlow() }
+                    // The TestNavHost(HomeRoute) cases compose the AppShellScreen section shell, whose unread
+                    // badge injects a NotificationsFlow (empty/0 fake — the badge is exercised in AppShellScreenTest).
+                    single<NotificationsFlow> { FakeNotificationsFlow() }
                 },
             )
         }

@@ -9,6 +9,8 @@ import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
+import id.nearyou.app.notifications.FakeNotificationsFlow
+import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.FakeCreatePostFlow
 import id.nearyou.app.screens.routing.HomeRoute
@@ -63,6 +65,9 @@ class HomeScreenFabTest {
                     single<LocationPermissionController> { FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED) }
                     // …and the FAB appends PostCreationRoute, whose screen injects the CreatePostFlow seam.
                     single<CreatePostFlow> { FakeCreatePostFlow() }
+                    // HomeRoute now maps to the AppShellScreen section shell, whose unread badge injects a
+                    // NotificationsFlow (empty/0 fake — these tests exercise the Home section, not the badge).
+                    single<NotificationsFlow> { FakeNotificationsFlow() }
                 },
             )
         }

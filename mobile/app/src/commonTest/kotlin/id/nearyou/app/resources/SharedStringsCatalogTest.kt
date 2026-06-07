@@ -26,6 +26,17 @@ import id.nearyou.resources.generated.resources.location_consent_body
 import id.nearyou.resources.generated.resources.location_consent_title
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
+import id.nearyou.resources.generated.resources.notif_chat_message
+import id.nearyou.resources.generated.resources.notif_followed
+import id.nearyou.resources.generated.resources.notif_generic
+import id.nearyou.resources.generated.resources.notif_post_auto_hidden
+import id.nearyou.resources.generated.resources.notif_post_liked
+import id.nearyou.resources.generated.resources.notif_post_replied
+import id.nearyou.resources.generated.resources.notifications_badge
+import id.nearyou.resources.generated.resources.notifications_empty
+import id.nearyou.resources.generated.resources.notifications_loading
+import id.nearyou.resources.generated.resources.notifications_mark_all_read
+import id.nearyou.resources.generated.resources.notifications_title
 import id.nearyou.resources.generated.resources.post_create_char_counter
 import id.nearyou.resources.generated.resources.post_create_content_placeholder
 import id.nearyou.resources.generated.resources.post_create_error_empty
@@ -35,6 +46,13 @@ import id.nearyou.resources.generated.resources.post_create_error_too_long
 import id.nearyou.resources.generated.resources.post_create_loading
 import id.nearyou.resources.generated.resources.post_create_location_unavailable
 import id.nearyou.resources.generated.resources.post_create_title
+import id.nearyou.resources.generated.resources.profile_placeholder
+import id.nearyou.resources.generated.resources.section_home
+import id.nearyou.resources.generated.resources.section_home_icon_description
+import id.nearyou.resources.generated.resources.section_notifications
+import id.nearyou.resources.generated.resources.section_notifications_icon_description
+import id.nearyou.resources.generated.resources.section_profile
+import id.nearyou.resources.generated.resources.section_profile_icon_description
 import id.nearyou.resources.generated.resources.signin_error_banned
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.signin_error_no_account
@@ -137,6 +155,29 @@ class SharedStringsCatalogTest {
             Res.string.timeline_global_title,
             Res.string.timeline_following_placeholder,
             Res.string.cta_see_global,
+            // mobile-bottom-nav-sections-and-notifications (3 section labels + 3 section icon content
+            // descriptions + the Profil placeholder + 5 notifications-screen keys + 6 type-keyed
+            // generic-actor notification copy). The notifications error/retry states reuse
+            // signin_error_network / cta_retry (already counted above), and the Home section reuses the
+            // feed tab labels + cta_post — no new keys for those.
+            Res.string.section_home,
+            Res.string.section_notifications,
+            Res.string.section_profile,
+            Res.string.section_home_icon_description,
+            Res.string.section_notifications_icon_description,
+            Res.string.section_profile_icon_description,
+            Res.string.profile_placeholder,
+            Res.string.notifications_title,
+            Res.string.notifications_loading,
+            Res.string.notifications_empty,
+            Res.string.notifications_mark_all_read,
+            Res.string.notifications_badge,
+            Res.string.notif_post_liked,
+            Res.string.notif_post_replied,
+            Res.string.notif_followed,
+            Res.string.notif_post_auto_hidden,
+            Res.string.notif_chat_message,
+            Res.string.notif_generic,
         )
 
     @Test
@@ -144,8 +185,10 @@ class SharedStringsCatalogTest {
         // 10 (Mobile #2/#2.5) + 8 (Mobile #3) + 8 (Mobile #4) + 5 (Mobile #5 timeline)
         // + 5 (mobile-location-permission-flow) + 10 (mobile-post-creation-screen)
         // + 9 (mobile-home-tab-host: 3 tab labels + 3 tab icon descriptions + Global title
-        // + Following placeholder + lihat-Global CTA) = 55.
-        assertEquals(55, allDeclaredStrings.size)
+        // + Following placeholder + lihat-Global CTA)
+        // + 18 (mobile-bottom-nav-sections-and-notifications: 3 section labels + 3 section icon
+        // descriptions + Profil placeholder + 5 notifications-screen keys + 6 type-keyed copy) = 73.
+        assertEquals(73, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }
