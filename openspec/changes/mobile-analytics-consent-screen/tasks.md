@@ -85,8 +85,8 @@
 
 ## 11. Pre-archive staging smoke (backend endpoint has runtime impact)
 
-- [ ] 11.1 Manual branch deploy: `gh workflow run deploy-staging.yml --ref mobile-analytics-consent-screen`; poll the deploy run.
-- [ ] 11.2 Smoke `PATCH /api/v1/user/consent` against the branch deploy with a real staging token (200 + DB round-trip; 401 unauth; 400 malformed). Add/extend `dev/scripts/smoke-mobile-analytics-consent-screen.sh` if a smoke script is warranted. Tick this Section before `/opsx:archive`.
+- [x] 11.1 Manual branch deploy: `gh workflow run deploy-staging.yml --ref mobile-analytics-consent-screen`; poll the deploy run.
+- [x] 11.2 Smoke `PATCH /api/v1/user/consent` against the branch deploy with a real staging token (200 + DB round-trip; 401 unauth; 400 malformed). Add/extend `dev/scripts/smoke-mobile-analytics-consent-screen.sh` if a smoke script is warranted. Tick this Section before `/opsx:archive`.
 
 ## 12. Docs / PR upkeep
 

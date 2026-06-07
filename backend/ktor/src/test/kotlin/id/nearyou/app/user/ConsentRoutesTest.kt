@@ -42,7 +42,14 @@ private fun hikari(): HikariDataSource {
             jdbcUrl = url
             username = user
             this.password = password
-            maximumPoolSize = 4
+            // Frugal pool: this spec's DB ops are sequential, so 2 connections suffice. Combined
+            // with autoClose(...) below (release the pool when the spec finishes), this keeps the
+            // change from adding to the suite-wide leaked-HikariPool connection pressure on the CI
+            // Postgres service container (~53 per-spec pools never close → "too many clients" at the
+            // edge of max_connections). A broader fix (autoClose across all *RoutesTest specs, or a
+            // shared test DataSource) is a pre-existing-infra follow-up, out of this change's scope.
+            maximumPoolSize = 2
+            minimumIdle = 0
             initializationFailTimeout = -1
         }
     return HikariDataSource(config)
@@ -54,7 +61,10 @@ private val V2_DEFAULT = Triple(false, true, false)
 @Tags("database")
 class ConsentRoutesTest : StringSpec({
 
-    val dataSource = hikari()
+    // autoClose releases the HikariPool when the spec finishes, so its connections are not held for
+    // the whole test JVM (the leaked-pool pattern that pushes the CI service-container Postgres over
+    // max_connections once enough DB-tagged specs accumulate).
+    val dataSource = autoClose(hikari())
     val keys = RsaKeyLoader(TestKeys.freshEncodedPemPrivateKey(), kid = "test-consent")
     val jwtIssuer = JwtIssuer(keys)
     val users = JdbcUserRepository(dataSource)
