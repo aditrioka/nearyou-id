@@ -38,6 +38,7 @@ import id.nearyou.resources.generated.resources.post_create_location_unavailable
 import id.nearyou.resources.generated.resources.post_create_title
 import id.nearyou.resources.generated.resources.post_detail_like_count
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
+import id.nearyou.resources.generated.resources.post_detail_post_gone
 import id.nearyou.resources.generated.resources.post_detail_posted_from
 import id.nearyou.resources.generated.resources.post_detail_posted_from_no_city
 import id.nearyou.resources.generated.resources.post_detail_replies_empty
@@ -148,9 +149,10 @@ class SharedStringsCatalogTest {
             Res.string.timeline_following_placeholder,
             Res.string.cta_see_global,
             // mobile-post-detail-screen (post header + like control + replies list + reply composer).
-            // 9 net-new keys (the empty-`city_name` header gets its own `post_detail_posted_from_no_city`
-            // variant). The replies-loading + screen-loading states reuse `timeline_loading`; the error
-            // state reuses `signin_error_network` + `cta_retry` (already counted above) — no new keys.
+            // 11 net-new keys (the empty-`city_name` header gets its own `post_detail_posted_from_no_city`
+            // variant; `post_detail_post_gone` is the terminal-404 banner). The replies-loading +
+            // screen-loading states reuse `timeline_loading`; the generic error state reuses
+            // `signin_error_network` + `cta_retry` (already counted above) — no new keys for those.
             Res.string.post_detail_posted_from,
             Res.string.post_detail_posted_from_no_city,
             Res.string.post_detail_like_count,
@@ -160,6 +162,7 @@ class SharedStringsCatalogTest {
             Res.string.post_detail_reply_placeholder,
             Res.string.post_detail_reply_counter,
             Res.string.post_detail_reply_cap_upsell,
+            Res.string.post_detail_post_gone,
             Res.string.cta_reply,
         )
 
@@ -169,11 +172,11 @@ class SharedStringsCatalogTest {
         // + 5 (mobile-location-permission-flow) + 10 (mobile-post-creation-screen)
         // + 9 (mobile-home-tab-host: 3 tab labels + 3 tab icon descriptions + Global title
         // + Following placeholder + lihat-Global CTA)
-        // + 10 (mobile-post-detail-screen: posted-from + no-city variant + like-count + reset-hours
+        // + 11 (mobile-post-detail-screen: posted-from + no-city variant + like-count + reset-hours
         // countdown fragment + like-cap upsell + replies-empty + reply-placeholder + reply-counter
-        // + reply-cap upsell + Balas CTA; the loading/error states reuse timeline_loading /
-        // signin_error_network / cta_retry) = 65.
-        assertEquals(65, allDeclaredStrings.size)
+        // + reply-cap upsell + post-gone banner + Balas CTA; the loading/generic-error states reuse
+        // timeline_loading / signin_error_network / cta_retry) = 66.
+        assertEquals(66, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

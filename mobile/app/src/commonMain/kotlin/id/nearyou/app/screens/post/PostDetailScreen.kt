@@ -47,6 +47,7 @@ import id.nearyou.resources.generated.resources.cta_reply
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.post_detail_like_count
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
+import id.nearyou.resources.generated.resources.post_detail_post_gone
 import id.nearyou.resources.generated.resources.post_detail_posted_from
 import id.nearyou.resources.generated.resources.post_detail_posted_from_no_city
 import id.nearyou.resources.generated.resources.post_detail_replies_empty
@@ -154,6 +155,10 @@ fun PostDetailScreen(
     val onToggleLike: () -> Unit = {
         if (!likeInFlight) {
             val wasLiked = liked
+            // Capture the exact pre-tap count so a failure restores it DIRECTLY (not via an inverse
+            // delta) — the count fetch may resolve between the optimistic flip and the failure, so a
+            // delta-revert could drift off-by-one from a base the optimistic step never adjusted.
+            val priorCount = likeCount
             // Optimistic flip (+/- the count when shown); clear any prior cap/error banner.
             liked = !wasLiked
             likeCount = likeCount?.let { if (wasLiked) it - 1 else it + 1 }
@@ -164,9 +169,9 @@ fun PostDetailScreen(
                     when (val outcome = flow.toggleLike(route.postId, currentlyLiked = wasLiked)) {
                         LikeOutcome.Liked, LikeOutcome.Unliked -> Unit // happy path: keep the optimistic flip
                         is LikeOutcome.RateLimited, LikeOutcome.PostGone, LikeOutcome.NetworkError -> {
-                            // Revert the flip + the optimistic count change; surface the outcome's banner.
+                            // Revert to the exact pre-tap state; surface the outcome's banner.
                             liked = wasLiked
-                            likeCount = likeCount?.let { if (wasLiked) it + 1 else it - 1 }
+                            likeCount = priorCount
                             likeOutcome = outcome
                         }
                     }
@@ -488,6 +493,7 @@ private fun BannerText(
                     Res.string.post_detail_reply_cap_upsell,
                     stringResource(Res.string.post_detail_reset_hours, banner.resetHours),
                 )
+            PostDetailBanner.PostGone -> stringResource(Res.string.post_detail_post_gone)
             PostDetailBanner.Network -> stringResource(Res.string.signin_error_network)
         }
     Text(

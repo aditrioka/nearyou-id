@@ -28,6 +28,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml) — captured here
 // so the render assertions also pin the timeline copy.
@@ -263,6 +264,10 @@ class NearbyTimelineScreenTest {
             assertEquals("p9", tapped?.id)
             assertEquals("TAP_POST", tapped?.content)
             assertEquals("Bandung", tapped?.cityName)
+            // No coordinates in the payload — NearbyTimelinePost drops the DTO's lat/long (fakeNearbyPost
+            // defaults -6.21 / 106.85); structurally absent, asserted explicitly per the spec scenario.
+            assertFalse(tapped.toString().contains("-6.21"), "no latitude in the onOpenPost payload")
+            assertFalse(tapped.toString().contains("106.85"), "no longitude in the onOpenPost payload")
         }
     }
 }

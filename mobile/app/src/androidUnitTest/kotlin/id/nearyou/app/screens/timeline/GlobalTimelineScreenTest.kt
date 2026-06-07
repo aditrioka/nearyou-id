@@ -24,6 +24,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val TITLE = "Seluruh Indonesia" // timeline_global_title
@@ -201,6 +202,10 @@ class GlobalTimelineScreenTest {
             assertEquals("g9", tapped?.id)
             assertEquals("TAP_GLOBAL", tapped?.content)
             assertEquals("Medan", tapped?.cityName)
+            // No coordinates in the payload — GlobalTimelinePost drops the DTO's lat/long (fakeGlobalPost
+            // defaults -6.21 / 106.85); structurally absent, asserted explicitly per the spec scenario.
+            assertFalse(tapped.toString().contains("-6.21"), "no latitude in the onOpenPost payload")
+            assertFalse(tapped.toString().contains("106.85"), "no longitude in the onOpenPost payload")
         }
     }
 }

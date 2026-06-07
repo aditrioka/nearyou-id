@@ -112,8 +112,12 @@ sealed interface PostDetailBanner {
     /** Reply 429 → `post_detail_reply_cap_upsell` formatted with the reset countdown. */
     data class ReplyCap(val resetHours: Int) : PostDetailBanner
 
-    /** Reply `InvalidContent` (defensive) / `PostGone` / `NetworkError`, and a like `PostGone` /
-     *  `NetworkError` → the generic retryable network copy (`signin_error_network` + a retry control). */
+    /** A `404 post_not_found` (like or reply) → the terminal `post_detail_post_gone` copy with NO retry
+     *  control (a retry would always re-fail — the post is gone). */
+    data object PostGone : PostDetailBanner
+
+    /** Reply `InvalidContent` (defensive) / `NetworkError`, and a like `NetworkError` → the generic
+     *  retryable network copy (`signin_error_network` + a retry control). */
     data object Network : PostDetailBanner
 }
 
@@ -121,7 +125,8 @@ sealed interface PostDetailBanner {
 fun likeBanner(outcome: LikeOutcome?): PostDetailBanner? =
     when (outcome) {
         is LikeOutcome.RateLimited -> PostDetailBanner.LikeCap(resetHours(outcome.retryAfterSeconds))
-        LikeOutcome.PostGone, LikeOutcome.NetworkError -> PostDetailBanner.Network
+        LikeOutcome.PostGone -> PostDetailBanner.PostGone
+        LikeOutcome.NetworkError -> PostDetailBanner.Network
         LikeOutcome.Liked, LikeOutcome.Unliked, null -> null
     }
 
@@ -129,8 +134,8 @@ fun likeBanner(outcome: LikeOutcome?): PostDetailBanner? =
 fun replyBanner(outcome: ReplyPostOutcome?): PostDetailBanner? =
     when (outcome) {
         is ReplyPostOutcome.RateLimited -> PostDetailBanner.ReplyCap(resetHours(outcome.retryAfterSeconds))
-        ReplyPostOutcome.InvalidContent, ReplyPostOutcome.PostGone, ReplyPostOutcome.NetworkError ->
-            PostDetailBanner.Network
+        ReplyPostOutcome.PostGone -> PostDetailBanner.PostGone
+        ReplyPostOutcome.InvalidContent, ReplyPostOutcome.NetworkError -> PostDetailBanner.Network
         is ReplyPostOutcome.Success, null -> null
     }
 

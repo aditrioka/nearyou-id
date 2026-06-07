@@ -30,8 +30,8 @@ data class ReplyCreateRequest(val content: String)
  * bare; the rest carry `@SerialName` snake_case. Two wire-faithful-but-near-dead fields are parsed yet
  * NOT surfaced in v1:
  *  - [isAutoHidden] is `true` ONLY for the viewer's OWN reply on this list path (the backend's
- *    author-bypass `is_auto_hidden = FALSE OR author_id = :viewer` in `PostReplyRepository.listByPost`,
- *    impl in `backend/ktor/.../Application.kt`), so a returned auto-hidden reply renders identically to a
+ *    author-bypass `is_auto_hidden = FALSE OR author_id = :viewer` in
+ *    `core/data/.../repository/PostReplyRepository.kt` `listByPost`), so a returned auto-hidden reply renders identically to a
  *    live one — no "under review" badge or dimming (spec § "Viewer's own auto-hidden reply…").
  *  - [deletedAt] is effectively dead on this list path (the backend excludes `deleted_at IS NOT NULL`
  *    rows); the DTO mirrors the wire faithfully but the field gets no v1 rendering.

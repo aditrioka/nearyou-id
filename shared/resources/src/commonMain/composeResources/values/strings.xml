@@ -127,5 +127,8 @@
     <string name="post_detail_reply_placeholder">Tulis balasan…</string>
     <string name="post_detail_reply_counter" formatted="true">%1$d/280</string>
     <string name="post_detail_reply_cap_upsell" formatted="true">Kamu sudah menggunakan 20 balasan hari ini. Upgrade ke Premium untuk balas tanpa batas, atau tunggu reset dalam %1$s.</string>
+    <!-- Terminal 404 (the post was deleted/hidden between card-tap and the like/reply action): a
+         non-retryable banner distinct from the generic network-retry copy. -->
+    <string name="post_detail_post_gone">Postingan ini sudah tidak tersedia.</string>
     <string name="cta_reply">Balas</string>
 </resources>

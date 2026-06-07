@@ -61,6 +61,7 @@ private const val LIKE_CAP_1H =
     "Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam 1 jam."
 private const val REPLY_CAP_1H =
     "Kamu sudah menggunakan 20 balasan hari ini. Upgrade ke Premium untuk balas tanpa batas, atau tunggu reset dalam 1 jam."
+private const val POST_GONE = "Postingan ini sudah tidak tersedia." // post_detail_post_gone
 
 private const val AUTHOR_UUID = "11111111-1111-1111-1111-111111111111"
 private val JSON = headersOf("Content-Type", "application/json")
@@ -255,6 +256,35 @@ class PostDetailScreenTest {
             waitForIdle()
             onNodeWithTag(POST_DETAIL_LIKE_NOT_LIKED_TAG, useUnmergedTree = true).assertExists() // reverted
             onNodeWithText(LIKE_CAP_1H).assertExists()
+        }
+    }
+
+    @Test
+    fun likeFailure_restoresTheExactPriorCount() {
+        // A known count (42 suka); the optimistic flip bumps to 43, then a failure must restore EXACTLY 42
+        // (the count is restored directly from the captured prior value, not via an inverse delta).
+        installKoin(FakePostDetailFlow(likeCountOutcome = LikeCountOutcome.Available(42), toggleOutcome = LikeOutcome.NetworkError))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(likedByViewer = false), onBack = {}) } } }
+            onNodeWithText("42 suka").assertExists()
+            onNodeWithTag(POST_DETAIL_LIKE_TOGGLE_TAG).performClick()
+            waitForIdle()
+            onNodeWithText("42 suka").assertExists() // restored exactly — not 41, not 43
+            onNodeWithText("43 suka").assertDoesNotExist()
+            onNodeWithText("41 suka").assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun like404_showsTerminalPostGoneBanner() {
+        installKoin(FakePostDetailFlow(toggleOutcome = LikeOutcome.PostGone))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(likedByViewer = false), onBack = {}) } } }
+            onNodeWithTag(POST_DETAIL_LIKE_TOGGLE_TAG).performClick()
+            waitForIdle()
+            onNodeWithTag(POST_DETAIL_LIKE_NOT_LIKED_TAG, useUnmergedTree = true).assertExists() // reverted
+            onNodeWithText(POST_GONE).assertExists() // terminal copy, distinct from the network-retry banner
+            onNodeWithText(ERR_NETWORK).assertDoesNotExist()
         }
     }
 

@@ -262,6 +262,41 @@ class PostDetailApiTest {
             assertFalse(completed, "postReply did not silently complete with a NetworkError after cancellation")
         }
 
+    @Test
+    fun `reply 201 with an unparseable body maps to NetworkError not a false Created`() =
+        runTest {
+            // A 201 whose body fails to parse is a transport/contract failure, never a Created (the
+            // casing-drift guard, cf. PR #128) — must NOT surface as a successful reply.
+            val api = replyApi { respond("not json at all", HttpStatusCode.Created, JSON_HEADERS) }
+            assertTrue(api.postReply(POST_ID, "hi") is ReplyPostApiResult.NetworkError)
+        }
+
+    @Test
+    fun `likes count 200 with an unparseable body maps to NetworkError`() =
+        runTest {
+            val api = likeApi { respond("{ not json", HttpStatusCode.OK, JSON_HEADERS) }
+            assertTrue(api.count(POST_ID) is LikeCountApiResult.NetworkError)
+        }
+
+    @Test
+    fun `like 429 with a non-numeric Retry-After yields a null retry-after`() =
+        runTest {
+            // An HTTP-date-format Retry-After (or any non-integer) must parse to null, not crash — the
+            // repository then maps it to RateLimited(0) → the "1 jam" floor.
+            val api =
+                likeApi {
+                    respond(
+                        """{"error":{"code":"rate_limited"}}""",
+                        HttpStatusCode.TooManyRequests,
+                        jsonWithRetryAfter("Wed, 21 Oct 2026 07:28:00 GMT"),
+                    )
+                }
+            val result = api.like(POST_ID)
+            assertTrue(result is LikeApiResult.HttpError)
+            assertEquals(429, result.status)
+            assertNull(result.retryAfterSeconds, "a non-numeric Retry-After parses to null, not a crash")
+        }
+
     // ---- PostDetailRepository status → outcome mapping ----
 
     @Test

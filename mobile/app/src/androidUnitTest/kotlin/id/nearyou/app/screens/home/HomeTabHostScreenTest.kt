@@ -274,9 +274,8 @@ class HomeTabHostScreenTest {
             waitForIdle()
             val top = backStack.last()
             assertTrue(top is PostDetailRoute, "tapping a Nearby card pushes PostDetailRoute (was: ${backStack.toList()})")
-            val route = top as PostDetailRoute
-            assertEquals("NEARBY_POST", route.content)
-            assertTrue(route.distanceM != null, "a Nearby-origin route carries the card's distance")
+            assertEquals("NEARBY_POST", top.content)
+            assertTrue(top.distanceM != null, "a Nearby-origin route carries the card's distance")
         }
     }
 
@@ -295,9 +294,8 @@ class HomeTabHostScreenTest {
             waitForIdle()
             val top = backStack.last()
             assertTrue(top is PostDetailRoute, "tapping a Global card pushes PostDetailRoute (was: ${backStack.toList()})")
-            val route = top as PostDetailRoute
-            assertEquals("GLOBAL_POST", route.content)
-            assertEquals(null, route.distanceM, "a Global-origin route carries no distance")
+            assertEquals("GLOBAL_POST", top.content)
+            assertEquals(null, top.distanceM, "a Global-origin route carries no distance")
         }
     }
 }

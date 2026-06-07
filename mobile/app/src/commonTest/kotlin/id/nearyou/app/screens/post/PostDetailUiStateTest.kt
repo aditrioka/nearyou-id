@@ -120,7 +120,7 @@ class PostDetailUiStateTest {
     @Test
     fun `like banner maps RateLimited to LikeCap and gone-or-network to Network and happy-or-null to none`() {
         assertEquals(PostDetailBanner.LikeCap(resetHours = 1), likeBanner(LikeOutcome.RateLimited(retryAfterSeconds = 3600)))
-        assertEquals(PostDetailBanner.Network, likeBanner(LikeOutcome.PostGone))
+        assertEquals(PostDetailBanner.PostGone, likeBanner(LikeOutcome.PostGone))
         assertEquals(PostDetailBanner.Network, likeBanner(LikeOutcome.NetworkError))
         assertNull(likeBanner(LikeOutcome.Liked))
         assertNull(likeBanner(LikeOutcome.Unliked))
@@ -130,7 +130,7 @@ class PostDetailUiStateTest {
     @Test
     fun `reply banner maps RateLimited to ReplyCap and gone-invalid-network to Network and success-or-null to none`() {
         assertEquals(PostDetailBanner.ReplyCap(resetHours = 1), replyBanner(ReplyPostOutcome.RateLimited(retryAfterSeconds = 3600)))
-        assertEquals(PostDetailBanner.Network, replyBanner(ReplyPostOutcome.PostGone))
+        assertEquals(PostDetailBanner.PostGone, replyBanner(ReplyPostOutcome.PostGone))
         assertEquals(PostDetailBanner.Network, replyBanner(ReplyPostOutcome.InvalidContent))
         assertEquals(PostDetailBanner.Network, replyBanner(ReplyPostOutcome.NetworkError))
         assertNull(replyBanner(ReplyPostOutcome.Success(fakeReply())))

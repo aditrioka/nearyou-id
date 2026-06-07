@@ -60,7 +60,9 @@ data object ConsentRoute : NavKey
  * tapped card — there is NO single-post GET to re-fetch it (design D2). It MUST NOT declare a `latitude`
  * or `longitude` property: raw coordinates must never enter the serialized back stack (it persists to
  * disk on iOS — the same PII discipline [AgeGateRoute] applies to the `id_token`, design D3). [content]
- * is public post text, safe to serialize; [distanceM] is Nearby-origin only (`null` from Global).
+ * is public post text, safe to serialize; [distanceM] is Nearby-origin only (`null` from Global) and is
+ * carried per the spec'd payload but NOT rendered in the v1 header (the header reuses the card's
+ * posted-from treatment, which shows no distance — `mobile-post-detail` § "post header").
  */
 @Serializable
 data class PostDetailRoute(
