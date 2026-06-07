@@ -248,4 +248,21 @@ class NearbyTimelineScreenTest {
             onNodeWithText(HOME_PLACEHOLDER_TITLE).assertDoesNotExist()
         }
     }
+
+    // mobile-nearby-timeline § "Nearby post card opens post detail via a hoisted onOpenPost lambda" —
+    // tapping a card invokes the hoisted onOpenPost with the card's PII-free display fields (the
+    // NearbyTimelinePost projection structurally carries no author id / coordinates).
+    @Test
+    fun postCard_tap_invokesOnOpenPostWithDisplayFields() {
+        installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(id = "p9", content = "TAP_POST", cityName = "Bandung")), null, null))
+        var tapped: NearbyTimelinePost? = null
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen(onOpenPost = { tapped = it }) } } }
+            onNodeWithTag(NEARBY_POST_CARD_TAG).performClick()
+            waitForIdle()
+            assertEquals("p9", tapped?.id)
+            assertEquals("TAP_POST", tapped?.content)
+            assertEquals("Bandung", tapped?.cityName)
+        }
+    }
 }

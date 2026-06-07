@@ -49,6 +49,9 @@ import org.koin.compose.koinInject
 /** Test tag on the scrollable post list — lets the screen test target a pull-to-refresh swipe. */
 const val GLOBAL_TIMELINE_LIST_TAG: String = "globalTimelineList"
 
+/** Test tag on each post card — lets the screen test target the open-detail tap. */
+const val GLOBAL_POST_CARD_TAG: String = "globalPostCard"
+
 /**
  * The Global feed — the all-Indonesia chronological feed and the onboarding entry-point surface
  * (`docs/02-Product.md` § Global Timeline). Hosted as the **Global tab** of the `mobile-home-tab-host`
@@ -64,9 +67,15 @@ const val GLOBAL_TIMELINE_LIST_TAG: String = "globalTimelineList"
  * screen-state-mapping spec, all copy via `stringResource` (zero literals), under `NearYouTheme`
  * tokens. The Empty state reuses the loading skeleton + `timeline_loading` copy (Global is effectively
  * never empty).
+ *
+ * [onOpenPost] is the hoisted card-tap callback carrying the tapped card's PII-free [GlobalTimelinePost]
+ * (no `author_user_id`, no coordinates, no distance — structurally absent from the projection); the tab
+ * host maps it to a root-stack `PostDetailRoute` push (with `distanceM = null`, since Global has no
+ * spatial filter). A host-level callback, NOT a back-stack reference, so the screen stays navigation-free
+ * (`mobile-global-timeline` § "Global post card opens post detail via a hoisted onOpenPost lambda").
  */
 @Composable
-fun GlobalTimelineScreen() {
+fun GlobalTimelineScreen(onOpenPost: (GlobalTimelinePost) -> Unit = {}) {
     val flow = koinInject<GlobalTimelineFlow>()
     val viewModel = viewModel { GlobalTimelineViewModel(flow) }
     val outcome by viewModel.outcome.collectAsState()
@@ -80,6 +89,7 @@ fun GlobalTimelineScreen() {
         // mobile-nearby-timeline-infinite-scroll, extended to cover Global).
         onRefresh = viewModel::reload,
         onRetry = viewModel::reload,
+        onOpenPost = onOpenPost,
     )
 }
 
@@ -95,6 +105,7 @@ private fun GlobalTimelineContent(
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
+    onOpenPost: (GlobalTimelinePost) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -112,10 +123,11 @@ private fun GlobalTimelineContent(
                 GlobalTimelineUiState.Loading, GlobalTimelineUiState.Empty -> LoadingState()
                 GlobalTimelineUiState.HardLimit -> CenteredMessage(stringResource(Res.string.timeline_limit_hard))
                 GlobalTimelineUiState.Error -> ErrorState(onRetry = onRetry)
-                is GlobalTimelineUiState.Content -> PostList(posts = uiState.posts)
+                is GlobalTimelineUiState.Content -> PostList(posts = uiState.posts, onOpenPost = onOpenPost)
                 is GlobalTimelineUiState.SoftLimit ->
                     PostList(
                         posts = uiState.posts,
+                        onOpenPost = onOpenPost,
                         banner = stringResource(Res.string.timeline_limit_soft),
                     )
             }
@@ -182,6 +194,7 @@ private fun ErrorState(onRetry: () -> Unit) {
 @Composable
 private fun PostList(
     posts: List<GlobalTimelinePost>,
+    onOpenPost: (GlobalTimelinePost) -> Unit,
     banner: String? = null,
 ) {
     LazyColumn(
@@ -194,7 +207,7 @@ private fun PostList(
             }
         }
         items(items = posts, key = { it.id }) { post ->
-            GlobalPostCard(post = post)
+            GlobalPostCard(post = post, onOpenPost = onOpenPost)
         }
     }
 }
@@ -222,8 +235,16 @@ private fun SoftLimitBanner(text: String) {
  * `NearYouTheme` tokens; the coral accent is the brand `locationPin` extension.
  */
 @Composable
-private fun GlobalPostCard(post: GlobalTimelinePost) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+private fun GlobalPostCard(
+    post: GlobalTimelinePost,
+    onOpenPost: (GlobalTimelinePost) -> Unit,
+) {
+    // The whole card is the open-detail tap (the hoisted onOpenPost carries the PII-free post up to the
+    // tab host's root-stack PostDetailRoute push, with distanceM = null). No inline like/reply control.
+    OutlinedCard(
+        onClick = { onOpenPost(post) },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag(GLOBAL_POST_CARD_TAG),
+    ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
                 text = post.content,

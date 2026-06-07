@@ -186,4 +186,21 @@ class GlobalTimelineScreenTest {
             assertEquals(2, fake.loadInvocationCount, "pull-to-refresh re-invokes the fetch")
         }
     }
+
+    // mobile-global-timeline § "Global post card opens post detail via a hoisted onOpenPost lambda" —
+    // tapping a card invokes the hoisted onOpenPost with the card's PII-free fields (no distance on the
+    // GlobalTimelinePost projection; the host maps it to distanceM = null on the route).
+    @Test
+    fun postCard_tap_invokesOnOpenPostWithDisplayFields() {
+        installKoin(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "g9", content = "TAP_GLOBAL", cityName = "Medan")), null, null))
+        var tapped: GlobalTimelinePost? = null
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen(onOpenPost = { tapped = it }) } } }
+            onNodeWithTag(GLOBAL_POST_CARD_TAG).performClick()
+            waitForIdle()
+            assertEquals("g9", tapped?.id)
+            assertEquals("TAP_GLOBAL", tapped?.content)
+            assertEquals("Medan", tapped?.cityName)
+        }
+    }
 }
