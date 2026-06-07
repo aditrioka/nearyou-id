@@ -24,7 +24,7 @@
 ## 4. Real-build verification (the part #155 could NOT do)
 
 - [x] 4.1 `xcodebuild build` the **workspace** for a debug-typed (`Staging Debug`) AND a release-typed (`Prod Release`) config (simulator destination, `CODE_SIGNING_ALLOWED=NO`) — **both BUILD SUCCEEDED**, proving the per-config Pods base links (KMP `ComposeApp` framework + GoogleSignIn et al.). **Impl-review addendum (2026-06-06):** also real-built `Dev Debug` (**BUILD SUCCEEDED**) — closes the test-coverage lens's novel-surface gap (the iOS-dev `localhost` API + `NSAllowsLocalNetworking` ATS exception + `AppIcon-Dev` are unique to `Dev Debug`, exercised by neither `Staging Debug` nor `Prod Release`).
-- [ ] 4.2 (Optional) Launch the dev/staging/production configs on the iOS simulator and eyeball the 3 distinct icons (green/orange/cobalt). Build-setting + asset resolution already verified; this is a final visual confirmation.
+- [x] 4.2 (Optional) Launch the dev/staging/production configs on the iOS simulator and eyeball the 3 distinct icons (green/orange/cobalt). **Done 2026-06-07:** built `Dev Debug` + `Staging Debug` + `Prod Debug` for the simulator (all BUILD SUCCEEDED), installed all 3 side-by-side on an iOS 18.5 sim (iPhone 16 Pro; the bundle min-OS floor is 18.2, so 18.1 rejects install — the `≥18.2` constraint), and confirmed the springboard renders three distinct launcher icons sharing the white hexagon glyph: `.dev` → forest green `#15803D` (`AppIcon-Dev`), `.staging` → burnt orange `#C2410C` (`AppIcon-Staging`), `id.nearyou.app` → cobalt `#1E4FD6` (`AppIcon`). Each app's `Info.plist` `CFBundleIconName` matched its config.
 
 ## 5. Docs + specs + validate
 
