@@ -21,10 +21,11 @@
 
 - `shared-resources`: requirement "Brand color scheme exposed as NearYouColorScheme" — the `secondary`-is-neutral and `tertiary`-is-neutral scenarios are reversed (they become real accents, still explicitly NOT coral/amber), and the full 30-role light + dark palette values change. The reserved-purpose extension-property requirement is unchanged.
 - `mobile-design-system`: requirement "Navigation and tab labels are visible in selected and unselected states" — the rationale (bare default unsafe because `secondary` is neutralized near-white) and the mandated selected-state tokens change (selected icon `onPrimaryContainer` → `primary`); the normative WCAG-AA readability scenarios are kept.
+- `mobile-app-scaffold`: requirement "Material 3 theme follows system preference" — the "Dark mode applies brand dark color scheme" scenario's pinned dark `primary` value changes (`#B3C5FF` → `#B7C4FF`, the brand-blue palette tone 80); all other scenarios unchanged.
 
 ## Impact
 
 - **Code**: `shared/resources/.../theme/NearYouColorScheme.kt` (all 30+ role values + KDoc), `mobile/app/.../screens/shell/AppShellScreen.kt` (`nearYouNavigationBarItemColors()` tokens + KDoc).
-- **Tests**: `shared/resources/.../theme/NearYouColorSchemeTest.kt` (full-table regression — every light + dark role assertion), `mobile/app/.../screens/shell/AppShellScreenTest.kt` (navbar selected-token + WCAG-contrast assertions).
+- **Tests**: `shared/resources/.../theme/NearYouColorSchemeTest.kt` (full-table regression — every light + dark role assertion), `mobile/app/.../screens/shell/AppShellScreenTest.kt` (navbar selected-token + WCAG-contrast assertions), `mobile/app/.../theme/NearYouThemeTest.kt` (dark-primary value).
 - **No new dependencies**: reuses `org.jetbrains.compose.material3:material3` 1.10.0-alpha05; `lightColorScheme()`/`darkColorScheme()` already expose the full role surface.
 - **No runtime/API/schema impact**; mobile-only, visual. Dark-mode and high-contrast derivations now come from the tonal pipeline (contrast-safe by construction).

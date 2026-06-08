@@ -66,9 +66,9 @@ class NearYouThemeTest {
         val scheme = requireNotNull(captured) { "colorScheme was never captured" }
         // Brand dark scheme from :shared:resources (NOT vanilla Material 3).
         assertEquals(NearYouColorScheme.dark.primary, scheme.primary)
-        // Spec's explicit dark primary value (mechanically-derived per
-        // shared-resources-moko-bootstrap design Decision 3).
-        assertEquals(Color(0xFFB3C5FF), scheme.primary)
+        // Spec's explicit dark primary value (the brand-blue palette tone 80 from
+        // the mobile-m3-conformant-color-scheme MTB-derived dark scheme).
+        assertEquals(Color(0xFFB7C4FF), scheme.primary)
         // Sanity: the two modes genuinely resolve different schemes (the
         // `darkTheme` param is actually switching, not a no-op).
         assertNotEquals(NearYouColorScheme.light.primary, scheme.primary)

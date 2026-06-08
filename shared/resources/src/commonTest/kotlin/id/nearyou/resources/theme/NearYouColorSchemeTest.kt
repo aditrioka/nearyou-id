@@ -7,12 +7,13 @@ import kotlin.test.assertEquals
 /**
  * Full-table regression for [NearYouColorScheme] light + dark + [NearYouColors]
  * accent / status / link palettes. Catches drift if a future change touches
- * the palette without updating `design.md` Decision 3.
+ * the palette without updating the `mobile-m3-conformant-color-scheme` design.md
+ * Decision 3 table.
  *
  * Pure-Kotlin assertions — no Compose UI test runner required.
  */
 class NearYouColorSchemeTest {
-    // === LIGHT scheme — Material 3 30+ standard roles ===
+    // === LIGHT scheme — Material 3 30+ standard roles (design.md Decision 3) ===
 
     @Test
     fun light_primary_isBrandBlue() = assertEquals(Color(0xFF1E4FD6), NearYouColorScheme.light.primary)
@@ -21,69 +22,71 @@ class NearYouColorSchemeTest {
     fun light_onPrimary_isWhite() = assertEquals(Color(0xFFFFFFFF), NearYouColorScheme.light.onPrimary)
 
     @Test
-    fun light_primaryContainer() = assertEquals(Color(0xFFE8EEFB), NearYouColorScheme.light.primaryContainer)
+    fun light_primaryContainer() = assertEquals(Color(0xFFDCE1FF), NearYouColorScheme.light.primaryContainer)
 
     @Test
-    fun light_onPrimaryContainer() = assertEquals(Color(0xFF1740B8), NearYouColorScheme.light.onPrimaryContainer)
+    fun light_onPrimaryContainer() = assertEquals(Color(0xFF354479), NearYouColorScheme.light.onPrimaryContainer)
 
     @Test
-    fun light_inversePrimary() = assertEquals(Color(0xFF8AAEF8), NearYouColorScheme.light.inversePrimary)
+    fun light_inversePrimary() = assertEquals(Color(0xFFB7C4FF), NearYouColorScheme.light.inversePrimary)
 
     @Test
-    fun light_secondary_isNeutralNotCoral() {
-        // Per design.md Decision 2: secondary MUST be neutral surfaceVariant, NOT
-        // coral #FF7A5C (which is reserved as ColorScheme.locationPin extension).
-        assertEquals(Color(0xFFEEF0F4), NearYouColorScheme.light.secondary)
+    fun light_secondary_isReadableAccentNotCoral() {
+        // Post-mobile-m3-conformant-color-scheme: secondary is a genuine Secondary
+        // tonal accent (was the neutralized near-white #EEF0F4). Still NOT coral
+        // #FF7A5C, which stays reserved as the ColorScheme.locationPin extension.
+        assertEquals(Color(0xFF595D72), NearYouColorScheme.light.secondary)
     }
 
     @Test
-    fun light_onSecondary() = assertEquals(Color(0xFF3E4557), NearYouColorScheme.light.onSecondary)
+    fun light_onSecondary() = assertEquals(Color(0xFFFFFFFF), NearYouColorScheme.light.onSecondary)
 
     @Test
-    fun light_secondaryContainer() = assertEquals(Color(0xFFF5F6F8), NearYouColorScheme.light.secondaryContainer)
+    fun light_secondaryContainer() = assertEquals(Color(0xFFDEE1F9), NearYouColorScheme.light.secondaryContainer)
 
     @Test
-    fun light_onSecondaryContainer() = assertEquals(Color(0xFF0E1220), NearYouColorScheme.light.onSecondaryContainer)
+    fun light_onSecondaryContainer() = assertEquals(Color(0xFF424659), NearYouColorScheme.light.onSecondaryContainer)
 
     @Test
-    fun light_tertiary_isNeutralNotAmber() {
-        // Per design.md Decision 2: tertiary MUST be neutral, NOT amber #F4B740
-        // (reserved as ColorScheme.premiumBadge extension).
-        assertEquals(Color(0xFFE8EAEF), NearYouColorScheme.light.tertiary)
+    fun light_tertiary_isReadableAccentNotAmber() {
+        // Post-mobile-m3-conformant-color-scheme: tertiary is a genuine Tertiary
+        // tonal accent (was a neutralized near-white tone). Still NOT amber
+        // #F4B740, which stays reserved as the ColorScheme.premiumBadge extension.
+        assertEquals(Color(0xFF75546F), NearYouColorScheme.light.tertiary)
     }
 
     @Test
-    fun light_onTertiary() = assertEquals(Color(0xFF0E1220), NearYouColorScheme.light.onTertiary)
+    fun light_onTertiary() = assertEquals(Color(0xFFFFFFFF), NearYouColorScheme.light.onTertiary)
 
     @Test
-    fun light_tertiaryContainer() = assertEquals(Color(0xFFF7F8FA), NearYouColorScheme.light.tertiaryContainer)
+    fun light_tertiaryContainer() = assertEquals(Color(0xFFFFD7F5), NearYouColorScheme.light.tertiaryContainer)
 
     @Test
-    fun light_onTertiaryContainer() = assertEquals(Color(0xFF0E1220), NearYouColorScheme.light.onTertiaryContainer)
+    fun light_onTertiaryContainer() = assertEquals(Color(0xFF5B3D57), NearYouColorScheme.light.onTertiaryContainer)
 
     @Test
     fun light_background_aliasOfSurface() {
-        assertEquals(Color(0xFFFFFFFF), NearYouColorScheme.light.background)
+        assertEquals(Color(0xFFFAF8FF), NearYouColorScheme.light.background)
         assertEquals(NearYouColorScheme.light.surface, NearYouColorScheme.light.background)
     }
 
     @Test
     fun light_onBackground_aliasOfOnSurface() {
-        assertEquals(Color(0xFF0E1220), NearYouColorScheme.light.onBackground)
+        assertEquals(Color(0xFF1A1B21), NearYouColorScheme.light.onBackground)
         assertEquals(NearYouColorScheme.light.onSurface, NearYouColorScheme.light.onBackground)
     }
 
     @Test
-    fun light_surface() = assertEquals(Color(0xFFFFFFFF), NearYouColorScheme.light.surface)
+    fun light_surface() = assertEquals(Color(0xFFFAF8FF), NearYouColorScheme.light.surface)
 
     @Test
-    fun light_onSurface() = assertEquals(Color(0xFF0E1220), NearYouColorScheme.light.onSurface)
+    fun light_onSurface() = assertEquals(Color(0xFF1A1B21), NearYouColorScheme.light.onSurface)
 
     @Test
-    fun light_surfaceVariant() = assertEquals(Color(0xFFEEF0F4), NearYouColorScheme.light.surfaceVariant)
+    fun light_surfaceVariant() = assertEquals(Color(0xFFE2E1EC), NearYouColorScheme.light.surfaceVariant)
 
     @Test
-    fun light_onSurfaceVariant() = assertEquals(Color(0xFF3E4557), NearYouColorScheme.light.onSurfaceVariant)
+    fun light_onSurfaceVariant() = assertEquals(Color(0xFF45464F), NearYouColorScheme.light.onSurfaceVariant)
 
     @Test
     fun light_surfaceTint_aliasOfPrimary() {
@@ -92,75 +95,75 @@ class NearYouColorSchemeTest {
     }
 
     @Test
-    fun light_inverseSurface() = assertEquals(Color(0xFF1B2234), NearYouColorScheme.light.inverseSurface)
+    fun light_inverseSurface() = assertEquals(Color(0xFF2F3036), NearYouColorScheme.light.inverseSurface)
 
     @Test
-    fun light_inverseOnSurface() = assertEquals(Color(0xFFFFFFFF), NearYouColorScheme.light.inverseOnSurface)
+    fun light_inverseOnSurface() = assertEquals(Color(0xFFF1F0F7), NearYouColorScheme.light.inverseOnSurface)
 
     @Test
-    fun light_error() = assertEquals(Color(0xFFE4443B), NearYouColorScheme.light.error)
+    fun light_error() = assertEquals(Color(0xFFBA1A1A), NearYouColorScheme.light.error)
 
     @Test
     fun light_onError() = assertEquals(Color(0xFFFFFFFF), NearYouColorScheme.light.onError)
 
     @Test
-    fun light_errorContainer() = assertEquals(Color(0xFFFDEAEA), NearYouColorScheme.light.errorContainer)
+    fun light_errorContainer() = assertEquals(Color(0xFFFFDAD6), NearYouColorScheme.light.errorContainer)
 
     @Test
-    fun light_onErrorContainer() = assertEquals(Color(0xFFB8342C), NearYouColorScheme.light.onErrorContainer)
+    fun light_onErrorContainer() = assertEquals(Color(0xFF93000A), NearYouColorScheme.light.onErrorContainer)
 
     @Test
     fun light_outline_meetsM3ContrastGuideline() {
-        // Per design.md Decision 9: #79747E (M3 default) passes WCAG 4.5:1
-        // against #FFFFFF surface, satisfying M3's 3:1 outline requirement.
-        // Palette author's #D9DDE5 (1.36:1, fails) is on outlineVariant instead.
-        // Earlier proposal value #9CA3AF (2.54:1, also fails) is rejected.
+        // Preserved through this change: #79747E (M3 default) passes WCAG 4.5:1
+        // against the near-white #FAF8FF surface, satisfying M3's outline contrast
+        // requirement. The lower-contrast decorative tone lives on outlineVariant.
         assertEquals(Color(0xFF79747E), NearYouColorScheme.light.outline)
     }
 
     @Test
-    fun light_outlineVariant() = assertEquals(Color(0xFFE8EAEF), NearYouColorScheme.light.outlineVariant)
+    fun light_outlineVariant() = assertEquals(Color(0xFFC4C5D7), NearYouColorScheme.light.outlineVariant)
 
     @Test
     fun light_scrim_isCorrectlyEncoded() {
-        // 0x8F alpha ≈ 56% over the #0E1220 onSurface base color.
+        // Preserved translucent app value: 0x8F alpha ≈ 56% over the #0E1220 ink
+        // (NOT the tonal pipeline's opaque #000000).
         assertEquals(Color(0x8F0E1220), NearYouColorScheme.light.scrim)
     }
 
     @Test
-    fun light_surfaceBright() = assertEquals(Color(0xFFFFFFFF), NearYouColorScheme.light.surfaceBright)
+    fun light_surfaceBright() = assertEquals(Color(0xFFFAF8FF), NearYouColorScheme.light.surfaceBright)
 
     @Test
-    fun light_surfaceDim() = assertEquals(Color(0xFFDCDFE5), NearYouColorScheme.light.surfaceDim)
+    fun light_surfaceDim() = assertEquals(Color(0xFFDAD9E0), NearYouColorScheme.light.surfaceDim)
 
     @Test
     fun light_surfaceContainerLowest() = assertEquals(Color(0xFFFFFFFF), NearYouColorScheme.light.surfaceContainerLowest)
 
     @Test
-    fun light_surfaceContainerLow() = assertEquals(Color(0xFFF7F8FA), NearYouColorScheme.light.surfaceContainerLow)
+    fun light_surfaceContainerLow() = assertEquals(Color(0xFFF4F2FA), NearYouColorScheme.light.surfaceContainerLow)
 
     @Test
-    fun light_surfaceContainer() = assertEquals(Color(0xFFF5F6F8), NearYouColorScheme.light.surfaceContainer)
+    fun light_surfaceContainer() = assertEquals(Color(0xFFEFEDF4), NearYouColorScheme.light.surfaceContainer)
 
     @Test
-    fun light_surfaceContainerHigh() = assertEquals(Color(0xFFEEF0F4), NearYouColorScheme.light.surfaceContainerHigh)
+    fun light_surfaceContainerHigh() = assertEquals(Color(0xFFE9E7EF), NearYouColorScheme.light.surfaceContainerHigh)
 
     @Test
-    fun light_surfaceContainerHighest() = assertEquals(Color(0xFFE8EAEF), NearYouColorScheme.light.surfaceContainerHighest)
+    fun light_surfaceContainerHighest() = assertEquals(Color(0xFFE3E1E9), NearYouColorScheme.light.surfaceContainerHighest)
 
-    // === DARK scheme — derived from primary via HCT tonal stops per Decision 3 ===
-
-    @Test
-    fun dark_primary() = assertEquals(Color(0xFFB3C5FF), NearYouColorScheme.dark.primary)
+    // === DARK scheme — seed dark tonal stops per design.md Decision 3 ===
 
     @Test
-    fun dark_onPrimary() = assertEquals(Color(0xFF002C7B), NearYouColorScheme.dark.onPrimary)
+    fun dark_primary() = assertEquals(Color(0xFFB7C4FF), NearYouColorScheme.dark.primary)
 
     @Test
-    fun dark_primaryContainer() = assertEquals(Color(0xFF003DAB), NearYouColorScheme.dark.primaryContainer)
+    fun dark_onPrimary() = assertEquals(Color(0xFF002780), NearYouColorScheme.dark.onPrimary)
 
     @Test
-    fun dark_onPrimaryContainer() = assertEquals(Color(0xFFDBE1FF), NearYouColorScheme.dark.onPrimaryContainer)
+    fun dark_primaryContainer() = assertEquals(Color(0xFF354479), NearYouColorScheme.dark.primaryContainer)
+
+    @Test
+    fun dark_onPrimaryContainer() = assertEquals(Color(0xFFDCE1FF), NearYouColorScheme.dark.onPrimaryContainer)
 
     @Test
     fun dark_inversePrimary_rollsBackToLightPrimary() {
@@ -169,31 +172,31 @@ class NearYouColorSchemeTest {
     }
 
     @Test
-    fun dark_secondary() = assertEquals(Color(0xFF44464F), NearYouColorScheme.dark.secondary)
+    fun dark_secondary() = assertEquals(Color(0xFFC2C5DD), NearYouColorScheme.dark.secondary)
 
     @Test
-    fun dark_onSecondary() = assertEquals(Color(0xFFC4C6D0), NearYouColorScheme.dark.onSecondary)
+    fun dark_onSecondary() = assertEquals(Color(0xFF2B3042), NearYouColorScheme.dark.onSecondary)
 
     @Test
-    fun dark_tertiary() = assertEquals(Color(0xFF32353A), NearYouColorScheme.dark.tertiary)
+    fun dark_tertiary() = assertEquals(Color(0xFFE3BADA), NearYouColorScheme.dark.tertiary)
 
     @Test
     fun dark_background_aliasOfSurface() {
-        assertEquals(Color(0xFF111318), NearYouColorScheme.dark.background)
+        assertEquals(Color(0xFF121318), NearYouColorScheme.dark.background)
         assertEquals(NearYouColorScheme.dark.surface, NearYouColorScheme.dark.background)
     }
 
     @Test
-    fun dark_surface() = assertEquals(Color(0xFF111318), NearYouColorScheme.dark.surface)
+    fun dark_surface() = assertEquals(Color(0xFF121318), NearYouColorScheme.dark.surface)
 
     @Test
-    fun dark_onSurface() = assertEquals(Color(0xFFE2E2E9), NearYouColorScheme.dark.onSurface)
+    fun dark_onSurface() = assertEquals(Color(0xFFE3E1E9), NearYouColorScheme.dark.onSurface)
 
     @Test
-    fun dark_outline() = assertEquals(Color(0xFF938F99), NearYouColorScheme.dark.outline)
+    fun dark_outline() = assertEquals(Color(0xFF8E90A0), NearYouColorScheme.dark.outline)
 
     @Test
-    fun dark_outlineVariant() = assertEquals(Color(0xFF44464F), NearYouColorScheme.dark.outlineVariant)
+    fun dark_outlineVariant() = assertEquals(Color(0xFF45464F), NearYouColorScheme.dark.outlineVariant)
 
     @Test
     fun dark_scrim_matchesLightScrim() {
@@ -203,16 +206,16 @@ class NearYouColorSchemeTest {
     }
 
     @Test
-    fun dark_surfaceBright() = assertEquals(Color(0xFF37393E), NearYouColorScheme.dark.surfaceBright)
+    fun dark_surfaceBright() = assertEquals(Color(0xFF38393F), NearYouColorScheme.dark.surfaceBright)
 
     @Test
-    fun dark_surfaceDim() = assertEquals(Color(0xFF111318), NearYouColorScheme.dark.surfaceDim)
+    fun dark_surfaceDim() = assertEquals(Color(0xFF121318), NearYouColorScheme.dark.surfaceDim)
 
     @Test
-    fun dark_surfaceContainerLowest() = assertEquals(Color(0xFF0C0E13), NearYouColorScheme.dark.surfaceContainerLowest)
+    fun dark_surfaceContainerLowest() = assertEquals(Color(0xFF0D0E13), NearYouColorScheme.dark.surfaceContainerLowest)
 
     @Test
-    fun dark_surfaceContainerHighest() = assertEquals(Color(0xFF32353A), NearYouColorScheme.dark.surfaceContainerHighest)
+    fun dark_surfaceContainerHighest() = assertEquals(Color(0xFF34343A), NearYouColorScheme.dark.surfaceContainerHighest)
 
     @Test
     fun dark_error() = assertEquals(Color(0xFFFFB4AB), NearYouColorScheme.dark.error)
@@ -220,7 +223,7 @@ class NearYouColorSchemeTest {
     @Test
     fun dark_errorContainer() = assertEquals(Color(0xFF93000A), NearYouColorScheme.dark.errorContainer)
 
-    // === NearYouColors extension palette — light + dark ===
+    // === NearYouColors extension palette — light + dark (UNCHANGED by this change) ===
 
     @Test
     fun nearYouColors_light_locationPin_isCoral() {
@@ -239,11 +242,11 @@ class NearYouColorSchemeTest {
     fun nearYouColors_light_warning() = assertEquals(Color(0xFFE49317), NearYouColors.light.warning)
 
     @Test
-    fun nearYouColors_light_link_aliasesOnPrimaryContainer() {
+    fun nearYouColors_light_link() {
+        // link keeps its dark-cobalt value. The mobile-m3-conformant-color-scheme
+        // change moved onPrimaryContainer off #1740B8, so link is now an
+        // independent value — no longer incidentally aliased to a scheme role.
         assertEquals(Color(0xFF1740B8), NearYouColors.light.link)
-        // Link is explicitly the same value as M3 onPrimaryContainer — palette
-        // author's intent, surfaced as a distinct extension for future-proofing.
-        assertEquals(NearYouColorScheme.light.onPrimaryContainer, NearYouColors.light.link)
     }
 
     @Test
@@ -259,8 +262,9 @@ class NearYouColorSchemeTest {
     fun nearYouColors_dark_warning() = assertEquals(Color(0xFFFFB874), NearYouColors.dark.warning)
 
     @Test
-    fun nearYouColors_dark_link_matchesDarkPrimary() {
+    fun nearYouColors_dark_link() {
+        // dark link keeps its value; dark primary moved to #B7C4FF, so the two are
+        // no longer equal — link is an independent extension value.
         assertEquals(Color(0xFFB3C5FF), NearYouColors.dark.link)
-        assertEquals(NearYouColorScheme.dark.primary, NearYouColors.dark.link)
     }
 }
