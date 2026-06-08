@@ -3,7 +3,6 @@
 ## Purpose
 
 The mobile Global-timeline feed surface in `:mobile:app` — the all-Indonesia chronological feed and the onboarding entry-point surface ("*Global is the entry point*", `docs/02-Product.md` § Timeline Features). `GlobalTimelineScreen` (hosted in the Global tab of `mobile-home-tab-host`) loads `GET /api/v1/timeline/global` through a status-driven `GlobalTimelineRepository` / `GlobalTimelineFlow` seam and renders read-only post cards (content, `city_name` under the author, `created_at`, read-only `liked_by_viewer` + `reply_count`) in a Material 3 pull-to-refresh `LazyColumn` under `NearYouTheme`, mapping every fetch result to exactly one of six explicit states — loading / content / empty / error / rate-limit-hard / rate-limit-soft — with no generic fallthrough. The Global feed has **no spatial filter**, so the request carries **no `lat`/`lng`/`radius_m`** and the card renders **no distance** (the response DTO has no `distanceM`). The response DTOs mirror the SHIPPED mixed-case wire (`GlobalPostDto`/`GlobalResponse` in `TimelineRoutes.kt`: `authorUserId`/`createdAt`/`nextCursor` camelCase; `city_name`/`liked_by_viewer`/`reply_count` snake) — NOT the stale snake_case spec example. PII discipline is enforced: the `author_user_id` UUID and raw `latitude`/`longitude` are never rendered or logged. The feed is authenticated-only (guest Global is deferred upstream) and reuses the existing per-process singleton `SessionIdProvider` for the `X-Session-Id` soft-cap header. This mirrors the layering of `mobile-nearby-timeline`, reusing its proven seam.
-
 ## Requirements
 ### Requirement: GlobalTimelineScreen renders the Global feed surface
 
@@ -181,4 +180,19 @@ The change SHALL ship: (1) a Robolectric `GlobalTimelineScreenTest` (`mobile/app
 
 - **WHEN** inspecting `mobile/app/build.gradle.kts`
 - **THEN** the Release-variant exclude block lists `**/GlobalTimelineScreenTest*` alongside the existing `*ScreenTest` exclusions AND `:mobile:app:testDevReleaseUnitTest` passes
+
+### Requirement: Global post card opens post detail via a hoisted onOpenPost lambda
+
+The Global post card SHALL be tappable: it SHALL invoke a hoisted `onOpenPost(...)` lambda carrying the card's **non-PII display fields** (`postId`, `content`, `cityName`, `createdAtIso`, `likedByViewer`, `replyCount`, and `distanceM = null` since Global has no spatial filter) — and explicitly NOT `latitude`/`longitude`. The lambda is a host-level callback (wired by `mobile-home-tab-host` to push `PostDetailRoute` onto the root back stack), NOT a back-stack reference, so `GlobalTimelineScreen` SHALL remain navigation-free. The card gains NO inline like/reply control and NO distance is rendered or passed (Global has no distance), consistent with `mobile-global-timeline` § "Post card renders only API-returned display fields, no distance".
+
+#### Scenario: Tapping a Global card invokes onOpenPost with no distance and no coordinates
+
+- **GIVEN** the Global feed composed with a loaded post and a recording `onOpenPost` callback
+- **WHEN** the post card is tapped
+- **THEN** `onOpenPost` fires exactly once carrying the card's `postId`/`content`/`cityName`/`createdAtIso`/`likedByViewer`/`replyCount` with `distanceM = null` AND the payload contains no `latitude`/`longitude`
+
+#### Scenario: GlobalTimelineScreen remains navigation-free
+
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/GlobalTimelineScreen.kt`
+- **THEN** the card-tap is delivered via the hoisted `onOpenPost` lambda only; the screen holds no back-stack reference and performs no back-stack push of its own
 
