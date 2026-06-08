@@ -43,7 +43,13 @@ Every scrollable list surface in `:mobile:app` SHALL distinguish **initial load*
 - **Initial load** → a skeleton/placeholder presentation with at most one in-content progress indicator; the pull-to-refresh indicator is NOT shown.
 - **Refresh of existing content** → the pull-to-refresh indicator is shown over the **retained** content list; the list (the scrollable the gesture is attached to) MUST stay mounted, and the in-content initial-load indicator is NOT shown.
 
-A `PullToRefreshBox`'s `isRefreshing` argument SHALL reflect the refresh-of-existing-content state only (not the initial load).
+A `PullToRefreshBox`'s `isRefreshing` argument SHALL reflect the refresh-of-existing-content state only (not the initial load). The **empty, error, and rate-limit states** (the non-`Content` post-initial-load states) SHALL be rendered inside a scrollable container so the pull-to-refresh gesture remains available from them (a `PullToRefreshBox` requires a scrollable child to recognize the gesture). A refresh triggered from a non-`Content` state SHALL **retain that state** (it MUST NOT flip back to the initial-load skeleton) while showing the pull-to-refresh indicator.
+
+#### Scenario: Pull-to-refresh is available from a non-Content state
+
+- **GIVEN** a list surface in a non-`Content` post-load state (e.g. empty or error) with a counting fake
+- **WHEN** the pull-to-refresh gesture is performed
+- **THEN** the reload fetch is invoked (the empty/error state is rendered inside a scrollable so the gesture is recognized) AND the state remains the same non-`Content` state during the refresh (it does NOT flip to the initial-load skeleton), with the pull-to-refresh indicator shown
 
 #### Scenario: Initial load shows one indicator, no pull-to-refresh spinner
 

@@ -27,3 +27,8 @@ The `:shared:resources` module SHALL bundle the Material icon glyphs used by the
 
 - **WHEN** inspecting `gradle/libs.versions.toml` and the consuming `build.gradle.kts`
 - **THEN** no `material-icons-extended` library entry is added (the icon set ships as bundled vector drawables; at most a `material-icons-core` entry may be added per the `design.md` re-check, never `material-icons-extended`)
+
+#### Scenario: The Following/Global tab glyphs are bundled even under the core-dependency fallback
+
+- **GIVEN** the apply-time re-check adopted a `material-icons-core` dependency for the in-core glyphs (Home/Notifications/Person/LocationOn/Add)
+- **THEN** the Following (People) and Global (Public) tab glyphs — which are NOT in the `material-icons-core` set as of CMP 1.8.2+ — are STILL supplied as bundled vector drawables in `composeResources/drawable/`, so every navigation/tab affordance is a Material icon regardless of the delivery mechanism

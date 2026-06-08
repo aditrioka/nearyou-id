@@ -66,9 +66,24 @@ The authenticated root surface SHALL be an app **section shell** (file: `mobile/
 - **WHEN** the saved value is restored
 - **THEN** the restored selection equals the original `Section` (no `SerializationException`) — proving the iOS-safe saved-state path
 
+### Requirement: Tab selection is serializable and survives process death
+
+The selected **feed tab** within the Home section SHALL be modeled as a `@Serializable` `Tab` enum (Nearby / Following / Global) held in `rememberSaveable`, so it survives configuration change and process death on every target including Kotlin/Native (iOS), where reflection-based saving is unavailable. The selected **bottom-nav section** SHALL likewise be serializable (see § "Bottom navigation is a top-level section shell"). The Home section SHALL render the selected feed tab's screen **under the `HomeRoute` scope via a `HorizontalPager`** (per § "Feed tabs are swipeable via a HorizontalPager synced with the tab row") — NOT inside a per-tab `NavDisplay` — so each feed screen's `viewModel { }` resolves to the `HomeRoute` NavEntry store. The `HorizontalPager` is a layout surface within the single `HomeRoute` scope and is explicitly NOT a per-tab navigation scope. Per-tab `NavDisplay` back stacks remain **deferred** (tracked by `FOLLOW_UPS.md` `mobile-home-tab-host-per-tab-backstacks`); this change adds NO new tab-root `NavKey`s.
+
+#### Scenario: Selected feed tab survives a saved-state round-trip
+
+- **GIVEN** a commonTest that sets the selected feed `Tab` and saves + restores it via the `rememberSaveable` saver (the serializable-enum path)
+- **WHEN** the saved value is restored
+- **THEN** the restored selection equals the original `Tab` (no `SerializationException`) — proving the iOS-safe saved-state path
+
+#### Scenario: The pager is not a per-tab NavDisplay and adds no tab-root NavKey
+
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt` and `screens/routing/NavKeys.kt`
+- **THEN** the Home section renders the feeds via a single `HorizontalPager` under the `HomeRoute` scope (no nested per-tab `NavDisplay`) AND no `NearbyTabRoot` / `FollowingTabRoot` / `GlobalTabRoot` `NavKey` is declared (per-tab back stacks remain deferred)
+
 ### Requirement: The authenticated default tab is Nearby
 
-When the shell is first composed for an authenticated session, the selected **section** SHALL default to **Home**, and within the Home section the selected **feed tab** SHALL default to **Nearby** (preserving the pre-restructure landing). Both the selected-section value and the selected-feed-tab value SHALL be held in `rememberSaveable` so they survive configuration change and process death. (The `docs/03-UX-Design.md` "Default tab: Global" applies to the deferred guest pre-login first-open, not the authenticated home — see `design.md` D5 of `mobile-home-tab-host`.)
+When the shell is first composed for an authenticated session, the selected **section** SHALL default to **Home**, and within the Home section the selected **feed tab** SHALL default to **Nearby** (preserving the pre-restructure landing). Both the selected-section value and the selected-feed-tab value SHALL be held in `rememberSaveable` so they survive configuration change and process death. (The `docs/03-UX-Design.md` "Default tab: Global" describes the deferred guest pre-login first-open, NOT the authenticated home — the authenticated landing is Nearby.)
 
 #### Scenario: First composition selects Home → Nearby
 
@@ -99,8 +114,4 @@ The Home section's three feeds SHALL be horizontally swipeable: the body below t
 - **WHEN** the test swipes to Global (first Global fetch occurs), then swipes back to Nearby, then to Global again
 - **THEN** the Nearby fetch count remains 1 AND the Global fetch count remains 1 (no re-fetch on swipe) AND inspecting `HomeScreen.kt` + `screens/routing/NavKeys.kt` shows no per-tab `NavDisplay` and no `NearbyTabRoot`/`FollowingTabRoot`/`GlobalTabRoot` `NavKey`
 
-#### Scenario: Selected feed tab survives a saved-state round-trip
-
-- **GIVEN** a commonTest that sets the selected feed `Tab` and saves + restores it via the `rememberSaveable` saver (the serializable-enum path)
-- **WHEN** the saved value is restored
-- **THEN** the restored selection equals the original `Tab` (no `SerializationException`) — proving the iOS-safe saved-state path is preserved alongside the pager
+> The serializable-`Tab` saved-state round-trip (the durable selection kept in sync with the settled pager page) is covered by § "Tab selection is serializable and survives process death".

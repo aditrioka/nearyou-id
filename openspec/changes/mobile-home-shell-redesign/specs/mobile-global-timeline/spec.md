@@ -47,6 +47,11 @@ The screen state SHALL be modeled as a Compose-free `GlobalTimelineUiState` data
 - **WHEN** the outcome is `NetworkError`
 - **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.signin_error_network)` AND a clickable node whose text matches `stringResource(Res.string.cta_retry)`
 
+#### Scenario: Empty Global renders the loading-skeleton copy
+
+- **WHEN** the outcome is `Loaded` with empty posts and no `upsell` (`isInitialLoad = false`) — the `Empty` `GlobalTimelineUiState` member
+- **THEN** the rendered tree renders the loading-skeleton presentation with a node whose text matches `stringResource(Res.string.timeline_loading)` (reusing the existing key per the Empty-state note) AND renders zero post cards AND no new `timeline_empty_global` key is referenced
+
 ### Requirement: Pull-to-refresh re-fetches the first page; infinite scroll is deferred
 
 The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equivalent) that re-invokes the first-page fetch via the ViewModel's `reload()`. During a refresh the already-loaded content SHALL remain mounted (the scrollable is never torn down); the `PullToRefreshBox` `isRefreshing` argument SHALL reflect the **refresh-of-existing-content** state only, NOT the initial load (per `mobile-design-system` § "Canonical list loading and refresh pattern"). `next_cursor` SHALL be parsed and retained on the `Loaded` outcome, but cursor-based load-more (infinite scroll) is NOT implemented in this change and is deferred (tracked alongside the `mobile-nearby-timeline-infinite-scroll` follow-up, extended to cover Global).
@@ -65,7 +70,7 @@ The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equiv
 #### Scenario: next_cursor is parsed but no load-more is wired
 
 - **WHEN** inspecting the repository/screen for cursor usage
-- **THEN** `next_cursor` is parsed and retained on `Loaded` but is NOT consumed to issue a follow-up `cursor=`-bearing request in this change
+- **THEN** `next_cursor` is parsed and retained on `Loaded` but is NOT consumed to issue a follow-up `cursor=`-bearing request in this change AND `FOLLOW_UPS.md` contains an entry `mobile-nearby-timeline-infinite-scroll` (extended to cover Global)
 
 ### Requirement: Global feed load state is scoped to the HomeRoute NavEntry and survives tab switch and the composer round-trip
 
