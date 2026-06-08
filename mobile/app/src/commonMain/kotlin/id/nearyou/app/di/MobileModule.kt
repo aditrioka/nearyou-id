@@ -13,6 +13,9 @@ import id.nearyou.app.consent.ConsentRepository
 import id.nearyou.app.location.CachingLocationProvider
 import id.nearyou.app.location.LocationTuning
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.notifications.NotificationsApiClient
+import id.nearyou.app.notifications.NotificationsFlow
+import id.nearyou.app.notifications.NotificationsRepository
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.CreatePostRepository
 import id.nearyou.app.post.LikeApiClient
@@ -105,6 +108,16 @@ val mobileModule =
         single { GlobalTimelineApiClient(get()) }
         single { GlobalTimelineRepository(get(), get()) }
         single<GlobalTimelineFlow> { get<GlobalTimelineRepository>() }
+
+        // mobile-bottom-nav-sections-and-notifications — the notifications graph (the Notifikasi section's
+        // NotificationsScreen + the shell's unread badge). Mirrors the Global seam: ApiClient → Repository
+        // bound behind the NotificationsFlow seam (so a FakeNotificationsFlow drives the screen/shell
+        // tests; the concrete stays resolvable). Reuses the shared HttpClient (Bearer attached by the Auth
+        // plugin); no X-Session-Id / SessionIdProvider (the notifications routes carry no per-session
+        // soft-cap accounting). No new HttpClient.
+        single { NotificationsApiClient(get()) }
+        single { NotificationsRepository(get()) }
+        single<NotificationsFlow> { get<NotificationsRepository>() }
 
         // mobile-post-creation-screen — the create-post graph. Reuses the shared HttpClient, the
         // unqualified LocationProvider (the CachingLocationProvider decorator above, shared with

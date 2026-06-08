@@ -1,9 +1,5 @@
-# mobile-home-tab-host Specification
+## MODIFIED Requirements
 
-## Purpose
-
-The Nearby/Following/Global tab host in `:mobile:app`. `HomeScreen` is repurposed from a single-feed host into a Material 3 `NavigationBar` host whose body renders the selected tab's screen **directly under the `HomeRoute` scope** — selection is a `rememberSaveable` serializable `Tab` enum, NOT per-tab `NavDisplay` back stacks. Because each tab's feed screen composes directly under the `HomeRoute` NavEntry, its feed load-state ViewModel (resolved via `viewModel { }` inside the screen, exactly as the shipped Nearby feed already does) is `HomeRoute`-scoped and survives both tab switches and the composer round-trip with no re-fetch. Per-tab `NavDisplay` back stacks are **deferred** to the first intra-tab destination (post detail / profile) — there is no intra-tab navigation in this change, so building them now would be vestigial; the deferral is tracked by `FOLLOW_UPS.md` `mobile-home-tab-host-per-tab-backstacks`. The composer FAB stays at the home level (one affordance shared across all three tabs) and pushes `PostCreationRoute` onto the **root** back stack so the composer overlays the tab bar. The Nearby tab hosts the shipped `NearbyTimelineScreen`; the Global tab hosts the new `GlobalTimelineScreen` (`mobile-global-timeline`); the Following tab renders a documented empty-state placeholder and issues NO network fetch (the real Following feed is deferred — there is no follow-action UI yet — and tracked by `FOLLOW_UPS.md` `mobile-following-timeline-screen`). Every label/copy is sourced via `:shared:resources`; the authenticated default tab is Nearby. This closes the `FOLLOW_UPS.md` entries `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`.
-## Requirements
 ### Requirement: HomeScreen is the Nearby/Following/Global tab host
 
 `HomeScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt`) SHALL render the **Home section's content**: the Nearby / Following / Global feeds as a **top tab row** (Material 3 `PrimaryTabRow`), NOT as the bottom `NavigationBar` (the bottom bar is now the app section shell — see § "Bottom navigation is a top-level section shell"). `HomeScreen` SHALL render a `PrimaryTabRow` with exactly three feed tabs — Nearby, Following, Global — each labelled via `stringResource` (`Res.string.tab_nearby`, `Res.string.tab_following`, `Res.string.tab_global`) with a `contentDescription` sourced via `stringResource`. The body below the tab row SHALL render the **selected feed tab's** content (Nearby → `NearbyTimelineScreen`; Following → the deferred placeholder per the unchanged § "Following tab renders the deferred placeholder"; Global → `GlobalTimelineScreen`). No hardcoded UI string literals SHALL appear in `HomeScreen`. `HomeScreen` SHALL render under `NearYouTheme` (light/dark).
@@ -74,21 +70,6 @@ Switching between **feed tabs** within the Home section SHALL preserve the selec
 - **WHEN** the test switches to the Notifikasi section and back to Home
 - **THEN** the Nearby feed's fetch count is unchanged (the Home feeds are not re-fetched on section return)
 
-### Requirement: Following tab renders the deferred placeholder and issues no fetch
-
-The Following tab SHALL render a documented empty-state placeholder whose copy is sourced via `stringResource(Res.string.timeline_following_placeholder)` ("*Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu.*", aligned with `docs/03-UX-Design.md` § Empty State "Following empty → direct user to Nearby/Global"). This change SHALL NOT issue any `GET /api/v1/timeline/following` request and SHALL NOT wire a Following timeline API client / repository / flow — the real Following feed is **deferred** (no follow-action UI exists on mobile, so the feed would be perpetually empty) and is tracked by the `FOLLOW_UPS.md` entry `mobile-following-timeline-screen`, which will MODIFY this requirement to introduce the live feed.
-
-#### Scenario: Following tab shows the placeholder copy
-
-- **WHEN** the Following tab is selected in the composed tab host
-- **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.timeline_following_placeholder)`
-
-#### Scenario: Following tab issues no network fetch
-
-- **GIVEN** a Ktor MockEngine capturing all outbound requests, wired into the composed tab host
-- **WHEN** the Following tab is selected and rendered
-- **THEN** no request to a path containing `/api/v1/timeline/following` is captured AND inspecting `:mobile:app` shows no Following-timeline API-client/repository/flow type is wired
-
 ### Requirement: Test coverage for the tab host
 
 The change SHALL ship: (1) a Robolectric shell/host test (`mobile/app/src/androidUnitTest/...`, e.g. `AppShellScreenTest` / extended `HomeScreenTest`) covering the three bottom-nav sections, section switching swapping the section body, the three Home feed top-tabs, feed-tab switching swapping the feed body, the composer FAB on the Home section, the Following + Profil placeholders, and the Notifikasi badge — added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention, since the `ui-test-manifest` host activity is debug-only); (2) a commonTest covering the selected-section + selected-feed-`Tab` saved-state round-trips + the no-re-fetch-on-feed-tab-switch AND no-re-fetch-on-section-switch invariants via fakes; (3) an iOS flow test under `mobile/app/src/iosTest/...` (mirroring `NearbyTimelineFlowIosTest`) exercising the shell + Home tabs on the simulator, with Kotlin/Native-legal test function names.
@@ -102,6 +83,8 @@ The change SHALL ship: (1) a Robolectric shell/host test (`mobile/app/src/androi
 
 - **WHEN** inspecting `mobile/app/build.gradle.kts`
 - **THEN** the Release-variant `tasks.withType<Test>()` exclude block lists the shell/host `*ScreenTest` glob alongside the existing `*ScreenTest` exclusions, and `:mobile:app:testDevReleaseUnitTest` passes
+
+## ADDED Requirements
 
 ### Requirement: Bottom navigation is a top-level section shell (Home / Notifikasi / Profil)
 
@@ -152,19 +135,3 @@ The Profil section SHALL render a documented placeholder (file: `mobile/app/src/
 - **GIVEN** a Ktor MockEngine capturing all outbound requests, wired into the composed shell
 - **WHEN** the Profil section is selected and rendered
 - **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.profile_placeholder)` AND no network request is captured for the Profil section
-
-### Requirement: The tab host hoists onOpenPost, wired at the call site to a root-stack PostDetailRoute push
-
-`HomeScreen` SHALL hoist an `onOpenPost(...)` callback (taking a card's non-PII display fields) and pass it into BOTH the Nearby tab content (`NearbyTimelineScreen`) and the Global tab content (`GlobalTimelineScreen`) — exactly as it already hoists `onOpenComposer`. The actual `PostDetailRoute` **root** back-stack append SHALL be wired at the **shell** call site (in `screens/routing/AppEntryProvider.kt`, where — after the section-shell restructure of § "Bottom navigation is a top-level section shell" — `appEntryProvider` maps `HomeRoute` → `AppShellScreen(onOpenComposer = { backStack.add(PostCreationRoute) }, onOpenPost = { … backStack.add(PostDetailRoute(...)) })`; `AppShellScreen` forwards `onOpenPost` to the Home section's `HomeScreen`), NOT inside `HomeScreen.kt` / `AppShellScreen.kt` (neither holds a back-stack reference, matching the existing composer-FAB wiring). The appended `PostDetailRoute` SHALL be constructed from exactly the card fields (`postId`, `content`, `cityName`, `distanceM`, `createdAtIso`, `likedByViewer`, `replyCount`; never `latitude`/`longitude`) so the detail surface overlays the section `NavigationBar`, NOT introducing a per-tab `NavDisplay` back stack (still deferred per `FOLLOW_UPS mobile-home-tab-host-per-tab-backstacks`). The Following tab (a deferred placeholder) wires no `onOpenPost` (it has no feed/cards).
-
-#### Scenario: Invoking onOpenPost in either feed tab pushes PostDetailRoute onto the root stack
-
-- **GIVEN** the `AppShellScreen` call site (`appEntryProvider`) composed over a test root back stack, or `HomeScreen` composed with a recording `onOpenPost` callback, with the Nearby tab selected
-- **WHEN** the Nearby card's `onOpenPost` is invoked (and again with the Global tab selected and its card's `onOpenPost`)
-- **THEN** in both cases a `PostDetailRoute` carrying the card's display fields (and no `latitude`/`longitude`) is appended to the **root** back stack, becoming the current entry over `HomeRoute`
-
-#### Scenario: HomeScreen hoists onOpenPost; the append lives at the call site; no per-tab NavDisplay
-
-- **WHEN** inspecting `screens/home/HomeScreen.kt`, `screens/shell/AppShellScreen.kt`, and `screens/routing/AppEntryProvider.kt`
-- **THEN** `HomeScreen` takes `onOpenPost` as a hoisted parameter and holds no back-stack reference, `AppShellScreen` forwards `onOpenPost` to the Home-section `HomeScreen`, AND the `backStack.add(PostDetailRoute(...))` append lives at the `AppShellScreen(...)` call site in `appEntryProvider` (the same mechanism as `onOpenComposer`), AND no per-tab `NavDisplay` / tab-root `NavKey` is introduced
-

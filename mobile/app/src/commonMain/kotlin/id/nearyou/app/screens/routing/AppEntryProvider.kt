@@ -7,9 +7,9 @@ import androidx.navigation3.runtime.entryProvider
 import id.nearyou.app.screens.auth.AgeGateScreen
 import id.nearyou.app.screens.auth.SignInScreen
 import id.nearyou.app.screens.consent.ConsentScreen
-import id.nearyou.app.screens.home.HomeScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
+import id.nearyou.app.screens.shell.AppShellScreen
 
 /**
  * Maps each [NavKey] route to its screen composable, wiring every screen's narrow navigation lambdas
@@ -19,9 +19,11 @@ import id.nearyou.app.screens.post.PostDetailScreen
  *
  *  - [RootRoute] → [RootRouterScreen] — token-presence routing → `replaceAll(HomeRoute/SignInRoute)`.
  *  - [SignInRoute] → [SignInScreen] — success → `replaceAll(HomeRoute)`; 404 no-account → `add(AgeGateRoute)`.
- *  - [HomeRoute] → [HomeScreen] — FAB → `add(PostCreationRoute)`; card tap → `add(PostDetailRoute(...))`.
- *  - [AgeGateRoute] → [AgeGateScreen] — success → `replaceAll(ConsentRoute)`; account-exists /
- *    absent identity → `replaceAll(SignInRoute)`.
+ *  - [HomeRoute] → [AppShellScreen] — the bottom-nav section shell (Home / Notifikasi / Profil); the Home
+ *    section hosts the feed tab host + composer FAB → `add(PostCreationRoute)`, and a feed card tap →
+ *    `add(PostDetailRoute(...))` — both on the root stack (above the shell).
+ *  - [AgeGateRoute] → [AgeGateScreen] — success → `replaceAll(ConsentRoute)`; account-exists / absent
+ *    identity → `replaceAll(SignInRoute)`.
  *  - [ConsentRoute] → [ConsentScreen] — done (Success or post-failure skip) → `replaceAll(HomeRoute)`.
  *  - [PostCreationRoute] → [PostCreationScreen] — success → `removeLastOrNull()`.
  *  - [PostDetailRoute] → [PostDetailScreen] — back → `removeLastOrNull()` (pop off the root stack).
@@ -44,13 +46,17 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             )
         }
         entry<HomeRoute> {
-            HomeScreen(
+            // The bottom-nav section shell is the authenticated root entry (mobile-home-tab-host §
+            // "Bottom navigation is a top-level section shell"). The shell hosts HomeScreen for the Home
+            // section; BOTH root-stack pushes live HERE at the call site (the shell + HomeScreen hold no
+            // back-stack reference, mirroring the composer FAB): the composer FAB → PostCreationRoute,
+            // and a feed card tap → PostDetailRoute (built from the tapped card's non-PII
+            // [PostDetailTarget] — NO latitude/longitude — appended above the shell so the detail overlays
+            // the section bar). This absorbs #159's onOpenPost wiring through the shell (design D9 /
+            // tasks.md 14.5): the call site moved from HomeScreen to AppShellScreen, which forwards
+            // onOpenPost to the Home section's HomeScreen.
+            AppShellScreen(
                 onOpenComposer = { backStack.add(PostCreationRoute) },
-                // The post-detail root-stack push lives HERE at the call site (HomeScreen holds no
-                // back-stack reference, mirroring the composer FAB). HomeScreen forwards the tapped
-                // card's non-PII display fields as a [PostDetailTarget]; this builds the PostDetailRoute
-                // (NO latitude/longitude) and appends it above HomeRoute so the detail overlays the tab
-                // bar (no per-tab NavDisplay introduced).
                 onOpenPost = { target ->
                     backStack.add(
                         PostDetailRoute(

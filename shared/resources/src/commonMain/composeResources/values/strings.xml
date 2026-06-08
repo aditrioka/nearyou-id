@@ -106,6 +106,41 @@
     <string name="timeline_following_placeholder">Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu.</string>
     <string name="cta_see_global">Lihat Global</string>
 
+    <!-- mobile-bottom-nav-sections-and-notifications. Bottom-nav SECTION labels (Beranda / Notifikasi /
+         Profil) replace the old feed-as-bottom-bar; the three feeds become a top tab row inside the Home
+         section (reusing tab_nearby/tab_following/tab_global + cta_post above). The 3 section icon content
+         descriptions are derived a11y copy (descriptive, not label duplicates) — FLAGGED FOR UX REVIEW like
+         the feed-tab descriptions. `profile_placeholder` ("Profil segera hadir."), `notifications_title`
+         ("Notifikasi"), `notifications_empty` ("Belum ada notifikasi"), and `notifications_mark_all_read`
+         ("Tandai semua dibaca") are SPEC-CANONICAL — byte-identical to the change spec. Type-keyed
+         notification copy renders a GENERIC actor ("Seseorang …") per design D4: the shipped list endpoint
+         returns only `actor_user_id` (a UUID, never rendered) and NO username, so v1 drops the actor handle;
+         `notif_chat_message` likewise drops docs/03's "{username}" pending the deferred actor-username
+         enrichment (FOLLOW_UPS mobile-notifications-actor-username-enrichment). The 5 distinct type keys map
+         post_liked / post_replied / followed / post_auto_hidden / chat_message; the remaining 8 reserved
+         NotificationType wire values + any unknown/future type fall back to `notif_generic`. The
+         notifications error/retry states reuse signin_error_network / cta_retry (declared above) — no new
+         keys. All non-canonical copy is derived BI consistent with the Mobile #3/#4/#5 register, FLAGGED FOR
+         UX REVIEW. -->
+    <string name="section_home">Beranda</string>
+    <string name="section_notifications">Notifikasi</string>
+    <string name="section_profile">Profil</string>
+    <string name="section_home_icon_description">Buka beranda</string>
+    <string name="section_notifications_icon_description">Buka notifikasi</string>
+    <string name="section_profile_icon_description">Buka profil</string>
+    <string name="profile_placeholder">Profil segera hadir.</string>
+    <string name="notifications_title">Notifikasi</string>
+    <string name="notifications_loading">Sedang memuat notifikasi…</string>
+    <string name="notifications_empty">Belum ada notifikasi</string>
+    <string name="notifications_mark_all_read">Tandai semua dibaca</string>
+    <string name="notifications_badge">Notifikasi belum dibaca</string>
+    <string name="notif_post_liked">Seseorang menyukai postingan kamu</string>
+    <string name="notif_post_replied">Seseorang membalas postingan kamu</string>
+    <string name="notif_followed">Seseorang mulai mengikuti kamu</string>
+    <string name="notif_post_auto_hidden">Postingan kamu disembunyikan otomatis</string>
+    <string name="notif_chat_message">Pesan baru</string>
+    <string name="notif_generic">Notifikasi baru</string>
+
     <!-- mobile-post-detail-screen. `post_detail_posted_from` mirrors docs/03-UX-Design.md:14
          ("Diposting dari {city}, {relative_time}"); the like/reply cap-upsell copy parallels the
          docs/03-UX-Design.md:205 Free-cap upsell register (docs have no canonical reply-cap string —

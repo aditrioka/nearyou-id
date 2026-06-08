@@ -12,6 +12,8 @@ import id.nearyou.app.auth.SignUpOutcome
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
+import id.nearyou.app.notifications.FakeNotificationsFlow
+import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
@@ -70,6 +72,10 @@ class RootRouterScreenTest {
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
+                    // The authenticated route lands on HomeRoute → AppShellScreen, whose unread badge
+                    // injects a NotificationsFlow (empty/0 fake — the route just needs to reach the Home
+                    // section, whose marker is the HOME_MARKER).
+                    single<NotificationsFlow> { FakeNotificationsFlow() }
                 },
             )
         }
