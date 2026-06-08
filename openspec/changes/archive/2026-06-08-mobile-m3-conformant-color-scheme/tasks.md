@@ -21,9 +21,9 @@
 
 - [x] 4.1 Run the mobile gate: `./gradlew :shared:resources:testDebugUnitTest :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` (`:shared:resources` is unflavored → `testDebugUnitTest`; `:mobile:app` is flavor-qualified) — all green
 - [x] 4.2 Run lint: `./gradlew ktlintCheck detekt` — both frameworks pass
-- [ ] 4.3 (Optional but recommended) Launch the app and screenshot Beranda/Notifikasi + a light/dark timeline to confirm the selected nav is brand cobalt and labels are readable (visual confirmation of the mockup-validated scheme D)
+- [x] 4.3 Visual confirmation on a physical device (Samsung, staging-debug from this branch via `mint-staging-jwt.sh` test-login): Global timeline in light + dark — selected "Beranda" nav is brand cobalt (light: light-pill + vivid-blue icon; dark: dark-cobalt pill + light-blue icon) with readable labels both modes; feed tab indicator cobalt; coral location pins intact. Matches the approved scheme-D mockup. No source harness used (clean git).
 
 ## 5. Spec + docs sync
 
 - [x] 5.1 Run `openspec validate mobile-m3-conformant-color-scheme --strict` — passes
-- [ ] 5.2 At archive: confirm `openspec/specs/{shared-resources,mobile-design-system,mobile-app-scaffold}/spec.md` reflect the MODIFIED requirements (secondary/tertiary as accents; navbar brand-family tokens; dark primary `#B7C4FF`) with no `TBD - created by archiving` placeholders left behind
+- [x] 5.2 At archive: confirm `openspec/specs/{shared-resources,mobile-design-system,mobile-app-scaffold}/spec.md` reflect the MODIFIED requirements (secondary/tertiary as accents; navbar brand-family tokens; dark primary `#B7C4FF`) with no `TBD - created by archiving` placeholders left behind
