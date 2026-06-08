@@ -140,9 +140,11 @@ import id.nearyou.app.timeline.TimelineReadRateLimiter
 import id.nearyou.app.timeline.followingTimelineRoutes
 import id.nearyou.app.timeline.globalTimelineRoutes
 import id.nearyou.app.timeline.timelineRoutes
+import id.nearyou.app.user.ConsentRepository
 import id.nearyou.app.user.FcmTokenRepository
 import id.nearyou.app.user.JdbcActorUsernameLookup
 import id.nearyou.app.user.JdbcUserFcmTokenReader
+import id.nearyou.app.user.consentRoutes
 import id.nearyou.app.user.fcmTokenRoutes
 import id.nearyou.data.repository.ActorUsernameLookup
 import id.nearyou.data.repository.Layer3ModerationWriter
@@ -804,6 +806,7 @@ fun Application.module() {
             dispatcher = notificationDispatcher,
         )
     val fcmTokenRepository = FcmTokenRepository(dataSource)
+    val consentRepository = ConsentRepository(dataSource)
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -875,6 +878,7 @@ fun Application.module() {
                 single<UserFcmTokenReader> { userFcmTokenReader }
                 single<ActorUsernameLookup> { actorUsernameLookup }
                 single { fcmTokenRepository }
+                single { consentRepository }
                 single<OidcTokenVerifier> { oidcTokenVerifier }
                 single { suspensionUnbanWorker }
             },
@@ -903,6 +907,7 @@ fun Application.module() {
     searchRoutes(searchService)
     notificationRoutes(notificationService)
     fcmTokenRoutes(fcmTokenRepository)
+    consentRoutes(consentRepository)
 
     // /internal/* — Cloud-Scheduler-invoked endpoints. The OIDC plugin is mounted
     // here exactly once on the route subtree, so every nested route inherits OIDC

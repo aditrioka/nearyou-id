@@ -1,0 +1,45 @@
+{% extends "layout.peb" %}
+
+{% block title %}Rejected Identifiers — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Rejected Identifiers</h2>
+
+{# Read-only anti-abuse triage view over `rejected_identifiers`. Hash-only:
+   the table surfaces the one-way `identifier_hash`; no raw identifier is
+   stored or resolvable, and there is no clear/remove control (the manual
+   support-clear is the deferred `admin-rejected-identifiers-clear-action`). #}
+
+{# Filter form. hx-get swaps only the #rejected-identifiers-table fragment;
+   method=GET means it also works as a plain navigation when JS is unavailable
+   (progressive enhancement). All values are autoescaped. #}
+<form hx-get="/admin/rejected-identifiers"
+      hx-target="#rejected-identifiers-table"
+      hx-swap="outerHTML"
+      hx-push-url="true"
+      method="GET">
+    <label>Reason
+        <select name="reason">
+            <option value="">All</option>
+            <option value="age_under_18" {% if filters.reason == 'age_under_18' %}selected{% endif %}>age_under_18</option>
+            <option value="attestation_persistent_fail" {% if filters.reason == 'attestation_persistent_fail' %}selected{% endif %}>attestation_persistent_fail</option>
+        </select>
+    </label>
+    <label>Identifier type
+        <select name="identifier_type">
+            <option value="">All</option>
+            <option value="google" {% if filters.identifier_type == 'google' %}selected{% endif %}>google</option>
+            <option value="apple" {% if filters.identifier_type == 'apple' %}selected{% endif %}>apple</option>
+        </select>
+    </label>
+    <label>From
+        <input type="date" name="from" value="{{ filters.from | default('') }}">
+    </label>
+    <label>To
+        <input type="date" name="to" value="{{ filters.to | default('') }}">
+    </label>
+    <button type="submit">Filter</button>
+</form>
+
+{% include "rejected-identifiers-table.peb" %}
+{% endblock %}
