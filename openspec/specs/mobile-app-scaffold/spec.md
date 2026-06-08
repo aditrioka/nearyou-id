@@ -38,7 +38,7 @@ The `App()` composable SHALL wrap its content in a `MaterialTheme` whose active 
 #### Scenario: Dark mode applies brand dark color scheme
 
 - **WHEN** the device reports system dark-mode = ON at the time `App()` is composed
-- **THEN** `MaterialTheme.colorScheme` resolves to `NearYouColorScheme.dark` from `:shared:resources` (NOT vanilla Material 3 `darkColorScheme()`); `MaterialTheme.colorScheme.primary` resolves to `Color(0xFFB3C5FF)` (the mechanically-derived dark primary per `shared-resources-moko-bootstrap` design.md Decision 3)
+- **THEN** `MaterialTheme.colorScheme` resolves to `NearYouColorScheme.dark` from `:shared:resources` (NOT vanilla Material 3 `darkColorScheme()`); `MaterialTheme.colorScheme.primary` resolves to `Color(0xFFB7C4FF)` (the brand-blue palette tone 80 from the MTB-derived dark scheme per `mobile-m3-conformant-color-scheme` design.md Decision 3)
 
 #### Scenario: NearYouTheme applies brand typography
 

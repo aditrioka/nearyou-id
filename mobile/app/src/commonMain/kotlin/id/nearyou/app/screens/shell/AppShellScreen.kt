@@ -160,23 +160,22 @@ fun AppShellScreen(
 }
 
 /**
- * The bottom-nav item colors for the section shell. The bare `NavigationBarItemDefaults.colors()` is
- * NOT used because, as of Material 3 1.4.0, its default **`selectedTextColor` = `secondary`** and
- * **`indicatorColor` = `secondaryContainer`** — and this brand theme deliberately makes those two
- * tokens NEUTRAL near-white (`secondary = #EEF0F4`, `secondaryContainer = #F5F6F8`; see
- * `NearYouColorScheme`), so the bare default renders the selected label near-white-on-white (invisible)
- * and the indicator pill vanishes. Per the M3 docs ("if you want the old look, set
- * `selectedTextColor = onSurface`") we apply readable, brand-aligned tokens via the official
- * `NavigationBarItemDefaults.colors(...)` API (NOT a custom composition): a light-cobalt indicator pill
- * (`primaryContainer`) behind a dark-cobalt selected icon (`onPrimaryContainer`), a near-black selected
- * label (`onSurface`), and `onSurfaceVariant` for the unselected state. This satisfies
- * `mobile-design-system` § "Navigation and tab labels are visible" (D5) — verified by a contrast
- * assertion in `AppShellScreenTest`, not just an inequality check.
+ * The bottom-nav item colors for the section shell. `NearYouColorScheme` now defines `secondary` /
+ * `secondaryContainer` as genuine readable accents, so the bare `NavigationBarItemDefaults.colors()`
+ * (whose Material 3 1.4 default selected label = `secondary`) would no longer be invisible — the
+ * override is therefore **no longer a readability band-aid**. It is retained as a deliberate
+ * **brand-identity** choice: the selected bottom-nav state uses the PRIMARY (brand cobalt) family
+ * rather than M3's default `secondary` accent. Tokens applied via the official
+ * `NavigationBarItemDefaults.colors(...)` API: a light-cobalt indicator pill (`primaryContainer`)
+ * behind a brand-cobalt selected icon (`primary` = `#1E4FD6`), a near-black selected label
+ * (`onSurface`), and `onSurfaceVariant` for the unselected state. This satisfies
+ * `mobile-design-system` § "Navigation and tab labels are visible" (D5) — the selected label clears
+ * WCAG AA, verified by a contrast assertion in `AppShellScreenTest`, not just an inequality check.
  */
 @Composable
 fun nearYouNavigationBarItemColors(): NavigationBarItemColors =
     NavigationBarItemDefaults.colors(
-        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        selectedIconColor = MaterialTheme.colorScheme.primary,
         selectedTextColor = MaterialTheme.colorScheme.onSurface,
         indicatorColor = MaterialTheme.colorScheme.primaryContainer,
         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,

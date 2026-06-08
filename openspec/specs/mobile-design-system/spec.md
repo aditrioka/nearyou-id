@@ -3,7 +3,6 @@
 ## Purpose
 
 `mobile-design-system` is the cross-cutting Material 3 substrate contract for `:mobile:app` — the durable, screen-agnostic rules every authenticated screen inherits so that atomic per-screen changes stay visually and architecturally sound instead of each reinventing (and drifting on) its own layout, loading, icon, and copy conventions. It governs: single-`Scaffold` window-inset ownership (the app shell owns the only inset-applying `Scaffold`, running edge-to-edge; all section/feed/screen content is inset-free), the Material 3 icon set as the canonical navigation/action/card affordance (bundled vector drawables, not placeholder dots), navigation- and tab-label visibility (readable selected AND unselected states), the canonical list loading/refresh pattern (initial-load skeleton vs. refresh-over-retained-content, never two progress indicators), and the single-language Bahasa Indonesia rule. Future screen capabilities (profile, following feed, chat, search, settings) MODIFY-by-consuming these requirements rather than re-deriving them; the human-readable companion is `docs/03-UX-Design.md` § "Material 3 Design System / Foundation".
-
 ## Requirements
 ### Requirement: The app shell owns a single Scaffold and window insets
 
@@ -35,17 +34,22 @@ Bottom-navigation sections, primary actions (the composer FAB), and post-card af
 
 ### Requirement: Navigation and tab labels are visible in selected and unselected states
 
-`NavigationBarItem` and feed `Tab` labels SHALL remain visible in BOTH the selected and unselected states. Feed `Tab`s SHALL use the default `Tab` content color (selected = `primary` = brand cobalt, readable as-is). The bottom-nav `NavigationBarItem`s SHALL apply **readable, brand-aligned M3 content-color tokens explicitly** via `NavigationBarItemDefaults.colors(...)` — a single shared `nearYouNavigationBarItemColors()` helper (`AppShellScreen.kt`) — because the **bare** `NavigationBarItemDefaults.colors()` is NOT safe in this theme: as of Material 3 1.4 its default `selectedTextColor` resolves to `secondary` and `indicatorColor` to `secondaryContainer`, and `NearYouColorScheme` deliberately neutralizes those to near-white (`secondary = #EEF0F4`), collapsing the selected label to the background and hiding the indicator pill (the invisible-`Beranda` defect caught on-device). The applied tokens are `primaryContainer` (indicator pill), `onPrimaryContainer` (selected icon), `onSurface` (selected label), and `onSurfaceVariant` (unselected) — readable in light and dark. A selected bottom-nav or tab item SHALL never render an invisible (background-colored) label, and the selected nav label SHALL clear WCAG AA contrast (≥ 4.5:1) against the nav surface.
+`NavigationBarItem` and feed `Tab` labels SHALL remain visible in BOTH the selected and unselected states. Feed `Tab`s SHALL use the default `Tab` content color (selected = `primary` = brand cobalt, readable as-is). The bottom-nav `NavigationBarItem`s SHALL apply **readable, brand-aligned M3 content-color tokens explicitly** via `NavigationBarItemDefaults.colors(...)` — a single shared `nearYouNavigationBarItemColors()` helper (`AppShellScreen.kt`). As of Material 3 1.4 the bare `NavigationBarItemDefaults.colors()` default resolves `selectedTextColor` to `secondary` and `indicatorColor` to `secondaryContainer`; now that `NearYouColorScheme` defines those as genuine readable accents (no longer neutralized near-white), the bare default would render a *visible* selected label — so the override is **no longer a readability band-aid**. It is RETAINED as a deliberate **brand-identity** choice: the selected bottom-nav state SHALL use the PRIMARY (brand cobalt) family rather than M3's default `secondary` accent. The applied tokens are `primaryContainer` (indicator pill), `primary` (selected icon — brand cobalt), `onSurface` (selected label), and `onSurfaceVariant` (unselected icon + label) — readable in light and dark. A selected bottom-nav or tab item SHALL never render an invisible (background-colored) label, and the selected nav label SHALL clear WCAG AA contrast (≥ 4.5:1) against the nav surface.
 
 #### Scenario: Selected nav item label is readable (WCAG contrast)
 
 - **GIVEN** a `NavigationBarItem(selected = true)` composed under `NearYouTheme` with the shell's `nearYouNavigationBarItemColors()`
 - **THEN** the selected label's resolved content color (read via `LocalContentColor` in the label slot) clears **WCAG AA contrast (≥ 4.5:1)** against BOTH the `surface` and the `surfaceContainer` — a contrast check, NOT a mere inequality (a neutralized near-white-on-white selected label is unequal to the background yet unreadable, and would fail this)
 
-#### Scenario: Bottom-nav applies explicit readable tokens; tabs use the default
+#### Scenario: Bottom-nav applies explicit brand-family tokens; tabs use the default
 
 - **WHEN** inspecting the `NavigationBarItem` and `Tab` call sites
-- **THEN** the bottom-nav items get their colors from `nearYouNavigationBarItemColors()` (built on `NavigationBarItemDefaults.colors(...)` with the readable tokens above — NOT the bare default, which would resolve the selected label to the neutralized `secondary`), and the feed `Tab`s use the default `Tab` content color (no custom color that resolves to the container/background)
+- **THEN** the bottom-nav items get their colors from `nearYouNavigationBarItemColors()` (built on `NavigationBarItemDefaults.colors(...)` with the brand-family tokens above — selected icon = `primary`, indicator = `primaryContainer`, selected label = `onSurface`, unselected = `onSurfaceVariant` — NOT the bare default, which would resolve the selected label to `secondary`), and the feed `Tab`s use the default `Tab` content color (no custom color that resolves to the container/background)
+
+#### Scenario: Selected nav icon uses the brand cobalt primary
+
+- **WHEN** inspecting `nearYouNavigationBarItemColors()` in `AppShellScreen.kt`
+- **THEN** `selectedIconColor` resolves to `MaterialTheme.colorScheme.primary` (the brand cobalt `#1E4FD6`), `indicatorColor` to `primaryContainer`, `selectedTextColor` to `onSurface`, and the unselected icon + label to `onSurfaceVariant`; the selected icon color (`primary`) clears at least 3:1 against the indicator pill (`primaryContainer`)
 
 ### Requirement: Canonical list loading and refresh pattern
 

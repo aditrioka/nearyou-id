@@ -68,6 +68,9 @@ private const val BADGE_CD = "Notifikasi belum dibaca" // notifications_badge co
 /** WCAG 2.x AA contrast threshold for normal text (4.5:1) — the selected nav label must clear it. */
 private const val MIN_LABEL_CONTRAST = 4.5
 
+/** WCAG 2.x AA non-text/UI-component threshold (3:1) — the selected nav icon vs its pill must clear it. */
+private const val MIN_ICON_CONTRAST = 3.0
+
 /** WCAG relative-luminance contrast ratio between two sRGB [Color]s (1.0 = none … 21.0 = black/white). */
 private fun wcagContrast(
     a: Color,
@@ -239,15 +242,14 @@ class AppShellScreenTest {
         }
     }
 
-    // mobile-design-system § "Selected nav item label is visible" — the LITERAL scenario, asserted by
-    // CONTRAST, not mere inequality. The bare NavigationBarItemDefaults.colors() does NOT satisfy this in
-    // this brand theme: as of M3 1.4 its default selectedTextColor = `secondary`, which is neutral
-    // near-white here (#EEF0F4) → invisible-on-white (the bug the operator caught on-device). The shell
-    // therefore applies `nearYouNavigationBarItemColors()`. This reads the ACTUAL rendered selected-label
-    // color (LocalContentColor in the label slot) and asserts it clears WCAG AA contrast (4.5:1) against
-    // BOTH the surface and the surfaceContainer (the nav's possible backgrounds). A near-white-on-white
-    // selected label scores ~1.1:1 and would FAIL here — which the earlier inequality-only check wrongly
-    // passed. Pairs with the ShellAndTimelineSourceGuardTest source guard.
+    // mobile-design-system § "Selected nav item label is readable (WCAG contrast)" — the LITERAL scenario,
+    // asserted by CONTRAST, not mere inequality. `secondary` is now a readable accent, so the override is a
+    // deliberate brand-identity choice (selected nav = primary cobalt family) rather than a readability
+    // band-aid; the selected LABEL stays `onSurface`. This reads the ACTUAL rendered selected-label color
+    // (LocalContentColor in the label slot) and asserts it clears WCAG AA contrast (4.5:1) against BOTH the
+    // surface and the surfaceContainer (the nav's possible backgrounds). A near-white-on-white selected
+    // label scores ~1.1:1 and would FAIL here — which an inequality-only check would wrongly pass. Pairs
+    // with the ShellAndTimelineSourceGuardTest source guard.
     @Test
     fun selectedNavLabel_hasReadableContrastAgainstTheNavBackground() {
         var selectedLabelColor = Color.Unspecified
@@ -280,6 +282,41 @@ class AppShellScreenTest {
             assertTrue(
                 vsContainer >= MIN_LABEL_CONTRAST,
                 "selected nav label must be readable on the surfaceContainer (WCAG contrast $vsContainer < $MIN_LABEL_CONTRAST)",
+            )
+        }
+    }
+
+    // mobile-design-system § "Selected nav icon uses the brand cobalt primary" — the override's selected
+    // icon is the brand `primary` (cobalt #1E4FD6), NOT `onPrimaryContainer`, and it must still clear the
+    // M3 non-text 3:1 contrast against its indicator pill (`primaryContainer`). Reads the ACTUAL rendered
+    // icon-slot content color (LocalContentColor) so a future token change can't silently regress it.
+    @Test
+    fun selectedNavIcon_isBrandPrimary_andContrastsWithThePill() {
+        var selectedIconColor = Color.Unspecified
+        var primary = Color.Unspecified
+        var indicatorPill = Color.Unspecified
+        runComposeUiTest {
+            setContent {
+                NearYouTheme {
+                    primary = MaterialTheme.colorScheme.primary
+                    indicatorPill = MaterialTheme.colorScheme.primaryContainer
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = true,
+                            onClick = {},
+                            colors = nearYouNavigationBarItemColors(),
+                            icon = { selectedIconColor = LocalContentColor.current },
+                            label = {},
+                        )
+                    }
+                }
+            }
+            waitForIdle()
+            assertEquals(primary, selectedIconColor, "the selected nav icon uses the brand cobalt primary")
+            val vsPill = wcagContrast(selectedIconColor, indicatorPill)
+            assertTrue(
+                vsPill >= MIN_ICON_CONTRAST,
+                "selected nav icon must contrast with the indicator pill (WCAG contrast $vsPill < $MIN_ICON_CONTRAST)",
             )
         }
     }
