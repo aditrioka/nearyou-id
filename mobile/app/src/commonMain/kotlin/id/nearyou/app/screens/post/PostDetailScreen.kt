@@ -475,7 +475,8 @@ private fun ReplyComposer(
 }
 
 /** Renders a [PostDetailBanner] message — the cap upsells (with the coarse reset-hours countdown filling
- *  the `%1$s`) or the generic retryable network copy. Always via `stringResource` (no literals). */
+ *  the `%1$s`), the terminal post-gone copy, or the generic retryable network copy. Always via
+ *  `stringResource` (no literals). */
 @Composable
 private fun BannerText(
     banner: PostDetailBanner,

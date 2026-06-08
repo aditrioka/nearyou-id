@@ -261,8 +261,13 @@ class PostDetailScreenTest {
 
     @Test
     fun likeFailure_restoresTheExactPriorCount() {
-        // A known count (42 suka); the optimistic flip bumps to 43, then a failure must restore EXACTLY 42
-        // (the count is restored directly from the captured prior value, not via an inverse delta).
+        // Invariant guard: a known count (42 suka), the optimistic flip bumps to 43, then a failure must
+        // fully undo it back to 42 (never left stuck at 43). NOTE: with the synchronous fake the count is
+        // already resolved at tap time, so this does NOT distinguish the direct prior-value restore from an
+        // inverse delta — both land on 42. The off-by-one those two diverge on only arises if the initial
+        // count fetch resolves BETWEEN the optimistic flip and the failure (a tap during count-load), which
+        // this fake can't sequence; that case is prevented by construction (priorCount captured before the
+        // flip — see PostDetailScreen.onToggleLike).
         installKoin(FakePostDetailFlow(likeCountOutcome = LikeCountOutcome.Available(42), toggleOutcome = LikeOutcome.NetworkError))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(likedByViewer = false), onBack = {}) } } }
