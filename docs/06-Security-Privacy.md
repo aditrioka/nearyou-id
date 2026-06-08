@@ -275,6 +275,8 @@ Principle: **all actions succeed from the banned user's perspective, invisible t
 
 > Database view implementation + CI lint: see `05-Implementation.md`.
 
+**Admin entry point (where `is_shadow_banned` is set TRUE).** The Report Queue resolution action `shadow_ban_author` (`POST /admin/moderation-queue/{id}/resolve`, capability `admin-report-queue`) sets `users.is_shadow_banned = TRUE` on the resolved offending author. Unlike the sibling `suspend_author_7d` / `ban_author` resolutions, it writes **no** user-facing notification (no `account_action_applied`, no other `notifications` row) — the absence of a notification is the stealth invariant (a shadow ban that notified would defeat its own purpose, since the whole point is invisibility to the banned user). The action still writes its `admin_actions_log` row for accountability. This is the first admin surface that sets `is_shadow_banned`.
+
 ### Known Leak Surfaces (Accepted Risk, Documented)
 
 Shadow ban is not 100% invisible across multiple devices:

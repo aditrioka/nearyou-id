@@ -699,6 +699,8 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 **Impact (if shipped):** Low-during-MVP (single trusted operator; the multi-admin period is gated behind WebAuthn per `admin-login`), rising with admin headcount. A compromised/phished admin session is the motivating threat; the audit trail + reversibility make the damage detectable and undoable, but unbounded-rate mass-suspension is a real (if recoverable) abuse vector until the limiter lands.
 
+**Urgency update (2026-06-08):** `admin-report-queue-resolution-actions` (PR [#160](https://github.com/aditrioka/nearyou-id/pull/160)) shipped full in-panel enforcement — including **permanent ban + shadow-ban** via `POST /admin/moderation-queue/{id}/resolve`, two NEW destructive surfaces beyond the reversible suspend this entry was filed against. A phished admin session can now mass-ban / mass-shadow-ban in-panel at unbounded rate. That change's design Risks explicitly flags this as RAISING the urgency of this limiter and **recommends sequencing it as the very next admin pick.** Same interim mitigations apply (CSRF, idle + absolute session caps, IAP, immutable audit, reversibility: ban→unban, shadow-ban→clear flag), but the blast radius is materially larger.
+
 **Ambiguity to resolve first:** Counter substrate. Options: (a) a Redis-backed per-admin sliding-window counter (reuses the existing `RedisRateLimiter` machinery + the `{scope:<admin_id>}` hash-tag pattern, but a destructive-action limiter that *fails soft* when Redis is down is a weaker guarantee), vs (b) a `COUNT(*) FROM admin_actions_log WHERE admin_id = ? AND created_at > NOW() - INTERVAL '1 hour'` DB check (no new infra, authoritative, no fail-soft hole, but a read-per-write coupled to the audit-table write cadence). Resolve in the follow-up's design.md; (b) is the likely first cut given low admin write volume.
 
 **Action items:**
@@ -765,26 +767,6 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Action items:**
 - [ ] When the first intra-tab destination ships (post detail / profile), file OpenSpec change `mobile-home-tab-host-per-tab-backstacks` introducing per-tab `NavDisplay` back stacks (a tab-keyed back-stack map) while preserving the `HomeRoute`-scoped feed-VM no-refetch invariant; MODIFIES `mobile-home-tab-host` § "Tab selection is serializable and survives process death".
 - [ ] Delete this entry once per-tab back stacks ship.
-
----
-
-## admin-report-queue-resolution-actions
-
-**Discovered during:** `admin-report-queue-viewer` archive §8.2 (deferred-by-design; recorded as the spec requirement "Report resolution write-back and the edit-history filter are explicitly deferred").
-
-**Status:** open
-
-**Finding:** The `admin-report-queue` read viewer (`GET /admin/reports`, Admin #6) deliberately ships read-only — it surfaces the backlog and deep-links the offending user to `/admin/users`, but provides NO surface to resolve a report in place. The write-back half (mark a report actioned/dismissed → set `reports.status` / `reports.reviewed_by` / `reports.reviewed_at`, set `moderation_queue.resolution` / `resolved_by` / `resolved_at`, and write one immutable `admin_actions_log` audit row, all atomically) is the natural fast-follow — exactly as `admin-actions-log-viewer` (read) preceded `admin-user-moderation` (write). The `moderation_queue.resolution` 8-enum + `reports.status` 3-enum shipped at V9; the `reviewed_by`/`resolved_by` → `admin_users(id) ON DELETE SET NULL` FKs shipped at V16.
-
-**Specs at fault:** none — `openspec/specs/admin-report-queue/spec.md` § "Report resolution write-back and the edit-history filter are explicitly deferred" positively requires this be a separate change.
-**Code at fault:** none — the read route is correctly mutation-free (verified by the read-only negative-guard test).
-**Docs at fault:** none — `docs/07-Operations.md` § Core Features "Report Queue" now lists the in-row resolution actions as Still DESIGN.
-
-**Impact (if shipped):** closes the moderation loop in-panel (today a moderator resolves by clicking through to `/admin/users` suspend/unban; the queue row's own `status` stays `pending` until this lands). Role-gated + CSRF-gated like `admin-user-moderation`.
-
-**Action items:**
-- [ ] File OpenSpec change `admin-report-queue-resolution-actions`: POST resolution endpoint(s) under the admin gate (CSRF + role-gated), atomic status transitions on `reports` + `moderation_queue`, one `admin_actions_log` row per action, in-row resolution controls in the `reports-table.peb` fragment.
-- [ ] Delete this entry once the change merges.
 
 ---
 

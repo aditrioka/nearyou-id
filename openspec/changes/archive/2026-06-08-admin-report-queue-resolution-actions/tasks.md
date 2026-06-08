@@ -43,10 +43,10 @@
 ## 5. Spec sync, docs, follow-ups
 
 - [x] 5.1 `openspec validate admin-report-queue-resolution-actions --strict` green (RENAMED + MODIFIED + ADDED deltas resolve against `openspec/specs/admin-report-queue/spec.md`).
-- [ ] 5.2 (archive-time) `openspec archive admin-report-queue-resolution-actions` → `openspec/specs/admin-report-queue/spec.md` reflects the renamed/modified + new requirements; `openspec validate --specs admin-report-queue --strict` green.
-- [ ] 5.3 (archive-time) `docs/07-Operations.md` § Core Features "Report Queue": flip the in-row resolution actions (Hide/Dismiss/Suspend/Ban/Shadow-ban) from "Still DESIGN" to shipped; keep the "post has edit history" filter DESIGN; update the top-of-file Status "What remains DESIGN" to drop the resolution write-back.
-- [ ] 5.4 (archive-time) `docs/06-Security-Privacy.md` § Shadow ban: if it enumerates shadow-ban entry points, note the report-queue resolution now sets `is_shadow_banned` (with the no-notification stealth invariant). Reconcile at archive.
-- [ ] 5.5 (archive-time) `FOLLOW_UPS.md`: delete the `admin-report-queue-resolution-actions` entry; leave `admin-report-queue-has-edit-history-filter` + `admin-destructive-action-rate-limit` intact; consider adding a breadcrumb that the rate-limit follow-up is now higher-urgency.
+- [x] 5.2 (archive-time) `openspec archive admin-report-queue-resolution-actions` → `openspec/specs/admin-report-queue/spec.md` reflects the renamed/modified + new requirements; `openspec validate --specs admin-report-queue --strict` green.
+- [x] 5.3 (archive-time) `docs/07-Operations.md` § Core Features "Report Queue": flip the in-row resolution actions (Hide/Dismiss/Suspend/Ban/Shadow-ban) from "Still DESIGN" to shipped; keep the "post has edit history" filter DESIGN; update the top-of-file Status "What remains DESIGN" to drop the resolution write-back.
+- [x] 5.4 (archive-time) `docs/06-Security-Privacy.md` § Shadow ban: if it enumerates shadow-ban entry points, note the report-queue resolution now sets `is_shadow_banned` (with the no-notification stealth invariant). Reconcile at archive.
+- [x] 5.5 (archive-time) `FOLLOW_UPS.md`: delete the `admin-report-queue-resolution-actions` entry; leave `admin-report-queue-has-edit-history-filter` + `admin-destructive-action-rate-limit` intact; consider adding a breadcrumb that the rate-limit follow-up is now higher-urgency.
 
 ## 6. Gate + pre-archive staging smoke
 
