@@ -363,30 +363,22 @@ class ReportQueueRouteTest : StringSpec({
         ReportQueueTestSupport.totalQueueCount(dataSource) shouldBe queueBefore
     }
 
-    "5.14 — no resolution control is rendered; has_edit_history is ignored; no resolution route is mounted" {
+    "5.14 — the deferred has_edit_history prioritization filter is ignored (200, parameter has no effect)" {
+        // The in-row resolution controls + the `/{id}/resolve` write-back routes
+        // shipped in `admin-report-queue-resolution-actions` (inverting this
+        // viewer's original "strictly read-only / no resolution control" guard);
+        // their coverage now lives in AdminReportResolutionRouteTest /
+        // ReportResolutionRepositoryTest. What THIS capability still owns here is
+        // the remaining deferral: the "post has edit history" prioritization
+        // filter (`admin-report-queue-has-edit-history-filter`).
         val token = authToken()
         val reporter = user()
         ReportQueueTestSupport.seedReport(dataSource, reporter, "user", user(), base, status = "pending", reasonNote = "rq514")
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
-            val body = client.get("/admin/reports") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
-            // status shown read-only — no resolution form/button posting to a resolution endpoint
-            body shouldContain "rq514"
-            body shouldNotContain "mark actioned"
-            body shouldNotContain "action=\"/admin/reports"
-
-            // the deferred edit-history prioritization filter is ignored (200, not a 4xx)
             val withParam =
                 client.get("/admin/reports?has_edit_history=true") { header(HttpHeaders.Cookie, cookie(token)) }
             withParam.status shouldBe HttpStatusCode.OK
             withParam.bodyAsText() shouldContain "rq514"
-
-            // no resolution route is mounted by this change
-            val resolve =
-                client.post("/admin/reports/${UUID.randomUUID()}/resolve") {
-                    header(HttpHeaders.Cookie, cookie(token))
-                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
-                }
-            resolve.status shouldBe HttpStatusCode.NotFound
         }
     }
 

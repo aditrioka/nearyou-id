@@ -213,6 +213,76 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a report-status resolution (`admin-report-queue-resolution-
+     * actions` capability): `POST /admin/reports/{id}/resolve` transitioning a
+     * `reports` row `pending → actioned | dismissed`. Joins the caller's [conn]
+     * so the audit INSERT commits atomically with the `reports` UPDATE
+     * ([id.nearyou.app.admin.reportqueue.ReportResolutionRepository], design D4).
+     * `targetType = 'report'`, `targetId` = the report id; `beforeState` /
+     * `afterState` record the status transition. `adminId` is the acting human
+     * admin, never the `system` sentinel.
+     */
+    fun logReportResolved(
+        conn: Connection,
+        adminId: UUID,
+        reportId: UUID,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "report_resolved",
+            adminId = adminId,
+            targetType = "report",
+            targetId = reportId.toString(),
+            reason = null,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a moderation-queue resolution that PERFORMED its enforcement
+     * (`admin-report-queue-resolution-actions` capability): `POST
+     * /admin/moderation-queue/{id}/resolve` transitioning a `moderation_queue`
+     * row `pending → resolved` AND applying the named enforcement. Joins the
+     * caller's [conn] so this audit INSERT commits atomically with the
+     * enforcement write(s) + the queue UPDATE (+ any `account_action_applied`
+     * notification) in ONE transaction (design D4). `targetType =
+     * 'moderation_queue'`, `targetId` = the queue id; the [afterState] JSONB
+     * records BOTH the `resolution` value AND the enforcement effect (e.g.
+     * `{"resolution":"ban_author","is_banned":true,"suspended_until":null}`) so
+     * the audit trail is self-describing (design D9). `adminId` is the acting
+     * human admin, never the `system` sentinel.
+     */
+    fun logModerationQueueResolved(
+        conn: Connection,
+        adminId: UUID,
+        queueId: UUID,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "moderation_queue_resolved",
+            adminId = adminId,
+            targetType = "moderation_queue",
+            targetId = queueId.toString(),
+            reason = null,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Own-connection audit write for the standalone login / logout / CSRF
      * events — opens, writes, and (via `use`) closes its own connection.
      * There is nothing to be atomic against on those paths, so each is a

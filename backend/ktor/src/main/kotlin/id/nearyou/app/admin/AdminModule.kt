@@ -10,10 +10,12 @@ import id.nearyou.app.admin.auth.adminAuth
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
+import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
 import id.nearyou.app.admin.routes.adminActionsLog
 import id.nearyou.app.admin.routes.adminIndex
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
 import id.nearyou.app.admin.routes.adminReportQueue
+import id.nearyou.app.admin.routes.adminReportResolution
 import id.nearyou.app.admin.routes.adminUserModeration
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -62,6 +64,8 @@ fun Application.admin(
     val rejectedIdentifiersRepository = AdminRejectedIdentifiersRepository(dataSource)
     val reportQueueRepository = ReportQueueRepository(dataSource)
     val userModerationRepository = UserModerationRepository(dataSource, auditLogger)
+    val reportResolutionRepository =
+        ReportResolutionRepository(dataSource, auditLogger, userModerationRepository)
     val loginRoutes =
         AdminLoginRoutes(
             adminUserRepository = adminUserRepository,
@@ -124,6 +128,12 @@ fun Application.admin(
                 adminActionsLog(actionsLogRepository, csrfHmacKeyProvider)
                 adminRejectedIdentifiers(rejectedIdentifiersRepository, csrfHmacKeyProvider)
                 adminReportQueue(reportQueueRepository, csrfHmacKeyProvider)
+                adminReportResolution(
+                    reportResolutionRepository,
+                    reportQueueRepository,
+                    auditLogger,
+                    csrfHmacKeyProvider,
+                )
                 adminUserModeration(userModerationRepository, auditLogger, csrfHmacKeyProvider)
             }
         }

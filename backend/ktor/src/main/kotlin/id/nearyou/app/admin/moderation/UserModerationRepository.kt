@@ -95,50 +95,28 @@ class UserModerationRepository(
         dataSource.connection.use { conn ->
             conn.autoCommit = false
             try {
-                val current =
-                    lockUser(conn, targetId) ?: run {
-                        conn.rollback()
-                        return SuspendOutcome.NotFound
-                    }
-                if (current.deletedAt != null) {
-                    conn.rollback()
-                    return SuspendOutcome.RejectedSoftDeleted
-                }
-                if (current.isBanned && current.suspendedUntil == null) {
-                    conn.rollback()
-                    return SuspendOutcome.RejectedPermanentBan
-                }
-
-                val newSuspendedUntil =
-                    conn.prepareStatement(
-                        """
-                        UPDATE users
-                           SET is_banned = TRUE, suspended_until = NOW() + INTERVAL '7 days'
-                         WHERE id = ?
-                        RETURNING suspended_until
-                        """.trimIndent(),
-                    ).use { ps ->
-                        ps.setObject(1, targetId)
-                        ps.executeQuery().use { rs ->
-                            check(rs.next()) { "suspend RETURNING yielded no row for target $targetId (impossible under FOR UPDATE)" }
-                            rs.getTimestamp("suspended_until").toInstant()
+                val outcome =
+                    when (val enforcement = applySuspendUserUpdate(conn, targetId)) {
+                        SuspendEnforcement.NotFound -> SuspendOutcome.NotFound
+                        SuspendEnforcement.RejectedSoftDeleted -> SuspendOutcome.RejectedSoftDeleted
+                        SuspendEnforcement.RejectedPermanentBan -> SuspendOutcome.RejectedPermanentBan
+                        is SuspendEnforcement.Applied -> {
+                            auditLogger.logUserSuspended(
+                                conn = conn,
+                                adminId = actingAdminId,
+                                targetUserId = targetId,
+                                reason = reason,
+                                beforeState = stateJson(enforcement.beforeIsBanned, enforcement.beforeSuspendedUntil),
+                                afterState = stateJson(isBanned = true, suspendedUntil = enforcement.newSuspendedUntil),
+                                ip = ip,
+                                userAgent = userAgent,
+                            )
+                            insertSuspendNotification(conn, targetId, enforcement.newSuspendedUntil)
+                            SuspendOutcome.Applied(enforcement.newSuspendedUntil)
                         }
                     }
-
-                auditLogger.logUserSuspended(
-                    conn = conn,
-                    adminId = actingAdminId,
-                    targetUserId = targetId,
-                    reason = reason,
-                    beforeState = stateJson(current.isBanned, current.suspendedUntil),
-                    afterState = stateJson(isBanned = true, suspendedUntil = newSuspendedUntil),
-                    ip = ip,
-                    userAgent = userAgent,
-                )
-                insertSuspendNotification(conn, targetId, newSuspendedUntil)
-
-                conn.commit()
-                SuspendOutcome.Applied(newSuspendedUntil)
+                if (outcome is SuspendOutcome.Applied) conn.commit() else conn.rollback()
+                outcome
             } catch (e: Throwable) {
                 runCatching { conn.rollback() }
                 throw e
@@ -151,6 +129,55 @@ class UserModerationRepository(
                 runCatching { conn.autoCommit = true }
             }
         }
+
+    /**
+     * The shared 7-day-suspend USER-STATE enforcement on a caller-owned [conn]
+     * (no commit/rollback, NO audit row, NO notification): `SELECT … FOR UPDATE`
+     * the target, evaluate the suspend guards (soft-deleted →
+     * [SuspendEnforcement.RejectedSoftDeleted]; already permanently banned →
+     * [SuspendEnforcement.RejectedPermanentBan]; absent → [SuspendEnforcement.NotFound]),
+     * and on a pass apply `is_banned = TRUE, suspended_until = NOW() + INTERVAL
+     * '7 days'`, returning the prior state + the server-computed new expiry.
+     *
+     * Extracted so BOTH [suspend] (which then writes the `user_suspended` audit
+     * row + the sanitized notification and commits) AND the report-queue
+     * `suspend_author_7d` resolution (which instead writes ONE
+     * `moderation_queue_resolved` audit row + the same notification, joining the
+     * queue-status UPDATE in the SAME transaction — design D4) reuse one guard +
+     * UPDATE path. There is no divergent second suspend implementation; the
+     * guard semantics (`IS NULL` permanent-ban check, re-suspendable elapsed
+     * window) are defined once, here. `token_version` is NOT modified (mirrors
+     * the shipped suspend/unban).
+     */
+    internal fun applySuspendUserUpdate(
+        conn: Connection,
+        targetId: UUID,
+    ): SuspendEnforcement {
+        val current = lockUser(conn, targetId) ?: return SuspendEnforcement.NotFound
+        if (current.deletedAt != null) return SuspendEnforcement.RejectedSoftDeleted
+        if (current.isBanned && current.suspendedUntil == null) return SuspendEnforcement.RejectedPermanentBan
+
+        val newSuspendedUntil =
+            conn.prepareStatement(
+                """
+                UPDATE users
+                   SET is_banned = TRUE, suspended_until = NOW() + INTERVAL '7 days'
+                 WHERE id = ?
+                RETURNING suspended_until
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, targetId)
+                ps.executeQuery().use { rs ->
+                    check(rs.next()) { "suspend RETURNING yielded no row for target $targetId (impossible under FOR UPDATE)" }
+                    rs.getTimestamp("suspended_until").toInstant()
+                }
+            }
+        return SuspendEnforcement.Applied(
+            beforeIsBanned = current.isBanned,
+            beforeSuspendedUntil = current.suspendedUntil,
+            newSuspendedUntil = newSuspendedUntil,
+        )
+    }
 
     /**
      * Lift a ban on [targetId] (`is_banned = FALSE`, `suspended_until = NULL`) in
@@ -248,8 +275,13 @@ class UserModerationRepository(
      * reason (which is moderator-internal and lives only in `admin_actions_log`).
      * `target_id` is NOT duplicated inside `body_data`; `actor_user_id` is left
      * NULL (the actor is an admin, not a `public.users` row).
+     *
+     * `internal` (not `private`) so the report-queue `suspend_author_7d`
+     * resolution reuses the EXACT same sanitized notification on its own
+     * transaction connection (design D4) — the suspend notification shape is
+     * defined once, here.
      */
-    private fun insertSuspendNotification(
+    internal fun insertSuspendNotification(
         conn: Connection,
         targetId: UUID,
         suspendedUntil: Instant,
@@ -328,6 +360,33 @@ sealed interface SuspendOutcome {
 
     /** No user resolves to the target id. */
     data object NotFound : SuspendOutcome
+}
+
+/**
+ * Internal result of [UserModerationRepository.applySuspendUserUpdate] — the
+ * suspend guards + `users` UPDATE outcome WITHOUT the audit row or notification
+ * (the caller writes those, choosing `user_suspended` for the standalone route
+ * or `moderation_queue_resolved` for the report-queue resolution). Distinct
+ * from the public [SuspendOutcome] so the report-queue resolution maps a guard
+ * rejection onto its own outcome vocabulary (design D4).
+ */
+internal sealed interface SuspendEnforcement {
+    /** Suspend applied; carries the prior state (for the audit `before_state`)
+     *  + the server-computed new expiry. */
+    data class Applied(
+        val beforeIsBanned: Boolean,
+        val beforeSuspendedUntil: Instant?,
+        val newSuspendedUntil: Instant,
+    ) : SuspendEnforcement
+
+    /** Target is soft-deleted (`deleted_at IS NOT NULL`). */
+    data object RejectedSoftDeleted : SuspendEnforcement
+
+    /** Target is already permanently banned — suspend would downgrade it. */
+    data object RejectedPermanentBan : SuspendEnforcement
+
+    /** No user resolves to the target id. */
+    data object NotFound : SuspendEnforcement
 }
 
 /** Typed result of [UserModerationRepository.unban]. */
