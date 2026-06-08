@@ -67,6 +67,12 @@ The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equiv
 - **WHEN** the screen is in its initial-load state
 - **THEN** the `PullToRefreshBox` `isRefreshing` argument is `false` (only the skeleton/initial indicator shows) — exactly one progress indicator total
 
+#### Scenario: Pull-to-refresh works from the empty / error state
+
+- **GIVEN** the screen in the empty or error state (a non-`Content` post-load state) with a counting `FakeGlobalTimelineFlow`
+- **WHEN** the pull-to-refresh gesture is performed
+- **THEN** the reload fetch is invoked (the empty/error state is rendered inside a scrollable so the gesture is recognized, per `mobile-design-system` § "Canonical list loading and refresh pattern") AND the state remains that same non-`Content` state during the refresh
+
 #### Scenario: next_cursor is parsed but no load-more is wired
 
 - **WHEN** inspecting the repository/screen for cursor usage
