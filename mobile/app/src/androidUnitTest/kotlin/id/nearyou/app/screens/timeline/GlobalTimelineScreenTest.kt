@@ -24,6 +24,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val TITLE = "Seluruh Indonesia" // timeline_global_title
@@ -184,6 +185,27 @@ class GlobalTimelineScreenTest {
             onNodeWithTag(GLOBAL_TIMELINE_LIST_TAG).performTouchInput { swipeDown() }
             waitForIdle()
             assertEquals(2, fake.loadInvocationCount, "pull-to-refresh re-invokes the fetch")
+        }
+    }
+
+    // mobile-global-timeline § "Global post card opens post detail via a hoisted onOpenPost lambda" —
+    // tapping a card invokes the hoisted onOpenPost with the card's PII-free fields (no distance on the
+    // GlobalTimelinePost projection; the host maps it to distanceM = null on the route).
+    @Test
+    fun postCard_tap_invokesOnOpenPostWithDisplayFields() {
+        installKoin(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "g9", content = "TAP_GLOBAL", cityName = "Medan")), null, null))
+        var tapped: GlobalTimelinePost? = null
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen(onOpenPost = { tapped = it }) } } }
+            onNodeWithTag(GLOBAL_POST_CARD_TAG).performClick()
+            waitForIdle()
+            assertEquals("g9", tapped?.id)
+            assertEquals("TAP_GLOBAL", tapped?.content)
+            assertEquals("Medan", tapped?.cityName)
+            // No coordinates in the payload — GlobalTimelinePost drops the DTO's lat/long (fakeGlobalPost
+            // defaults -6.21 / 106.85); structurally absent, asserted explicitly per the spec scenario.
+            assertFalse(tapped.toString().contains("-6.21"), "no latitude in the onOpenPost payload")
+            assertFalse(tapped.toString().contains("106.85"), "no longitude in the onOpenPost payload")
         }
     }
 }

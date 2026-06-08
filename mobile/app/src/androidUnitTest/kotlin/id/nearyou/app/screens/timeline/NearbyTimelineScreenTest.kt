@@ -28,6 +28,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml) — captured here
 // so the render assertions also pin the timeline copy.
@@ -246,6 +247,27 @@ class NearbyTimelineScreenTest {
             onNodeWithText(TITLE).assertExists()
             onNodeWithText("HOSTED_POST").assertExists()
             onNodeWithText(HOME_PLACEHOLDER_TITLE).assertDoesNotExist()
+        }
+    }
+
+    // mobile-nearby-timeline § "Nearby post card opens post detail via a hoisted onOpenPost lambda" —
+    // tapping a card invokes the hoisted onOpenPost with the card's PII-free display fields (the
+    // NearbyTimelinePost projection structurally carries no author id / coordinates).
+    @Test
+    fun postCard_tap_invokesOnOpenPostWithDisplayFields() {
+        installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(id = "p9", content = "TAP_POST", cityName = "Bandung")), null, null))
+        var tapped: NearbyTimelinePost? = null
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen(onOpenPost = { tapped = it }) } } }
+            onNodeWithTag(NEARBY_POST_CARD_TAG).performClick()
+            waitForIdle()
+            assertEquals("p9", tapped?.id)
+            assertEquals("TAP_POST", tapped?.content)
+            assertEquals("Bandung", tapped?.cityName)
+            // No coordinates in the payload — NearbyTimelinePost drops the DTO's lat/long (fakeNearbyPost
+            // defaults -6.21 / 106.85); structurally absent, asserted explicitly per the spec scenario.
+            assertFalse(tapped.toString().contains("-6.21"), "no latitude in the onOpenPost payload")
+            assertFalse(tapped.toString().contains("106.85"), "no longitude in the onOpenPost payload")
         }
     }
 }

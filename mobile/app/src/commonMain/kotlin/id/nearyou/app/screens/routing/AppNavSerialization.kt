@@ -28,6 +28,7 @@ val navSavedStateConfiguration: SavedStateConfiguration =
                     subclass(AgeGateRoute::class, AgeGateRoute.serializer())
                     subclass(PostCreationRoute::class, PostCreationRoute.serializer())
                     subclass(ConsentRoute::class, ConsentRoute.serializer())
+                    subclass(PostDetailRoute::class, PostDetailRoute.serializer())
                 }
             }
     }

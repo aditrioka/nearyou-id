@@ -23,7 +23,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.screens.timeline.FollowingPlaceholderScreen
+import id.nearyou.app.screens.timeline.GlobalTimelinePost
 import id.nearyou.app.screens.timeline.GlobalTimelineScreen
+import id.nearyou.app.screens.timeline.NearbyTimelinePost
 import id.nearyou.app.screens.timeline.NearbyTimelineScreen
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_post
@@ -59,9 +61,17 @@ import org.jetbrains.compose.resources.stringResource
  *
  * The Nearby tab's empty-state "lihat Global" CTA is wired to select the Global tab (host-level tab
  * state, not a back-stack reference — `NearbyTimelineScreen` stays navigation-free).
+ *
+ * [onOpenPost] is hoisted exactly like [onOpenComposer]: the Nearby + Global tab content invoke it with
+ * the tapped card's non-PII fields (as a [PostDetailTarget]); the actual root-stack `PostDetailRoute`
+ * push is wired at the `HomeScreen(...)` call site in `appEntryProvider` (HomeScreen holds NO back-stack
+ * reference). The Following tab (a deferred placeholder with no cards) wires no `onOpenPost`.
  */
 @Composable
-fun HomeScreen(onOpenComposer: () -> Unit) {
+fun HomeScreen(
+    onOpenComposer: () -> Unit,
+    onOpenPost: (PostDetailTarget) -> Unit = {},
+) {
     var selectedTab by rememberSaveable { mutableStateOf(Tab.Nearby) }
     Scaffold(
         floatingActionButton = {
@@ -97,9 +107,13 @@ fun HomeScreen(onOpenComposer: () -> Unit) {
                 // Each tab screen composes DIRECTLY under HomeRoute (no per-tab NavDisplay), so each
                 // feed's viewModel { } resolves to the HomeRoute store (design D1/D2) — switching away
                 // and back does not re-fetch.
-                Tab.Nearby -> NearbyTimelineScreen(onSeeGlobal = { selectedTab = Tab.Global })
+                Tab.Nearby ->
+                    NearbyTimelineScreen(
+                        onSeeGlobal = { selectedTab = Tab.Global },
+                        onOpenPost = { post -> onOpenPost(post.toTarget()) },
+                    )
                 Tab.Following -> FollowingPlaceholderScreen()
-                Tab.Global -> GlobalTimelineScreen()
+                Tab.Global -> GlobalTimelineScreen(onOpenPost = { post -> onOpenPost(post.toTarget()) })
             }
         }
     }
@@ -141,3 +155,45 @@ private fun RowScope.HomeTabItem(
         label = { Text(text = label) },
     )
 }
+
+/**
+ * The non-PII display fields a tapped feed card carries up to the tab host's hoisted [HomeScreen]
+ * `onOpenPost`, which the `appEntryProvider` call site turns into a root-stack `PostDetailRoute` push.
+ * Deliberately distinct from `PostDetailRoute` (a routing-layer `NavKey`) so the feed screens + the tab
+ * host stay free of the routing types — mirroring how the cards already carry PII-free
+ * [NearbyTimelinePost] / [GlobalTimelinePost] rather than the wire DTOs. Carries NO `latitude`/
+ * `longitude`: raw coordinates must never reach the serialized back stack. [distanceM] is `null` for a
+ * Global card (no spatial filter).
+ */
+data class PostDetailTarget(
+    val postId: String,
+    val content: String,
+    val cityName: String,
+    val distanceM: Double?,
+    val createdAtIso: String,
+    val likedByViewer: Boolean,
+    val replyCount: Int,
+)
+
+private fun NearbyTimelinePost.toTarget(): PostDetailTarget =
+    PostDetailTarget(
+        postId = id,
+        content = content,
+        cityName = cityName,
+        distanceM = distanceM,
+        createdAtIso = createdAt,
+        likedByViewer = likedByViewer,
+        replyCount = replyCount,
+    )
+
+private fun GlobalTimelinePost.toTarget(): PostDetailTarget =
+    PostDetailTarget(
+        postId = id,
+        content = content,
+        cityName = cityName,
+        // Global has no spatial filter → no distance on the detail header.
+        distanceM = null,
+        createdAtIso = createdAt,
+        likedByViewer = likedByViewer,
+        replyCount = replyCount,
+    )

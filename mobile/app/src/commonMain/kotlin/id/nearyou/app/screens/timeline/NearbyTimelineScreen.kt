@@ -64,6 +64,9 @@ import org.koin.compose.koinInject
 /** Test tag on the scrollable post list — lets the screen test target a pull-to-refresh swipe. */
 const val NEARBY_TIMELINE_LIST_TAG: String = "nearbyTimelineList"
 
+/** Test tag on each post card — lets the screen test target the open-detail tap. */
+const val NEARBY_POST_CARD_TAG: String = "nearbyPostCard"
+
 /**
  * The first product surface — the authenticated Nearby feed, gated on a granted location permission
  * (`mobile-location-permission-flow`). Injects [LocationPermissionController] and drives a
@@ -88,9 +91,18 @@ const val NEARBY_TIMELINE_LIST_TAG: String = "nearbyTimelineList"
  * wires it to select the Global tab), NOT a back-stack reference, so the navigation-free property is
  * preserved (`mobile-nearby-timeline` § "Empty area shows the sparse-area copy plus a lihat-Global
  * CTA"). [onSeeGlobal] defaults to a no-op so direct (non-tab-host) composition stays valid.
+ *
+ * [onOpenPost] is the hoisted card-tap callback carrying the tapped card's PII-free [NearbyTimelinePost]
+ * (no `author_user_id`, no coordinates — structurally absent from the projection); the tab host maps it
+ * to a root-stack `PostDetailRoute` push. Like [onSeeGlobal] it is a host-level callback, NOT a
+ * back-stack reference, so the screen stays navigation-free (`mobile-nearby-timeline` § "Nearby post
+ * card opens post detail via a hoisted onOpenPost lambda"). Defaults to a no-op for direct composition.
  */
 @Composable
-fun NearbyTimelineScreen(onSeeGlobal: () -> Unit = {}) {
+fun NearbyTimelineScreen(
+    onSeeGlobal: () -> Unit = {},
+    onOpenPost: (NearbyTimelinePost) -> Unit = {},
+) {
     val controller = koinInject<LocationPermissionController>()
     val gate = remember { LocationGate(controller) }
     val gateState by gate.state.collectAsState()
@@ -117,7 +129,7 @@ fun NearbyTimelineScreen(onSeeGlobal: () -> Unit = {}) {
             )
         }
         LocationGateUiState.Denied -> LocationDeniedState(onOpenSettings = { controller.openAppSettings() })
-        LocationGateUiState.Granted -> NearbyFeed(onSeeGlobal = onSeeGlobal)
+        LocationGateUiState.Granted -> NearbyFeed(onSeeGlobal = onSeeGlobal, onOpenPost = onOpenPost)
     }
 }
 
@@ -132,7 +144,10 @@ fun NearbyTimelineScreen(onSeeGlobal: () -> Unit = {}) {
  * to the existing retryable error state").
  */
 @Composable
-private fun NearbyFeed(onSeeGlobal: () -> Unit) {
+private fun NearbyFeed(
+    onSeeGlobal: () -> Unit,
+    onOpenPost: (NearbyTimelinePost) -> Unit,
+) {
     val flow = koinInject<NearbyTimelineFlow>()
     val viewModel = viewModel { NearbyTimelineViewModel(flow) }
     val outcome by viewModel.outcome.collectAsState()
@@ -149,6 +164,7 @@ private fun NearbyFeed(onSeeGlobal: () -> Unit) {
         // The empty-state "lihat Global" CTA — a host-level tab-switch callback (the tab host selects
         // the Global tab), NOT a back-stack reference, so the screen stays navigation-free.
         onSeeGlobal = onSeeGlobal,
+        onOpenPost = onOpenPost,
     )
 }
 
@@ -197,6 +213,7 @@ private fun NearbyTimelineContent(
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
     onSeeGlobal: () -> Unit,
+    onOpenPost: (NearbyTimelinePost) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -213,10 +230,11 @@ private fun NearbyTimelineContent(
                 NearbyTimelineUiState.Empty -> NearbyEmptyState(onSeeGlobal = onSeeGlobal)
                 NearbyTimelineUiState.HardLimit -> CenteredMessage(stringResource(Res.string.timeline_limit_hard))
                 NearbyTimelineUiState.Error -> ErrorState(onRetry = onRetry)
-                is NearbyTimelineUiState.Content -> PostList(posts = uiState.posts)
+                is NearbyTimelineUiState.Content -> PostList(posts = uiState.posts, onOpenPost = onOpenPost)
                 is NearbyTimelineUiState.SoftLimit ->
                     PostList(
                         posts = uiState.posts,
+                        onOpenPost = onOpenPost,
                         banner = stringResource(Res.string.timeline_limit_soft),
                     )
             }
@@ -309,6 +327,7 @@ private fun NearbyEmptyState(onSeeGlobal: () -> Unit) {
 @Composable
 private fun PostList(
     posts: List<NearbyTimelinePost>,
+    onOpenPost: (NearbyTimelinePost) -> Unit,
     banner: String? = null,
 ) {
     LazyColumn(
@@ -321,7 +340,7 @@ private fun PostList(
             }
         }
         items(items = posts, key = { it.id }) { post ->
-            NearbyPostCard(post = post)
+            NearbyPostCard(post = post, onOpenPost = onOpenPost)
         }
     }
 }
@@ -349,8 +368,16 @@ private fun SoftLimitBanner(text: String) {
  * tokens; the coral accent is the brand `locationPin` extension.
  */
 @Composable
-private fun NearbyPostCard(post: NearbyTimelinePost) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+private fun NearbyPostCard(
+    post: NearbyTimelinePost,
+    onOpenPost: (NearbyTimelinePost) -> Unit,
+) {
+    // The whole card is the open-detail tap (the hoisted onOpenPost carries the PII-free post up to the
+    // tab host's root-stack PostDetailRoute push). No inline like/reply control (deferred, design D8).
+    OutlinedCard(
+        onClick = { onOpenPost(post) },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag(NEARBY_POST_CARD_TAG),
+    ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
                 text = post.content,

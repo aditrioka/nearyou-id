@@ -105,4 +105,30 @@
     <string name="timeline_global_title">Seluruh Indonesia</string>
     <string name="timeline_following_placeholder">Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu.</string>
     <string name="cta_see_global">Lihat Global</string>
+
+    <!-- mobile-post-detail-screen. `post_detail_posted_from` mirrors docs/03-UX-Design.md:14
+         ("Diposting dari {city}, {relative_time}"); the like/reply cap-upsell copy parallels the
+         docs/03-UX-Design.md:205 Free-cap upsell register (docs have no canonical reply-cap string —
+         `post_detail_reply_cap_upsell` is newly authored parallel to the like-cap copy). The other
+         keys are derived Bahasa Indonesia copy consistent with the Mobile #3-#8 register — FLAGGED FOR
+         UX REVIEW. `post_detail_posted_from_no_city` is the empty-`city_name` variant (date only, no
+         dangling "dari ,"). The replies-loading + screen-loading states REUSE `timeline_loading`; the
+         error state REUSES `signin_error_network` + `cta_retry` (all declared above) — no new keys. -->
+    <string name="post_detail_posted_from" formatted="true">Diposting dari %1$s, %2$s</string>
+    <string name="post_detail_posted_from_no_city" formatted="true">Diposting %1$s</string>
+    <string name="post_detail_like_count" formatted="true">%1$d suka</string>
+    <!-- The {countdown} fragment for the cap-upsell strings' %1$s (docs/03-UX-Design.md:205). Rendered
+         as coarse integer-hours (ceil(Retry-After / 3600), min 1) for v1; the unit word stays
+         resource-backed here rather than hardcoded in the screen. A finer jam+menit countdown is the
+         deferred `mobile-timeline-relative-timestamp` duration-formatter concern. -->
+    <string name="post_detail_reset_hours" formatted="true">%1$d jam</string>
+    <string name="post_detail_likes_cap_upsell" formatted="true">Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam %1$s.</string>
+    <string name="post_detail_replies_empty">Belum ada balasan. Jadilah yang pertama.</string>
+    <string name="post_detail_reply_placeholder">Tulis balasan…</string>
+    <string name="post_detail_reply_counter" formatted="true">%1$d/280</string>
+    <string name="post_detail_reply_cap_upsell" formatted="true">Kamu sudah menggunakan 20 balasan hari ini. Upgrade ke Premium untuk balas tanpa batas, atau tunggu reset dalam %1$s.</string>
+    <!-- Terminal 404 (the post was deleted/hidden between card-tap and the like/reply action): a
+         non-retryable banner distinct from the generic network-retry copy. -->
+    <string name="post_detail_post_gone">Postingan ini sudah tidak tersedia.</string>
+    <string name="cta_reply">Balas</string>
 </resources>
