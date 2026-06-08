@@ -1,7 +1,7 @@
 # mobile-analytics-consent Specification
 
 ## Purpose
-TBD - created by archiving change mobile-analytics-consent-screen. Update Purpose after archive.
+The mobile analytics-consent onboarding surface — the UU PDP consent screen `docs/03-UX-Design.md` sequences after the 18+ age gate, deferred out of Mobile #4 (`mobile-age-gate-screen`) and shipped here. `ConsentScreen` (`screens/consent/ConsentScreen.kt`, under `NearYouTheme`) renders three Material 3 toggle rows — Analytics, Crash Reporting, Ads Personalization — with per-category explainers and a continue CTA, every string via `stringResource(Res.string.*)`, its toggles hardcoded to the `users.analytics_consent` V2 default (analytics OFF / crash ON / ads OFF) with no GET round-trip since the account was created seconds earlier. On continue a status-driven `ConsentRepository.submitConsent(...)` seam PATCHes the toggle triple to `/api/v1/user/consent` and maps the result to exactly one explicit `ConsentOutcome` — `200`→route Home, `401`→terminal token-invalid, `5xx`/`400`/IO→retryable — guarded against a double-tap firing two concurrent calls, with a post-failure skip affordance that proceeds to Home on the privacy-safe defaults (and no skip on the happy path). The `@Serializable` parameterless `ConsentRoute` is registered in the iOS-safe polymorphic nav serializer and `replaceAll`s the `AgeGateRoute` so back-press cannot re-enter the age gate; PII discipline is enforced (no token / `sub` / response-body logging), and reliable-persist hardening plus a returning-user consent re-gate are explicitly deferred to tracked follow-ups.
 ## Requirements
 ### Requirement: ConsentScreen renders the three consent toggles, explainers, and continue CTA
 

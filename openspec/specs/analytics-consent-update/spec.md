@@ -1,7 +1,7 @@
 # analytics-consent-update Specification
 
 ## Purpose
-TBD - created by archiving change mobile-analytics-consent-screen. Update Purpose after archive.
+The backend analytics-consent write path — the persistence endpoint that captures a user's UU PDP tracking-consent choice, collected at onboarding before any tracking SDK is wired (the consent-aware suppress wrappers that later read it are separate, still-DESIGN pieces). `PATCH /api/v1/user/consent` (in `user/ConsentRoutes.kt`, mirroring the authed-self pattern of `user/FcmTokenRoutes.kt`) is RS256-JWT-authenticated and full-object-writes the complete `{analytics, crash, ads_personalization}` boolean triple to `users.analytics_consent` for the JWT-`sub` caller's own row only — replacing the entire JSONB with no partial merge and echoing back the stored triple. It reuses the V2 column (`V2__auth_foundation.sql`) with no new Flyway migration, rejects a missing-key or non-boolean body with `400` (never partially applying) and an unauthenticated or invalid-token request with `401`, and enforces PII discipline by never logging the token, JWT `sub`, or request/response body.
 ## Requirements
 ### Requirement: Authenticated PATCH /api/v1/user/consent persists the analytics-consent triple
 
