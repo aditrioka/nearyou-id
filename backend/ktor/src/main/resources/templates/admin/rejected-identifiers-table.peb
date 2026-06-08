@@ -1,0 +1,60 @@
+{# Swappable rejected-identifiers fragment. Rendered standalone for HTMX
+   requests (HX-Request: true) and {% include %}d by rejected-identifiers.peb
+   for full-page navigation. The #rejected-identifiers-table id is the
+   hx-target swapped in place — the count summary lives INSIDE it so it stays
+   in sync with the active filters on every swap. Every value is
+   Pebble-autoescaped on output — no `raw` filter is used on any value
+   (defense-in-depth; `rejected_identifiers` has no free-text column). This
+   covers the `identifier_hash` rendered in the `title="..."` attribute too:
+   Pebble's default escaper is HTML-context, so `< > & " '` are entity-encoded
+   in attribute position, not only in element text. #}
+<div id="rejected-identifiers-table">
+    {# Per-reason / per-type count summary scoped to the active filters. Counts
+       the WHOLE filtered set (not just this page) so a rejection-volume spike
+       is visible at a glance. #}
+    <div class="summary">
+        <p class="summary-total">Total matching: {{ summary.total }}</p>
+        <ul class="summary-by-reason">
+        {% for r in summary.reasons %}
+            <li>{{ r.key }}: {{ r.count }}</li>
+        {% endfor %}
+        </ul>
+        <ul class="summary-by-type">
+        {% for t in summary.types %}
+            <li>{{ t.key }}: {{ t.count }}</li>
+        {% endfor %}
+        </ul>
+    </div>
+{% if hasRows %}
+    <table>
+        <thead>
+            <tr>
+                <th>Identifier hash</th>
+                <th>Type</th>
+                <th>Reason</th>
+                <th>Rejected at (UTC)</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td class="identifier-hash"><code title="{{ row.identifierHash }}">{{ row.identifierHash }}</code></td>
+                <td>{{ row.identifierType }}</td>
+                <td>{{ row.reason }}</td>
+                <td>{{ row.rejectedAt }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if olderUrl is not null %}
+    <a class="pagination-older"
+       href="{{ olderUrl }}"
+       hx-get="{{ olderUrl }}"
+       hx-target="#rejected-identifiers-table"
+       hx-swap="outerHTML"
+       hx-push-url="true">Older &rarr;</a>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No rejected identifiers match the current filters.</p>
+{% endif %}
+</div>

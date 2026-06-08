@@ -6,6 +6,7 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import id.nearyou.app.screens.auth.AgeGateScreen
 import id.nearyou.app.screens.auth.SignInScreen
+import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.shell.AppShellScreen
 
@@ -19,8 +20,9 @@ import id.nearyou.app.screens.shell.AppShellScreen
  *  - [SignInRoute] → [SignInScreen] — success → `replaceAll(HomeRoute)`; 404 no-account → `add(AgeGateRoute)`.
  *  - [HomeRoute] → [AppShellScreen] — the bottom-nav section shell (Home / Notifikasi / Profil); the Home
  *    section hosts the feed tab host + composer FAB → `add(PostCreationRoute)` on the root stack.
- *  - [AgeGateRoute] → [AgeGateScreen] — success → `replaceAll(HomeRoute)`; account-exists / absent
+ *  - [AgeGateRoute] → [AgeGateScreen] — success → `replaceAll(ConsentRoute)`; account-exists / absent
  *    identity → `replaceAll(SignInRoute)`.
+ *  - [ConsentRoute] → [ConsentScreen] — done (Success or post-failure skip) → `replaceAll(HomeRoute)`.
  *  - [PostCreationRoute] → [PostCreationScreen] — success → `removeLastOrNull()`.
  *
  * Adding a new screen requires only declaring its `NavKey` (NavKeys.kt) + one `entry<…>` mapping
@@ -50,9 +52,16 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
         }
         entry<AgeGateRoute> {
             AgeGateScreen(
-                onSignedUp = { backStack.replaceAll(HomeRoute) },
+                onSignedUp = { backStack.replaceAll(ConsentRoute) },
                 onExitToSignIn = { backStack.replaceAll(SignInRoute) },
             )
+        }
+        entry<ConsentRoute> {
+            // ConsentRoute REPLACES AgeGateRoute (the signup-success transition uses `replaceAll`,
+            // not `add`), so the back stack holds [ConsentRoute] with no AgeGateRoute beneath —
+            // back-press cannot re-enter the age gate. onDone (Success or the post-failure skip) →
+            // HomeRoute (`mobile-analytics-consent` capability).
+            ConsentScreen(onDone = { backStack.replaceAll(HomeRoute) })
         }
         entry<PostCreationRoute> {
             // `removeLastOrNull()` is size-safe by construction: PostCreationRoute is only ever appended

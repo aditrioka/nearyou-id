@@ -7,6 +7,9 @@ import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.config.apiBaseUrl
 import id.nearyou.app.config.httpClientEngine
 import id.nearyou.app.config.isDebugBuild
+import id.nearyou.app.consent.ConsentApiClient
+import id.nearyou.app.consent.ConsentFlow
+import id.nearyou.app.consent.ConsentRepository
 import id.nearyou.app.location.CachingLocationProvider
 import id.nearyou.app.location.LocationTuning
 import id.nearyou.app.network.HttpClientFactory
@@ -121,6 +124,13 @@ val mobileModule =
         single { PostCreationApiClient(get()) }
         single { CreatePostRepository(get(), get(), get()) }
         single<CreatePostFlow> { get<CreatePostRepository>() }
+
+        // mobile-analytics-consent-screen — the consent-submit graph. Reuses the shared
+        // (bearer-authed) HttpClient; ConsentRepository is bound behind the ConsentFlow seam so a
+        // FakeConsentFlow can drive the screen tests (the concrete stays resolvable).
+        single { ConsentApiClient(get()) }
+        single { ConsentRepository(get()) }
+        single<ConsentFlow> { get<ConsentRepository>() }
     }
 
 /**

@@ -14,6 +14,7 @@ Transient working file for findings discovered during a change cycle that are NO
   - **2026-05-31** (targeted, `mobile-nearby-timeline-screen` apply §11.1) — added 6 Mobile-#5 deferrals → 37 open.
   - **2026-06-01** (full sweep) — 37 → 35 open, 0 rot. Migrated 2 to [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) Pre-Launch #6/#7 (`mobile-location-permission-flow`, `mobile-age-gate-stronger-verification` — the latter surfaces the **PP 17/2025 "PP TUNAS"** age-assurance deadline, previously absent from the roadmap). Surfaced a 6-entry test-coverage chore-PR scope (`fcm-payload-structural-tests`, `fcm-shutdown-drain-deterministic-tests`, `fcm-end-to-end-composite-test`, `reply-rate-limit-moderator-spy`, `chat-block-check-moderator-spy`, `mobile-theme-light-dark-direct-test` — the last still open because its two theme color-scheme scenarios remain untested in `:mobile:app` despite Mobile #5 shipping; merging the bundle → ~29 open). Kept 7 dormant-until-external-trigger entries (GitHub-Issues migration deferred; still solo-operator); promotions deferred. **Ended 35 open, 5 over the limit** — residual is verified-still-valid deferred work, not rot; the test-coverage bundle is the next drawdown lever.
   - **2026-06-04** (full sweep) — 32 → 28 open, **0 rot**: all 32 verified still-valid against current code/specs/docs (zero silently-resolved, zero superseded). Migrated 3 launch-gated entries to their canonical homes (`mobile-auth-signin-apple-ios` → [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) § Phase 3 iOS; `mobile-auth-signin-attestation-fingerprint-hash` → `docs/08` § Phase 3 + [`docs/06-Security-Privacy.md`](docs/06-Security-Privacy.md) § Attestation; `admin-app-revoke-staging-and-prod` residual → [`docs/07-Operations.md`](docs/07-Operations.md) § Data Access Pattern + Pre-Launch gate). Reconciled `post-creation-spec-error-enumeration-stale` inline (the `post-creation` spec's "exactly [5] codes" line now includes the 6th, `content_moderated_profanity`). Promoted `mobile-location-acquisition-latency` to a `/next-change` hand-off (entry stays open until that change ships). User accepted the remaining 28 as verified-valid backlog (no forced accept-the-gap deletes); GitHub-Issues migration still deferred (solo-operator). Audit trail in this sweep's PR.
+  - **2026-06-06** (targeted, `admin-rejected-identifiers-viewer` archive) — **four** same-day changes merge-reconciled: `mobile-env-launcher-icons` (+1), `mobile-home-tab-host` (net 0 — deleted 2 precondition entries, added 2), `admin-report-queue-viewer` (+2 spec-mandated), and `admin-rejected-identifiers-viewer` (+1) → **33 open, 3 over the soft cap**. Per the "next add MUST sweep first" rule a targeted re-verification ran over the 8 likeliest-resolved entries (sub-agent, with file:line/CI/spec evidence): **0 rot — all 8 still-valid**, consistent with the 2026-06-04 full sweep. Nothing prunable, so the file rests at **31 open: verified-valid deferred work, not rot** (cf. the 2026-06-01 "35 open, 5 over — not rot" posture). Standing drawdown levers: merge `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`; GitHub-Issues migration (still solo-operator). Per-entry detail in the consolidated sweep note at end-of-file.
 
 Format per entry:
 
@@ -768,6 +769,31 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
+## admin-rejected-identifiers-clear-action
+
+**Discovered during:** `admin-rejected-identifiers-viewer` (`/opsx:apply` §8.3; design D3 defers the manual support-clear write action — the read-only viewer ships first).
+
+**Status:** open
+
+**Finding:** `admin-rejected-identifiers-viewer` ships the read-only `GET /admin/rejected-identifiers` triage table but NOT the manual support-clear action — the admin removal of a `rejected_identifiers` row so a falsely-rejected legitimate adult can re-verify (the "purgeable via legitimate adult re-verification workflow" path in [`docs/05-Implementation.md`](docs/05-Implementation.md) § Rejected Identifiers Schema). Until the clear action ships, clearing a rejected identifier remains the existing out-of-band raw-SQL `DELETE` a human runs against the Supabase dashboard. The viewer captures this as an explicit spec requirement ("The manual support-clear action is deferred to a fast-follow change") + a negative guard ("No clear / remove control is wired in this change"), so the fast-follow has a concrete requirement to MODIFY rather than inventing scope.
+
+**Specs at fault:** none — `admin-rejected-identifiers-viewer` (post-archive) deliberately scopes out the write action; this follow-up MODIFIES the deferral requirement into the actual clear capability.
+**Code at fault:** none — there is no half-implemented mutation to fix; the deferral is clean (read-only repository + GET-only route).
+**Docs at fault:** none — `docs/07-Operations.md` § Core Features already describes the viewer's clear half as the deferred action; `docs/05-Implementation.md` names the re-verification workflow.
+
+**Impact (if shipped):** Low-during-MVP (single trusted operator; the raw-SQL clear path works today and the viewer at least makes the row discoverable — find the hash, then run the existing manual clear). The clear action is materially more sensitive than the read view (destructive, must be role-gated + CSRF-gated + audit-logged + rate-limited), which is exactly why it is isolated into its own change.
+
+**Ambiguity to resolve first:** Rate-limiter substrate — the clear action MUST be rate-limited per the destructive-action budget, which depends on `admin-destructive-action-rate-limit` (its own open `FOLLOW_UPS.md` entry; substrate = Redis sliding-window vs `admin_actions_log` COUNT, unresolved there). Sequence this change AFTER (or co-design it WITH) the rate-limiter so the clear action lands behind a working limiter rather than re-deferring it.
+
+**Action items:**
+- [ ] File an OpenSpec change `admin-rejected-identifiers-clear-action`: a role-gated + CSRF-gated + audit-logged (`admin_actions_log`, e.g. action type `rejected_identifier_cleared`) + rate-limited `POST`/`DELETE` to remove a `rejected_identifiers` row, MODIFYing the viewer's deferral requirement.
+- [ ] Resolve the rate-limiter dependency first (`admin-destructive-action-rate-limit`).
+- [ ] Delete this entry once the clear action ships.
+
+**Cap note:** see the consolidated 2026-06-06 cap + sweep note at the end of this file for the day's full accounting (a targeted sweep found 0 rot — nothing prunable). The optional `admin-rejected-identifiers-keyset-index` lever (design.md D2) is intentionally NOT logged (it stays a contingency in the change's design.md until cardinality actually grows).
+
+---
+
 ## admin-report-queue-resolution-actions
 
 **Discovered during:** `admin-report-queue-viewer` archive §8.2 (deferred-by-design; recorded as the spec requirement "Report resolution write-back and the edit-history filter are explicitly deferred").
@@ -806,28 +832,26 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 - [ ] Add the `has_edit_history` filter to the report-queue query (`EXISTS` over `post_edits` for `target_type='post'`) + a checkbox in the filter form, as a small follow-up change (or fold into `admin-report-queue-resolution-actions`).
 - [ ] Delete this entry once shipped.
 
+**Cap note + sweep (2026-06-06).** A busy reconciliation week — **five** changes touched this file (merge-reconciled across branches): `mobile-home-tab-host` (#153, **net 0** — deleted `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks`); `mobile-env-launcher-icons` (#155, **+1** `mobile-env-launcher-icons-ios-dev-icon`); `admin-report-queue-viewer` (#154, **+2** spec-mandated `admin-report-queue-resolution-actions` + `admin-report-queue-has-edit-history-filter`); `admin-rejected-identifiers-viewer` (#156, **+1** `admin-rejected-identifiers-clear-action`); and `mobile-ios-build-config-matrix` (#158, **−1** — see below). The #156 archive ran a targeted sweep (the 8 likeliest-resolved entries — `mobile-auth-signin-logout-wire-up`, `mobile-auth-signin-android-instrumented-encryption-test`, `mobile-ios-ci-link-task`, `ci-paths-filter-switch-to-dorny`, `mobile-negative-requirement-ci-grep`, `mobile-post-creation-ios-flow-tests`, `mobile-auth-signin-credential-manager-legacy-fallback`, `firebase-admin-server-template-evaluate-bypass-removal` — each re-verified against current code / CI / specs): **0 rot, all still-valid**, consistent with the 2026-06-04 full sweep. **`mobile-ios-build-config-matrix` (#158)** then shipped BOTH halves of `mobile-env-launcher-icons-ios-dev-icon` — the dedicated iOS `Prod Debug` / `Prod Release` build configs (`.nearyou.app` + cobalt `AppIcon`), the removed `Debug`/`Release` APPICON hardcodes + per-config Pods wiring, AND a real `AppIcon-Dev` (forest green `#15803D`) dev icon via the env × build-type matrix — so that entry is **deleted** (−1). Net: 33 (origin/main after #156) − 1 = **32 open, 2 over the 30-entry soft cap**. Every remaining entry is spec-obliged or a clean deferred-by-design Non-Goal (zero half-implemented code). A full `/triage-follow-ups` sweep is **OVERDUE**; standing drawdown levers: the 2026-06-04 test-coverage bundle, merging `ci/mobile-android-emulator-encryption-test` (`c21c630`) → resolves `mobile-auth-signin-android-instrumented-encryption-test`, and the GitHub-Issues migration (solo-operator).
+
 ---
 
-## mobile-env-launcher-icons-ios-dev-icon
+## mobile-analytics-consent-settings-toggle
 
-**Discovered during:** `mobile-env-launcher-icons` proposal (deferral; design Decision 6) + apply.
-
+**Discovered during:** `mobile-analytics-consent-screen` proposal (Non-Goals) + design OQ2.
 **Status:** open
 
-**Finding:** Android differentiates the launcher icon across all three environments (`dev` #15803D / `staging` #C2410C / `production` #1E4FD6) via flavor `res/` overrides. iOS ships only `production` (cobalt `AppIcon`) + `staging` (`AppIcon-Staging`, #C2410C); there is NO separate iOS **dev** icon. iOS "dev" maps to the local Debug-on-simulator build, which is already unambiguous about which build is running, so a dedicated iOS dev configuration/scheme/icon was judged not worth the added Xcode-project surface for v1. Android remains the canonical 3-environment surface.
+**Finding:** The consent screen writes `users.analytics_consent` at onboarding (signup path) via `PATCH /api/v1/user/consent`, but there is no Settings path to RE-EDIT consent post-onboarding. `docs/03-UX-Design.md` § Analytics & Tracking Consent Screen specifies "Settings page allows the user to change the toggle (applies going forward)". The re-edit path needs a `GET /api/v1/user/consent` (design OQ2: `200 {analytics, crash, ads_personalization}`, same authz as the PATCH) + a Settings screen that does not exist yet.
 
-**Specs at fault:** none — deliberate, `mobile-env-launcher-icons` design Decision 6 (the `shared-resources` *environment-differentiated* requirement scopes iOS to staging + production).
-**Code at fault:** none — iOS dev icon intentionally absent.
+**Specs at fault:** none — deliberate `mobile-analytics-consent` Non-Goal (no Settings screen exists).
+**Code at fault:** none — the onboarding-write path is the intended MVP shape.
 **Docs at fault:** none.
 
-**Impact (if shipped):** none today — iOS dev runs from Xcode on the simulator. The gap only matters if a distinct iOS **dev** build is ever distributed (e.g., a TestFlight internal dev lane) and needs at-a-glance visual separation from staging.
-
-**Also covers — iOS env-config completion (broadened during `mobile-env-launcher-icons` apply):** the apply shipped a `Staging` build configuration + shared scheme that resolves `AppIcon-Staging` + `id.nearyou.app.staging` (verified via `xcodebuild -showBuildSettings`), but did NOT remove the `Debug`/`Release` `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` hardcodes (removing them would regress production to the staging icon, since `Config.xcconfig` is the staging-flavored base). Consequently `Release` still carries the `.staging` bundle id + cobalt icon, and there is no dedicated `.nearyou.app` production build configuration yet. `Config.xcconfig` also `#include`s the *debug* Pods xcconfig for every config (its own comment flags proper per-config Pods wiring as a follow-up).
+**Impact (if shipped):** none today. Without it, a user who wants to change consent after onboarding has no in-app path until a Settings screen ships.
 
 **Action items:**
-- [ ] If a distributed iOS dev build is introduced, add a `Dev` iOS build configuration + shared scheme + `AppIcon-Dev` (forest green #15803D) mirroring the staging wiring, and set `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev` in a `Dev.xcconfig`.
-- [ ] **(env-config completion)** Add a dedicated `Production` iOS build configuration wired to `Production.xcconfig` (`.nearyou.app` + `AppIcon`), remove the `Debug`/`Release` APPICON hardcodes (now safe once a Production config resolves cobalt), and fix per-configuration Pods wiring (`Config.xcconfig` → debug Pods for all configs today).
-- [ ] Delete this entry once the iOS dev icon + the env-config completion both ship (or are ruled out).
+- [ ] When a mobile Settings screen lands, add `GET /api/v1/user/consent` (per design OQ2) + the Settings consent-toggle UI reusing the existing `PATCH /api/v1/user/consent` + `ConsentApiClient`/`ConsentRepository`.
+- [ ] Delete this entry once the Settings consent toggle ships.
 
 ---
 
@@ -930,6 +954,44 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 ---
 
-**Cap note (2026-06-06):** A busy day — three changes touched this file (merge-reconciled): `mobile-home-tab-host` (#153) shipped (deleted its 2 precondition entries `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`, added `mobile-following-timeline-screen` + `mobile-home-tab-host-per-tab-backstacks` — net 0); `mobile-env-launcher-icons` (#155) added `mobile-env-launcher-icons-ios-dev-icon` (+1, → 30 at the limit); and `admin-report-queue-viewer` (#154) archive §8.2 added 2 spec-mandated deferral entries (`admin-report-queue-resolution-actions` + `admin-report-queue-has-edit-history-filter`) → **32 open, 2 over the 30-entry hard cap**. The 2 admin entries are spec-obliged (the `admin-report-queue` spec's "explicitly deferred" requirement); not rot (all clean deferred-by-design, zero half-implemented code). A `/triage-follow-ups` sweep is now OVERDUE (2 over); the test-coverage bundle (2026-06-04 note) + the GitHub-Issues migration remain the drawdown levers.
+## mobile-analytics-consent-persist-hardening
 
-**Cap note (2026-06-07):** `mobile-bottom-nav-sections-and-notifications` apply §13 added 5 spec-mandated deferral entries (`mobile-notifications-deep-link-targets`, `mobile-notifications-actor-username-enrichment`, `in-app-notifications-spec-wire-reconciliation`, `mobile-profile-section-screen`, `mobile-notifications-live-unread-badge`) + extended the existing `mobile-nearby-timeline-infinite-scroll` (net +5) → **37 open, 7 over the 30-entry hard cap**. All 5 are deferred-by-design negative-guard follow-ups (each MODIFY-anchors a spec requirement or is a bucket-b docs reconciliation), not rot. Per task 1.4 a sweep was due BEFORE adding; the user explicitly chose **add-now + triage in a dedicated `/triage-follow-ups` session** (fresh context — the sweep reads/triages all 37 and may spawn changes). **Triage is now firmly OVERDUE (7 over)** — the 2026-06-04 test-coverage bundle + these notifications entries (which collapse to deletions as #159 / the profile / live-badge changes ship) are the drawdown levers.
+**Discovered during:** `mobile-analytics-consent-screen` design D4 (deferred).
+**Status:** open
+
+**Finding:** On a `PATCH /api/v1/user/consent` failure, `ConsentScreen` offers a retry + a non-trapping "Lewati untuk sekarang" skip that proceeds to Home keeping the server's prior (default) value — it does NOT background-retry/queue the failed write. Safe TODAY because no tracking SDK reads `analytics_consent` yet. Once the Amplitude/Sentry/AdMob suppress-wrappers land, a failed-then-skipped submit could leave a wrapper tracking against the user's intended (but unpersisted) choice. The `mobile-analytics-consent` spec captures this as an explicit "Reliable consent persistence is deferred" requirement + negative-guard scenario (so this entry has a requirement to MODIFY).
+
+**Specs at fault:** none — `mobile-analytics-consent` § "Reliable consent persistence is deferred" is the MODIFY target.
+**Code at fault:** `mobile/app/src/commonMain/kotlin/id/nearyou/app/consent/ConsentFlow.kt` (`ConsentRepository` — no retry/queue beyond the in-screen retry).
+**Docs at fault:** none.
+
+**Impact (if shipped):** none until the consent-aware SDK suppress-wrappers land; then a failed persist could mismatch tracking against the user's choice (UU-PDP-relevant).
+
+**Action items:**
+- [ ] When the consent-aware suppress-wrappers (`:infra:amplitude` / `:infra:sentry` / AdMob UMP) land, add reliable persistence (retry/queue, or block-on-success) so a failed consent PATCH cannot leave a tracking SDK mismatched — MODIFY the `mobile-analytics-consent` "Reliable consent persistence is deferred" requirement.
+- [ ] Delete this entry once reliable persist ships.
+
+---
+
+## mobile-analytics-consent-rootrouter-regate
+
+**Discovered during:** `mobile-analytics-consent-screen` design D4 (deferred).
+**Status:** open
+
+**Finding:** `ConsentScreen` lives only in the signup→Home transition (`AppEntryProvider` `entry<AgeGateRoute> onSignedUp = replaceAll(ConsentRoute)`). A user who force-quits at the consent screen holds a valid token, so the next launch routes straight to `HomeRoute` (consent bypassed). This change deliberately does NOT add a `consent_completed_at` flag + a `RootRouterScreen` consent re-gate, because the V2 defaults are privacy-safe (analytics=false/ads=false; crash=true is the documented opt-out-able default) and no SDK reads consent yet → the bypass is benign for MVP. The `mobile-analytics-consent` spec captures this as an explicit "RootRouter does not re-gate … (deferred)" requirement + negative-guard scenario.
+
+**Specs at fault:** none — `mobile-analytics-consent` § "RootRouter does not re-gate returning token-bearing users on consent completion (deferred)" is the MODIFY target.
+**Code at fault:** none — the no-re-gate is the intended MVP shape (safe defaults make it benign).
+**Docs at fault:** none.
+
+**Impact (if shipped):** none today. Once the suppress-wrappers land, a bypassing user sits at the V2 default rather than an explicit choice — acceptable (privacy-safe) but worth hardening alongside persist-hardening.
+
+**Action items:**
+- [ ] When the suppress-wrappers land (sequence AFTER this re-gate), add a `consent_completed_at` (or equivalent) flag + a `RootRouterScreen` check that interposes `ConsentRoute` for a token-bearing user who never completed consent — MODIFY the `mobile-analytics-consent` "RootRouter does not re-gate …" requirement.
+- [ ] Delete this entry once the re-gate ships.
+
+---
+
+**Cap note (2026-06-07, `mobile-analytics-consent-screen` merge-reconcile):** appended this change's 3 spec-required deferrals (`-settings-toggle`, `-persist-hardening`, `-rootrouter-regate`) on top of origin/main's reconciled 32 → **35 open, 5 over the 30-entry cap**. All spec-obliged — each is referenced by name in a `mobile-analytics-consent` negative-guard scenario or Non-Goal; zero rot, zero half-implemented code. The OVERDUE `/triage-follow-ups` sweep is the drawdown lever.
+
+**Cap note (2026-06-08, `mobile-bottom-nav-sections-and-notifications` merge-reconcile):** merged origin/main (consent-reconciled **35**) into this change's branch, then this change adds its 5 spec-mandated notifications deferrals (`mobile-notifications-deep-link-targets`, `mobile-notifications-actor-username-enrichment`, `in-app-notifications-spec-wire-reconciliation`, `mobile-profile-section-screen`, `mobile-notifications-live-unread-badge`) + the extended `mobile-nearby-timeline-infinite-scroll` (net +5) → **40 open, 10 over the 30-entry hard cap** (supersedes the pre-merge "37" draft note). All 5 are deferred-by-design negative-guard follow-ups (each MODIFY-anchors a spec requirement or is a bucket-b docs reconciliation), not rot. The user chose **add-now + triage in a dedicated `/triage-follow-ups` session** (spawned as a background task); the sweep is now firmly OVERDUE (10 over) — the 2026-06-04 test-coverage bundle + these deferrals (which collapse to deletions as #159 / the profile / live-badge / consent-SDK changes ship) are the drawdown levers.
