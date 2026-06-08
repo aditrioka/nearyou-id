@@ -50,3 +50,27 @@ data object PostCreationRoute : NavKey
  */
 @Serializable
 data object ConsentRoute : NavKey
+
+/**
+ * Post-detail surface, opened by tapping a feed card (pushed onto the ROOT back stack above [HomeRoute],
+ * overlaying the tab bar — the same mechanism the composer FAB uses). The FIRST **payload-carrying**
+ * route (the others are parameterless `data object`s), so it MUST be `@Serializable` AND registered in
+ * the `navSavedStateConfiguration` polymorphic `SerializersModule` (the iOS-saveable back stack
+ * requirement). It carries ONLY the non-PII display fields needed to render the post header from the
+ * tapped card — there is NO single-post GET to re-fetch it (design D2). It MUST NOT declare a `latitude`
+ * or `longitude` property: raw coordinates must never enter the serialized back stack (it persists to
+ * disk on iOS — the same PII discipline [AgeGateRoute] applies to the `id_token`, design D3). [content]
+ * is public post text, safe to serialize; [distanceM] is Nearby-origin only (`null` from Global) and is
+ * carried per the spec'd payload but NOT rendered in the v1 header (the header reuses the card's
+ * posted-from treatment, which shows no distance — `mobile-post-detail` § "post header").
+ */
+@Serializable
+data class PostDetailRoute(
+    val postId: String,
+    val content: String,
+    val cityName: String,
+    val distanceM: Double?,
+    val createdAtIso: String,
+    val likedByViewer: Boolean,
+    val replyCount: Int,
+) : NavKey

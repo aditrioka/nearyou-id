@@ -2,6 +2,7 @@ package id.nearyou.app.screens.home
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -14,9 +15,14 @@ import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.FakeCreatePostFlow
+import id.nearyou.app.post.FakePostDetailFlow
+import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.PostCreationRoute
+import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.screens.routing.TestNavHost
+import id.nearyou.app.screens.timeline.GLOBAL_POST_CARD_TAG
+import id.nearyou.app.screens.timeline.NEARBY_POST_CARD_TAG
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
@@ -91,6 +97,8 @@ class HomeTabHostScreenTest {
                     // The TestNavHost(HomeRoute) cases compose the AppShellScreen section shell, whose unread
                     // badge injects a NotificationsFlow (empty/0 fake — the badge is exercised in AppShellScreenTest).
                     single<NotificationsFlow> { FakeNotificationsFlow() }
+                    // A card tap appends PostDetailRoute, whose screen injects the PostDetailFlow seam.
+                    single<PostDetailFlow> { FakePostDetailFlow() }
                 },
             )
         }
@@ -254,6 +262,45 @@ class HomeTabHostScreenTest {
                 globalFake.loadInvocationCount,
                 "returning from the composer must not re-fetch the Global feed (the HomeRoute-scoped VM is retained)",
             )
+        }
+    }
+
+    // mobile-home-tab-host § "The tab host hoists onOpenPost, wired at the call site to a root-stack
+    // PostDetailRoute push" — tapping a Nearby card under the REAL appEntryProvider appends a
+    // PostDetailRoute (carrying the card's fields, distanceM non-null, NO coordinates) ABOVE HomeRoute.
+    @Test
+    fun tappingNearbyCard_pushesPostDetailRouteOntoRootStack() {
+        installKoin()
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(HomeRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(NEARBY_POST_CARD_TAG).performClick()
+            waitForIdle()
+            val top = backStack.last()
+            assertTrue(top is PostDetailRoute, "tapping a Nearby card pushes PostDetailRoute (was: ${backStack.toList()})")
+            assertEquals("NEARBY_POST", top.content)
+            assertTrue(top.distanceM != null, "a Nearby-origin route carries the card's distance")
+        }
+    }
+
+    // mobile-global-timeline card delta — a Global card tap pushes PostDetailRoute with distanceM = null
+    // (Global has no spatial filter), proving the host maps each tab's projection correctly.
+    @Test
+    fun tappingGlobalCard_pushesPostDetailRouteWithNullDistance() {
+        installKoin()
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(HomeRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(TAB_GLOBAL).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(GLOBAL_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(GLOBAL_POST_CARD_TAG).performClick()
+            waitForIdle()
+            val top = backStack.last()
+            assertTrue(top is PostDetailRoute, "tapping a Global card pushes PostDetailRoute (was: ${backStack.toList()})")
+            assertEquals("GLOBAL_POST", top.content)
+            assertEquals(null, top.distanceM, "a Global-origin route carries no distance")
         }
     }
 }

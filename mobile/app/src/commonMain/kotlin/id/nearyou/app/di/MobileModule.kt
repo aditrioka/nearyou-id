@@ -18,7 +18,11 @@ import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsRepository
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.CreatePostRepository
+import id.nearyou.app.post.LikeApiClient
 import id.nearyou.app.post.PostCreationApiClient
+import id.nearyou.app.post.PostDetailFlow
+import id.nearyou.app.post.PostDetailRepository
+import id.nearyou.app.post.ReplyApiClient
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.timeline.GlobalTimelineApiClient
 import id.nearyou.app.timeline.GlobalTimelineFlow
@@ -131,6 +135,16 @@ val mobileModule =
         single { ConsentApiClient(get()) }
         single { ConsentRepository(get()) }
         single<ConsentFlow> { get<ConsentRepository>() }
+
+        // mobile-post-detail-screen — the post-detail graph (like toggle + replies + reply composer).
+        // Reuses the shared HttpClient (NO new client, NO X-Session-Id — the like/reply endpoints are not
+        // session-soft-capped, unlike the timeline reads). PostDetailRepository is a stateless singleton
+        // (every method takes the postId) bound behind the PostDetailFlow seam so a FakePostDetailFlow can
+        // drive the screen tests; the concrete stays resolvable.
+        single { LikeApiClient(get()) }
+        single { ReplyApiClient(get()) }
+        single { PostDetailRepository(get(), get()) }
+        single<PostDetailFlow> { get<PostDetailRepository>() }
     }
 
 /**

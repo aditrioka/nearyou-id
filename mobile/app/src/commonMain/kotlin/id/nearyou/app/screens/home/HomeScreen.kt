@@ -22,7 +22,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.screens.timeline.FollowingPlaceholderScreen
+import id.nearyou.app.screens.timeline.GlobalTimelinePost
 import id.nearyou.app.screens.timeline.GlobalTimelineScreen
+import id.nearyou.app.screens.timeline.NearbyTimelinePost
 import id.nearyou.app.screens.timeline.NearbyTimelineScreen
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_post
@@ -52,23 +54,24 @@ import androidx.compose.material3.Tab as Material3Tab
  * round-trip with no re-fetch (design D1/D2/D3). Per-tab back stacks are deferred (`FOLLOW_UPS.md`
  * `mobile-home-tab-host-per-tab-backstacks`).
  *
- * The FAB lives at this Home-section level — **one** composer affordance shared across all three feed tabs
- * — and invokes [onOpenComposer], wired by
- * [appEntryProvider][id.nearyou.app.screens.routing.appEntryProvider] to `backStack.add(PostCreationRoute)`
- * on the **root** back stack (above the shell), so the composer overlays the entire surface including the
- * section bottom bar. Because the FAB is part of [HomeScreen], it shows only on the Home section — never on
- * Notifikasi / Profil.
+ * Two callbacks are hoisted (both wired by the shell + `appEntryProvider` call site to root-stack pushes,
+ * above the shell, since neither this screen nor the shell holds a back-stack reference):
+ * - [onOpenComposer] — the single composer FAB shared across all three feed tabs (Home-section level), →
+ *   `add(PostCreationRoute)`. Because the FAB is part of [HomeScreen], it shows only on the Home section.
+ * - [onOpenPost] — the feed card-tap callback (`mobile-post-detail-screen`, #159): the Nearby + Global tab
+ *   content invoke it with the tapped card's PII-free fields (as a [PostDetailTarget]) → `add(PostDetailRoute(...))`.
+ *   The Following tab (a deferred placeholder with no cards) wires no `onOpenPost`. Absorbed through the
+ *   shell per design D9 (the `appEntryProvider` call site moved from `HomeScreen` to `AppShellScreen`,
+ *   which forwards `onOpenPost` to this Home-section `HomeScreen`).
  *
  * The Nearby tab's empty-state "lihat Global" CTA is wired to select the Global tab (host-level tab state,
  * not a back-stack reference — `NearbyTimelineScreen` stays navigation-free).
- *
- * (Absorbs the in-flight `mobile-post-detail-screen` (#159, proposal-only at impl time): when #159 lands it
- * adds an `onOpenPost(...)` hoisted lambda into the `when(selectedTab)` Nearby/Global dispatch below + wires
- * the root-stack `PostDetailRoute` push at the `appEntryProvider` call site — mechanically absorbable here;
- * see `design.md` D9 + tasks.md 14.5 for the squash-merge ordering.)
  */
 @Composable
-fun HomeScreen(onOpenComposer: () -> Unit) {
+fun HomeScreen(
+    onOpenComposer: () -> Unit,
+    onOpenPost: (PostDetailTarget) -> Unit = {},
+) {
     var selectedTab by rememberSaveable { mutableStateOf(Tab.Nearby) }
     Scaffold(
         floatingActionButton = {
@@ -103,9 +106,15 @@ fun HomeScreen(onOpenComposer: () -> Unit) {
                     // Each tab screen composes DIRECTLY under the shell's HomeRoute NavEntry (no per-tab
                     // NavDisplay), so each feed's viewModel { } resolves to the HomeRoute store (design
                     // D1/D2) — switching feed tabs OR bottom-nav sections and returning does not re-fetch.
-                    Tab.Nearby -> NearbyTimelineScreen(onSeeGlobal = { selectedTab = Tab.Global })
+                    // The Nearby + Global cards hoist onOpenPost (mapped card → PostDetailTarget); Following
+                    // (a placeholder with no cards) wires none.
+                    Tab.Nearby ->
+                        NearbyTimelineScreen(
+                            onSeeGlobal = { selectedTab = Tab.Global },
+                            onOpenPost = { post -> onOpenPost(post.toTarget()) },
+                        )
                     Tab.Following -> FollowingPlaceholderScreen()
-                    Tab.Global -> GlobalTimelineScreen()
+                    Tab.Global -> GlobalTimelineScreen(onOpenPost = { post -> onOpenPost(post.toTarget()) })
                 }
             }
         }
@@ -148,3 +157,46 @@ private fun HomeFeedTab(
         },
     )
 }
+
+/**
+ * The non-PII display fields a tapped feed card carries up to the tab host's hoisted [HomeScreen]
+ * `onOpenPost`, which the `appEntryProvider` call site (via
+ * [AppShellScreen][id.nearyou.app.screens.shell.AppShellScreen]) turns into a root-stack `PostDetailRoute`
+ * push. Deliberately distinct from `PostDetailRoute` (a routing-layer `NavKey`) so the feed screens + the
+ * tab host stay free of the routing types — mirroring how the cards already carry PII-free
+ * [NearbyTimelinePost] / [GlobalTimelinePost] rather than the wire DTOs. Carries NO `latitude`/`longitude`:
+ * raw coordinates must never reach the serialized back stack. [distanceM] is `null` for a Global card (no
+ * spatial filter).
+ */
+data class PostDetailTarget(
+    val postId: String,
+    val content: String,
+    val cityName: String,
+    val distanceM: Double?,
+    val createdAtIso: String,
+    val likedByViewer: Boolean,
+    val replyCount: Int,
+)
+
+private fun NearbyTimelinePost.toTarget(): PostDetailTarget =
+    PostDetailTarget(
+        postId = id,
+        content = content,
+        cityName = cityName,
+        distanceM = distanceM,
+        createdAtIso = createdAt,
+        likedByViewer = likedByViewer,
+        replyCount = replyCount,
+    )
+
+private fun GlobalTimelinePost.toTarget(): PostDetailTarget =
+    PostDetailTarget(
+        postId = id,
+        content = content,
+        cityName = cityName,
+        // Global has no spatial filter → no distance on the detail header.
+        distanceM = null,
+        createdAtIso = createdAt,
+        likedByViewer = likedByViewer,
+        replyCount = replyCount,
+    )

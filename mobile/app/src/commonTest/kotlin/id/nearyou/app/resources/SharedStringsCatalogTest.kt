@@ -13,6 +13,7 @@ import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_continue
 import id.nearyou.resources.generated.resources.cta_create_account
 import id.nearyou.resources.generated.resources.cta_post
+import id.nearyou.resources.generated.resources.cta_reply
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.cta_signin_google
@@ -46,6 +47,16 @@ import id.nearyou.resources.generated.resources.post_create_error_too_long
 import id.nearyou.resources.generated.resources.post_create_loading
 import id.nearyou.resources.generated.resources.post_create_location_unavailable
 import id.nearyou.resources.generated.resources.post_create_title
+import id.nearyou.resources.generated.resources.post_detail_like_count
+import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
+import id.nearyou.resources.generated.resources.post_detail_post_gone
+import id.nearyou.resources.generated.resources.post_detail_posted_from
+import id.nearyou.resources.generated.resources.post_detail_posted_from_no_city
+import id.nearyou.resources.generated.resources.post_detail_replies_empty
+import id.nearyou.resources.generated.resources.post_detail_reply_cap_upsell
+import id.nearyou.resources.generated.resources.post_detail_reply_counter
+import id.nearyou.resources.generated.resources.post_detail_reply_placeholder
+import id.nearyou.resources.generated.resources.post_detail_reset_hours
 import id.nearyou.resources.generated.resources.profile_placeholder
 import id.nearyou.resources.generated.resources.section_home
 import id.nearyou.resources.generated.resources.section_home_icon_description
@@ -178,6 +189,22 @@ class SharedStringsCatalogTest {
             Res.string.notif_post_auto_hidden,
             Res.string.notif_chat_message,
             Res.string.notif_generic,
+            // mobile-post-detail-screen (post header + like control + replies list + reply composer).
+            // 11 net-new keys (the empty-`city_name` header gets its own `post_detail_posted_from_no_city`
+            // variant; `post_detail_post_gone` is the terminal-404 banner). The replies-loading +
+            // screen-loading states reuse `timeline_loading`; the generic error state reuses
+            // `signin_error_network` + `cta_retry` (already counted above) — no new keys for those.
+            Res.string.post_detail_posted_from,
+            Res.string.post_detail_posted_from_no_city,
+            Res.string.post_detail_like_count,
+            Res.string.post_detail_reset_hours,
+            Res.string.post_detail_likes_cap_upsell,
+            Res.string.post_detail_replies_empty,
+            Res.string.post_detail_reply_placeholder,
+            Res.string.post_detail_reply_counter,
+            Res.string.post_detail_reply_cap_upsell,
+            Res.string.post_detail_post_gone,
+            Res.string.cta_reply,
         )
 
     @Test
@@ -187,8 +214,12 @@ class SharedStringsCatalogTest {
         // + 9 (mobile-home-tab-host: 3 tab labels + 3 tab icon descriptions + Global title
         // + Following placeholder + lihat-Global CTA)
         // + 18 (mobile-bottom-nav-sections-and-notifications: 3 section labels + 3 section icon
-        // descriptions + Profil placeholder + 5 notifications-screen keys + 6 type-keyed copy) = 73.
-        assertEquals(73, allDeclaredStrings.size)
+        // descriptions + Profil placeholder + 5 notifications-screen keys + 6 type-keyed copy)
+        // + 11 (mobile-post-detail-screen: posted-from + no-city variant + like-count + reset-hours
+        // countdown fragment + like-cap upsell + replies-empty + reply-placeholder + reply-counter
+        // + reply-cap upsell + post-gone banner + Balas CTA; the loading/generic-error states reuse
+        // timeline_loading / signin_error_network / cta_retry) = 84.
+        assertEquals(84, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

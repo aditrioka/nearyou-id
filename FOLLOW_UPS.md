@@ -654,17 +654,17 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 **Discovered during:** `mobile-nearby-timeline-screen` (Mobile #5) design D8 — the screen renders page 1 (≤ 30 posts) + pull-to-refresh; `next_cursor` is parsed/retained but load-more is deferred.
 **Status:** open
 
-**Finding:** [`NearbyTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineFlow.kt) is parsed + retained, and [`NearbyTimelineApiClient.fetchNearby`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineApiClient.kt) accepts a `cursor` param, but the screen never issues a follow-up `cursor=`-bearing request. The backend `nearby-timeline` spec supports cursor pagination; only the mobile load-more UX (scroll-to-end detection + append) is missing. **Extended by `mobile-home-tab-host` (2026-06-06):** the new Global feed mirrors this exactly — [`GlobalTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/GlobalTimelineFlow.kt) is parsed/retained and [`GlobalTimelineApiClient.fetchGlobal`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/GlobalTimelineApiClient.kt) accepts a `cursor`, but no load-more is wired. **Extended again by `mobile-bottom-nav-sections-and-notifications` (2026-06-07):** the notifications feed mirrors this too — [`NotificationsOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/notifications/NotificationsFlow.kt) is parsed/retained from the opaque `next_cursor` and [`NotificationsApiClient.fetch`](mobile/app/src/commonMain/kotlin/id/nearyou/app/notifications/NotificationsApiClient.kt) accepts a `cursor` (passed back verbatim), but `NotificationsScreen` wires only pull-to-refresh, no scroll-to-end load-more. This follow-up now covers load-more for the Nearby, Global, AND notifications feeds.
+**Finding:** [`NearbyTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineFlow.kt) is parsed + retained, and [`NearbyTimelineApiClient.fetchNearby`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineApiClient.kt) accepts a `cursor` param, but the screen never issues a follow-up `cursor=`-bearing request. The backend `nearby-timeline` spec supports cursor pagination; only the mobile load-more UX (scroll-to-end detection + append) is missing. **Extended by `mobile-home-tab-host` (2026-06-06):** the new Global feed mirrors this exactly — [`GlobalTimelineOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/GlobalTimelineFlow.kt) is parsed/retained and [`GlobalTimelineApiClient.fetchGlobal`](mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/GlobalTimelineApiClient.kt) accepts a `cursor`, but no load-more is wired. **Extended by `mobile-post-detail-screen` (#159):** the replies list mirrors this — [`RepliesOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/post/PostDetailFlow.kt) (from `ReplyListResponse`'s snake_case `next_cursor`) is parsed/retained by `PostDetailRepository.loadReplies`, but `PostDetailScreen` never issues a `cursor=`-bearing follow-up `GET /api/v1/posts/{post_id}/replies`. **Extended by `mobile-bottom-nav-sections-and-notifications`:** the notifications feed mirrors this too — [`NotificationsOutcome.Loaded.nextCursor`](mobile/app/src/commonMain/kotlin/id/nearyou/app/notifications/NotificationsFlow.kt) is parsed/retained from the opaque `next_cursor` and [`NotificationsApiClient.fetch`](mobile/app/src/commonMain/kotlin/id/nearyou/app/notifications/NotificationsApiClient.kt) accepts a `cursor` (passed back verbatim), but `NotificationsScreen` wires only pull-to-refresh, no scroll-to-end load-more. This follow-up now covers load-more for the Nearby, Global, AND notifications feeds + the post-detail replies list.
 
 **Specs at fault:** None — `openspec/specs/mobile-nearby-timeline/spec.md` § "Pull-to-refresh re-fetches the first page; infinite scroll is deferred" (and the matching `mobile-global-timeline` § "Pull-to-refresh re-fetches the first page; infinite scroll is deferred") defer this deliberately.
 **Code at fault:** None — the cursor plumbing exists on both feeds; the load-more trigger is additive.
 **Docs at fault:** None.
 
-**Impact (if shipped):** Users see only the first page of Nearby AND Global posts until load-more lands. Acceptable for the scaffold; a real feed needs pagination.
+**Impact (if shipped):** Users see only the first page of Nearby AND Global posts (and the first page of a post's replies) until load-more lands. Acceptable for the scaffold; a real feed / reply thread needs pagination.
 
 **Action items:**
-- [ ] File OpenSpec change `mobile-nearby-timeline-infinite-scroll` adding scroll-to-end detection in the `LazyColumn`, a `loadNextPage(cursor)` path on `NearbyTimelineFlow`, `GlobalTimelineFlow`, **and `NotificationsFlow`**, and append-to-list state handling for **all three feeds** (Nearby, Global, notifications).
-- [ ] Delete this entry once load-more ships for all three feeds.
+- [ ] File OpenSpec change `mobile-nearby-timeline-infinite-scroll` adding scroll-to-end detection in the `LazyColumn`, a `loadNextPage(cursor)` path on `NearbyTimelineFlow`, `GlobalTimelineFlow`, **and `NotificationsFlow`** (and a `loadMoreReplies(cursor)` path on `PostDetailFlow`), and append-to-list state handling for **all three feeds (Nearby, Global, notifications) + the post-detail replies list**.
+- [ ] Delete this entry once load-more ships for all three feeds and the replies list.
 
 ---
 
@@ -994,4 +994,61 @@ We work around this in [`infra/remote-config/.../RemoteConfigClient.kt`](infra/r
 
 **Cap note (2026-06-07, `mobile-analytics-consent-screen` merge-reconcile):** appended this change's 3 spec-required deferrals (`-settings-toggle`, `-persist-hardening`, `-rootrouter-regate`) on top of origin/main's reconciled 32 → **35 open, 5 over the 30-entry cap**. All spec-obliged — each is referenced by name in a `mobile-analytics-consent` negative-guard scenario or Non-Goal; zero rot, zero half-implemented code. The OVERDUE `/triage-follow-ups` sweep is the drawdown lever.
 
-**Cap note (2026-06-08, `mobile-bottom-nav-sections-and-notifications` merge-reconcile):** merged origin/main (consent-reconciled **35**) into this change's branch, then this change adds its 5 spec-mandated notifications deferrals (`mobile-notifications-deep-link-targets`, `mobile-notifications-actor-username-enrichment`, `in-app-notifications-spec-wire-reconciliation`, `mobile-profile-section-screen`, `mobile-notifications-live-unread-badge`) + the extended `mobile-nearby-timeline-infinite-scroll` (net +5) → **40 open, 10 over the 30-entry hard cap** (supersedes the pre-merge "37" draft note). All 5 are deferred-by-design negative-guard follow-ups (each MODIFY-anchors a spec requirement or is a bucket-b docs reconciliation), not rot. The user chose **add-now + triage in a dedicated `/triage-follow-ups` session** (spawned as a background task); the sweep is now firmly OVERDUE (10 over) — the 2026-06-04 test-coverage bundle + these deferrals (which collapse to deletions as #159 / the profile / live-badge / consent-SDK changes ship) are the drawdown levers.
+---
+
+## mobile-post-detail-block-report-kebab
+
+**Discovered during:** `mobile-post-detail-screen` proposal (deferral; design Non-Goal + spec § "Block and report kebab actions are deferred").
+**Status:** open
+
+**Finding:** `PostDetailScreen` + its reply cards ship with NO block/report affordance (no post/reply kebab menu, no "Blokir"/"Laporkan" control, no block/report API call — verified by the spec's negative-guard scenario). The block + report UI ([`docs/02-Product.md:233`](docs/02-Product.md) / `:254`) is a separate feature: the shipped `user_blocks` + `reports` backends, a confirmation modal, and a reason picker. It is captured as a positive spec requirement on `mobile-post-detail` so this follow-up has a requirement to MODIFY.
+
+**Specs at fault:** none — `openspec/specs/mobile-post-detail/spec.md` § "Block and report kebab actions are deferred" requires this be a separate change.
+**Code at fault:** none — the deferral is clean (no half-implemented kebab).
+**Docs at fault:** none.
+
+**Impact (if shipped):** no in-app block/report from the post-detail surface until this lands — a moderation gap on the very surface a user reads a problematic post. Acceptable for the v1 scaffold (both backends exist; only the mobile UI is missing).
+
+**Action items:**
+- [ ] File OpenSpec change `mobile-post-detail-block-report-kebab` adding a post + reply kebab ("Blokir" / "Laporkan"), a confirmation modal + reason picker, wired to the shipped `user_blocks` + `reports` backends; MODIFIES `mobile-post-detail` § "Block and report kebab actions are deferred".
+- [ ] Delete this entry once the block/report UI ships.
+
+---
+
+## mobile-post-detail-inline-card-actions
+
+**Discovered during:** `mobile-post-detail-screen` proposal (deferral; design D8 + spec § "Inline-card like and reply shortcuts are deferred").
+**Status:** open
+
+**Finding:** v1 routes ALL like/reply interaction through `PostDetailScreen`. The Nearby + Global feed cards gain ONLY the `onOpenPost` open-detail tap (per the `mobile-nearby-timeline` / `mobile-global-timeline` deltas) — NO inline like button, NO inline reply field (verified by the cards' "open-detail tap only" scenario). Inline-card shortcuts are deferred so v1 ships one cohesive engagement surface.
+
+**Specs at fault:** none — `openspec/specs/mobile-post-detail/spec.md` § "Inline-card like and reply shortcuts are deferred".
+**Code at fault:** none — the cards expose only the hoisted `onOpenPost` tap.
+**Docs at fault:** none.
+
+**Impact (if shipped):** a user must open the detail to like/reply (one extra tap vs an inline shortcut). Acceptable for v1.
+
+**Action items:**
+- [ ] File OpenSpec change `mobile-post-detail-inline-card-actions` adding inline like + quick-reply affordances on the feed cards (reusing the `PostDetailFlow` seam); MODIFIES the `mobile-nearby-timeline` / `mobile-global-timeline` card deltas.
+- [ ] Delete this entry once inline-card actions ship.
+
+---
+
+## backend-single-post-get-endpoint
+
+**Discovered during:** `mobile-post-detail-screen` proposal (deferral; design D2 + spec § "By-id post fetch and replies infinite-scroll are deferred"). Owned by the future notifications deep-link change.
+**Status:** open
+
+**Finding:** No `GET /api/v1/posts/{id}` single-post endpoint exists (only `POST /api/v1/posts` + the post-scoped like/reply sub-resources). `PostDetailScreen` renders the post header SOLELY from the `PostDetailRoute` nav-arg payload captured at card-tap (design D2; verified by the "no single-post GET" scenario — the only captured post-scoped requests target `/like`, `/likes/count`, `/replies`). A by-id fetch is only truly needed for **notification deep-linking** — opening a post/reply from a notification, where there is no feed card to source the header — which the in-app notifications-list change (`mobile-bottom-nav-sections-and-notifications`, this PR) defers via its `mobile-notifications-deep-link-targets` entry.
+
+**Specs at fault:** none — `openspec/specs/mobile-post-detail/spec.md` § "By-id post fetch and replies infinite-scroll are deferred".
+**Code at fault:** none — the no-by-id-GET is the intended v1 shape.
+**Docs at fault:** none.
+
+**Impact (if shipped):** notification deep-links into post detail cannot render the header (no card to source it) until this lands. None today (the notifications list ships with deep-link tap-through deferred — `mobile-notifications-deep-link-targets`).
+
+**Action items:**
+- [ ] File OpenSpec change `backend-single-post-get-endpoint` adding `GET /api/v1/posts/{id}` (shadow-ban/block-aware via `visible_posts`, `display_location` fuzzing, NO author PII) so the notifications deep-link change can render a post header without a feed card; likely bundled with / preceding `mobile-notifications-deep-link-targets`.
+- [ ] Delete this entry once the by-id endpoint ships.
+
+**Cap note (2026-06-08, `mobile-bottom-nav-sections-and-notifications` × `mobile-post-detail-screen` (#159) merge-reconcile):** #159 squash-merged to main first (the design-D9 / task-14.5 ordering), so this change is the second-to-merge and absorbed #159's `onOpenPost`→`PostDetailRoute` wiring through the new `AppShellScreen`. FOLLOW_UPS reconciled: origin/main's consent-reconciled **35** + this change's 5 notifications deferrals + #159's 3 post-detail deferrals (`mobile-post-detail-block-report-kebab`, `mobile-post-detail-inline-card-actions`, `backend-single-post-get-endpoint`) → **43 open, 13 over the 30-entry hard cap** (supersedes the pre-merge per-branch "40"/"38" draft notes). All spec-obliged, zero rot. A `/triage-follow-ups` sweep is spawned as a background task; the in-flight PR [#164](https://github.com/aditrioka/nearyou-id/pull/164) (a separate sweep, 32 → 24 via 1 obsolescence-delete + 7 migrations to [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md), based on the pre-#157 tree) is the primary drawdown lever once it merges and the feature branches rebase onto it.
