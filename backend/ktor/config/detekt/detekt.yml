@@ -8,3 +8,8 @@ nearyou:
     active: true
   BlockExclusionJoinRule:
     active: true
+  # Guards against re-introducing a backend test-login symbol (a `/internal-dev/test-login`
+  # endpoint was deliberately rejected — see mobile/app/maestro/PHASE-3-staging-test-login.md).
+  # Backend has no src/dev|src/stagingDebug source sets, so ANY `*TestLogin*` decl here fires.
+  TestLoginIsolationRule:
+    active: true

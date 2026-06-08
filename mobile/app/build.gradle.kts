@@ -8,6 +8,10 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinxSerialization)
+    // mobile-staging-test-login — run the project's custom Detekt ruleset over this module so
+    // TestLoginIsolationRule guards the test-login symbols that live here (Detekt previously ran
+    // only on :backend:ktor; the multiplatform convention applies ktlint only).
+    alias(libs.plugins.detekt)
     kotlin("native.cocoapods")
 }
 
@@ -197,6 +201,28 @@ android {
     }
 }
 
+// mobile-staging-test-login — mirror backend/ktor's Detekt setup: all builtin rulesets disabled,
+// only the `nearyou` custom ruleset (contributed via `detektPlugins(projects.lint.detektRules)`).
+// The plain `detekt` task is syntactic (no type resolution) — sufficient for the declaration-name
+// scan in TestLoginIsolationRule. `./gradlew detekt` (unqualified) now covers this module too.
+detekt {
+    buildUponDefaultConfig = false
+    allRules = false
+    disableDefaultRuleSets = true
+    config.setFrom(files("config/detekt/detekt.yml"))
+    // Scan the WHOLE module source tree rather than a hand-enumerated source-set list — an explicit
+    // list silently drifts as flavors/build-types are added and could omit a *shipping* set (e.g. the
+    // flavor-wide `src/staging/` that merges into the internet-facing stagingRelease). TestLoginIsolationRule's
+    // own path allowlist passes only `src/dev/` and `src/stagingDebug/`, so a `*TestLogin*` declaration
+    // anywhere else is caught. The plain `detekt` task is syntactic (no type resolution), so scanning the
+    // full tree (incl. test source sets, which currently declare no such symbol) is cheap.
+    source.setFrom(files("src"))
+}
+
+tasks.named("check") {
+    dependsOn("detekt")
+}
+
 // The Robolectric Compose UI tests (SignInScreenTest / RootRouterScreenTest / AgeGateScreenTest /
 // NearbyTimelineScreenTest / NearbyLocationGateScreenTest / NearYouThemeTest / PostCreationScreenTest /
 // HomeScreenFabTest / GlobalTimelineScreenTest / HomeTabHostScreenTest / NotificationsScreenTest /
@@ -233,4 +259,6 @@ dependencies {
     // Mobile #3 — merges `androidx.activity.ComponentActivity` into the debug manifest so
     // Robolectric's `runComposeUiTest` (ActivityScenario) can resolve a host activity.
     debugImplementation(libs.androidx.composeUi.testManifest)
+    // mobile-staging-test-login — contribute the `nearyou` custom Detekt ruleset (TestLoginIsolationRule).
+    detektPlugins(projects.lint.detektRules)
 }

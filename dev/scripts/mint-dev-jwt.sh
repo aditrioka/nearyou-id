@@ -37,4 +37,8 @@ cd "$repo_root"
 # `--quiet` strips the gradle progress chrome; the task itself prints just the token.
 # `--no-configuration-cache` because the application plugin's JavaExec doesn't play
 # nicely with the cache (matching the existing flywayMigrate workaround).
-./gradlew --quiet --no-configuration-cache :backend:ktor:mintDevJwt --args="$*"
+# MINT_NO_DAEMON=1 (set by mint-staging-jwt.sh) adds `--no-daemon` so the REAL staging signing
+# key passed via KTOR_RSA_PRIVATE_KEY does not persist in a long-lived Gradle daemon JVM's
+# environment. Dev keys are throwaway (already on disk in dev/.env), so the dev default keeps the
+# daemon for speed.
+./gradlew --quiet --no-configuration-cache ${MINT_NO_DAEMON:+--no-daemon} :backend:ktor:mintDevJwt --args="$*"
