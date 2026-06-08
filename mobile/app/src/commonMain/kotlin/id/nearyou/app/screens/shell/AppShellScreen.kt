@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemColors
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -158,10 +160,34 @@ fun AppShellScreen(
 }
 
 /**
+ * The bottom-nav item colors for the section shell. The bare `NavigationBarItemDefaults.colors()` is
+ * NOT used because, as of Material 3 1.4.0, its default **`selectedTextColor` = `secondary`** and
+ * **`indicatorColor` = `secondaryContainer`** — and this brand theme deliberately makes those two
+ * tokens NEUTRAL near-white (`secondary = #EEF0F4`, `secondaryContainer = #F5F6F8`; see
+ * `NearYouColorScheme`), so the bare default renders the selected label near-white-on-white (invisible)
+ * and the indicator pill vanishes. Per the M3 docs ("if you want the old look, set
+ * `selectedTextColor = onSurface`") we apply readable, brand-aligned tokens via the official
+ * `NavigationBarItemDefaults.colors(...)` API (NOT a custom composition): a light-cobalt indicator pill
+ * (`primaryContainer`) behind a dark-cobalt selected icon (`onPrimaryContainer`), a near-black selected
+ * label (`onSurface`), and `onSurfaceVariant` for the unselected state. This satisfies
+ * `mobile-design-system` § "Navigation and tab labels are visible" (D5) — verified by a contrast
+ * assertion in `AppShellScreenTest`, not just an inequality check.
+ */
+@Composable
+fun nearYouNavigationBarItemColors(): NavigationBarItemColors =
+    NavigationBarItemDefaults.colors(
+        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        selectedTextColor = MaterialTheme.colorScheme.onSurface,
+        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+/**
  * One bottom-nav section destination. The icon is a real Material glyph (bundled vector drawable,
  * outlined when unselected, filled when selected — the M3 selected/unselected convention) carrying its
- * `contentDescription` via `stringResource`. Item colors come from [NavigationBarItemDefaults.colors]
- * so the selected label stays visible (design D5 — fixes the invisible-selected-label bug). When
+ * `contentDescription` via `stringResource`. Item colors come from [nearYouNavigationBarItemColors] so
+ * the selected label stays visible (design D5 — fixes the invisible-selected-label bug). When
  * [badgeContentDescription] is non-null an unread [Badge] is overlaid (its own `contentDescription` via
  * `stringResource`). A `RowScope` extension because `NavigationBarItem` is one.
  */
@@ -178,7 +204,7 @@ private fun RowScope.SectionItem(
     NavigationBarItem(
         selected = selected,
         onClick = onSelect,
-        colors = NavigationBarItemDefaults.colors(),
+        colors = nearYouNavigationBarItemColors(),
         icon = {
             val icon: @Composable () -> Unit = {
                 Icon(

@@ -317,7 +317,9 @@ Bottom-nav sections, the composer FAB, and post-card affordances use **real Mate
 
 ### Label visibility
 
-`NavigationBarItem` and feed `Tab` labels are visible in **both** the selected and unselected states, using the M3 default content-color tokens (`NavigationBarItemDefaults.colors()` / the default `Tab` content color) — never a custom color that can collapse to the background. A selected bottom-nav or tab item never renders an invisible (background-colored) label.
+`NavigationBarItem` and feed `Tab` labels are visible in **both** the selected and unselected states — never a custom color that can collapse to the background. A selected bottom-nav or tab item never renders an invisible (background-colored) label.
+
+> **Gotcha (M3 1.4+):** the **bare** `NavigationBarItemDefaults.colors()` is NOT safe in this brand theme. As of Material 3 1.4 its default `selectedTextColor` resolves to `secondary` and `indicatorColor` to `secondaryContainer` — but `NearYouColorScheme` deliberately makes those two tokens **neutral near-white** (`secondary = #EEF0F4`), so the bare default renders the selected label near-white-on-white (invisible) and the indicator pill vanishes (caught on-device, 2026-06-08). The shell therefore applies readable, brand-aligned tokens explicitly via `nearYouNavigationBarItemColors()` (`AppShellScreen.kt`): a `primaryContainer` indicator pill, an `onPrimaryContainer` selected icon, an `onSurface` selected label, and `onSurfaceVariant` for the unselected state. **Any future screen adding a `NavigationBar`/`NavigationRail` MUST reuse `nearYouNavigationBarItemColors()` (or the same explicit tokens), not the bare default.** Feed `Tab`s are fine on the bare default (the `Tab` selected color is `primary` = brand cobalt, not `secondary`). Enforced by a WCAG-contrast assertion (≥ 4.5:1) in `AppShellScreenTest`, not a mere inequality check.
 
 ### Canonical list loading and refresh pattern
 

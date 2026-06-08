@@ -4,7 +4,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -49,10 +48,10 @@ import org.koin.dsl.module
 import org.koin.mp.KoinPlatformTools
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlin.math.pow
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
@@ -65,6 +64,25 @@ private const val PROFILE_PLACEHOLDER = "Profil segera hadir." // profile_placeh
 private const val FAB_POST = "Posting" // cta_post — the Home-section icon-only composer FAB contentDescription
 private const val NOTIF_COPY = "Seseorang menyukai postingan kamu" // notif_post_liked — proves the screen rendered
 private const val BADGE_CD = "Notifikasi belum dibaca" // notifications_badge contentDescription
+
+/** WCAG 2.x AA contrast threshold for normal text (4.5:1) — the selected nav label must clear it. */
+private const val MIN_LABEL_CONTRAST = 4.5
+
+/** WCAG relative-luminance contrast ratio between two sRGB [Color]s (1.0 = none … 21.0 = black/white). */
+private fun wcagContrast(
+    a: Color,
+    b: Color,
+): Double {
+    fun linear(channel: Float): Double {
+        val c = channel.toDouble()
+        return if (c <= 0.03928) c / 12.92 else ((c + 0.055) / 1.055).pow(2.4)
+    }
+
+    fun luminance(color: Color): Double = 0.2126 * linear(color.red) + 0.7152 * linear(color.green) + 0.0722 * linear(color.blue)
+    val la = luminance(a)
+    val lb = luminance(b)
+    return (maxOf(la, lb) + 0.05) / (minOf(la, lb) + 0.05)
+}
 
 /**
  * Render + interaction coverage of the `AppShellScreen` section shell (mobile-home-shell-redesign tasks
@@ -221,27 +239,30 @@ class AppShellScreenTest {
         }
     }
 
-    // mobile-design-system § "Selected nav item label is visible" — the literal scenario: the selected
-    // section label's RESOLVED content color is a non-background M3 token (NOT equal to the surface /
-    // background color). Asserted behaviorally by reading LocalContentColor inside the label slot of a
-    // NavigationBarItem(selected = true) themed exactly as the shell (NavigationBarItemDefaults.colors()
-    // under NearYouTheme) — the actual rendered label color, not a brittle pixel read. Pairs with the
-    // ShellAndTimelineSourceGuardTest guard that the shell USES those defaults (not a custom color).
+    // mobile-design-system § "Selected nav item label is visible" — the LITERAL scenario, asserted by
+    // CONTRAST, not mere inequality. The bare NavigationBarItemDefaults.colors() does NOT satisfy this in
+    // this brand theme: as of M3 1.4 its default selectedTextColor = `secondary`, which is neutral
+    // near-white here (#EEF0F4) → invisible-on-white (the bug the operator caught on-device). The shell
+    // therefore applies `nearYouNavigationBarItemColors()`. This reads the ACTUAL rendered selected-label
+    // color (LocalContentColor in the label slot) and asserts it clears WCAG AA contrast (4.5:1) against
+    // BOTH the surface and the surfaceContainer (the nav's possible backgrounds). A near-white-on-white
+    // selected label scores ~1.1:1 and would FAIL here — which the earlier inequality-only check wrongly
+    // passed. Pairs with the ShellAndTimelineSourceGuardTest source guard.
     @Test
-    fun selectedNavLabel_resolvedContentColor_isANonBackgroundToken() {
+    fun selectedNavLabel_hasReadableContrastAgainstTheNavBackground() {
         var selectedLabelColor = Color.Unspecified
         var surface = Color.Unspecified
-        var background = Color.Unspecified
+        var surfaceContainer = Color.Unspecified
         runComposeUiTest {
             setContent {
                 NearYouTheme {
                     surface = MaterialTheme.colorScheme.surface
-                    background = MaterialTheme.colorScheme.background
+                    surfaceContainer = MaterialTheme.colorScheme.surfaceContainer
                     NavigationBar {
                         NavigationBarItem(
                             selected = true,
                             onClick = {},
-                            colors = NavigationBarItemDefaults.colors(),
+                            colors = nearYouNavigationBarItemColors(),
                             icon = {},
                             label = { selectedLabelColor = LocalContentColor.current },
                         )
@@ -250,8 +271,16 @@ class AppShellScreenTest {
             }
             waitForIdle()
             assertTrue(selectedLabelColor != Color.Unspecified, "the selected label resolves a concrete content color")
-            assertNotEquals(surface, selectedLabelColor, "selected nav label color must not equal surface (it would be invisible)")
-            assertNotEquals(background, selectedLabelColor, "selected nav label color must not equal background (it would be invisible)")
+            val vsSurface = wcagContrast(selectedLabelColor, surface)
+            val vsContainer = wcagContrast(selectedLabelColor, surfaceContainer)
+            assertTrue(
+                vsSurface >= MIN_LABEL_CONTRAST,
+                "selected nav label must be readable on the surface (WCAG contrast $vsSurface < $MIN_LABEL_CONTRAST)",
+            )
+            assertTrue(
+                vsContainer >= MIN_LABEL_CONTRAST,
+                "selected nav label must be readable on the surfaceContainer (WCAG contrast $vsContainer < $MIN_LABEL_CONTRAST)",
+            )
         }
     }
 
