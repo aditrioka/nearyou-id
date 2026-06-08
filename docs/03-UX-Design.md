@@ -10,10 +10,10 @@ User experience flows, copy strategy, onboarding design, empty states, and inter
 
 Because the app's location-based nature is ambiguous between "posts from this location" vs "people around you", copy MUST be unambiguous at every touchpoint. All user-facing strings below are kept in Bahasa Indonesia:
 
-- Timeline header: "Post dari lokasi ini" (not "Orang di sekitar kamu")
+- Disambiguation copy "Post dari lokasi ini" (not "Orang di sekitar kamu"): the `timeline_nearby_title` string is **retained in the catalog** but is **no longer rendered as a Nearby screen header** (amended 2026-06-08, `mobile-home-shell-redesign`). With the Nearby feed now a text tab inside the Home section, a separate header duplicated the **Beranda** section + **Sekitar** tab and re-applied the status-bar inset (the nested-Scaffold gap). The disambiguation it carried moves to the one-time onboarding hint below + the per-card "Diposting dari {city}" context. Implementing the relocated onboarding hint is tracked by `FOLLOW_UPS.md` `mobile-location-disambiguation-onboarding-hint`.
 - Post detail: "Diposting dari {city_name}, {relative_time}"
 - Posts from an author who has since moved: NOT hidden, NOT updated to the new location. A post is a snapshot of the location at creation, forever.
-- One-time onboarding hint: "NearYouID menampilkan post berdasarkan lokasi saat post dibuat, bukan lokasi terkini penulis"
+- One-time onboarding hint: "NearYouID menampilkan post berdasarkan lokasi saat post dibuat, bukan lokasi terkini penulis" — now the **primary** anti-misinterpretation surface (was a secondary reinforcement of the removed header).
 
 ---
 
@@ -300,3 +300,32 @@ When an iOS 17+ user opens the app, the system can show a popup for required rea
 - Required Reason APIs used (e.g. `NSUserDefaults`, `FileTimestamp`)
 
 User-facing: no extra consent beyond what's already handled in the Analytics & Tracking Consent Screen. The manifest file is an App Store requirement, not an in-app UX element.
+
+---
+
+## Material 3 Design System / Foundation
+
+> **Canonical substrate (added 2026-06-08, `mobile-home-shell-redesign`).** Each authenticated `:mobile:app` screen so far shipped as an isolated change with no shared layout/loading/icon/copy contract, so screens reinvented their own Scaffold, loading state, dot-icons, and copy language — and drifted (a status-bar gap, lists that didn't fill, double loading indicators, broken pull-to-refresh, invisible selected labels, mixed-language tabs). This section is the durable, screen-agnostic substrate every subsequent screen (profile → following → chat → search → settings) inherits. The authoritative spec home is the `mobile-design-system` capability (`openspec/specs/mobile-design-system/`); this is the human-readable canonical reference. **Future mobile screen changes MUST cite this section rather than re-deriving these rules.**
+
+### Single Scaffold + edge-to-edge insets
+
+The authenticated surface applies window insets in exactly **one** place — the app section shell's `Scaffold` (`AppShellScreen`), running edge-to-edge (`enableEdgeToEdge()` in the Android entry + the shell `Scaffold`'s `contentWindowInsets`). Every composable inside the shell body — section content, the Home feed tab host, each feed/timeline screen — is **inset-free**: it declares NO `Scaffold` and NO `TopAppBar` of its own and consumes the shell's `innerPadding` (`Modifier.padding(innerPadding)` + `Modifier.consumeWindowInsets(innerPadding)`). A Compose `Scaffold` *applies but does not consume* insets, so nesting Scaffolds re-adds the status-bar inset (the gap) and re-owns content padding (the list won't fill) — the bug this rule prevents.
+
+### Material 3 icon set per destination
+
+Bottom-nav sections, the composer FAB, and post-card affordances use **real Material 3 icon glyphs** — NOT brand-tinted placeholder dots — delivered as bundled XML vector drawables in `:shared:resources` (the `logo_brand_*.xml` idiom) accessed via `painterResource(Res.drawable.*)`, so the app ships exactly the glyphs it uses without the heavy `material-icons-extended` artifact. Canonical glyphs: bottom-nav **Home / Notifications / Person** (outlined when unselected, filled when selected); composer **add** (`+`); post-card **location** (place/pin), **like** (outlined↔filled), **reply** (chat bubble), **time** (clock). **Exception — feed tabs are text-only**: a `PrimaryTabRow` text label under the M3 underline indicator, NO icon and NO dot (matching the operator's X / Niche-style references).
+
+### Label visibility
+
+`NavigationBarItem` and feed `Tab` labels are visible in **both** the selected and unselected states, using the M3 default content-color tokens (`NavigationBarItemDefaults.colors()` / the default `Tab` content color) — never a custom color that can collapse to the background. A selected bottom-nav or tab item never renders an invisible (background-colored) label.
+
+### Canonical list loading and refresh pattern
+
+Every scrollable list surface distinguishes **initial load** (no content yet) from **refresh** (a reload while content already exists), and never displays two progress indicators at once:
+- **Initial load** → a skeleton/placeholder presentation with at most one in-content indicator; the pull-to-refresh spinner is NOT shown. The state model carries an explicit `isInitialLoad` flag (not a generic `inFlight`) that the pure projection maps to the skeleton.
+- **Refresh of existing content** → the `PullToRefreshBox` indicator shows over the **retained** content list; the scrollable stays mounted (the projection keeps returning `Content`), and the in-content initial-load indicator is NOT shown. The ViewModel keeps the prior outcome and flips only a separate `isRefreshing` flag, which feeds `PullToRefreshBox(isRefreshing = …)`.
+- The **empty / error / rate-limit** (non-`Content`) states are rendered inside a scrollable container (a single-item `LazyColumn`) so the pull-to-refresh gesture is recognized from them too; a refresh from a non-`Content` state retains that state (it does not flip back to the initial-load skeleton).
+
+### Single-language Bahasa Indonesia
+
+All user-facing labels are a single language — Bahasa Indonesia — with no EN/ID mix within a surface, all sourced via `:shared:resources` `stringResource(Res.string.<name>)`. (Feed tab labels are `Sekitar` / `Mengikuti` / `Global` to match the `Beranda` / `Notifikasi` / `Profil` bottom-nav sections.) Runtime user-selectable language switching is **deferred** (`FOLLOW_UPS.md` `mobile-localization-language-switching`) — this rule is satisfied by normalizing the catalog copy, not by an in-app language picker.

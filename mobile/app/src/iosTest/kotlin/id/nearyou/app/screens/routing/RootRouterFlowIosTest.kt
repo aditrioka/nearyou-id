@@ -22,9 +22,10 @@ import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 
-// HomeScreen hosts NearbyTimelineScreen, whose top-bar title is the unique-to-Home marker;
-// SignInScreen's Google CTA is the unique-to-SignIn marker.
-private const val HOME_MARKER = "Post dari lokasi ini"
+// The authenticated route lands on the shell, whose always-present "Beranda" bottom-nav label
+// (section_home) is the unique-to-Home marker (the redundant Nearby header is removed); SignInScreen's
+// Google CTA is the unique-to-SignIn marker.
+private const val HOME_MARKER = "Beranda"
 private const val SIGNIN_MARKER = "Masuk dengan Google"
 
 /**

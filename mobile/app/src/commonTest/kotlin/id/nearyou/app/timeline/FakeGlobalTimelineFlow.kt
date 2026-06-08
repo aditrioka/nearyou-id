@@ -7,12 +7,15 @@ import kotlinx.coroutines.awaitCancellation
  * pre-programmed [GlobalTimelineOutcome] and counts invocations so a test can assert pull-to-refresh /
  * retry / tab-switch re-invokes (or does NOT re-invoke) the fetch. With [suspendForever] = true,
  * `loadFirstPage` never returns — the screen stays in-flight, so the Loading state can be asserted.
- * With [failWith] set, `loadFirstPage` throws it after counting the invocation — the ViewModel maps
- * that to the existing retryable error state.
+ * With [suspendFromCall] = N, only the Nth (and later) call suspends forever — so the FIRST load can
+ * complete and a subsequent `reload()` can be observed mid-flight (`isRefreshing = true`, prior outcome
+ * retained). With [failWith] set, `loadFirstPage` throws it after counting the invocation — the
+ * ViewModel maps that to the existing retryable error state.
  */
 class FakeGlobalTimelineFlow(
     private val outcome: GlobalTimelineOutcome = GlobalTimelineOutcome.Loaded(emptyList(), null, null),
     private val suspendForever: Boolean = false,
+    private val suspendFromCall: Int = Int.MAX_VALUE,
     private val failWith: Throwable? = null,
 ) : GlobalTimelineFlow {
     var loadInvocationCount: Int = 0
@@ -20,7 +23,7 @@ class FakeGlobalTimelineFlow(
 
     override suspend fun loadFirstPage(): GlobalTimelineOutcome {
         loadInvocationCount++
-        if (suspendForever) awaitCancellation()
+        if (suspendForever || loadInvocationCount >= suspendFromCall) awaitCancellation()
         failWith?.let { throw it }
         return outcome
     }

@@ -2,6 +2,7 @@ package id.nearyou.app.screens.timeline
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -39,7 +40,8 @@ import kotlin.test.assertEquals
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml) — pins the
 // location-gate copy alongside the render assertions.
-private const val NEARBY_TITLE = "Post dari lokasi ini"
+// The redundant Nearby header ("Post dari lokasi ini") is removed — "the feed is on screen" is asserted
+// via the feed list test tag (NEARBY_TIMELINE_LIST_TAG, declared in NearbyTimelineScreen.kt, same package).
 private const val DENIAL = "Aktifkan lokasi untuk lihat postingan sekitar"
 private const val OPEN_SETTINGS = "Buka Pengaturan"
 private const val CONSENT_TITLE = "Aktifkan lokasi kamu"
@@ -101,7 +103,7 @@ class NearbyLocationGateScreenTest {
             waitForIdle()
             onNodeWithText(DENIAL).assertExists()
             onNodeWithText(OPEN_SETTINGS).assertExists()
-            onNodeWithText(NEARBY_TITLE).assertDoesNotExist()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertDoesNotExist() // the feed surface is not shown when denied
             assertEquals(0, fakeFlow.loadInvocationCount, "denied permission must not fetch")
         }
     }
@@ -113,7 +115,7 @@ class NearbyLocationGateScreenTest {
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             waitForIdle()
-            onNodeWithText(NEARBY_TITLE).assertExists()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists()
             onNodeWithText("GATED_POST").assertExists()
             onNodeWithText(DENIAL).assertDoesNotExist()
             assertEquals(1, fakeFlow.loadInvocationCount, "granted permission runs the fetch exactly once")
@@ -179,9 +181,9 @@ class NearbyLocationGateScreenTest {
             owner.registry.currentState = Lifecycle.State.RESUMED
             waitForIdle()
 
-            // The ON_RESUME re-check reached the feed.
+            // The ON_RESUME re-check reached the feed (the feed surface renders — asserted via the list tag).
             onNodeWithText(DENIAL).assertDoesNotExist()
-            onNodeWithText(NEARBY_TITLE).assertExists()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists()
             assertEquals(1, fakeFlow.loadInvocationCount, "resume re-check reaches the fetch path")
         }
     }

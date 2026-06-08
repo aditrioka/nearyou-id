@@ -1,6 +1,8 @@
 package id.nearyou.app.screens.timeline
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -32,7 +34,7 @@ import kotlin.test.assertFalse
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml) — captured here
 // so the render assertions also pin the timeline copy.
-private const val TITLE = "Post dari lokasi ini"
+private const val REMOVED_HEADER = "Post dari lokasi ini" // timeline_nearby_title — NO LONGER rendered (header removed)
 private const val LOADING = "Sedang memuat postingan…"
 private const val EMPTY = "Area kamu belum ramai. Sementara lihat dari seluruh Indonesia dulu?"
 private const val LIMIT_HARD = "Kamu sudah mencapai batas baca untuk jam ini. Coba lagi sebentar lagi ya."
@@ -43,14 +45,18 @@ private const val SEE_GLOBAL = "Lihat Global" // cta_see_global — the empty-st
 private const val HOME_PLACEHOLDER_TITLE = "NearYouID" // home_placeholder_title (no longer rendered)
 
 /**
- * Render coverage of `NearbyTimelineScreen` via the Robolectric-backed CMP UI runner (tasks 8.3 / 8.7).
- * The outcome→state projection is covered purely by `NearbyTimelineUiStateTest`; this suite verifies the
- * composable renders the canonical strings for each of the six states, consumes the shared
- * `DistanceRenderer`, tolerates an empty `city_name`, leaks no author id / coordinates, re-invokes the
- * fetch on retry + pull-to-refresh, and that `HomeScreen` delegates to it.
+ * Render coverage of `NearbyTimelineScreen` via the Robolectric-backed CMP UI runner
+ * (mobile-home-shell-redesign tasks 10.2). The screen is now **inset-free** (no `Scaffold`/`TopAppBar`,
+ * no redundant header): "which feed is on screen" is asserted via the feed list **test tag**
+ * ([NEARBY_TIMELINE_LIST_TAG]), NOT the removed header. The outcome→state projection is covered purely
+ * by `NearbyTimelineUiStateTest`; this suite verifies the composable renders the canonical strings for
+ * each of the six states, the initial-load skeleton vs the refresh-keeps-content split (design D3),
+ * pull-to-refresh from the content AND the empty state, consumes the shared `DistanceRenderer`, tolerates
+ * an empty `city_name`, leaks no author id / coordinates, and that `HomeScreen` hosts it.
  *
  * `@Suppress("DEPRECATION")` + `KoinContext`: see `SignInScreenTest` for why this is retained for the
- * multi-test JVM startKoin/stopKoin cycle.
+ * multi-test JVM startKoin/stopKoin cycle. `waitUntil` polls the gate+fake settling per
+ * `feedback_robolectric_async_repo_screen_test_waituntil`.
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
@@ -60,15 +66,14 @@ class NearbyTimelineScreenTest {
     private lateinit var fake: FakeNearbyTimelineFlow
 
     // The Nearby surface is gated on location permission (mobile-location-permission-flow): bind a
-    // GRANTED FakeLocationPermissionController so these six-state render assertions reach the fetch
-    // path through the gate. The denied / rationale / granted-but-no-fix gate states are covered by
-    // NearbyLocationGateScreenTest.
+    // GRANTED FakeLocationPermissionController so these render assertions reach the fetch path.
     private fun installKoin(
         outcome: NearbyTimelineOutcome = NearbyTimelineOutcome.Loaded(emptyList(), null, null),
         suspendForever: Boolean = false,
+        suspendFromCall: Int = Int.MAX_VALUE,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        fake = FakeNearbyTimelineFlow(outcome = outcome, suspendForever = suspendForever)
+        fake = FakeNearbyTimelineFlow(outcome = outcome, suspendForever = suspendForever, suspendFromCall = suspendFromCall)
         startKoin {
             modules(
                 module {
@@ -86,119 +91,167 @@ class NearbyTimelineScreenTest {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
     }
 
-    // 8.3 — initial render shows the Nearby title + the loaded post content; load fires once on entry.
+    // 10.2 — initial render shows the loaded post content via the list tag and renders NO redundant
+    // header (the inset-free screen has no "Post dari lokasi ini" TopAppBar); load fires once on entry.
     @Test
-    fun initialRender_showsTitleAndPostContent() {
+    fun initialRender_showsPostContent_andNoHeader() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "HALO_SEKITAR")), null, null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
-            onNodeWithText(TITLE).assertExists()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("HALO_SEKITAR").assertExists()
+            onNodeWithText(REMOVED_HEADER).assertDoesNotExist() // the redundant header is gone
             assertEquals(1, fake.loadInvocationCount, "load fires exactly once on entry")
         }
     }
 
-    // 8.3 — loading state: a fetch that never returns keeps the screen in-flight → loading copy shows.
+    // 10.2 — initial-load skeleton: a fetch that never returns keeps the screen on the initial load →
+    // the loading copy shows and the content list is NOT yet shown (one indicator; the PTR spinner,
+    // driven by the separate isRefreshing flag, is not active during the initial load — design D3).
     @Test
-    fun loadingState_showsLoadingCopy() {
+    fun initialLoadState_showsSkeletonCopy_noContent() {
         installKoin(suspendForever = true)
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(LOADING).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(LOADING).assertExists()
+            // No post card is shown during the initial load.
+            onAllNodesWithTag(NEARBY_POST_CARD_TAG).fetchSemanticsNodes().let {
+                assertEquals(0, it.size, "no post card during the initial-load skeleton")
+            }
         }
     }
 
-    // 8.3 / 9.3 — empty area (Loaded, empty, no upsell) shows the sparse copy + the new "lihat Global"
-    // CTA, NOT the hard-limit copy.
+    // 10.2 / design D3 — a refresh of loaded content KEEPS the content list mounted (it does NOT revert
+    // to the loading skeleton). The first load returns content; the refresh (2nd call) suspends, so the
+    // refresh is in flight while we assert: the post is still shown and the skeleton copy is NOT.
+    @Test
+    fun refreshOfLoadedContent_keepsTheListMounted_notTheSkeleton() {
+        installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "STAYS_MOUNTED")), null, null), suspendFromCall = 2)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("STAYS_MOUNTED").fetchSemanticsNodes().isNotEmpty() }
+            // Pull-to-refresh → the 2nd load (suspends mid-flight).
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).performTouchInput { swipeDown() }
+            waitUntil(timeoutMillis = 5_000) { fake.loadInvocationCount == 2 }
+            // The content stays mounted during the refresh; the skeleton does NOT replace it.
+            onNodeWithText("STAYS_MOUNTED").assertExists()
+            onNodeWithText(LOADING).assertDoesNotExist()
+        }
+    }
+
+    // 10.2 / mobile-design-system § "Pull-to-refresh is available from a non-Content state" — the empty
+    // state is rendered inside a scrollable, so a pull-down re-invokes the fetch and the state stays Empty.
+    @Test
+    fun pullToRefresh_worksFromTheEmptyState() {
+        installKoin(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(EMPTY).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(1, fake.loadInvocationCount)
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).performTouchInput { swipeDown() }
+            waitUntil(timeoutMillis = 5_000) { fake.loadInvocationCount == 2 }
+            // The empty state is retained during the refresh (it does not flip to the initial-load skeleton).
+            onNodeWithText(EMPTY).assertExists()
+        }
+    }
+
+    // empty area (Loaded, empty, no upsell) shows the sparse copy + the "lihat Global" CTA, NOT the
+    // hard-limit copy.
     @Test
     fun emptyState_showsSparseCopyAndSeeGlobalCta_notHardLimit() {
         installKoin(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(EMPTY).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(EMPTY).assertExists()
             onNodeWithText(SEE_GLOBAL).assertExists()
             onNodeWithText(LIMIT_HARD).assertDoesNotExist()
         }
     }
 
-    // 9.3 / mobile-nearby-timeline § "Empty-state CTA switches to the Global tab" — the empty-state CTA
-    // invokes the hoisted onSeeGlobal lambda (the tab host wires it to select the Global tab). Asserted
-    // at the screen level via a recording callback; the host-level tab switch is covered by
-    // HomeTabHostScreenTest.nearbyEmptyState_seeGlobalCta_switchesToGlobalTab.
+    // mobile-nearby-timeline § "Empty-state CTA switches to the Global tab" — the empty-state CTA invokes
+    // the hoisted onSeeGlobal lambda (asserted at the screen level via a recording callback; the
+    // host-level tab switch is covered by HomeTabHostScreenTest).
     @Test
     fun emptyState_seeGlobalCta_invokesTheHoistedCallback() {
         installKoin(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
         var seeGlobalCount = 0
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen(onSeeGlobal = { seeGlobalCount++ }) } } }
-            onNodeWithText(SEE_GLOBAL).assertExists()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(SEE_GLOBAL).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SEE_GLOBAL).performClick()
             waitForIdle()
             assertEquals(1, seeGlobalCount, "the empty-state CTA invokes the hoisted onSeeGlobal lambda")
         }
     }
 
-    // 8.3 — hard cap (Loaded, empty, upsell.hard) shows the limit copy, NOT the sparse-area copy.
+    // hard cap (Loaded, empty, upsell.hard) shows the limit copy, NOT the sparse-area copy.
     @Test
     fun hardLimit_showsLimitCopy_notEmptyCopy() {
         installKoin(NearbyTimelineOutcome.Loaded(emptyList(), null, UpsellDto(hard = true)))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(LIMIT_HARD).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(LIMIT_HARD).assertExists()
             onNodeWithText(EMPTY).assertDoesNotExist()
         }
     }
 
-    // 8.3 — soft cap (Loaded, non-empty, upsell.soft) shows the posts AND the non-blocking banner.
+    // soft cap (Loaded, non-empty, upsell.soft) shows the posts AND the non-blocking banner.
     @Test
     fun softLimit_showsPostsAndBanner() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "SOFT_POST")), null, UpsellDto(soft = true)))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("SOFT_POST").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("SOFT_POST").assertExists()
             onNodeWithText(LIMIT_SOFT).assertExists()
         }
     }
 
-    // 8.3 — error state shows the network copy + a clickable retry that re-invokes the fetch.
+    // error state shows the network copy + a clickable retry that re-invokes the fetch.
     @Test
     fun errorState_showsNetworkCopyAndRetry_andRetryReInvokes() {
         installKoin(NearbyTimelineOutcome.NetworkError)
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(ERROR_NETWORK).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(ERROR_NETWORK).assertExists()
             onNodeWithText(RETRY).assertExists()
             assertEquals(1, fake.loadInvocationCount)
             onNodeWithText(RETRY).performClick()
-            waitForIdle()
+            waitUntil(timeoutMillis = 5_000) { fake.loadInvocationCount == 2 }
             assertEquals(2, fake.loadInvocationCount, "retry re-invokes the fetch")
         }
     }
 
-    // 8.3 — the card consumes the shared DistanceRenderer (7600m → "8km"), asserted at card level.
+    // the card consumes the shared DistanceRenderer (7600m → "8km"), asserted at card level.
     @Test
     fun distance_isRenderedThroughTheSharedRenderer() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "DIST_POST", distanceM = 7600.0)), null, null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("8km").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("8km").assertExists()
         }
     }
 
-    // 8.3 — empty city_name renders no city label and no literal `""`; the card still renders fine.
+    // empty city_name renders no city label and no literal `""`; the card still renders fine.
     @Test
     fun emptyCityName_rendersNoCityLabel() {
         val emptyCityPost = fakeNearbyPost(content = "EMPTY_CITY_POST", cityName = "", distanceM = 1234.5)
         installKoin(NearbyTimelineOutcome.Loaded(listOf(emptyCityPost), null, null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("EMPTY_CITY_POST").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("EMPTY_CITY_POST").assertExists()
             onNodeWithText("5km").assertExists() // metadata row renders (distance) without a city label
             onNodeWithText("\"\"").assertDoesNotExist() // no literal empty-quotes leaked
         }
     }
 
-    // 8.3 — author_user_id (a UUID) and raw coordinates are NEVER in the rendered tree (PII discipline).
+    // author_user_id (a UUID) and raw coordinates are NEVER in the rendered tree (PII discipline).
     @Test
     fun noAuthorIdNorRawCoordinates_inRenderedTree() {
         installKoin(
@@ -217,6 +270,7 @@ class NearbyTimelineScreenTest {
         )
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("PII_POST").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("PII_POST").assertExists()
             onNodeWithText("11111111-1111-1111-1111-111111111111", substring = true).assertDoesNotExist()
             onNodeWithText("-6.21", substring = true).assertDoesNotExist()
@@ -224,41 +278,42 @@ class NearbyTimelineScreenTest {
         }
     }
 
-    // Spec § "Pull-to-refresh re-invokes the fetch" — a pull-down on the list re-fires the first-page load.
+    // Spec § "Pull-to-refresh re-invokes the fetch" — a pull-down on the content list re-fires the load.
     @Test
     fun pullToRefresh_reInvokesFetch() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "REFRESH_POST")), null, null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("REFRESH_POST").fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, fake.loadInvocationCount)
             onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).performTouchInput { swipeDown() }
-            waitForIdle()
+            waitUntil(timeoutMillis = 5_000) { fake.loadInvocationCount == 2 }
             assertEquals(2, fake.loadInvocationCount, "pull-to-refresh re-invokes the fetch")
         }
     }
 
-    // 8.7 — HomeScreen delegates to NearbyTimelineScreen (shows the Nearby title) and no longer renders
-    // the wizard placeholder title.
+    // HomeScreen hosts NearbyTimelineScreen (the Nearby pager page) and no longer renders the wizard
+    // placeholder title; "which feed" is asserted via the feed list test tag (the header is gone).
     @Test
     fun homeScreen_hostsNearbyTimeline_notThePlaceholder() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "HOSTED_POST")), null, null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { HomeScreen(onOpenComposer = {}) } } }
-            onNodeWithText(TITLE).assertExists()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("HOSTED_POST").assertExists()
             onNodeWithText(HOME_PLACEHOLDER_TITLE).assertDoesNotExist()
         }
     }
 
     // mobile-nearby-timeline § "Nearby post card opens post detail via a hoisted onOpenPost lambda" —
-    // tapping a card invokes the hoisted onOpenPost with the card's PII-free display fields (the
-    // NearbyTimelinePost projection structurally carries no author id / coordinates).
+    // tapping a card invokes the hoisted onOpenPost with the card's PII-free display fields.
     @Test
     fun postCard_tap_invokesOnOpenPostWithDisplayFields() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(id = "p9", content = "TAP_POST", cityName = "Bandung")), null, null))
         var tapped: NearbyTimelinePost? = null
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen(onOpenPost = { tapped = it }) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_POST_CARD_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(NEARBY_POST_CARD_TAG).performClick()
             waitForIdle()
             assertEquals("p9", tapped?.id)

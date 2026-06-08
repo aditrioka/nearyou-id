@@ -1,6 +1,5 @@
 package id.nearyou.app.screens.timeline
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,23 +12,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -48,6 +44,11 @@ import id.nearyou.distance.DistanceRenderer
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.cta_see_global
+import id.nearyou.resources.generated.resources.ic_post_like
+import id.nearyou.resources.generated.resources.ic_post_like_filled
+import id.nearyou.resources.generated.resources.ic_post_location
+import id.nearyou.resources.generated.resources.ic_post_reply
+import id.nearyou.resources.generated.resources.ic_post_time
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
 import id.nearyou.resources.generated.resources.signin_error_network
@@ -55,13 +56,17 @@ import id.nearyou.resources.generated.resources.timeline_empty_nearby
 import id.nearyou.resources.generated.resources.timeline_limit_hard
 import id.nearyou.resources.generated.resources.timeline_limit_soft
 import id.nearyou.resources.generated.resources.timeline_loading
-import id.nearyou.resources.generated.resources.timeline_nearby_title
 import id.nearyou.resources.theme.locationPin
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
-/** Test tag on the scrollable post list — lets the screen test target a pull-to-refresh swipe. */
+/** Test tag on the scrollable surface — lets the screen test target a pull-to-refresh swipe AND lets
+ *  the tab host detect "the Nearby feed is on screen" from ANY state (the redundant header is gone).
+ *  Every screen state (loading skeleton / empty / error / rate-limit / content) renders its scrollable
+ *  with this tag so the pull-to-refresh gesture is recognized from each (mobile-design-system §
+ *  "Canonical list loading and refresh pattern"). */
 const val NEARBY_TIMELINE_LIST_TAG: String = "nearbyTimelineList"
 
 /** Test tag on each post card — lets the screen test target the open-detail tap. */
@@ -72,31 +77,32 @@ const val NEARBY_POST_CARD_TAG: String = "nearbyPostCard"
  * (`mobile-location-permission-flow`). Injects [LocationPermissionController] and drives a
  * [LocationGate] that, on entry, projects the OS permission status to one of: prompt the UU-PDP
  * consent rationale (→ OS prompt), proceed to the fetch, or show the denial fallback. The granted
- * branch ([NearbyFeed]) is the previously-shipped feed: it injects [NearbyTimelineFlow] and observes
- * a `HomeRoute`-scoped [NearbyTimelineViewModel] that holds the [NearbyTimelineOutcome] + in-flight
- * flag and (re)loads page 1 (pull-to-refresh + error-retry both re-fetch). Hoisting that load state
- * into a NavEntry-scoped ViewModel is what makes returning from the composer reuse the loaded feed
+ * branch ([NearbyFeed]) observes a `HomeRoute`-scoped [NearbyTimelineViewModel] that holds the
+ * [NearbyTimelineOutcome] + the split `isInitialLoad`/`isRefreshing` flags and (re)loads page 1
+ * (pull-to-refresh + error-retry both re-fetch). Hoisting that load state into a NavEntry-scoped
+ * ViewModel is what makes returning from the composer (or swiping away and back) reuse the loaded feed
  * instead of re-fetching (design Decision 5). Renders the six fetch states (loading / content / empty
  * / error / rate-limit-hard / rate-limit-soft) per the screen-state-mapping spec, all copy via
  * `stringResource` (zero literals), under `NearYouTheme` tokens.
+ *
+ * The screen is **inset-free**: it declares NO `Scaffold` and NO `TopAppBar` — the app section shell
+ * owns the single inset-owning `Scaffold` (mobile-design-system § "The app shell owns a single Scaffold
+ * and window insets"); this screen renders its pull-to-refresh list filling the space under the shell's
+ * padding. The redundant `timeline_nearby_title` "Post dari lokasi ini" header is removed (design D6);
+ * the location disambiguation it carried moves to the one-time onboarding hint (docs amendment).
  *
  * The gate is a **pre-fetch** screen state, orthogonal to the six fetch-outcome states:
  * `NearbyTimelineRepository`'s status→outcome mapping is unchanged (granted-but-no-fix reuses the
  * existing retryable error state, no new outcome member).
  *
  * Holds NO navigation dependency (no back-stack reference, no FAB), so the tab host can render
- * `NearbyTimelineScreen(...)` directly as the Nearby tab's content (`mobile-post-creation` §
+ * `NearbyTimelineScreen(...)` directly as the Nearby pager page (`mobile-post-creation` §
  * "NearbyTimelineScreen remains navigation-free"). The empty state renders the "lihat Global" CTA,
  * which invokes the hoisted [onSeeGlobal] lambda — a host-level **tab-state** callback (the tab host
- * wires it to select the Global tab), NOT a back-stack reference, so the navigation-free property is
- * preserved (`mobile-nearby-timeline` § "Empty area shows the sparse-area copy plus a lihat-Global
- * CTA"). [onSeeGlobal] defaults to a no-op so direct (non-tab-host) composition stays valid.
- *
- * [onOpenPost] is the hoisted card-tap callback carrying the tapped card's PII-free [NearbyTimelinePost]
- * (no `author_user_id`, no coordinates — structurally absent from the projection); the tab host maps it
- * to a root-stack `PostDetailRoute` push. Like [onSeeGlobal] it is a host-level callback, NOT a
- * back-stack reference, so the screen stays navigation-free (`mobile-nearby-timeline` § "Nearby post
- * card opens post detail via a hoisted onOpenPost lambda"). Defaults to a no-op for direct composition.
+ * wires it to select the Global tab), NOT a back-stack reference. [onOpenPost] is the hoisted card-tap
+ * callback carrying the tapped card's PII-free [NearbyTimelinePost] (no `author_user_id`, no
+ * coordinates); the tab host maps it to a root-stack `PostDetailRoute` push. Both default to a no-op so
+ * direct (non-tab-host) composition stays valid.
  */
 @Composable
 fun NearbyTimelineScreen(
@@ -134,14 +140,15 @@ fun NearbyTimelineScreen(
 }
 
 /**
- * The granted-permission Nearby feed: the previously-shipped fetch path, with its load state hoisted
- * into a `HomeRoute`-scoped [NearbyTimelineViewModel] (resolved via `viewModel { … }` under the
- * `rememberViewModelStoreNavEntryDecorator`). Hoisting it off the composition is the
- * reload-on-return fix (mobile-nav-swap-to-navigation3 Decision 5): the VM survives `HomeRoute` going
- * off-screen while the composer is on top, so popping back reuses the loaded feed instead of
- * re-fetching. A coordinate-acquisition failure still maps to the EXISTING retryable error state in
- * the VM — NO new [NearbyTimelineOutcome] member (spec § "Granted but no coordinate obtainable maps
- * to the existing retryable error state").
+ * The granted-permission Nearby feed: the fetch path, with its load state hoisted into a
+ * `HomeRoute`-scoped [NearbyTimelineViewModel] (resolved via `viewModel { … }` under the
+ * `rememberViewModelStoreNavEntryDecorator`). The VM exposes `isInitialLoad` (drives the skeleton)
+ * separately from `isRefreshing` (drives only the `PullToRefreshBox` indicator), so a refresh keeps the
+ * content list mounted (design D3). Hoisting the state off the composition is the reload-on-return fix
+ * (mobile-nav-swap-to-navigation3 Decision 5): the VM survives `HomeRoute` going off-screen while the
+ * composer is on top OR while another feed page is shown, so popping/swiping back reuses the loaded
+ * feed. A coordinate-acquisition failure still maps to the EXISTING retryable error state in the VM —
+ * NO new [NearbyTimelineOutcome] member.
  */
 @Composable
 private fun NearbyFeed(
@@ -151,11 +158,14 @@ private fun NearbyFeed(
     val flow = koinInject<NearbyTimelineFlow>()
     val viewModel = viewModel { NearbyTimelineViewModel(flow) }
     val outcome by viewModel.outcome.collectAsState()
-    val inFlight by viewModel.inFlight.collectAsState()
+    val isInitialLoad by viewModel.isInitialLoad.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
     NearbyTimelineContent(
-        uiState = nearbyTimelineUiState(outcome, inFlight),
-        isRefreshing = inFlight,
+        // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
+        // list stays mounted). The refresh spinner is conveyed by isRefreshing, NOT by this projection.
+        uiState = nearbyTimelineUiState(outcome, isInitialLoad),
+        isRefreshing = isRefreshing,
         // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload
         // path). `next_cursor` is retained on Loaded but NOT consumed for load-more (deferred to
         // mobile-nearby-timeline-infinite-scroll).
@@ -201,9 +211,12 @@ private fun LocationDeniedState(onOpenSettings: () -> Unit) {
 }
 
 /**
- * Stateless render of the Nearby surface: a top bar titled `timeline_nearby_title` over a
- * pull-to-refresh container that shows one of the six states. Separated from [NearbyTimelineScreen]
- * so the render is a pure function of [uiState] (the screen test drives it via a fake flow).
+ * Inset-free stateless render of the Nearby surface: a `PullToRefreshBox` filling the space under the
+ * shell's padding (NO `Scaffold`, NO `TopAppBar`). It shows one of the six states; every non-`Content`
+ * state is rendered inside a scrollable tagged [NEARBY_TIMELINE_LIST_TAG], so the pull-to-refresh
+ * gesture is recognized from each of them too (mobile-design-system § "Canonical list loading and
+ * refresh pattern"). [isRefreshing] drives only the pull-to-refresh indicator (the refresh-of-content
+ * state), kept separate from the initial-load skeleton so the two indicators never overlap.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -215,28 +228,39 @@ private fun NearbyTimelineContent(
     onSeeGlobal: () -> Unit,
     onOpenPost: (NearbyTimelinePost) -> Unit,
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text(text = stringResource(Res.string.timeline_nearby_title)) })
-        },
-    ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = onRefresh,
-            modifier = Modifier.fillMaxSize().padding(padding),
-        ) {
-            when (uiState) {
-                NearbyTimelineUiState.Loading -> LoadingState()
-                NearbyTimelineUiState.Empty -> NearbyEmptyState(onSeeGlobal = onSeeGlobal)
-                NearbyTimelineUiState.HardLimit -> CenteredMessage(stringResource(Res.string.timeline_limit_hard))
-                NearbyTimelineUiState.Error -> ErrorState(onRetry = onRetry)
-                is NearbyTimelineUiState.Content -> PostList(posts = uiState.posts, onOpenPost = onOpenPost)
-                is NearbyTimelineUiState.SoftLimit ->
-                    PostList(
-                        posts = uiState.posts,
-                        onOpenPost = onOpenPost,
-                        banner = stringResource(Res.string.timeline_limit_soft),
-                    )
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        when (uiState) {
+            NearbyTimelineUiState.Loading -> LoadingState()
+            NearbyTimelineUiState.Empty -> NearbyEmptyState(onSeeGlobal = onSeeGlobal)
+            NearbyTimelineUiState.HardLimit -> CenteredMessageState(stringResource(Res.string.timeline_limit_hard))
+            NearbyTimelineUiState.Error -> ErrorState(onRetry = onRetry)
+            is NearbyTimelineUiState.Content -> PostList(posts = uiState.posts, onOpenPost = onOpenPost)
+            is NearbyTimelineUiState.SoftLimit ->
+                PostList(
+                    posts = uiState.posts,
+                    onOpenPost = onOpenPost,
+                    banner = stringResource(Res.string.timeline_limit_soft),
+                )
+        }
+    }
+}
+
+/**
+ * A non-`Content` screen state rendered inside a single-item `LazyColumn` (tagged
+ * [NEARBY_TIMELINE_LIST_TAG]) so the `PullToRefreshBox` recognizes the pull gesture from it (a
+ * `PullToRefreshBox` requires a scrollable child). The single item fills the viewport and centers
+ * [content].
+ */
+@Composable
+private fun NearbyScrollableState(content: @Composable () -> Unit) {
+    LazyColumn(modifier = Modifier.fillMaxSize().testTag(NEARBY_TIMELINE_LIST_TAG)) {
+        item {
+            Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                content()
             }
         }
     }
@@ -244,56 +268,56 @@ private fun NearbyTimelineContent(
 
 @Composable
 private fun LoadingState() {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        CircularProgressIndicator()
-        Text(
-            text = stringResource(Res.string.timeline_loading),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 16.dp),
-        )
-        // Skeleton placeholder cards (no content) to signal a list is loading.
-        repeat(3) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(72.dp),
-                content = {},
+    NearbyScrollableState {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator()
+            Text(
+                text = stringResource(Res.string.timeline_loading),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 16.dp),
             )
+            // Skeleton placeholder cards (no content) to signal a list is loading.
+            repeat(3) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(72.dp),
+                    content = {},
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun CenteredMessage(message: String) {
-    Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+private fun CenteredMessageState(message: String) {
+    NearbyScrollableState {
         Text(
             text = message,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
+            modifier = Modifier.padding(24.dp),
         )
     }
 }
 
 @Composable
 private fun ErrorState(onRetry: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = stringResource(Res.string.signin_error_network),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
-            Text(text = stringResource(Res.string.cta_retry))
+    NearbyScrollableState {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = stringResource(Res.string.signin_error_network),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
+                Text(text = stringResource(Res.string.cta_retry))
+            }
         }
     }
 }
@@ -301,25 +325,25 @@ private fun ErrorState(onRetry: () -> Unit) {
 /**
  * The sparse-area empty state: the `timeline_empty_nearby` copy ("Area kamu belum ramai…") plus a
  * "lihat Global" CTA that invokes the hoisted [onSeeGlobal] (the tab host selects the Global tab).
- * Closes `mobile-timeline-empty-global-cta` — the empty copy implied the affordance; the CTA was
- * deferred until a Global surface existed (`mobile-nearby-timeline` § "Empty area shows the
- * sparse-area copy plus a lihat-Global CTA").
+ * Rendered inside a scrollable so pull-to-refresh works from the empty state too
+ * (`mobile-nearby-timeline` § "Pull-to-refresh works from the empty / error state").
  */
 @Composable
 private fun NearbyEmptyState(onSeeGlobal: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = stringResource(Res.string.timeline_empty_nearby),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Button(onClick = onSeeGlobal, modifier = Modifier.padding(top = 16.dp)) {
-            Text(text = stringResource(Res.string.cta_see_global))
+    NearbyScrollableState {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = stringResource(Res.string.timeline_empty_nearby),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Button(onClick = onSeeGlobal, modifier = Modifier.padding(top = 16.dp)) {
+                Text(text = stringResource(Res.string.cta_see_global))
+            }
         }
     }
 }
@@ -361,11 +385,15 @@ private fun SoftLimitBanner(text: String) {
 }
 
 /**
- * Read-only post card (design D9): `content`, a metadata row (coral location-pin dot + `city_name`
- * when non-empty + the shared `DistanceRenderer` string + the post date), and a read-only counts row
- * (a like-state dot + `reply_count`). Renders NO `author_user_id` and NO raw `latitude`/`longitude`
- * (those fields are not even present on [NearbyTimelinePost]). Built entirely from `NearYouTheme`
- * tokens; the coral accent is the brand `locationPin` extension.
+ * Read-only post card (design D10, X-style content-forward layout): `content` (bodyLarge), a metadata
+ * row (Material location icon + `city_name` when non-empty + the shared `DistanceRenderer` string + a
+ * Material time/clock icon + the post date), and a read-only counts row (a Material like icon —
+ * filled when the viewer liked it, outlined otherwise — + a Material reply icon + `reply_count`). The
+ * brand-tinted placeholder dots are replaced by Material affordance icons (mobile-design-system §
+ * "Material 3 icons are the canonical … card affordance"). Renders NO `author_user_id` and NO raw
+ * `latitude`/`longitude` (those fields are not even present on [NearbyTimelinePost]). The affordance
+ * icons are decorative (the row conveys read-only counts) → `contentDescription = null` (no literal).
+ * Built entirely from `NearYouTheme` tokens; the location/like accent is the brand `locationPin`.
  */
 @Composable
 private fun NearbyPostCard(
@@ -386,11 +414,15 @@ private fun NearbyPostCard(
             )
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Coral location-pin affordance (no material-icons dependency — a brand-tinted dot).
-                Box(modifier = Modifier.size(8.dp).background(MaterialTheme.colorScheme.locationPin, CircleShape))
+                Icon(
+                    painter = painterResource(Res.drawable.ic_post_location),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.locationPin,
+                    modifier = Modifier.size(16.dp),
+                )
                 if (post.cityName.isNotEmpty()) {
                     Text(
                         text = post.cityName,
@@ -403,6 +435,12 @@ private fun NearbyPostCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Icon(
+                    painter = painterResource(Res.drawable.ic_post_time),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(14.dp),
+                )
                 Text(
                     // The post date (ISO date portion). Richer relative formatting ("2j lalu") is a
                     // deferred refinement — it needs a localized unit-string set (beyond this change's
@@ -414,23 +452,30 @@ private fun NearbyPostCard(
             }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Like-state affordance: filled brand-tinted dot when the viewer liked it, else a
-                // muted outline-tinted dot. Decorative (the row conveys read-only counts) → no
-                // contentDescription literal.
-                Box(
-                    modifier =
-                        Modifier.size(10.dp).background(
-                            color =
-                                if (post.likedByViewer) {
-                                    MaterialTheme.colorScheme.locationPin
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                },
-                            shape = CircleShape,
+                // Like-state affordance: a filled brand-tinted heart when the viewer liked it, else a
+                // muted outlined heart. Decorative (the row conveys read-only counts) → no literal.
+                Icon(
+                    painter =
+                        painterResource(
+                            if (post.likedByViewer) Res.drawable.ic_post_like_filled else Res.drawable.ic_post_like,
                         ),
+                    contentDescription = null,
+                    tint =
+                        if (post.likedByViewer) {
+                            MaterialTheme.colorScheme.locationPin
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    modifier = Modifier.size(16.dp),
+                )
+                Icon(
+                    painter = painterResource(Res.drawable.ic_post_reply),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
                 )
                 Text(
                     text = post.replyCount.toString(),

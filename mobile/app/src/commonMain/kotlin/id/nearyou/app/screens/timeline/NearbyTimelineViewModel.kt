@@ -23,6 +23,17 @@ import kotlin.coroutines.cancellation.CancellationException
  * coordinate-acquisition failure maps to the EXISTING retryable [NearbyTimelineOutcome.NetworkError]
  * (no new outcome member) — identical to the prior in-composable behavior, just hoisted off the
  * composition so it is not lost when the entry is disposed.
+ *
+ * Loading is split into two distinct flags (mobile-design-system § "Canonical list loading and refresh
+ * pattern", design D3), replacing the prior single `inFlight`:
+ * - [isInitialLoad] — true only until the FIRST outcome arrives (no content yet). Drives the screen's
+ *   skeleton state via `nearbyTimelineUiState(outcome, isInitialLoad)`.
+ * - [isRefreshing] — true during a [reload] while a prior outcome is RETAINED (so the list stays
+ *   mounted and the screen keeps rendering `Content`). Drives only the `PullToRefreshBox` indicator.
+ *
+ * On [reload] the existing outcome is kept (never nulled) and [isRefreshing] is set true; the outcome
+ * is swapped + [isRefreshing] cleared on completion. So there is never an initial-load skeleton AND a
+ * pull-to-refresh spinner at once.
  */
 class NearbyTimelineViewModel(
     private val flow: NearbyTimelineFlow,
@@ -30,21 +41,26 @@ class NearbyTimelineViewModel(
     private val _outcome = MutableStateFlow<NearbyTimelineOutcome?>(null)
     val outcome: StateFlow<NearbyTimelineOutcome?> = _outcome.asStateFlow()
 
-    private val _inFlight = MutableStateFlow(false)
-    val inFlight: StateFlow<Boolean> = _inFlight.asStateFlow()
+    private val _isInitialLoad = MutableStateFlow(true)
+    val isInitialLoad: StateFlow<Boolean> = _isInitialLoad.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     init {
-        load()
+        load(initial = true)
     }
 
-    /** Pull-to-refresh + error-retry both call this — re-fetches page 1. */
+    /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
     fun reload() {
-        load()
+        load(initial = false)
     }
 
-    private fun load() {
+    private fun load(initial: Boolean) {
         viewModelScope.launch {
-            _inFlight.value = true
+            // A refresh keeps the prior outcome + flips only isRefreshing (the list stays mounted, the
+            // screen keeps rendering Content). The initial load keeps isInitialLoad = true (skeleton).
+            if (!initial) _isRefreshing.value = true
             try {
                 _outcome.value = flow.loadFirstPage()
             } catch (cancellation: CancellationException) {
@@ -55,7 +71,10 @@ class NearbyTimelineViewModel(
                 // error state (network copy + retry). No new NearbyTimelineOutcome member is introduced.
                 _outcome.value = NearbyTimelineOutcome.NetworkError
             } finally {
-                _inFlight.value = false
+                // After the first outcome arrives the screen leaves the skeleton for good; subsequent
+                // reloads toggle isRefreshing only.
+                _isInitialLoad.value = false
+                _isRefreshing.value = false
             }
         }
     }

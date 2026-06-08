@@ -2,7 +2,10 @@ package id.nearyou.app.screens.shell
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -18,6 +21,7 @@ import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.NotificationsRepository
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
@@ -47,22 +51,23 @@ import kotlin.test.assertEquals
 private const val SECTION_HOME = "Beranda" // section_home
 private const val SECTION_NOTIFICATIONS = "Notifikasi" // section_notifications
 private const val SECTION_PROFILE = "Profil" // section_profile
-private const val NEARBY_TITLE = "Post dari lokasi ini" // timeline_nearby_title (Home default feed)
-private const val GLOBAL_TITLE = "Seluruh Indonesia" // timeline_global_title
-private const val TAB_FOLLOWING = "Following" // tab_following
+private const val TAB_FOLLOWING = "Mengikuti" // tab_following
 private const val FOLLOWING_PLACEHOLDER = "Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu."
 private const val PROFILE_PLACEHOLDER = "Profil segera hadir." // profile_placeholder
-private const val FAB_POST = "Posting" // cta_post — the Home-section composer FAB
+private const val FAB_POST = "Posting" // cta_post — the Home-section icon-only composer FAB contentDescription
 private const val NOTIF_COPY = "Seseorang menyukai postingan kamu" // notif_post_liked — proves the screen rendered
 private const val BADGE_CD = "Notifikasi belum dibaca" // notifications_badge contentDescription
 
 /**
- * Render + interaction coverage of the `AppShellScreen` section shell (`mobile-home-tab-host` shell
- * requirements): the three bottom-nav sections + section switching swapping the body, the composer FAB on
- * the Home section only, the Profil placeholder, the Notifikasi badge show-at-`count>0` / hide-at-`0`, the
- * Notifikasi section rendering `NotificationsScreen`, the no-re-fetch-on-section-switch invariant via the
- * fakes' counters, and the Profil-section-issues-no-fetch guard via a recording MockEngine. In the
- * Release-variant `*ScreenTest` exclude (the `ui-test-manifest` host activity is debug-only).
+ * Render + interaction coverage of the `AppShellScreen` section shell (mobile-home-shell-redesign tasks
+ * 10.1 + the `mobile-home-tab-host` shell requirements): the three bottom-nav sections + section
+ * switching swapping the body, the icon-only composer FAB on the Home section only (asserted via its
+ * `contentDescription`), the Profil placeholder, the Notifikasi badge show-at-`count>0` / hide-at-`0`,
+ * the Notifikasi section rendering `NotificationsScreen`, the no-re-fetch-on-section-switch invariant via
+ * the fakes' counters, and the Profil-section-issues-no-fetch guard via a recording MockEngine. "Which
+ * feed is on screen" is asserted via the feed list test tag ([NEARBY_TIMELINE_LIST_TAG]) — the redundant
+ * headers are removed. In the Release-variant `*ScreenTest` exclude (the `ui-test-manifest` host activity
+ * is debug-only).
  *
  * The Nearby tab (the Home default) is gated on location; a GRANTED fake settles the gate and `waitUntil`
  * polls the end state (per `feedback_robolectric_async_repo_screen_test_waituntil`).
@@ -112,13 +117,13 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_HOME).assertExists()
-            // SECTION_NOTIFICATIONS label collides with the screen title; assert it appears at least once.
-            onAllNodesWithText(SECTION_NOTIFICATIONS).fetchSemanticsNodes().isNotEmpty()
+            // SECTION_NOTIFICATIONS label may collide with a screen title; assert it appears at least once.
+            assertEquals(true, onAllNodesWithText(SECTION_NOTIFICATIONS).fetchSemanticsNodes().isNotEmpty())
             onNodeWithText(SECTION_PROFILE).assertExists()
-            // Default section = Home → its default feed (Nearby) renders.
-            onNodeWithText(NEARBY_TITLE).assertExists()
+            // Default section = Home → its default feed (Nearby) renders (asserted via the feed list tag).
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists()
         }
     }
 
@@ -127,11 +132,11 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
             // The NotificationsScreen rendered (its row copy shows); the Home feed is gone.
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(NEARBY_TITLE).assertDoesNotExist()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertDoesNotExist()
         }
     }
 
@@ -140,10 +145,10 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_PROFILE).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(NEARBY_TITLE).assertDoesNotExist()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertDoesNotExist()
         }
     }
 
@@ -152,7 +157,7 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(TAB_FOLLOWING).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(FOLLOWING_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(FOLLOWING_PLACEHOLDER).assertExists()
@@ -160,21 +165,21 @@ class AppShellScreenTest {
     }
 
     @Test
-    fun fab_isOnHomeSectionOnly() {
+    fun fab_isIconOnly_onHomeSectionOnly() {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
-            // Home section → FAB present.
-            onNodeWithText(FAB_POST).assertExists()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            // Home section → icon-only FAB present (asserted via contentDescription; no visible text label).
+            onNodeWithContentDescription(FAB_POST).assertExists()
             // Notifikasi section → FAB absent.
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(FAB_POST).assertDoesNotExist()
+            onNodeWithContentDescription(FAB_POST).assertDoesNotExist()
             // Profil section → FAB absent.
             onNodeWithText(SECTION_PROFILE).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(FAB_POST).assertDoesNotExist()
+            onNodeWithContentDescription(FAB_POST).assertDoesNotExist()
         }
     }
 
@@ -199,7 +204,7 @@ class AppShellScreenTest {
         installKoin(unreadCount = 0)
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(
                 0,
                 onAllNodesWithContentDescription(BADGE_CD, useUnmergedTree = true).fetchSemanticsNodes().size,
@@ -213,14 +218,14 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, nearbyFake.loadInvocationCount, "Nearby loads once on first show")
 
             // Home → Notifikasi → Home: the Home feeds are not torn down + re-fetched.
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_HOME).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, nearbyFake.loadInvocationCount, "returning to Home must not re-fetch the Nearby feed (VM retained)")
         }
     }
@@ -230,7 +235,7 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
 
             // First Notifikasi entry loads the inbox once.
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
@@ -239,7 +244,7 @@ class AppShellScreenTest {
 
             // Notifikasi → Home → Notifikasi: the shell-scoped VM survived (no re-fetch).
             onNodeWithText(SECTION_HOME).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, notifFake.loadInvocationCount, "returning to Notifikasi must not re-fetch (the shell-scoped VM is retained)")

@@ -96,8 +96,12 @@
          descriptions are derived a11y copy (descriptive, not label duplicates) — FLAGGED FOR UX REVIEW. The
          Global empty-skeleton + error/retry states reuse timeline_loading / signin_error_network / cta_retry
          (declared above) — no new keys (avoids a verbatim timeline_loading duplicate). -->
-    <string name="tab_nearby">Nearby</string>
-    <string name="tab_following">Following</string>
+    <!-- mobile-home-shell-redesign (D7): tab labels normalized to Bahasa Indonesia (single-language rule,
+         mobile-design-system) so the feed tabs match the Beranda/Notifikasi/Profil section labels. The tabs
+         are now TEXT-ONLY (D10), so tab_*_icon_description below are retained-but-unreferenced (kept in the
+         catalog, like timeline_nearby_title). Derived copy, flagged for UX review. -->
+    <string name="tab_nearby">Sekitar</string>
+    <string name="tab_following">Mengikuti</string>
     <string name="tab_global">Global</string>
     <string name="tab_nearby_icon_description">Postingan di sekitar kamu</string>
     <string name="tab_following_icon_description">Postingan dari yang kamu ikuti</string>

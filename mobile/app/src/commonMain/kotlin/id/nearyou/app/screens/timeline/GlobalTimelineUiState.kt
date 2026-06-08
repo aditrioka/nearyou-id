@@ -36,7 +36,8 @@ private fun GlobalPostDto.toUi(): GlobalTimelinePost =
  * [GlobalTimelinePost] (author id + coordinates already dropped; no distance exists).
  */
 sealed interface GlobalTimelineUiState {
-    /** Fetch in-flight (incl. the pre-first-load window) → skeleton + loading copy. */
+    /** Initial load (no content yet) → skeleton + loading copy. NOT used during a refresh of loaded
+     *  content (that keeps rendering [Content]; the refresh indicator is the `PullToRefreshBox` only). */
     data object Loading : GlobalTimelineUiState
 
     /** `Loaded`, non-empty posts, no soft upsell → the post-card list. */
@@ -61,20 +62,24 @@ sealed interface GlobalTimelineUiState {
 }
 
 /**
- * Maps the current [outcome] (null = not yet loaded) + [inFlight] to the screen state. Exhaustive over
- * [GlobalTimelineOutcome] — no generic fallthrough (design D4). The rate-limit presentation is derived
- * from the parsed `upsell` flags on a `Loaded` outcome:
+ * Maps the current [outcome] (null = not yet loaded) + [isInitialLoad] to the screen state. Exhaustive
+ * over [GlobalTimelineOutcome] — no generic fallthrough (design D4). The rate-limit presentation is
+ * derived from the parsed `upsell` flags on a `Loaded` outcome. The [isInitialLoad] flag (NOT a generic
+ * in-flight flag) distinguishes the initial skeleton from a refresh: during a refresh of loaded content
+ * [isInitialLoad] is false and the retained `Loaded` outcome projects to [Content] (the list stays
+ * mounted); the refresh indicator is conveyed separately via the `PullToRefreshBox` `isRefreshing`
+ * value, never by flipping back to [Loading] (design D3):
  *
- * - in-flight (or not-yet-loaded) ⇒ [Loading].
+ * - initial load (or not-yet-loaded) ⇒ [Loading].
  * - `Loaded` empty + `upsell.hard` ⇒ [HardLimit]; `Loaded` empty otherwise ⇒ [Empty] (skeleton copy).
  * - `Loaded` non-empty + `upsell.soft` ⇒ [SoftLimit]; `Loaded` non-empty otherwise ⇒ [Content].
  * - `NetworkError` / `Error` ⇒ [Error].
  */
 fun globalTimelineUiState(
     outcome: GlobalTimelineOutcome?,
-    inFlight: Boolean,
+    isInitialLoad: Boolean,
 ): GlobalTimelineUiState {
-    if (inFlight) return GlobalTimelineUiState.Loading
+    if (isInitialLoad) return GlobalTimelineUiState.Loading
     return when (outcome) {
         null -> GlobalTimelineUiState.Loading
         is GlobalTimelineOutcome.Loaded -> {

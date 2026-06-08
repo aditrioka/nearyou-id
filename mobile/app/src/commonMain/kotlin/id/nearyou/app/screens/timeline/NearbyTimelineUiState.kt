@@ -39,7 +39,8 @@ private fun NearbyPostDto.toUi(): NearbyTimelinePost =
  * posts are [NearbyTimelinePost] (author id + coordinates already dropped).
  */
 sealed interface NearbyTimelineUiState {
-    /** Fetch in-flight (incl. the pre-first-load window) → skeleton + loading copy. */
+    /** Initial load (no content yet) → skeleton + loading copy. NOT used during a refresh of loaded
+     *  content (that keeps rendering [Content]; the refresh indicator is the `PullToRefreshBox` only). */
     data object Loading : NearbyTimelineUiState
 
     /** `Loaded`, non-empty posts, no soft upsell → the post-card list. */
@@ -59,20 +60,24 @@ sealed interface NearbyTimelineUiState {
 }
 
 /**
- * Maps the current [outcome] (null = not yet loaded) + [inFlight] to the screen state. Exhaustive over
- * [NearbyTimelineOutcome] — no generic fallthrough (design D6). The rate-limit presentation is derived
- * from the parsed `upsell` flags on a `Loaded` outcome (design D7 / spec § "Screen state mapping"):
+ * Maps the current [outcome] (null = not yet loaded) + [isInitialLoad] to the screen state. Exhaustive
+ * over [NearbyTimelineOutcome] — no generic fallthrough (design D6). The rate-limit presentation is
+ * derived from the parsed `upsell` flags on a `Loaded` outcome (design D7 / spec § "Screen state
+ * mapping"). The [isInitialLoad] flag (NOT a generic in-flight flag) distinguishes the initial skeleton
+ * from a refresh: during a refresh of loaded content [isInitialLoad] is false and the retained `Loaded`
+ * outcome projects to [Content] (the list stays mounted) — the refresh indicator is conveyed separately
+ * via the `PullToRefreshBox` `isRefreshing` value, never by flipping back to [Loading] (design D3):
  *
- * - in-flight (or not-yet-loaded) ⇒ [Loading].
+ * - initial load (or not-yet-loaded) ⇒ [Loading].
  * - `Loaded` empty + `upsell.hard` ⇒ [HardLimit]; `Loaded` empty otherwise ⇒ [Empty] (distinct copy).
  * - `Loaded` non-empty + `upsell.soft` ⇒ [SoftLimit]; `Loaded` non-empty otherwise ⇒ [Content].
  * - `NetworkError` / `Error` ⇒ [Error].
  */
 fun nearbyTimelineUiState(
     outcome: NearbyTimelineOutcome?,
-    inFlight: Boolean,
+    isInitialLoad: Boolean,
 ): NearbyTimelineUiState {
-    if (inFlight) return NearbyTimelineUiState.Loading
+    if (isInitialLoad) return NearbyTimelineUiState.Loading
     return when (outcome) {
         null -> NearbyTimelineUiState.Loading
         is NearbyTimelineOutcome.Loaded -> {
