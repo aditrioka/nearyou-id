@@ -40,7 +40,11 @@ class NearbyTimelineRepository(
                     upsell = result.body.upsell,
                 )
             is NearbyApiResult.NetworkError -> {
-                diagnosticLog("nearby_network_error: ${result.cause.message}")
+                // Log the exception TYPE, not cause.message: a timeout exception's message can embed the
+                // request URL — which for Nearby carries ?lat=&lng= — and the diagnostic sink does NOT go
+                // through the HTTP-path CoordinateMaskingLogger. The class name is coordinate-free by
+                // construction (mobile-session-expiry-and-proactive-refresh D6 + the coordinate-masking invariant).
+                diagnosticLog("nearby_network_error: ${result.cause::class.simpleName}")
                 NearbyTimelineOutcome.NetworkError
             }
             is NearbyApiResult.HttpError ->

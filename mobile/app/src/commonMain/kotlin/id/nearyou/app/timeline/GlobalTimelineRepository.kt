@@ -29,7 +29,9 @@ class GlobalTimelineRepository(
                     upsell = result.body.upsell,
                 )
             is GlobalApiResult.NetworkError -> {
-                diagnosticLog("global_network_error: ${result.cause.message}")
+                // Log the exception TYPE, not cause.message (kept parallel with Nearby's coordinate-safe
+                // sink; Global carries no coordinate, but the class name is the right diagnostic anyway).
+                diagnosticLog("global_network_error: ${result.cause::class.simpleName}")
                 GlobalTimelineOutcome.NetworkError
             }
             is GlobalApiResult.HttpError ->

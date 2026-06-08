@@ -91,7 +91,9 @@ object HttpClientFactory {
         nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
         // The single-flight refresh round-trip (D2). Defaulted so existing call sites/tests that only
         // exercise the reactive path need no change; MobileModule passes the shared Koin single so the
-        // proactive trigger and the bearer plugin funnel through ONE instance.
+        // proactive trigger and the bearer plugin funnel through ONE instance. NOTE: [nowMillis] only
+        // feeds THIS default TokenRefresher (the client itself reads no clock) — when MobileModule injects
+        // the shared single, the factory's [nowMillis] is unused in production.
         tokenRefresher: TokenRefresher = TokenRefresher(tokenStore, sessionInvalidator, nowMillis),
     ): HttpClient {
         val jsonConfig =

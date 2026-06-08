@@ -6,6 +6,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * App-root preemptive-refresh hook (mobile-session-expiry-and-proactive-refresh, design D3): on each
@@ -17,9 +18,10 @@ import org.koin.compose.koinInject
  *
  * The refresh launches on the app-root [rememberCoroutineScope] (**lifecycle-bound**, cancels with
  * the host — NOT `GlobalScope`) and is fire-and-forget / non-blocking: it never blocks composition or
- * the first frame. `runCatching` guards the launch so a transport failure during the proactive refresh
- * cannot crash the scope; a rejected refresh token funnels through `SessionInvalidator` → the reliable
- * re-route (handled inside [ProactiveTokenRefreshTrigger]), not surfaced as an exception here.
+ * the first frame. A transport failure during the proactive refresh is swallowed so it cannot crash
+ * the scope (a rejected refresh token funnels through `SessionInvalidator` → the reliable re-route,
+ * handled inside [ProactiveTokenRefreshTrigger], not surfaced as an exception here); [CancellationException]
+ * is re-thrown so a scope teardown unwinds structured concurrency cleanly (mirrors `AuthApiClient`).
  *
  * Hosted next to `SessionExpiryEffect` at the app root so `App.kt` names no auth-flow identifier.
  */
@@ -28,6 +30,14 @@ fun ProactiveRefreshEffect() {
     val trigger = koinInject<ProactiveTokenRefreshTrigger>()
     val scope = rememberCoroutineScope()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        scope.launch { runCatching { trigger.onResume() } }
+        scope.launch {
+            try {
+                trigger.onResume()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                // Best-effort proactive refresh: a transport failure must not crash the lifecycle scope.
+            }
+        }
     }
 }

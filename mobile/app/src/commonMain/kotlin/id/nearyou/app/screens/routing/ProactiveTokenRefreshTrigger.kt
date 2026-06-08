@@ -37,6 +37,8 @@ class ProactiveTokenRefreshTrigger(
 ) {
     suspend fun onResume() {
         val tokens = tokenStore.read() ?: return // not signed in → nothing to refresh
+        // `<=` is boundary-inclusive AND covers an ALREADY-expired token (the delta goes negative when
+        // `accessExpiresAtEpochMillis < now`), so a resume after the token lapsed refreshes once too.
         if (tokens.accessExpiresAtEpochMillis - nowMillis() <= PROACTIVE_REFRESH_WINDOW_MILLIS) {
             tokenRefresher.refresh(httpClient)
         }
