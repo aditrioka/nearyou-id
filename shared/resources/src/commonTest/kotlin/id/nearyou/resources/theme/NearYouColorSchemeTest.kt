@@ -223,6 +223,62 @@ class NearYouColorSchemeTest {
     @Test
     fun dark_errorContainer() = assertEquals(Color(0xFF93000A), NearYouColorScheme.dark.errorContainer)
 
+    // dark — remaining roles (full-table parity with light; many of these changed value in this change)
+
+    @Test
+    fun dark_secondaryContainer() = assertEquals(Color(0xFF424659), NearYouColorScheme.dark.secondaryContainer)
+
+    @Test
+    fun dark_onSecondaryContainer() = assertEquals(Color(0xFFDEE1F9), NearYouColorScheme.dark.onSecondaryContainer)
+
+    @Test
+    fun dark_onTertiary() = assertEquals(Color(0xFF43273F), NearYouColorScheme.dark.onTertiary)
+
+    @Test
+    fun dark_tertiaryContainer() = assertEquals(Color(0xFF5B3D57), NearYouColorScheme.dark.tertiaryContainer)
+
+    @Test
+    fun dark_onTertiaryContainer() = assertEquals(Color(0xFFFFD7F5), NearYouColorScheme.dark.onTertiaryContainer)
+
+    @Test
+    fun dark_onBackground_aliasOfOnSurface() {
+        assertEquals(Color(0xFFE3E1E9), NearYouColorScheme.dark.onBackground)
+        assertEquals(NearYouColorScheme.dark.onSurface, NearYouColorScheme.dark.onBackground)
+    }
+
+    @Test
+    fun dark_surfaceVariant() = assertEquals(Color(0xFF45464F), NearYouColorScheme.dark.surfaceVariant)
+
+    @Test
+    fun dark_onSurfaceVariant() = assertEquals(Color(0xFFC6C5D0), NearYouColorScheme.dark.onSurfaceVariant)
+
+    @Test
+    fun dark_surfaceTint_aliasOfPrimary() {
+        assertEquals(Color(0xFFB7C4FF), NearYouColorScheme.dark.surfaceTint)
+        assertEquals(NearYouColorScheme.dark.primary, NearYouColorScheme.dark.surfaceTint)
+    }
+
+    @Test
+    fun dark_inverseSurface() = assertEquals(Color(0xFFE3E1E9), NearYouColorScheme.dark.inverseSurface)
+
+    @Test
+    fun dark_inverseOnSurface() = assertEquals(Color(0xFF2F3036), NearYouColorScheme.dark.inverseOnSurface)
+
+    @Test
+    fun dark_onError() = assertEquals(Color(0xFF690005), NearYouColorScheme.dark.onError)
+
+    @Test
+    fun dark_onErrorContainer() = assertEquals(Color(0xFFFFDAD6), NearYouColorScheme.dark.onErrorContainer)
+
+    @Test
+    fun dark_surfaceContainerLow() = assertEquals(Color(0xFF1A1B21), NearYouColorScheme.dark.surfaceContainerLow)
+
+    @Test
+    fun dark_surfaceContainer() = assertEquals(Color(0xFF1E1F25), NearYouColorScheme.dark.surfaceContainer)
+
+    @Test
+    fun dark_surfaceContainerHigh() = assertEquals(Color(0xFF292A2F), NearYouColorScheme.dark.surfaceContainerHigh)
+
     // === NearYouColors extension palette — light + dark (UNCHANGED by this change) ===
 
     @Test
