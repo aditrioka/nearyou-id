@@ -136,10 +136,10 @@ Fuzz is deterministic per `post_id`, non-reversible without the server secret, a
 ### UX Copy Strategy (Avoid Misinterpretation)
 
 User-facing strings (kept in Bahasa Indonesia):
-- Timeline header: "Post dari lokasi ini" (not "Orang di sekitar kamu")
+- Disambiguation copy "Post dari lokasi ini" (not "Orang di sekitar kamu"): the `timeline_nearby_title` string is **retained in the catalog** but is **no longer rendered as a screen header** (amended 2026-06-08, `mobile-home-shell-redesign`). The Nearby feed is now a tab inside the Home section's tab row, so a separate in-screen header duplicated the selected **Beranda** section + **Sekitar** tab — a Material 3 redundancy that also introduced a status-bar gap. The disambiguation it carried (posts-from-this-location vs people-around-you) moves to (a) the one-time onboarding hint below and (b) the per-card "Diposting dari {city}" context.
 - Post detail: "Diposting dari {city_name}, {relative_time}"
 - Posts from an author who has since moved: NOT hidden, NOT updated to the new location. A post is a snapshot of the location at creation, forever.
-- One-time onboarding hint: "NearYouID menampilkan post berdasarkan lokasi saat post dibuat, bukan lokasi terkini penulis"
+- One-time onboarding hint: "NearYouID menampilkan post berdasarkan lokasi saat post dibuat, bukan lokasi terkini penulis" — now the **primary** anti-misinterpretation surface (implementing it is tracked by `FOLLOW_UPS.md` `mobile-location-disambiguation-onboarding-hint`).
 
 ### Post Edit History (Product Behavior)
 

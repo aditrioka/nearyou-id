@@ -2,7 +2,9 @@ package id.nearyou.app.screens.shell
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -13,6 +15,7 @@ import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
@@ -35,17 +38,17 @@ import kotlin.test.assertEquals
 private const val SECTION_HOME = "Beranda"
 private const val SECTION_NOTIFICATIONS = "Notifikasi"
 private const val SECTION_PROFILE = "Profil"
-private const val NEARBY_TITLE = "Post dari lokasi ini"
 private const val PROFILE_PLACEHOLDER = "Profil segera hadir."
 private const val NOTIF_COPY = "Seseorang menyukai postingan kamu"
 private const val BADGE_CD = "Notifikasi belum dibaca"
 
 /**
  * iOS counterpart to the Robolectric `AppShellScreenTest` — the bottom-nav section shell run natively on
- * the iOS simulator (mobile-home-tab-host § "exercising the shell ... on the simulator"). Covers the three
- * sections + default Home, section switching swapping the body, the Profil placeholder, and the Notifikasi
- * badge, reusing the commonTest fakes. See `id.nearyou.app.screens.auth.SignInFlowIosTest` for the v1-API +
- * iosTest-placement rationale; K/N-legal fn names (no `,()#`).
+ * the iOS simulator (task 10.4). Covers the three sections + default Home, section switching swapping the
+ * body, the Profil placeholder, and the Notifikasi badge, reusing the commonTest fakes. "Which feed is on
+ * screen" is asserted via the feed list test tag (the redundant headers are removed). See
+ * `id.nearyou.app.screens.auth.SignInFlowIosTest` for the v1-API + iosTest-placement rationale; K/N-legal
+ * fn names (no `,()#`).
  */
 @Suppress("DEPRECATION")
 @OptIn(ExperimentalTestApi::class)
@@ -85,10 +88,10 @@ class AppShellFlowIosTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_HOME).assertExists()
             onNodeWithText(SECTION_PROFILE).assertExists()
-            onNodeWithText(NEARBY_TITLE).assertExists()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists()
         }
     }
 
@@ -97,10 +100,10 @@ class AppShellFlowIosTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(NEARBY_TITLE).assertDoesNotExist()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertDoesNotExist()
         }
     }
 
@@ -109,7 +112,7 @@ class AppShellFlowIosTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_PROFILE).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
         }

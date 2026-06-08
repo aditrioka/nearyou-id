@@ -21,6 +21,13 @@ import kotlin.coroutines.cancellation.CancellationException
  * The first load runs once on construction; [reload] re-fetches (pull-to-refresh + error retry). A
  * load failure maps to the EXISTING retryable [GlobalTimelineOutcome.NetworkError] (no new outcome
  * member).
+ *
+ * Loading is split into [isInitialLoad] (true until the first outcome arrives — drives the skeleton)
+ * and [isRefreshing] (true during a [reload] while a prior outcome is retained — drives only the
+ * `PullToRefreshBox` indicator), replacing the prior single `inFlight` flag (mobile-design-system §
+ * "Canonical list loading and refresh pattern", design D3). On [reload] the existing outcome is kept
+ * and only [isRefreshing] flips, so the list stays mounted (Content) and there is never a skeleton +
+ * pull-to-refresh spinner at once. Mirrors `NearbyTimelineViewModel`.
  */
 class GlobalTimelineViewModel(
     private val flow: GlobalTimelineFlow,
@@ -28,21 +35,24 @@ class GlobalTimelineViewModel(
     private val _outcome = MutableStateFlow<GlobalTimelineOutcome?>(null)
     val outcome: StateFlow<GlobalTimelineOutcome?> = _outcome.asStateFlow()
 
-    private val _inFlight = MutableStateFlow(false)
-    val inFlight: StateFlow<Boolean> = _inFlight.asStateFlow()
+    private val _isInitialLoad = MutableStateFlow(true)
+    val isInitialLoad: StateFlow<Boolean> = _isInitialLoad.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     init {
-        load()
+        load(initial = true)
     }
 
-    /** Pull-to-refresh + error-retry both call this — re-fetches page 1. */
+    /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
     fun reload() {
-        load()
+        load(initial = false)
     }
 
-    private fun load() {
+    private fun load(initial: Boolean) {
         viewModelScope.launch {
-            _inFlight.value = true
+            if (!initial) _isRefreshing.value = true
             try {
                 _outcome.value = flow.loadFirstPage()
             } catch (cancellation: CancellationException) {
@@ -53,7 +63,8 @@ class GlobalTimelineViewModel(
                 // GlobalTimelineOutcome member is introduced.
                 _outcome.value = GlobalTimelineOutcome.NetworkError
             } finally {
-                _inFlight.value = false
+                _isInitialLoad.value = false
+                _isRefreshing.value = false
             }
         }
     }

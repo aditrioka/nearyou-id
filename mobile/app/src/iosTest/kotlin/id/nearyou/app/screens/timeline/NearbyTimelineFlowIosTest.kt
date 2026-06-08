@@ -1,6 +1,8 @@
 package id.nearyou.app.screens.timeline
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -23,7 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
-private const val TITLE = "Post dari lokasi ini"
+private const val REMOVED_HEADER = "Post dari lokasi ini" // timeline_nearby_title — NO LONGER rendered
 private const val LOADING = "Sedang memuat postingan…"
 private const val EMPTY = "Area kamu belum ramai. Sementara lihat dari seluruh Indonesia dulu?"
 private const val LIMIT_HARD = "Kamu sudah mencapai batas baca untuk jam ini. Coba lagi sebentar lagi ya."
@@ -71,14 +73,17 @@ class NearbyTimelineFlowIosTest {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
     }
 
-    // Granted + content: Nearby title + the loaded post; load fires once on entry.
+    // Granted + content: the Nearby feed surface (list tag) + the loaded post, and NO redundant header;
+    // load fires once on entry.
     @Test
-    fun granted_content_showsTitleAndPost() {
+    fun granted_content_showsPostAndNoHeader() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "HALO_SEKITAR")), null, null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
-            onNodeWithText(TITLE).assertExists()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists()
             onNodeWithText("HALO_SEKITAR").assertExists()
+            onNodeWithText(REMOVED_HEADER).assertDoesNotExist()
             assertEquals(1, fake.loadInvocationCount, "load fires exactly once on entry")
         }
     }

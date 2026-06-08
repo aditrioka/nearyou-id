@@ -1,8 +1,16 @@
 package id.nearyou.app.screens.shell
 
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -18,6 +26,7 @@ import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.NotificationsRepository
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
@@ -39,30 +48,52 @@ import org.koin.dsl.module
 import org.koin.mp.KoinPlatformTools
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlin.math.pow
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val SECTION_HOME = "Beranda" // section_home
 private const val SECTION_NOTIFICATIONS = "Notifikasi" // section_notifications
 private const val SECTION_PROFILE = "Profil" // section_profile
-private const val NEARBY_TITLE = "Post dari lokasi ini" // timeline_nearby_title (Home default feed)
-private const val GLOBAL_TITLE = "Seluruh Indonesia" // timeline_global_title
-private const val TAB_FOLLOWING = "Following" // tab_following
+private const val TAB_FOLLOWING = "Mengikuti" // tab_following
 private const val FOLLOWING_PLACEHOLDER = "Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu."
 private const val PROFILE_PLACEHOLDER = "Profil segera hadir." // profile_placeholder
-private const val FAB_POST = "Posting" // cta_post — the Home-section composer FAB
+private const val FAB_POST = "Posting" // cta_post — the Home-section icon-only composer FAB contentDescription
 private const val NOTIF_COPY = "Seseorang menyukai postingan kamu" // notif_post_liked — proves the screen rendered
 private const val BADGE_CD = "Notifikasi belum dibaca" // notifications_badge contentDescription
 
+/** WCAG 2.x AA contrast threshold for normal text (4.5:1) — the selected nav label must clear it. */
+private const val MIN_LABEL_CONTRAST = 4.5
+
+/** WCAG relative-luminance contrast ratio between two sRGB [Color]s (1.0 = none … 21.0 = black/white). */
+private fun wcagContrast(
+    a: Color,
+    b: Color,
+): Double {
+    fun linear(channel: Float): Double {
+        val c = channel.toDouble()
+        return if (c <= 0.03928) c / 12.92 else ((c + 0.055) / 1.055).pow(2.4)
+    }
+
+    fun luminance(color: Color): Double = 0.2126 * linear(color.red) + 0.7152 * linear(color.green) + 0.0722 * linear(color.blue)
+    val la = luminance(a)
+    val lb = luminance(b)
+    return (maxOf(la, lb) + 0.05) / (minOf(la, lb) + 0.05)
+}
+
 /**
- * Render + interaction coverage of the `AppShellScreen` section shell (`mobile-home-tab-host` shell
- * requirements): the three bottom-nav sections + section switching swapping the body, the composer FAB on
- * the Home section only, the Profil placeholder, the Notifikasi badge show-at-`count>0` / hide-at-`0`, the
- * Notifikasi section rendering `NotificationsScreen`, the no-re-fetch-on-section-switch invariant via the
- * fakes' counters, and the Profil-section-issues-no-fetch guard via a recording MockEngine. In the
- * Release-variant `*ScreenTest` exclude (the `ui-test-manifest` host activity is debug-only).
+ * Render + interaction coverage of the `AppShellScreen` section shell (mobile-home-shell-redesign tasks
+ * 10.1 + the `mobile-home-tab-host` shell requirements): the three bottom-nav sections + section
+ * switching swapping the body, the icon-only composer FAB on the Home section only (asserted via its
+ * `contentDescription`), the Profil placeholder, the Notifikasi badge show-at-`count>0` / hide-at-`0`,
+ * the Notifikasi section rendering `NotificationsScreen`, the no-re-fetch-on-section-switch invariant via
+ * the fakes' counters, and the Profil-section-issues-no-fetch guard via a recording MockEngine. "Which
+ * feed is on screen" is asserted via the feed list test tag ([NEARBY_TIMELINE_LIST_TAG]) — the redundant
+ * headers are removed. In the Release-variant `*ScreenTest` exclude (the `ui-test-manifest` host activity
+ * is debug-only).
  *
  * The Nearby tab (the Home default) is gated on location; a GRANTED fake settles the gate and `waitUntil`
  * polls the end state (per `feedback_robolectric_async_repo_screen_test_waituntil`).
@@ -112,13 +143,13 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_HOME).assertExists()
-            // SECTION_NOTIFICATIONS label collides with the screen title; assert it appears at least once.
-            onAllNodesWithText(SECTION_NOTIFICATIONS).fetchSemanticsNodes().isNotEmpty()
+            // SECTION_NOTIFICATIONS label may collide with a screen title; assert it appears at least once.
+            assertEquals(true, onAllNodesWithText(SECTION_NOTIFICATIONS).fetchSemanticsNodes().isNotEmpty())
             onNodeWithText(SECTION_PROFILE).assertExists()
-            // Default section = Home → its default feed (Nearby) renders.
-            onNodeWithText(NEARBY_TITLE).assertExists()
+            // Default section = Home → its default feed (Nearby) renders (asserted via the feed list tag).
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists()
         }
     }
 
@@ -127,11 +158,11 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
             // The NotificationsScreen rendered (its row copy shows); the Home feed is gone.
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(NEARBY_TITLE).assertDoesNotExist()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertDoesNotExist()
         }
     }
 
@@ -140,10 +171,10 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_PROFILE).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(NEARBY_TITLE).assertDoesNotExist()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertDoesNotExist()
         }
     }
 
@@ -152,7 +183,7 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(TAB_FOLLOWING).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(FOLLOWING_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(FOLLOWING_PLACEHOLDER).assertExists()
@@ -160,21 +191,21 @@ class AppShellScreenTest {
     }
 
     @Test
-    fun fab_isOnHomeSectionOnly() {
+    fun fab_isIconOnly_onHomeSectionOnly() {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
-            // Home section → FAB present.
-            onNodeWithText(FAB_POST).assertExists()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            // Home section → icon-only FAB present (asserted via contentDescription; no visible text label).
+            onNodeWithContentDescription(FAB_POST).assertExists()
             // Notifikasi section → FAB absent.
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(FAB_POST).assertDoesNotExist()
+            onNodeWithContentDescription(FAB_POST).assertDoesNotExist()
             // Profil section → FAB absent.
             onNodeWithText(SECTION_PROFILE).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(FAB_POST).assertDoesNotExist()
+            onNodeWithContentDescription(FAB_POST).assertDoesNotExist()
         }
     }
 
@@ -199,11 +230,56 @@ class AppShellScreenTest {
         installKoin(unreadCount = 0)
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(
                 0,
                 onAllNodesWithContentDescription(BADGE_CD, useUnmergedTree = true).fetchSemanticsNodes().size,
                 "the unread badge is absent when count == 0",
+            )
+        }
+    }
+
+    // mobile-design-system § "Selected nav item label is visible" — the LITERAL scenario, asserted by
+    // CONTRAST, not mere inequality. The bare NavigationBarItemDefaults.colors() does NOT satisfy this in
+    // this brand theme: as of M3 1.4 its default selectedTextColor = `secondary`, which is neutral
+    // near-white here (#EEF0F4) → invisible-on-white (the bug the operator caught on-device). The shell
+    // therefore applies `nearYouNavigationBarItemColors()`. This reads the ACTUAL rendered selected-label
+    // color (LocalContentColor in the label slot) and asserts it clears WCAG AA contrast (4.5:1) against
+    // BOTH the surface and the surfaceContainer (the nav's possible backgrounds). A near-white-on-white
+    // selected label scores ~1.1:1 and would FAIL here — which the earlier inequality-only check wrongly
+    // passed. Pairs with the ShellAndTimelineSourceGuardTest source guard.
+    @Test
+    fun selectedNavLabel_hasReadableContrastAgainstTheNavBackground() {
+        var selectedLabelColor = Color.Unspecified
+        var surface = Color.Unspecified
+        var surfaceContainer = Color.Unspecified
+        runComposeUiTest {
+            setContent {
+                NearYouTheme {
+                    surface = MaterialTheme.colorScheme.surface
+                    surfaceContainer = MaterialTheme.colorScheme.surfaceContainer
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = true,
+                            onClick = {},
+                            colors = nearYouNavigationBarItemColors(),
+                            icon = {},
+                            label = { selectedLabelColor = LocalContentColor.current },
+                        )
+                    }
+                }
+            }
+            waitForIdle()
+            assertTrue(selectedLabelColor != Color.Unspecified, "the selected label resolves a concrete content color")
+            val vsSurface = wcagContrast(selectedLabelColor, surface)
+            val vsContainer = wcagContrast(selectedLabelColor, surfaceContainer)
+            assertTrue(
+                vsSurface >= MIN_LABEL_CONTRAST,
+                "selected nav label must be readable on the surface (WCAG contrast $vsSurface < $MIN_LABEL_CONTRAST)",
+            )
+            assertTrue(
+                vsContainer >= MIN_LABEL_CONTRAST,
+                "selected nav label must be readable on the surfaceContainer (WCAG contrast $vsContainer < $MIN_LABEL_CONTRAST)",
             )
         }
     }
@@ -213,14 +289,14 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, nearbyFake.loadInvocationCount, "Nearby loads once on first show")
 
             // Home → Notifikasi → Home: the Home feeds are not torn down + re-fetched.
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_HOME).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, nearbyFake.loadInvocationCount, "returning to Home must not re-fetch the Nearby feed (VM retained)")
         }
     }
@@ -230,7 +306,7 @@ class AppShellScreenTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
 
             // First Notifikasi entry loads the inbox once.
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
@@ -239,7 +315,7 @@ class AppShellScreenTest {
 
             // Notifikasi → Home → Notifikasi: the shell-scoped VM survived (no re-fetch).
             onNodeWithText(SECTION_HOME).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NEARBY_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_NOTIFICATIONS).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, notifFake.loadInvocationCount, "returning to Notifikasi must not re-fetch (the shell-scoped VM is retained)")

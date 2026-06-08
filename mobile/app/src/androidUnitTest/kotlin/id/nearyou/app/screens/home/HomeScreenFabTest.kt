@@ -1,6 +1,10 @@
 package id.nearyou.app.screens.home
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -15,6 +19,7 @@ import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.FakeCreatePostFlow
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.TestNavHost
+import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
@@ -32,20 +37,18 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
-private const val FAB_AND_CTA = "Posting" // cta_post — the FAB label and the composer CTA
-private const val NEARBY_TITLE = "Post dari lokasi ini" // timeline_nearby_title — HomeScreen hosts Nearby
+private const val FAB_CD = "Posting" // cta_post — the icon-only FAB contentDescription (no visible label)
 private const val COMPOSER_TITLE = "Buat postingan" // post_create_title — the appended composer surface
 
 /**
- * Render + navigation coverage of the `HomeScreen` compose FAB (task 7.3 / spec § "A home-surface FAB
- * opens the composer"), plus the **reload-on-return retention** behavior (§ 3.5 / `mobile-nearby-timeline`
- * § "Nearby feed load state is scoped to the Home NavEntry and survives the composer round-trip"). The
- * render case composes `HomeScreen(onOpenComposer)` directly; the navigation cases host the real
- * [TestNavHost] over `HomeRoute`. In the Release-variant `*ScreenTest` exclude (the `ui-test-manifest`
- * host activity is debug-only).
- *
- * `@Suppress("DEPRECATION")` + `KoinContext`: see `SignInScreenTest` for why this is retained for the
- * multi-test JVM startKoin/stopKoin cycle.
+ * Render + navigation coverage of the `HomeScreen` **icon-only** compose FAB (mobile-home-shell-redesign
+ * spec § "A home-surface FAB opens the composer"), plus the **reload-on-return retention** behavior
+ * (`mobile-nearby-timeline` § "Nearby feed load state is scoped to the Home NavEntry and survives the
+ * composer round-trip"). The FAB has NO visible text label — it is asserted via its `contentDescription`;
+ * "the Nearby feed is on screen" is asserted via the feed list test tag ([NEARBY_TIMELINE_LIST_TAG], the
+ * redundant header is removed). The render case composes `HomeScreen(onOpenComposer)` directly; the
+ * navigation cases host the real [TestNavHost] over `HomeRoute`. In the Release-variant `*ScreenTest`
+ * exclude (the `ui-test-manifest` host activity is debug-only).
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
@@ -79,13 +82,13 @@ class HomeScreenFabTest {
     }
 
     @Test
-    fun homeScreen_rendersComposeFab_overTheNearbyFeed() {
+    fun homeScreen_rendersIconOnlyComposeFab_overTheNearbyFeed() {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { HomeScreen(onOpenComposer = {}) } } }
-            waitForIdle()
-            onNodeWithText(NEARBY_TITLE).assertExists() // the hosted Nearby feed
-            onNodeWithText(FAB_AND_CTA).assertExists() // the compose FAB
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists() // the hosted Nearby feed surface
+            onNodeWithContentDescription(FAB_CD).assertExists() // the icon-only compose FAB (no text label)
             onNodeWithText(COMPOSER_TITLE).assertDoesNotExist() // composer not yet open
         }
     }
@@ -95,19 +98,19 @@ class HomeScreenFabTest {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { TestNavHost(HomeRoute) } }
-            waitForIdle()
-            onNodeWithText(FAB_AND_CTA).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithContentDescription(FAB_CD).performClick()
             waitForIdle()
             // PostCreationScreen is now the current entry (its title renders); the Nearby feed is gone.
             onNodeWithText(COMPOSER_TITLE).assertExists()
-            onNodeWithText(NEARBY_TITLE).assertDoesNotExist()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertDoesNotExist()
         }
     }
 
-    // § 3.5 reload-on-return fix: with the Nearby feed's load state in a HomeRoute-scoped ViewModel
-    // (rememberViewModelStoreNavEntryDecorator), pushing the composer over HomeRoute and popping back
-    // MUST NOT re-fetch the feed — the VM survives the entry going off-screen and is cleared only when
-    // HomeRoute is popped. Asserted deterministically via the fake's load count (1, never 2).
+    // reload-on-return fix: with the Nearby feed's load state in a HomeRoute-scoped ViewModel
+    // (rememberViewModelStoreNavEntryDecorator), pushing the composer over HomeRoute and popping back MUST
+    // NOT re-fetch the feed — the VM survives the entry going off-screen. Asserted via the fake's load
+    // count (1, never 2).
     @Test
     fun fabRoundTripToComposer_doesNotReFetchTheNearbyFeed() {
         installKoin()
@@ -116,17 +119,15 @@ class HomeScreenFabTest {
             setContent { KoinContext { TestNavHost(HomeRoute, onBackStack = { backStack = it }) } }
             // Home → the Nearby feed loads exactly once (gate GRANTED → NearbyFeed → ViewModel init).
             waitUntil(timeoutMillis = 5_000) { nearbyFake.loadInvocationCount == 1 }
-            onNodeWithText(NEARBY_TITLE).assertExists()
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists()
 
             // Open the composer (FAB → append PostCreationRoute) — HomeRoute goes off-screen…
-            onNodeWithText(FAB_AND_CTA).performClick()
-            waitForIdle()
-            onNodeWithText(COMPOSER_TITLE).assertExists()
+            onNodeWithContentDescription(FAB_CD).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(COMPOSER_TITLE).fetchSemanticsNodes().isNotEmpty() }
 
             // …then pop back to Home.
             runOnIdle { backStack.removeLastOrNull() }
-            waitForIdle()
-            onNodeWithText(NEARBY_TITLE).assertExists()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
 
             // The HomeRoute-scoped ViewModel survived → the feed did NOT re-fetch on return.
             assertEquals(

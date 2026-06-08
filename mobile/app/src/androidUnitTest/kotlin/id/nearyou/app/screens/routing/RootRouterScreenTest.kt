@@ -32,7 +32,9 @@ import kotlin.test.Test
 
 // HomeScreen now hosts NearbyTimelineScreen (mobile-nearby-timeline-screen): its top-bar title
 // `timeline_nearby_title` is the unique-to-Home marker (the old "Versi 1.0" placeholder is gone).
-private const val HOME_MARKER = "Post dari lokasi ini"
+// The authenticated home marker is the shell's always-present "Beranda" bottom-nav label (section_home)
+// — robust across the feed's gate/loading/empty states (the redundant Nearby header is removed).
+private const val HOME_MARKER = "Beranda"
 private const val SIGNIN_MARKER = "Masuk dengan Google" // SignInScreen CTA — unique to SignIn
 private const val LOGO_DESC = "NearYouID" // brand-logo contentDescription (app_name)
 
@@ -63,18 +65,17 @@ class RootRouterScreenTest {
                     // PendingSignupIdentity (the in-memory id_token holder).
                     single { PendingSignupIdentity() }
                     // The authenticated route lands on Home → NearbyTimelineScreen, which koinInjects a
-                    // NearbyTimelineFlow and loads on entry — provide a fast fake so the route completes
-                    // (an empty Loaded; the top-bar title renders in every state).
+                    // NearbyTimelineFlow and loads on entry — provide a fast fake so the route completes.
                     single<NearbyTimelineFlow> { FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null)) }
                     // mobile-location-permission-flow: the Nearby surface is gated on a
-                    // LocationPermissionController. Bind a GRANTED fake so the authenticated→Home route
-                    // reaches the feed (its top-bar title is the HOME_MARKER).
+                    // LocationPermissionController. Bind a GRANTED fake (not strictly required now that the
+                    // marker is the shell's Beranda label, but keeps the Home section fully composable).
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
                     // The authenticated route lands on HomeRoute → AppShellScreen, whose unread badge
-                    // injects a NotificationsFlow (empty/0 fake — the route just needs to reach the Home
-                    // section, whose marker is the HOME_MARKER).
+                    // injects a NotificationsFlow (empty/0 fake) and whose bottom-nav renders the
+                    // HOME_MARKER ("Beranda") section label the route assertions key on.
                     single<NotificationsFlow> { FakeNotificationsFlow() }
                 },
             )

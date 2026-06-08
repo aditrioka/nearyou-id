@@ -1,17 +1,18 @@
 package id.nearyou.app.screens.shell
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemColors
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,13 +27,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.screens.home.HomeScreen
 import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.screens.notifications.NotificationsScreen
 import id.nearyou.app.screens.profile.ProfilePlaceholderScreen
 import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.ic_nav_home
+import id.nearyou.resources.generated.resources.ic_nav_home_filled
+import id.nearyou.resources.generated.resources.ic_nav_notifications
+import id.nearyou.resources.generated.resources.ic_nav_notifications_filled
+import id.nearyou.resources.generated.resources.ic_nav_profile
+import id.nearyou.resources.generated.resources.ic_nav_profile_filled
 import id.nearyou.resources.generated.resources.notifications_badge
 import id.nearyou.resources.generated.resources.section_home
 import id.nearyou.resources.generated.resources.section_home_icon_description
@@ -40,8 +46,9 @@ import id.nearyou.resources.generated.resources.section_notifications
 import id.nearyou.resources.generated.resources.section_notifications_icon_description
 import id.nearyou.resources.generated.resources.section_profile
 import id.nearyou.resources.generated.resources.section_profile_icon_description
-import id.nearyou.resources.theme.locationPin
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
@@ -51,6 +58,16 @@ import org.koin.compose.koinInject
  * sections — **Home / Notifikasi / Profil** — over a body that renders the selected section's content via
  * `when(selectedSection)` (design D3): Home → [HomeScreen] (the feed tab host + composer FAB), Notifikasi
  * → [NotificationsScreen], Profil → [ProfilePlaceholderScreen].
+ *
+ * This shell `Scaffold` is the **single inset-owning `Scaffold`** for the authenticated surface
+ * (mobile-design-system § "The app shell owns a single Scaffold and window insets" / design D1): the
+ * Android entry calls `enableEdgeToEdge()`, the shell `Scaffold` resolves the system-bar insets ONCE
+ * (its default `contentWindowInsets` + the bottom `NavigationBar`), and the body applies
+ * `Modifier.consumeWindowInsets(innerPadding)` so the section/feed/timeline composables below — which
+ * declare NO `Scaffold`/`TopAppBar` of their own — do not re-apply the inset (the fix for the
+ * nested-Scaffold status-bar gap). The bottom-nav icons are real Material glyphs (bundled vector
+ * drawables, outlined↔filled on selection — D4/D10), NOT brand-tinted dots, and use
+ * `NavigationBarItemDefaults.colors()` so the selected label stays visible (D5).
  *
  * This is the [HomeRoute][id.nearyou.app.screens.routing.HomeRoute] entry (mapped by `appEntryProvider`):
  * its body composes **directly** under the `HomeRoute` `NavEntry` (no intermediate `NavDisplay`), so every
@@ -92,6 +109,8 @@ fun AppShellScreen(
                     selected = selectedSection == Section.Home,
                     onSelect = { selectedSection = Section.Home },
                     label = stringResource(Res.string.section_home),
+                    iconOutlined = Res.drawable.ic_nav_home,
+                    iconFilled = Res.drawable.ic_nav_home_filled,
                     iconDescription = stringResource(Res.string.section_home_icon_description),
                     badgeContentDescription = null,
                 )
@@ -99,6 +118,8 @@ fun AppShellScreen(
                     selected = selectedSection == Section.Notifikasi,
                     onSelect = { selectedSection = Section.Notifikasi },
                     label = stringResource(Res.string.section_notifications),
+                    iconOutlined = Res.drawable.ic_nav_notifications,
+                    iconFilled = Res.drawable.ic_nav_notifications_filled,
                     iconDescription = stringResource(Res.string.section_notifications_icon_description),
                     // Badge shown only when there are unread notifications (count > 0).
                     badgeContentDescription =
@@ -108,13 +129,17 @@ fun AppShellScreen(
                     selected = selectedSection == Section.Profil,
                     onSelect = { selectedSection = Section.Profil },
                     label = stringResource(Res.string.section_profile),
+                    iconOutlined = Res.drawable.ic_nav_profile,
+                    iconFilled = Res.drawable.ic_nav_profile_filled,
                     iconDescription = stringResource(Res.string.section_profile_icon_description),
                     badgeContentDescription = null,
                 )
             }
         },
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        // The shell Scaffold applied the system-bar insets once (via `padding`); consume them so the
+        // section/feed/timeline content below does NOT re-apply them (design D1 — the nested-Scaffold fix).
+        Box(modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             when (selectedSection) {
                 // The Home section's content (HomeScreen) composes directly under the HomeRoute NavEntry
                 // (this shell IS that entry), so the feed viewModel { }s stay HomeRoute-scoped (design D3).
@@ -135,9 +160,34 @@ fun AppShellScreen(
 }
 
 /**
- * One bottom-nav section destination. The icon is a brand-tinted dot (coral [locationPin] when selected,
- * muted otherwise) — there is no material-icons dependency on the classpath, matching the post-card +
- * home-tab affordance idiom — carrying its `contentDescription` via `stringResource`. When
+ * The bottom-nav item colors for the section shell. The bare `NavigationBarItemDefaults.colors()` is
+ * NOT used because, as of Material 3 1.4.0, its default **`selectedTextColor` = `secondary`** and
+ * **`indicatorColor` = `secondaryContainer`** — and this brand theme deliberately makes those two
+ * tokens NEUTRAL near-white (`secondary = #EEF0F4`, `secondaryContainer = #F5F6F8`; see
+ * `NearYouColorScheme`), so the bare default renders the selected label near-white-on-white (invisible)
+ * and the indicator pill vanishes. Per the M3 docs ("if you want the old look, set
+ * `selectedTextColor = onSurface`") we apply readable, brand-aligned tokens via the official
+ * `NavigationBarItemDefaults.colors(...)` API (NOT a custom composition): a light-cobalt indicator pill
+ * (`primaryContainer`) behind a dark-cobalt selected icon (`onPrimaryContainer`), a near-black selected
+ * label (`onSurface`), and `onSurfaceVariant` for the unselected state. This satisfies
+ * `mobile-design-system` § "Navigation and tab labels are visible" (D5) — verified by a contrast
+ * assertion in `AppShellScreenTest`, not just an inequality check.
+ */
+@Composable
+fun nearYouNavigationBarItemColors(): NavigationBarItemColors =
+    NavigationBarItemDefaults.colors(
+        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        selectedTextColor = MaterialTheme.colorScheme.onSurface,
+        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+/**
+ * One bottom-nav section destination. The icon is a real Material glyph (bundled vector drawable,
+ * outlined when unselected, filled when selected — the M3 selected/unselected convention) carrying its
+ * `contentDescription` via `stringResource`. Item colors come from [nearYouNavigationBarItemColors] so
+ * the selected label stays visible (design D5 — fixes the invisible-selected-label bug). When
  * [badgeContentDescription] is non-null an unread [Badge] is overlaid (its own `contentDescription` via
  * `stringResource`). A `RowScope` extension because `NavigationBarItem` is one.
  */
@@ -146,38 +196,30 @@ private fun RowScope.SectionItem(
     selected: Boolean,
     onSelect: () -> Unit,
     label: String,
+    iconOutlined: DrawableResource,
+    iconFilled: DrawableResource,
     iconDescription: String,
     badgeContentDescription: String?,
 ) {
     NavigationBarItem(
         selected = selected,
         onClick = onSelect,
+        colors = nearYouNavigationBarItemColors(),
         icon = {
-            val dot: @Composable () -> Unit = {
-                Box(
-                    modifier =
-                        Modifier
-                            .size(24.dp)
-                            .semantics { contentDescription = iconDescription }
-                            .background(
-                                color =
-                                    if (selected) {
-                                        MaterialTheme.colorScheme.locationPin
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                shape = CircleShape,
-                            ),
+            val icon: @Composable () -> Unit = {
+                Icon(
+                    painter = painterResource(if (selected) iconFilled else iconOutlined),
+                    contentDescription = iconDescription,
                 )
             }
             if (badgeContentDescription != null) {
                 BadgedBox(
                     badge = { Badge(modifier = Modifier.semantics { contentDescription = badgeContentDescription }) },
                 ) {
-                    dot()
+                    icon()
                 }
             } else {
-                dot()
+                icon()
             }
         },
         label = { Text(text = label) },
