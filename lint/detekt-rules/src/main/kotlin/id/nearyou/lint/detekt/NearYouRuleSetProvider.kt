@@ -24,6 +24,7 @@ class NearYouRuleSetProvider : RuleSetProvider {
                 OtelForbiddenAttributeRule(config),
                 IpAxisMustUseTryAcquireByKeyRule(config),
                 ContentWriteRequiresModerationRule(config),
+                TestLoginIsolationRule(config),
             ),
         )
 
