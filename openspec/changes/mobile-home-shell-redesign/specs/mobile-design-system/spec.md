@@ -30,17 +30,17 @@ Bottom-navigation sections, primary actions (the composer FAB), and post-card af
 
 ### Requirement: Navigation and tab labels are visible in selected and unselected states
 
-`NavigationBarItem` and feed `Tab` labels SHALL remain visible in BOTH the selected and unselected states, using the Material 3 default content-color tokens (`NavigationBarItemDefaults.colors()` / default `Tab` content color) rather than a custom color that can collapse to the background. A selected bottom-nav or tab item SHALL never render an invisible (background-colored) label.
+`NavigationBarItem` and feed `Tab` labels SHALL remain visible in BOTH the selected and unselected states. Feed `Tab`s SHALL use the default `Tab` content color (selected = `primary` = brand cobalt, readable as-is). The bottom-nav `NavigationBarItem`s SHALL apply **readable, brand-aligned M3 content-color tokens explicitly** via `NavigationBarItemDefaults.colors(...)` — a single shared `nearYouNavigationBarItemColors()` helper (`AppShellScreen.kt`) — because the **bare** `NavigationBarItemDefaults.colors()` is NOT safe in this theme: as of Material 3 1.4 its default `selectedTextColor` resolves to `secondary` and `indicatorColor` to `secondaryContainer`, and `NearYouColorScheme` deliberately neutralizes those to near-white (`secondary = #EEF0F4`), collapsing the selected label to the background and hiding the indicator pill (the invisible-`Beranda` defect caught on-device). The applied tokens are `primaryContainer` (indicator pill), `onPrimaryContainer` (selected icon), `onSurface` (selected label), and `onSurfaceVariant` (unselected) — readable in light and dark. A selected bottom-nav or tab item SHALL never render an invisible (background-colored) label, and the selected nav label SHALL clear WCAG AA contrast (≥ 4.5:1) against the nav surface.
 
-#### Scenario: Selected nav item label is visible
+#### Scenario: Selected nav item label is readable (WCAG contrast)
 
-- **GIVEN** the shell composed under `NearYouTheme` with the Home section selected
-- **THEN** the selected section's label node is present AND its resolved content color is a non-background M3 token (e.g. `onSecondaryContainer` / `onSurface`), not equal to the surface/background color
+- **GIVEN** a `NavigationBarItem(selected = true)` composed under `NearYouTheme` with the shell's `nearYouNavigationBarItemColors()`
+- **THEN** the selected label's resolved content color (read via `LocalContentColor` in the label slot) clears **WCAG AA contrast (≥ 4.5:1)** against BOTH the `surface` and the `surfaceContainer` — a contrast check, NOT a mere inequality (a neutralized near-white-on-white selected label is unequal to the background yet unreadable, and would fail this)
 
-#### Scenario: Default M3 item theming is used
+#### Scenario: Bottom-nav applies explicit readable tokens; tabs use the default
 
 - **WHEN** inspecting the `NavigationBarItem` and `Tab` call sites
-- **THEN** the item colors come from `NavigationBarItemDefaults.colors()` / the `Tab` default content color (no custom `selectedTextColor`/`unselectedTextColor` that resolves to the container/background color)
+- **THEN** the bottom-nav items get their colors from `nearYouNavigationBarItemColors()` (built on `NavigationBarItemDefaults.colors(...)` with the readable tokens above — NOT the bare default, which would resolve the selected label to the neutralized `secondary`), and the feed `Tab`s use the default `Tab` content color (no custom color that resolves to the container/background)
 
 ### Requirement: Canonical list loading and refresh pattern
 
