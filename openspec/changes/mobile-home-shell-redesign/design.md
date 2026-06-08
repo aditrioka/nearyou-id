@@ -48,8 +48,19 @@ All user-facing labels become Bahasa Indonesia. Tab values change to `tab_nearby
 ### D8 — `mobile-design-system` is the substrate's spec home; `docs/03` gains a Design System section
 The cross-cutting rules (D1, D3, D4, D5, D7) live in the new `mobile-design-system` capability so future screen changes MODIFY-by-consuming them rather than re-deriving. `docs/03-UX-Design.md` gains a "Material 3 Design System / Foundation" section as the human-readable canonical reference. This is the mechanism that keeps OpenSpec docs in sync across the multi-phase UI effort.
 
-### D9 — Aesthetic layer gated on operator screenshots
-Structural work (this change's requirements) proceeds now. Final card spacing/elevation/color tuning from the operator's inspiration screenshots is sequenced into the apply phase once the screenshots are provided (they did not reach the session). **Open Question OQ3.**
+### D9 — Aesthetic layer informed by operator screenshots
+Structural work proceeds now; the aesthetic target is set by D10 (the operator's inspiration screenshots arrived 2026-06-08). OQ3 is resolved.
+
+### D10 — Aesthetic spec from the operator's inspiration screenshots (resolved OQ3)
+The operator supplied 5 screenshots: 2 of the current broken nearyou-id state (confirming the diagnosis — incl. the invisible "Beranda" label under the orange dot), and 3 inspiration references: **X (Twitter)** (text feed, text tabs + underline, circular `+` FAB, Material bottom-nav), and **Niche/"W"** (image-masonry feed, text tabs + underline, distance slider, Material bottom-nav with center `+`). Decisions:
+
+- **Critical content constraint:** the inspiration references 3 & 4 are **image-feed masonry grids**, but **nearyou-id posts are text-only** (image upload is Phase 4 / Month 6, not built). We therefore adopt the references' **layout language** (clean, content-forward, real Material icons, M3 polish) applied to **text cards** — i.e. the **X text-feed model (reference 5)**, NOT the photo-masonry. The image-masonry look is revisited when image posts ship (Phase 4). This is stated so there is no expectation that the feed becomes a photo grid now.
+- **Feed tabs:** text-only with the M3 `PrimaryTabRow` underline indicator (selected = primary text + underline; unselected = `onSurfaceVariant`) — matching all three references, which use text tabs with no icons. This **reverses** the earlier tab-icon decision (the operator's "add icons" request was specifically for the bottom navigation).
+- **Bottom nav:** M3 `NavigationBar` with real Material icons (Home / Notifications-bell / Person), `NavigationBarItemDefaults` colors, the default M3 selected-indicator pill, and **visible labels in both states** (fixes the invisible "Beranda").
+- **Composer FAB:** circular **icon-only** `FloatingActionButton` (`+` / add) at the bottom-end (X-style, reference 5). (A center-nav `+`, reference 4, is a viable alternative but a larger restructure — deferred.)
+- **Post card (text):** X-style content-forward layout — content (`bodyLarge`), a metadata row with a Material **location** icon + city + distance + relative time, and a counts row with Material **like** + **reply** icons + counts — replacing the brand dots (within the existing PII-safe display fields; no new fields, no coordinates). Matches references 3 (♡/💬/🕐 footer) + 5 (action row).
+- **Color:** retain brand cobalt `#1E4FD6` (primary) + coral `locationPin` — already consistent with the current app's blue; the references' purple is their brand, not adopted.
+- **Explicitly deferred from the references:** the **distance slider** ("CLOSER—FARTHER", references 3 & 4) → the `mobile-nearby-radius-slider` follow-up (Free tier is fixed 20 km); the **image-masonry feed** → Phase 4 image posts; **filter chips** (reference 3 Hot/Global/Local) → not adopted (we use tabs).
 
 ## Risks / Trade-offs
 
@@ -67,5 +78,5 @@ No data migration (mobile UI only; no Flyway, no API). Rollout is the normal fea
 
 - **OQ1 (icon delivery):** Confirm bundled vector drawables vs a `material-icons-core` dependency at apply-kickoff with a dated re-check (per `openspec/project.md` § Pre-implementation library re-check). Default: bundled drawables (D4).
 - **OQ2 (tab wording):** Confirm `Sekitar` / `Mengikuti` / `Global` (or operator-preferred Bahasa Indonesia tab labels) — derived copy, low-cost to change.
-- **OQ3 (aesthetics):** Operator inspiration screenshots did not reach the session; needed before the apply phase lands the visual-tuning layer (card style, spacing scale, color refinement). Structural requirements are unaffected.
+- **OQ3 (aesthetics): RESOLVED** by D10 — operator screenshots received 2026-06-08; aesthetic target set (X-style text feed + text tabs + Material bottom-nav/FAB/card icons; image-masonry + distance-slider deferred). Final pixel-level spacing/elevation tuning happens during apply against D10.
 - **OQ4 (pager + accessibility):** Confirm TalkBack/VoiceOver announce tab + page changes correctly with the synced pager (verify during apply per [Compose accessibility](https://developer.android.com/develop/ui/compose/accessibility)).

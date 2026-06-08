@@ -14,14 +14,19 @@ The authenticated `:mobile:app` surface SHALL apply window insets in exactly **o
 - **GIVEN** the authenticated shell composed edge-to-edge with the Home section + a feed tab selected
 - **THEN** the top of the feed tab row aligns with the bottom of the status-bar inset (a single system-bar inset is applied by the shell `Scaffold`), with no additional status-bar-height gap introduced by a nested Scaffold or TopAppBar
 
-### Requirement: Material 3 icons are the canonical navigation and action affordance
+### Requirement: Material 3 icons are the canonical navigation, action, and card affordance
 
-Bottom-navigation sections, feed tabs, and primary actions (e.g. the composer FAB) in `:mobile:app` SHALL use Material 3 icon glyphs as their affordance — NOT brand-tinted placeholder dots. The icon glyphs SHALL be delivered as bundled vector-drawable assets in `:shared:resources` (the `logo_brand_*.xml` idiom) accessed via `painterResource(Res.drawable.*)`, so the app ships exactly the glyphs it uses without the heavy `material-icons-extended` artifact. The prior "no material-icons dependency / brand-dot" idiom is superseded for navigation and action affordances. (Decorative in-card affordances such as the post-card location-pin dot are out of scope for this requirement.)
+Bottom-navigation sections, primary actions (the composer FAB), and post-card affordances (location, like, reply, time) in `:mobile:app` SHALL use Material 3 icon glyphs as their affordance — NOT brand-tinted placeholder dots. The icon glyphs SHALL be delivered as bundled vector-drawable assets in `:shared:resources` (the `logo_brand_*.xml` idiom) accessed via `painterResource(Res.drawable.*)`, so the app ships exactly the glyphs it uses without the heavy `material-icons-extended` artifact. The prior "no material-icons dependency / brand-dot" idiom is superseded for these affordances. **Feed tabs are the exception: they are text-only** with the Material 3 `PrimaryTabRow` underline indicator (NO icon, NO dot) — matching the operator's inspiration references (X / Niche-style text tabs); see `design.md` D10.
 
-#### Scenario: Navigation and action affordances render Material icon drawables, not dots
+#### Scenario: Navigation, action, and card affordances render Material icon drawables, not dots
 
-- **WHEN** inspecting `screens/shell/AppShellScreen.kt` (section items), `screens/home/HomeScreen.kt` (feed tabs + composer FAB)
-- **THEN** each section item, feed tab, and the composer FAB renders a Material icon via `painterResource(Res.drawable.<icon>)` (or an `ImageVector` icon) AND no navigation/tab/action affordance is a `Box(...).background(..., CircleShape)` placeholder dot
+- **WHEN** inspecting `screens/shell/AppShellScreen.kt` (section items), `screens/home/HomeScreen.kt` (composer FAB), and the timeline post card
+- **THEN** each section item, the composer FAB, and each post-card affordance (location / like / reply / time) renders a Material icon via `painterResource(Res.drawable.<icon>)` (or an `ImageVector` icon) AND no such affordance is a `Box(...).background(..., CircleShape)` placeholder dot
+
+#### Scenario: Feed tabs are text-only with an underline indicator (no icons)
+
+- **WHEN** inspecting the `screens/home/HomeScreen.kt` feed-tab composable
+- **THEN** each feed `Tab` renders its `stringResource` label as text under a `PrimaryTabRow` underline indicator AND renders NO icon and NO `CircleShape` dot
 
 ### Requirement: Navigation and tab labels are visible in selected and unselected states
 

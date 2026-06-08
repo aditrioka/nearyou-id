@@ -7,7 +7,7 @@
 
 ## 2. Assets + strings (:shared:resources)
 
-- [ ] 2.1 Bundle the Material icon vector drawables under `shared/resources/src/commonMain/composeResources/drawable/` (bottom-nav Home/Notifications/Profile; feed-tab Nearby/Following/Global; composer action; filled+outlined where the M3 selected/unselected convention needs both), with Material Symbols (Apache-2.0) provenance recorded. (shared-resources § "Material icon vector drawables …")
+- [ ] 2.1 Bundle the Material icon vector drawables under `shared/resources/src/commonMain/composeResources/drawable/` (bottom-nav Home/Notifications/Profile outlined+filled; composer action add; post-card affordances location, like outlined+filled, reply, time), with Material Symbols (Apache-2.0) provenance recorded. **No feed-tab icon drawables** — tabs are text-only (D10). (shared-resources § "Material icon vector drawables …")
 - [ ] 2.2 Change the tab string values to Bahasa Indonesia in `strings.xml`: `tab_nearby`="Sekitar", `tab_following`="Mengikuti", `tab_global`="Global"; leave `section_*` unchanged; retain `timeline_nearby_title` + `timeline_global_title` (now unreferenced as headers). (shared-resources § "Home-section feed tab labels …")
 - [ ] 2.3 If the re-check (1.1) adopted a `material-icons-core` dependency instead, add exactly that one `gradle/libs.versions.toml` entry — never `material-icons-extended`; otherwise add no dependency.
 - [ ] 2.4 Extend `SharedStringsCatalogTest` (or equivalent) for the changed tab values + any new drawable accessors; update declared-count assertions if applicable.
@@ -19,11 +19,12 @@
 - [ ] 3.3 Remove the inner `Scaffold` + `TopAppBar` from `NearbyTimelineContent` and `GlobalTimelineContent` (render inset-free).
 - [ ] 3.4 Verify the status-bar gap is gone and feed lists fill the space between tab row and bottom nav (design-system § inset scenarios).
 
-## 4. Real Material icons + visible labels (mobile-design-system D4/D5)
+## 4. Real Material icons + visible labels + text tabs (mobile-design-system D4/D5/D10)
 
-- [ ] 4.1 Replace the bottom-nav `SectionItem` brand-dot with the bundled Material icon drawables (Home/Notifications/Person) via `painterResource`; preserve the Notifikasi unread badge.
-- [ ] 4.2 Replace the feed-tab `HomeFeedTab` brand-dot with the bundled tab icons (Nearby/Following/Global).
-- [ ] 4.3 Use `NavigationBarItemDefaults.colors()` / default `Tab` content color so selected labels are visible (fixes the invisible-selected-label bug). Verify against the label-visibility scenarios.
+- [ ] 4.1 Replace the bottom-nav `SectionItem` brand-dot with the bundled Material icon drawables (Home / Notifications-bell / Person, outlined↔filled on selection) via `painterResource`; preserve the Notifikasi unread badge.
+- [ ] 4.2 Make the feed tabs **text-only** (D10): remove the `HomeFeedTab` brand-dot/icon entirely; render `PrimaryTabRow` text tabs with the M3 underline indicator (selected = primary text + underline, unselected = `onSurfaceVariant`). NO tab icon.
+- [ ] 4.3 Use `NavigationBarItemDefaults.colors()` / default `Tab` content color so selected labels are visible (fixes the invisible-selected-label / "Beranda" bug). Verify against the label-visibility scenarios.
+- [ ] 4.4 Refresh the post card to the X-style content-forward layout (D10): replace the brand dots with Material affordance icons — location (place/pin) + city + distance + relative time on the metadata row; like (outlined↔filled) + reply icons + counts on the counts row — staying within the existing PII-safe display fields (no coordinates, no new fields). Apply to both Nearby + Global cards.
 
 ## 5. Swipeable feed pager (mobile-home-tab-host § "Feed tabs are swipeable …" / D2)
 
@@ -50,9 +51,10 @@
 - [ ] 8.2 Add a "Material 3 Design System / Foundation" section to `docs/03-UX-Design.md` codifying the substrate (single-Scaffold inset ownership, the Material icon set per destination, the canonical loading/refresh pattern, label visibility, single-language Bahasa Indonesia) so future screen changes cite it as canonical.
 - [ ] 8.3 Add/refresh `FOLLOW_UPS.md` entries: `mobile-localization-language-switching` (runtime i18n deferred), `mobile-location-disambiguation-onboarding-hint` (implement the relocated disambiguation hint), and extend `mobile-nearby-timeline-infinite-scroll` to cover Global.
 
-## 9. Aesthetic refinement (gated on operator screenshots — OQ3)
+## 9. Aesthetic refinement (operator screenshots received — design.md D10)
 
-- [ ] 9.1 Once screenshots are provided: tune card spacing/elevation/shape, list content padding, the FAB icon choice, and color refinement to match the inspiration, staying within `NearYouTheme` tokens. (If screenshots remain unavailable, ship the structural layer and file a follow-up for the aesthetic pass.)
+- [ ] 9.1 Tune to the D10 target (X-style text feed, reference 5): card spacing/elevation/shape (content-forward, light card chrome), list content padding, FAB = circular `+` bottom-end, tab underline weight, bottom-nav indicator — all within `NearYouTheme` tokens (brand cobalt + coral; do NOT adopt the references' purple). Verify light + dark on emulator + iOS sim and screenshot.
+- [ ] 9.2 Do NOT attempt the photo-masonry grid (references 3/4) — posts are text-only until image upload (Phase 4); the text-card layout is the correct target now. The distance slider (references 3/4) stays deferred to `mobile-nearby-radius-slider`.
 
 ## 10. Tests + verification
 
