@@ -1,7 +1,7 @@
 # mobile-analytics-consent Specification
 
 ## Purpose
-TBD - created by archiving change mobile-analytics-consent-screen. Update Purpose after archive.
+This capability governs the mobile analytics-and-tracking consent onboarding surface — the `ConsentScreen` interjected into the new-user flow after age-gate signup and before `HomeScreen`, satisfying the UU PDP requirement to collect tracking consent at onboarding (`docs/03-UX-Design.md` § Analytics & Tracking Consent). The screen presents three Material 3 toggles (Analytics, Crash Reporting, Ads Personalization) with per-category explainers and a continue CTA, initialized to the privacy-safe V2 column defaults (analytics OFF, crash ON, ads OFF) with no GET round-trip, then submits the toggle triple via `ConsentRepository.submitConsent(...)` against `PATCH /api/v1/user/consent`. Submit results map status-by-status with no generic fallthrough (`200`→route Home; `401`→terminal token-invalid; `5xx`/IO/`400`→retryable, with a non-trapping skip-to-Home affordance shown only after a failure), and the surface upholds the project's copy-via-Compose-Resources and PII (no token/`sub`/response-body logging) disciplines. It also owns the `ConsentRoute` serializable NavKey placement that replaces the age-gate entry so back-press cannot re-enter the age gate; reliable-persist hardening and a returning-user consent re-gate are explicitly deferred and FOLLOW_UPS-tracked.
 ## Requirements
 ### Requirement: ConsentScreen renders the three consent toggles, explainers, and continue CTA
 

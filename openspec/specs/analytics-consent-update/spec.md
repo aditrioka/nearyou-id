@@ -1,7 +1,7 @@
 # analytics-consent-update Specification
 
 ## Purpose
-TBD - created by archiving change mobile-analytics-consent-screen. Update Purpose after archive.
+This capability governs the backend persistence endpoint for a user's analytics-and-tracking consent choice: an RS256-JWT-authenticated `PATCH /api/v1/user/consent` that full-object-writes the complete `{analytics, crash, ads_personalization}` boolean triple to `users.analytics_consent` for the calling JWT-`sub` user only, then echoes the stored triple. It exists because UU PDP requires capturing tracking consent before any analytics/crash/ads SDK runs; since consent is recorded *after* the account exists (the mobile screen renders post-signup), an authed self-update — mirroring the `POST /api/v1/user/fcm-token` authed-self pattern — is the natural shape, and it is reusable verbatim by a future Settings re-edit path. The endpoint enforces own-row authorization (a caller cannot modify another user's consent), rejects unauthenticated or invalid-token requests with `401`, and rejects malformed or partial bodies with `400` so a write never partially applies. No Flyway migration is involved — the `analytics_consent` JSONB column shipped in `V2__auth_foundation.sql`.
 ## Requirements
 ### Requirement: Authenticated PATCH /api/v1/user/consent persists the analytics-consent triple
 
