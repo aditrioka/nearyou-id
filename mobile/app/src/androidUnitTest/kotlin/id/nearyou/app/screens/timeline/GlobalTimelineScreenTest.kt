@@ -34,6 +34,7 @@ private const val LOADING = "Sedang memuat postingan…" // timeline_loading (al
 private const val LIMIT_HARD = "Kamu sudah mencapai batas baca untuk jam ini. Coba lagi sebentar lagi ya."
 private const val LIMIT_SOFT = "Kamu lagi aktif-aktifnya! Premium membuka akses baca tanpa batas."
 private const val ERROR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
+private const val SESSION_REDIRECT = "Mengalihkan ke halaman masuk…" // timeline_session_redirect (terminal 401)
 private const val RETRY = "Coba lagi"
 
 /**
@@ -181,6 +182,20 @@ class GlobalTimelineScreenTest {
             onNodeWithText(RETRY).performClick()
             waitUntil(timeoutMillis = 5_000) { fake.loadInvocationCount == 2 }
             assertEquals(2, fake.loadInvocationCount, "retry re-invokes the fetch")
+        }
+    }
+
+    // terminal 401 (SessionExpired) renders the neutral redirect notice — NO retry, NOT the
+    // connectivity copy (mobile-session-expiry-and-proactive-refresh D4).
+    @Test
+    fun sessionExpired_rendersRedirectNotice_noRetry_notNetworkCopy() {
+        installKoin(GlobalTimelineOutcome.SessionExpired)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(SESSION_REDIRECT).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(SESSION_REDIRECT).assertExists()
+            onNodeWithText(ERROR_NETWORK).assertDoesNotExist()
+            onNodeWithText(RETRY).assertDoesNotExist()
         }
     }
 

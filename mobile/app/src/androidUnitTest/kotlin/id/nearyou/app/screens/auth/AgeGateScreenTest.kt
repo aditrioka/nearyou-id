@@ -8,6 +8,7 @@ import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
 import id.nearyou.app.auth.SignUpOutcome
 import id.nearyou.app.screens.routing.AgeGateRoute
+import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.RootRoute
 import id.nearyou.app.screens.routing.SignInRoute
@@ -80,6 +81,8 @@ class AgeGateScreenTest {
                 module {
                     single<AuthFlow> { fake }
                     single { holder }
+                    // The absent-identity guard re-routes to SignInRoute, which koinInjects this (D5).
+                    single { PendingReturnDestination() }
                 },
             )
         }

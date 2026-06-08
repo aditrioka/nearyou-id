@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.SignInOutcome
+import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.account_separation_disclosure
@@ -39,6 +40,7 @@ import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.signin_error_token_invalid
 import id.nearyou.resources.generated.resources.signin_loading
 import id.nearyou.resources.generated.resources.signin_screen_title
+import id.nearyou.resources.generated.resources.signin_session_expired
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -66,7 +68,14 @@ fun SignInScreen(
 ) {
     val authFlow = koinInject<AuthFlow>()
     val pendingSignupIdentity = koinInject<PendingSignupIdentity>()
+    val pendingReturnDestination = koinInject<PendingReturnDestination>()
     val scope = rememberCoroutineScope()
+
+    // mobile-session-expiry-and-proactive-refresh (D5) — show the session-expired notice ONLY when this
+    // screen was reached via an involuntary terminal-401 re-route (captured by SessionExpiryEffect),
+    // never on a fresh launch. Captured ONCE on entry: the holder is cleared on sign-in success (which
+    // navigates away), and a non-clearing read keeps the notice stable across recompositions.
+    val sessionExpired = remember { pendingReturnDestination.wasInvoluntary() }
 
     var outcome by remember { mutableStateOf<SignInOutcome?>(null) }
     var inFlight by remember { mutableStateOf(false) }
@@ -134,6 +143,18 @@ fun SignInScreen(
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 24.dp),
         )
+        // Involuntary-logout notice (mobile-session-expiry-and-proactive-refresh, D5). Informational tone
+        // (onSurfaceVariant, NOT the error color) and a DISTINCT string from signin_error_network — it is
+        // not a connectivity failure. Shown only on an involuntary re-route; never on a fresh launch.
+        if (sessionExpired) {
+            Text(
+                text = stringResource(Res.string.signin_session_expired),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+        }
         if (bannerText != null) {
             Text(
                 text = bannerText,

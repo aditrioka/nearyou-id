@@ -10,6 +10,7 @@ import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
 import id.nearyou.app.screens.shell.AppShellScreen
+import org.koin.compose.koinInject
 
 /**
  * Maps each [NavKey] route to its screen composable, wiring every screen's narrow navigation lambdas
@@ -40,8 +41,16 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             )
         }
         entry<SignInRoute> {
+            // mobile-session-expiry-and-proactive-refresh (D5) — on sign-in success, return the user to
+            // the destination captured before an involuntary terminal-401 re-route (else HomeRoute), then
+            // clear the holder. A fresh-launch sign-in has no captured destination → restores HomeRoute.
+            val pendingReturnDestination = koinInject<PendingReturnDestination>()
             SignInScreen(
-                onSignedIn = { backStack.replaceAll(HomeRoute) },
+                onSignedIn = {
+                    val destination = pendingReturnDestination.peek()
+                    pendingReturnDestination.clear()
+                    backStack.restoreAfterReauth(destination)
+                },
                 onNoAccount = { backStack.add(AgeGateRoute) },
             )
         }

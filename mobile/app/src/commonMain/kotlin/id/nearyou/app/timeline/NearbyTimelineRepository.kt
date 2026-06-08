@@ -45,6 +45,10 @@ class NearbyTimelineRepository(
             }
             is NearbyApiResult.HttpError ->
                 when {
+                    // Terminal 401 (survived the shipped Auth refresh) → SessionExpired, NOT NetworkError
+                    // (mobile-session-expiry-and-proactive-refresh D4). Branched explicitly AHEAD of the
+                    // fallback; the Auth plugin + SessionInvalidator still own the re-route to SignInScreen.
+                    result.status == 401 -> NearbyTimelineOutcome.SessionExpired
                     // 400 invalid_request / location_out_of_bounds / radius_out_of_bounds /
                     // invalid_cursor — not expected from the stub's always-valid params; surface as
                     // retryable WITH a logged diagnostic (NOT a silent no-op, NOT a crash).
@@ -53,10 +57,10 @@ class NearbyTimelineRepository(
                         NearbyTimelineOutcome.Error
                     }
                     result.status in 500..599 -> NearbyTimelineOutcome.NetworkError
-                    // 401 is handled upstream by the shipped Auth plugin + SessionInvalidator
-                    // (terminal 401 → store cleared → RootRouterScreen re-routes to SignInScreen).
-                    // Any other unenumerated status maps to the DEFINED retryable NetworkError state
-                    // rather than a generic "load failed" fallthrough (mirrors AuthRepository).
+                    // Any other unenumerated non-2xx status maps to the DEFINED retryable NetworkError
+                    // fallback rather than a generic "load failed" fallthrough (the match is over an Int,
+                    // so a defined fallback MUST remain — the "no generic fallthrough" rule bans a generic
+                    // copy, not a `when` else). Mirrors AuthRepository.
                     else -> NearbyTimelineOutcome.NetworkError
                 }
         }

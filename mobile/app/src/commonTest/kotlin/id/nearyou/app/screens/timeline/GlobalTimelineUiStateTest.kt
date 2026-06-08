@@ -88,6 +88,15 @@ class GlobalTimelineUiStateTest {
     }
 
     @Test
+    fun `SessionExpired maps to the neutral SessionRedirect state distinct from Error`() {
+        // Terminal 401 → SessionRedirect (no retry), NOT the connectivity Error state (D4).
+        assertEquals(
+            GlobalTimelineUiState.SessionRedirect,
+            globalTimelineUiState(GlobalTimelineOutcome.SessionExpired, isInitialLoad = false),
+        )
+    }
+
+    @Test
     fun `projected content carries no author id or raw coordinates`() {
         val piiPost = fakeGlobalPost(authorUserId = "AUTHOR-SENTINEL", latitude = -6.21, longitude = 106.85)
         val rendered =

@@ -2,11 +2,14 @@ package id.nearyou.app.timeline
 
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.auth.TokenPair
+import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.network.HttpClientFactory
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
@@ -28,14 +31,16 @@ private fun postJson(id: String): String =
  */
 class NearbyTimelineRepositoryTest {
     private fun repository(
+        tokenStore: TokenStore = InMemoryTokenStore(),
         log: (String) -> Unit = {},
         handler: MockRequestHandler,
     ): NearbyTimelineRepository {
         val httpClient =
             HttpClientFactory.create(
                 apiBaseUrl = "http://test.local",
-                tokenStore = InMemoryTokenStore(),
-                sessionInvalidator = SessionInvalidator(InMemoryTokenStore()),
+                tokenStore = tokenStore,
+                // Same store so a refresh-failure invalidate() clears the very tokens loadTokens reads.
+                sessionInvalidator = SessionInvalidator(tokenStore),
                 engine = MockEngine(handler),
                 installLogging = false,
                 nowMillis = { 0L },
@@ -93,7 +98,7 @@ class NearbyTimelineRepositoryTest {
         }
 
     @Test
-    fun `5xx maps to NetworkError`() =
+    fun `5xx maps to NetworkError not SessionExpired`() =
         runTest {
             val repo = repository { respond("", HttpStatusCode.InternalServerError, JSON_HEADERS) }
             assertEquals(NearbyTimelineOutcome.NetworkError, repo.loadFirstPage())
@@ -102,8 +107,37 @@ class NearbyTimelineRepositoryTest {
     @Test
     fun `transport IO failure maps to NetworkError`() =
         runTest {
-            val repo = repository { throw RuntimeException("connection refused") }
+            // A genuine connectivity fault keeps the NetworkError (connectivity copy), distinct from a
+            // terminal 401 — even with a token present, so the path is the IOException branch, not 401.
+            val repo =
+                repository(tokenStore = InMemoryTokenStore(TokenPair("at", "rt", 1L))) {
+                    throw RuntimeException("connection refused")
+                }
             assertEquals(NearbyTimelineOutcome.NetworkError, repo.loadFirstPage())
+        }
+
+    @Test
+    fun `terminal 401 maps to SessionExpired never NetworkError`() =
+        runTest {
+            // A token is present so the Auth plugin attempts a refresh; both the fetch AND the refresh
+            // POST return 401 → terminal 401 → SessionExpired (NOT NetworkError, NOT Error).
+            val store = InMemoryTokenStore(TokenPair("at-stale", "rt-Y", 1L))
+            val repo =
+                repository(tokenStore = store) { request ->
+                    when (request.url.encodedPath) {
+                        "/api/v1/auth/refresh" ->
+                            respond("", HttpStatusCode.Unauthorized, JSON_HEADERS)
+                        else ->
+                            respond(
+                                "",
+                                HttpStatusCode.Unauthorized,
+                                headersOf(HttpHeaders.WWWAuthenticate, "Bearer realm=\"nearyou\""),
+                            )
+                    }
+                }
+
+            // SessionExpired is a distinct data object, so this also asserts it is NOT NetworkError/Error.
+            assertEquals(NearbyTimelineOutcome.SessionExpired, repo.loadFirstPage())
         }
 
     @Test

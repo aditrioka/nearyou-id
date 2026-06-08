@@ -56,6 +56,7 @@ import id.nearyou.resources.generated.resources.timeline_empty_nearby
 import id.nearyou.resources.generated.resources.timeline_limit_hard
 import id.nearyou.resources.generated.resources.timeline_limit_soft
 import id.nearyou.resources.generated.resources.timeline_loading
+import id.nearyou.resources.generated.resources.timeline_session_redirect
 import id.nearyou.resources.theme.locationPin
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
@@ -238,6 +239,10 @@ private fun NearbyTimelineContent(
             NearbyTimelineUiState.Empty -> NearbyEmptyState(onSeeGlobal = onSeeGlobal)
             NearbyTimelineUiState.HardLimit -> CenteredMessageState(stringResource(Res.string.timeline_limit_hard))
             NearbyTimelineUiState.Error -> ErrorState(onRetry = onRetry)
+            // Terminal 401 → neutral redirect placeholder: the redirect copy with NO retry control and
+            // NOT signin_error_network (the SessionInvalidator re-route whisks the user to SignInScreen).
+            NearbyTimelineUiState.SessionRedirect ->
+                CenteredMessageState(stringResource(Res.string.timeline_session_redirect))
             is NearbyTimelineUiState.Content -> PostList(posts = uiState.posts, onOpenPost = onOpenPost)
             is NearbyTimelineUiState.SoftLimit ->
                 PostList(

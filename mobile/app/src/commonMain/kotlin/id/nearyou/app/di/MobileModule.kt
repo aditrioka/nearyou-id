@@ -4,12 +4,15 @@ import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.AuthRepository
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.auth.TokenRefresher
 import id.nearyou.app.config.apiBaseUrl
 import id.nearyou.app.config.httpClientEngine
 import id.nearyou.app.config.isDebugBuild
 import id.nearyou.app.consent.ConsentApiClient
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentRepository
+import id.nearyou.app.diagnostics.ConsoleDiagnosticSink
+import id.nearyou.app.diagnostics.DiagnosticSink
 import id.nearyou.app.location.CachingLocationProvider
 import id.nearyou.app.location.LocationTuning
 import id.nearyou.app.network.HttpClientFactory
@@ -23,7 +26,9 @@ import id.nearyou.app.post.PostCreationApiClient
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostDetailRepository
 import id.nearyou.app.post.ReplyApiClient
+import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
+import id.nearyou.app.screens.routing.ProactiveTokenRefreshTrigger
 import id.nearyou.app.timeline.GlobalTimelineApiClient
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineRepository
@@ -47,6 +52,14 @@ import kotlin.time.TimeSource
 val mobileModule =
     module {
         single { SessionInvalidator(get()) }
+        // mobile-session-expiry-and-proactive-refresh (D6) — the real coordinate-free diagnostic sink
+        // the timeline repositories wire (replacing their no-op default), so nearby/global network +
+        // 400 diagnostics are observable. Debug-only console output; no-op in release.
+        single<DiagnosticSink> { ConsoleDiagnosticSink(isDebugBuild) }
+        // mobile-session-expiry-and-proactive-refresh (D2) — the single-flight refresh round-trip,
+        // shared by the bearer plugin's refreshTokens callback AND the proactive on-resume trigger.
+        // Exactly ONE instance so an overlapping proactive + reactive refresh performs one POST.
+        single { TokenRefresher(get(), get()) }
         single {
             HttpClientFactory.create(
                 apiBaseUrl = apiBaseUrl,
@@ -54,6 +67,7 @@ val mobileModule =
                 sessionInvalidator = get(),
                 engine = httpClientEngine(),
                 installLogging = isDebugBuild,
+                tokenRefresher = get(),
             )
         }
         single { AuthApiClient(get()) }
@@ -74,6 +88,17 @@ val mobileModule =
         // flow (AgeGateScreen reads it). A single so both screens share one instance; never
         // persisted, never on a NavKey (design Decision 4).
         single { PendingSignupIdentity() }
+
+        // mobile-session-expiry-and-proactive-refresh (D3) — the app-root ON_RESUME preemptive-refresh
+        // trigger. Holds the shared TokenRefresher single + the shared HttpClient (no cycle —
+        // TokenRefresher takes the client per call). ProactiveRefreshEffect injects this at the app root.
+        single { ProactiveTokenRefreshTrigger(tokenStore = get(), tokenRefresher = get(), httpClient = get()) }
+
+        // mobile-session-expiry-and-proactive-refresh (D5) — the in-memory holder for the destination to
+        // return to after an involuntary re-auth + the involuntary-entry flag SignInScreen reads to show
+        // the session-expired notice. Mirrors PendingSignupIdentity: a single, never persisted, never on
+        // a NavKey.
+        single { PendingReturnDestination() }
 
         // mobile-location-acquisition-tuning — the unqualified LocationProvider both Nearby and the
         // composer inject is the in-process warm-fix decorator (single-flighted, injected monotonic
@@ -97,7 +122,9 @@ val mobileModule =
         // repository.
         single { NearbyTimelineApiClient(get()) }
         single { SessionIdProvider() }
-        single { NearbyTimelineRepository(get(), get(), get()) }
+        // diagnosticLog wired to the real coordinate-free DiagnosticSink (D6), NOT the no-op default —
+        // the sink call sites pass only status/cause-message strings (no coordinate, no token).
+        single { NearbyTimelineRepository(get(), get(), get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<NearbyTimelineFlow> { get<NearbyTimelineRepository>() }
 
         // mobile-global-timeline — the Global feed graph (mobile-home-tab-host Global tab). Mirrors the
@@ -106,7 +133,8 @@ val mobileModule =
         // NOT register a second). GlobalTimelineFlow is bound to the concrete repository so a
         // FakeGlobalTimelineFlow can drive the screen tests.
         single { GlobalTimelineApiClient(get()) }
-        single { GlobalTimelineRepository(get(), get()) }
+        // diagnosticLog wired to the real coordinate-free DiagnosticSink (D6), mirroring Nearby.
+        single { GlobalTimelineRepository(get(), get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<GlobalTimelineFlow> { get<GlobalTimelineRepository>() }
 
         // mobile-bottom-nav-sections-and-notifications — the notifications graph (the Notifikasi section's
