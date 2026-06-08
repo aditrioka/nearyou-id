@@ -37,6 +37,7 @@ class ShellAndTimelineSourceGuardTest {
     private val scaffoldNeedle = "Scaf" + "fold("
     private val topAppBarNeedle = "Top" + "AppBar"
     private val circleShapeNeedle = "Circle" + "Shape"
+
     // Split: the shell passes a drawable VARIABLE to painterResource (painterResource(iconFilled)), while
     // the cards pass Res.drawable.* inline — so a "painterResource(Res.drawable." literal would miss the
     // shell. Assert painterResource(…) AND a Res.drawable.* reference are both present instead.

@@ -1,5 +1,11 @@
 package id.nearyou.app.screens.shell
 
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -46,6 +52,8 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val SECTION_HOME = "Beranda" // section_home
@@ -210,6 +218,40 @@ class AppShellScreenTest {
                 onAllNodesWithContentDescription(BADGE_CD, useUnmergedTree = true).fetchSemanticsNodes().size,
                 "the unread badge is absent when count == 0",
             )
+        }
+    }
+
+    // mobile-design-system § "Selected nav item label is visible" — the literal scenario: the selected
+    // section label's RESOLVED content color is a non-background M3 token (NOT equal to the surface /
+    // background color). Asserted behaviorally by reading LocalContentColor inside the label slot of a
+    // NavigationBarItem(selected = true) themed exactly as the shell (NavigationBarItemDefaults.colors()
+    // under NearYouTheme) — the actual rendered label color, not a brittle pixel read. Pairs with the
+    // ShellAndTimelineSourceGuardTest guard that the shell USES those defaults (not a custom color).
+    @Test
+    fun selectedNavLabel_resolvedContentColor_isANonBackgroundToken() {
+        var selectedLabelColor = Color.Unspecified
+        var surface = Color.Unspecified
+        var background = Color.Unspecified
+        runComposeUiTest {
+            setContent {
+                NearYouTheme {
+                    surface = MaterialTheme.colorScheme.surface
+                    background = MaterialTheme.colorScheme.background
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = true,
+                            onClick = {},
+                            colors = NavigationBarItemDefaults.colors(),
+                            icon = {},
+                            label = { selectedLabelColor = LocalContentColor.current },
+                        )
+                    }
+                }
+            }
+            waitForIdle()
+            assertTrue(selectedLabelColor != Color.Unspecified, "the selected label resolves a concrete content color")
+            assertNotEquals(surface, selectedLabelColor, "selected nav label color must not equal surface (it would be invisible)")
+            assertNotEquals(background, selectedLabelColor, "selected nav label color must not equal background (it would be invisible)")
         }
     }
 
