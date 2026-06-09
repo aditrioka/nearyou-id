@@ -75,6 +75,16 @@ adb logcat -d | grep -i <expected|Exception>          # observe
 
 **Auth-gated screen without signing in:** temporarily edit `mobile/app/src/commonMain/.../App.kt` to `Navigator(<TargetScreen>())` (boot straight in, bypassing `RootRouterScreen`), build dev-debug, verify, then **`git restore App.kt` before commit**. Real platform actuals still bind.
 
+**Session-lifecycle / terminal-401 / proactive-refresh verification (staging flavor, NO DB write, NO Google sign-in)** — `dev/scripts/mint-staging-jwt.sh [user] [token_version]` mints a signature-valid staging JWT and emits a `nearyou-staging://test-login?access=<jwt>&refresh=<jwt>&exp=<ms>` deep-link. Two facts make this a full terminal-401 / proactive-refresh test rig without touching the staging DB:
+- **`refresh` = the access JWT (a BOGUS refresh token):** so ANY `POST /auth/refresh` against staging is rejected → a deterministic terminal 401. No need to revoke a real refresh token.
+- **The deep-link `exp` IS the client's `accessExpiresAtEpochMillis`** (the proactive trigger's only input) — override it freely; the real JWT `exp` (15 min) is unaffected.
+
+Recipes (build `:mobile:app:installStagingDebug`; ALWAYS `adb shell pm clear id.nearyou.app.staging` first + screenshot to confirm the clean state shows Sign-In with NO session-expired notice — the false-positive guard):
+- **Proactive refresh on resume (D3) ISOLATED:** mint `token_version=0` (valid → fetches 200) + set `exp = now+90s` (< 5-min window). Fire the deep-link. Cold-start `ON_RESUME` fires a proactive `POST /auth/refresh` (the FIRST request in logcat, BEFORE any 401) → bogus refresh → 401 → re-route to Sign-In with "Sesi kamu berakhir…". The unread-badge fetch 200s, proving the re-route is from the proactive refresh alone, not a fetch 401.
+- **Fetch terminal-401 (D4, the original mislabel bug) ISOLATED:** mint `token_version=99` (mismatch → backend 401s every request) + set `exp = now+900s` (> 5 min → proactive refresh stays OUT). Timeline fetch → 401 → ONE reactive `/auth/refresh` (single-flight coalesces the concurrent unread-badge + timeline 401s) → 401 → terminal → Sign-In with the notice, NEVER "Tidak bisa terhubung. Periksa koneksi internet kamu."
+- **Observe:** `adb logcat -c` before firing; the staging-debug build logs Ktor at `HEADERS` to `System.out`, so `adb logcat -d | grep -E "REQUEST:|RESPONSE:|FROM:|auth/refresh|timeline"` gives the exact request/response sequence. Coordinate query params show as `lat=***&lng=***` (CoordinateMaskingLogger working). Then `exec-out screencap` + Read the PNG.
+- **Limits (cover via the test suite, can't reproduce with test-login):** the SUCCESSFUL proactive refresh (no 401 flash) needs a REAL refresh token (test-login's is bogus) → unit + iOS-sim ON_RESUME tests; the sub-second timeline redirect placeholder ("Mengalihkan…") flashes before the reliable re-route → Robolectric/iOS screen tests; destination-preservation while on a non-Home screen → `PendingReturnDestinationTest`.
+
 ---
 
 ## §C — iOS simulator
