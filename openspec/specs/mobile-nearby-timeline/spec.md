@@ -226,7 +226,7 @@ The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equiv
 #### Scenario: next_cursor is parsed but no load-more is wired
 
 - **WHEN** inspecting the repository/screen for cursor usage
-- **THEN** `next_cursor` is parsed and retained on `Loaded` but is NOT consumed to issue a follow-up `cursor=`-bearing request in this change AND `FOLLOW_UPS.md` contains an entry `mobile-nearby-timeline-infinite-scroll`
+- **THEN** `next_cursor` is parsed and retained on `Loaded` but is NOT consumed to issue a follow-up `cursor=`-bearing request in this change AND GitHub issue [#188](https://github.com/aditrioka/nearyou-id/issues/188) (label `follow-up`) tracks `mobile-nearby-timeline-infinite-scroll`
 
 ### Requirement: Test coverage for the screen, projection, and networking
 

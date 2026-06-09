@@ -754,7 +754,7 @@ class LikeRateLimitTest : StringSpec({
             //
             // FOLLOW-UP: the spec language ("WIB day rollover restores the cap")
             // implies fixed-window semantics, but the impl is sliding-window
-            // with variable TTL. Tracked in FOLLOW_UPS.md
+            // with variable TTL. Tracked in follow-up issue #181
             // (like-rate-limit-sliding-window-vs-fixed-window-semantic).
             clock.set(day1Wib.toInstant().plus(Duration.ofHours(24)).plusSeconds(1))
 

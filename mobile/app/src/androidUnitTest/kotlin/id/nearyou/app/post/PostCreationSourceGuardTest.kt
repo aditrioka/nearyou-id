@@ -22,14 +22,14 @@ private fun String.stripComments(): String {
  * (HttpClientFactory stays `LogLevel.HEADERS`; the create client + repository never `println`/log the
  * body or coordinate, and the repository's diagnostic sink is coordinate-free by construction);
  * automatic-location-only (no map / pin / manual coordinate-entry / place-search affordance); no
- * Nearby reload signalled on success (only `navigator.pop()`); and the FOLLOW_UPS deferral bookkeeping
- * (the Nearby-refresh follow-up is present; NO manual-location follow-up exists — that scope was
- * dropped by #144, not deferred).
+ * Nearby reload signalled on success (only `navigator.pop()`); and deferral bookkeeping (tracked as
+ * `follow-up` GitHub issues) (the Nearby-refresh follow-up — issue #173 — is present; NO manual-location
+ * follow-up exists — that scope was dropped by #144, not deferred).
  */
 class PostCreationSourceGuardTest {
     private val repoRoot: File = findRepoRoot()
 
-    /** Raw file text (for non-Kotlin files like FOLLOW_UPS.md). */
+    /** Raw file text (for non-Kotlin source files). */
     private fun rawSource(relativePath: String): String {
         val file = File(repoRoot, relativePath)
         assertTrue(file.exists(), "expected source file missing: $relativePath (resolved under $repoRoot)")
@@ -84,7 +84,7 @@ class PostCreationSourceGuardTest {
         )
     }
 
-    // ---- 7.8: automatic-location-only; no Nearby reload on success; FOLLOW_UPS bookkeeping ----
+    // ---- 7.8: automatic-location-only; no Nearby reload on success; deferral bookkeeping ----
 
     @Test
     fun postCreationScreen_hasNoManualLocationAffordance() {
@@ -109,18 +109,9 @@ class PostCreationSourceGuardTest {
         assertFalse(screen.contains("ResultEventBus"), "the composer must not consume a Nav3 ResultEventBus result")
     }
 
-    @Test
-    fun followUps_tracksNearbyRefresh_andHasNoManualLocationEntry() {
-        val followUps = rawSource("FOLLOW_UPS.md")
-        assertTrue(
-            followUps.contains("mobile-post-creation-refresh-nearby-on-return"),
-            "FOLLOW_UPS.md must track the deferred Nearby-refresh-on-return follow-up",
-        )
-        assertFalse(
-            followUps.contains("mobile-post-creation-manual-location"),
-            "there must be NO manual-location follow-up — that scope was dropped by #144, not deferred",
-        )
-    }
+    // Note: the deferred Nearby-refresh-on-return follow-up is tracked as a GitHub issue (label
+    // `follow-up`), not in a repo file; the manual-location scope was dropped by #144 (not deferred).
+    // No source-file assertion covers the deferral bookkeeping here.
 
     private companion object {
         /** Walks up from the test working directory to the repo root (the dir holding settings.gradle.kts),

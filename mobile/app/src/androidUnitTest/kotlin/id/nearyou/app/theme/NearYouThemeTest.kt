@@ -17,7 +17,7 @@ import kotlin.test.assertNotEquals
  * Theme-resolution coverage for [NearYouTheme] — the `mobile-app-scaffold` spec
  * Requirement "Material 3 theme follows system preference" scenarios "Light mode
  * applies brand light color scheme" + "Dark mode applies brand dark color
- * scheme". Closes the `mobile-theme-light-dark-direct-test` FOLLOW_UPS entry,
+ * scheme". Closes the earlier `mobile-theme-light-dark-direct-test` follow-up,
  * which deferred these from manual visual smoke to an automated assertion once
  * the Compose UI test runner was wired (it is, since Mobile #3).
  *

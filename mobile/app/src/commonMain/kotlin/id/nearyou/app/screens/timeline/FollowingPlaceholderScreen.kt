@@ -23,7 +23,7 @@ import org.jetbrains.compose.resources.stringResource
  *
  * The real Following feed is **deferred**: there is no follow-action UI on mobile yet, so a live feed
  * would be perpetually empty (wasted surface + an untestable end-to-end path). The deferral is tracked
- * by `FOLLOW_UPS.md` `mobile-following-timeline-screen`, which will MODIFY this requirement to
+ * per `docs/08-Roadmap-Risk.md` § Phase 3, which will MODIFY this requirement to
  * introduce the live feed. This is a real, documented state directing the user to Nearby/Global —
  * **not** a dead control.
  */

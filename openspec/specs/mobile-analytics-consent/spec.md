@@ -1,7 +1,7 @@
 # mobile-analytics-consent Specification
 
 ## Purpose
-This capability governs the mobile analytics-and-tracking consent onboarding surface — the `ConsentScreen` interjected into the new-user flow after age-gate signup and before `HomeScreen`, satisfying the UU PDP requirement to collect tracking consent at onboarding (`docs/03-UX-Design.md` § Analytics & Tracking Consent). The screen presents three Material 3 toggles (Analytics, Crash Reporting, Ads Personalization) with per-category explainers and a continue CTA, initialized to the privacy-safe V2 column defaults (analytics OFF, crash ON, ads OFF) with no GET round-trip, then submits the toggle triple via `ConsentRepository.submitConsent(...)` against `PATCH /api/v1/user/consent`. Submit results map status-by-status with no generic fallthrough (`200`→route Home; `401`→terminal token-invalid; `5xx`/IO/`400`→retryable, with a non-trapping skip-to-Home affordance shown only after a failure), and the surface upholds the project's copy-via-Compose-Resources and PII (no token/`sub`/response-body logging) disciplines. It also owns the `ConsentRoute` serializable NavKey placement that replaces the age-gate entry so back-press cannot re-enter the age gate; reliable-persist hardening and a returning-user consent re-gate are explicitly deferred and FOLLOW_UPS-tracked.
+This capability governs the mobile analytics-and-tracking consent onboarding surface — the `ConsentScreen` interjected into the new-user flow after age-gate signup and before `HomeScreen`, satisfying the UU PDP requirement to collect tracking consent at onboarding (`docs/03-UX-Design.md` § Analytics & Tracking Consent). The screen presents three Material 3 toggles (Analytics, Crash Reporting, Ads Personalization) with per-category explainers and a continue CTA, initialized to the privacy-safe V2 column defaults (analytics OFF, crash ON, ads OFF) with no GET round-trip, then submits the toggle triple via `ConsentRepository.submitConsent(...)` against `PATCH /api/v1/user/consent`. Submit results map status-by-status with no generic fallthrough (`200`→route Home; `401`→terminal token-invalid; `5xx`/IO/`400`→retryable, with a non-trapping skip-to-Home affordance shown only after a failure), and the surface upholds the project's copy-via-Compose-Resources and PII (no token/`sub`/response-body logging) disciplines. It also owns the `ConsentRoute` serializable NavKey placement that replaces the age-gate entry so back-press cannot re-enter the age gate; reliable-persist hardening and a returning-user consent re-gate are explicitly deferred and tracked as follow-up GitHub issues (label `follow-up`).
 ## Requirements
 ### Requirement: ConsentScreen renders the three consent toggles, explainers, and continue CTA
 
@@ -121,21 +121,21 @@ To avoid trapping a user in onboarding on a transient persist failure, AFTER a `
 
 ### Requirement: Reliable consent persistence is deferred and tracked
 
-This change SHALL NOT implement background retry/queueing of a failed consent PATCH beyond the in-screen retry + skip. A failed-then-skipped submit leaves the server at its prior (default) value without enqueuing a later sync. The reliable-persist hardening (so a failed PATCH cannot leave a future tracking SDK mismatched against the user's choice) is deferred and SHALL be recorded as `FOLLOW_UPS.md` entry `mobile-analytics-consent-persist-hardening`.
+This change SHALL NOT implement background retry/queueing of a failed consent PATCH beyond the in-screen retry + skip. A failed-then-skipped submit leaves the server at its prior (default) value without enqueuing a later sync. The reliable-persist hardening (so a failed PATCH cannot leave a future tracking SDK mismatched against the user's choice) is deferred and SHALL be recorded as GitHub issue [#198](https://github.com/aditrioka/nearyou-id/issues/198) `mobile-analytics-consent-persist-hardening` (label `follow-up`).
 
 #### Scenario: A failed-then-skipped submit enqueues no background retry, and the deferral is tracked
 
 - **GIVEN** `ConsentScreen`, a MockEngine responding `503`, and the skip affordance taken after the failure
 - **WHEN** the user reaches `HomeScreen` via skip
-- **THEN** no background/queued consent retry was scheduled (the skip is terminal for this onboarding session) AND `FOLLOW_UPS.md` contains an entry `mobile-analytics-consent-persist-hardening`
+- **THEN** no background/queued consent retry was scheduled (the skip is terminal for this onboarding session) AND GitHub issue [#198](https://github.com/aditrioka/nearyou-id/issues/198) (label `follow-up`) tracks `mobile-analytics-consent-persist-hardening`
 
 ### Requirement: RootRouter does not re-gate returning token-bearing users on consent completion (deferred)
 
-Because consent lives only in the signup→Home transition, a user who force-quits at `ConsentScreen` holds a valid token and is routed straight to `HomeScreen` on the next launch (consent bypassed). This change SHALL NOT add a `consent_completed_at` flag or a `RootRouterScreen` consent re-gate to prevent that — the V2 safe defaults make the bypass benign for MVP (a bypassing user is at analytics=false/ads=false, and crash=true is the documented opt-out-able default). The re-gate is deferred and SHALL be recorded as `FOLLOW_UPS.md` entry `mobile-analytics-consent-rootrouter-regate`.
+Because consent lives only in the signup→Home transition, a user who force-quits at `ConsentScreen` holds a valid token and is routed straight to `HomeScreen` on the next launch (consent bypassed). This change SHALL NOT add a `consent_completed_at` flag or a `RootRouterScreen` consent re-gate to prevent that — the V2 safe defaults make the bypass benign for MVP (a bypassing user is at analytics=false/ads=false, and crash=true is the documented opt-out-able default). The re-gate is deferred and SHALL be recorded as GitHub issue [#199](https://github.com/aditrioka/nearyou-id/issues/199) `mobile-analytics-consent-rootrouter-regate` (label `follow-up`).
 
 #### Scenario: A returning token-bearing user reaches Home without a consent re-prompt, and the deferral is tracked
 
 - **GIVEN** a `SecureTokenStore` holding a valid token (a previously-created account)
 - **WHEN** the app launches and `RootRouterScreen` resolves the start destination
-- **THEN** the user is routed to `HomeRoute` directly (no `ConsentRoute` re-gate is interposed for an already-token-bearing user) AND `FOLLOW_UPS.md` contains an entry `mobile-analytics-consent-rootrouter-regate`
+- **THEN** the user is routed to `HomeRoute` directly (no `ConsentRoute` re-gate is interposed for an already-token-bearing user) AND GitHub issue [#199](https://github.com/aditrioka/nearyou-id/issues/199) (label `follow-up`) tracks `mobile-analytics-consent-rootrouter-regate`
 

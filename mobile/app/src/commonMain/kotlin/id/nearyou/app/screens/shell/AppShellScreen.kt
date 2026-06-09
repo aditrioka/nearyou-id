@@ -86,8 +86,8 @@ import org.koin.compose.koinInject
  * The Notifikasi nav item carries an unread **badge** (design D6) sourced from
  * `GET /api/v1/notifications/unread-count` — fetched **once** on shell composition and refreshed **once**
  * when the user leaves the Notifikasi section (having likely read some). It is shown only when `count > 0`.
- * NO polling timer / push-driven live subscription is wired (live updates deferred — `FOLLOW_UPS.md`
- * `mobile-notifications-live-unread-badge`).
+ * NO polling timer / push-driven live subscription is wired (live updates deferred — follow-up issue
+ * #197, `mobile-notifications-live-unread-badge`).
  */
 @Composable
 fun AppShellScreen(

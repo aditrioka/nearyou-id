@@ -18,8 +18,8 @@ import kotlin.system.measureTimeMillis
 /**
  * Deterministic coverage for `FcmDispatcherScope.shutdown(drainMillis)` —
  * `fcm-push-dispatch` spec § "Dispatcher coroutine scope SHALL drain on JVM
- * shutdown" (tasks 7.7 + 7.7.a), previously deferred via the
- * `fcm-shutdown-drain-deterministic-tests` FOLLOW_UPS entry.
+ * shutdown" (tasks 7.7 + 7.7.a), previously deferred via the earlier
+ * `fcm-shutdown-drain-deterministic-tests` follow-up.
  *
  * Mechanism note: the deferred entry proposed `runTest` + `TestScheduler`
  * virtual time. That does NOT fit the production code — `shutdown()` wraps

@@ -87,10 +87,10 @@ All user-facing labels across `:mobile:app` SHALL be a single language — Bahas
 
 ### Requirement: Runtime user-selectable language switching is deferred
 
-This capability SHALL NOT introduce runtime user-selectable language switching (locale resource variants, a language-preference store, or a settings toggle). The single-language Bahasa Indonesia rule above is satisfied by normalizing the catalog copy, NOT by an in-app language picker. Runtime language switching is **deferred** and tracked by the `FOLLOW_UPS.md` entry `mobile-localization-language-switching`, which will MODIFY this requirement to introduce the live capability.
+This capability SHALL NOT introduce runtime user-selectable language switching (locale resource variants, a language-preference store, or a settings toggle). The single-language Bahasa Indonesia rule above is satisfied by normalizing the catalog copy, NOT by an in-app language picker. Runtime language switching is **deferred** and tracked by GitHub issue [#203](https://github.com/aditrioka/nearyou-id/issues/203) `mobile-localization-language-switching` (label `follow-up`), which will MODIFY this requirement to introduce the live capability.
 
 #### Scenario: No language picker or locale-variant infrastructure is wired
 
 - **WHEN** inspecting `:mobile:app` and `:shared:resources`
-- **THEN** there is no user-facing language selector, no `values-en`/`values-id` locale-variant split, and no language-preference persistence AND `FOLLOW_UPS.md` contains an entry `mobile-localization-language-switching`
+- **THEN** there is no user-facing language selector, no `values-en`/`values-id` locale-variant split, and no language-preference persistence AND GitHub issue [#203](https://github.com/aditrioka/nearyou-id/issues/203) (label `follow-up`) tracks `mobile-localization-language-switching`
 

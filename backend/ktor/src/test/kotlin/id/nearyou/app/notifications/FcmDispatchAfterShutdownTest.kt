@@ -32,7 +32,7 @@ import java.util.UUID
  * the test classpath. Adding it would touch the build configuration; the
  * shutdown logic itself is exercised at module composition time
  * (`FcmDispatcherScope.shutdown(...)`) by the production wiring's shutdown
- * hook in Application.kt. Surfaced via FOLLOW_UPS.md.
+ * hook in Application.kt. Surfaced via a `follow-up` GitHub issue.
  */
 class FcmDispatchAfterShutdownTest : StringSpec(
     {

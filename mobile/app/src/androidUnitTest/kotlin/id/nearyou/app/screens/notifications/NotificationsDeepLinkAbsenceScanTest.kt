@@ -17,7 +17,7 @@ private fun String.stripComments(): String {
  * (deferred)" — source-scan guard (mirroring `FollowingTabNoFetchScanTest`) mechanizing design D5: the
  * navigation-free `NotificationsScreen` holds no back-stack reference and pushes no `NavKey`, so a
  * notification row's tap handler issues only the mark-read call. Deep-link tap-through to a post / reply /
- * profile surface is deferred (`FOLLOW_UPS.md` `mobile-notifications-deep-link-targets`). Needles are
+ * profile surface is deferred (follow-up issue #193 (`mobile-notifications-deep-link-targets`)). Needles are
  * assembled from fragments AND the scanned source is comment-stripped, so neither the screen's own KDoc nor
  * this guard's source trips it. Runs in every variant (NOT a Compose UI test).
  */
@@ -29,7 +29,7 @@ class NotificationsDeepLinkAbsenceScanTest {
     private val postDetailNeedle = "PostDetail" + "Route"
 
     // Assembled: the load-more API surface that would exist if cursor-based infinite scroll were wired
-    // (deferred — `next_cursor` is parsed/retained but NOT consumed). See FOLLOW_UPS mobile-nearby-timeline-infinite-scroll.
+    // (deferred — `next_cursor` is parsed/retained but NOT consumed). See follow-up issue #188 (`mobile-nearby-timeline-infinite-scroll`).
     private val loadNextPageNeedle = "load" + "NextPage"
     private val loadMoreNeedle = "load" + "More"
 

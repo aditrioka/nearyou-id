@@ -225,7 +225,7 @@ Precedent: PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) (`like-rate
 
 Outcomes:
 - **Re-check confirms the design-time call** → drop a one-liner in the first apply commit body or a PR comment (`re-check 2026-MM-DD confirms: still best option, no ecosystem shift since proposal`) and proceed with implementation.
-- **Re-check surfaces a materially-better alternative** → STOP. Post the finding in-session, surface to the user via `AskUserQuestion`, and let the user choose: (a) ship the design-time call + log the alternative as a `FOLLOW_UPS.md` entry, or (b) author a new OpenSpec change (or amend the in-flight design.md Decision in-place) that swaps the substrate. Do NOT silently switch substrate mid-implementation — that bypasses the proposal-review gate.
+- **Re-check surfaces a materially-better alternative** → STOP. Post the finding in-session, surface to the user via `AskUserQuestion`, and let the user choose: (a) ship the design-time call + file the alternative as a `follow-up` GitHub issue, or (b) author a new OpenSpec change (or amend the in-flight design.md Decision in-place) that swaps the substrate. Do NOT silently switch substrate mid-implementation — that bypasses the proposal-review gate.
 
 Skip the re-check when the change touches only existing-pinned + already-actively-used libraries (extending usage of a library already in N modules isn't substrate selection — that decision is battle-tested in the repo). The trigger is "new substrate enters the codebase," not "any library touch."
 
@@ -237,7 +237,7 @@ Query templates: `"<framework> <symptom> 2026 best practice"`, `"<library> <API>
 
 Outcomes:
 - **Re-check confirms the proposed revision is canonical** → drop a one-liner in the revision commit body or design.md amendment (`canonical pattern per <source>, verified 2026-MM-DD`) and proceed.
-- **Re-check surfaces a different canonical pattern than the rationalized one** → STOP. Post the finding in-session, surface to the user via `AskUserQuestion`, and let the user choose between (a) implement the actually-canonical pattern + re-amend spec to match, or (b) accept the non-canonical workaround as a documented trade-off + log the canonical-pattern-not-implemented decision in `FOLLOW_UPS.md`. Do NOT silently ship the rationalized-from-training-data revision.
+- **Re-check surfaces a different canonical pattern than the rationalized one** → STOP. Post the finding in-session, surface to the user via `AskUserQuestion`, and let the user choose between (a) implement the actually-canonical pattern + re-amend spec to match, or (b) accept the non-canonical workaround as a documented trade-off + file the canonical-pattern-not-implemented decision as a `follow-up` GitHub issue. Do NOT silently ship the rationalized-from-training-data revision.
 
 Skip the re-check for trivial implementation adjustments that don't touch the spec/design (e.g., import-path resolution, minor naming, build-config tweaks). The trigger is "I'm about to amend a spec or design Decision because implementation surfaced something I didn't anticipate," NOT "I'm just making a small code change."
 

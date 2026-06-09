@@ -12,7 +12,7 @@ import kotlinx.serialization.Serializable
  *
  * Tabs are **host-internal state**, not routes: no per-tab `NavDisplay` back stack and no tab-root
  * `NavKey` is declared (per-tab back stacks are deferred to the first intra-tab destination —
- * `FOLLOW_UPS.md` `mobile-home-tab-host-per-tab-backstacks`). The authenticated default is [Nearby].
+ * follow-up issue #189, `mobile-home-tab-host-per-tab-backstacks`). The authenticated default is [Nearby].
  */
 @Serializable
 enum class Tab {

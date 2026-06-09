@@ -42,8 +42,8 @@ object TestModerationFixtures {
  * returns empty lists, so the verdict is always `Verdict.Allow`.
  *
  * Used by `ReplyRateLimitTest` (rate-limited reply) + `ChatFoundationRouteTest`
- * (blocked chat send) — the `reply-rate-limit-moderator-spy` +
- * `chat-block-check-moderator-spy` FOLLOW_UPS entries.
+ * (blocked chat send) — the earlier `reply-rate-limit-moderator-spy` +
+ * `chat-block-check-moderator-spy` follow-ups.
  */
 class RecordingTextModerator {
     val moderateCallCount: AtomicInteger = AtomicInteger(0)

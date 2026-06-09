@@ -17,7 +17,7 @@ import java.util.UUID
  * produced by [buildAndroidMessage] / [buildIosMessage], using [MessageInspector]
  * to render the SDK's transport JSON OFFLINE (no network, no credentials).
  *
- * Closes the `fcm-payload-structural-tests` FOLLOW_UPS entry: the
+ * Closes the earlier `fcm-payload-structural-tests` follow-up: the
  * `fcm-push-dispatch` spec scenarios "Android payload has no notification
  * block", "Android payload sets priority HIGH", "iOS payload sets
  * aps.mutable-content = true", and "iOS payload carries body_full as

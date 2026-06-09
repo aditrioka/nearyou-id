@@ -21,7 +21,7 @@ import org.jetbrains.compose.resources.stringResource
  * `FollowingPlaceholderScreen`).
  *
  * The real profile/settings surface is **deferred** to a separate future change (tracked by
- * `FOLLOW_UPS.md` `mobile-profile-section-screen`, which will MODIFY this requirement to introduce the
+ * follow-up issue #196, `mobile-profile-section-screen`, which will MODIFY this requirement to introduce the
  * live surface). This is a real, documented "coming soon" state — **not** a dead control.
  */
 @Composable
