@@ -17,7 +17,7 @@ private fun String.stripComments(): String {
  * `FollowingTabNoFetchScanTest`) mechanizing design D6: the Notifikasi unread badge is fetched ONLY on
  * shell composition (`LaunchedEffect(Unit)`) + on leaving the section (`DisposableEffect` `onDispose`),
  * with NO polling timer / repeating delay / push-driven live `collect` subscription. Live updates are
- * deferred (`FOLLOW_UPS.md` `mobile-notifications-live-unread-badge`). Needles are assembled from fragments
+ * deferred (follow-up issue #197 (`mobile-notifications-live-unread-badge`)). Needles are assembled from fragments
  * AND the scanned source is comment-stripped, so neither the shell's KDoc nor this guard's source trips it.
  * Runs in every variant (NOT a Compose UI test).
  */

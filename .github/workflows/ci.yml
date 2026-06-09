@@ -42,9 +42,11 @@ jobs:
   # MULTIPLE filter axes (e.g. "skip android tests when only backend changed"
   # / "skip backend tests when only mobile changed"), switch to
   # `dorny/paths-filter@v3` — battle-tested third-party action with
-  # declarative YAML filter rules. See `FOLLOW_UPS.md` entry
-  # `ci-paths-filter-switch-to-dorny` for the trigger conditions and
-  # migration sketch.
+  # declarative YAML filter rules. Trigger to switch: a second filter axis is
+  # needed (e.g. android-only paths), this `changes` step grows past ~30 lines,
+  # or a second `needs: changes` heavy lane diverges from the lint/test/migrate
+  # set. Pin a SHA (not the floating tag) and keep the workflow-level
+  # `paths-ignore` as the outermost gate.
   changes:
     runs-on: ubuntu-latest
     outputs:

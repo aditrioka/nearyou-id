@@ -63,8 +63,8 @@ const val HOME_FEED_PAGER_TAG: String = "homeFeedPager"
  * [Tab.Nearby]). There is **no** per-tab `NavDisplay` and **no** new tab-root `NavKey`: each feed page
  * composes directly under the shell's `HomeRoute` `NavEntry`, so its `viewModel { }` resolves to the
  * `HomeRoute` store and the feed state survives feed swipes/tab taps, section switches, AND the composer
- * round-trip with no re-fetch (design D1/D2/D3). Per-tab back stacks are deferred (`FOLLOW_UPS.md`
- * `mobile-home-tab-host-per-tab-backstacks`).
+ * round-trip with no re-fetch (design D1/D2/D3). Per-tab back stacks are deferred (follow-up issue
+ * #189, `mobile-home-tab-host-per-tab-backstacks`).
  *
  * Two callbacks are hoisted (both wired by the shell + `appEntryProvider` call site to root-stack pushes):
  * - [onOpenComposer] — the single composer FAB shared across all three feed pages → `add(PostCreationRoute)`.

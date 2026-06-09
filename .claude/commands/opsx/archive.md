@@ -72,7 +72,7 @@ Archive a completed change in the experimental workflow.
 
    **Acceptable resolution paths (offer all three via AskUserQuestion):**
    - **(a) Fill the Purpose now (recommended).** Read the change's `proposal.md` § Why + § What Changes; synthesize a 2-4 sentence Purpose paragraph; edit the affected spec.md (or the delta spec.md if the sync hasn't run yet) to replace the TBD line with the real Purpose. Re-run `openspec validate <name> --strict` and re-run this step.
-   - **(b) Defer with explicit FOLLOW_UPS entry.** If filling the Purpose meaningfully requires inputs you do not have right now, append an entry to `FOLLOW_UPS.md` per the format in `openspec/project.md` § Notes. Then proceed. Do NOT use this path for laziness — it consumes a real follow-up budget.
+   - **(b) Defer with an explicit `follow-up` GitHub issue.** If filling the Purpose meaningfully requires inputs you do not have right now, file a `follow-up` GitHub issue (`gh issue create --label follow-up` + an area label) capturing the capability + the missing inputs. Then proceed. Do NOT use this path for laziness — an open follow-up issue is real tracked debt, not a free pass.
    - **(c) Cancel archive.** Stop, surface the affected capability list to the user, and let them decide.
 
    Acceptable check command:

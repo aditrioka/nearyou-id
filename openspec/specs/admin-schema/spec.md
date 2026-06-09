@@ -282,7 +282,7 @@ Documentation of which `admin_app` REVOKE/GRANT statements are required lands in
 
 ### Requirement: Sentinel `system` admin user seed is explicitly out of scope
 
-The migration SHALL NOT INSERT any rows into `admin_users`. The sentinel `system` admin user row required by the `suspension-unban-worker-audit-log-after-phase-3.5` follow-up — needed to satisfy the `admin_actions_log.admin_id NOT NULL` FK for worker-emitted audit rows — is deferred to the dedicated follow-up change `system-actor-and-worker-audit-rows`. That follow-up will resolve the design tension between `admin_users.password_hash NOT NULL` and the FOLLOW_UPS entry's "no `password_hash`" sentinel description, plus add the auth-bypass guard CHECK constraint or query-level safeguard.
+The migration SHALL NOT INSERT any rows into `admin_users`. The sentinel `system` admin user row required by the `suspension-unban-worker-audit-log-after-phase-3.5` follow-up — needed to satisfy the `admin_actions_log.admin_id NOT NULL` FK for worker-emitted audit rows — is deferred to the dedicated follow-up change `system-actor-and-worker-audit-rows`. That follow-up will resolve the design tension between `admin_users.password_hash NOT NULL` and the earlier follow-up's "no `password_hash`" sentinel description, plus add the auth-bypass guard CHECK constraint or query-level safeguard.
 
 #### Scenario: No data seeding in V16
 

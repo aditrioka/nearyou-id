@@ -208,45 +208,45 @@ The mobile app SHALL model the screen state as Compose-free `PostDetailUiState` 
 
 ### Requirement: Block and report kebab actions are deferred
 
-This change SHALL NOT add any block or report affordance (post or reply kebab menu) to `PostDetailScreen` or the reply cards. The block + report UI (`docs/02-Product.md:233`/`:254`) is a separate feature (the `user_blocks` + `reports` backends, a confirmation modal, a reason picker) and is deferred. `FOLLOW_UPS.md` SHALL contain an entry `mobile-post-detail-block-report-kebab` tracking it.
+This change SHALL NOT add any block or report affordance (post or reply kebab menu) to `PostDetailScreen` or the reply cards. The block + report UI (`docs/02-Product.md:233`/`:254`) is a separate feature (the `user_blocks` + `reports` backends, a confirmation modal, a reason picker) and is deferred. GitHub issue [#200](https://github.com/aditrioka/nearyou-id/issues/200) `mobile-post-detail-block-report-kebab` (label `follow-up`) tracks it.
 
 #### Scenario: No block/report affordance is present
 
 - **WHEN** inspecting `PostDetailScreen.kt` and the reply-card composables
 - **THEN** there is NO "Blokir" / "Laporkan" control, kebab menu, or block/report API call
 
-#### Scenario: FOLLOW_UPS tracks the block/report deferral
+#### Scenario: Follow-up issue tracks the block/report deferral
 
-- **WHEN** inspecting `FOLLOW_UPS.md`
-- **THEN** it contains an entry `mobile-post-detail-block-report-kebab`
+- **WHEN** inspecting the project's open GitHub issues (label `follow-up`)
+- **THEN** GitHub issue [#200](https://github.com/aditrioka/nearyou-id/issues/200) (label `follow-up`) tracks `mobile-post-detail-block-report-kebab`
 
 ### Requirement: Inline-card like and reply shortcuts are deferred
 
-This change SHALL route ALL like/reply interaction through `PostDetailScreen`. The Nearby + Global feed cards SHALL NOT gain inline like or reply controls in this change — they gain only the `onOpenPost` tap (per the `mobile-nearby-timeline` / `mobile-global-timeline` deltas). Inline-card shortcuts are deferred; `FOLLOW_UPS.md` SHALL contain an entry `mobile-post-detail-inline-card-actions`.
+This change SHALL route ALL like/reply interaction through `PostDetailScreen`. The Nearby + Global feed cards SHALL NOT gain inline like or reply controls in this change — they gain only the `onOpenPost` tap (per the `mobile-nearby-timeline` / `mobile-global-timeline` deltas). Inline-card shortcuts are deferred; GitHub issue [#201](https://github.com/aditrioka/nearyou-id/issues/201) `mobile-post-detail-inline-card-actions` (label `follow-up`) tracks it.
 
 #### Scenario: Feed cards expose only the open-detail tap, no inline like/reply
 
 - **WHEN** inspecting `NearbyTimelineScreen.kt` / `GlobalTimelineScreen.kt` card composables
 - **THEN** the card exposes the hoisted `onOpenPost` tap only AND has NO inline like button or inline reply field
 
-#### Scenario: FOLLOW_UPS tracks the inline-card deferral
+#### Scenario: Follow-up issue tracks the inline-card deferral
 
-- **WHEN** inspecting `FOLLOW_UPS.md`
-- **THEN** it contains an entry `mobile-post-detail-inline-card-actions`
+- **WHEN** inspecting the project's open GitHub issues (label `follow-up`)
+- **THEN** GitHub issue [#201](https://github.com/aditrioka/nearyou-id/issues/201) (label `follow-up`) tracks `mobile-post-detail-inline-card-actions`
 
 ### Requirement: By-id post fetch and replies infinite-scroll are deferred
 
-This change SHALL NOT implement a `GET /api/v1/posts/{id}` by-id fetch (none exists on the backend; the header is built from nav args) NOR cursor-based load-more for the replies list (`next_cursor` is parsed + retained but not consumed). Both are deferred. To avoid deepening the `FOLLOW_UPS.md` 30-entry cap breach, the replies load-more deferral SHALL **extend the existing `mobile-nearby-timeline-infinite-scroll` entry** (the same entry the Global feed already extended) rather than open a new one; `FOLLOW_UPS.md` SHALL contain a NEW entry `backend-single-post-get-endpoint` (owned by the future notifications deep-link change) and the existing `mobile-nearby-timeline-infinite-scroll` entry SHALL be amended to note that replies load-more is also pending.
+This change SHALL NOT implement a `GET /api/v1/posts/{id}` by-id fetch (none exists on the backend; the header is built from nav args) NOR cursor-based load-more for the replies list (`next_cursor` is parsed + retained but not consumed). Both are deferred. To avoid a redundant new tracking item, the replies load-more deferral SHALL **extend GitHub issue [#188](https://github.com/aditrioka/nearyou-id/issues/188) `mobile-nearby-timeline-infinite-scroll` (label `follow-up`)** (which the Global feed already extends) rather than open a new one; GitHub issue [#202](https://github.com/aditrioka/nearyou-id/issues/202) `backend-single-post-get-endpoint` (label `follow-up`, owned by the future notifications deep-link change) tracks the by-id endpoint, and GitHub issue [#188](https://github.com/aditrioka/nearyou-id/issues/188) is amended to note that replies load-more is also pending.
 
 #### Scenario: next_cursor is parsed but no load-more request is issued
 
 - **WHEN** inspecting the replies repository/screen for cursor usage
 - **THEN** `next_cursor` is parsed + retained on the `Loaded` outcome but is NOT consumed to issue a follow-up `cursor=`-bearing `GET /replies` request in this change
 
-#### Scenario: FOLLOW_UPS tracks both deferrals without a redundant new entry
+#### Scenario: Follow-up issues track both deferrals without a redundant new entry
 
-- **WHEN** inspecting `FOLLOW_UPS.md`
-- **THEN** it contains a new entry `backend-single-post-get-endpoint` AND the existing `mobile-nearby-timeline-infinite-scroll` entry is amended to cover the replies load-more (no separate `mobile-post-detail-replies-infinite-scroll` entry is opened)
+- **WHEN** inspecting the project's open GitHub issues (label `follow-up`)
+- **THEN** GitHub issue [#202](https://github.com/aditrioka/nearyou-id/issues/202) (label `follow-up`) tracks `backend-single-post-get-endpoint` AND GitHub issue [#188](https://github.com/aditrioka/nearyou-id/issues/188) `mobile-nearby-timeline-infinite-scroll` is amended to cover the replies load-more (no separate `mobile-post-detail-replies-infinite-scroll` entry is opened)
 
 ### Requirement: Test coverage for the screen, projection, wire, and iOS flow
 

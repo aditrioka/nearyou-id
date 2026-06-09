@@ -22,7 +22,7 @@ private fun String.stripComments(): String {
  * - **Exactly one `Scaffold` in the authenticated Home tree** — only `AppShellScreen` declares one;
  *   `HomeScreen` + both timeline content composables declare NO `Scaffold` and NO `TopAppBar` (the
  *   nested-Scaffold fix, design D1). (The Notifikasi section's own `Scaffold` is tracked separately by
- *   `FOLLOW_UPS.md` `mobile-notifications-inset-free-substrate-migration` — out of this change's file scope.)
+ *   follow-up issue #205 (`mobile-notifications-inset-free-substrate-migration`) — out of this change's file scope.)
  * - **Inset consumption** — `AppShellScreen` consumes the shell padding (`consumeWindowInsets`).
  * - **Material icon affordances, not dots** — the shell nav + the post cards use `painterResource(Res.drawable.*)`
  *   and declare NO `CircleShape` placeholder dot; `HomeScreen`'s text-only tabs declare no `CircleShape` either.

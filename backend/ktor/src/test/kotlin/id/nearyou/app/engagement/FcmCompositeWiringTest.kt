@@ -46,8 +46,8 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientCN
 
 /**
  * Composition-level wiring proof for the LIKE emit-site → composite dispatcher →
- * FCM per-token fan-out, closing the `fcm-end-to-end-composite-test` FOLLOW_UPS
- * entry.
+ * FCM per-token fan-out, closing the earlier `fcm-end-to-end-composite-test`
+ * follow-up.
  *
  * Why this is a directly-constructed surface (the entry's explicit fallback,
  * action item 2) rather than a `testApplication { module() }` Koin override

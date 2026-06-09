@@ -74,7 +74,7 @@ const val NOTIFICATION_UNREAD_DOT_TAG: String = "notificationUnreadDot"
  * `stringResource` (zero literals), under `NearYouTheme`. Rows render type-keyed GENERIC-actor copy +
  * `body_data` excerpts and NEVER the `actor_user_id`/`target_id` UUID (design D4). Tapping a row marks it
  * read (optimistic; `204`/`404` keep, other revert) and wires **no** navigation — deep-link tap-through is
- * deferred (`FOLLOW_UPS.md` `mobile-notifications-deep-link-targets`).
+ * deferred (follow-up issue #193, `mobile-notifications-deep-link-targets`).
  */
 @Composable
 fun NotificationsScreen() {

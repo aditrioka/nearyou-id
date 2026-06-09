@@ -127,7 +127,7 @@
          notification copy renders a GENERIC actor ("Seseorang …") per design D4: the shipped list endpoint
          returns only `actor_user_id` (a UUID, never rendered) and NO username, so v1 drops the actor handle;
          `notif_chat_message` likewise drops docs/03's "{username}" pending the deferred actor-username
-         enrichment (FOLLOW_UPS mobile-notifications-actor-username-enrichment). The 5 distinct type keys map
+         enrichment (GitHub issue #194 `mobile-notifications-actor-username-enrichment`, label `follow-up`). The 5 distinct type keys map
          post_liked / post_replied / followed / post_auto_hidden / chat_message; the remaining 8 reserved
          NotificationType wire values + any unknown/future type fall back to `notif_generic`. The
          notifications error/retry states reuse signin_error_network / cta_retry (declared above) — no new

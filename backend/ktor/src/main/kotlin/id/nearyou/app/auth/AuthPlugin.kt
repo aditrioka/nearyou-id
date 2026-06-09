@@ -40,8 +40,8 @@ val AuthFailureKey = AttributeKey<String>("auth.failure_code")
  *
  * Both [subscriptionStatus] and [isShadowBanned] are populated by the same auth-time
  * `users` row SELECT in [JdbcUserRepository.baseSelect]. Spec debt: neither field is
- * documented in `openspec/specs/auth-jwt/spec.md`; the `auth-jwt-spec-debt-userprincipal-subscription-status`
- * `FOLLOW_UPS.md` entry tracks the future docs-only OpenSpec change that documents both.
+ * documented in `openspec/specs/auth-jwt/spec.md`; a `follow-up` GitHub issue
+ * tracks the future docs-only OpenSpec change that documents both.
  */
 data class UserPrincipal(
     val userId: UUID,

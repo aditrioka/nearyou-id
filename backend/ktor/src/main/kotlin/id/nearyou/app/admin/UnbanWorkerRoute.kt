@@ -37,8 +37,8 @@ private data class ErrorResponse(val error: String)
  * the response.
  *
  * The classifier is inlined here (per `tasks.md` 7.3 — `health-check-endpoints`
- * did not extract a reusable helper). Once a third call site lands, this should
- * be promoted to a shared utility per `FOLLOW_UPS.md § extract-probe-error-classifier`.
+ * did not extract a reusable helper). Once a third call site lands, this could
+ * be promoted to a shared utility (rule of three).
  */
 fun Route.unbanWorkerRoute(worker: SuspensionUnbanWorker) {
     post("/unban-worker") {

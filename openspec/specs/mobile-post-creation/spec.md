@@ -212,17 +212,17 @@ The composer SHALL set the post coordinate SOLELY from the device location provi
 
 ### Requirement: Successful post returns to Home; Nearby auto-refresh on return is deferred
 
-On a `Success` outcome the composer SHALL remove its own entry from the back stack (`backStack.removeLastOrNull()`, the Nav3 equivalent of pop) to return to the home surface, and SHALL NOT signal the Nearby feed to re-fetch; the newly-created post becomes visible on the next manual pull-to-refresh / `ON_RESUME`. Cross-screen auto-refresh-on-return is NOT implemented in this change and is deferred to a follow-up `mobile-post-creation-refresh-nearby-on-return`.
+On a `Success` outcome the composer SHALL remove its own entry from the back stack (`backStack.removeLastOrNull()`, the Nav3 equivalent of pop) to return to the home surface, and SHALL NOT signal the Nearby feed to re-fetch; the newly-created post becomes visible on the next manual pull-to-refresh / `ON_RESUME`. Cross-screen auto-refresh-on-return is NOT implemented in this change and is deferred to a follow-up tracked by GitHub issue [#173](https://github.com/aditrioka/nearyou-id/issues/173) `mobile-post-creation-refresh-nearby-on-return` (label `follow-up`).
 
 #### Scenario: No Nearby reload is signalled on success
 
 - **WHEN** inspecting the composer's `Success` handling
 - **THEN** it removes the composer entry from the back stack (`backStack.removeLastOrNull()`) AND does NOT invoke any Nearby reload / re-fetch trigger (no shared reload signal, and no Nav3 `ResultEventBus` / nav result consumed by the Nearby feed)
 
-#### Scenario: FOLLOW_UPS tracks the Nearby-refresh follow-up
+#### Scenario: Follow-up issue tracks the Nearby-refresh follow-up
 
-- **WHEN** inspecting `FOLLOW_UPS.md`
-- **THEN** the file contains an entry `mobile-post-creation-refresh-nearby-on-return`
+- **WHEN** inspecting the project's open GitHub issues (label `follow-up`)
+- **THEN** GitHub issue [#173](https://github.com/aditrioka/nearyou-id/issues/173) (label `follow-up`) tracks `mobile-post-creation-refresh-nearby-on-return`
 
 ### Requirement: The post-body coordinate is never logged and logging is not widened
 

@@ -21,8 +21,8 @@ private fun String.stripComments(): String {
  * Covers: no-hardcoded-UI-strings on the screen; the screen holds no back-stack reference; `PostDetailRoute`
  * declares no coordinate; the never-widen-logging discipline (`HttpClientFactory` stays `LogLevel.HEADERS`;
  * the clients + repository never `println`/log); no block/report affordance; the replies cursor is parsed
- * but no `cursor=`-bearing request is issued; and the FOLLOW_UPS deferral bookkeeping (3 new entries +
- * the amended infinite-scroll entry).
+ * but no `cursor=`-bearing request is issued; and deferral bookkeeping (tracked as `follow-up` GitHub
+ * issues: block/report #200, inline-card #201, by-id #202, plus the amended infinite-scroll issue #173).
  */
 class PostDetailSourceGuardTest {
     private val repoRoot: File = findRepoRoot()
@@ -109,19 +109,9 @@ class PostDetailSourceGuardTest {
         assertFalse(replyApi.contains("parameter(\"cursor\""), "no cursor= request may be issued (replies load-more is deferred)")
     }
 
-    @Test
-    fun followUps_tracksThePostDetailDeferrals() {
-        val followUps = rawSource("FOLLOW_UPS.md")
-        assertTrue(followUps.contains("mobile-post-detail-block-report-kebab"), "FOLLOW_UPS must track the block/report deferral")
-        assertTrue(followUps.contains("mobile-post-detail-inline-card-actions"), "FOLLOW_UPS must track the inline-card deferral")
-        assertTrue(followUps.contains("backend-single-post-get-endpoint"), "FOLLOW_UPS must track the by-id-endpoint deferral")
-        // The replies load-more deferral EXTENDS the existing infinite-scroll entry (no redundant new entry).
-        assertTrue(followUps.contains("mobile-nearby-timeline-infinite-scroll"), "the infinite-scroll entry must remain")
-        assertFalse(
-            followUps.contains("mobile-post-detail-replies-infinite-scroll"),
-            "no separate replies-infinite-scroll entry — it extends mobile-nearby-timeline-infinite-scroll",
-        )
-    }
+    // Note: deferral bookkeeping (block/report kebab, inline-card actions, by-id endpoint, replies
+    // load-more) is tracked as GitHub issues (label `follow-up`), not in a repo file — see the
+    // matching `mobile-post-detail` spec scenarios. No source-file assertion covers it here.
 
     private companion object {
         fun findRepoRoot(): File {

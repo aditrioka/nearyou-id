@@ -122,7 +122,7 @@ This structured INFO log is retained alongside the per-unban `admin_actions_log`
 
 The `POST /internal/unban-worker` endpoint SHALL be idempotent: invoking it twice in succession with no intervening state change MUST produce identical observable outcomes on the second call (zero rows flipped, `unbanned_count: 0` response). Idempotency arises naturally from the `WHERE` predicate — after the first run, no row satisfies the predicate, so the second run flips nothing.
 
-This guarantee enables Cloud Scheduler retry policies to safely re-invoke the endpoint after transient failures without risking double-flips. Once `admin_actions_log` ships in Phase 3.5 and the audit-row write is wired through this worker (per `FOLLOW_UPS.md` § `suspension-unban-worker-audit-log-after-phase-3.5`), the same idempotency guarantee will mean no duplicate audit rows are written on retry; until then, the structured INFO log is the trail and a duplicate INFO event with `unbanned_count=0` on retry is the correct, expected shape.
+This guarantee enables Cloud Scheduler retry policies to safely re-invoke the endpoint after transient failures without risking double-flips. Once `admin_actions_log` ships in Phase 3.5 and the audit-row write is wired through this worker (deferred to Phase 3.5 admin work, tracked as a `follow-up` GitHub issue), the same idempotency guarantee will mean no duplicate audit rows are written on retry; until then, the structured INFO log is the trail and a duplicate INFO event with `unbanned_count=0` on retry is the correct, expected shape.
 
 #### Scenario: Two consecutive invocations produce one effective unban
 - **WHEN** a user is flipped by a first `POST /internal/unban-worker` AND a second invocation runs immediately after

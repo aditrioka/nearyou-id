@@ -16,8 +16,8 @@ private fun String.stripComments(): String {
  * `VoyagerAbsenceScanTest`) asserting the Following tab wires NO Following-timeline fetch: no source
  * file references the `/api/v1/timeline/following` endpoint path nor a Following-timeline
  * API-client / repository / flow type. The Following tab renders a static placeholder
- * (`FollowingPlaceholderScreen`) and issues no request — the real feed is deferred (`FOLLOW_UPS.md`
- * `mobile-following-timeline-screen`).
+ * (`FollowingPlaceholderScreen`) and issues no request — the real feed is deferred per
+ * `docs/08-Roadmap-Risk.md` § Phase 3.
  *
  * Both needles are assembled from fragments AND this class is deliberately NOT named with the
  * client-type needle, so this guard never flags its own (comment-stripped) source. Runs in every
