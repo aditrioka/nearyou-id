@@ -70,6 +70,7 @@ import id.nearyou.resources.generated.resources.signin_error_no_account
 import id.nearyou.resources.generated.resources.signin_error_token_invalid
 import id.nearyou.resources.generated.resources.signin_loading
 import id.nearyou.resources.generated.resources.signin_screen_title
+import id.nearyou.resources.generated.resources.signin_session_expired
 import id.nearyou.resources.generated.resources.signup_error_account_exists
 import id.nearyou.resources.generated.resources.signup_loading
 import id.nearyou.resources.generated.resources.tab_following
@@ -85,6 +86,7 @@ import id.nearyou.resources.generated.resources.timeline_limit_hard
 import id.nearyou.resources.generated.resources.timeline_limit_soft
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.generated.resources.timeline_nearby_title
+import id.nearyou.resources.generated.resources.timeline_session_redirect
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -134,6 +136,10 @@ class SharedStringsCatalogTest {
             Res.string.timeline_empty_nearby,
             Res.string.timeline_limit_hard,
             Res.string.timeline_limit_soft,
+            // mobile-session-expiry-and-proactive-refresh (2 net-new: the SignInScreen involuntary-logout
+            // notice + the neutral terminal-401 redirect placeholder shared by Nearby + Global).
+            Res.string.signin_session_expired,
+            Res.string.timeline_session_redirect,
             // mobile-location-permission-flow (consent rationale + denial fallback + settings CTA)
             Res.string.location_consent_title,
             Res.string.location_consent_body,
@@ -219,7 +225,8 @@ class SharedStringsCatalogTest {
         // countdown fragment + like-cap upsell + replies-empty + reply-placeholder + reply-counter
         // + reply-cap upsell + post-gone banner + Balas CTA; the loading/generic-error states reuse
         // timeline_loading / signin_error_network / cta_retry) = 84.
-        assertEquals(84, allDeclaredStrings.size)
+        // + 2 (mobile-session-expiry-and-proactive-refresh: signin_session_expired + timeline_session_redirect) = 86.
+        assertEquals(86, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

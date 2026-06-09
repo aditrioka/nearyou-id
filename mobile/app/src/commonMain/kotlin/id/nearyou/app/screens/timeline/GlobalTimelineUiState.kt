@@ -59,6 +59,10 @@ sealed interface GlobalTimelineUiState {
 
     /** `NetworkError` or retryable `Error` → network copy + a retry control. */
     data object Error : GlobalTimelineUiState
+
+    /** `SessionExpired` (terminal 401) → a neutral redirect placeholder (NO retry, NOT the connectivity
+     *  copy) for the sub-second window before the `SessionInvalidator` re-route reaches `SignInScreen`. */
+    data object SessionRedirect : GlobalTimelineUiState
 }
 
 /**
@@ -73,7 +77,7 @@ sealed interface GlobalTimelineUiState {
  * - initial load (or not-yet-loaded) ⇒ [Loading].
  * - `Loaded` empty + `upsell.hard` ⇒ [HardLimit]; `Loaded` empty otherwise ⇒ [Empty] (skeleton copy).
  * - `Loaded` non-empty + `upsell.soft` ⇒ [SoftLimit]; `Loaded` non-empty otherwise ⇒ [Content].
- * - `NetworkError` / `Error` ⇒ [Error].
+ * - `NetworkError` / `Error` ⇒ [Error]; `SessionExpired` ⇒ [SessionRedirect] (neutral, no retry).
  */
 fun globalTimelineUiState(
     outcome: GlobalTimelineOutcome?,
@@ -92,5 +96,6 @@ fun globalTimelineUiState(
             }
         }
         GlobalTimelineOutcome.NetworkError, GlobalTimelineOutcome.Error -> GlobalTimelineUiState.Error
+        GlobalTimelineOutcome.SessionExpired -> GlobalTimelineUiState.SessionRedirect
     }
 }

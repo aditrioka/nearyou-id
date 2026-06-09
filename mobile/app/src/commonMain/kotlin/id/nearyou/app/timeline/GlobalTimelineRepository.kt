@@ -29,11 +29,17 @@ class GlobalTimelineRepository(
                     upsell = result.body.upsell,
                 )
             is GlobalApiResult.NetworkError -> {
-                diagnosticLog("global_network_error: ${result.cause.message}")
+                // Log the exception TYPE, not cause.message (kept parallel with Nearby's coordinate-safe
+                // sink; Global carries no coordinate, but the class name is the right diagnostic anyway).
+                diagnosticLog("global_network_error: ${result.cause::class.simpleName}")
                 GlobalTimelineOutcome.NetworkError
             }
             is GlobalApiResult.HttpError ->
                 when {
+                    // Terminal 401 (survived the shipped Auth refresh) → SessionExpired, NOT NetworkError
+                    // (mobile-session-expiry-and-proactive-refresh D4). Branched explicitly AHEAD of the
+                    // fallback; the Auth plugin + SessionInvalidator still own the re-route to SignInScreen.
+                    result.status == 401 -> GlobalTimelineOutcome.SessionExpired
                     // 400 invalid_cursor — not expected from the always-valid first page; surface as
                     // retryable WITH a logged diagnostic (NOT a silent no-op, NOT a crash).
                     result.status == 400 -> {
@@ -41,10 +47,10 @@ class GlobalTimelineRepository(
                         GlobalTimelineOutcome.Error
                     }
                     result.status in 500..599 -> GlobalTimelineOutcome.NetworkError
-                    // 401 is handled upstream by the shipped Auth plugin + SessionInvalidator
-                    // (terminal 401 → store cleared → RootRouterScreen re-routes to SignInScreen).
-                    // Any other unenumerated status maps to the DEFINED retryable NetworkError state
-                    // rather than a generic "load failed" fallthrough (mirrors NearbyRepository).
+                    // Any other unenumerated non-2xx status maps to the DEFINED retryable NetworkError
+                    // fallback rather than a generic "load failed" fallthrough (the match is over an Int,
+                    // so a defined fallback MUST remain — the "no generic fallthrough" rule bans a generic
+                    // copy, not a `when` else). Mirrors NearbyRepository.
                     else -> GlobalTimelineOutcome.NetworkError
                 }
         }

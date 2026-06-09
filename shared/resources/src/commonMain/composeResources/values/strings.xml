@@ -20,6 +20,9 @@
     <string name="signin_error_network">Tidak bisa terhubung. Periksa koneksi internet kamu.</string>
     <string name="signin_error_token_invalid">Sesi Google bermasalah. Coba lagi.</string>
     <string name="signin_loading">Sedang masuk…</string>
+    <!-- mobile-session-expiry-and-proactive-refresh. Shown on SignInScreen ONLY when entered via an
+         involuntary terminal-401 re-route (distinct from signin_error_network; never on a fresh launch). -->
+    <string name="signin_session_expired">Sesi kamu berakhir. Masuk lagi untuk lanjut.</string>
     <string name="account_separation_disclosure">Akun Google dan akun Apple terpisah. Satu identifier = satu akun NearYouID</string>
 
     <!-- Mobile #4 age-gate / signup flow (mobile-age-gate-screen). The under-18 reject copy is
@@ -43,6 +46,10 @@
     <string name="timeline_empty_nearby">Area kamu belum ramai. Sementara lihat dari seluruh Indonesia dulu?</string>
     <string name="timeline_limit_hard">Kamu sudah mencapai batas baca untuk jam ini. Coba lagi sebentar lagi ya.</string>
     <string name="timeline_limit_soft">Kamu lagi aktif-aktifnya! Premium membuka akses baca tanpa batas.</string>
+    <!-- mobile-session-expiry-and-proactive-refresh. Neutral terminal-401 redirect placeholder shared by
+         Nearby + Global (NO retry control, NOT signin_error_network) — covers the sub-second window
+         before the SessionInvalidator re-route reaches SignInScreen. -->
+    <string name="timeline_session_redirect">Mengalihkan ke halaman masuk…</string>
 
     <!-- mobile-location-permission-flow. The UU-PDP location-consent rationale (why = show nearby
          posts; what = approximate location; how-often = only when this page is open; + never shared)

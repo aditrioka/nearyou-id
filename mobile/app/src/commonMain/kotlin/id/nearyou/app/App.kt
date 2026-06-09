@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDe
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import id.nearyou.app.screens.routing.ProactiveRefreshEffect
 import id.nearyou.app.screens.routing.RootRoute
 import id.nearyou.app.screens.routing.SessionExpiryEffect
 import id.nearyou.app.screens.routing.appEntryProvider
@@ -32,6 +33,10 @@ fun App() {
         // entry surface from any foreground screen. The effect outlives the start-destination router
         // (which replaces itself at launch). Hosted in screens/routing so App.kt names no auth-flow id.
         SessionExpiryEffect(backStack)
+        // Preemptive token refresh on every app-root ON_RESUME (cold-start + foreground return): refreshes
+        // async/non-blocking only when the access token is within 5 min of expiry
+        // (mobile-session-expiry-and-proactive-refresh D3).
+        ProactiveRefreshEffect()
         // Build the entry map once per back-stack instance (not per recomposition): the back stack is
         // stable across recompositions, so the route→composable mapping never needs rebuilding.
         val entryProvider = remember(backStack) { appEntryProvider(backStack) }

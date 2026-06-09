@@ -21,8 +21,11 @@ interface NearbyTimelineFlow {
  *
  * The rate-limit hard cap is ALSO a `200` (empty `posts` + `upsell.hard`), so it is carried inside
  * [Loaded] (not a distinct member); the screen derives the hard/soft presentation from the parsed
- * [UpsellDto] flags. `401` is delegated to the shipped `Auth` plugin (terminal 401 → store cleared
- * → re-route to sign-in), NEVER mapped here.
+ * [UpsellDto] flags. A terminal `401` (one that survived the shipped `Auth` `refreshTokens` because
+ * the refresh itself failed) maps to [SessionExpired] (mobile-session-expiry-and-proactive-refresh
+ * D4) — the shipped `Auth` plugin + `SessionInvalidator` still own the actual re-route to sign-in;
+ * this member only guarantees the brief pre-re-route render is a neutral redirect placeholder, never
+ * the connectivity copy.
  */
 sealed interface NearbyTimelineOutcome {
     /**
@@ -36,9 +39,14 @@ sealed interface NearbyTimelineOutcome {
         val upsell: UpsellDto?,
     ) : NearbyTimelineOutcome
 
-    /** HTTP 5xx, transport/IO failure, or any unenumerated status — retryable. */
+    /** HTTP 5xx, transport/IO failure, or any unenumerated non-2xx status — retryable (connectivity copy). */
     data object NetworkError : NearbyTimelineOutcome
 
     /** HTTP 400 (`invalid_request` / `*_out_of_bounds` / `invalid_cursor`) — retryable, logged. */
     data object Error : NearbyTimelineOutcome
+
+    /** Terminal HTTP 401 (survived the `Auth` refresh) — session expired. The screen renders a neutral
+     *  redirect placeholder (NO retry, NOT the connectivity copy); navigation is owned by the `Auth`
+     *  plugin + `SessionInvalidator`. MUST NOT map to [NetworkError]/[Error]. */
+    data object SessionExpired : NearbyTimelineOutcome
 }

@@ -1,5 +1,6 @@
 package id.nearyou.app.di
 
+import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import org.koin.core.context.stopKoin
 import org.koin.mp.KoinPlatformTools
@@ -54,6 +55,18 @@ class KoinInitTest {
             koin.getOrNull<PendingSignupIdentity>(),
             "PendingSignupIdentity must resolve from the real mobileModule",
         )
+    }
+
+    @Test
+    fun pendingReturnDestination_resolvesAsAnInMemorySingle() {
+        // 9.8 — the involuntary-entry / return-destination holder (D5) resolves from the production
+        // graph as a single (one shared instance), mirroring PendingSignupIdentity. In-memory only: it
+        // has no dependencies, so Koin constructs it without any platform binding.
+        initKoin()
+        val koin = KoinPlatformTools.defaultContext().get()
+        val holder = koin.getOrNull<PendingReturnDestination>()
+        assertNotNull(holder, "PendingReturnDestination must resolve from the real mobileModule")
+        assertSame(holder, koin.get<PendingReturnDestination>(), "it must be a shared single instance")
     }
 
     @Test

@@ -43,6 +43,7 @@ import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_limit_hard
 import id.nearyou.resources.generated.resources.timeline_limit_soft
 import id.nearyou.resources.generated.resources.timeline_loading
+import id.nearyou.resources.generated.resources.timeline_session_redirect
 import id.nearyou.resources.theme.locationPin
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -132,6 +133,10 @@ private fun GlobalTimelineContent(
             GlobalTimelineUiState.Loading, GlobalTimelineUiState.Empty -> LoadingState()
             GlobalTimelineUiState.HardLimit -> CenteredMessageState(stringResource(Res.string.timeline_limit_hard))
             GlobalTimelineUiState.Error -> ErrorState(onRetry = onRetry)
+            // Terminal 401 → neutral redirect placeholder: the redirect copy with NO retry control and
+            // NOT signin_error_network (the SessionInvalidator re-route whisks the user to SignInScreen).
+            GlobalTimelineUiState.SessionRedirect ->
+                CenteredMessageState(stringResource(Res.string.timeline_session_redirect))
             is GlobalTimelineUiState.Content -> PostList(posts = uiState.posts, onOpenPost = onOpenPost)
             is GlobalTimelineUiState.SoftLimit ->
                 PostList(

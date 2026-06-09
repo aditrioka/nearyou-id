@@ -46,8 +46,10 @@ class RootRouterFlowIosTest {
                 module {
                     single { authFlow }
                     // The unauthenticated route lands on SignInScreen, which koinInjects a
-                    // PendingSignupIdentity (the in-memory id_token holder).
+                    // PendingSignupIdentity (the in-memory id_token holder) + a PendingReturnDestination
+                    // (the involuntary-entry flag / return-destination holder, D5).
                     single { PendingSignupIdentity() }
+                    single { PendingReturnDestination() }
                     // Authenticated route lands on Home → NearbyTimelineScreen, which koinInjects a
                     // NearbyTimelineFlow + a LocationPermissionController; a fast GRANTED fake lets the
                     // route reach the feed (its top-bar title is the HOME_MARKER).

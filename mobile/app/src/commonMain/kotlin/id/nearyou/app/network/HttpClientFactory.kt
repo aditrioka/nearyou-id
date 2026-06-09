@@ -1,12 +1,9 @@
 package id.nearyou.app.network
 
-import id.nearyou.app.auth.RefreshRequest
 import id.nearyou.app.auth.SessionInvalidator
-import id.nearyou.app.auth.SignInResponse
-import id.nearyou.app.auth.TokenPair
+import id.nearyou.app.auth.TokenRefresher
 import id.nearyou.app.auth.TokenStore
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
@@ -16,12 +13,7 @@ import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
-import io.ktor.http.contentType
-import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import kotlin.time.Clock
@@ -76,9 +68,11 @@ private class CoordinateMaskingLogger(
  * Bearer token and handles 401 refresh"):
  *  - `ContentNegotiation(Json { ignoreUnknownKeys = true; explicitNulls = false })`.
  *  - `Auth { bearer { loadTokens … ; refreshTokens … } }` — the built-in concurrent-refresh
- *    queue is the canonical mechanism; callers MUST NOT reimplement 401-retry. On refresh
- *    failure the callback invokes [SessionInvalidator.invalidate] (clears tokens + signals
- *    re-route) and returns `null` so the plugin surfaces a terminal 401.
+ *    queue is the canonical mechanism; callers MUST NOT reimplement 401-retry. The
+ *    `refreshTokens` callback **delegates the round-trip to [TokenRefresher]** (single-flight
+ *    shared with the proactive on-resume trigger, mobile-session-expiry-and-proactive-refresh D2);
+ *    on refresh failure [TokenRefresher] invokes [SessionInvalidator.invalidate] (clears tokens +
+ *    signals re-route) and the callback returns `null` so the plugin surfaces a terminal 401.
  *  - `Logging` — installed ONLY when [installLogging] (debug builds). `LogLevel.HEADERS`
  *    (never `ALL`, which would log the raw refresh-token request body) + a mandatory
  *    `sanitizeHeader` masking `Authorization` to `***` + a [CoordinateMaskingLogger] wrapper that
@@ -95,6 +89,12 @@ object HttpClientFactory {
         installLogging: Boolean,
         logger: Logger = PrintlnLogger,
         nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+        // The single-flight refresh round-trip (D2). Defaulted so existing call sites/tests that only
+        // exercise the reactive path need no change; MobileModule passes the shared Koin single so the
+        // proactive trigger and the bearer plugin funnel through ONE instance. NOTE: [nowMillis] only
+        // feeds THIS default TokenRefresher (the client itself reads no clock) — when MobileModule injects
+        // the shared single, the factory's [nowMillis] is unused in production.
+        tokenRefresher: TokenRefresher = TokenRefresher(tokenStore, sessionInvalidator, nowMillis),
     ): HttpClient {
         val jsonConfig =
             Json {
@@ -113,31 +113,12 @@ object HttpClientFactory {
                         tokenStore.read()?.let { BearerTokens(it.accessToken, it.refreshToken) }
                     }
                     refreshTokens {
-                        val refreshToken = tokenStore.read()?.refreshToken
-                        if (refreshToken == null) {
-                            sessionInvalidator.invalidate()
-                            return@refreshTokens null
-                        }
-                        val response =
-                            client.post("/api/v1/auth/refresh") {
-                                markAsRefreshTokenRequest()
-                                contentType(ContentType.Application.Json)
-                                setBody(RefreshRequest(refreshToken))
-                            }
-                        if (response.status.isSuccess()) {
-                            val body = response.body<SignInResponse>()
-                            tokenStore.write(
-                                TokenPair(
-                                    accessToken = body.accessToken,
-                                    refreshToken = body.refreshToken,
-                                    accessExpiresAtEpochMillis = nowMillis() + body.expiresIn * 1000L,
-                                ),
-                            )
-                            BearerTokens(body.accessToken, body.refreshToken)
-                        } else {
-                            sessionInvalidator.invalidate()
-                            null
-                        }
+                        // Delegate the round-trip to the shared single-flight TokenRefresher (D2) — do
+                        // NOT reimplement 401-retry; the Ktor plugin's request-queue stays. `client` is
+                        // `RefreshTokensParams.client` (the shared client); TokenRefresher tags the POST
+                        // with the AuthCircuitBreaker attribute (== markAsRefreshTokenRequest) so it does
+                        // not recurse, writes the new TokenPair on success, and invalidates on failure.
+                        tokenRefresher.refresh(client)?.let { BearerTokens(it.accessToken, it.refreshToken) }
                     }
                 }
             }

@@ -62,8 +62,10 @@ class RootRouterScreenTest {
                 module {
                     single { authFlow }
                     // The unauthenticated route lands on SignInScreen, which koinInjects a
-                    // PendingSignupIdentity (the in-memory id_token holder).
+                    // PendingSignupIdentity (the in-memory id_token holder) + a PendingReturnDestination
+                    // (the involuntary-entry flag / return-destination holder, D5).
                     single { PendingSignupIdentity() }
+                    single { PendingReturnDestination() }
                     // The authenticated route lands on Home → NearbyTimelineScreen, which koinInjects a
                     // NearbyTimelineFlow and loads on entry — provide a fast fake so the route completes.
                     single<NearbyTimelineFlow> { FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null)) }

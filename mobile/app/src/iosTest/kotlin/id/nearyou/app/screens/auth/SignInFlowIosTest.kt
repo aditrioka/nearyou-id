@@ -7,6 +7,7 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
 import id.nearyou.app.auth.SignInOutcome
+import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.SignInRoute
 import id.nearyou.app.screens.routing.TestNavHost
@@ -28,6 +29,7 @@ private const val CTA_RETRY = "Coba lagi"
 private const val TITLE = "Masuk ke NearYouID"
 private const val DISCLOSURE = "Akun Google dan akun Apple terpisah. Satu identifier = satu akun NearYouID"
 private const val ERR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
+private const val SESSION_EXPIRED = "Sesi kamu berakhir. Masuk lagi untuk lanjut." // signin_session_expired
 private const val ERR_NO_ACCOUNT = "Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya."
 private const val AGE_GATE_TITLE = "Verifikasi usia kamu" // AgeGateScreen title — proves the 404 navigation landed
 
@@ -53,14 +55,19 @@ private const val AGE_GATE_TITLE = "Verifikasi usia kamu" // AgeGateScreen title
 class SignInFlowIosTest {
     private lateinit var fake: FakeAuthFlow
 
-    private fun installKoin(outcome: SignInOutcome) {
+    private fun installKoin(
+        outcome: SignInOutcome,
+        involuntary: Boolean = false,
+    ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeAuthFlow(outcome = outcome)
+        val returnDestination = PendingReturnDestination().apply { if (involuntary) capture(null) }
         startKoin {
             modules(
                 module {
                     single<AuthFlow> { fake }
                     single { PendingSignupIdentity() }
+                    single { returnDestination }
                 },
             )
         }
@@ -105,6 +112,27 @@ class SignInFlowIosTest {
             waitForIdle()
             onNodeWithText(AGE_GATE_TITLE).assertExists()
             onNodeWithText(ERR_NO_ACCOUNT).assertDoesNotExist()
+        }
+    }
+
+    // Involuntary terminal-401 re-route renders the session-expired notice (D5 — iOS parity), DISTINCT
+    // from the connectivity banner; a fresh launch shows neither.
+    @Test
+    fun involuntaryEntry_rendersSessionExpiredNotice_notNetworkCopy() {
+        installKoin(SignInOutcome.Cancelled, involuntary = true)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
+            onNodeWithText(SESSION_EXPIRED).assertExists()
+            onNodeWithText(ERR_NETWORK).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun freshLaunch_rendersNoSessionExpiredNotice() {
+        installKoin(SignInOutcome.Cancelled, involuntary = false)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
+            onNodeWithText(SESSION_EXPIRED).assertDoesNotExist()
         }
     }
 

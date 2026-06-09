@@ -57,6 +57,10 @@ sealed interface NearbyTimelineUiState {
 
     /** `NetworkError` or retryable `Error` → network copy + a retry control. */
     data object Error : NearbyTimelineUiState
+
+    /** `SessionExpired` (terminal 401) → a neutral redirect placeholder (NO retry, NOT the connectivity
+     *  copy) for the sub-second window before the `SessionInvalidator` re-route reaches `SignInScreen`. */
+    data object SessionRedirect : NearbyTimelineUiState
 }
 
 /**
@@ -71,7 +75,7 @@ sealed interface NearbyTimelineUiState {
  * - initial load (or not-yet-loaded) ⇒ [Loading].
  * - `Loaded` empty + `upsell.hard` ⇒ [HardLimit]; `Loaded` empty otherwise ⇒ [Empty] (distinct copy).
  * - `Loaded` non-empty + `upsell.soft` ⇒ [SoftLimit]; `Loaded` non-empty otherwise ⇒ [Content].
- * - `NetworkError` / `Error` ⇒ [Error].
+ * - `NetworkError` / `Error` ⇒ [Error]; `SessionExpired` ⇒ [SessionRedirect] (neutral, no retry).
  */
 fun nearbyTimelineUiState(
     outcome: NearbyTimelineOutcome?,
@@ -90,5 +94,6 @@ fun nearbyTimelineUiState(
             }
         }
         NearbyTimelineOutcome.NetworkError, NearbyTimelineOutcome.Error -> NearbyTimelineUiState.Error
+        NearbyTimelineOutcome.SessionExpired -> NearbyTimelineUiState.SessionRedirect
     }
 }

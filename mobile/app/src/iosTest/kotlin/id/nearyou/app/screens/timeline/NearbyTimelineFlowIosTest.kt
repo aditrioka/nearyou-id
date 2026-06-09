@@ -31,6 +31,7 @@ private const val EMPTY = "Area kamu belum ramai. Sementara lihat dari seluruh I
 private const val LIMIT_HARD = "Kamu sudah mencapai batas baca untuk jam ini. Coba lagi sebentar lagi ya."
 private const val LIMIT_SOFT = "Kamu lagi aktif-aktifnya! Premium membuka akses baca tanpa batas."
 private const val ERROR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
+private const val SESSION_REDIRECT = "Mengalihkan ke halaman masuk…" // timeline_session_redirect (terminal 401)
 private const val RETRY = "Coba lagi"
 private const val LOC_DENIED = "Aktifkan lokasi untuk lihat postingan sekitar"
 private const val LOC_OPEN_SETTINGS = "Buka Pengaturan"
@@ -143,6 +144,19 @@ class NearbyTimelineFlowIosTest {
             onNodeWithText(RETRY).performClick()
             waitForIdle()
             assertEquals(2, fake.loadInvocationCount, "retry re-invokes the fetch")
+        }
+    }
+
+    // Granted + terminal 401 (SessionExpired) → the neutral redirect notice, NO retry, NOT the
+    // connectivity copy (mobile-session-expiry-and-proactive-refresh D4 — iOS parity).
+    @Test
+    fun granted_sessionExpired_showsRedirectNotice_noRetry_notNetworkCopy() {
+        installKoin(NearbyTimelineOutcome.SessionExpired)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            onNodeWithText(SESSION_REDIRECT).assertExists()
+            onNodeWithText(ERROR_NETWORK).assertDoesNotExist()
+            onNodeWithText(RETRY).assertDoesNotExist()
         }
     }
 
