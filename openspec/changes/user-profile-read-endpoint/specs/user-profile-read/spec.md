@@ -66,7 +66,7 @@ For any read where `{user_id}` is NOT the calling viewer, the repository MUST re
 
 ### Requirement: Profile read is bidirectional-block-aware and leak-safe
 
-The read MUST be filtered against `user_blocks` in BOTH directions: if the calling viewer has blocked the target, OR the target has blocked the viewer, the endpoint MUST return `404 user_not_found` with a CONSTANT, byte-identical body and NO direction hint — indistinguishable from the unknown-target response. The block predicate MUST be expressed as a bidirectional `user_blocks` exclusion satisfying `BlockExclusionJoinRule`. This requirement does not apply to the self read (a viewer cannot block themselves).
+The read MUST be filtered against `user_blocks` in BOTH directions: if the calling viewer has blocked the target, OR the target has blocked the viewer, the endpoint MUST return `404 user_not_found` with a CONSTANT, byte-identical body and NO direction hint — indistinguishable from the unknown-target response. The block predicate MUST be expressed as a bidirectional `user_blocks` exclusion (a correctness requirement guarded by the both-direction 404 scenarios below — since the other-user read goes through `visible_users`, which does not trip `BlockExclusionJoinRule`, the linter does not enforce this and the scenarios are the guardrail). This requirement does not apply to the self read (a viewer cannot block themselves).
 
 #### Scenario: Viewer has blocked the target
 - **WHEN** an authenticated viewer V who has blocked T calls `GET /api/v1/users/{T}`
