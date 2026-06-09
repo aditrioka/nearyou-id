@@ -5,12 +5,12 @@
 
 ## 2. Repository implementation (read query)
 
-- [ ] 2.1 Implement the JDBC profile-read in `:backend:ktor` (`user` package). Self read (`targetId == viewerId`): resolve from raw `users` on the own-content path — annotate the declaration `@AllowRawPostsRead("own-profile-read")` (or place under an own-content path/filename prefix) for `RawFromPostsRule`, AND add the `// @allow-no-block-exclusion: own-profile-no-self-block` source comment for `BlockExclusionJoinRule` (self carries no block predicate). Other read: resolve from `visible_users` (not raw → no shadow-ban annotation needed).
-- [ ] 2.2 Fold the bidirectional block exclusion into the OTHER-user query using the canonical directional-fragment form (matches `ChatRepository.isBlockedBidirectional`; carries the lint-required `user_blocks` + `blocker_id =` + `blocked_id =` tokens): `NOT EXISTS (SELECT 1 FROM user_blocks WHERE (blocker_id = :viewer AND blocked_id = :target) OR (blocker_id = :target AND blocked_id = :viewer))`. Do NOT use the tuple-IN form `(blocker_id, blocked_id) IN (...)` — it lacks the literal fragments the rule's text scan requires and fails lint. Skip the block predicate on the self path (see the `@allow-no-block-exclusion` comment in 2.1).
+- [ ] 2.1 Implement the JDBC profile-read in `:backend:ktor` (`user` package). Self read (`targetId == viewerId`): resolve from raw `users` on the own-content path, annotating the reader declaration `@AllowMissingBlockJoin("own-profile-read: self read of raw users — a shadow-banned viewer must see their own profile; no block predicate because you cannot block yourself")` (the registered `BlockExclusionJoinRule` bypass — `users` is in that rule's `PROTECTED_TABLE_PATTERN`; precedent `JdbcActorUsernameLookup`). Do NOT add `@AllowRawPostsRead` — `RawFromPostsRule` matches `posts` only, never `users`, so it is inert. Do NOT use a `// @allow-no-block-exclusion: own-profile-…` comment — only the chat token is registered; any other comment marker is silently ignored and the build fails. Other read: resolve from `visible_users` (matches neither rule's pattern → no annotation needed).
+- [ ] 2.2 Fold the bidirectional block exclusion into the OTHER-user query for the leak-safe 404 behavior, using the canonical directional-fragment form (matches `ChatRepository.isBlockedBidirectional`): `NOT EXISTS (SELECT 1 FROM user_blocks WHERE (blocker_id = :viewer AND blocked_id = :target) OR (blocker_id = :target AND blocked_id = :viewer))`. NOTE this predicate is a CORRECTNESS guardrail, not a lint one — `BlockExclusionJoinRule`'s `PROTECTED_TABLE_PATTERN` does NOT match `visible_users`, so the both-direction 404 tests (6.14/6.15) are the real guardrail. Skip the block predicate on the self path (annotated in 2.1).
 - [ ] 2.3 Project `followerCount` = `COUNT(*)` of `follows` where followee = target (raw total), `followingCount` = `COUNT(*)` where follower = target (raw total) — NOT viewer-block-filtered (design D1).
 - [ ] 2.4 Project `followedByViewer` = `EXISTS (SELECT 1 FROM follows WHERE follower_id = :viewer AND followee_id = :target)`; force `false` on the self path.
-- [ ] 2.5 Project `isPremium` = `subscription_status = 'premium_active'`. On the self path additionally project `suspended_until` and the `isPrivate` grace formula `private_profile_opt_in OR (privacy_flip_scheduled_at IS NOT NULL AND privacy_flip_scheduled_at > now())`; null these two on the other-user path (design D2).
-- [ ] 2.6 Confirm both lint rules pass: `RawFromPostsRule` (the only raw-`users` read is the annotated own-content self path; the other-user read uses `visible_users`) AND `BlockExclusionJoinRule` (the other-user `users`/`visible_users` read carries the bidirectional block fragments; the self path is suppressed via the `@allow-no-block-exclusion` comment). `users` is a protected table for both rules.
+- [ ] 2.5 Project `isPremium` = `subscription_status = 'premium_active'` (badge: actively-premium only). On the self path additionally project `suspended_until` and the canonical effective-private `isPrivate` = `(private_profile_opt_in AND subscription_status IN ('premium_active','premium_billing_retry')) OR (privacy_flip_scheduled_at IS NOT NULL AND privacy_flip_scheduled_at > now())` — NOTE the premium-status conjunct is required (a Free user with stale `private_profile_opt_in` is NOT effectively private; the grace term is forward-looking plumbing, worker is DESIGN-status); null both `suspendedUntil` and `isPrivate` on the other-user path (design D2). `isPremium` (premium_active only) and the privacy premium-set (`premium_active`+`premium_billing_retry`) are deliberately different — do not conflate.
+- [ ] 2.6 Confirm lint: `BlockExclusionJoinRule` — the self raw-`users` read is suppressed by the `@AllowMissingBlockJoin` annotation (2.1); the other-user read is `FROM visible_users`, which the rule's `PROTECTED_TABLE_PATTERN` does not match (no annotation needed). `RawFromPostsRule` does not apply to `users` at all (matches `posts` only). Run `:lint:detekt-rules:test` + root `detekt` to confirm.
 
 ## 3. Service layer
 
@@ -36,16 +36,16 @@
 - [ ] 6.4 200 — viewer reads own profile (isSelf=true, followedByViewer=false).
 - [ ] 6.5 200 — shadow-banned VIEWER reads own profile (own-content path; not filtered).
 - [ ] 6.6 200 — `followerCount`/`followingCount` reflect the follows graph (e.g. 3 followers / 5 following).
-- [ ] 6.7 200 — counts are NOT viewer-block-filtered (a follower who blocked the viewer is still counted).
+- [ ] 6.7 200 — counts are NOT viewer-block-filtered: a FOLLOWER who blocked the viewer is still in `followerCount`, AND (symmetric) a FOLLOWEE the target follows who blocked the viewer is still in `followingCount` (locks D1 on both axes).
 - [ ] 6.8 200 — `isPremium` true for `premium_active`, false for `free` and `premium_billing_retry`.
-- [ ] 6.9 200 — self read of a suspended viewer exposes `suspendedUntil`; `isPrivate` honors the 72h grace.
-- [ ] 6.10 200 — other-user read does NOT leak `suspendedUntil`/`isPrivate` (both null) even when the target is suspended/private.
-- [ ] 6.11 404 — unknown UUID (constant body).
-- [ ] 6.12 404 — shadow-banned target (T != viewer), body byte-identical to unknown.
-- [ ] 6.13 404 — soft-deleted target.
-- [ ] 6.14 404 — viewer-blocked-target (constant body).
-- [ ] 6.15 404 — target-blocked-viewer (opposite direction, body byte-identical to viewer-blocked-target).
-- [ ] 6.16 400 — malformed `user_id`.
+- [ ] 6.9 200 — self-read `isPrivate` matrix: (a) `private_profile_opt_in=TRUE` + `premium_active`, no grace → `true`; (b) `private_profile_opt_in=TRUE` + `free`, no grace → `false` (premium-conjunct guard); (c) base-false + `privacy_flip_scheduled_at` in FUTURE → `true` (grace); (d) base-false + `privacy_flip_scheduled_at` in PAST → `false` (guards against an inverted `<` comparison). Also: self read of a suspended viewer exposes `suspendedUntil` (ISO-8601).
+- [ ] 6.10 200 — other-user read does NOT leak `suspendedUntil`/`isPrivate` (both null) even when the target is suspended AND effectively private.
+- [ ] 6.11 404 — unknown UUID. Assert `response.bodyAsText()` equals the shared constant `{"error":{"code":"user_not_found"}}` (define once, reuse in 6.12/6.14/6.15).
+- [ ] 6.12 404 — shadow-banned target (T != viewer); assert body equals the same shared constant (byte-identical to 6.11).
+- [ ] 6.13 404 — soft-deleted target; assert body equals the same shared constant.
+- [ ] 6.14 404 — viewer-blocked-target; assert body equals the same shared constant.
+- [ ] 6.15 404 — target-blocked-viewer (opposite direction); assert body is byte-identical to 6.14 AND to 6.11 (the block-direction non-leak — the security property D4 exists to protect). Recommend one assertion that all five 404 bodies are mutually equal.
+- [ ] 6.16 400 — malformed `user_id` (`invalid_request`).
 - [ ] 6.17 401 — unauthenticated request.
 
 ## 7. Lint + local gate

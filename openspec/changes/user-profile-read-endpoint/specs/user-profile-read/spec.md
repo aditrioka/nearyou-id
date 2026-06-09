@@ -102,7 +102,14 @@ A request with a `{user_id}` path segment that is not a valid UUID MUST return `
 
 ### Requirement: Suspension and privacy state are self-only
 
-`suspendedUntil` and `isPrivate` MUST be populated only when `isSelf = true`. For any other-user read they MUST be `null`. When `isSelf = true`: `suspendedUntil` MUST be the target's `suspended_until` as an ISO-8601 string (or `null` if not suspended); `isPrivate` MUST be `true` if `private_profile_opt_in = TRUE` OR (`privacy_flip_scheduled_at IS NOT NULL` AND the current time is before `privacy_flip_scheduled_at`), honoring the 72-hour privacy-flip grace window, else `false`.
+`suspendedUntil` and `isPrivate` MUST be populated only when `isSelf = true`. For any other-user read they MUST be `null`. When `isSelf = true`: `suspendedUntil` MUST be the target's `suspended_until` as an ISO-8601 string (or `null` if not suspended); `isPrivate` MUST be the canonical "effective private" value from `docs/05-Implementation.md` § Effective private:
+
+```
+isPrivate = (private_profile_opt_in = TRUE AND subscription_status IN ('premium_active','premium_billing_retry'))
+            OR (privacy_flip_scheduled_at IS NOT NULL AND now() < privacy_flip_scheduled_at)
+```
+
+The premium-status conjunct is required — private profile is a Premium-only feature, so a Free user with a stale `private_profile_opt_in = TRUE` MUST read `isPrivate = false`. The second term is the 72-hour privacy-flip grace short-circuit; it is forward-looking plumbing (the `/internal/privacy-flip-worker` that sets `privacy_flip_scheduled_at` is DESIGN-status per `docs/05-Implementation.md`, so in practice the column is null today — the term is included for forward-compatibility, not a live flow). The value is `false` when neither term holds.
 
 #### Scenario: Own suspension countdown is exposed to self
 - **WHEN** a suspended viewer V (`suspended_until` set to a future timestamp) reads their own profile
@@ -112,8 +119,18 @@ A request with a `{user_id}` path segment that is not a valid UUID MUST return `
 - **WHEN** an authenticated viewer V reads target T (T != V) where T has a non-null `suspended_until`
 - **THEN** the response `suspendedUntil` is `null` (T's moderation state is not surfaced to V)
 
-#### Scenario: Privacy flag is self-only and honors the grace window
-- **WHEN** a viewer V whose `private_profile_opt_in = FALSE` but who is within the 72h grace (`privacy_flip_scheduled_at` is in the future) reads their own profile
-- **THEN** `isSelf = true` and `isPrivate = true`
-- **WHEN** the same V reads another user T (T != V)
+#### Scenario: Privacy flag requires the premium-status conjunct
+- **WHEN** a self-reading viewer has `private_profile_opt_in = TRUE` AND `subscription_status = 'premium_active'` (and no grace scheduled)
+- **THEN** `isPrivate = true`
+- **WHEN** a self-reading viewer has `private_profile_opt_in = TRUE` but `subscription_status = 'free'` (and no grace scheduled)
+- **THEN** `isPrivate = false` (the stale opt-in does not make a Free user effectively private)
+
+#### Scenario: Privacy flag honors the grace short-circuit
+- **WHEN** a self-reading viewer whose effective-private base term is false (e.g. `subscription_status = 'free'`) is within the 72h grace (`privacy_flip_scheduled_at` is in the future)
+- **THEN** `isPrivate = true`
+- **WHEN** the grace has elapsed (`privacy_flip_scheduled_at` is in the PAST) and the base term is false
+- **THEN** `isPrivate = false`
+
+#### Scenario: Privacy flag is self-only
+- **WHEN** a viewer V reads another user T (T != V), regardless of T's `private_profile_opt_in`
 - **THEN** `isPrivate` is `null`
