@@ -19,11 +19,11 @@ A Ktor route SHALL be registered at `GET /api/v1/users/{user_id}` requiring Bear
 }
 ```
 
-`bio` MUST be `null` when the user has no bio. `isPremium` MUST be `true` if and only if the target's `subscription_status` is `premium_active` (`free` and `premium_billing_retry` both read as `false`). `followedByViewer` MUST reflect whether the calling viewer has a `follows` edge to the target, and MUST be `false` whenever `isSelf` is `true`. `isPrivate` is self-only (see the self-only-state requirement below). The response MUST NOT include a suspension field — see "Suspension state is NOT carried by this endpoint" below.
+Null-valued fields are OMITTED from the serialized JSON, NOT emitted as `"key": null` — the app-wide `ContentNegotiation` uses `Json { explicitNulls = false }`. Concretely: `bio` is absent when the user has no bio, and `isPrivate` is absent on every other-user read. The JSON above shows the logical shape; a consuming client MUST treat an absent `bio` / `isPrivate` key as `null` (declare the client DTO field nullable-with-default). `isPremium` MUST be `true` if and only if the target's `subscription_status` is `premium_active` (`free` and `premium_billing_retry` both read as `false`). `followedByViewer` MUST reflect whether the calling viewer has a `follows` edge to the target, and MUST be `false` whenever `isSelf` is `true`. `isPrivate` is self-only (see the self-only-state requirement below). The response MUST NOT include a suspension field — see "Suspension state is NOT carried by this endpoint" below.
 
 #### Scenario: Viewer reads another user's public profile
 - **WHEN** an authenticated viewer V calls `GET /api/v1/users/{T}` for an existing, non-blocked, non-shadow-banned user T whom V does not follow
-- **THEN** the response is `200` with `userId = T`, the target's `username` / `displayName` / `bio`, `isSelf = false`, `followedByViewer = false`, and `suspendedUntil = null` and `isPrivate = null`
+- **THEN** the response is `200` with `userId = T`, the target's `username` / `displayName` / `bio`, `isSelf = false`, `followedByViewer = false`, and `isPrivate` absent/`null` (other-user read), and no `suspendedUntil` key
 
 #### Scenario: followedByViewer reflects an existing follow edge
 - **WHEN** an authenticated viewer V who follows T calls `GET /api/v1/users/{T}`

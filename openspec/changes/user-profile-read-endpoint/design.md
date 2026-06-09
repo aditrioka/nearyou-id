@@ -68,7 +68,9 @@ When `target == viewer`, the repository reads from raw `users` on an annotated o
 - **Alternatives considered:** Always read `visible_users` (rejected: breaks self-read for shadow-banned viewers); a single raw-`users` query for both self and other with `(is_shadow_banned = FALSE OR id = :viewer)` (rejected: hand-reimplements `visible_users` and reads raw `users` on the non-own-content path, against the convention's intent); a DB function (rejected: over-engineered for one read).
 
 ### Decision 6 — DTO shape + wire casing
-`UserProfileResponse` uses camelCase keys (`userId`, `displayName`, `followerCount`, `followedByViewer`, `suspendedUntil`, `isPremium`, `isSelf`, `isPrivate`) to match the repo's mixed-case timeline-DTO wire convention. `suspendedUntil` is an ISO-8601 string (nullable). `bio` is nullable. `followedByViewer` is `false` whenever `isSelf` is true (you don't follow yourself).
+`UserProfileResponse` uses camelCase keys (`userId`, `username`, `displayName`, `bio`, `followerCount`, `followingCount`, `isSelf`, `followedByViewer`, `isPremium`, `isPrivate`) to match the repo's mixed-case timeline-DTO wire convention. There is no `suspendedUntil` key (Decision 2). `bio` and `isPrivate` are nullable. `followedByViewer` is `false` whenever `isSelf` is true (you don't follow yourself).
+
+**Null fields are OMITTED from the wire, not emitted as `null`.** The app-wide `ContentNegotiation` is configured `Json { explicitNulls = false }` (`Application.kt`), so a null-valued nullable property is dropped from the serialized JSON rather than rendered as `"key": null`. Concretely: `bio` is absent when the user has no bio, and `isPrivate` is absent on every other-user read. A consuming client DTO MUST declare these fields nullable-with-default (`val isPrivate: Boolean? = null`) so an absent key parses cleanly — matching the established repo convention (timeline / follow / search DTOs all rely on `explicitNulls = false` key omission; `PostRoutes` / `ChatDtos` use manual `buildJsonObject` only where a present-null is specifically required). The spec's JSON example shows the logical shape; the wire omits null keys.
 
 ## Risks / Trade-offs
 

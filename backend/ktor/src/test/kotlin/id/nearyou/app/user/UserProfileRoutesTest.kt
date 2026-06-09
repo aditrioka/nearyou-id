@@ -148,7 +148,17 @@ class UserProfileRoutesTest : StringSpec({
     suspend fun withApp(block: suspend ApplicationTestBuilder.() -> Unit) {
         testApplication {
             application {
-                install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+                // Match production ContentNegotiation: explicitNulls = false drops null-valued keys
+                // from the wire (bio when unset, isPrivate on other-user reads) — same config as
+                // Application.kt, so the test asserts the real wire shape, not a present-null fiction.
+                install(ContentNegotiation) {
+                    json(
+                        Json {
+                            ignoreUnknownKeys = true
+                            explicitNulls = false
+                        },
+                    )
+                }
                 install(Authentication) { configureUserJwt(keys, users, Instant::now) }
                 userProfileRoutes(service)
             }
@@ -175,7 +185,11 @@ class UserProfileRoutesTest : StringSpec({
 
     fun JsonObject.long(key: String): Long = this[key]!!.jsonPrimitive.long
 
-    fun JsonObject.isNull(key: String): Boolean = this[key] is JsonNull
+    // Production uses explicitNulls = false, so a null-valued field is OMITTED (absent), not
+    // present-as-JsonNull. Tolerate both (matches the repo's isJsonNullOrAbsent precedent).
+    fun JsonObject.isAbsentOrNull(key: String): Boolean = this[key] == null || this[key] is JsonNull
+
+    fun JsonObject.hasKey(key: String): Boolean = this[key] != null
 
     "6.2 200 — viewer reads another user's public profile (isSelf=false, self-only isPrivate null)" {
         val viewer = seedUser()
@@ -194,7 +208,11 @@ class UserProfileRoutesTest : StringSpec({
                 o.long("followerCount") shouldBe 0L
                 o.long("followingCount") shouldBe 0L
                 o.bool("isPremium") shouldBe false
-                o.isNull("isPrivate") shouldBe true
+                // explicitNulls=false → self-only isPrivate is OMITTED on an other-user read.
+                o.isAbsentOrNull("isPrivate") shouldBe true
+                o.hasKey("isPrivate") shouldBe false
+                // Spec "Profile response has no suspension field" — no suspendedUntil key, ever.
+                o.hasKey("suspendedUntil") shouldBe false
             }
         } finally {
             cleanup(viewer.id, target.id)
@@ -223,9 +241,14 @@ class UserProfileRoutesTest : StringSpec({
                 val (status, body) = getProfile("/api/v1/users/${self.id}", self.token)
                 status shouldBe HttpStatusCode.OK
                 val o = body.obj()
+                // Lock the raw-`users` self-path identity projection.
+                o.str("userId") shouldBe self.id.toString()
+                o.str("username") shouldBe self.username
+                o.str("displayName") shouldBe self.displayName
                 o.bool("isSelf") shouldBe true
                 o.bool("followedByViewer") shouldBe false
                 o.str("bio") shouldBe "me"
+                o.hasKey("suspendedUntil") shouldBe false
             }
         } finally {
             cleanup(self.id)
@@ -310,10 +333,10 @@ class UserProfileRoutesTest : StringSpec({
         val a = seedUser(subscriptionStatus = "premium_active", privateOptIn = true)
         // (b) opt-in + free, no grace → false (premium-conjunct guard)
         val b = seedUser(subscriptionStatus = "free", privateOptIn = true)
-        // (c) base-false + privacy_flip in FUTURE → true (grace short-circuit)
-        val c = seedUser(subscriptionStatus = "free", privacyFlipAt = Instant.now().plusSeconds(3600))
-        // (d) base-false + privacy_flip in PAST → false (guards an inverted comparison)
-        val d = seedUser(subscriptionStatus = "free", privacyFlipAt = Instant.now().minusSeconds(3600))
+        // (c) base-false (free + opt-in false) + privacy_flip in FUTURE → true (grace short-circuit)
+        val c = seedUser(subscriptionStatus = "free", privateOptIn = false, privacyFlipAt = Instant.now().plusSeconds(3600))
+        // (d) base-false (free + opt-in false) + privacy_flip in PAST → false (guards an inverted comparison)
+        val d = seedUser(subscriptionStatus = "free", privateOptIn = false, privacyFlipAt = Instant.now().minusSeconds(3600))
         try {
             withApp {
                 getProfile("/api/v1/users/${a.id}", a.token).second.obj().bool("isPrivate") shouldBe true
@@ -332,7 +355,9 @@ class UserProfileRoutesTest : StringSpec({
         try {
             withApp {
                 val o = getProfile("/api/v1/users/${target.id}", viewer.token).second.obj()
-                o.isNull("isPrivate") shouldBe true
+                // explicitNulls=false → the self-only isPrivate key is omitted on an other-user read.
+                o.isAbsentOrNull("isPrivate") shouldBe true
+                o.hasKey("isPrivate") shouldBe false
             }
         } finally {
             cleanup(viewer.id, target.id)
