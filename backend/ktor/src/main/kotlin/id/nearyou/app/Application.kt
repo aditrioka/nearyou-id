@@ -144,8 +144,11 @@ import id.nearyou.app.user.ConsentRepository
 import id.nearyou.app.user.FcmTokenRepository
 import id.nearyou.app.user.JdbcActorUsernameLookup
 import id.nearyou.app.user.JdbcUserFcmTokenReader
+import id.nearyou.app.user.JdbcUserProfileReader
+import id.nearyou.app.user.UserProfileService
 import id.nearyou.app.user.consentRoutes
 import id.nearyou.app.user.fcmTokenRoutes
+import id.nearyou.app.user.userProfileRoutes
 import id.nearyou.data.repository.ActorUsernameLookup
 import id.nearyou.data.repository.Layer3ModerationWriter
 import id.nearyou.data.repository.ModerationQueueRepository
@@ -158,6 +161,7 @@ import id.nearyou.data.repository.ReportRepository
 import id.nearyou.data.repository.SearchRepository
 import id.nearyou.data.repository.UserFcmTokenReader
 import id.nearyou.data.repository.UserFollowsRepository
+import id.nearyou.data.repository.UserProfileReader
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpStatusCode
@@ -623,6 +627,8 @@ fun Application.module() {
     val userFollowsRepository: UserFollowsRepository = JdbcUserFollowsRepository(dataSource)
     val followService =
         FollowService(dataSource, userFollowsRepository, notificationEmitter, notificationDispatcher)
+    val userProfileReader: UserProfileReader = JdbcUserProfileReader(dataSource)
+    val userProfileService = UserProfileService(userProfileReader)
     val postLikeRepository: PostLikeRepository = JdbcPostLikeRepository(dataSource)
     // Conditional Redis wiring (task 4.6 of like-rate-limit):
     //  - In staging/production: fail-fast on missing `REDIS_URL` env var — Redis is
@@ -843,6 +849,8 @@ fun Application.module() {
                 single { blockService }
                 single<UserFollowsRepository> { userFollowsRepository }
                 single { followService }
+                single<UserProfileReader> { userProfileReader }
+                single { userProfileService }
                 single<PostLikeRepository> { postLikeRepository }
                 single<RateLimiter> { rateLimiter }
                 single<PostgresProbe> { postgresProbe }
@@ -897,6 +905,7 @@ fun Application.module() {
     blockRoutes(blockService)
     followRoutes(followService)
     userSocialRoutes(followService)
+    userProfileRoutes(userProfileService)
     likeRoutes(likeService)
     replyRoutes(replyService, contentLengthGuard)
     chatRoutes(chatService, contentLengthGuard, chatRealtimeClient)

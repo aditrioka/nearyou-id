@@ -15,12 +15,11 @@ A Ktor route SHALL be registered at `GET /api/v1/users/{user_id}` requiring Bear
   "isSelf": false,
   "followedByViewer": false,
   "isPremium": false,
-  "suspendedUntil": null,
   "isPrivate": null
 }
 ```
 
-`bio` MUST be `null` when the user has no bio. `isPremium` MUST be `true` if and only if the target's `subscription_status` is `premium_active` (`free` and `premium_billing_retry` both read as `false`). `followedByViewer` MUST reflect whether the calling viewer has a `follows` edge to the target, and MUST be `false` whenever `isSelf` is `true`. `suspendedUntil` and `isPrivate` are self-only (see the self-only-state requirement below).
+`bio` MUST be `null` when the user has no bio. `isPremium` MUST be `true` if and only if the target's `subscription_status` is `premium_active` (`free` and `premium_billing_retry` both read as `false`). `followedByViewer` MUST reflect whether the calling viewer has a `follows` edge to the target, and MUST be `false` whenever `isSelf` is `true`. `isPrivate` is self-only (see the self-only-state requirement below). The response MUST NOT include a suspension field — see "Suspension state is NOT carried by this endpoint" below.
 
 #### Scenario: Viewer reads another user's public profile
 - **WHEN** an authenticated viewer V calls `GET /api/v1/users/{T}` for an existing, non-blocked, non-shadow-banned user T whom V does not follow
@@ -100,9 +99,17 @@ A request with a `{user_id}` path segment that is not a valid UUID MUST return `
 - **WHEN** target T has 3 followers, one of whom (X) has blocked the viewer V, and V reads T's profile
 - **THEN** `followerCount` is still `3` (the raw total; the blocked follower is not subtracted from the count even though X would be excluded from the `/followers` list)
 
-### Requirement: Suspension and privacy state are self-only
+### Requirement: Suspension state is NOT carried by this endpoint
 
-`suspendedUntil` and `isPrivate` MUST be populated only when `isSelf = true`. For any other-user read they MUST be `null`. When `isSelf = true`: `suspendedUntil` MUST be the target's `suspended_until` as an ISO-8601 string (or `null` if not suspended); `isPrivate` MUST be the canonical "effective private" value from `docs/05-Implementation.md` § Effective private:
+The response MUST NOT include any suspension field (`suspendedUntil` or equivalent). Suspension is a **session-terminating** state per `docs/02-Product.md` § Suspension — a 7-day suspension sets `is_banned = TRUE`, sets `suspended_until`, and increments `token_version` (kicking the session). A suspended principal is therefore rejected at the auth boundary (`403 account_suspended` / `account_banned`) on every `AUTH_PROVIDER_USER` route and can NEVER reach this read; the unban worker also nulls `suspended_until` once the window elapses, so the value could never be non-null for any user who can authenticate. Per the established industry pattern (account-suspension state is surfaced at the auth boundary with a structured error body carrying the reason + expiry, NOT on a protected resource read), the suspension countdown is the concern of the auth-rejection / token-refresh response, not of the profile read. Surfacing the countdown there is tracked as a separate `follow-up`-labelled issue.
+
+#### Scenario: Profile response has no suspension field
+- **WHEN** an authenticated viewer reads any profile (own or other)
+- **THEN** the JSON response contains no `suspendedUntil` key (suspension state is never carried by this endpoint)
+
+### Requirement: Privacy state is self-only
+
+`isPrivate` MUST be populated only when `isSelf = true`. For any other-user read it MUST be `null`. When `isSelf = true`, `isPrivate` MUST be the canonical "effective private" value from `docs/05-Implementation.md` § Effective private:
 
 ```
 isPrivate = (private_profile_opt_in = TRUE AND subscription_status IN ('premium_active','premium_billing_retry'))
@@ -110,14 +117,6 @@ isPrivate = (private_profile_opt_in = TRUE AND subscription_status IN ('premium_
 ```
 
 The premium-status conjunct is required — private profile is a Premium-only feature, so a Free user with a stale `private_profile_opt_in = TRUE` MUST read `isPrivate = false`. The second term is the 72-hour privacy-flip grace short-circuit; it is forward-looking plumbing (the `/internal/privacy-flip-worker` that sets `privacy_flip_scheduled_at` is DESIGN-status per `docs/05-Implementation.md`, so in practice the column is null today — the term is included for forward-compatibility, not a live flow). The value is `false` when neither term holds.
-
-#### Scenario: Own suspension countdown is exposed to self
-- **WHEN** a suspended viewer V (`suspended_until` set to a future timestamp) reads their own profile
-- **THEN** `isSelf = true` and `suspendedUntil` is the ISO-8601 string of V's `suspended_until`
-
-#### Scenario: Suspension state is not leaked for other users
-- **WHEN** an authenticated viewer V reads target T (T != V) where T has a non-null `suspended_until`
-- **THEN** the response `suspendedUntil` is `null` (T's moderation state is not surfaced to V)
 
 #### Scenario: Privacy flag requires the premium-status conjunct
 - **WHEN** a self-reading viewer has `private_profile_opt_in = TRUE` AND `subscription_status = 'premium_active'` (and no grace scheduled)
