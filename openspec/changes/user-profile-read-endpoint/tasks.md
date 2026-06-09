@@ -54,6 +54,6 @@
 
 ## 8. Pre-archive staging smoke (runtime-impacting → smoke before archive)
 
-- [ ] 8.1 Manual branch deploy: `gh workflow run deploy-staging.yml --ref user-profile-read-endpoint`; poll the deploy run.
-- [ ] 8.2 Smoke against the branch deploy (authenticated): `GET /api/v1/users/{self}` → 200 self card with self-only fields; `GET /api/v1/users/{other}` → 200; `GET /api/v1/users/<random-uuid>` → 404 `user_not_found`; `GET /api/v1/users/not-a-uuid` → 400.
-- [ ] 8.3 `openspec validate user-profile-read-endpoint --strict` green before archive.
+- [x] 8.1 Manual branch deploy: `gh workflow run deploy-staging.yml --ref user-profile-read-endpoint`; poll the deploy run.
+- [x] 8.2 Smoke against the branch deploy (authenticated): `GET /api/v1/users/{self}` → 200 self card with self-only fields; `GET /api/v1/users/{other}` → 200; `GET /api/v1/users/<random-uuid>` → 404 `user_not_found`; `GET /api/v1/users/not-a-uuid` → 400.
+- [x] 8.3 `openspec validate user-profile-read-endpoint --strict` green before archive.
