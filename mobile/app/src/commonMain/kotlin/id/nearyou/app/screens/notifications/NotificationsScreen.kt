@@ -23,13 +23,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.resources.generated.resources.Res
@@ -77,9 +77,9 @@ const val NOTIFICATION_UNREAD_DOT_TAG: String = "notificationUnreadDot"
 fun NotificationsScreen() {
     val flow = koinInject<NotificationsFlow>()
     val viewModel = viewModel { NotificationsViewModel(flow) }
-    val outcome by viewModel.outcome.collectAsState()
-    val isInitialLoad by viewModel.isInitialLoad.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val outcome by viewModel.outcome.collectAsStateWithLifecycle()
+    val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     NotificationsContent(
         uiState = notificationsUiState(outcome, isInitialLoad),
@@ -229,7 +229,7 @@ private fun NotificationList(
         modifier = Modifier.fillMaxSize().testTag(NOTIFICATIONS_LIST_TAG),
         contentPadding = PaddingValues(vertical = 8.dp),
     ) {
-        items(items = rows, key = { it.id }) { row ->
+        items(items = rows, key = { it.id }, contentType = { "notification" }) { row ->
             NotificationRowItem(row = row, onTap = { onRowTap(row.id) })
             HorizontalDivider()
         }

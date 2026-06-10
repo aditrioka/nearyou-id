@@ -169,8 +169,9 @@ fun PostDetailScreen(
             liked = !wasLiked
             likeCount = likeCount?.let { if (wasLiked) it - 1 else it + 1 }
             likeOutcome = null
+            // Claimed synchronously — see onSubmitReply (05-#10 double-tap window).
+            likeInFlight = true
             scope.launch {
-                likeInFlight = true
                 try {
                     when (val outcome = flow.toggleLike(route.postId, currentlyLiked = wasLiked)) {
                         LikeOutcome.Liked, LikeOutcome.Unliked -> Unit // happy path: keep the optimistic flip
@@ -190,16 +191,22 @@ fun PostDetailScreen(
 
     val onSubmitReply: () -> Unit = {
         if (replyComposerUiState(replyContent, replyInFlight).submitEnabled) {
+            // Claim the in-flight slot SYNCHRONOUSLY: setting it inside the launch
+            // left a same-frame double-tap window where both taps passed the
+            // submitEnabled guard and double-POSTed the reply (05-#10).
+            replyInFlight = true
             scope.launch {
-                replyInFlight = true
                 try {
                     when (val outcome = flow.postReply(route.postId, replyContent)) {
                         is ReplyPostOutcome.Success -> {
-                            // Append the returned reply locally + bump the count; NO list re-fetch.
+                            // Prepend the returned reply + bump the count; NO list re-fetch.
+                            // The list renders newest-first (created_at DESC), so appending
+                            // to the END put the user's fresh reply at the BOTTOM of page 1
+                            // (2026-06-10 audit, 06 medium).
                             val current = repliesOutcome
                             repliesOutcome =
                                 if (current is RepliesOutcome.Loaded) {
-                                    RepliesOutcome.Loaded(current.replies + outcome.reply, current.nextCursor)
+                                    RepliesOutcome.Loaded(listOf(outcome.reply) + current.replies, current.nextCursor)
                                 } else {
                                     RepliesOutcome.Loaded(listOf(outcome.reply), nextCursor = null)
                                 }
@@ -263,7 +270,12 @@ fun PostDetailScreen(
                 RepliesUiState.Loading -> item { RepliesLoading() }
                 RepliesUiState.Empty -> item { RepliesEmpty() }
                 RepliesUiState.Error -> item { RepliesError(onRetry = reloadReplies) }
-                is RepliesUiState.Content -> items(items = repliesState.replies, key = { it.id }) { reply -> ReplyCard(reply) }
+                is RepliesUiState.Content ->
+                    items(
+                        items = repliesState.replies,
+                        key = { it.id },
+                        contentType = { "reply" },
+                    ) { reply -> ReplyCard(reply) }
             }
         }
     }

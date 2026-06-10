@@ -22,8 +22,6 @@ interface AuthFlow {
     ): SignUpOutcome
 
     suspend fun isAuthenticated(): Boolean
-
-    suspend fun handleTerminal401()
 }
 
 /**
@@ -74,11 +72,10 @@ class AuthRepository(
      *  `loadTokens` concern, not a routing gate.) */
     override suspend fun isAuthenticated(): Boolean = tokenStore.read() != null
 
-    /** Invoked when the bearer refresh fails terminally (Ktor `refreshTokens` returned null).
-     *  Clears the whole TokenPair + signals `RootRouterScreen` to re-route to SignInScreen. */
-    override suspend fun handleTerminal401() {
-        sessionInvalidator.invalidate()
-    }
+    // handleTerminal401 was removed by the 2026-06-10 audit (finding 05-#8): it had no
+    // production caller and its KDoc claimed a re-route responsibility that has been
+    // owned by TokenRefresher → SessionInvalidator (+ SessionExpiryEffect) since #172 —
+    // a duplicated session-invalidation seam inviting a second, conflicting wiring.
 
     private suspend fun attemptSignIn(allowRetry: Boolean): SignInOutcome =
         when (val ceremony = googleSignIn.signIn()) {

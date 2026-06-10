@@ -83,8 +83,11 @@ fun PostCreationScreen(onPostCreated: () -> Unit) {
     // job is cancelled (screen disposal / config change). The coordinate + POST live in submit().
     val onSubmit: () -> Unit = {
         if (!inFlight) {
+            // Claim the in-flight slot SYNCHRONOUSLY: setting it inside the launch
+            // left a same-frame double-tap window where both taps passed the guard
+            // and double-POSTed the non-idempotent create (2026-06-10 audit, 05-#10).
+            inFlight = true
             scope.launch {
-                inFlight = true
                 try {
                     outcome = flow.submit(content)
                 } finally {

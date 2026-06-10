@@ -265,8 +265,10 @@ class AuthRepositoryTest {
             assertEquals(true, repo.isAuthenticated())
         }
 
+    // Renamed from `handleTerminal401 …` — that AuthFlow member was production-dead and
+    // removed (2026-06-10 audit, 05-#8); SessionInvalidator.invalidate IS the funnel.
     @Test
-    fun `handleTerminal401 clears the store and emits a session-expired signal`() =
+    fun `sessionInvalidator invalidate clears the store and emits a session-expired signal`() =
         runTest {
             val store = InMemoryTokenStore(TokenPair("at", "rt", 1L))
             val invalidator = SessionInvalidator(store)

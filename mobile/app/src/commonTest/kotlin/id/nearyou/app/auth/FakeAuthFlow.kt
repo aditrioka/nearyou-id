@@ -35,6 +35,4 @@ class FakeAuthFlow(
     }
 
     override suspend fun isAuthenticated(): Boolean = authenticated
-
-    override suspend fun handleTerminal401() = Unit
 }

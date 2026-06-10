@@ -51,6 +51,10 @@ class NotificationsViewModel(
 
     /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
     fun reload() {
+        // Reentrancy guard (2026-06-10 audit, 06 medium): stacked PTR + retry taps
+        // raced concurrent fetches — latest-writer-wins on outcome and a flickering
+        // isRefreshing. One reload at a time; the next gesture re-fires after.
+        if (_isRefreshing.value || _isInitialLoad.value) return
         load(initial = false)
     }
 
