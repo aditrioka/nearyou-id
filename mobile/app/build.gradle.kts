@@ -29,7 +29,14 @@ kotlin {
         version = "1.0"
         summary = "NearYou Mobile App — ComposeApp KMP framework"
         homepage = "https://nearyou.id"
-        ios.deploymentTarget = "13.0"
+        // Deliberate supported floor, aligned across pbxproj IPHONEOS_DEPLOYMENT_TARGET,
+        // this value, and the Podfile platform (2026-06-10 audit, 07-#10): the app target
+        // was an accidental 18.2 (Xcode template default — a real market cut for an
+        // Indonesia MVP) while this framework claimed 13.0 yet uses iOS-14+-only API
+        // (CLLocationManager.authorizationStatus instance property, reduced accuracy) that
+        // K/N cannot @available-check. 16.0 covers the iPhone 8/X-era second-hand market
+        // and exceeds every dependency minimum (CMP 13+, GoogleSignIn 13+).
+        ios.deploymentTarget = "16.0"
         // mobile-ios-build-config-matrix: map the custom Xcode build-configuration matrix names to
         // Kotlin/Native build types. The KMP cocoapods plugin only auto-detects the default
         // Debug/Release configs; without this it fails the ComposeApp framework sync with
@@ -192,7 +199,17 @@ android {
     }
     buildTypes {
         getByName("release") {
-            isMinifyEnabled = false
+            // docs/11 §2.4: R8 + the optimize default file. Enabled pre-launch deliberately
+            // (2026-06-10 audit, 07-#9) — Tink + kotlinx.serialization + Compose need
+            // keep-rule soak time, and flipping this late risks R8 breakage at the worst
+            // moment. Library consumer rules carry most of the weight; app-specific keeps
+            // live in proguard-rules.pro. Release builds need a manual device smoke per the
+            // docs/11 §5 DoD before shipping.
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
     compileOptions {

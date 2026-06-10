@@ -33,6 +33,8 @@ import platform.Foundation.dataUsingEncoding
 import platform.Security.SecItemAdd
 import platform.Security.SecItemCopyMatching
 import platform.Security.SecItemDelete
+import platform.Security.SecItemUpdate
+import platform.Security.errSecDuplicateItem
 import platform.Security.errSecSuccess
 import platform.Security.kSecAttrAccessible
 import platform.Security.kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
@@ -126,12 +128,29 @@ actual class SecureTokenStore : TokenStore {
             )
         val status = SecItemAdd(attrs, null)
         CFRelease(attrs)
-        if (status != errSecSuccess) {
+        if (status == errSecDuplicateItem) {
+            // delete-then-add is not atomic: a racing write can land its add between this
+            // call's delete and add. Converge by updating the existing item in place
+            // (2026-06-10 audit, finding 07-#2 — the errSec contract's update path).
+            val query =
+                cfDictionaryOf(
+                    kSecClass to kSecClassGenericPassword,
+                    kSecAttrService to SERVICE,
+                    kSecAttrAccount to ACCOUNT,
+                )
+            val update = cfDictionaryOf(kSecValueData to data)
+            val updateStatus = SecItemUpdate(query, update)
+            CFRelease(query)
+            CFRelease(update)
+            if (updateStatus != errSecSuccess) {
+                NSLog("SecureTokenStore: keychain update fallback failed, OSStatus=%d", updateStatus)
+            }
+        } else if (status != errSecSuccess) {
             // A silently-dropped write left the user "mysteriously signed out" on the
             // next cold start with zero diagnostics (2026-06-10 audit, finding 07-#2).
-            // Surface the OSStatus only — NEVER token material. Duplicate-item can't
-            // occur (delete-then-add above); other statuses (interaction-not-allowed,
-            // IO) are environmental and visible in the device console via this line.
+            // Surface the OSStatus only — NEVER token material. Other statuses
+            // (interaction-not-allowed, IO) are environmental and visible in the
+            // device console via this line.
             NSLog("SecureTokenStore: keychain write failed, OSStatus=%d", status)
         }
     }

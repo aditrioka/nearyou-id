@@ -98,3 +98,49 @@ Larger refactors kept out of this pass to bound risk: the 5 remember-only screen
 - 02-H3 (batched-Lua timeline post-increment — needs `timeline-read-rate-limit` spec amendment; 58 round-trips/page is spec-mandated today), 02-L1 (per-request RC read+INFO log), 02-L3 (precomputed SQL constants).
 - 04-#3/#10/#11 (RC default-caching + per-call template fetch — operational-tuning cluster; 04-#3 kill-switch latency is QUESTION-grade vs the spec'd 5-min cache), 04-#5 (FCM fan-out cap — benign pre-launch), 04-#6 (CIO→Apache5 comment drift), 04-#7 (APNs margin), 04-#9 (limiter default footgun).
 - QUESTION-grade flags for operator: 01-#16 (no auth-endpoint rate limit — Cloudflare assumed front-line), 03-#5 (`/followers` 200 defeats profile constant-404 oracle), 03-#6 (bare-ID social lists force client N+1 — contract change, ties to #196), 03-#13 (search OFFSET vs docs/11 cursor rule — reconcile docs), 03-#14 (`last_read_at` dead schema → follow-up issue).
+
+### Fixes shipped — backend wave 4 smalls (commit `bd74693`)
+
+The "sequenced AFTER the mobile wave" quick items, now done: 01-#6 part 2 (JwksCache refresh single-flight + 60s bogus-kid cooldown — unauthenticated kid-flood can't amplify into per-request upstream JWKS fetches), 01-#13 (identity-hash 23505 → 409 `user_exists`, not false 503), 01-#14 (shared `AppJson` — ContentNegotiation + Apple S2S consume it; cursor codecs deliberately keep strict instances), 01-#23 (`KTOR_RSA_KID` env-configurable kid per docs/05 rotation plan), 01-#19 (JwtIssuer production-dead `verifier()` removed; test builds its own oracle), 04-#6 (OpenAI client timeout comment reconciled to Apache5).
+
+### Fixes shipped — mobile wave 5, batch B mediums (commit `8e42ccb`)
+
+- **05-#10 — double-submit claims**: `inFlight = true` synchronously BEFORE `scope.launch` in PostCreationScreen submit + PostDetail like/reply (the post-launch write left a same-frame double-tap window).
+- **Reply ordering**: a 201 now PREPENDS the returned reply (list renders newest-first DESC; append put it at the visual bottom).
+- **05-#8 — `handleTerminal401` removed** from AuthFlow/AuthRepository/fakes: production-dead duplicate session-invalidation seam; `SessionInvalidator.invalidate` is the funnel (test renamed to match reality).
+- **05-#13 — `collectAsStateWithLifecycle`** in the 3 StateFlow screens (lifecycle-aware collection per docs/11 §2.1).
+- **06 medium — `reload()` reentrancy guards** in Global/Nearby timeline + Notifications VMs (stacked PTR + retry raced concurrent fetches; latest-writer-wins flicker).
+- **05-#15 — NearYouTheme font-preload catch rethrows `CancellationException`** (module-wide convention; this was the one catch that ate it).
+- **05-#14/06 — `items(contentType = …)`** on the 4 feed lists (notification/post/reply) for cross-item-type recycling.
+
+NOTE (cleanup): an accidental `git push origin HEAD` created stray remote branch `claude/xenodochial-jackson-8511cb` (same commits as the PR branch); deletion was permission-blocked in-session — operator can `git push origin --delete claude/xenodochial-jackson-8511cb`.
+
+### Fixes shipped — native wave 6, batch C (this commit)
+
+All of findings/07's remaining MEDIUMs + the cheap LOWs:
+
+- **07-#3 — DataStore corruption handler** (`ReplaceFileCorruptionHandler { emptyPreferences() }`) + `IOException → null` in `read()`: a corrupted prefs file no longer crash-loops the cold-start router.
+- **07-#4 — Android Keystore/prefs I/O off the main thread**: `SecureTokenStore.read/write/clear` + the permission controller's pref reads hop to `Dispatchers.IO` (first AEAD dereference does Keystore IPC + file I/O on the RootRouter routing path; iOS actual already hopped).
+- **07-#1 part 2 — poisoned-keyset write recovery**: `write()` catches the unwrap `GeneralSecurityException`, clears the keyset prefs, rebuilds fresh; second failure skips the persist (in-memory session survives) instead of crashing sign-in. `read()` deliberately does NOT reset (Keystore is unavailable pre-first-unlock; a transient failure must not destroy a valid keyset) — recovery belongs to the always-unlocked write path.
+- **07-#2 completion — `errSecDuplicateItem → SecItemUpdate` fallback** (delete-then-add is not atomic; a racing write now converges instead of dropping).
+- **07-#6 — `MainActivity.onDestroy` clears the bridge launcher** (identity-guarded) — the Koin-singleton bridge no longer keeps a destroyed Activity reachable.
+- **07-#7 — iOS main-thread confinement made structural**: `IosLocationPermissionController`, `IosLocationProvider`, `GoogleSignInClient` wrap their bodies in `withContext(Dispatchers.Main)` (CoreLocation delivers callbacks on the creating thread's run loop; GIDSignIn/UIApplication.windows are UIKit-main-only). **DECISION (diverges from the finding's sketch):** NO decision-timeout added to `request()` — the wait is on the user's prompt choice (unbounded by design); the hang class the timeout would have defended is removed structurally by the confinement, and a ceiling would misreport slow human decisions as DENIED.
+- **07-#8 — `NSLocationDefaultAccuracyReduced=true`** in Info.plist: the OS prompt + grant now default to approximate, matching the manifest's coarse-only posture + UU-PDP copy.
+- **07-#9 — release `isMinifyEnabled=true`** + `proguard-android-optimize.txt` + minimal `proguard-rules.pro` (3 `-dontwarn` for Tink's absent optional integrations). `assembleDevRelease` R8 gate green on first try (library consumer rules carry the keeps). **Runtime release smoke still required per docs/11 §5 before shipping a release build** — flagged.
+- **07-#10 — deployment floor aligned at 16.0** (was: app 18.2 accidental Xcode default / framework+Pods 13.0 claiming-but-violating): pbxproj ×4 + `ios.deploymentTarget` + Podfile + regenerated `app.podspec`. **FLAGGED (operator decision):** 16.0 chosen as the defensible default — covers the iPhone 8/X-era second-hand market (real for an Indonesia MVP), exceeds every dependency minimum (CMP 13+, GoogleSignIn 13+, the iOS-14+ CoreLocation API K/N can't `@available`-check). Revisit if analytics say otherwise.
+- **07-#11 — fused-location CTS wired** to `invokeOnCancellation` (navigating away cancels the radio request).
+- **07-#12 — GID cancel detection requires the `com.google.GIDSignIn` domain** (a non-GID code -5 no longer masquerades as silent user-cancel).
+- **07-#14 — iOS `apiBaseUrl` fail-fast**: missing plist key now `error()`s in release binaries (debug keeps the staging fallback); silently pointing a production build at staging was the failure mode.
+- **07-#15 — Production.xcconfig declares all three GID placeholders** (server + reversed were inheriting STAGING values — provisioning-day 401 trap).
+- **07-#17 — launch theme DayNight split** (`Theme.NearYou.Launch`, values/values-night): no more white flash for dark-mode users pre-first-frame.
+
+Gates: `testDevDebugUnitTest` + `testDevReleaseUnitTest` + `assembleDevRelease` (R8) + `iosSimulatorArm64Test` (K/N compile + 4 iosTest specs on sim) + root `ktlintCheck`/`detekt` — all green.
+
+Deliberately NOT done from findings/07: **07-#13 nonce binding** (needs a backend issue/verify round-trip — hardening follow-up, specs silent), **07-#16 `UIApplication.windows` → connectedScenes migration** (deprecated-but-functional at the 16.0 floor; retention sets are now main-confined by 07-#7 so the thread-safety half is moot), **07-#5** (already shipped in wave 3 via the commonMain `HttpTimeout`/retry factory).
+
+### Remaining after wave 6 (sketches in findings/01–07)
+
+- **Mobile larger refactors (deliberate, risk-bounded):** 5 remember-only screens → entry-scoped ViewModels (05-#5, carries draft-loss bugs), `ui/components/` extraction of list-state kit + post card (05-#11), VM single-StateFlow + `koinViewModel` declarations (05-#6/#7), LocationGate fold (05-#12), shell unread VM (05-#9), TokenRefresher follower-CE (05-#16), projection memoization + DiagnosticSink wiring (06), `screens/` package restructure (D6, not started).
+- **Backend deferred:** 02-H3 batched-Lua (needs spec amendment), 02-L1/L3, 04-#3/#5/#7/#9/#10/#11, 01-#15 atomic claim (QUESTION).
+- **Native deferred:** 07-#13 nonce binding (backend coordination), 07-#16 windows→connectedScenes (next touch).
+- **QUESTION-grade operator flags:** unchanged from the list above.

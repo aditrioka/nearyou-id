@@ -52,7 +52,7 @@ unless ENV['NEARYOU_SKIP_COMPOSE_RESOURCE_BOOTSTRAP'] == '1'
   end
 end
 
-platform :ios, '13.0'
+platform :ios, '16.0'
 
 # Per-configuration Pods mapping (mobile-ios-build-config-matrix). The project's build configs are
 # the env × build-type matrix; CocoaPods must know each one's debug/release base so `pod install`

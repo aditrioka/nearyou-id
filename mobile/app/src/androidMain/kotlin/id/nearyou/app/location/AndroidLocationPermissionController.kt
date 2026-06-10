@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Android [LocationPermissionController] actual.
@@ -27,15 +29,21 @@ class AndroidLocationPermissionController(
 ) : LocationPermissionController {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    // The first SharedPreferences data access blocks on the file load; callers arrive on
+    // viewModelScope (Main.immediate), so hop the pref reads/writes to IO (07-#4).
     override suspend fun status(): LocationPermissionStatus =
-        when {
-            isCoarseGranted() -> LocationPermissionStatus.GRANTED
-            prefs.getBoolean(KEY_ASKED, false) -> LocationPermissionStatus.DENIED
-            else -> LocationPermissionStatus.NOT_DETERMINED
+        withContext(Dispatchers.IO) {
+            when {
+                isCoarseGranted() -> LocationPermissionStatus.GRANTED
+                prefs.getBoolean(KEY_ASKED, false) -> LocationPermissionStatus.DENIED
+                else -> LocationPermissionStatus.NOT_DETERMINED
+            }
         }
 
     override suspend fun request(): LocationPermissionStatus {
-        prefs.edit().putBoolean(KEY_ASKED, true).apply()
+        withContext(Dispatchers.IO) {
+            prefs.edit().putBoolean(KEY_ASKED, true).apply()
+        }
         val granted = bridge.request(Manifest.permission.ACCESS_COARSE_LOCATION)
         return if (granted) LocationPermissionStatus.GRANTED else LocationPermissionStatus.DENIED
     }

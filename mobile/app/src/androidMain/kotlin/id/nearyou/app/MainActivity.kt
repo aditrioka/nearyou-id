@@ -61,6 +61,16 @@ class MainActivity : ComponentActivity() {
         }
         super.onPause()
     }
+
+    override fun onDestroy() {
+        // The Koin-singleton bridge otherwise keeps the launcher → callback → this Activity
+        // chain reachable after destroy (2026-06-10 audit, 07-#6). Identity-guarded so a
+        // recreated Activity's fresher launcher is never clobbered by the old one's teardown.
+        if (locationPermissionBridge.launcher === locationPermissionLauncher) {
+            locationPermissionBridge.launcher = null
+        }
+        super.onDestroy()
+    }
 }
 
 @Preview

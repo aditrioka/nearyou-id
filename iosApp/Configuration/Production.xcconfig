@@ -15,4 +15,10 @@ ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
 // URL isn't silently truncated to "https:". The `.PLACEHOLDER` host keeps the deliberate
 // fail-fast until production infra is provisioned. See Config.xcconfig for the full rationale.
 APP_API_BASE_URL=https:$(NY_SLASH)$(NY_SLASH)api.nearyou.id.PLACEHOLDER
+// ALL THREE Google client keys need production values on provisioning day — overriding only
+// GID_CLIENT_ID would leave the ID token's `aud` + the OAuth callback scheme inheriting the
+// STAGING values from Config.xcconfig → a backend 401 that costs a debugging session
+// (2026-06-10 audit, 07-#15). Placeholders keep the gap visible.
 GID_CLIENT_ID=PLACEHOLDER-production.apps.googleusercontent.com
+GID_SERVER_CLIENT_ID=PLACEHOLDER-production-server.apps.googleusercontent.com
+GID_REVERSED_CLIENT_ID=com.googleusercontent.apps.PLACEHOLDER-production

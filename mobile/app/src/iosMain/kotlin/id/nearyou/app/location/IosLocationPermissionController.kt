@@ -1,7 +1,9 @@
 package id.nearyou.app.location
 
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import platform.CoreLocation.CLAuthorizationStatus
 import platform.CoreLocation.CLLocationManager
 import platform.CoreLocation.CLLocationManagerDelegateProtocol
@@ -27,27 +29,39 @@ import kotlin.coroutines.resume
  */
 @OptIn(ExperimentalForeignApi::class)
 class IosLocationPermissionController : LocationPermissionController {
-    override suspend fun status(): LocationPermissionStatus = mapAuthorization(CLLocationManager().authorizationStatus)
+    // Main-confined (2026-06-10 audit, 07-#7): CLLocationManager delivers delegate callbacks
+    // on the run loop of the creating thread — created off-main (any future dispatcher hop
+    // around a caller) the terminal callback never arrives and request() suspends forever.
+    // Confinement removes that hang class structurally, so request() deliberately has NO
+    // decision timeout: the wait is on the USER's prompt choice, which is unbounded by design
+    // (a ceiling would misreport a slow human decision as DENIED). This also keeps the
+    // retained-delegate sets main-thread-confined (no synchronization needed).
+    override suspend fun status(): LocationPermissionStatus =
+        withContext(Dispatchers.Main) {
+            mapAuthorization(CLLocationManager().authorizationStatus)
+        }
 
     override suspend fun request(): LocationPermissionStatus =
-        suspendCancellableCoroutine { cont ->
-            val manager = CLLocationManager()
-            lateinit var delegate: AuthorizationDelegate
-            delegate =
-                AuthorizationDelegate { status ->
-                    // notDetermined is the transient pre-decision callback; wait for a terminal status.
-                    if (status == kCLAuthorizationStatusNotDetermined) return@AuthorizationDelegate
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { cont ->
+                val manager = CLLocationManager()
+                lateinit var delegate: AuthorizationDelegate
+                delegate =
+                    AuthorizationDelegate { status ->
+                        // notDetermined is the transient pre-decision callback; wait for a terminal status.
+                        if (status == kCLAuthorizationStatusNotDetermined) return@AuthorizationDelegate
+                        manager.delegate = null
+                        retainedAuthorizationDelegates.remove(delegate)
+                        if (cont.isActive) cont.resume(mapAuthorization(status))
+                    }
+                retainedAuthorizationDelegates.add(delegate)
+                manager.delegate = delegate
+                cont.invokeOnCancellation {
                     manager.delegate = null
                     retainedAuthorizationDelegates.remove(delegate)
-                    if (cont.isActive) cont.resume(mapAuthorization(status))
                 }
-            retainedAuthorizationDelegates.add(delegate)
-            manager.delegate = delegate
-            cont.invokeOnCancellation {
-                manager.delegate = null
-                retainedAuthorizationDelegates.remove(delegate)
+                manager.requestWhenInUseAuthorization()
             }
-            manager.requestWhenInUseAuthorization()
         }
 
     override fun openAppSettings() {
