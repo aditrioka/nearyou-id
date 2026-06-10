@@ -8,6 +8,8 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpHeaders
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.math.BigInteger
@@ -21,6 +23,10 @@ import java.util.Base64
 import java.util.concurrent.atomic.AtomicReference
 
 const val JWKS_DEFAULT_CACHE_SECONDS = 3600L
+
+/** Minimum age of the cached JWKS before an unknown `kid` may force an upstream
+ *  re-fetch (01-#6: bogus-kid floods otherwise amplify into upstream load). */
+internal val FORCED_REFRESH_COOLDOWN: Duration = Duration.ofSeconds(60)
 
 class InvalidIdTokenException(message: String) : RuntimeException(message)
 
@@ -56,9 +62,25 @@ open class JwksCache(
 ) {
     private val cached = AtomicReference<JwksCacheEntry?>(null)
 
+    // Single-flight + forced-refresh cooldown (2026-06-10 audit, finding 01-#6):
+    // previously any unauthenticated signin bearing a bogus `kid` forced a fresh
+    // upstream JWKS fetch (no negative caching, no rate limit), and N concurrent
+    // cold-cache callers fetched N times. One refresh flies at a time; a miss
+    // after a refresh newer than the cooldown returns null WITHOUT another fetch
+    // (legitimate rotations re-fetch on the next cooldown lapse). Mirrors the
+    // intent of `infra/oidc`'s `.cached(...).rateLimited(...)` JwkProvider.
+    private val refreshMutex = Mutex()
+
+    @Volatile
+    private var lastRefreshAt: Instant = Instant.EPOCH
+
     open suspend fun keyFor(kid: String): RSAPublicKey? {
         val entry = current() ?: refresh()
-        return entry.keys[kid] ?: refresh().keys[kid]
+        entry.keys[kid]?.let { return it }
+        // Unknown kid: only force an upstream re-fetch if the cache is older than
+        // the cooldown — a bogus-kid flood otherwise amplifies into upstream load.
+        if (Duration.between(lastRefreshAt, clock.instant()) < FORCED_REFRESH_COOLDOWN) return null
+        return refresh().keys[kid]
     }
 
     open suspend fun availableKids(): Set<String> = (current() ?: refresh()).keys.keys
@@ -68,20 +90,25 @@ open class JwksCache(
         return if (entry.expiresAt.isAfter(clock.instant())) entry else null
     }
 
-    private suspend fun refresh(): JwksCacheEntry {
-        val response: HttpResponse = httpClient.get(jwksUrl)
-        val body = response.body<String>()
-        val parsed = jsonParser.decodeFromString(JwksDoc.serializer(), body)
-        val keys =
-            parsed.keys
-                .asSequence()
-                .filter { it.kty == "RSA" && it.kid != null && it.n != null && it.e != null }
-                .associate { jwk -> jwk.kid!! to rsaKeyFrom(jwk.n!!, jwk.e!!) }
-        val ttlSeconds = parseCacheControlMaxAge(response.headers[HttpHeaders.CacheControl])
-        val entry = JwksCacheEntry(keys, clock.instant().plus(Duration.ofSeconds(ttlSeconds)))
-        cached.set(entry)
-        return entry
-    }
+    private suspend fun refresh(): JwksCacheEntry =
+        refreshMutex.withLock {
+            // A concurrent caller may have refreshed while this one waited on the
+            // lock — re-check before paying another upstream round-trip.
+            current()?.let { return it }
+            val response: HttpResponse = httpClient.get(jwksUrl)
+            val body = response.body<String>()
+            val parsed = jsonParser.decodeFromString(JwksDoc.serializer(), body)
+            val keys =
+                parsed.keys
+                    .asSequence()
+                    .filter { it.kty == "RSA" && it.kid != null && it.n != null && it.e != null }
+                    .associate { jwk -> jwk.kid!! to rsaKeyFrom(jwk.n!!, jwk.e!!) }
+            val ttlSeconds = parseCacheControlMaxAge(response.headers[HttpHeaders.CacheControl])
+            val entry = JwksCacheEntry(keys, clock.instant().plus(Duration.ofSeconds(ttlSeconds)))
+            cached.set(entry)
+            lastRefreshAt = clock.instant()
+            entry
+        }
 
     companion object {
         private val jsonParser = Json { ignoreUnknownKeys = true }

@@ -31,6 +31,7 @@ import id.nearyou.app.block.blockRoutes
 import id.nearyou.app.chat.ChatRepository
 import id.nearyou.app.chat.ChatService
 import id.nearyou.app.chat.chatRoutes
+import id.nearyou.app.common.AppJson
 import id.nearyou.app.common.ClientIpExtractorPlugin
 import id.nearyou.app.common.DbDispatchers
 import id.nearyou.app.config.EnvVarSecretResolver
@@ -186,7 +187,6 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 import org.flywaydb.core.Flyway
 import org.flywaydb.core.api.exception.FlywayValidateException
 import org.koin.dsl.module
@@ -224,12 +224,8 @@ fun Application.module() {
     install(ClientIpExtractorPlugin)
 
     install(ContentNegotiation) {
-        json(
-            Json {
-                ignoreUnknownKeys = true
-                explicitNulls = false
-            },
-        )
+        // ONE shared Json (docs/11 §3.3; 01-#14) — see common/AppJson.kt.
+        json(AppJson)
     }
 
     // Request-correlation id on every log line (docs/11 §3.3). Honors an inbound
@@ -398,7 +394,12 @@ fun Application.module() {
         environment.config.propertyOrNull("auth.rsaPrivateKey")?.getString()
             ?.takeIf { it.isNotBlank() }
             ?: error("Missing required config auth.rsaPrivateKey (set KTOR_RSA_PRIVATE_KEY)")
-    val rsaKeys = RsaKeyLoader(rsaPem)
+    // kid is the publicly-served JWKS key id; env-configurable ahead of the first
+    // prod key event (docs/05's rotation plan is kid-based — 2026-06-10 audit, 01-#23).
+    val rsaKid =
+        environment.config.propertyOrNull("auth.rsaKid")?.getString()?.takeIf { it.isNotBlank() }
+            ?: "dev-1"
+    val rsaKeys = RsaKeyLoader(rsaPem, kid = rsaKid)
     val jwtIssuer = JwtIssuer(rsaKeys)
 
     val userRepository: UserRepository = JdbcUserRepository(dataSource)

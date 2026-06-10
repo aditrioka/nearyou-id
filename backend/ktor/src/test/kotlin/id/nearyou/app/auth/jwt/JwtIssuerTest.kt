@@ -1,5 +1,7 @@
 package id.nearyou.app.auth.jwt
 
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.exceptions.TokenExpiredException
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
@@ -11,11 +13,15 @@ class JwtIssuerTest : StringSpec({
     val keys = RsaKeyLoader(TestKeys.freshEncodedPemPrivateKey(), kid = "test-1")
     val issuer = JwtIssuer(keys)
 
+    // Test-local oracle — JwtIssuer's production-dead verifier() helper was removed
+    // (2026-06-10 audit, 01-#19); AuthPlugin owns the production verifier.
+    val verifier = JWT.require(Algorithm.RSA256(keys.publicKey, keys.privateKey)).build()
+
     "round-trip: claims and kid header preserved" {
         val userId = UUID.randomUUID()
         val token = issuer.issueAccessToken(userId, tokenVersion = 7)
 
-        val decoded = issuer.verifier().verify(token)
+        val decoded = verifier.verify(token)
         decoded.subject shouldBe userId.toString()
         decoded.getClaim("token_version").asInt() shouldBe 7
         decoded.keyId shouldBe "test-1"
@@ -28,7 +34,7 @@ class JwtIssuerTest : StringSpec({
         val token = expiredIssuer.issueAccessToken(UUID.randomUUID(), tokenVersion = 1)
 
         shouldThrow<TokenExpiredException> {
-            issuer.verifier().verify(token)
+            verifier.verify(token)
         }
     }
 })

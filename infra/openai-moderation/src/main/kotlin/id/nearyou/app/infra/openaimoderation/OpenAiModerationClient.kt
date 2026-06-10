@@ -193,10 +193,12 @@ class OpenAiModerationClient(
         // alone is ~150ms, plus TLS 1.3 handshake (~200-500ms cold). Production
         // smoke from the running JVM showed Ktor client wall-clock at 3000-4500ms
         // (vs. one-shot curl in the same region at 305-1225ms total). The
-        // divergence narrowed to connect-phase overhead under load: Ktor CIO's
-        // connect path treats 200ms as the entire connect budget; exceeding it
-        // appears to add retry/back-off latency before the outer requestTimeout
-        // fires. 1000ms gives the cross-region TLS handshake comfortable headroom.
+        // divergence narrowed to connect-phase overhead under load: the THEN-current
+        // CIO engine treated 200ms as the entire connect budget; exceeding it added
+        // retry/back-off latency before the outer requestTimeout fired. The client
+        // has since moved to Apache5 (its own pool + connect semantics) and the
+        // 1000ms budget was retained as comfortable cross-region headroom
+        // (comment reconciled 2026-06-10, audit finding 04-#6).
         // Engine-level timeouts ensure socket close on coroutine cancellation.
         const val REQUEST_TIMEOUT_MILLIS: Long = 3000L
         const val CONNECT_TIMEOUT_MILLIS: Long = 1000L
