@@ -130,6 +130,8 @@ import id.nearyou.app.notifications.notificationRoutes
 import id.nearyou.app.post.ContentModeratedProfanityException
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.LocationOutOfBoundsException
+import id.nearyou.app.post.PostRateLimitedException
+import id.nearyou.app.post.PostRateLimiter
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
@@ -179,6 +181,7 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
@@ -296,6 +299,21 @@ fun Application.module() {
                         mapOf(
                             "code" to "content_moderated_profanity",
                             "message" to "Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi.",
+                        ),
+                ),
+            )
+        }
+        // docs/05 § Layer 2 daily post cap (2026-06-10 audit, 02-M2). Same
+        // 429 + Retry-After shape as the like/reply/report limiters.
+        exception<PostRateLimitedException> { call, cause ->
+            call.response.header(HttpHeaders.RetryAfter, cause.retryAfterSeconds.toString())
+            call.respond(
+                HttpStatusCode.TooManyRequests,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "rate_limited",
+                            "message" to "Too many posts today. Try again after the daily reset.",
                         ),
                 ),
             )
@@ -618,17 +636,8 @@ fun Application.module() {
     // moderation pipeline scaffolding instead of further down with the report
     // wiring so both consumers reach it without forward references.
     val moderationQueueRepository: ModerationQueueRepository = JdbcModerationQueueRepository()
-    val createPostService =
-        CreatePostService(
-            dataSource = dataSource,
-            posts = postRepository,
-            contentGuard = contentLengthGuard,
-            textModerator = textModerator,
-            moderationQueue = moderationQueueRepository,
-            jitterSecret = jitterSecret,
-            layer3DispatcherScope = layer3DispatcherScope,
-            layer3Moderator = layer3Moderator,
-        )
+    // createPostService is constructed AFTER the shared rateLimiter (below) so its
+    // PostRateLimiter (docs/05 daily cap; 02-M2) rides the same Redis seam.
     val userBlockRepository: UserBlockRepository = JdbcUserBlockRepository(dataSource)
     // blockService is constructed AFTER the shared rateLimiter (below) so its
     // BlockRateLimiter rides the same Redis seam — see the social-graph wiring block.
@@ -774,9 +783,23 @@ fun Application.module() {
             "test" -> StubRemoteConfig()
             else -> RemoteConfigClientAdapter(remoteConfigClient)
         }
-    // Social-graph services — constructed here (not at their repo declarations
-    // above) because their hourly mutation limiters (docs/05; 2026-06-10 audit,
-    // finding 03-#3) wrap the shared Redis-backed rateLimiter built just above.
+    // Post + social-graph services — constructed here (not at their repo
+    // declarations above) because their mutation limiters (docs/05; 2026-06-10
+    // audit, findings 02-M2 + 03-#3) wrap the shared Redis-backed rateLimiter
+    // built just above.
+    val createPostService =
+        CreatePostService(
+            dataSource = dataSource,
+            posts = postRepository,
+            contentGuard = contentLengthGuard,
+            textModerator = textModerator,
+            moderationQueue = moderationQueueRepository,
+            jitterSecret = jitterSecret,
+            layer3DispatcherScope = layer3DispatcherScope,
+            layer3Moderator = layer3Moderator,
+            rateLimiter = PostRateLimiter(rateLimiter),
+            dbDispatcher = dbDispatchers.db,
+        )
     val followService =
         FollowService(
             dataSource = dataSource,
@@ -800,6 +823,7 @@ fun Application.module() {
             dispatcher = notificationDispatcher,
             rateLimiter = rateLimiter,
             remoteConfig = remoteConfig,
+            dbDispatcher = dbDispatchers.db,
         )
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
     val replyService =
@@ -814,6 +838,7 @@ fun Application.module() {
             moderationQueue = moderationQueueRepository,
             layer3DispatcherScope = layer3DispatcherScope,
             layer3Moderator = layer3Moderator,
+            dbDispatcher = dbDispatchers.db,
         )
     val chatRepository = ChatRepository(dataSource)
     val chatService =
@@ -874,14 +899,14 @@ fun Application.module() {
             }
         }
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
-    val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
+    val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository, dbDispatchers.db)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
-    val followingTimelineService = FollowingTimelineService(postsFollowingRepository)
+    val followingTimelineService = FollowingTimelineService(postsFollowingRepository, dbDispatchers.db)
     val postsGlobalRepository: PostsGlobalRepository = JdbcPostsGlobalRepository(dataSource)
-    val globalTimelineService = GlobalTimelineService(postsGlobalRepository)
+    val globalTimelineService = GlobalTimelineService(postsGlobalRepository, dbDispatchers.db)
     // Per `timeline-read-rate-limit` capability: shared across all three timeline
     // routes. Stateless above the Redis seam, so a single Koin binding suffices.
-    val timelineReadRateLimiter = TimelineReadRateLimiter(rateLimiter)
+    val timelineReadRateLimiter = TimelineReadRateLimiter(rateLimiter, dbDispatchers.db)
     val reportRepository: ReportRepository = JdbcReportRepository()
     val postAutoHideRepository: PostAutoHideRepository = JdbcPostAutoHideRepository()
     // Wrap the shared `rateLimiter` (Redis or NoOp/InMemory fallback per the

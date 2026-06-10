@@ -61,4 +61,26 @@ Note: `.claude/skills/**` edits applied directly in-session (self-modification g
 
 ## Phase 3 — Review log
 
-(pending — per-area findings + fixes; work-list state lives in CHECKLIST.md)
+Review pass: COMPLETE for all areas — 7 sub-agent findings files under `findings/` (01 backend-core, 02 timeline/engagement, 03 social/chat, 04 moderation/ops, 05 mobile-shell/state, 06 mobile-features/data, 07 native). Severity totals: 4 CRITICAL-class (1 routing, 1 privacy view, 2 agent-dispatch/dispatcher systemics), ~20 HIGH, ~35 MEDIUM/LOW.
+
+### Fixes shipped — backend wave 1 (commit `5b898fa`)
+
+See the commit body for the finding-by-finding list (DbDispatchers + auth gate, follow/block limiters + UserPairLock, Apple-S2S OIDC isolation + regression test, StatusPages/CallId/Compression/shutdown, RedisHandles single client, RemoteConfig activation, soft-delete auth gate, chat/notification small fixes).
+
+### Fixes shipped — backend wave 2 (this commit)
+
+- **02-C1 (CRITICAL): V20 `visible_posts` redefinition** — author-side shadow-ban + soft-delete filters per docs/05 § Shadow Ban (merged with the V4 auto-hide filter). `MigrationV20SmokeTest` pins all four exclusions + the live un-shadow-ban flip. Spec `visible-posts-view` amended (new requirement + updated definition); docs/05 view block reconciled; V4 smoke + ReportsReadPathNonRegression assertions updated for the join-rendered definition. **FLAGGED (product nuance):** per docs/05's own-content exception, a shadow-banned author sees own content via Repository own-content paths — NOT in shared feeds; if feed self-visibility is wanted for a stronger illusion, that's a viewer-aware query change (follow-up).
+- **02-H1 + 02-M1:** the view's `deleted_at IS NULL` makes the V4 partial cursor indexes usable (Global/Following no longer full-scan); `posts_author_idx` shipped in V20 (was documented, never created).
+- **02-H4: daily-cap window bug** — `_day}` keys now use FIXED-WINDOW INCR/PEXPIRE semantics (Redis Lua + InMemory mirror + `RateLimiter.FIXED_WINDOW_KEY_MARKER`); previously sliding-window-with-window=ttl let late-day usage refill daily caps ~6-8×. Spec `rate-limit-infrastructure` amended + 2 new scenarios; 3 new deterministic-clock tests.
+- **02-L2:** burst-reject now releases the consumed daily slot (LikeService).
+- **02-M2: post 10/day cap shipped** (`PostRateLimiter`, Premium skips, 429 + Retry-After via StatusPages) — docs/05 § Layer 2 prescribed it; never implemented while cheaper writes got limiters.
+- **02-H2 + 04-#2 + 03-#1: dispatcher discipline completed backend-wide** — Like/Reply/CreatePost/Chat/Search/Timeline services + TimelineReadRateLimiter + the 3 timeline services all hop to the pool-bounded dispatcher; `moderate()`'s Redis/Remote-Config/Secret-Manager I/O now runs on the bounded dispatcher AND (chat) the verdict is computed BEFORE the transaction opens (no remote calls while holding a Hikari connection; response ordering preserved).
+- **04-#1: Layer-3 dispatch re-parenting fixed** — `minusKey(Job)` so dispatches are children of the supervisor scope (shutdown drain was dead code; client disconnect could cancel a post's Layer-3 moderation).
+- **02-M3 + 03-#10 (docs):** Nearby/Following canonical SQL blocks refreshed to the shipped shape; `user_blocks.blocked_at` → `created_at`.
+
+### Backend items deliberately sequenced AFTER the mobile wave (full fix sketches in findings/01+02+04)
+
+- 01-#6 part 2 (JwksCache negative-cache + single-flight), 01-#13 (signup 23505 conflation → 409), 01-#15 (refresh-token atomic claim — QUESTION: docs/05 30s-overlap may bless), 01-#14 (shared AppJson), 01-#19 (JwtIssuer dead verifier), 01-#23 (kid env-config), AppleS2S handler-local Json hoist.
+- 02-H3 (batched-Lua timeline post-increment — needs `timeline-read-rate-limit` spec amendment; 58 round-trips/page is spec-mandated today), 02-L1 (per-request RC read+INFO log), 02-L3 (precomputed SQL constants).
+- 04-#3/#10/#11 (RC default-caching + per-call template fetch — operational-tuning cluster; 04-#3 kill-switch latency is QUESTION-grade vs the spec'd 5-min cache), 04-#5 (FCM fan-out cap — benign pre-launch), 04-#6 (CIO→Apache5 comment drift), 04-#7 (APNs margin), 04-#9 (limiter default footgun).
+- QUESTION-grade flags for operator: 01-#16 (no auth-endpoint rate limit — Cloudflare assumed front-line), 03-#5 (`/followers` 200 defeats profile constant-404 oracle), 03-#6 (bare-ID social lists force client N+1 — contract change, ties to #196), 03-#13 (search OFFSET vs docs/11 cursor rule — reconcile docs), 03-#14 (`last_read_at` dead schema → follow-up issue).

@@ -32,7 +32,10 @@ import java.util.concurrent.ConcurrentHashMap
  *  - `releaseMostRecent` no-op on empty bucket.
  *  - Atomicity per-(userId + key) tuple under a `synchronized` block.
  *  - The `ttl` parameter is interpreted as the sliding-window length (the
- *    Redis-impl convention where `ttl == window`).
+ *    Redis-impl convention where `ttl == window`) for rolling keys; keys with
+ *    [RateLimiter.FIXED_WINDOW_KEY_MARKER] use fixed-window counting that only
+ *    resets when the bucket expires (mirrors the Redis INCR/PEXPIRE script —
+ *    2026-06-10 audit, finding 02-H4).
  *
  * The optional [clock] constructor parameter (defaulting to [Instant.now])
  * supports deterministic Retry-After math in tests.
@@ -50,6 +53,13 @@ class InMemoryRateLimiter(
     // production Redis impl's behavior and the rate-limit-infrastructure spec
     // scenario "tryAcquireByKey shares Lua script with tryAcquire".
     private val buckets: ConcurrentHashMap<String, ArrayDeque<Instant>> = ConcurrentHashMap()
+
+    private class FixedWindowBucket(
+        var count: Int,
+        var resetAt: Instant,
+    )
+
+    private val fixedBuckets: ConcurrentHashMap<String, FixedWindowBucket> = ConcurrentHashMap()
 
     override fun tryAcquire(
         userId: UUID,
@@ -69,6 +79,7 @@ class InMemoryRateLimiter(
         capacity: Int,
         ttl: Duration,
     ): RateLimiter.Outcome {
+        if (RateLimiter.isFixedWindowKey(key)) return admitFixedWindow(key, capacity, ttl)
         val now = clock()
         val bucket = buckets.computeIfAbsent(key) { ArrayDeque() }
         synchronized(bucket) {
@@ -84,10 +95,40 @@ class InMemoryRateLimiter(
         }
     }
 
+    private fun admitFixedWindow(
+        key: String,
+        capacity: Int,
+        ttl: Duration,
+    ): RateLimiter.Outcome {
+        val now = clock()
+        val bucket = fixedBuckets.computeIfAbsent(key) { FixedWindowBucket(count = 0, resetAt = now.plus(ttl)) }
+        synchronized(bucket) {
+            if (!now.isBefore(bucket.resetAt)) {
+                // Window expired — start a fresh one anchored on the caller's ttl
+                // (computeTTLToNextReset at this moment).
+                bucket.count = 0
+                bucket.resetAt = now.plus(ttl)
+            }
+            if (bucket.count >= capacity) {
+                val seconds = Duration.between(now, bucket.resetAt).seconds.coerceAtLeast(1L)
+                return RateLimiter.Outcome.RateLimited(retryAfterSeconds = seconds)
+            }
+            bucket.count++
+            return RateLimiter.Outcome.Allowed(remaining = capacity - bucket.count)
+        }
+    }
+
     override fun releaseMostRecent(
         userId: UUID,
         key: String,
     ) {
+        if (RateLimiter.isFixedWindowKey(key)) {
+            val fixed = fixedBuckets[key] ?: return
+            synchronized(fixed) {
+                if (fixed.count > 0) fixed.count--
+            }
+            return
+        }
         val bucket = buckets[key] ?: return
         synchronized(bucket) {
             bucket.pollLast()

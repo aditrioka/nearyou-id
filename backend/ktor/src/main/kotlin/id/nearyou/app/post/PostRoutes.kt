@@ -55,6 +55,7 @@ fun Application.postRoutes(service: CreatePostService) {
                         rawContent = req.content,
                         latitude = req.latitude,
                         longitude = req.longitude,
+                        subscriptionStatus = principal.subscriptionStatus,
                     )
                 // Manual JSON build: the app-wide ContentNegotiation has `explicitNulls = false`
                 // (so optional nulls stay out of wire format), but the post-creation spec

@@ -31,11 +31,15 @@ import java.util.UUID
  * byte (the V9 port is the regression gate); pushing the IO-dispatch concern to the
  * call site keeps the interface clean.
  *
- * **TTL vs window semantics:** the Lua script treats `ttl` as both the prune-older-than
- * window AND the Redis key TTL — they're the same value per call. For the daily
- * limiter this means the key dies at the WIB-staggered reset moment; for the burst
- * limiter, the key dies 1 hour after the last write. Either way, an idle bucket is
- * eventually GC'd by Redis, so per-user memory is bounded.
+ * **TTL vs window semantics:** rolling keys (hourly/burst/session) use the sliding-
+ * window script where `ttl` is both the prune-older-than window AND the Redis key
+ * TTL. Keys carrying [RateLimiter.FIXED_WINDOW_KEY_MARKER] (`_day}` — every daily
+ * cap) use a FIXED-WINDOW `INCR`/`PEXPIRE` script instead: the count never prunes
+ * mid-window and the bucket resets only when the key expires at the WIB-staggered
+ * reset. The previous always-sliding behavior pruned daily entries after
+ * `ttl` = time-REMAINING-to-reset (not 24 h), so late-day usage refilled daily
+ * caps several-fold (2026-06-10 audit, finding 02-H4). Either way an idle bucket
+ * is eventually GC'd by Redis, so per-user memory is bounded.
  */
 class RedisRateLimiter(
     private val client: RedisClient,
@@ -61,6 +65,11 @@ class RedisRateLimiter(
     // sharing this single field is the structural enforcement.
     @Suppress("MemberVisibilityCanBePrivate")
     internal val scriptSha: String = sha1Hex(LUA_TRY_ACQUIRE)
+
+    // Fixed-window companion script for `_day}` keys (02-H4). Same EVALSHA-with-
+    // EVAL-fallback discipline as the sliding script.
+    internal val fixedWindowScriptSha: String = sha1Hex(LUA_TRY_ACQUIRE_FIXED_WINDOW)
+    internal val releaseFixedWindowScriptSha: String = sha1Hex(LUA_RELEASE_FIXED_WINDOW)
 
     /**
      * Returns a live [RedisCommands] handle, or null if Redis is currently unreachable.
@@ -116,21 +125,38 @@ class RedisRateLimiter(
         telemetryUserId: UUID?,
     ): RateLimiter.Outcome {
         val sync = sync() ?: return RateLimiter.Outcome.Allowed(remaining = capacity)
-        val nowMs = clock.millis()
-        val windowMs = ttl.toMillis()
         val ttlMs = ttl.toMillis()
-        val jti = UUID.randomUUID().toString()
+        val fixedWindow = RateLimiter.isFixedWindowKey(key)
 
         return try {
-            val args =
-                arrayOf(
-                    nowMs.toString(),
-                    windowMs.toString(),
-                    ttlMs.toString(),
-                    capacity.toString(),
-                    jti,
-                )
-            val result = evalShaWithFallback(sync = sync, keys = arrayOf(key), args = args)
+            val result =
+                if (fixedWindow) {
+                    evalShaWithFallback(
+                        sync = sync,
+                        sha = fixedWindowScriptSha,
+                        script = LUA_TRY_ACQUIRE_FIXED_WINDOW,
+                        keys = arrayOf(key),
+                        args = arrayOf(ttlMs.toString(), capacity.toString()),
+                    )
+                } else {
+                    val nowMs = clock.millis()
+                    val windowMs = ttlMs
+                    val jti = UUID.randomUUID().toString()
+                    evalShaWithFallback(
+                        sync = sync,
+                        sha = scriptSha,
+                        script = LUA_TRY_ACQUIRE,
+                        keys = arrayOf(key),
+                        args =
+                            arrayOf(
+                                nowMs.toString(),
+                                windowMs.toString(),
+                                ttlMs.toString(),
+                                capacity.toString(),
+                                jti,
+                            ),
+                    )
+                }
             val flag = result[0]
             val value = result[1]
             if (flag == 1L) {
@@ -200,15 +226,17 @@ class RedisRateLimiter(
     @Suppress("UNCHECKED_CAST")
     private fun evalShaWithFallback(
         sync: RedisCommands<String, String>,
+        sha: String,
+        script: String,
         keys: Array<String>,
         args: Array<String>,
     ): List<Long> =
         try {
-            sync.evalsha<List<Long>>(scriptSha, ScriptOutputType.MULTI, keys, *args)
+            sync.evalsha<List<Long>>(sha, ScriptOutputType.MULTI, keys, *args)
         } catch (e: RedisNoScriptException) {
             // Cache miss on the Redis side; reload via EVAL. No need to manually
             // call SCRIPT LOAD — EVAL implicitly caches the script.
-            sync.eval<List<Long>>(LUA_TRY_ACQUIRE, ScriptOutputType.MULTI, keys, *args)
+            sync.eval<List<Long>>(script, ScriptOutputType.MULTI, keys, *args)
         }
 
     override fun releaseMostRecent(
@@ -217,6 +245,16 @@ class RedisRateLimiter(
     ) {
         val sync = sync() ?: return
         try {
+            if (RateLimiter.isFixedWindowKey(key)) {
+                // Fixed-window buckets are plain INCR counters: release = atomic
+                // DECR floored at 0 (no-op on empty/missing — contract preserved).
+                try {
+                    sync.evalsha<Long>(releaseFixedWindowScriptSha, ScriptOutputType.INTEGER, arrayOf(key))
+                } catch (_: RedisNoScriptException) {
+                    sync.eval<Long>(LUA_RELEASE_FIXED_WINDOW, ScriptOutputType.INTEGER, arrayOf(key))
+                }
+                return
+            }
             // ZPOPMAX returns nil for an empty/missing key — the no-op contract holds
             // automatically. Single-call atomic on the Redis side.
             sync.zpopmax(key, 1)
@@ -297,6 +335,57 @@ class RedisRateLimiter(
             redis.call('PEXPIRE', key, ttl_ms)
             local remaining = capacity - count - 1
             return {1, remaining}
+            """.trimIndent()
+
+        /**
+         * Fixed-window admit-or-reject for `_day}` keys (02-H4).
+         *
+         * KEYS[1] = the rate-limit key. ARGV[1] = ttl_ms (time to the WIB-staggered
+         * reset, set ONLY when the bucket is created — first event of the window).
+         * ARGV[2] = capacity.
+         *
+         * Returns the same 2-element protocol as the sliding script:
+         *   {1, remaining}            — admitted; remaining = capacity - count.
+         *   {0, retry_after_seconds}  — rejected; seconds until the bucket expires
+         *                               (= the daily reset), ceiling, >= 1.
+         *
+         * Rejected attempts still INCR (count may exceed capacity) — harmless: the
+         * bucket resets wholesale at expiry, and release (DECR floored at 0) is only
+         * ever called after a successful acquire per the interface contract.
+         */
+        private val LUA_TRY_ACQUIRE_FIXED_WINDOW =
+            """
+            local key = KEYS[1]
+            local ttl_ms = tonumber(ARGV[1])
+            local capacity = tonumber(ARGV[2])
+
+            local count = redis.call('INCR', key)
+            if count == 1 then
+                redis.call('PEXPIRE', key, ttl_ms)
+            end
+            if count > capacity then
+                local pttl = redis.call('PTTL', key)
+                if pttl < 0 then
+                    -- Lost TTL (manual key surgery / persistence edge): re-arm so the
+                    -- bucket cannot outlive its window forever.
+                    redis.call('PEXPIRE', key, ttl_ms)
+                    pttl = ttl_ms
+                end
+                local retry_after_seconds = math.ceil(pttl / 1000)
+                if retry_after_seconds < 1 then retry_after_seconds = 1 end
+                return {0, retry_after_seconds}
+            end
+            return {1, capacity - count}
+            """.trimIndent()
+
+        /** DECR floored at 0; preserves the key TTL. Returns the pre-release count. */
+        private val LUA_RELEASE_FIXED_WINDOW =
+            """
+            local c = tonumber(redis.call('GET', KEYS[1]) or '0')
+            if c > 0 then
+                redis.call('DECR', KEYS[1])
+            end
+            return c
             """.trimIndent()
 
         private fun sha1Hex(s: String): String {

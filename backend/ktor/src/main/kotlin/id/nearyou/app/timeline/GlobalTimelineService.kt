@@ -3,6 +3,9 @@ package id.nearyou.app.timeline
 import id.nearyou.app.common.Cursor
 import id.nearyou.app.infra.repo.PostsGlobalRepository
 import id.nearyou.app.infra.repo.TimelineRow
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
@@ -16,18 +19,22 @@ import java.util.UUID
  */
 class GlobalTimelineService(
     private val timeline: PostsGlobalRepository,
+    // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    fun global(
+    suspend fun global(
         viewerId: UUID,
         cursor: Cursor?,
     ): GlobalPage {
         val rows =
-            timeline.global(
-                viewerId = viewerId,
-                cursorCreatedAt = cursor?.createdAt,
-                cursorPostId = cursor?.id,
-                limit = PAGE_SIZE + 1,
-            )
+            withContext(dbDispatcher) {
+                timeline.global(
+                    viewerId = viewerId,
+                    cursorCreatedAt = cursor?.createdAt,
+                    cursorPostId = cursor?.id,
+                    limit = PAGE_SIZE + 1,
+                )
+            }
         return if (rows.size > PAGE_SIZE) {
             val page = rows.take(PAGE_SIZE)
             val last = page.last()

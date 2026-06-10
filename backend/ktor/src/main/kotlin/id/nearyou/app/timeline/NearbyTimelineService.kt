@@ -4,6 +4,9 @@ import id.nearyou.app.common.Cursor
 import id.nearyou.app.infra.repo.PostsTimelineRepository
 import id.nearyou.app.infra.repo.TimelineRow
 import id.nearyou.app.post.LocationOutOfBoundsException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
@@ -16,8 +19,10 @@ import java.util.UUID
  */
 class NearbyTimelineService(
     private val timeline: PostsTimelineRepository,
+    // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    fun nearby(
+    suspend fun nearby(
         viewerId: UUID,
         viewerLat: Double,
         viewerLng: Double,
@@ -31,15 +36,17 @@ class NearbyTimelineService(
             throw RadiusOutOfBoundsException(radiusMeters)
         }
         val rows =
-            timeline.nearby(
-                viewerId = viewerId,
-                viewerLat = viewerLat,
-                viewerLng = viewerLng,
-                radiusMeters = radiusMeters,
-                cursorCreatedAt = cursor?.createdAt,
-                cursorPostId = cursor?.id,
-                limit = PAGE_SIZE + 1,
-            )
+            withContext(dbDispatcher) {
+                timeline.nearby(
+                    viewerId = viewerId,
+                    viewerLat = viewerLat,
+                    viewerLng = viewerLng,
+                    radiusMeters = radiusMeters,
+                    cursorCreatedAt = cursor?.createdAt,
+                    cursorPostId = cursor?.id,
+                    limit = PAGE_SIZE + 1,
+                )
+            }
         return if (rows.size > PAGE_SIZE) {
             val page = rows.take(PAGE_SIZE)
             val last = page.last()

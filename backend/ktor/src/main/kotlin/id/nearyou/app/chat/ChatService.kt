@@ -237,6 +237,16 @@ class ChatService(
         //   transaction as the chat_messages INSERT. The Flag verdict produced by the
         //   pre-INSERT hook is captured in the `verdictForFlag` variable so the after-INSERT
         //   hook can read it.
+        // Moderation stays INSIDE the pre-INSERT hook: the chat-conversations
+        // spec pins "blocked sender does NOT invoke the TextModerator"
+        // (ChatFoundationRouteTest 7.16.a) — the in-tx block check must run
+        // first, so the verdict cannot be precomputed. The 04-#2 dispatcher
+        // concern is solved by the withContext(dbDispatcher) wrap around
+        // repository.sendMessage below (the hook runs on the bounded
+        // dispatcher). 03-#1's residual risk — moderate()'s Redis read while
+        // holding the tx connection — is bounded by the boot prime + 5-min
+        // cache and is AUDIT-FLAGGED for a spec amendment (move the block
+        // check pre-tx) rather than silently reordered here.
         var verdictForFlag: Verdict.Flag? = null
         val preInsertHookInTx: (java.sql.Connection) -> Unit = { _ ->
             when (val verdict = textModerator.moderate(content)) {

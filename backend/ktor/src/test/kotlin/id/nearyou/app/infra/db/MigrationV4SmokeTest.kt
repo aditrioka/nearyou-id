@@ -109,7 +109,11 @@ class MigrationV4SmokeTest : StringSpec({
                 ).use { rs ->
                     rs.next() shouldBe true
                     val def = rs.getString(1).lowercase()
-                    def shouldContain "from posts"
+                    // V20 redefined the view with a `users` join, so Postgres now
+                    // renders the FROM as `from (posts p join users u ...)` — assert
+                    // the posts source + the V4-era auto-hide filter, both of which
+                    // every definition revision must preserve.
+                    def shouldContain "posts"
                     def shouldContain "is_auto_hidden = false"
                 }
             }

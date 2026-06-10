@@ -16,6 +16,7 @@ import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.PostReplyRepository
 import id.nearyou.data.repository.PostReplyRow
 import id.nearyou.data.repository.ReportTargetType
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
@@ -54,7 +55,7 @@ import kotlin.coroutines.coroutineContext
  *
  * Lettuce's sync API blocks the calling thread on Netty I/O; per the `RateLimiter`
  * contract (interface non-suspending to preserve V9 compatibility), the wrap belongs at
- * this call site. [tryRateLimit] runs `tryAcquire` inside `withContext(Dispatchers.IO)`.
+ * this call site. [tryRateLimit] runs `tryAcquire` inside `withContext(dbDispatcher)`.
  */
 class ReplyService(
     private val dataSource: DataSource,
@@ -68,6 +69,9 @@ class ReplyService(
     private val layer3DispatcherScope: Layer3DispatcherScope? = null,
     private val layer3Moderator: Layer3Moderator? = null,
     private val clock: () -> Instant = Instant::now,
+    // Pool-bounded JDBC/Redis-sync dispatcher (docs/11 §3.2); production passes
+    // DbDispatchers.db — the default keeps direct-construction tests working.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /**
      * Outcome of [tryRateLimit]. Mirrors [LikeService.Result.RateLimited] / [Allowed]
@@ -107,7 +111,7 @@ class ReplyService(
         }
         val cap = resolveDailyCap(userId)
         val outcome =
-            withContext(Dispatchers.IO) {
+            withContext(dbDispatcher) {
                 rateLimiter.tryAcquire(
                     userId = userId,
                     key = dailyKey(userId),
@@ -136,54 +140,59 @@ class ReplyService(
         authorId: UUID,
         content: String,
     ): PostReplyRow {
-        replies.resolveVisiblePost(postId, authorId) ?: throw PostNotFoundException()
+        withContext(dbDispatcher) { replies.resolveVisiblePost(postId, authorId) }
+            ?: throw PostNotFoundException()
 
         // Moderation gate (per `content-moderation-keyword-lists` post-replies spec) runs
         // AFTER rate-limit (route-layer) + length guard (route-layer) + visibility resolution
         // (above), BEFORE the INSERT. Reject short-circuits to 400; Flag falls through to
         // INSERT + queue row in the same transaction; Allow falls through to plain INSERT.
-        val verdict = textModerator.moderate(content)
+        // Runs on the bounded dispatcher — moderate() does Redis/Remote-Config/
+        // Secret-Manager I/O on a cold cache (2026-06-10 audit, 04-#2).
+        val verdict = withContext(dbDispatcher) { textModerator.moderate(content) }
         if (verdict is Verdict.Reject) {
             throw ContentModeratedProfanityException(verdict.matchedKeywords)
         }
 
         var emittedId: UUID? = null
         val row =
-            dataSource.connection.use { conn ->
-                conn.autoCommit = false
-                try {
-                    val inserted = replies.insertInTx(conn, postId = postId, authorId = authorId, content = content)
-                    if (verdict is Verdict.Flag) {
-                        moderationQueue.upsertUuIteKeywordMatchRow(
-                            conn = conn,
-                            targetType = ReportTargetType.REPLY,
-                            targetId = inserted.id,
-                        )
-                    }
-                    val parentAuthor = replies.loadParentAuthorId(conn, postId)
-                    if (parentAuthor != null) {
-                        emittedId =
-                            notifications.emit(
+            withContext(dbDispatcher) {
+                dataSource.connection.use { conn ->
+                    conn.autoCommit = false
+                    try {
+                        val inserted = replies.insertInTx(conn, postId = postId, authorId = authorId, content = content)
+                        if (verdict is Verdict.Flag) {
+                            moderationQueue.upsertUuIteKeywordMatchRow(
                                 conn = conn,
-                                recipientId = parentAuthor,
-                                actorUserId = authorId,
-                                type = NotificationType.POST_REPLIED,
-                                targetType = "post",
-                                targetId = postId,
-                                bodyData =
-                                    buildJsonObject {
-                                        put("reply_id", JsonPrimitive(inserted.id.toString()))
-                                        put("reply_excerpt", JsonPrimitive(inserted.content.firstCodePoints(80)))
-                                    },
+                                targetType = ReportTargetType.REPLY,
+                                targetId = inserted.id,
                             )
+                        }
+                        val parentAuthor = replies.loadParentAuthorId(conn, postId)
+                        if (parentAuthor != null) {
+                            emittedId =
+                                notifications.emit(
+                                    conn = conn,
+                                    recipientId = parentAuthor,
+                                    actorUserId = authorId,
+                                    type = NotificationType.POST_REPLIED,
+                                    targetType = "post",
+                                    targetId = postId,
+                                    bodyData =
+                                        buildJsonObject {
+                                            put("reply_id", JsonPrimitive(inserted.id.toString()))
+                                            put("reply_excerpt", JsonPrimitive(inserted.content.firstCodePoints(80)))
+                                        },
+                                )
+                        }
+                        conn.commit()
+                        inserted
+                    } catch (t: Throwable) {
+                        conn.rollback()
+                        throw t
+                    } finally {
+                        conn.autoCommit = true
                     }
-                    conn.commit()
-                    inserted
-                } catch (t: Throwable) {
-                    conn.rollback()
-                    throw t
-                } finally {
-                    conn.autoCommit = true
                 }
             }
         emittedId?.let(dispatcher::dispatch)
@@ -206,28 +215,29 @@ class ReplyService(
         return row
     }
 
-    fun list(
+    suspend fun list(
         postId: UUID,
         viewerId: UUID,
         cursorCreatedAt: Instant?,
         cursorReplyId: UUID?,
         limit: Int,
-    ): List<PostReplyRow> {
-        replies.resolveVisiblePost(postId, viewerId) ?: throw PostNotFoundException()
-        return replies.listByPost(
-            postId = postId,
-            viewerId = viewerId,
-            cursorCreatedAt = cursorCreatedAt,
-            cursorReplyId = cursorReplyId,
-            limit = limit,
-        )
-    }
+    ): List<PostReplyRow> =
+        withContext(dbDispatcher) {
+            replies.resolveVisiblePost(postId, viewerId) ?: throw PostNotFoundException()
+            replies.listByPost(
+                postId = postId,
+                viewerId = viewerId,
+                cursorCreatedAt = cursorCreatedAt,
+                cursorReplyId = cursorReplyId,
+                limit = limit,
+            )
+        }
 
-    fun softDelete(
+    suspend fun softDelete(
         replyId: UUID,
         authorId: UUID,
     ) {
-        replies.softDeleteOwn(replyId, authorId)
+        withContext(dbDispatcher) { replies.softDeleteOwn(replyId, authorId) }
     }
 
     /**

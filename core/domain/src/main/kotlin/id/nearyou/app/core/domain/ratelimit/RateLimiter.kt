@@ -19,10 +19,31 @@ import java.util.UUID
  * Duration.ofHours(1). The RateLimitTtlRule Detekt rule enforces this convention at
  * every daily call site.
  *
+ * Window semantics are derived from the KEY, not a parameter (2026-06-10 audit,
+ * finding 02-H4): keys carrying the [FIXED_WINDOW_KEY_MARKER] (`_day}` — every
+ * daily-cap key scope ends in `_day`) use FIXED-WINDOW counting — entries never
+ * age out mid-window; the bucket resets only when the key expires at the
+ * WIB-staggered reset. All other keys use the original sliding window
+ * (window == ttl). Rationale: the previous always-sliding behavior pruned daily
+ * entries after `ttl` (= time REMAINING to reset, not 24 h), so late-day usage
+ * silently refilled daily caps several-fold.
+ *
  * Atomicity contract: both methods MUST be atomic across concurrent calls with the
  * same key. Two simultaneous requests at slot capacity MUST NOT both observe Allowed.
  */
 interface RateLimiter {
+    companion object {
+        /**
+         * Keys containing this marker get fixed-window semantics. Matches the
+         * project's daily-cap key convention — `{scope:rate_like_day}:{user:U}`,
+         * `{scope:rate_reply_day}:`, `{scope:rate_chat_send_day}:` — where the
+         * scope hash-tag always ends in `_day`.
+         */
+        const val FIXED_WINDOW_KEY_MARKER: String = "_day}"
+
+        fun isFixedWindowKey(key: String): Boolean = key.contains(FIXED_WINDOW_KEY_MARKER)
+    }
+
     sealed interface Outcome {
         data class Allowed(val remaining: Int) : Outcome
 

@@ -141,4 +141,59 @@ class RateLimiterTest : StringSpec({
         val rejected = limiter.tryAcquireByKey(key, capacity = 60, ttl = Duration.ofSeconds(60))
         rejected.shouldBeInstanceOf<RateLimiter.Outcome.RateLimited>()
     }
+
+    // ----------------------------------------------------------------------------
+    // Fixed-window semantics for `_day}` keys (2026-06-10 audit, finding 02-H4).
+    // The previous always-sliding behavior pruned daily entries after
+    // ttl = time-REMAINING-to-reset, so late-day usage refilled daily caps.
+    // ----------------------------------------------------------------------------
+
+    "daily key: spent slots do NOT refill mid-window even when elapsed time exceeds the remaining ttl" {
+        // Simulate the 02-H4 scenario: user spends the cap early in the day with
+        // ~5.5h remaining to reset; 5h later (elapsed > remaining at spend time,
+        // which refilled under sliding semantics) the cap must STILL be enforced.
+        var now = java.time.Instant.parse("2026-06-10T09:00:00Z")
+        val limiter = InMemoryRateLimiter(clock = { now })
+        val u = UUID.randomUUID()
+        val key = "{scope:rate_like_day}:{user:$u}"
+        val ttlAtSpend = Duration.ofHours(5).plusMinutes(30)
+        repeat(10) {
+            limiter.tryAcquire(u, key, capacity = 10, ttl = ttlAtSpend)
+                .shouldBeInstanceOf<RateLimiter.Outcome.Allowed>()
+        }
+        now = now.plus(Duration.ofHours(5))
+        val stillRejected = limiter.tryAcquire(u, key, capacity = 10, ttl = Duration.ofMinutes(30))
+        stillRejected.shouldBeInstanceOf<RateLimiter.Outcome.RateLimited>()
+        // Retry-After points at the daily reset, not a sliding-window age-out.
+        (stillRejected.retryAfterSeconds in 1L..(30L * 60L)) shouldBe true
+    }
+
+    "daily key: bucket resets once the window expires" {
+        var now = java.time.Instant.parse("2026-06-10T20:00:00Z")
+        val limiter = InMemoryRateLimiter(clock = { now })
+        val u = UUID.randomUUID()
+        val key = "{scope:rate_reply_day}:{user:$u}"
+        repeat(2) { limiter.tryAcquire(u, key, capacity = 2, ttl = Duration.ofHours(4)) }
+        limiter.tryAcquire(u, key, capacity = 2, ttl = Duration.ofHours(4))
+            .shouldBeInstanceOf<RateLimiter.Outcome.RateLimited>()
+        // Past the reset boundary: a fresh window opens with the new call's ttl.
+        now = now.plus(Duration.ofHours(4)).plusSeconds(1)
+        val fresh = limiter.tryAcquire(u, key, capacity = 2, ttl = Duration.ofHours(24))
+        fresh shouldBe RateLimiter.Outcome.Allowed(remaining = 1)
+    }
+
+    "daily key: releaseMostRecent restores exactly one slot and floors at zero" {
+        val now = java.time.Instant.parse("2026-06-10T12:00:00Z")
+        val limiter = InMemoryRateLimiter(clock = { now })
+        val u = UUID.randomUUID()
+        val key = "{scope:rate_chat_send_day}:{user:$u}"
+        // Empty-bucket release is a no-op.
+        limiter.releaseMostRecent(u, key)
+        repeat(2) { limiter.tryAcquire(u, key, capacity = 2, ttl = Duration.ofHours(6)) }
+        limiter.tryAcquire(u, key, capacity = 2, ttl = Duration.ofHours(6))
+            .shouldBeInstanceOf<RateLimiter.Outcome.RateLimited>()
+        limiter.releaseMostRecent(u, key)
+        limiter.tryAcquire(u, key, capacity = 2, ttl = Duration.ofHours(6))
+            .shouldBeInstanceOf<RateLimiter.Outcome.Allowed>()
+    }
 })
