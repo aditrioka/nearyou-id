@@ -37,6 +37,7 @@ class NearbyTimelineRepositoryTest {
     ): NearbyTimelineRepository {
         val httpClient =
             HttpClientFactory.create(
+                installTimeouts = false,
                 apiBaseUrl = "http://test.local",
                 tokenStore = tokenStore,
                 // Same store so a refresh-failure invalidate() clears the very tokens loadTokens reads.

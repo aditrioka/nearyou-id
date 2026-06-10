@@ -22,21 +22,21 @@ class NotificationsUiStateTest {
 
     @Test
     fun `in-flight maps to Loading and wins over any prior outcome`() {
-        assertEquals(NotificationsUiState.Loading, notificationsUiState(outcome = null, inFlight = true))
+        assertEquals(NotificationsUiState.Loading, notificationsUiState(outcome = null, isInitialLoad = true))
         assertEquals(
             NotificationsUiState.Loading,
-            notificationsUiState(NotificationsOutcome.Loaded(oneRow, null), inFlight = true),
+            notificationsUiState(NotificationsOutcome.Loaded(oneRow, null), isInitialLoad = true),
         )
     }
 
     @Test
     fun `null outcome while not in-flight maps to Loading`() {
-        assertEquals(NotificationsUiState.Loading, notificationsUiState(outcome = null, inFlight = false))
+        assertEquals(NotificationsUiState.Loading, notificationsUiState(outcome = null, isInitialLoad = false))
     }
 
     @Test
     fun `loaded non-empty maps to Content`() {
-        val state = notificationsUiState(NotificationsOutcome.Loaded(oneRow, "tok"), inFlight = false)
+        val state = notificationsUiState(NotificationsOutcome.Loaded(oneRow, "tok"), isInitialLoad = false)
         assertEquals(1, assertIs<NotificationsUiState.Content>(state).rows.size)
     }
 
@@ -44,14 +44,14 @@ class NotificationsUiStateTest {
     fun `loaded empty maps to Empty`() {
         assertEquals(
             NotificationsUiState.Empty,
-            notificationsUiState(NotificationsOutcome.Loaded(emptyList(), null), inFlight = false),
+            notificationsUiState(NotificationsOutcome.Loaded(emptyList(), null), isInitialLoad = false),
         )
     }
 
     @Test
     fun `NetworkError and Error both map to the Error state`() {
-        assertEquals(NotificationsUiState.Error, notificationsUiState(NotificationsOutcome.NetworkError, inFlight = false))
-        assertEquals(NotificationsUiState.Error, notificationsUiState(NotificationsOutcome.Error, inFlight = false))
+        assertEquals(NotificationsUiState.Error, notificationsUiState(NotificationsOutcome.NetworkError, isInitialLoad = false))
+        assertEquals(NotificationsUiState.Error, notificationsUiState(NotificationsOutcome.Error, isInitialLoad = false))
     }
 
     @Test
@@ -66,7 +66,7 @@ class NotificationsUiStateTest {
                         ),
                         null,
                     ),
-                    inFlight = false,
+                    isInitialLoad = false,
                 ),
             ).rows
         assertFalse(rows.first { it.id == "unread" }.read)
@@ -79,7 +79,7 @@ class NotificationsUiStateTest {
         val noExcerpt = fakeNotification(id = "b", bodyData = buildJsonObject {})
         val rows =
             assertIs<NotificationsUiState.Content>(
-                notificationsUiState(NotificationsOutcome.Loaded(listOf(withExcerpt, noExcerpt), null), inFlight = false),
+                notificationsUiState(NotificationsOutcome.Loaded(listOf(withExcerpt, noExcerpt), null), isInitialLoad = false),
             ).rows
         assertEquals("halo dunia", rows.first { it.id == "a" }.excerpt)
         assertNull(rows.first { it.id == "b" }.excerpt, "a missing excerpt key yields no excerpt (base copy)")
@@ -94,7 +94,7 @@ class NotificationsUiStateTest {
                 bodyData = buildJsonObject { put("post_excerpt", "halo dunia") },
             )
         val rendered =
-            notificationsUiState(NotificationsOutcome.Loaded(listOf(piiRow), null), inFlight = false).toString()
+            notificationsUiState(NotificationsOutcome.Loaded(listOf(piiRow), null), isInitialLoad = false).toString()
         assertFalse(rendered.contains("ACTOR-SENTINEL"), "actor id must not reach the UI state: $rendered")
         assertFalse(rendered.contains("TARGET-SENTINEL"), "target id must not reach the UI state: $rendered")
         assertTrue(rendered.contains("halo dunia"), "the non-PII body_data excerpt is retained: $rendered")

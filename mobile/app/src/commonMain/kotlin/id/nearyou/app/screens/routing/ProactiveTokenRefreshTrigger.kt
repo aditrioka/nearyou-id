@@ -3,6 +3,8 @@ package id.nearyou.app.screens.routing
 import id.nearyou.app.auth.TokenRefresher
 import id.nearyou.app.auth.TokenStore
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.auth.authProviders
+import io.ktor.client.plugins.auth.providers.BearerAuthProvider
 import kotlin.time.Clock
 
 /**
@@ -40,7 +42,19 @@ class ProactiveTokenRefreshTrigger(
         // `<=` is boundary-inclusive AND covers an ALREADY-expired token (the delta goes negative when
         // `accessExpiresAtEpochMillis < now`), so a resume after the token lapsed refreshes once too.
         if (tokens.accessExpiresAtEpochMillis - nowMillis() <= PROACTIVE_REFRESH_WINDOW_MILLIS) {
-            tokenRefresher.refresh(httpClient)
+            val refreshed = tokenRefresher.refresh(httpClient)
+            if (refreshed != null) {
+                // The Auth plugin caches the BearerTokens from loadTokens until its OWN
+                // refreshTokens path runs or the cache is cleared. Without this clear,
+                // every request after a PROACTIVE refresh still attached the STALE
+                // access token — at expiry the user ate exactly the 401 + reactive
+                // round-trip this feature exists to avoid, plus a redundant second
+                // rotation (2026-06-10 audit, finding 05-#4). Clearing makes the next
+                // request re-run loadTokens, which reads the fresh pair from the store.
+                httpClient.authProviders
+                    .filterIsInstance<BearerAuthProvider>()
+                    .forEach { it.clearToken() }
+            }
         }
     }
 }

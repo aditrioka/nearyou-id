@@ -52,7 +52,8 @@ class NotificationsViewModelTest {
         val viewModel = NotificationsViewModel(fake)
         assertEquals(1, fake.loadInvocationCount, "the first page loads exactly once on construction")
         assertTrue(viewModel.outcome.value is NotificationsOutcome.Loaded, "the loaded outcome is exposed")
-        assertFalse(viewModel.inFlight.value, "inFlight resets after the load completes")
+        assertFalse(viewModel.isInitialLoad.value, "isInitialLoad resets after the first load completes")
+        assertFalse(viewModel.isRefreshing.value, "isRefreshing stays false for the initial load")
     }
 
     @Test

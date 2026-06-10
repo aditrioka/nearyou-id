@@ -32,21 +32,31 @@ class NotificationsViewModel(
     private val _outcome = MutableStateFlow<NotificationsOutcome?>(null)
     val outcome: StateFlow<NotificationsOutcome?> = _outcome.asStateFlow()
 
-    private val _inFlight = MutableStateFlow(false)
-    val inFlight: StateFlow<Boolean> = _inFlight.asStateFlow()
+    // Loading is split into isInitialLoad (drives the skeleton, true until the
+    // first outcome arrives) and isRefreshing (drives ONLY the PullToRefreshBox
+    // indicator while the prior outcome stays mounted) — the canonical
+    // mobile-design-system "list loading and refresh" pattern the timeline VMs
+    // migrated to in #167. This VM had kept the pre-split single `inFlight`
+    // flag (2026-06-10 audit, finding 05-#2): refresh tore Content down to the
+    // skeleton AND showed two progress indicators at once.
+    private val _isInitialLoad = MutableStateFlow(true)
+    val isInitialLoad: StateFlow<Boolean> = _isInitialLoad.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     init {
-        load()
+        load(initial = true)
     }
 
-    /** Pull-to-refresh + error-retry both call this — re-fetches page 1. */
+    /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
     fun reload() {
-        load()
+        load(initial = false)
     }
 
-    private fun load() {
+    private fun load(initial: Boolean) {
         viewModelScope.launch {
-            _inFlight.value = true
+            if (!initial) _isRefreshing.value = true
             try {
                 _outcome.value = flow.loadFirstPage()
             } catch (cancellation: CancellationException) {
@@ -56,7 +66,8 @@ class NotificationsViewModel(
                 // The fetch threw → existing retryable error state. No new outcome member.
                 _outcome.value = NotificationsOutcome.NetworkError
             } finally {
-                _inFlight.value = false
+                _isInitialLoad.value = false
+                _isRefreshing.value = false
             }
         }
     }

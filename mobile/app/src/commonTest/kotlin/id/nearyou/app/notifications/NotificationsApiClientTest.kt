@@ -39,6 +39,7 @@ private const val SHIPPED_LIST_BODY =
 class NotificationsApiClientTest {
     private fun client(handler: MockRequestHandler): HttpClient =
         HttpClientFactory.create(
+            installTimeouts = false,
             apiBaseUrl = "http://test.local",
             tokenStore = InMemoryTokenStore(),
             sessionInvalidator = SessionInvalidator(InMemoryTokenStore()),

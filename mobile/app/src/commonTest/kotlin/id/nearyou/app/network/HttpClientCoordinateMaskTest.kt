@@ -38,6 +38,7 @@ class HttpClientCoordinateMaskTest {
             val store = InMemoryTokenStore()
             val client =
                 HttpClientFactory.create(
+                    installTimeouts = false,
                     apiBaseUrl = "http://test.local",
                     tokenStore = store,
                     sessionInvalidator = SessionInvalidator(store),

@@ -117,12 +117,14 @@ Each notification row SHALL render type-keyed Bahasa Indonesia copy via `stringR
 ### Requirement: Screen state mapping covers loading, content, empty, and error
 
 The screen SHALL render one of four visual states, all copy via `stringResource`:
-- **Loading** (fetch in-flight) → a placeholder/skeleton AND a node with `stringResource(Res.string.notifications_loading)`.
+- **Loading** (INITIAL load only — `isInitialLoad`, true until the first outcome arrives) → a placeholder/skeleton AND a node with `stringResource(Res.string.notifications_loading)`. A REFRESH does NOT map to Loading: the prior outcome stays mounted and only the pull-to-refresh indicator (driven by a separate `isRefreshing` flag) spins — the canonical `mobile-design-system` "list loading and refresh" split. (Amended 2026-06-10, holistic audit finding 05-#2: this requirement previously encoded the pre-split single `inFlight` flag, which tore Content down to the skeleton mid-refresh and showed two progress indicators at once.)
 - **Content** (`Loaded` with non-empty items) → the notification-row list.
 - **Empty** (`Loaded`, empty items) → a node with `stringResource(Res.string.notifications_empty)` ("*Belum ada notifikasi*").
 - **Error** (`NetworkError` or retryable `Error`) → a node with `stringResource(Res.string.signin_error_network)` AND a retry control labelled `stringResource(Res.string.cta_retry)`.
 
-The screen state SHALL be modeled as a Compose-free `NotificationsUiState` (data class or sealed type) plus a pure projection `notificationsUiState(outcome: NotificationsOutcome?, inFlight: Boolean): NotificationsUiState` — mirroring `mobile-global-timeline`'s `globalTimelineUiState` — so the outcome→state mapping is deterministically unit-testable in commonTest without composing the UI. The projection MUST carry no PII (no `actor_user_id`/`target_id` UUIDs). There are NO rate-limit states (the notifications read endpoint carries no per-endpoint rate limit / `upsell` on the wire).
+Every non-Content state SHALL render inside a scrollable container so the pull-to-refresh gesture remains available from Loading/Empty/Error (per `mobile-design-system` § "Pull-to-refresh is available from a non-Content state"; audit finding 05-#3).
+
+The screen state SHALL be modeled as a Compose-free `NotificationsUiState` (data class or sealed type) plus a pure projection `notificationsUiState(outcome: NotificationsOutcome?, isInitialLoad: Boolean): NotificationsUiState` — mirroring `mobile-global-timeline`'s `globalTimelineUiState` — so the outcome→state mapping is deterministically unit-testable in commonTest without composing the UI. The projection MUST carry no PII (no `actor_user_id`/`target_id` UUIDs). There are NO rate-limit states (the notifications read endpoint carries no per-endpoint rate limit / `upsell` on the wire).
 
 #### Scenario: Projection maps each outcome to its state
 

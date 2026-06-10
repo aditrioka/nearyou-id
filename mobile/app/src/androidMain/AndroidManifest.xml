@@ -8,8 +8,17 @@
     -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!--
+      allowBackup=false (2026-06-10 audit, finding 07-#1): auto-backup/D2D transfer
+      restored the Tink-encrypted DataStore prefs WITHOUT the Android-Keystore
+      master key (Keystore keys never leave the device), so the first token write
+      after a device migration crashed on an un-unwrappable keyset — and a
+      reinstall could re-restore the poisoned prefs. The app's only local state is
+      session tokens (which must never move between devices) + re-fetchable prefs,
+      so disabling backup wholesale is the correct posture.
+    -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

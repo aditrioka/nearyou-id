@@ -78,6 +78,20 @@ See the commit body for the finding-by-finding list (DbDispatchers + auth gate, 
 - **04-#1: Layer-3 dispatch re-parenting fixed** — `minusKey(Job)` so dispatches are children of the supervisor scope (shutdown drain was dead code; client disconnect could cancel a post's Layer-3 moderation).
 - **02-M3 + 03-#10 (docs):** Nearby/Following canonical SQL blocks refreshed to the shipped shape; `user_blocks.blocked_at` → `created_at`.
 
+### Fixes shipped — mobile + native wave (this commit)
+
+- **05-#1/#2/#3 — the notifications patchwork trio** (the clearest cross-change drift exemplar): nested Scaffold+TopAppBar removed (shell-body contract), single `inFlight` → split `isInitialLoad`/`isRefreshing` (content stays mounted during refresh; no double indicator), non-Content states wrapped in the scrollable idiom so PTR works from Loading/Empty/Error. `mobile-notifications-list` spec MODIFIED (it had pinned the stale pattern); UiState/VM tests updated.
+- **05-#4 — proactive refresh actually preempts now**: the trigger clears the Auth plugin's cached BearerTokens after a successful refresh (previously every post-refresh request still sent the STALE token → ate the 401 + a redundant rotation). New end-to-end regression test pins old-token→refresh→new-token via a real factory client.
+- **06-#1 — HttpClient timeouts (connect 10 s / request+socket 15 s) + GET-only HttpRequestRetry (exponential, 2×)** per docs/11 §2.6; `installTimeouts` test seam documented (runTest virtual time × suspended MockEngines).
+- **06-#3 — notifications terminal-401 → `SessionExpired`** + neutral redirect placeholder (D4 parity with the timelines; was the retryable "check your connection" banner on a dead session).
+- **06-#2/#4 — PostDetail**: placeholder dots → the feed-card Material icons (like filled/outline + reply); BackBar gains `statusBarsPadding`, ReplyComposer gains `navigationBarsPadding+imePadding` (own-Scaffold overlay must own its insets).
+- **07-#1 — `allowBackup=false`**: auto-backup/D2D restored the Tink keyset without the Keystore master key → un-unwrappable keyset crash after device migration.
+- **07-#2 — iOS keychain write surfaces its OSStatus** (NSLog, status only) — silent dropped writes presented as mystery sign-outs.
+
+### Mobile/native items deliberately remaining (next session; sketches complete in findings/05+06+07)
+
+Larger refactors kept out of this pass to bound risk: the 5 remember-only screens → entry-scoped ViewModels (05-#5; carries real draft-loss/double-submit bugs — pair with 05-#10), shared list-state/post-card extraction into `ui/components/` (05-#11 — the docs/11 §2.1 first structural move), VM single-StateFlow + koinViewModel + collectAsStateWithLifecycle sweeps (05-#6/#7/#13), LocationGate fold (05-#12), shell unread VM (05-#9), timeline reload-reentrancy + projection memo + contentType (06 mediums), DiagnosticSink wiring for the 4 no-op repos (06), native mediums (DataStore corruption handler, Tink init offload, bridge launcher leak, iOS main-thread guards + reduced-accuracy key, release minify, deployment-target coherence). The flat `screens/` package restructure (D6) is NOT started — target shape documented in docs/11 §2.1.
+
 ### Backend items deliberately sequenced AFTER the mobile wave (full fix sketches in findings/01+02+04)
 
 - 01-#6 part 2 (JwksCache negative-cache + single-flight), 01-#13 (signup 23505 conflation → 409), 01-#15 (refresh-token atomic claim — QUESTION: docs/05 30s-overlap may bless), 01-#14 (shared AppJson), 01-#19 (JwtIssuer dead verifier), 01-#23 (kid env-config), AppleS2S handler-local Json hoist.

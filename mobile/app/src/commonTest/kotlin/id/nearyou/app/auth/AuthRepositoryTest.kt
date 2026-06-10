@@ -35,6 +35,7 @@ class AuthRepositoryTest {
         val sessionInvalidator = SessionInvalidator(tokenStore)
         val client =
             HttpClientFactory.create(
+                installTimeouts = false,
                 apiBaseUrl = "http://test.local",
                 tokenStore = tokenStore,
                 sessionInvalidator = sessionInvalidator,

@@ -8,6 +8,7 @@ import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.network.HttpClientFactory
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.request.get
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
@@ -37,6 +38,7 @@ class ProactiveTokenRefreshTriggerTest {
         val invalidator = SessionInvalidator(store)
         val client =
             HttpClientFactory.create(
+                installTimeouts = false,
                 apiBaseUrl = "http://test.local",
                 tokenStore = store,
                 sessionInvalidator = invalidator,
@@ -97,5 +99,52 @@ class ProactiveTokenRefreshTriggerTest {
             trigger(store, refreshStatus = HttpStatusCode.Unauthorized, onRefresh = { calls++ }).onResume()
             assertEquals(1, calls, "within window ⇒ the proactive refresh is attempted")
             assertNull(store.read(), "a rejected refresh token funnels through invalidate() → store cleared (re-route)")
+        }
+
+    @Test
+    fun afterProactiveRefresh_nextRequestAttachesTheNewAccessToken() =
+        runTest {
+            // 2026-06-10 audit, finding 05-#4: the Auth plugin caches BearerTokens
+            // from loadTokens, so a PROACTIVE refresh (which writes the store but
+            // never runs the plugin's own refreshTokens path) left requests
+            // attaching the STALE access token — defeating the preemptive goal.
+            // The trigger now clears the provider cache; this pins it end-to-end.
+            val store = InMemoryTokenStore(TokenPair("at-old", "rt-old", NOW + 60L * 1000))
+            val invalidator = SessionInvalidator(store)
+            val seenAuthHeaders = mutableListOf<String?>()
+            val client =
+                HttpClientFactory.create(
+                    installTimeouts = false,
+                    apiBaseUrl = "http://test.local",
+                    tokenStore = store,
+                    sessionInvalidator = invalidator,
+                    engine =
+                        MockEngine { request ->
+                            if (request.url.encodedPath == "/api/v1/auth/refresh") {
+                                respond(REFRESH_OK_BODY, HttpStatusCode.OK, JSON_CT)
+                            } else {
+                                seenAuthHeaders += request.headers[HttpHeaders.Authorization]
+                                respond("[]", HttpStatusCode.OK, JSON_CT)
+                            }
+                        },
+                    installLogging = false,
+                    nowMillis = { NOW },
+                )
+            val refresher = TokenRefresher(store, invalidator) { NOW }
+            val trigger = ProactiveTokenRefreshTrigger(store, refresher, client) { NOW }
+
+            // Prime the plugin's token cache with the OLD pair via a first request.
+            client.get("http://test.local/api/v1/anything")
+            // Proactive refresh on resume rotates the stored pair to at-new/rt-new.
+            trigger.onResume()
+            // The NEXT request must attach the NEW access token, not the cached old one.
+            client.get("http://test.local/api/v1/anything")
+
+            assertEquals("Bearer at-old", seenAuthHeaders.first(), "pre-refresh request uses the original token")
+            assertEquals(
+                "Bearer at-new",
+                seenAuthHeaders.last(),
+                "post-proactive-refresh request attaches the ROTATED token (plugin cache cleared)",
+            )
         }
 }

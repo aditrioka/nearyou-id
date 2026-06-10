@@ -5,6 +5,8 @@ import id.nearyou.app.auth.TokenRefresher
 import id.nearyou.app.auth.TokenStore
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.HttpRequestRetry
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
@@ -14,8 +16,10 @@ import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 
 /**
@@ -87,6 +91,11 @@ object HttpClientFactory {
         sessionInvalidator: SessionInvalidator,
         engine: HttpClientEngine,
         installLogging: Boolean,
+        // Production always installs the cross-platform HttpTimeout budgets (06-#1).
+        // Tests that drive kotlinx-coroutines VIRTUAL time with deliberately-suspended
+        // MockEngines pass false — virtual time skips the 15 s killer delay instantly,
+        // which would fail the request before the test's gated engine ever responds.
+        installTimeouts: Boolean = true,
         logger: Logger = PrintlnLogger,
         nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
         // The single-flight refresh round-trip (D2). Defaulted so existing call sites/tests that only
@@ -105,6 +114,33 @@ object HttpClientFactory {
         return HttpClient(engine) {
             install(ContentNegotiation) {
                 json(jsonConfig)
+            }
+
+            // Uniform cross-platform budgets (2026-06-10 audit, 06-#1): the bare
+            // engine defaults diverged — OkHttp ~10 s vs Darwin ~60 s — so a stuck
+            // request left every in-flight flag spinning for an engine-dependent
+            // eternity. One budget, both platforms.
+            if (installTimeouts) {
+                install(HttpTimeout) {
+                    connectTimeoutMillis = 10_000
+                    requestTimeoutMillis = 15_000
+                    socketTimeoutMillis = 15_000
+                }
+            }
+
+            // Idempotent GETs only (docs/11 §2.6): IO failures + 5xx retry twice
+            // with exponential backoff. Writes (POST/PATCH/DELETE — incl. the
+            // token-refresh POST) are NEVER auto-retried; 401s flow to the Auth
+            // plugin untouched.
+            install(HttpRequestRetry) {
+                maxRetries = 2
+                retryIf { request, response ->
+                    request.method == HttpMethod.Get && response.status.value in 500..599
+                }
+                retryOnExceptionIf { request, cause ->
+                    request.method == HttpMethod.Get && cause !is CancellationException
+                }
+                exponentialDelay()
             }
 
             install(Auth) {

@@ -53,4 +53,12 @@ sealed interface NotificationsOutcome {
 
     /** HTTP 400 (`invalid_cursor` — not expected on the always-valid first page) — retryable, logged. */
     data object Error : NotificationsOutcome
+
+    /**
+     * Terminal 401 (survived the shipped Auth-plugin refresh — the session is dead). Maps to the
+     * neutral redirect placeholder, NOT a retryable error: the `SessionInvalidator` re-route is
+     * already in flight. Added 2026-06-10 (audit finding 06-#3 — this feature had forked from the
+     * timelines' session-expiry D4 pattern and showed the "check your connection" banner instead).
+     */
+    data object SessionExpired : NotificationsOutcome
 }

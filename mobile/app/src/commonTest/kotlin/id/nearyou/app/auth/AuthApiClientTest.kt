@@ -63,6 +63,7 @@ class AuthApiClientTest {
         handler: MockRequestHandler,
     ): HttpClient =
         HttpClientFactory.create(
+            installTimeouts = false,
             apiBaseUrl = "http://test.local",
             tokenStore = tokenStore,
             sessionInvalidator = SessionInvalidator(tokenStore),

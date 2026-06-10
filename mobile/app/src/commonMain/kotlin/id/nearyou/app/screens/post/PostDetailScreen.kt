@@ -1,6 +1,5 @@
 package id.nearyou.app.screens.post
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,13 +8,16 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -45,6 +47,9 @@ import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_reply
 import id.nearyou.resources.generated.resources.cta_retry
+import id.nearyou.resources.generated.resources.ic_post_like
+import id.nearyou.resources.generated.resources.ic_post_like_filled
+import id.nearyou.resources.generated.resources.ic_post_reply
 import id.nearyou.resources.generated.resources.post_detail_like_count
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
 import id.nearyou.resources.generated.resources.post_detail_post_gone
@@ -59,6 +64,7 @@ import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.theme.locationPin
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
@@ -267,7 +273,16 @@ fun PostDetailScreen(
  *  Invokes the hoisted [onBack] — the screen holds no back-stack reference. */
 @Composable
 private fun BackBar(onBack: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+    // This screen owns its Scaffold (root-stack overlay), so its custom bars must
+    // apply their own system-bar insets — a bare Row in the topBar slot rendered
+    // under the status bar (2026-06-10 audit, finding 06-#4).
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
         TextButton(onClick = onBack, modifier = Modifier.testTag(POST_DETAIL_BACK_TAG)) {
             Text(text = stringResource(Res.string.cta_close))
         }
@@ -326,6 +341,9 @@ private fun LikeRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Material heart icon (the feed-card idiom) — the brand-tinted placeholder
+            // dot contradicted the mobile-design-system icon migration the feed cards
+            // already shipped (2026-06-10 audit, finding 06-#2).
             Box(
                 modifier =
                     Modifier
@@ -333,15 +351,22 @@ private fun LikeRow(
                         .clickable(enabled = !likeInFlight, onClick = onToggleLike)
                         .padding(4.dp),
             ) {
-                Box(
+                Icon(
+                    painter =
+                        painterResource(
+                            if (liked) Res.drawable.ic_post_like_filled else Res.drawable.ic_post_like,
+                        ),
+                    contentDescription = stringResource(Res.string.post_detail_like_count, likeCount ?: 0),
+                    tint =
+                        if (liked) {
+                            MaterialTheme.colorScheme.locationPin
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     modifier =
                         Modifier
-                            .size(16.dp)
-                            .testTag(if (liked) POST_DETAIL_LIKE_LIKED_TAG else POST_DETAIL_LIKE_NOT_LIKED_TAG)
-                            .background(
-                                color = if (liked) MaterialTheme.colorScheme.locationPin else MaterialTheme.colorScheme.surfaceVariant,
-                                shape = CircleShape,
-                            ),
+                            .size(20.dp)
+                            .testTag(if (liked) POST_DETAIL_LIKE_LIKED_TAG else POST_DETAIL_LIKE_NOT_LIKED_TAG),
                 )
             }
             if (likeCount != null) {
@@ -351,9 +376,14 @@ private fun LikeRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            // Read-only reply-count indicator (a muted dot + the live count) — mirrors the feed card's
-            // counts row; the count is the nav arg + the local +1 on a successful reply.
-            Box(modifier = Modifier.size(10.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape))
+            // Read-only reply-count indicator (muted reply icon + the live count) — mirrors the feed
+            // card's counts row; the count is the nav arg + the local +1 on a successful reply.
+            Icon(
+                painter = painterResource(Res.drawable.ic_post_reply),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
             Text(
                 text = replyCount.toString(),
                 style = MaterialTheme.typography.bodyMedium,
@@ -449,7 +479,17 @@ private fun ReplyComposer(
     onSubmit: () -> Unit,
 ) {
     val composer = replyComposerUiState(content, inFlight)
-    Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Bottom-bar insets: keep the composer above the nav bar AND the keyboard —
+    // a bare Column in the bottomBar slot was occluded by both (06-#4).
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         OutlinedTextField(
             value = content,
             onValueChange = onContentChange,

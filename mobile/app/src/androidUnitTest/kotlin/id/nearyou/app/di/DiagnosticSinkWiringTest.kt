@@ -72,6 +72,7 @@ class DiagnosticSinkWiringTest {
                     // returns 400 for the timeline fetches, and the DiagnosticSink replaced by a spy.
                     single<HttpClient> {
                         HttpClientFactory.create(
+                            installTimeouts = false,
                             apiBaseUrl = "http://test.local",
                             tokenStore = get(),
                             sessionInvalidator = get(),

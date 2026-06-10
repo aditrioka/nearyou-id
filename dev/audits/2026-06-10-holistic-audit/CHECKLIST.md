@@ -19,24 +19,26 @@ Review pass: DONE for all areas (7 findings files under `findings/`). Fix status
 
 ## Mobile shared (`:mobile:app` commonMain + `:shared:resources`) — coherence focus
 
-- [ ] M1. App shell: navigation graph (Nav3), DI modules, theme, scaffolding/insets
-- [ ] M2. Design system / shared components (cross-change coherence: post card, feeds, loading/error/empty states)
-- [ ] M3. Auth + session feature (sign-in, age gate, token storage, refresh flow)
-- [ ] M4. Timeline features (nearby/global/following+placeholder, home tab host, pager)
-- [ ] M5. Post creation + post detail
-- [ ] M6. Data layer (Ktor client setup, repos, DTOs, error mapping) + location services
-- [ ] M7. State management patterns (ViewModels, UiState shapes, flows) — consistency sweep
-- [ ] M8. Analytics consent + notifications + bottom-nav sections (recently merged changes)
+Review pass: DONE for all areas (findings/05 + 06). Fix status:
+
+- [-] M1. App shell / Nav3 / DI / theme — REVIEWED-CLEAN on the critical checks (polymorphic NavKey SerializersModule ✓, decorator order ✓, single NavDisplay ✓, theme/font-preload ✓). REMAINING (deliberate, sketches in findings/05): VM single-StateFlow consolidation (#6), koinViewModel declarations (#7), shell unread-badge VM (#9), AuthFlow.handleTerminal401 dead seam (#8), TokenRefresher follower-CE edge (#16), theme CE-rethrow nit (#15)
+- [~] M2. Components coherence — notifications trio FIXED (the patchwork exemplar); REMAINING: extract the duplicated list-state kit + post card into `ui/components/` (05-#11/06 duplication map — the §2.1 first move)
+- [x] M3. Auth/session — proactive-refresh stale-token-cache fix (05-#4) + end-to-end regression test; HttpClient timeouts (06-#1) + GET-only retry (docs/11 §2.6)
+- [~] M4. Timelines — reviewed; REMAINING: reload reentrancy guard, projection memoization, contentType (06 mediums)
+- [~] M5. Post create/detail — PostDetail placeholder dots → Material icons (06-#2) + topBar/bottomBar system-bar+IME insets (06-#4); REMAINING: double-submit guards (05-#10), reply append order (06), VM migration (05-#5)
+- [x] M6. Data layer — DTO sweep CLEAN (no wire mismatches); notifications terminal-401 → SessionExpired neutral redirect (06-#3, D4 parity); timeouts+retry shipped
+- [~] M7. State patterns — notifications VM migrated to the split-flag canon (05-#2); spec amended; REMAINING: 5 remember-only screens → entry-scoped VMs (05-#5 — the largest §2.2 surface, drafts/data-loss risk documented), LocationGate fold (05-#12), collectAsStateWithLifecycle sweep (05-#13)
+- [x] M8. Notifications screen — nested Scaffold removed (05-#1), split flags (05-#2), scrollable non-Content states (05-#3), spec MODIFIED accordingly
 
 ## Native specifics
 
-- [ ] N1. androidMain: MainActivity, lifecycle, permissions, location actuals, token storage (DataStore+Tink), credential manager
-- [ ] N2. iosMain: app entry, lifecycle, permissions, CLLocationManager actuals, Keychain, expect/actual completeness
-- [ ] N3. iosApp host project + build config sanity
+- [~] N1. androidMain — `allowBackup=false` (07-#1: poisoned-keyset restore crash). REMAINING (sketches in findings/07): DataStore corruption handler, Tink main-thread init offload, permission-bridge launcher clear, release minify flag
+- [~] N2. iosMain — `SecItemAdd` OSStatus surfaced via NSLog (07-#2: silent sign-out). REMAINING: CoreLocation/GIDSignIn main-thread guards + request timeout, `NSLocationDefaultAccuracyReduced` (COARSE parity), deployment-target coherence
+- [-] N3. iosApp host — reviewed; deployment-target incoherence flagged (07 medium), no blocking defect
 
-## Final gates
+## Final gates — ALL GREEN (2026-06-10, final run exit 0)
 
-- [ ] G1. `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`
-- [ ] G2. `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest`
-- [ ] G3. iOS: `linkDebugFrameworkIosSimulatorArm64` (if iosMain touched)
-- [ ] G4. PROGRESS.md final summary + flagged items
+- [x] G1. `ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :core:domain:test`
+- [x] G2. `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest`
+- [x] G3. iOS: `:mobile:app:linkDebugFrameworkIosSimulatorArm64`
+- [x] G4. PROGRESS.md final summary + flagged items
