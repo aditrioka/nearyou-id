@@ -22,6 +22,7 @@ The backend is MVP-ready (19 Flyway migrations, ~60 OpenSpec capabilities, Detek
 Start here, in priority order:
 
 - [`openspec/project.md`](openspec/project.md) — tech stack, module structure, environments, **coding conventions + CI lint rules**, change delivery workflow, key architectural decisions.
+- [`docs/11-Engineering-Standards.md`](docs/11-Engineering-Standards.md) — **architectural baseline + Definition of Done; MUST-read for every product change** (proposal + apply): mobile state/nav/data contracts, backend layering + JDBC/perf contracts, Pattern Registry (anti-patchwork rule), version currency policy.
 - [`docs/00-README.md`](docs/00-README.md) — principles + cross-file reference map.
 - [`docs/08-Roadmap-Risk.md`](docs/08-Roadmap-Risk.md) — phase ordering, risk register, open decisions. Many "should I do X?" answers live here.
 - [`docs/05-Implementation.md`](docs/05-Implementation.md) — DB schemas, canonical SQL queries (Nearby / Following / Global timelines, block-action flow, rate-limit patterns), auth/session implementation, cache keys, feature flags.
@@ -93,7 +94,7 @@ When running as a code reviewer (via `anthropics/claude-code-action` on a pull r
 
 1. **Start with the right lens.** Identify the PR type from the title/description:
    - `docs(openspec): propose <name>` → proposal review. Check `proposal.md` for a clear Why, `design.md` for trade-off rationale, `specs/**` for ADDED/MODIFIED/REMOVED headers + at least one `#### Scenario:` per requirement, `tasks.md` for `- [ ] X.Y` checkbox format. Run/recommend `openspec validate <name> --strict`. Flag scope creep, missing capability deltas, unstated assumptions.
-   - `feat(<area>): <what> (V<N>)` → implementation PR. Verify the spec/task mapping: does the diff match `openspec/changes/<name>/tasks.md`? Are all relevant tests added? Does the SQL in the new Flyway migration match the spec requirements verbatim (canonical query shapes matter here)?
+   - `feat(<area>): <what> (V<N>)` → implementation PR. Verify the spec/task mapping: does the diff match `openspec/changes/<name>/tasks.md`? Are all relevant tests added? Does the SQL in the new Flyway migration match the spec requirements verbatim (canonical query shapes matter here)? Does the implementation conform to `docs/11-Engineering-Standards.md` (an undeclared second pattern for a Pattern-Registry concern is a **blocking** finding)? For UI-affecting changes, is the manual-verification evidence present in the PR body (docs/11 §5 DoD)?
    - `chore(openspec): archive <name>` → archive PR. Verify `openspec/specs/**` is now updated and `openspec/changes/<name>/` is moved under `archive/`.
    - Anything else (`ci:`, `fix:`, `docs:` non-OpenSpec) → standard review; focus on correctness + the critical invariants above.
 

@@ -79,6 +79,8 @@ Depending on what the user brings, you might:
 
 You have full context of the OpenSpec system. Use it naturally, don't force it.
 
+**nearyou-id grounding:** architecture explorations (mobile state/nav/data, backend layering/perf) should ground in [`docs/11-Engineering-Standards.md`](../../../docs/11-Engineering-Standards.md) — the baseline contract every change conforms to. Frame deviations as explicit amendments to that doc, not as parallel patterns.
+
 ### Check for context
 
 At the start, quickly check what exists:

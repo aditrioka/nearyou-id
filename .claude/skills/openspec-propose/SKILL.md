@@ -84,6 +84,10 @@ When ready to implement, run /opsx:apply
    openspec status --change "<name>"
    ```
 
+**Standards-conformance note (nearyou-id — MUST for `:mobile:app` / `:backend:ktor` changes).**
+
+Read [`docs/11-Engineering-Standards.md`](../../../docs/11-Engineering-Standards.md) before authoring `design.md`. The design MUST include a short **"Standards conformance"** note naming which Pattern-Registry patterns it builds on (state holder, navigation, data layer, backend layering — whichever apply), and declaring any deviation as an explicit Decision **plus** a `tasks.md` item amending docs/11 § Pattern Registry in the same PR. This is the anti-patchwork contract: it forces each change authored in an isolated session to consume the shared skeleton instead of inventing a parallel one. `/next-change` Phase B.4 verifies this note exists.
+
 **Substrate-introducing proposals — propose-time WebSearch (SHOULD, not MUST).**
 
 When the proposal's `What Changes` block adds, removes, or activates an entry in [`gradle/libs.versions.toml`](../../../gradle/libs.versions.toml) (new pin, version bump, plugin add/remove, OR activation of a previously-pinned-but-unused library), run a fresh dated `WebSearch` BEFORE finalizing the proposal artifacts — query templates: `"<library> vs <alternative> <current-year> best practice"`, `"<library> production ready <current-month-year>"`, `"<approach> canonical pattern <current-year>"`. Read 2-3 sources; weight official framework / library / vendor docs (JetBrains, Google, Anthropic, etc.) over community blogs (Medium, dev.to). Reasoning: the AI's pretrained "canonical pattern for X" knowledge can be 1-2 years stale; the fresh-dated search anchors the proposal in current-year ecosystem reality BEFORE the multi-lens substrate-rationale lens has to flag it at Phase D.

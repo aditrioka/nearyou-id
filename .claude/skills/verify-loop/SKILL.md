@@ -104,6 +104,8 @@ Recipes (build `:mobile:app:installStagingDebug`; ALWAYS `adb shell pm clear id.
 
 ## §D — The gate (run before declaring done)
 
+This gate implements [`docs/11-Engineering-Standards.md`](../../../docs/11-Engineering-Standards.md) §5 (Definition of Done). For UI-affecting changes the DoD additionally requires the §B/§C bring-up with screenshot evidence in the PR body — the test gate below alone does not clear it (`/opsx:apply` step 7.5 is the enforcement point).
+
 CI runs **both** lint frameworks; passing only one is insufficient. `:mobile:app` has flavors, so test tasks MUST be flavor-qualified (`testDebugUnitTest` alone is ambiguous and fails graph resolution).
 
 ```bash

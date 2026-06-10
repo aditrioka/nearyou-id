@@ -38,7 +38,26 @@ Full consolidated output → **`docs/11-Engineering-Standards.md`**. Headlines:
 
 ## Phase 2 — Changes applied
 
-(pending)
+**Root-cause diagnosis of the two reported problems:**
+1. *Build-green-but-buggy:* the lifecycle had NO mandatory manual-verification gate. `/opsx:apply` went tasks → (backend smoke if a script exists) → review → archive; `verify-loop` existed but nothing required invoking it. Mobile changes shipped on unit/Robolectric green alone.
+2. *Patchwork:* `/opsx:apply` reads only the change's own contextFiles — implementation sessions never saw a cross-change architectural baseline; nothing forced pattern consistency (hence 3 ViewModels vs many custom `*Flow` holders, components inlined per screen).
+
+**Applied (workflow/lifecycle):**
+- `openspec-apply-change`: + mandatory docs/11 read at step 4 (+ mobile-design-system spec + mobile-ui-foundation checklist for UI changes); + per-task coherence/reuse-first check in step 6; + **new step 7.5 manual verification gate** (verify-loop bring-up + screenshot evidence in PR body, MANDATORY for UI-affecting changes; explicit N/A waiver otherwise); step 8 now gates on 7.5; completion output shows a Verification line; general review lens checks Pattern-Registry conformance.
+- `next-change`: + `git worktree list` in BOTH claim surveys (A.1 + A.5.1 — memory precedent: unpushed sibling-worktree branches invisible to gh pr list/branch -r); + **new B.4 standards-conformance pre-check** (design.md must name the Pattern-Registry patterns it builds on; deviations = explicit Decision + docs/11 amendment task); general review lens extended.
+- `openspec-propose`: + mandatory "Standards conformance" note in design.md for mobile/backend changes.
+- `openspec-archive-change`: + **new step 3.5 DoD gate** (verification evidence / smoke / mobile gates checked before archive; AskUserQuestion on miss — never silent).
+- `verify-loop`: §D now declares itself the docs/11 §5 DoD implementation; UI changes need §B/§C evidence, not just the test gate.
+- `openspec-explore`: one-line grounding note (explore architecture against docs/11; deviations as amendments, not parallel patterns).
+- `triage-follow-ups`: audited — **no changes needed** (accurate post-FOLLOW_UPS-retirement, concise, aligned).
+
+**Applied (canonical docs):**
+- `CLAUDE.md`: docs/11 added to canonical refs (MUST-read billing); reviewer lens for feat PRs now checks Pattern-Registry conformance + verification evidence.
+- `openspec/project.md`: architectural-contracts pointer in Coding Conventions; CI-gates paragraph now includes mobile flavor-qualified tests + the pre-archive manual-verification requirement; Doc Map gained rows 09/10/11 (09+10 were missing — pre-existing drift).
+- `docs/00-README.md`: row 11 + engineers' reading order includes 11.
+- `README.md`: documentation map mentions docs/11.
+
+Note: `.claude/skills/**` edits applied directly in-session (self-modification guard did not fire in this worktree session). All changes ship via the audit PR for operator review regardless.
 
 ## Phase 3 — Review log
 
