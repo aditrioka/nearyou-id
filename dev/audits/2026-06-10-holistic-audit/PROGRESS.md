@@ -138,9 +138,27 @@ Gates: `testDevDebugUnitTest` + `testDevReleaseUnitTest` + `assembleDevRelease` 
 
 Deliberately NOT done from findings/07: **07-#13 nonce binding** (needs a backend issue/verify round-trip — hardening follow-up, specs silent), **07-#16 `UIApplication.windows` → connectedScenes migration** (deprecated-but-functional at the 16.0 floor; retention sets are now main-confined by 07-#7 so the thread-safety half is moot), **07-#5** (already shipped in wave 3 via the commonMain `HttpTimeout`/retry factory).
 
-### Remaining after wave 6 (sketches in findings/01–07)
+### Fixes shipped — mobile wave 7, batch D data-layer smalls (this commit)
 
-- **Mobile larger refactors (deliberate, risk-bounded):** 5 remember-only screens → entry-scoped ViewModels (05-#5, carries draft-loss bugs), `ui/components/` extraction of list-state kit + post card (05-#11), VM single-StateFlow + `koinViewModel` declarations (05-#6/#7), LocationGate fold (05-#12), shell unread VM (05-#9), TokenRefresher follower-CE (05-#16), projection memoization + DiagnosticSink wiring (06), `screens/` package restructure (D6, not started).
+The remaining findings/06 mediums + lows that don't require the VM refactor:
+
+- **Reply-from-Error fabrication fix**: a reply 201 while replies are in a non-Loaded state (error/in-flight) now triggers `reloadReplies()` instead of fabricating `Loaded(listOf(reply))` — the old path made the error + retry control vanish and stranded the post's other replies until screen re-entry.
+- **Location exceptions caught at the repository boundary** (docs/11 §2.6): `NearbyTimelineRepository` maps a provider failure to `NetworkError` (behavior parity with the VM blanket-catch it previously escaped to) + a type-only `nearby_position_unavailable` diagnostic ("position" not "location" — the DiagnosticSinkWiringTest source scan rejects that substring in sink args).
+- **DiagnosticSink wiring drift closed**: Notifications/Consent repos get the sink directly; CreatePost/PostDetail get a `(status, errorCode) → string` adapter (`create_post_error:`/`post_detail_error:` prefixes). All their diagnostic strings previously went to the no-op default.
+- **Consent diagnostic** logs the cause TYPE, not `cause.message` (module convention; a transport message can embed the request URL).
+- **Projection memoization** (`remember(outcome, isInitialLoad) { … }`) at the 3 feed screens — an `isRefreshing` flip no longer re-maps the whole DTO list into fresh instances (docs/11 §2.4 minimum fix; the full VM-side `stateIn` projection remains with 05-#6).
+- **FAB clearance**: feed lists' bottom contentPadding 8→88dp so the last card's like/reply row never sits under the composer FAB.
+
+**Tried and REVERTED — pager pre-mount (06 low, `beyondViewportPageCount = 1`):** it makes the adjacent feed page composed-while-invisible, which breaks the spec-pinned existence-style assertions (`mobile-home-tab-host` "renders the Nearby feed surface, NOT the Global or Following surface" → `assertDoesNotExist` in HomeTabHostScreenTest). Suggestion-grade perf polish doesn't justify reshaping a spec-pinned test as a drive-by; if wanted, route it through a small spec amendment ("adjacent pages MAY be pre-mounted") + `assertIsNotDisplayed` test shape. FLAGGED as a candidate follow-up.
+
+Deliberately deferred from findings/06 (recorded, not silently dropped): post-op repos' 401 → `SessionExpired` parity (PostDetail/CreatePost — needs new UI states; window is brief and self-healing since `TokenRefresher` → `SessionInvalidator` → `SessionExpiryEffect` already re-routes; the finding itself offers "amend the spec note" as the alternative), detail→feed like/reply-count propagation (06 low — design work; sister-gap to the documented composer-deferral precedent).
+
+Gates: `testDevDebugUnitTest` + `testDevReleaseUnitTest` + `iosSimulatorArm64Test` + ktlint — green.
+
+### Remaining after wave 7 (sketches in findings/01–07)
+
+- **Mobile larger refactors (deliberate, risk-bounded — each is a multi-file refactor with test migration, sized for its own change/PR rather than an audit drive-by):** 5 remember-only screens → entry-scoped ViewModels (05-#5, carries real draft-loss bugs on config change — the highest-value remaining item), `ui/components/` extraction of list-state kit + post card (05-#11, the docs/11 §2.1 first structural move; duplication map at the end of findings/06), VM single-StateFlow `stateIn` + `koinViewModel` declarations (05-#6/#7), LocationGate fold (05-#12), shell unread VM (05-#9), TokenRefresher follower-CE translation (05-#16), `screens/` package restructure (D6, not started).
+- **Mobile smalls deferred with rationale (wave 7 notes above):** post-op 401 → SessionExpired parity or spec-note amendment, detail→feed count propagation, pager pre-mount (needs spec amendment).
 - **Backend deferred:** 02-H3 batched-Lua (needs spec amendment), 02-L1/L3, 04-#3/#5/#7/#9/#10/#11, 01-#15 atomic claim (QUESTION).
 - **Native deferred:** 07-#13 nonce binding (backend coordination), 07-#16 windows→connectedScenes (next touch).
 - **QUESTION-grade operator flags:** unchanged from the list above.

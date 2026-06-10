@@ -204,12 +204,17 @@ fun PostDetailScreen(
                             // to the END put the user's fresh reply at the BOTTOM of page 1
                             // (2026-06-10 audit, 06 medium).
                             val current = repliesOutcome
-                            repliesOutcome =
-                                if (current is RepliesOutcome.Loaded) {
+                            if (current is RepliesOutcome.Loaded) {
+                                repliesOutcome =
                                     RepliesOutcome.Loaded(listOf(outcome.reply) + current.replies, current.nextCursor)
-                                } else {
-                                    RepliesOutcome.Loaded(listOf(outcome.reply), nextCursor = null)
-                                }
+                            } else {
+                                // Replies never loaded (error/in-flight) but the POST succeeded:
+                                // fabricating Loaded(listOf(reply)) here used to make the error +
+                                // retry control vanish and strand the post's OTHER replies until
+                                // screen re-entry (2026-06-10 audit, 06 medium). Re-fetch instead —
+                                // the fresh page 1 includes the new reply at its true position.
+                                reloadReplies()
+                            }
                             replyCount += 1
                             replyContent = ""
                             replyOutcome = null

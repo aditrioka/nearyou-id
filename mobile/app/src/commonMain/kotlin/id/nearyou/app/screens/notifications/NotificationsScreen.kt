@@ -24,6 +24,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -82,7 +83,7 @@ fun NotificationsScreen() {
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     NotificationsContent(
-        uiState = notificationsUiState(outcome, isInitialLoad),
+        uiState = remember(outcome, isInitialLoad) { notificationsUiState(outcome, isInitialLoad) },
         isRefreshing = isRefreshing,
         // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload
         // path). `next_cursor` is retained on Loaded but NOT consumed for load-more (deferred alongside

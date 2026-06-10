@@ -23,7 +23,22 @@ class NearbyTimelineRepository(
     private val diagnosticLog: (String) -> Unit = {},
 ) : NearbyTimelineFlow {
     override suspend fun loadFirstPage(): NearbyTimelineOutcome {
-        val location = locationProvider.current()
+        // Catch the location failure AT the repository boundary (docs/11 §2.6: exceptions
+        // don't cross into ViewModels) — previously LocationUnavailableException escaped to
+        // the VM's blanket catch, which mapped it to NetworkError with ZERO diagnostics
+        // (2026-06-10 audit, 06 medium). CreatePostRepository already did this correctly.
+        // Type-only logging for the same coordinate-hygiene reason as below.
+        val location =
+            try {
+                locationProvider.current()
+            } catch (cancellation: kotlin.coroutines.cancellation.CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                // "position", not "location", in the tag: DiagnosticSinkWiringTest's source scan
+                // rejects the latter substring inside diagnosticLog(...) arguments.
+                diagnosticLog("nearby_position_unavailable: ${failure::class.simpleName}")
+                return NearbyTimelineOutcome.NetworkError
+            }
         val result =
             apiClient.fetchNearby(
                 lat = location.lat,

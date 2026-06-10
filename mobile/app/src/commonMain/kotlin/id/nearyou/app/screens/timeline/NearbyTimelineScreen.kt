@@ -165,7 +165,7 @@ private fun NearbyFeed(
     NearbyTimelineContent(
         // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
         // list stays mounted). The refresh spinner is conveyed by isRefreshing, NOT by this projection.
-        uiState = nearbyTimelineUiState(outcome, isInitialLoad),
+        uiState = remember(outcome, isInitialLoad) { nearbyTimelineUiState(outcome, isInitialLoad) },
         isRefreshing = isRefreshing,
         // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload
         // path). `next_cursor` is retained on Loaded but NOT consumed for load-more (deferred to
@@ -361,7 +361,10 @@ private fun PostList(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag(NEARBY_TIMELINE_LIST_TAG),
-        contentPadding = PaddingValues(vertical = 8.dp),
+        // Bottom clearance for the shell's overlaid composer FAB (56dp + 16 margin + breathing
+        // room) so the last card's like/reply row never sits under it at scroll end
+        // (2026-06-10 audit, 06 low).
+        contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp),
     ) {
         if (banner != null) {
             item {
