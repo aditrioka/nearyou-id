@@ -25,7 +25,7 @@ Verified 2026-06-10. Current pins that are **correct and current**: CMP `1.11.1`
 | `kotlin` | 2.3.20 → 2.3.21 | drop-in patch |
 | `kotlinx-coroutines` / `-serialization` / `-datetime` | 1.10.2→1.11.0 / 1.9.0→1.11.0 / 0.7.1→0.8.0 | bumped together (one PR); serialization 1.11 hides user input from JSON exception messages (PII-safe logs for a social app) |
 | `material3` (JetBrains) | 1.10.0-alpha05 → 1.11.0-alpha07 | the CMP-1.11.x-aligned M3 artifact; alpha line is deliberate (stable 1.9.0 strips Expressive APIs) |
-| `opentelemetry-bom` / instrumentation | 1.51.0→1.63.0 / 2.25.0-alpha→2.28.1-alpha | instrumentation 2.26.1 fixed CVE-2026-33701; BOMs move in lockstep |
+| `opentelemetry-bom` / instrumentation | 1.51.0→1.62.0 / 2.25.0-alpha→2.28.1-alpha | instrumentation 2.26.1 fixed CVE-2026-33701; SDK BOM pinned to what the instrumentation BOM requests (1.62.0), never ahead of it — api-internal classes churn between SDK minors (1.63 broke 2.28.1 at runtime) |
 | `lettuce` | 6.5.0 → 6.8.2 | last 6.x line; 7.x is a major (deferred) |
 | `hikaricp` | 6.3.2 → 6.3.3 | last 6.x patch; 7.x deferred |
 

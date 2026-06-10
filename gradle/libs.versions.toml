@@ -22,7 +22,7 @@ detekt = "1.23.8"
 firebase-admin = "9.8.0"
 flyway = "11.10.5"
 h2database = "2.4.240"
-hikaricp = "6.3.2"
+hikaricp = "6.3.3"
 junit = "4.13.2"
 # Koin bumped 4.1.0 → 4.2.1 by `mobile-nav-swap-to-navigation3`: the official
 # `io.insert-koin:koin-compose-navigation3` integration has no 4.1.x line (earliest release
@@ -33,22 +33,35 @@ junit = "4.13.2"
 # the `:backend:ktor:test` gate guards backend behavior.
 koin = "4.2.1"
 kotest = "5.9.1"
-kotlin = "2.3.20"
-kotlinx-coroutines = "1.10.2"
-kotlinx-datetime = "0.7.1"
-kotlinx-serialization = "1.9.0"
+# 2026-06-10 holistic-audit currency batch (docs/11 §1 + docs/09 batch note): kotlin 2.3.20→2.3.21
+# (patch), kotlinx trio bumped together (coroutines/serialization/datetime), ktor 3.4.1→3.5.0
+# (3.4.3 fixed the HttpRequestLifecycle × CallLogging.callIdMdc cascading-failure bug in our
+# exact plugin set; 3.5.0 is current stable, verified 2026-06-10).
+kotlin = "2.3.21"
+kotlinx-coroutines = "1.11.0"
+kotlinx-datetime = "0.8.0"
+kotlinx-serialization = "1.11.0"
 ktlint-plugin = "12.1.2"
-ktor = "3.4.1"
+ktor = "3.5.0"
 robolectric = "4.14.1"
-lettuce = "6.5.0.RELEASE"
+# Lettuce: last 6.x line (7.x is a major — deferred, docs/11 §1). Hikari 6.3.3 = last 6.x patch.
+lettuce = "6.8.2.RELEASE"
 logback = "1.5.32"
-opentelemetry-bom = "1.51.0"
-opentelemetry-instrumentation-bom = "2.25.0-alpha"
+# OTel BOMs move in lockstep — and the SDK BOM must match what the instrumentation BOM
+# REQUESTS (2.28.1-alpha → opentelemetry-bom 1.62.0), never ahead of it: api-internal classes
+# churn between SDK minors (api 1.63 dropped io.opentelemetry.api.internal.InstrumentationUtil
+# that instrumentation 2.28.1's SpanSuppressors needs — caught by the test gate 2026-06-10).
+# Instrumentation 2.26.1+ fixes CVE-2026-33701.
+opentelemetry-bom = "1.62.0"
+opentelemetry-instrumentation-bom = "2.28.1-alpha"
 password4j = "1.8.4"
 samstevens-totp = "1.7.1"
 slf4j = "2.0.16"
-material3 = "1.10.0-alpha05"
-postgresql-jdbc = "42.7.7"
+                          # M3 alpha line is deliberate (stable strips Expressive APIs); 1.11.0-alpha07
+                          # is the CMP-1.11.x-aligned artifact (verified 2026-06-10, docs/11 §1).
+material3 = "1.11.0-alpha07"
+# pgjdbc 42.7.11 fixes CVE-2026-42198 (SCRAM PBKDF2 iteration DoS) — security, immediate.
+postgresql-jdbc = "42.7.11"
 # Navigation 3 — JetBrains Compose Multiplatform port of AndroidX Navigation 3
 # (`org.jetbrains.androidx.navigation3`). Replaces Voyager via `mobile-nav-swap-to-navigation3`
 # (the archived `mobile-app-scaffold-replace-wizard` Decision 1 pre-authorized the swap once
