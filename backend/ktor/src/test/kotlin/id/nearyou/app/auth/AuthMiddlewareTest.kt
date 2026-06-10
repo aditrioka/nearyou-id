@@ -37,7 +37,7 @@ class AuthMiddlewareTest : StringSpec({
             application {
                 install(ContentNegotiation) { json() }
                 install(io.ktor.server.auth.Authentication) {
-                    configureUserJwt(keys, users) { now }
+                    configureUserJwt(keys, users, nowProvider = { now })
                 }
                 routing {
                     authenticate(AUTH_PROVIDER_USER) {
@@ -92,6 +92,16 @@ class AuthMiddlewareTest : StringSpec({
         }
     }
 
+    "soft-deleted user → 401 token_revoked (deletion is terminal even if token_version was not bumped)" {
+        val user = userRow(deletedAt = now.minusSeconds(60))
+        setup(InMemoryUsers(listOf(user))) {
+            val token = issuer.issueAccessToken(user.id, tokenVersion = user.tokenVersion)
+            val response = client.get("/secret") { bearerAuth(token) }
+            response.status shouldBe HttpStatusCode.Unauthorized
+            response.bodyAsText() shouldContain "token_revoked"
+        }
+    }
+
     "missing Authorization header → 401 token_revoked (default fallback)" {
         setup(InMemoryUsers()) {
             val response = client.get("/secret")
@@ -120,7 +130,7 @@ class AuthMiddlewareTest : StringSpec({
             application {
                 install(ContentNegotiation) { json() }
                 install(io.ktor.server.auth.Authentication) {
-                    configureUserJwt(keys, InMemoryUsers(listOf(user))) { now }
+                    configureUserJwt(keys, InMemoryUsers(listOf(user)), nowProvider = { now })
                 }
                 routing {
                     authenticate(AUTH_PROVIDER_USER) {
@@ -146,7 +156,7 @@ class AuthMiddlewareTest : StringSpec({
             application {
                 install(ContentNegotiation) { json() }
                 install(io.ktor.server.auth.Authentication) {
-                    configureUserJwt(keys, InMemoryUsers(listOf(user))) { now }
+                    configureUserJwt(keys, InMemoryUsers(listOf(user)), nowProvider = { now })
                 }
                 routing {
                     authenticate(AUTH_PROVIDER_USER) {

@@ -61,3 +61,22 @@ class StubRemoteConfig : RemoteConfig {
 
     override fun getBoolean(key: String): Boolean? = null
 }
+
+/**
+ * Bridges the `:infra:remote-config` Firebase Admin SDK client onto the backend
+ * [RemoteConfig] port. Wired for non-test environments by `Application.kt`.
+ * (2026-06-10 audit: [StubRemoteConfig] had stayed bound in production after the
+ * Firebase client landed in-process for the moderation pipeline, leaving the
+ * `search_enabled` kill switch + `premium_*_cap_override` flags permanently inert.)
+ *
+ * Failure semantics per the [RemoteConfig] contract: any client throwable maps
+ * to `null` (call sites fall through to their documented defaults), never
+ * propagates to the request.
+ */
+class RemoteConfigClientAdapter(
+    private val client: id.nearyou.app.infra.remoteconfig.RemoteConfigClient,
+) : RemoteConfig {
+    override fun getLong(key: String): Long? = runCatching { client.fetchInt(key)?.toLong() }.getOrNull()
+
+    override fun getBoolean(key: String): Boolean? = runCatching { client.fetchBoolean(key) }.getOrNull()
+}

@@ -63,7 +63,7 @@ class SignInFlowTest : StringSpec({
             application {
                 install(ContentNegotiation) { json() }
                 install(Authentication) {
-                    configureUserJwt(keys, users) { now }
+                    configureUserJwt(keys, users, nowProvider = { now })
                 }
                 authRoutes(
                     Providers(google = verifier, apple = verifier),

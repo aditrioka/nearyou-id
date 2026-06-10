@@ -139,6 +139,12 @@ class JdbcUserFollowsRepository(
         follower: UUID,
         followee: UUID,
     ): Boolean {
+        // Serialize against a concurrent block on the same pair: without the
+        // pair lock, this SELECT-blocks-then-INSERT-follow can fully interleave
+        // with JdbcUserBlockRepository.create's INSERT-block + DELETE-follows
+        // under READ COMMITTED, committing a follow edge alongside a block —
+        // the stale edge then resurrects on unblock (2026-06-10 audit, 03-#4).
+        id.nearyou.app.infra.db.UserPairLock.acquire(conn, follower, followee)
         conn.prepareStatement(
             """
             SELECT 1 FROM user_blocks

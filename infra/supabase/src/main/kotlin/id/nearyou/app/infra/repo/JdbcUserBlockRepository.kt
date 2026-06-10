@@ -27,6 +27,10 @@ class JdbcUserBlockRepository(
         dataSource.connection.use { conn ->
             conn.autoCommit = false
             try {
+                // Pair lock serializes against a concurrent follow on the same
+                // pair (see JdbcUserFollowsRepository.followInTx + UserPairLock
+                // KDoc — 2026-06-10 audit, finding 03-#4).
+                id.nearyou.app.infra.db.UserPairLock.acquire(conn, blockerId, blockedId)
                 val inserted =
                     conn.prepareStatement(
                         "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT (blocker_id, blocked_id) DO NOTHING",

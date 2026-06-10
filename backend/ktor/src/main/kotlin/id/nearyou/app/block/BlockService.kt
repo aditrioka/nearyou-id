@@ -3,6 +3,9 @@ package id.nearyou.app.block
 import id.nearyou.app.common.Cursor
 import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserBlockRow
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.sql.SQLException
 import java.util.UUID
 
@@ -18,29 +21,50 @@ import java.util.UUID
  */
 class BlockService(
     private val blocks: UserBlockRepository,
+    // docs/02 §4 + docs/05 § Block 30/h cap (2026-06-10 audit, finding 03-#3).
+    private val rateLimiter: BlockRateLimiter = BlockRateLimiter(),
+    // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes
+    // DbDispatchers.db — the default keeps direct-construction tests working.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    fun block(
+    suspend fun block(
         blockerId: UUID,
         targetId: UUID,
     ) {
         if (blockerId == targetId) throw CannotBlockSelfException()
+        checkRateLimit(blockerId)
         try {
-            blocks.create(blockerId, targetId)
+            withContext(dbDispatcher) { blocks.create(blockerId, targetId) }
         } catch (ex: SQLException) {
             if (ex.sqlState == "23503") throw TargetUserNotFoundException()
             throw ex
         }
     }
 
-    fun unblock(
+    suspend fun unblock(
         blockerId: UUID,
         targetId: UUID,
     ) {
+        // Shares the block bucket — both legs of a block↔unblock loop burn quota.
+        checkRateLimit(blockerId)
         // Idempotent: 204 regardless of whether a row was deleted.
-        blocks.delete(blockerId, targetId)
+        withContext(dbDispatcher) { blocks.delete(blockerId, targetId) }
     }
 
-    fun listOutbound(
+    private fun checkRateLimit(userId: UUID) {
+        when (val outcome = rateLimiter.tryAcquire(userId)) {
+            is BlockRateLimiter.Outcome.Allowed -> Unit
+            is BlockRateLimiter.Outcome.RateLimited ->
+                throw BlockRateLimitedException(outcome.retryAfterSeconds)
+        }
+    }
+
+    suspend fun listOutbound(
+        blockerId: UUID,
+        cursor: Cursor?,
+    ): OutboundBlocksPage = withContext(dbDispatcher) { listOutboundBlocking(blockerId, cursor) }
+
+    private fun listOutboundBlocking(
         blockerId: UUID,
         cursor: Cursor?,
     ): OutboundBlocksPage {
@@ -75,5 +99,9 @@ data class OutboundBlocksPage(
 )
 
 class CannotBlockSelfException : RuntimeException("cannot block self")
+
+class BlockRateLimitedException(
+    val retryAfterSeconds: Long,
+) : RuntimeException("block rate limit exceeded")
 
 class TargetUserNotFoundException : RuntimeException("target user not found")

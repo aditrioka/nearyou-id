@@ -14,6 +14,9 @@ import io.ktor.server.auth.jwt.JWTCredential
 import io.ktor.server.auth.jwt.jwt
 import io.ktor.server.response.respond
 import io.ktor.util.AttributeKey
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.UUID
 
@@ -54,9 +57,13 @@ fun Application.installAuth(
     keys: RsaKeyLoader,
     users: UserRepository,
     nowProvider: () -> Instant = Instant::now,
+    // Production MUST pass the pool-bounded dispatcher (docs/11 §3.2) — the
+    // Application.kt call site does. The default exists for the many test
+    // co-mounts that don't exercise pool contention.
+    dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     install(Authentication) {
-        configureUserJwt(keys, users, nowProvider)
+        configureUserJwt(keys, users, nowProvider, dbDispatcher)
     }
 }
 
@@ -64,6 +71,9 @@ internal fun AuthenticationConfig.configureUserJwt(
     keys: RsaKeyLoader,
     users: UserRepository,
     nowProvider: () -> Instant,
+    // Default kept for the many test co-mounts that call this 3-arg; production
+    // wiring (installAuth) always passes the pool-bounded dispatcher (docs/11 §3.2).
+    dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     jwt(AUTH_PROVIDER_USER) {
         val verifier = JWT.require(Algorithm.RSA256(keys.publicKey, keys.privateKey)).build()
@@ -81,9 +91,18 @@ internal fun AuthenticationConfig.configureUserJwt(
                     this.attributes.put(AuthFailureKey, "token_revoked")
                     return@validate null
                 }
-            val user = users.findById(userId)
+            // Blocking JDBC hops to the pool-bounded dispatcher — this runs on EVERY
+            // authenticated request and must never occupy a Netty call thread (docs/11 §3.2).
+            val user = withContext(dbDispatcher) { users.findById(userId) }
             when {
                 user == null -> {
+                    this.attributes.put(AuthFailureKey, "token_revoked")
+                    null
+                }
+                user.deletedAt != null -> {
+                    // Soft-deleted accounts are terminal. Deletion flows bump
+                    // token_version, but a missed bump must not leave a live session
+                    // (defense-in-depth; the account-deletion flow ships later).
                     this.attributes.put(AuthFailureKey, "token_revoked")
                     null
                 }

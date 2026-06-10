@@ -6,15 +6,16 @@ Status legend: `[ ]` pending · `[~]` review done, fixes in progress · `[x]` re
 
 ## Backend (`:backend:ktor` + `:infra:*`) — performance focus
 
-- [ ] B1. Auth (signin/signup/refresh, JWT issue/verify, sessions)
-- [ ] B2. Post (create, detail, delete) + engagement (likes, replies)
-- [ ] B3. Timelines (nearby / following / global) — query shapes, pagination, N+1
-- [ ] B4. Social graph (follow, block) + user/profile
-- [ ] B5. Chat (REST write path + broadcast publish)
-- [ ] B6. Search + notifications
-- [ ] B7. Moderation, reports, guard (rate limits), health, internal
-- [ ] B8. Cross-cutting: DB access layer (Hikari config, dispatchers, transaction discipline), Redis usage, serialization config, StatusPages/error envelope, Koin wiring, Application bootstrap
-- [ ] B9. Admin package (light pass — deferred surface, invariants only)
+Review pass: DONE for all areas (7 findings files under `findings/`). Fix status below.
+
+- [~] B1. Auth — REVIEWED+PARTIAL: AuthPlugin deletedAt gate + bounded-dispatcher hop + verifier-instance reuse DONE; Apple-S2S OIDC-capture fix DONE (per-subtree gate + InternalRoutingIsolationTest); shared-httpClient timeout DONE; single Apple JwksCache DONE. REMAINING: JwksCache negative-cache/single-flight (01-#6 part), RefreshTokenService atomic claim (01-#15), signup 23505 conflation (01-#13), kid env-config (01-#23), auth-route dispatcher wraps (AuthRoutes/SignupService bodies)
+- [~] B2/B3. Post + engagement + timelines — REVIEWED (findings/02): CRITICAL visible_posts shadow-ban gap + H1 deleted_at predicate + H3 batched-Lua + H4 daily-window bug + post-create cap PENDING (wave 2; needs migration + spec amendments)
+- [x] B4. Social graph + user/profile — follow/block 50/h+30/h limiters shipped (FollowRateLimiter/BlockRateLimiter + 429 routes + SocialGraphRateLimitTest); follow-vs-block advisory pair-lock (UserPairLock, both repos); services suspend + pool-bounded dispatcher; UserProfileService dispatcher; ActorUsernameLookup annotation repositioned. DEFERRED-FLAGGED: /followers oracle differential (03-#5, QUESTION), bare-ID list N+1 (03-#6 → needs OpenSpec contract change)
+- [x] B5. Chat — ChatService suspend + bounded dispatcher (all 4 ops); premium-badge formula aligned to D2; `left_at IS NULL` on partner join. REMAINING (wave 2, 03-#1): moderation verdict computed pre-transaction
+- [x] B6. Search + notifications — SearchService/NotificationService bounded dispatcher + suspend; notification unknown-type SQL filter (cursor-truncation fix); Fcm/Consent repos dispatcher
+- [ ] B7. Moderation, reports, guard, health, internal — findings/04 read pending triage (wave 2)
+- [~] B8. Cross-cutting — DONE: DbDispatchers (pool-sized, DI), Hikari contract (10/maxLifetime/leak/prepareThreshold=0), shutdown grace, CallId+callIdMdc+Compression, StatusPages fixed-message+stack-log, flyway conditional repair, single Lettuce client (RedisHandles), StubRemoteConfig→real adapter (FLAGGED), version currency batch. REMAINING: shared AppJson consolidation (01-#14), engagement/timeline/moderation dispatcher swaps (wave 2 w/ R2 fixes)
+- [ ] B9. Admin package — findings/04 light pass pending triage
 
 ## Mobile shared (`:mobile:app` commonMain + `:shared:resources`) — coherence focus
 

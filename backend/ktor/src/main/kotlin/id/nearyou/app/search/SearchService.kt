@@ -3,6 +3,7 @@ package id.nearyou.app.search
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.data.repository.SearchHit
 import id.nearyou.data.repository.SearchRepository
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
@@ -50,6 +51,9 @@ class SearchService(
     private val repository: SearchRepository,
     private val rateLimiter: SearchRateLimiter,
     private val remoteConfig: RemoteConfig,
+    // Pool-bounded JDBC/Redis-sync dispatcher (docs/11 §3.2); production passes
+    // DbDispatchers.db — the default keeps direct-construction tests working.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /**
      * Outcome of a search attempt. The HTTP layer maps each variant to a
@@ -120,7 +124,7 @@ class SearchService(
         //    SearchRateLimiter wraps the shared `RateLimiter` interface (Redis-
         //    backed in production, InMemory in tests).
         val outcome =
-            withContext(Dispatchers.IO) {
+            withContext(dbDispatcher) {
                 rateLimiter.tryAcquire(viewerId)
             }
         when (outcome) {
@@ -134,7 +138,7 @@ class SearchService(
         //    does not stall Ktor's coroutine dispatcher. The repository owns
         //    its own connection.use {} so the pool is returned promptly.
         val hits =
-            withContext(Dispatchers.IO) {
+            withContext(dbDispatcher) {
                 repository.search(viewerId, normalized, offset)
             }
         // next_offset: when the page is full (size == PAGE_SIZE), there MAY be

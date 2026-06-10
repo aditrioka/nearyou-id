@@ -1,9 +1,13 @@
 package id.nearyou.app.admin
 
+import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
+import id.nearyou.app.internal.InternalEndpointAuth
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.install
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
+import io.ktor.server.routing.route
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -26,9 +30,15 @@ data class UnbanWorkerResponse(
 private data class ErrorResponse(val error: String)
 
 /**
- * Mounts `POST /unban-worker` under the parent `route("/internal")` block. The
- * `/internal` prefix and OIDC auth come from the parent block — this function
- * just adds the handler.
+ * Mounts `POST /unban-worker` under the parent `route("/internal")` block and
+ * installs the OIDC gate on ITS OWN subtree (per the `internal-endpoint-auth`
+ * spec scenario "the InternalEndpointAuth plugin is mounted on
+ * `/internal/unban-worker`"). The gate MUST NOT be installed on the shared
+ * `/internal` node: Ktor merges identical path segments across separate
+ * `routing {}` blocks, so a plugin on the shared node would also capture
+ * vendor-auth webhooks (`/internal/apple/s2s-notifications` authenticates via
+ * Apple-signed payload, not Google OIDC) — they would 401 before their own
+ * verification ran. Regression guard: `InternalRoutingIsolationTest`.
  *
  * Response shape on success: `200 OK` with body `{"unbannedCount": N}`. On any
  * thrown exception: `500` with body `{"error": "<classification>"}` where
@@ -40,8 +50,20 @@ private data class ErrorResponse(val error: String)
  * did not extract a reusable helper). Once a third call site lands, this could
  * be promoted to a shared utility (rule of three).
  */
-fun Route.unbanWorkerRoute(worker: SuspensionUnbanWorker) {
-    post("/unban-worker") {
+fun Route.unbanWorkerRoute(
+    worker: SuspensionUnbanWorker,
+    oidcVerifier: OidcTokenVerifier,
+) {
+    route("/unban-worker") {
+        install(InternalEndpointAuth) { verifier = oidcVerifier }
+        post {
+            handleUnbanWorker(worker)
+        }
+    }
+}
+
+private suspend fun io.ktor.server.routing.RoutingContext.handleUnbanWorker(worker: SuspensionUnbanWorker) {
+    run {
         val result =
             try {
                 worker.execute()
@@ -56,7 +78,7 @@ fun Route.unbanWorkerRoute(worker: SuspensionUnbanWorker) {
                     e,
                 )
                 call.respond(HttpStatusCode.InternalServerError, ErrorResponse(error = classification))
-                return@post
+                return@run
             }
 
         val cappedIds = result.unbannedUserIds.take(MAX_LOGGED_USER_IDS).map { it.toString() }

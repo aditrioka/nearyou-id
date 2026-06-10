@@ -9,10 +9,12 @@ import id.nearyou.data.repository.FollowBlockedException
 import id.nearyou.data.repository.ProfileUserNotFoundException
 import id.nearyou.data.repository.UserNotFoundException
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.delete
@@ -56,6 +58,10 @@ fun Application.followRoutes(service: FollowService) {
                 } catch (_: UserNotFoundException) {
                     call.respondError(HttpStatusCode.NotFound, "user_not_found", "Target user does not exist.")
                     return@post
+                } catch (e: FollowRateLimitedException) {
+                    call.response.header(HttpHeaders.RetryAfter, e.retryAfterSeconds.toString())
+                    call.respondError(HttpStatusCode.TooManyRequests, "rate_limited", "Too many follow changes. Try again later.")
+                    return@post
                 } catch (_: FollowBlockedException) {
                     // Constant body, no direction hint — see KDoc above.
                     call.respondText(
@@ -79,7 +85,13 @@ fun Application.followRoutes(service: FollowService) {
                         call.respondError(HttpStatusCode.BadRequest, "invalid_request", "user_id must be a UUID.")
                         return@delete
                     }
-                service.unfollow(principal.userId, target)
+                try {
+                    service.unfollow(principal.userId, target)
+                } catch (e: FollowRateLimitedException) {
+                    call.response.header(HttpHeaders.RetryAfter, e.retryAfterSeconds.toString())
+                    call.respondError(HttpStatusCode.TooManyRequests, "rate_limited", "Too many follow changes. Try again later.")
+                    return@delete
+                }
                 call.respond(HttpStatusCode.NoContent)
             }
         }

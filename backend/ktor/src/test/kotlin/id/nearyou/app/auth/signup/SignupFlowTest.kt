@@ -228,7 +228,7 @@ class SignupFlowTest : StringSpec({
             application {
                 install(ContentNegotiation) { json() }
                 install(Authentication) {
-                    configureUserJwt(keys, users) { fixedClock.instant() }
+                    configureUserJwt(keys, users, nowProvider = { fixedClock.instant() })
                 }
                 signupRoutes(svc)
                 authRoutes(

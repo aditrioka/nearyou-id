@@ -17,7 +17,6 @@ import id.nearyou.app.auth.jwt.TestKeys
 import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
 import id.nearyou.app.infra.repo.JdbcUserRepository
-import id.nearyou.app.internal.InternalEndpointAuth
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -217,8 +216,9 @@ class UnbanWorkerRouteTest : StringSpec({
                     // /health/live to verify regression in 9.22.
                     healthLiveStub()
                     route("/internal") {
-                        install(InternalEndpointAuth) { this.verifier = customVerifier }
-                        unbanWorkerRoute(customWorker)
+                        // Gate now installed INSIDE unbanWorkerRoute on its own
+                        // subtree (production shape — see UnbanWorkerRoute KDoc).
+                        unbanWorkerRoute(customWorker, customVerifier)
                     }
                 }
             }
