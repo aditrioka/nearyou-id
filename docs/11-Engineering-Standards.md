@@ -123,6 +123,7 @@ consumption guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
 - Mockups are HTML/CSS approximations: treat spacing/sizing as **dp intent on the 4dp grid**, not
   pixel-perfect contracts; the M3 component named in the caption is the source of truth for its
   metrics.
+- Admin-panel counterpart of this rule: § 3.6.
 
 ## 3. Backend architecture contract (`:backend:ktor` + `:infra:*`)
 
@@ -155,6 +156,33 @@ consumption guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
 ### 3.5 Backend testing
 
 - kotest JUnit5 specs; `@Tags("database")` for service-container tests; deterministic seed-table inputs (deep-ocean coords pattern — project.md § Test-data conventions); migrations boot once per JVM via `KotestProjectConfig`.
+
+### 3.6 Admin panel UI (Pebble + HTMX) — mockup reference (canonical visual target)
+
+[`dev/mockups/nearyou-admin-mockup.html`](../dev/mockups/nearyou-admin-mockup.html) is the
+**canonical visual reference** for every `/admin/*` surface — a 23-frame board covering ALL admin
+features (shipped and planned), rendered from the same theme tokens as the mobile board
+(`NearYouColorScheme.light`, Plus Jakarta Sans, brand logo vector). Frame inventory + consumption
+guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
+
+- **Every admin-UI-affecting change (proposal AND implementation — whatever the skill) MUST
+  consult the matching frame(s) before building.** Render the HTML (browser / preview / headless
+  Chrome screenshot — agent's choice), then translate to the panel's idioms: Pebble templates +
+  HTMX fragment swaps (with the existing no-JS fallback discipline) + **vendored vanilla CSS**
+  (design tokens as CSS custom properties copied from the board's `.frame` block). No client
+  framework, no CDN assets, no inline styles in production templates.
+- **Status tags are load-bearing.** "Sudah ada" frames mirror shipped `templates/admin/*.peb`
+  fields/columns/actions — their *styling* is the target, their *content contract* is already
+  spec-bound (restyling them is a regular PR). "Usulan" frames (and "Usulan" elements inside
+  shipped frames) need their OpenSpec change / design doc before any of their behavior ships.
+- **Responsive contract (frame 4b).** Panel CSS is fluid via vanilla media queries: sidebar →
+  hamburger drawer below ~1024 px, filter bars collapse to a "Filters (n)" disclosure + active
+  chips, queue/triage surfaces are card-based (stack naturally), data tables get
+  `overflow-x:auto` below ~900 px. Board frames are fixed-width *snapshots* of that contract —
+  never implement fixed-width layouts from them.
+- **Precedence**: `openspec/specs/admin-*` + `docs/07-Operations.md` govern *behavior*; the board
+  governs *look and layout*. On conflict, specs/docs win — flag the divergence instead of
+  silently following the mockup.
 
 ## 4. Cross-cutting engineering principles
 
