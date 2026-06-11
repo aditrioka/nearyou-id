@@ -34,6 +34,7 @@ import id.nearyou.app.chat.chatRoutes
 import id.nearyou.app.common.AppJson
 import id.nearyou.app.common.ClientIpExtractorPlugin
 import id.nearyou.app.common.DbDispatchers
+import id.nearyou.app.common.installAppStatusPages
 import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.config.RemoteConfigClientAdapter
@@ -55,9 +56,7 @@ import id.nearyou.app.follow.FollowRateLimiter
 import id.nearyou.app.follow.FollowService
 import id.nearyou.app.follow.followRoutes
 import id.nearyou.app.follow.userSocialRoutes
-import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentLengthGuard
-import id.nearyou.app.guard.ContentTooLongException
 import id.nearyou.app.guard.installContentLengthGuard
 import id.nearyou.app.health.JdbcPostgresProbe
 import id.nearyou.app.health.KtorSupabaseRealtimeProbe
@@ -128,10 +127,7 @@ import id.nearyou.app.notifications.NoopNotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.notifications.NotificationService
 import id.nearyou.app.notifications.notificationRoutes
-import id.nearyou.app.post.ContentModeratedProfanityException
 import id.nearyou.app.post.CreatePostService
-import id.nearyou.app.post.LocationOutOfBoundsException
-import id.nearyou.app.post.PostRateLimitedException
 import id.nearyou.app.post.PostRateLimiter
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.search.SearchRateLimiter
@@ -169,7 +165,6 @@ import id.nearyou.data.repository.UserProfileReader
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -179,11 +174,6 @@ import io.ktor.server.plugins.callid.callIdMdc
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.compression.Compression
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.plugins.statuspages.StatusPages
-import io.ktor.server.request.httpMethod
-import io.ktor.server.request.path
-import io.ktor.server.response.header
-import io.ktor.server.response.respond
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.launch
@@ -245,99 +235,7 @@ fun Application.module() {
     // Timeline/chat JSON compresses well and Cloud Run egress is billed (docs/11 §3.3).
     install(Compression)
 
-    install(StatusPages) {
-        exception<ContentEmptyException> { call, _ ->
-            call.respond(
-                HttpStatusCode.BadRequest,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "content_empty",
-                            "message" to "Content is required.",
-                        ),
-                ),
-            )
-        }
-        exception<ContentTooLongException> { call, cause ->
-            call.respond(
-                HttpStatusCode.BadRequest,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "content_too_long",
-                            "message" to "Content exceeds the maximum of ${cause.limit} characters.",
-                        ),
-                ),
-            )
-        }
-        exception<LocationOutOfBoundsException> { call, _ ->
-            call.respond(
-                HttpStatusCode.BadRequest,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "location_out_of_bounds",
-                            "message" to "Coordinate is outside the supported region.",
-                        ),
-                ),
-            )
-        }
-        // Layer 1 profanity hit per `content-moderation-keyword-lists` Verdict.Reject.
-        // The matched keyword list intentionally does NOT appear in the response body
-        // — see `### Requirement: User-facing rejection message is in Bahasa Indonesia,
-        // omits matched keywords`. The exception's matchedKeywords field is captured by
-        // the TextModerator's Sentry breadcrumb, NOT by this StatusPages handler.
-        exception<ContentModeratedProfanityException> { call, _ ->
-            call.respond(
-                HttpStatusCode.BadRequest,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "content_moderated_profanity",
-                            "message" to "Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi.",
-                        ),
-                ),
-            )
-        }
-        // docs/05 § Layer 2 daily post cap (2026-06-10 audit, 02-M2). Same
-        // 429 + Retry-After shape as the like/reply/report limiters.
-        exception<PostRateLimitedException> { call, cause ->
-            call.response.header(HttpHeaders.RetryAfter, cause.retryAfterSeconds.toString())
-            call.respond(
-                HttpStatusCode.TooManyRequests,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "rate_limited",
-                            "message" to "Too many posts today. Try again after the daily reset.",
-                        ),
-                ),
-            )
-        }
-        exception<Throwable> { call, cause ->
-            // Fixed message — echoing cause.message leaks Hikari/PSQL/Lettuce
-            // internals to clients (docs/11 §3.3). This handler is also the ONLY
-            // place the 500's stack trace reaches the logs (CallLogging records
-            // the status line only). Path (no query string — nearby-timeline
-            // queries carry coordinates) + method give the correlation handle.
-            org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").error(
-                "event=unhandled_exception method={} path={}",
-                call.request.httpMethod.value,
-                call.request.path(),
-                cause,
-            )
-            call.respond(
-                HttpStatusCode.InternalServerError,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "internal_error",
-                            "message" to "Internal server error",
-                        ),
-                ),
-            )
-        }
-    }
+    installAppStatusPages()
 
     val dbConfig =
         DbConfig(

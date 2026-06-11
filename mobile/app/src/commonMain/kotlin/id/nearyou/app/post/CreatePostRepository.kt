@@ -87,6 +87,10 @@ class CreatePostRepository(
                         PostCreationOutcome.Error
                     }
                 }
+            // 429 — the daily post cap (docs/05 Layer 2; backend returns Retry-After + the
+            // rate_limited envelope). A distinct outcome, NOT the retryable fallthrough: retrying
+            // cannot succeed before the daily reset, and the network-error copy misleads.
+            error.status == 429 -> PostCreationOutcome.RateLimited
             // 5xx (server-side) → retryable. Kept as an explicit arm rather than folded into `else`
             // to mirror NearbyTimelineRepository and leave a self-documenting slot for a future
             // distinct 5xx outcome.

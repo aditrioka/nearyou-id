@@ -35,6 +35,7 @@ import id.nearyou.resources.generated.resources.post_create_content_placeholder
 import id.nearyou.resources.generated.resources.post_create_error_empty
 import id.nearyou.resources.generated.resources.post_create_error_location
 import id.nearyou.resources.generated.resources.post_create_error_moderated
+import id.nearyou.resources.generated.resources.post_create_error_rate_limited
 import id.nearyou.resources.generated.resources.post_create_error_too_long
 import id.nearyou.resources.generated.resources.post_create_loading
 import id.nearyou.resources.generated.resources.post_create_location_unavailable
@@ -123,6 +124,7 @@ fun PostCreationScreen(onPostCreated: () -> Unit) {
                 PostCreationBanner.CONTENT_REJECTED -> stringResource(Res.string.post_create_error_moderated)
                 PostCreationBanner.LOCATION_UNAVAILABLE -> stringResource(Res.string.post_create_location_unavailable)
                 PostCreationBanner.NETWORK -> stringResource(Res.string.signin_error_network)
+                PostCreationBanner.RATE_LIMITED -> stringResource(Res.string.post_create_error_rate_limited)
             }
         }
 

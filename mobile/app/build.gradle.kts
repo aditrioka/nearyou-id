@@ -172,7 +172,13 @@ android {
         create("dev") {
             dimension = "env"
             applicationIdSuffix = ".dev"
-            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080\"")
+            // Default 10.0.2.2 = the EMULATOR-only host-loopback alias. A physical device
+            // reaches the local backend via `adb reverse tcp:8080 tcp:8080` + this override:
+            //   ./gradlew :mobile:app:installDevDebug -PdevApiBaseUrl=http://localhost:8080
+            // (cleartext for the local hosts is allowlisted in the dev overlay's
+            // network_security_config.xml; staging/production are unaffected).
+            val devApiBaseUrl = (project.findProperty("devApiBaseUrl") as String?) ?: "http://10.0.2.2:8080"
+            buildConfigField("String", "API_BASE_URL", "\"$devApiBaseUrl\"")
             buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"REPLACE_WITH_DEV_SERVER_CLIENT_ID.apps.googleusercontent.com\"")
         }
         create("staging") {

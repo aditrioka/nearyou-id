@@ -205,6 +205,24 @@ class CreatePostRepositoryTest {
         }
 
     @Test
+    fun `429 daily cap maps to RateLimited instead of the NetworkError fallthrough`() =
+        runTest {
+            // 2026-06-11 device-verification regression: the docs/05 Layer-2 daily post cap
+            // (backend wave-2 of the audit) returned 429 but the client rendered the
+            // misleading "periksa koneksi internet" copy via the unenumerated-status arm.
+            val controller = FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
+            val repo =
+                repository(controller, CountingLocationProvider()) {
+                    respond(
+                        """{"error":{"code":"rate_limited","message":"Too many posts today."}}""",
+                        HttpStatusCode.TooManyRequests,
+                        JSON_HEADERS,
+                    )
+                }
+            assertEquals(PostCreationOutcome.RateLimited, repo.submit("halo"))
+        }
+
+    @Test
     fun `5xx maps to NetworkError`() =
         runTest {
             val controller = FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)

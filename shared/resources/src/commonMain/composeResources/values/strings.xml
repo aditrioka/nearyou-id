@@ -78,6 +78,8 @@
     <string name="post_create_error_location">Lokasi kamu di luar jangkauan layanan.</string>
     <string name="post_create_error_moderated">Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi.</string>
     <string name="post_create_location_unavailable">Aktifkan lokasi untuk membuat postingan.</string>
+    <!-- 429 daily post cap (docs/05 Layer 2, 10/day free) — no retry control; resets at the daily window. -->
+    <string name="post_create_error_rate_limited">Kuota posting harian kamu habis. Coba lagi setelah reset harian.</string>
 
     <!-- mobile-analytics-consent-screen. The three `consent_*_desc` strings are BYTE-IDENTICAL to the
          data-summary bullets in docs/03-UX-Design.md § "Analytics & Tracking Consent Screen (UU PDP)"

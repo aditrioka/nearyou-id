@@ -95,10 +95,20 @@ class LauncherIconBackgroundTest {
                     .map { it.relativeTo(resDir).invariantSeparatorsPath }
                     .sorted()
                     .toList()
+            // The dev flavor additionally carries the local-backend cleartext allowlist
+            // (xml/network_security_config.xml — device-via-adb-reverse + emulator 10.0.2.2;
+            // 2026-06-11 verification infra). It is NOT an icon resource, so the icon
+            // invariant ("only the background changes") is untouched.
+            val expected =
+                if (flavor == "dev") {
+                    listOf("values/colors.xml", "xml/network_security_config.xml")
+                } else {
+                    listOf("values/colors.xml")
+                }
             assertEquals(
-                listOf("values/colors.xml"),
+                expected,
                 relFiles,
-                "the $flavor flavor res tree must contain ONLY values/colors.xml — no foreground, " +
+                "the $flavor flavor res tree must contain ONLY the expected files — no foreground, " +
                     "monochrome, round, or adaptive-icon XML override (only the background changes)",
             )
         }
