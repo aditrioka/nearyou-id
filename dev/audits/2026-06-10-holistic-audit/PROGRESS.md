@@ -184,8 +184,8 @@ Gates: `testDevDebugUnitTest` + `testDevReleaseUnitTest` + `iosSimulatorArm64Tes
 ### Operator decisions on the QUESTION list (2026-06-11, in-chat)
 
 1. **Shadow-ban feed self-visibility — APPROVED** → issue [#210](https://github.com/aditrioka/nearyou-id/issues/210).
-2. **/followers constant-404 alignment — APPROVED** → issue [#211](https://github.com/aditrioka/nearyou-id/issues/211).
-3. **Social lists embed profile summaries (kill N+1) — APPROVED** → comment on existing [#196](https://github.com/aditrioka/nearyou-id/issues/196); sequenced BEFORE the mobile profile/follow screens.
+2. **/followers constant-404 alignment — APPROVED** → issue [#211](https://github.com/aditrioka/nearyou-id/issues/211). ✔ **Shipped via PR [#222](https://github.com/aditrioka/nearyou-id/pull/222)** (`social-list-profile-summaries`): lists + `POST /follows` adopt the profile constant-404; 409 `follow_blocked` removed.
+3. **Social lists embed profile summaries (kill N+1) — APPROVED** → comment on existing [#196](https://github.com/aditrioka/nearyou-id/issues/196); sequenced BEFORE the mobile profile/follow screens. ✔ **Shipped via PR [#222](https://github.com/aditrioka/nearyou-id/pull/222)** (same change): followers/following via INNER `JOIN visible_users`, blocks via chat-partner LEFT-JOIN masking.
 4. **Batched-Lua timeline limiter — APPROVED, not urgent** → issue [#212](https://github.com/aditrioka/nearyou-id/issues/212) (ships with the `timeline-read-rate-limit` spec amendment).
 5. **Auth-endpoint rate limits — APPROVED (operator, 2026-06-11)** → issue [#214](https://github.com/aditrioka/nearyou-id/issues/214) (app-level limiter on the three auth endpoints, OpenSpec change incl. client 429 mapping; CF edge rules stay a pre-launch item).
 6. **RC kill-switch 5-min cache — RATIFIED: keep (operator, 2026-06-11).** 5-min default stays; the per-flag short-TTL-override rule for future genuine kill-switch flags is now codified in docs/11 §3.3 (lands with the first such flag, expected `image_upload_enabled`).
