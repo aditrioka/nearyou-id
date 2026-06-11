@@ -1,6 +1,6 @@
 ---
-name: babat-audit
-description: Work ONE remaining item from the 2026-06-10 holistic-audit backlog end-to-end — pick (or take the named item), route it to the right delivery shape (OpenSpec vs regular PR), execute under the docs/11 rails + verification gates, then update the backlog state. Use when the user says "/babat-audit", "babat satu item audit", "kerjakan item audit berikutnya", or names a specific audit leftover (05-#5, #214, ...). When the last item falls, this skill also performs the audit-directory cleanup.
+name: audit-burndown
+description: Work ONE remaining item from the 2026-06-10 holistic-audit backlog end-to-end — pick (or take the named item), route it to the right delivery shape (OpenSpec vs regular PR), execute under the docs/11 rails + verification gates, then update the backlog state. Use when the user says "/audit-burndown", "burn down one audit item", "babat satu item audit", "kerjakan item audit berikutnya", or names a specific audit leftover (05-#5, #214, ...). When the last item falls, this skill also performs the audit-directory cleanup.
 ---
 
 Eat the 2026-06-10 audit backlog one item per invocation. One item = one branch = one PR. Never start a second item in the same session.
@@ -48,7 +48,7 @@ After the item's PR merges:
    - Delete `dev/audits/2026-06-10-holistic-audit/` entirely (history + PR #209 diff preserve it),
    - Fix the one live code reference: the `AUDIT-FLAGGED` comment in `Application.kt`'s RemoteConfig wiring (point it at the PR instead of the file),
    - Ship as a tiny `chore(audit): retire audit artifacts — backlog empty` PR. Mention this skill can be deleted in the same PR or kept dormant.
-3. Tell the operator: what shipped, what the backlog still holds, and the recommended next `/babat-audit` pick.
+3. Tell the operator: what shipped, what the backlog still holds, and the recommended next `/audit-burndown` pick.
 
 ## Self-improving rule
 
