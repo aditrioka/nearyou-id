@@ -4,9 +4,9 @@
 
 ### Requirement: Canonical query runs FROM visible_posts with bidirectional block exclusion
 
-The endpoint's data query SHALL be `FROM visible_posts` (NOT `FROM posts`), with NO `follows` filter (Global is chronological over every visible author), NO `ST_DWithin` / `ST_Distance`, and two NOT-IN subqueries excluding `user_blocks` rows in BOTH directions:
-- `author_user_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer)`
-- `author_user_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer)`
+The endpoint's data query SHALL be `FROM visible_posts` (NOT `FROM posts`), with NO `follows` filter (Global is chronological over every visible author), NO `ST_DWithin` / `ST_Distance`, and two NOT-IN subqueries excluding `user_blocks` rows in BOTH directions (column names normalized to the shipped/docs-05 `author_id` as part of this change's reconciliation):
+- `author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer)`
+- `author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer)`
 
 Both block-exclusion subqueries MUST be present simultaneously so `BlockExclusionJoinRule` passes on the new query literal.
 
@@ -95,9 +95,9 @@ The `authorUsername` and `authorDisplayName` fields (added by `mobile-timeline-c
 - **WHEN** searching the response JSON for `actual_location` or any value matching the post's actual coordinates
 - **THEN** no match is found
 
-#### Scenario: distance_m field absent
+#### Scenario: Distance field absent under either casing
 - **WHEN** the response contains any post
-- **THEN** no post object contains a `distance_m` key (neither as `null` nor as a number)
+- **THEN** no post object contains a `distanceM` key NOR a `distance_m` key (neither as `null` nor as a number)
 
 #### Scenario: city_name present and string-typed on every post
 - **WHEN** the response contains any number of posts (including zero, one, or many)

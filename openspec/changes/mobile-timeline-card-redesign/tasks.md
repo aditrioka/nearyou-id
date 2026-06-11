@@ -7,8 +7,8 @@
 - [ ] 1.3 Same join + projections + row type in `JdbcPostsGlobalRepository.kt`
 - [ ] 1.4 Thread the two fields through the three services' row models (`NearbyTimelineService` / `FollowingTimelineService` / `GlobalTimelineService`)
 - [ ] 1.5 Add `authorUsername: String` + `authorDisplayName: String` (bare camelCase, NO `@SerialName`) to `NearbyPostDto` / `FollowingPostDto` / `GlobalPostDto` in `TimelineRoutes.kt` + the three route mappings
-- [ ] 1.6 Extend `NearbyTimelineServiceTest` (tagged `database`): identity values match the author's users row; author-identity JOIN does not alter row count (35-post scenario); existing scenarios stay green
-- [ ] 1.7 Extend `FollowingTimelineServiceTest` + `GlobalTimelineServiceTest` with the same two identity scenarios each
+- [ ] 1.6 Extend `NearbyTimelineServiceTest` (tagged `database`): identity values match the author's users row; author-identity JOIN does not alter row count (35-post scenario); fixtures seed ≥2 posts by ONE author and assert identity on both; existing scenarios stay green
+- [ ] 1.7 Extend `FollowingTimelineServiceTest` + `GlobalTimelineServiceTest` with the same identity scenarios each (values-match + row-count + same-author-two-posts)
 - [ ] 1.8 Extend the route-level wire tests: `authorUsername`/`authorDisplayName` keys present with exact camelCase (assert NO `author_username` snake variant) on all three endpoints
 - [ ] 1.9 Amend `docs/05-Implementation.md` § Timeline Implementation — add the join + two SELECT columns to all three canonical SQL blocks (keep the "mirrors `Jdbc*Repository`" note accurate)
 
@@ -17,8 +17,8 @@
 - [ ] 2.1 Add `:shared:resources` strings for the card + app bar: handle format (`post_card_handle` = "@%s"-style), any meta separator, `app_name` reuse check for the logo `contentDescription` — no hardcoded UI literals
 - [ ] 2.2 Create `ui/components/PostCard.kt` (new package, docs/11 §2.1 first occupant): identity header row (letter avatar, display name, handle, time label), content, location meta row (coral `locationPin` pin + city + optional `DistanceRenderer` distance; row omitted when city empty AND distance null), read-only counts row (like state icon + reply icon + count; no click semantics), whole-card `onOpen` tap only
 - [ ] 2.3 Create the pure letter-avatar derivation in commonMain (initials: first code point of first + last word, uppercased; deterministic `authorUsername` → {primary,secondary,tertiary}Container token-pair mapping) as testable non-composable functions + the avatar composable
-- [ ] 2.4 commonTest: initials derivation ("Budi Santoso"→"BS", "Raka"→"R", surrogate-pair-leading name no-crash), deterministic color mapping (same username → same pair)
-- [ ] 2.5 Robolectric `PostCardTest` (androidUnitTest, added to the Release-variant exclude): identity nodes rendered, no-UUID/no-coordinate assertion, liked-state icon switch, counts row exposes no click action, avatar-region tap fires whole-card `onOpen` exactly once, empty-city+null-distance hides the meta row, light+dark render
+- [ ] 2.4 commonTest: initials derivation ("Budi Santoso"→"BS", "Raka"→"R", surrogate-pair-leading name no-crash, blank `""`/whitespace-only → empty initials no-crash, `" Budi  Santoso"` double-space → "BS"), deterministic color mapping (same username → same pair)
+- [ ] 2.5 Robolectric `PostCardTest` (androidUnitTest, added to the Release-variant exclude): identity nodes rendered, no-UUID/no-coordinate assertion, liked-state icon switch, the ONLY clickable node is the card itself (counts row + avatar/name expose no click action; avatar-region tap fires whole-card `onOpen` exactly once), `distanceM` present → DistanceRenderer string shown vs `distanceM = null` → NO distance string, empty-city+null-distance hides the meta row, NO clock-icon node (time is text in the identity header), maximal-length identity (50/60 chars) single-line ellipsized with time label still visible, light+dark render
 
 ## 3. Mobile — consume the card in Nearby + Global feeds
 
@@ -53,4 +53,4 @@
 - [ ] 7.2 Mobile gate: `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` green (new ScreenTests in the Release exclude) + `:mobile:app:iosSimulatorArm64Test` for commonTest additions
 - [ ] 7.3 Manual verification per docs/11 §5 DoD #3 (`verify-loop`): Android emulator AND iOS simulator — screenshot Nearby + Global feeds light/dark vs mockup frames 1/19, post-detail header identity, app bar logo; attach evidence to the PR body; `mobile-ui-foundation` checklist pass
 - [ ] 7.4 Staging branch deploy + smoke per docs/11 §5 DoD #4 (runtime-impacting backend change): authenticated `GET /api/v1/timeline/nearby|global|following` on staging each return `authorUsername`/`authorDisplayName` on every post (mint via `dev/scripts/mint-staging-jwt.sh`)
-- [ ] 7.5 After merge: tick the "post card" half of audit item 05-#11 in `dev/audits/2026-06-10-holistic-audit/PROGRESS.md` § Remaining (note: list-state kit half still open) — archive-phase task
+- [ ] 7.5 After merge: tick the "post card" half of audit item 05-#11 in `dev/audits/2026-06-10-holistic-audit/PROGRESS.md` § Remaining — name the residuals explicitly: the list-state kit half AND the `PostDetailScreen` `PostHeader` copy (this change reuses only the avatar/identity sub-components there; full header unification stays open) — archive-phase task

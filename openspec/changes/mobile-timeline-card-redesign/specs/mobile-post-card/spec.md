@@ -20,7 +20,7 @@ The mobile app SHALL ship a single shared post-card composable (file: `mobile/ap
 
 The card SHALL render, per the canonical mockup (frames 1 + 19, `dev/mockups/nearyou-screens-mockup.html`, binding for look/layout per docs/11 § 2.8 — behavior governed by this spec):
 
-- An **identity header row**: the letter avatar (per § "Letter avatar derivation is deterministic"), the author's **display name** (prominent), the **@username handle** (sourced via a `stringResource` format — the `@` prefix is not hardcoded in Kotlin), and the post **time label** (the existing date-label treatment; relative "5 mnt"-style formatting remains deferred to `mobile-timeline-relative-timestamp`).
+- An **identity header row**: the letter avatar (per § "Letter avatar derivation is deterministic"), the author's **display name** (prominent), the **@username handle** (sourced via a `stringResource` format — the `@` prefix is not hardcoded in Kotlin), and the post **time label** (the existing date-label treatment; relative "5 mnt"-style formatting remains deferred to `mobile-timeline-relative-timestamp`). The display-name and handle texts render **single-line with ellipsis overflow**, so maximal-length identities (V2 maxima: 50-char display name, 60-char username) cannot wrap or push the time label out of the header.
 - The post **content** text.
 - A **location meta row**: the coral location pin (tint `locationPin`) + `city_name` (when non-empty) + the distance string via `DistanceRenderer.render(distanceM)` when a non-null `distanceM` is supplied (Nearby); Global supplies `null` and renders no distance. When `city_name` is empty AND `distanceM` is null, the location meta row (including the pin) SHALL be omitted entirely (no orphan pin icon).
 - The **read-only counts row** per § "Counts row is read-only with no interactive sub-controls".
@@ -43,9 +43,14 @@ The card model/API SHALL NOT accept the author UUID or raw `latitude`/`longitude
 - **WHEN** the card is rendered with `cityName = ""` and `distanceM = null`
 - **THEN** the tree contains no location-pin icon node and no empty-string city text (the meta row is absent, no crash)
 
+#### Scenario: Maximal-length identity stays single-line and does not break the header
+
+- **WHEN** the card is rendered with a 50-character `authorDisplayName` and a 60-character `authorUsername` (the V2 column maxima)
+- **THEN** the display-name and handle nodes render single-line with ellipsis (no wrap) AND the time label remains visible in the header row
+
 ### Requirement: Letter avatar derivation is deterministic
 
-The card's avatar SHALL be a **letter avatar** (no profile-photo capability exists yet): the initial(s) of `authorDisplayName` — the first Unicode code point of the first whitespace-separated word plus the first code point of the last word (a single-word name yields one code point), uppercased — centered on a circular container. The container/content colors SHALL be a **deterministic** mapping from `authorUsername` (stable across recompositions, feeds, and sessions) onto the Material 3 tonal container token pairs of `NearYouTheme` (`primaryContainer`/`onPrimaryContainer`, `secondaryContainer`/`onSecondaryContainer`, `tertiaryContainer`/`onTertiaryContainer`) — never color literals. The derivation SHALL be a pure commonMain function unit-testable without composing UI.
+The card's avatar SHALL be a **letter avatar** (no profile-photo capability exists yet): the initial(s) of `authorDisplayName` — the first Unicode code point of the first whitespace-separated word plus the first code point of the last word (a single-word name yields one code point), uppercased — centered on a circular container. Word splitting SHALL discard empty segments (leading/trailing/consecutive whitespace is safe), and a blank or whitespace-only display name SHALL yield empty initials — the avatar renders its container with no glyph, no crash (`users.display_name` is NOT NULL but carries no non-empty CHECK, and `PostDetailRoute` defaults the field to `""`). The container/content colors SHALL be a **deterministic** mapping from `authorUsername` (stable across recompositions, feeds, and sessions) onto the Material 3 tonal container token pairs of `NearYouTheme` (`primaryContainer`/`onPrimaryContainer`, `secondaryContainer`/`onSecondaryContainer`, `tertiaryContainer`/`onTertiaryContainer`) — never color literals. The derivation SHALL be a pure commonMain function unit-testable without composing UI.
 
 #### Scenario: Two-word and single-word initials
 
@@ -61,6 +66,11 @@ The card's avatar SHALL be a **letter avatar** (no profile-photo capability exis
 
 - **WHEN** deriving initials for a display name whose first word begins with a non-BMP character (e.g. an emoji)
 - **THEN** derivation returns the full first code point (no broken surrogate half, no exception)
+
+#### Scenario: Blank and irregular-whitespace names are safe
+
+- **WHEN** deriving initials for `""`, for `"   "`, and for `" Budi  Santoso"` (leading + consecutive spaces)
+- **THEN** the first two yield empty initials (avatar container renders with no glyph, no crash) AND the third yields "BS" (empty segments discarded)
 
 ### Requirement: Counts row is read-only with no interactive sub-controls
 

@@ -4,9 +4,9 @@
 
 ### Requirement: Canonical query joins visible_posts, follows, and excludes blocks bidirectionally
 
-The endpoint's data query SHALL be the canonical Following query from `docs/05-Implementation.md` § Timeline Implementation: `FROM visible_posts` (NOT `FROM posts`), with `author_user_id IN (SELECT followee_id FROM follows WHERE follower_id = :viewer)`, AND two NOT-IN subqueries excluding `user_blocks` rows in BOTH directions:
-- `author_user_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer)`
-- `author_user_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer)`
+The endpoint's data query SHALL be the canonical Following query from `docs/05-Implementation.md` § Timeline Implementation: `FROM visible_posts` (NOT `FROM posts`), with `author_id IN (SELECT followee_id FROM follows WHERE follower_id = :viewer)`, AND two NOT-IN subqueries excluding `user_blocks` rows in BOTH directions (column names normalized to the shipped/docs-05 `author_id` as part of this change's reconciliation):
+- `author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer)`
+- `author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer)`
 
 Both block-exclusion subqueries MUST be present simultaneously so `BlockExclusionJoinRule` passes.
 
@@ -97,9 +97,9 @@ The `reply_count` field (added in V8) MUST be a JSON integer ≥ 0 and MUST be p
 
 The `authorUsername` and `authorDisplayName` fields (added by `mobile-timeline-card-redesign`) MUST be JSON strings present on EVERY post in the response (never omitted, never null — the V2 columns are NOT NULL). Their wire names are declared EXPLICITLY as bare camelCase `authorUsername` / `authorDisplayName` (no `@SerialName`), following the shipped identity-field precedent (`authorUserId`; `username`/`displayName` in `UserProfileRoutes.kt`) — NOT snake_case. They MUST equal the post author's `visible_users.username` / `visible_users.display_name` values.
 
-#### Scenario: No distance_m field
+#### Scenario: No distance field under either casing
 - **WHEN** a post appears in the response
-- **THEN** the post object does NOT contain the key `distance_m`
+- **THEN** the post object does NOT contain the key `distanceM` NOR the key `distance_m`
 
 #### Scenario: Coordinates from display_location
 - **WHEN** a post in the response has database `display_location = POINT(106.8 -6.2)`
