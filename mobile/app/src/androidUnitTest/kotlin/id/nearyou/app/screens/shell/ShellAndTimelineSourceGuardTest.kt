@@ -156,8 +156,7 @@ class ShellAndTimelineSourceGuardTest {
 
         fun read(relative: String): String = File(findRepoRoot(), "$COMMON_MAIN/$relative").readText().stripComments()
 
-        fun readComponent(relative: String): String =
-            File(findRepoRoot(), "$UI_COMPONENTS/$relative").readText().stripComments()
+        fun readComponent(relative: String): String = File(findRepoRoot(), "$UI_COMPONENTS/$relative").readText().stripComments()
 
         /** Walks up to the repo root (the dir holding settings.gradle.kts) so the scan resolves whether
          *  `user.dir` is the module dir or the repo root. */

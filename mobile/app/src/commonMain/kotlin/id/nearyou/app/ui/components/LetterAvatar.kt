@@ -13,11 +13,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 
-/**
+/*
  * The deterministic letter-avatar contract for the shared post card (`mobile-post-card` § "Letter
  * avatar derivation is deterministic"): initials from the display name + a stable tonal-container
  * pick from the username. Both derivations are pure commonMain functions (unit-tested in
- * commonTest without composing UI); [LetterAvatar] is the composable shell that renders them from
+ * commonTest without composing UI); LetterAvatar is the composable shell that renders them from
  * `NearYouTheme` tokens only.
  */
 

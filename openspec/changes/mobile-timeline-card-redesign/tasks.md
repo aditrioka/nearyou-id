@@ -45,12 +45,12 @@
 ## 6. Docs amendments (same PR — canonical-docs reconciliation)
 
 - [x] 6.1 Amend `docs/05-Implementation.md` § Timeline Implementation (covered by 1.9 — verify all three blocks + the "mirrors" notes after the backend lands)
-- [ ] 6.2 Amend `docs/03-UX-Design.md` § canonical glyph list (≈line 316): remove **time (clock)** from the post-card glyphs (time renders as text in the identity header per mockup frames 1/19) and note the shell-owned centered brand-logo app bar in the § inset paragraph (≈line 312)
+- [x] 6.2 Amend `docs/03-UX-Design.md` § canonical glyph list (≈line 316): remove **time (clock)** from the post-card glyphs (time renders as text in the identity header per mockup frames 1/19) and note the shell-owned centered brand-logo app bar in the § inset paragraph (≈line 312)
 
 ## 7. Verification gates
 
-- [ ] 7.1 Backend gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally
-- [ ] 7.2 Mobile gate: `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` green (new ScreenTests in the Release exclude) + `:mobile:app:iosSimulatorArm64Test` for commonTest additions
+- [x] 7.1 Backend gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally
+- [x] 7.2 Mobile gate: `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` green (new ScreenTests in the Release exclude) + `:mobile:app:iosSimulatorArm64Test` for commonTest additions
 - [ ] 7.3 Manual verification per docs/11 §5 DoD #3 (`verify-loop`): Android emulator AND iOS simulator — screenshot Nearby + Global feeds light/dark vs mockup frames 1/19, post-detail header identity, app bar logo; attach evidence to the PR body; `mobile-ui-foundation` checklist pass
 - [ ] 7.4 Staging branch deploy + smoke per docs/11 §5 DoD #4 (runtime-impacting backend change): authenticated `GET /api/v1/timeline/nearby|global|following` on staging each return `authorUsername`/`authorDisplayName` on every post (mint via `dev/scripts/mint-staging-jwt.sh`)
 - [ ] 7.5 After merge: tick the "post card" half of audit item 05-#11 in `dev/audits/2026-06-10-holistic-audit/PROGRESS.md` § Remaining — name the residuals explicitly: the list-state kit half AND the `PostDetailScreen` `PostHeader` copy (this change reuses only the avatar/identity sub-components there; full header unification stays open) — archive-phase task
