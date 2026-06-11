@@ -102,6 +102,28 @@ The pre-audit flat `screens/` package (35 mixed files) is the legacy shape. **Ne
 - iOS-specific behavior → `src/iosTest` with K/N-legal test names; `:mobile:app:iosSimulatorArm64Test`.
 - v1 `runComposeUiTest` is deprecated as of CMP 1.11 — new tests SHOULD target the v2 ComposeUiTest API (note: v2 defaults to `StandardTestDispatcher`; advance the clock or keep `waitUntil` polling). Migrating existing tests is a tracked follow-up, not drive-by churn.
 
+### 2.8 UI mockup reference (canonical visual target)
+
+[`dev/mockups/nearyou-screens-mockup.html`](../dev/mockups/nearyou-screens-mockup.html) is the
+**canonical visual reference** for mobile screens — a 19-frame Material 3 board (light + dark)
+rendered from the real theme tokens (`NearYouColorScheme.kt`, Plus Jakarta Sans, the coral
+`locationPin` / amber `premiumBadge` accents).
+[`dev/mockups/nearyou-premium-tenure-badges.html`](../dev/mockups/nearyou-premium-tenure-badges.html)
+is the companion concept board for the premium-tenure badge/animation system. Frame inventory +
+consumption guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
+
+- **Every UI-affecting change (proposal AND implementation) MUST consult the matching frame(s)
+  before building.** Render the HTML — open it in a browser/preview, or capture it via a browser
+  screenshot tool — whichever gives the agent the clearest read; then translate to Compose
+  Multiplatform idioms (the M3 components per § 2.1–2.6, theme tokens not literals).
+- **Precedence**: `openspec/specs/` + `docs/02/03` govern *behavior*; the mockups govern *look and
+  layout*. On conflict, specs/docs win — flag the divergence instead of silently following the
+  mockup. Frame captions cite the governing doc per element and tag each frame as shipped
+  ("Sudah ada") vs proposed ("Usulan").
+- Mockups are HTML/CSS approximations: treat spacing/sizing as **dp intent on the 4dp grid**, not
+  pixel-perfect contracts; the M3 component named in the caption is the source of truth for its
+  metrics.
+
 ## 3. Backend architecture contract (`:backend:ktor` + `:infra:*`)
 
 ### 3.1 Layering & boundaries

@@ -1,0 +1,1966 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NearYouID — Mockup Layar (Material 3)</title>
+<!--
+  Static high-fidelity mockup board for the NearYouID mobile app.
+  - Theme tokens mirror shared/resources NearYouColorScheme.kt + NearYouColors.kt (seed #1E4FD6,
+    coral locationPin, amber premiumBadge) and NearYouTypography (Plus Jakarta Sans).
+  - Every component shown maps to a native Material 3 composable available in Compose Multiplatform
+    (TopAppBar, PrimaryTabRow, NavigationBar, OutlinedCard, FAB, Badge, ListItem, Chips, TextField).
+  - Synthetic demo data only. Not wired to anything; inspiration reference, not production code.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,0&display=block" rel="stylesheet">
+<style>
+  /* ============ board ============ */
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:'Plus Jakarta Sans', system-ui, sans-serif;
+    background:#ECEAF2;
+    color:#1A1B21;
+    padding:48px 40px 80px;
+  }
+  .board-header { max-width:1480px; margin:0 auto 12px; }
+  .board-header h1 { font-size:28px; font-weight:800; letter-spacing:-.3px; }
+  .board-header h1 .you { color:#1E4FD6; }
+  .board-header p.sub { font-size:14px; color:#45464F; margin-top:6px; max-width:880px; line-height:1.6; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+  .swatch {
+    display:inline-flex; align-items:center; gap:8px;
+    background:#FFFFFF; border:1px solid #C4C5D7; border-radius:100px;
+    padding:6px 14px 6px 8px; font-size:12px; font-weight:600; color:#45464F;
+  }
+  .swatch i { width:18px; height:18px; border-radius:50%; display:inline-block; }
+  .section-title { max-width:1480px; margin:48px auto 20px; font-size:15px; font-weight:800;
+    text-transform:uppercase; letter-spacing:1.5px; color:#595D72; display:flex; align-items:center; gap:12px; }
+  .section-title::after { content:''; flex:1; height:1px; background:#C4C5D7; }
+  .grid { max-width:1480px; margin:0 auto; display:grid;
+    grid-template-columns:repeat(auto-fill, 412px); gap:44px; justify-content:center; }
+  .device {}
+  .cap { padding:16px 6px 0; }
+  .cap h3 { font-size:15px; font-weight:700; color:#1A1B21; }
+  .cap p { font-size:12px; color:#595D72; margin-top:4px; line-height:1.55; }
+  .cap .tag { display:inline-block; margin-top:8px; font-size:10.5px; font-weight:700;
+    padding:3px 10px; border-radius:6px; letter-spacing:.3px; }
+  .tag.ada    { background:#E8F7EE; color:#126B38; }
+  .tag.usulan { background:#DCE1FF; color:#354479; }
+
+  /* ============ icon font ============ */
+  .ms {
+    font-family:'Material Symbols Outlined';
+    font-weight:normal; font-style:normal; line-height:1;
+    letter-spacing:normal; text-transform:none; display:inline-block;
+    white-space:nowrap; word-wrap:normal; direction:ltr;
+    font-variation-settings:'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    font-size:24px; user-select:none;
+  }
+  .ms.fill { font-variation-settings:'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+  /* ============ phone frame + M3 tokens ============ */
+  .frame {
+    /* light scheme — NearYouColorScheme.light */
+    --primary:#1E4FD6;            --on-primary:#FFFFFF;
+    --primary-container:#DCE1FF;  --on-primary-container:#354479;
+    --secondary:#595D72;          --secondary-container:#DEE1F9; --on-secondary-container:#424659;
+    --tertiary-container:#FFD7F5; --on-tertiary-container:#5B3D57;
+    --surface:#FAF8FF;            --on-surface:#1A1B21;
+    --on-surface-variant:#45464F;
+    --surface-dim:#DAD9E0;
+    --sc-lowest:#FFFFFF; --sc-low:#F4F2FA; --sc:#EFEDF4; --sc-high:#E9E7EF; --sc-highest:#E3E1E9;
+    --outline:#79747E;            --outline-variant:#C4C5D7;
+    --error:#BA1A1A;              --on-error:#FFFFFF;
+    --inverse-surface:#2F3036;    --inverse-on-surface:#F1F0F7;
+    /* NearYouColors.light — reserved-purpose accents */
+    --pin:#FF7A5C; --pin-container:#FFEFEA; --on-pin-container:#B8382A;
+    --premium:#F4B740; --premium-container:#FFF8EC; --on-premium-container:#C98915;
+    --success:#1F9D55; --success-container:#E8F7EE; --on-success-container:#126B38;
+    --warning:#E49317; --warning-container:#FFF4E0; --on-warning-container:#9C610A;
+
+    position:relative; width:412px; height:892px;
+    background:var(--surface); color:var(--on-surface);
+    border-radius:28px; overflow:hidden;
+    border:1px solid #B9B7C2;
+    box-shadow:0 24px 48px -12px rgba(26,27,33,.25), 0 4px 12px rgba(26,27,33,.10);
+    display:flex; flex-direction:column;
+    font-size:14px;
+  }
+  .frame.dark {
+    --primary:#B7C4FF;            --on-primary:#002780;
+    --primary-container:#354479;  --on-primary-container:#DCE1FF;
+    --secondary:#C2C5DD;          --secondary-container:#424659; --on-secondary-container:#DEE1F9;
+    --tertiary-container:#5B3D57; --on-tertiary-container:#FFD7F5;
+    --surface:#121318;            --on-surface:#E3E1E9;
+    --on-surface-variant:#C6C5D0;
+    --surface-dim:#121318;
+    --sc-lowest:#0D0E13; --sc-low:#1A1B21; --sc:#1E1F25; --sc-high:#292A2F; --sc-highest:#34343A;
+    --outline:#8E90A0;            --outline-variant:#45464F;
+    --error:#FFB4AB;              --on-error:#690005;
+    --inverse-surface:#E3E1E9;    --inverse-on-surface:#2F3036;
+    --pin:#FFB59E; --pin-container:#7C2E22; --on-pin-container:#FFDAD2;
+    --premium:#E8B941; --premium-container:#7A5400; --on-premium-container:#FFDEA8;
+    --success:#7DDB9C; --success-container:#005321; --on-success-container:#9CF8B7;
+    --warning:#FFB874; --warning-container:#693C00; --on-warning-container:#FFDDB9;
+  }
+
+  /* status bar + gesture handle */
+  .statusbar {
+    height:30px; flex:none; display:flex; align-items:center; justify-content:space-between;
+    padding:0 22px 0 26px; font-size:13px; font-weight:600; color:var(--on-surface);
+  }
+  .statusbar .right { display:flex; gap:5px; align-items:center; }
+  .statusbar .ms { font-size:15px; }
+  .handle { position:absolute; bottom:7px; left:50%; transform:translateX(-50%);
+    width:112px; height:4px; border-radius:4px; background:var(--on-surface); opacity:.32; z-index:30; }
+
+  /* top app bar */
+  .appbar {
+    height:64px; flex:none; display:flex; align-items:center; gap:4px;
+    padding:0 8px 0 16px; background:var(--surface);
+  }
+  .appbar.on-container { background:var(--sc-low); }
+  .appbar .wordmark { font-size:21px; font-weight:800; letter-spacing:-.2px; }
+  .appbar .wordmark .you { color:var(--primary); }
+  .appbar .title { font-size:21px; font-weight:600; }
+  .appbar .spacer { flex:1; }
+  .iconbtn {
+    width:48px; height:48px; border-radius:50%; flex:none;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--on-surface-variant); position:relative;
+  }
+  .iconbtn.lead { margin-left:-8px; }
+  .badge {
+    position:absolute; top:6px; right:6px; min-width:16px; height:16px; border-radius:8px;
+    background:var(--error); color:var(--on-error); font-size:10.5px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; padding:0 4px;
+  }
+  .dot-badge { position:absolute; top:12px; right:12px; width:7px; height:7px; border-radius:50%; background:var(--error); }
+  .textbtn { color:var(--primary); font-size:13.5px; font-weight:700; padding:0 14px; white-space:nowrap; }
+  /* bar logo lebih ramping: 56px − logo 40px = margin 8px atas-bawah (kelipatan 4) */
+  .appbar.center { justify-content:center; padding:0 16px; height:56px; }
+  .appbar .logo { width:40px; height:40px; color:var(--primary); display:block; }
+
+  /* radius slider (M3 Slider, 4 posisi diskret — spek docs/02: 10/20/50/100 km).
+     Polos tanpa label; nilai muncul sebagai value indicator di atas thumb saat digeser —
+     overlay (seperti toast): melayang MENIMPA konten di atasnya, tidak memakan layout. */
+  /* semua nilai kelipatan 4 (grid 4dp). Padding bawah 0 disengaja: bawah slider sudah ditambah
+     margin kartu pertama (6px); content Beranda TIDAK pakai pad-top → jarak visual ±10px/8px.
+     Kompak: thumb 20px dalam track area 24px */
+  .radius-bar { flex:none; padding:8px 16px 0; background:var(--surface); }
+  .rb-row { display:flex; align-items:center; gap:10px; }
+  .rb-row .slider { flex:1; }
+  .rb-end { font-size:11px; font-weight:600; color:var(--on-surface-variant); flex:none; }
+  .slider { position:relative; height:24px; }
+  .slider .tooltip { position:absolute; bottom:28px; left:33.33%; transform:translateX(-50%);
+    background:var(--inverse-surface); color:var(--inverse-on-surface);
+    font-size:11.5px; font-weight:700; padding:5px 11px; border-radius:8px; white-space:nowrap;
+    z-index:40; box-shadow:0 2px 6px rgba(0,0,0,.25); }
+  .slider .track, .slider .track-active { position:absolute; top:50%; transform:translateY(-50%);
+    height:4px; border-radius:2px; }
+  .slider .track { left:0; right:0; background:var(--sc-highest); }
+  .slider .track-active { left:0; width:33.33%; background:var(--primary); }
+  .slider .dot { position:absolute; top:50%; transform:translate(-50%,-50%); width:4px; height:4px;
+    border-radius:50%; background:var(--on-surface-variant); opacity:.55; }
+  .slider .thumb { position:absolute; top:50%; left:33.33%; transform:translate(-50%,-50%);
+    width:20px; height:20px; border-radius:50%; background:var(--primary);
+    box-shadow:0 1px 3px rgba(0,0,0,.35); }
+
+  /* primary tabs (text-only, per HomeScreen D10) */
+  .tabs { display:flex; flex:none; background:var(--surface); border-bottom:1px solid var(--outline-variant); }
+  .tab { flex:1; height:48px; display:flex; align-items:center; justify-content:center;
+    font-size:14px; font-weight:600; color:var(--on-surface-variant); }
+  .tab span { position:relative; padding:0 6px; height:100%; display:flex; align-items:center; }
+  .tab.active { color:var(--primary); }
+  .tab.active span::after { content:''; position:absolute; left:0; right:0; bottom:0;
+    height:3px; border-radius:3px 3px 0 0; background:var(--primary); }
+
+  /* content scroll area */
+  .content { flex:1; overflow:hidden; position:relative; background:var(--surface); }
+  .content.pad-top { padding-top:8px; }
+
+  /* avatars (Gmail-style letter tiles — tonal containers) */
+  .avatar { width:40px; height:40px; border-radius:50%; flex:none;
+    display:flex; align-items:center; justify-content:center;
+    font-size:15px; font-weight:700; position:relative; }
+  .avatar.lg { width:84px; height:84px; font-size:32px; border-radius:50%; }
+  .avatar.sm { width:32px; height:32px; font-size:12.5px; }
+  .av-p  { background:var(--primary-container);  color:var(--on-primary-container); }
+  .av-t  { background:var(--tertiary-container); color:var(--on-tertiary-container); }
+  .av-s  { background:var(--secondary-container);color:var(--on-secondary-container); }
+  .av-c  { background:var(--pin-container);      color:var(--on-pin-container); }
+  .av-a  { background:var(--premium-container);  color:var(--on-premium-container); }
+  .av-g  { background:var(--success-container);  color:var(--on-success-container); }
+  .online { position:absolute; bottom:0; right:0; width:11px; height:11px; border-radius:50%;
+    background:var(--success); border:2px solid var(--surface); }
+
+  /* post card — OutlinedCard look (surface bg + outlineVariant border, radius 12) */
+  .post {
+    margin:6px 16px; border:1px solid var(--outline-variant); border-radius:12px;
+    background:var(--surface); padding:14px 16px 10px;
+  }
+  .post .head { display:flex; gap:12px; align-items:flex-start; }
+  .post .who { flex:1; min-width:0; padding-top:1px; }
+  .post .name { font-size:14.5px; font-weight:700; display:flex; align-items:center; gap:5px; }
+  .post .name .ms { font-size:16px; color:var(--premium); }
+  .post .meta { font-size:12.5px; color:var(--on-surface-variant); margin-top:2px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .post .more { color:var(--on-surface-variant); margin:-6px -6px 0 0; width:32px; height:32px;
+    display:flex; align-items:center; justify-content:center; }
+  .post .more .ms { font-size:20px; }
+  .post .body { font-size:15px; line-height:1.5; margin-top:10px; color:var(--on-surface); }
+  .post .pic { margin-top:12px; height:200px; border-radius:12px; }
+  .post .loc { display:flex; align-items:center; gap:5px; margin-top:10px;
+    font-size:12px; color:var(--on-surface-variant); }
+  .post .loc .ms { font-size:15px; color:var(--pin); }
+  .actions { display:flex; align-items:center; margin-top:6px; margin-left:-8px; }
+  .action { display:flex; align-items:center; gap:6px; padding:8px; margin-right:26px;
+    color:var(--on-surface-variant); font-size:12.5px; font-weight:600; }
+  .action .ms { font-size:20px; }
+  .action.liked { color:var(--pin); }
+  .action.liked .ms { color:var(--pin); }
+
+  /* navigation bar (3 sections) */
+  .navbar { flex:none; height:102px; background:var(--sc); display:flex;
+    padding:12px 8px 24px; position:relative; z-index:20; }
+  .navitem { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .navitem .ind { width:64px; height:32px; border-radius:16px; display:flex;
+    align-items:center; justify-content:center; color:var(--on-surface-variant); position:relative; }
+  .navitem.active .ind { background:var(--secondary-container); color:var(--on-secondary-container); }
+  .navitem .lbl { font-size:12px; font-weight:600; color:var(--on-surface-variant); }
+  .navitem.active .lbl { color:var(--on-surface); font-weight:700; }
+  .navitem .ms { font-size:24px; }
+  .navitem .nbadge { position:absolute; top:2px; right:14px; min-width:16px; height:16px;
+    border-radius:8px; background:var(--error); color:var(--on-error); font-size:10.5px;
+    font-weight:700; display:flex; align-items:center; justify-content:center; padding:0 4px; }
+
+  /* FAB */
+  .fab { position:absolute; right:16px; bottom:118px; width:56px; height:56px; border-radius:16px;
+    background:var(--primary-container); color:var(--on-primary-container);
+    display:flex; align-items:center; justify-content:center; z-index:25;
+    box-shadow:0 4px 8px 3px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.30); }
+  .fab .ms { font-size:26px; }
+
+  /* list items (Pesan / Notifikasi) */
+  .litem { display:flex; gap:16px; padding:12px 16px; align-items:center; }
+  .litem .mid { flex:1; min-width:0; }
+  .litem .t1 { font-size:15px; font-weight:700; display:flex; align-items:center; gap:5px; }
+  .litem .t1 .ms { font-size:15px; color:var(--premium); }
+  .litem .t2 { font-size:13px; color:var(--on-surface-variant); margin-top:2px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.45; }
+  .litem .t2 b { color:var(--on-surface); font-weight:700; }
+  .litem .trail { display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex:none; }
+  .litem .time { font-size:11.5px; color:var(--on-surface-variant); font-weight:500; }
+  .litem.unread .time { color:var(--primary); font-weight:700; }
+  .litem .count { min-width:18px; height:18px; border-radius:9px; background:var(--primary);
+    color:var(--on-primary); font-size:11px; font-weight:700; display:flex;
+    align-items:center; justify-content:center; padding:0 5px; }
+
+  /* notifikasi */
+  .nitem { display:flex; gap:14px; padding:13px 16px; align-items:flex-start; }
+  .nitem.unread { background:var(--sc-low); }
+  .nicon { width:40px; height:40px; border-radius:50%; flex:none; display:flex;
+    align-items:center; justify-content:center; }
+  .nicon .ms { font-size:20px; }
+  .nitem .mid { flex:1; min-width:0; }
+  .nitem .txt { font-size:13.5px; line-height:1.5; color:var(--on-surface); }
+  .nitem .txt b { font-weight:700; }
+  .nitem .sub { font-size:12.5px; color:var(--on-surface-variant); margin-top:3px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .nitem .when { font-size:11.5px; color:var(--on-surface-variant); margin-top:4px; font-weight:500; }
+  .nitem .udot { width:8px; height:8px; border-radius:50%; background:var(--primary); flex:none; margin-top:16px; }
+  .subhead { padding:14px 16px 6px; font-size:12.5px; font-weight:700; color:var(--primary);
+    letter-spacing:.2px; }
+  .divider { height:1px; background:var(--outline-variant); margin:0 16px; opacity:.6; }
+
+  /* search bar (M3 SearchBar) */
+  .searchbar { margin:4px 16px 8px; height:48px; border-radius:28px; background:var(--sc-high);
+    display:flex; align-items:center; gap:12px; padding:0 16px;
+    color:var(--on-surface-variant); font-size:14.5px; }
+  .searchbar .ms { font-size:22px; }
+
+  /* chat room */
+  .chat-bg { background:var(--surface); display:flex; flex-direction:column; gap:4px; padding:12px 12px 0; }
+  .datechip { align-self:center; background:var(--sc-high); color:var(--on-surface-variant);
+    font-size:11.5px; font-weight:600; border-radius:8px; padding:5px 12px; margin:6px 0 10px; }
+  .bubble { max-width:78%; padding:10px 14px; font-size:14.5px; line-height:1.45; position:relative; }
+  .bubble .bt { display:block; font-size:10.5px; margin-top:4px; opacity:.75; text-align:right;
+    display:flex; gap:3px; justify-content:flex-end; align-items:center; }
+  .bubble .bt .ms { font-size:13px; }
+  .bubble.in  { align-self:flex-start; background:var(--sc-high); color:var(--on-surface);
+    border-radius:18px 18px 18px 6px; }
+  .bubble.out { align-self:flex-end; background:var(--primary-container); color:var(--on-primary-container);
+    border-radius:18px 18px 6px 18px; }
+  .chatinput { position:absolute; left:0; right:0; bottom:0; padding:10px 12px 26px;
+    background:var(--surface); display:flex; gap:10px; align-items:center; }
+  .chatinput .field { flex:1; height:50px; border-radius:25px; background:var(--sc-high);
+    display:flex; align-items:center; gap:10px; padding:0 8px 0 18px;
+    color:var(--on-surface-variant); font-size:14.5px; }
+  .chatinput .field .spacer { flex:1; }
+  .chatinput .field .ms { font-size:22px; }
+  .sendbtn { width:50px; height:50px; border-radius:25px; background:var(--primary);
+    color:var(--on-primary); display:flex; align-items:center; justify-content:center; flex:none; }
+  .sendbtn .ms { font-size:22px; }
+  /* preview embedded_post_snapshot di atas chat box (entry: tombol kirim-pesan di timeline) */
+  .chatinput.column { flex-direction:column; align-items:stretch; gap:10px; }
+  .ci-row { display:flex; gap:10px; align-items:center; }
+  .reply-preview { position:relative; }
+  .reply-preview .rp-close { position:absolute; top:6px; right:6px; font-size:16px; z-index:2;
+    color:var(--on-surface-variant); background:var(--sc-high); border-radius:50%; padding:4px; }
+  /* kartu post timeline yang DIREUSE sebagai embed (kompak, read-only):
+     dipakai di preview atas chat box DAN di dalam bubble terkirim */
+  .post.embed { margin:0; padding:10px 12px; background:var(--surface); }
+  .post.embed .avatar { width:30px; height:30px; font-size:11.5px; }
+  .post.embed .name { font-size:13px; }
+  .post.embed .name .ms { font-size:13px; }
+  .post.embed .meta { font-size:11.5px; }
+  .post.embed .body { font-size:13.5px; margin-top:6px; line-height:1.45;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .post.embed .loc { margin-top:8px; font-size:11px; }
+  .post.embed .loc .ms { font-size:13px; }
+  .bubble.wide { max-width:88%; }
+  .bubble .post.embed { margin-bottom:8px; }
+
+  /* edit profil — M3 OutlinedTextField */
+  .otf { position:relative; border:1px solid var(--outline); border-radius:4px;
+    padding:14px 16px; margin:14px 16px 0; font-size:15.5px; color:var(--on-surface);
+    line-height:1.5; }
+  .otf.focus { border:2px solid var(--primary); padding:13px 15px; }
+  .otf .flabel { position:absolute; top:-8px; left:12px; padding:0 4px; background:var(--surface);
+    font-size:11.5px; font-weight:500; color:var(--on-surface-variant); }
+  .otf.focus .flabel { color:var(--primary); font-weight:600; }
+  .otf .prefix { color:var(--on-surface-variant); }
+  .support { display:flex; font-size:11.5px; color:var(--on-surface-variant); padding:4px 32px 0; }
+  .support .spacer { flex:1; }
+  .av-edit .cam { position:absolute; bottom:-2px; right:-2px; width:30px; height:30px; border-radius:50%;
+    background:var(--primary); color:var(--on-primary); display:flex; align-items:center;
+    justify-content:center; border:2px solid var(--surface); }
+  .av-edit .cam .ms { font-size:15px; }
+  .appbar .who-chat { display:flex; align-items:center; gap:12px; flex:1; min-width:0; }
+  .appbar .who-chat .nm { font-size:16px; font-weight:700; line-height:1.2; }
+  .appbar .who-chat .st { font-size:12px; color:var(--on-surface-variant); display:flex; align-items:center; gap:4px; }
+  .appbar .who-chat .st .ms { font-size:13px; color:var(--pin); }
+
+  /* buttons & chips */
+  .btn { height:40px; border-radius:20px; display:inline-flex; align-items:center; justify-content:center;
+    gap:8px; font-size:14px; font-weight:700; padding:0 22px; }
+  .btn.filled  { background:var(--primary); color:var(--on-primary); }
+  .btn.tonal   { background:var(--secondary-container); color:var(--on-secondary-container); }
+  .btn.outline { border:1px solid var(--outline); color:var(--primary); }
+  .btn .ms { font-size:18px; }
+  .btn.sm { height:34px; font-size:13px; padding:0 16px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:32px; border-radius:8px;
+    border:1px solid var(--outline-variant); padding:0 12px; font-size:13px; font-weight:600;
+    color:var(--on-surface-variant); }
+  .chip .ms { font-size:18px; }
+  .chip.loc { border:none; background:var(--pin-container); color:var(--on-pin-container); }
+  .chip.loc .ms { color:var(--pin); }
+  .chip.prem { border:none; background:var(--premium-container); color:var(--on-premium-container);
+    height:28px; font-size:12px; border-radius:14px; }
+  .chip.prem .ms { font-size:15px; color:var(--premium); }
+
+  /* ===== tenure premium — tier system (konsep: nearyou-premium-tenure-badges.html) =====
+     Animasi HANYA di profil + sheet; ikon di list selalu statis warna-tier. */
+  @keyframes sweep { 0% { transform:translateX(-260%) rotate(16deg); }
+    22% { transform:translateX(260%) rotate(16deg); } 100% { transform:translateX(260%) rotate(16deg); } }
+  @keyframes breatheGold { 0%,100% { box-shadow:0 0 0 0 rgba(244,183,64,0); }
+    50% { box-shadow:0 0 18px 4px rgba(244,183,64,.5); } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none !important; } }
+  .chip.prem.anim { position:relative; overflow:hidden; }
+  .chip.prem.anim::after { content:''; position:absolute; top:0; bottom:0; width:30%;
+    background:linear-gradient(100deg, transparent, rgba(255,255,255,.85), transparent);
+    transform:translateX(-380%) skewX(-12deg); animation:sweep 5s ease-in-out infinite; }
+  /* shimmer nama Premium — pengganti cincin avatar (dibatalkan: menyerupai ring story IG).
+     Kilau gradien warna tier menyapu teks nama tiap ±5,5 dtk; warna dasar tetap on-surface
+     (terbaca normal), terlihat di semua permukaan tempat nama dirender. */
+  .pname { background-size:250% 100%; -webkit-background-clip:text; background-clip:text;
+    color:transparent; animation:nameshine 5.5s ease-in-out infinite; }
+  .pname-gold { background-image:linear-gradient(105deg, var(--on-surface) 40%, #D89A1F 49%, #FFD98A 53%, var(--on-surface) 62%); }
+  .pname-sapphire { background-image:linear-gradient(105deg, var(--on-surface) 40%, #4D74E8 49%, #9FB5FF 53%, var(--on-surface) 62%); }
+  @keyframes nameshine { 0% { background-position:115% 0; } 60% { background-position:-50% 0; }
+    100% { background-position:-50% 0; } }
+  .tbadge { position:relative; width:76px; height:76px; }
+  .tbadge .core { position:absolute; inset:5px; border-radius:50%; display:flex;
+    align-items:center; justify-content:center; overflow:hidden; }
+  .tbadge .core .ms { font-size:32px; position:relative; z-index:2; }
+  .tbadge .shine { position:absolute; inset:0; border-radius:50%; overflow:hidden; z-index:3; }
+  .tbadge .shine::after { content:''; position:absolute; top:-20%; bottom:-20%; width:34%;
+    background:linear-gradient(100deg, transparent, rgba(255,255,255,.85), transparent);
+    transform:translateX(-220%) rotate(16deg); animation:sweep 4.2s ease-in-out infinite; }
+  .t-gold .core { background:linear-gradient(145deg,#FFE09A,#F4B740 55%,#D89A1F);
+    animation:breatheGold 2.8s ease-in-out infinite; }
+  .t-gold .core .ms { color:#6B4A00; }
+  .ladder { display:flex; justify-content:space-between; margin-top:18px; }
+  .lstep { display:flex; flex-direction:column; align-items:center; gap:4px; width:64px; text-align:center; }
+  .lstep.locked { opacity:.38; filter:grayscale(.55); }
+  .lmini { width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+  .lmini .ms { font-size:17px; }
+  .lm-bronze   { background:linear-gradient(145deg,#E8B27A,#B0703C); color:#54310F; }
+  .lm-silver   { background:linear-gradient(145deg,#F0F3FA,#A9B1C4); color:#3E4759; }
+  .lm-gold     { background:linear-gradient(145deg,#FFE09A,#F4B740,#D89A1F); color:#6B4A00;
+    box-shadow:0 0 0 3px var(--premium-container), 0 0 12px rgba(244,183,64,.55); }
+  .lm-sapphire { background:linear-gradient(150deg,#6F9BFF,#1E4FD6); color:#FFFFFF; }
+  .lm-diamond  { background:linear-gradient(120deg,#FFE09A,#FF9D6B,#E37DD0,#7FA8FF); color:#FFFFFF; }
+  .lstep .ln { font-size:10.5px; font-weight:700; }
+  .lstep .lt { font-size:9.5px; color:var(--on-surface-variant); }
+  .scrim { position:absolute; inset:0; background:rgba(14,18,32,.56); z-index:28; }
+  .sheet { position:absolute; left:0; right:0; bottom:0; z-index:29; background:var(--sc-low);
+    border-radius:28px 28px 0 0; padding:8px 24px 32px; }
+  .sheet .grab { width:32px; height:4px; border-radius:2px; background:var(--on-surface-variant);
+    opacity:.4; margin:8px auto 16px; }
+  .progressbar { height:8px; border-radius:4px; background:var(--sc-highest); overflow:hidden; margin-top:8px; }
+  .progressbar i { display:block; height:100%; width:51%; border-radius:4px;
+    background:linear-gradient(90deg,#F4B740,#D89A1F); }
+
+  /* profile */
+  .pstats { display:flex; margin-top:18px; }
+  .pstat { flex:1; text-align:center; }
+  .pstat .n { font-size:18px; font-weight:800; }
+  .pstat .l { font-size:12px; color:var(--on-surface-variant); margin-top:2px; font-weight:500; }
+
+  /* composer */
+  .composer-body { padding:16px; display:flex; gap:12px; }
+  .composer-body .hint { color:var(--on-surface-variant); font-size:17px; padding-top:8px; }
+  .composer-text { font-size:17px; line-height:1.55; padding-top:8px; }
+  .caret { display:inline-block; width:2px; height:20px; background:var(--primary);
+    vertical-align:-4px; margin-left:1px; }
+  .composer-bar { position:absolute; left:0; right:0; bottom:0; border-top:1px solid var(--outline-variant);
+    background:var(--surface); padding:10px 16px 26px; display:flex; align-items:center; gap:4px; }
+  .composer-bar .spacer { flex:1; }
+  .composer-bar .iconbtn { width:40px; height:40px; color:var(--primary); }
+  .counter { font-size:12.5px; font-weight:600; color:var(--on-surface-variant); }
+  .privacy-note { display:flex; gap:8px; align-items:center; margin:4px 16px;
+    font-size:12px; color:var(--on-surface-variant); }
+  .privacy-note .ms { font-size:15px; color:var(--success); }
+
+  /* ===== onboarding, settings, paywall, dialog ===== */
+  .authbtn { height:52px; border-radius:26px; border:1px solid var(--outline); display:flex;
+    align-items:center; justify-content:center; gap:12px; font-size:15px; font-weight:600;
+    background:var(--sc-lowest); color:var(--on-surface); }
+  .authbtn svg { width:20px; height:20px; flex:none; }
+  .switch { width:52px; height:32px; border-radius:16px; position:relative; flex:none; }
+  .switch.on { background:var(--primary); }
+  .switch.on::after { content:'check'; font-family:'Material Symbols Outlined';
+    font-variation-settings:'FILL' 1; position:absolute; right:4px; top:4px; width:24px; height:24px;
+    border-radius:50%; background:var(--on-primary); color:var(--primary); font-size:16px;
+    display:flex; align-items:center; justify-content:center; }
+  .switch.off { background:var(--sc-highest); border:2px solid var(--outline); }
+  .switch.off::after { content:''; position:absolute; left:5px; top:5px; width:16px; height:16px;
+    border-radius:50%; background:var(--outline); }
+  .set-h { padding:16px 16px 6px; font-size:12px; font-weight:800; color:var(--primary);
+    letter-spacing:.4px; }
+  .sitem { display:flex; gap:16px; padding:11px 16px; align-items:center; }
+  .sitem .si { color:var(--on-surface-variant); font-size:22px; flex:none; }
+  .sitem .smid { flex:1; min-width:0; }
+  .sitem .st1 { font-size:14.5px; font-weight:600; display:flex; align-items:center; gap:6px; }
+  .sitem .st1 .ms { font-size:14px; color:var(--premium); }
+  .sitem .st2 { font-size:12px; color:var(--on-surface-variant); margin-top:1px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sitem .chev { color:var(--on-surface-variant); font-size:20px; flex:none; }
+  .dialog-wrap { position:absolute; inset:0; z-index:28; background:rgba(14,18,32,.56);
+    display:flex; align-items:center; justify-content:center; padding:0 28px; }
+  .dialog { background:var(--sc-high); border-radius:28px; padding:24px; width:100%; }
+  .dialog .d-icon { display:flex; justify-content:center; color:var(--pin); }
+  .dialog .d-icon .ms { font-size:28px; }
+  .dialog h4 { font-size:21px; font-weight:600; text-align:center; margin-top:12px; }
+  .dialog .d-body { font-size:13.5px; color:var(--on-surface-variant); line-height:1.6;
+    margin-top:12px; text-align:center; }
+  .dialog .d-actions { display:flex; justify-content:flex-end; align-items:center; gap:6px; margin-top:22px; }
+  .pcards { display:flex; gap:10px; margin-top:16px; }
+  .pcard { border:1px solid var(--outline-variant); border-radius:16px; padding:12px 8px 10px;
+    flex:1; text-align:center; position:relative; }
+  .pcard.sel { border:2px solid var(--primary); background:var(--sc-lowest); }
+  .pcard .pl { font-size:11.5px; font-weight:700; color:var(--on-surface-variant); }
+  .pcard .pp { font-size:14.5px; font-weight:800; margin-top:3px; }
+  .pcard .ps { font-size:9.5px; color:var(--on-surface-variant); margin-top:3px; }
+  .pcard .strike { font-size:10px; color:var(--on-surface-variant); text-decoration:line-through; margin-top:2px; }
+  .pcard .ps.hemat { color:var(--success); font-weight:800; }
+  .pcard .ptag { position:absolute; top:-9px; left:50%; transform:translateX(-50%);
+    background:var(--primary); color:var(--on-primary); font-size:9px; font-weight:800;
+    border-radius:100px; padding:2px 8px; white-space:nowrap; }
+  .feat { display:flex; gap:10px; align-items:center; font-size:12.5px; font-weight:500; padding:4px 0; }
+  .feat .ms { font-size:17px; color:var(--success); flex:none; }
+
+  /* gradient picture placeholders */
+  .pic-food   { background:linear-gradient(135deg,#FFC36B 0%,#FF8F5C 45%,#E05B3E 100%); position:relative; overflow:hidden; }
+  .pic-food::after { content:''; position:absolute; inset:0;
+    background:radial-gradient(circle at 70% 30%, rgba(255,255,255,.35), transparent 45%),
+               radial-gradient(circle at 25% 75%, rgba(120,30,10,.25), transparent 50%); }
+  .pic-park   { background:linear-gradient(135deg,#8BC9A3 0%,#4E9C6E 55%,#2E6B49 100%); position:relative; overflow:hidden; }
+  .pic-park::after { content:''; position:absolute; inset:0;
+    background:radial-gradient(circle at 75% 25%, rgba(255,244,200,.45), transparent 40%),
+               radial-gradient(circle at 20% 80%, rgba(20,60,35,.3), transparent 55%); }
+</style>
+</head>
+<body>
+
+<header class="board-header">
+  <h1>Near<span class="you">You</span>ID — Mockup Layar Utama</h1>
+  <p class="sub">
+    Mockup statis high-fidelity untuk referensi/inspirasi. Semua token diambil dari theme asli app
+    (<code>NearYouColorScheme.kt</code> — seed <b>#1E4FD6</b>, Material Theme Builder tonal-spot) dan setiap
+    komponen adalah komponen <b>native Material 3</b> yang tersedia di Compose Multiplatform (jalan di Android
+    &amp; iOS): TopAppBar, PrimaryTabRow, NavigationBar 4 seksi, Slider diskret, OutlinedCard, FAB, Badge,
+    ListItem, Chip, TextField. Jarak selalu ≥ "5km" sesuai privacy floor <code>DistanceRenderer</code>;
+    radius feed Sekitar mengikuti spek 4 posisi 10/20/50/100 km (docs/02).
+  </p>
+  <div class="legend">
+    <span class="swatch"><i style="background:#1E4FD6"></i>Primary #1E4FD6</span>
+    <span class="swatch"><i style="background:#FF7A5C"></i>Location pin / like #FF7A5C</span>
+    <span class="swatch"><i style="background:#F4B740"></i>Premium #F4B740</span>
+    <span class="swatch"><i style="background:#1F9D55"></i>Success #1F9D55</span>
+    <span class="swatch"><i style="background:#1A1B21"></i>Plus Jakarta Sans</span>
+  </div>
+</header>
+
+<div class="section-title">Main screen — 4 seksi bottom navigation</div>
+<div class="grid">
+
+  <!-- ============================================================ 1 · BERANDA -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar center">
+        <svg class="logo" viewBox="31 31 46 46" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M43.8,50.2 L54,56.1 L64.2,50.2 L64.2,38.5 L54,32.6 L43.8,38.5 L43.8,45.5"/>
+          <path d="M54,56.1 L43.8,50.2 L33.7,56.1 L33.7,67.9 L43.8,73.7 L46.3,73.7"/>
+          <path d="M64.2,73.7 L74.3,67.9 L74.3,56.1 L68.3,52.6"/>
+          <path d="M64.2,73.7 L56.7,73.7"/>
+          <circle cx="51.5" cy="73.7" r="2" fill="currentColor" stroke="none"/>
+        </svg>
+      </header>
+      <div class="tabs">
+        <div class="tab active"><span>Sekitar</span></div>
+        <div class="tab"><span>Mengikuti</span></div>
+        <div class="tab"><span>Global</span></div>
+      </div>
+      <div class="radius-bar">
+        <div class="rb-row">
+          <span class="rb-end">Terdekat</span>
+          <div class="slider">
+            <div class="tooltip">20 km</div>
+            <div class="track"></div>
+            <div class="track-active"></div>
+            <div class="dot" style="left:66.66%;"></div>
+            <div class="dot" style="left:calc(100% - 3px);"></div>
+            <div class="thumb"></div>
+          </div>
+          <span class="rb-end">Terjauh</span>
+        </div>
+      </div>
+      <div class="content">
+
+        <div class="post">
+          <div class="head">
+            <div class="avatar av-p">RP</div>
+            <div class="who">
+              <div class="name">Raka Pratama</div>
+              <div class="meta">@raka.jkt · 5 mnt</div>
+            </div>
+            <div class="more"><span class="ms">more_vert</span></div>
+          </div>
+          <div class="body">Ada yang tau kenapa Jalan Senopati ditutup dari arah SCBD? Macetnya sampai Gunawarman 😩</div>
+          <div class="loc"><span class="ms fill">location_on</span>Jakarta Selatan · 5km</div>
+          <div class="actions">
+            <span class="action"><span class="ms">mode_comment</span>4</span>
+            <span class="action"><span class="ms">send</span></span>
+            <span class="action"><span class="ms">favorite</span>12</span>
+          </div>
+        </div>
+
+        <div class="post">
+          <div class="head">
+            <div class="avatar av-t">DL</div>
+            <div class="who">
+              <div class="name"><span class="pname pname-sapphire">Dewi Lestari</span> <span class="ms fill" style="color:var(--primary);">workspace_premium</span></div>
+              <div class="meta">@dewi.kuliner · 18 mnt</div>
+            </div>
+            <div class="more"><span class="ms">more_vert</span></div>
+          </div>
+          <div class="body">Nemu warung nasi goreng baru di belakang Blok M Square. Porsinya gede, harga 15rb aja. Wajib coba sih ini 🔥</div>
+          <div class="pic pic-food"></div>
+          <div class="loc"><span class="ms fill">location_on</span>Jakarta Selatan · 6km</div>
+          <div class="actions">
+            <span class="action"><span class="ms">mode_comment</span>9</span>
+            <span class="action"><span class="ms">send</span></span>
+            <span class="action liked"><span class="ms fill">favorite</span>47</span>
+          </div>
+        </div>
+
+        <div class="post">
+          <div class="head">
+            <div class="avatar av-g">BW</div>
+            <div class="who">
+              <div class="name">Bagus Wicaksono</div>
+              <div class="meta">@baguswcksn · 32 mnt</div>
+            </div>
+            <div class="more"><span class="ms">more_vert</span></div>
+          </div>
+          <div class="body">Lari pagi di GBK ternyata jam 6 udah rame banget. Besok coba jam 5.30 deh, ada yang mau join?</div>
+          <div class="loc"><span class="ms fill">location_on</span>Jakarta Pusat · 9km</div>
+          <div class="actions">
+            <span class="action"><span class="ms">mode_comment</span>2</span>
+            <span class="action"><span class="ms">send</span></span>
+            <span class="action"><span class="ms">favorite</span>8</span>
+          </div>
+        </div>
+
+      </div>
+      <div class="fab"><span class="ms">add</span></div>
+      <nav class="navbar">
+        <div class="navitem active">
+          <span class="ind"><span class="ms fill">home</span></span><span class="lbl">Beranda</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">notifications</span><span class="nbadge">3</span></span><span class="lbl">Notifikasi</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">chat_bubble</span><span class="nbadge">2</span></span><span class="lbl">Pesan</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">person</span></span><span class="lbl">Profil</span>
+        </div>
+      </nav>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>1 · Beranda — tab Sekitar</h3>
+      <p>CenterAlignedTopAppBar dengan <b>logo brand</b> (vektor asli <code>logo_brand_light.xml</code>)
+        · PrimaryTabRow text-only · <b>Slider radius M3 diskret 4 posisi: 10/20/50/100 km</b> (spek docs/02;
+        Premium-only — Free fix 20km) dengan label ujung <b>Terdekat ↔ Terjauh</b>, nilai tampil sebagai
+        <b>value indicator</b> yang melayang menimpa tab row saat digeser (overlay, bukan bagian layout)
+        · OutlinedCard post: avatar,
+        display name, @username, waktu, pin coral + kota +
+        jarak (≥5km), teks, gambar, aksi <b>balas / kirim pesan / suka</b> (suka aktif = coral)
+        · nama author Premium ber-<b>shimmer</b> warna tier · FAB composer · NavigationBar 4 seksi.</p>
+      <span class="tag usulan">End-state usulan — + tab Pesan (4 seksi)</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 2 · PESAN -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="title">Pesan</span>
+        <span class="spacer"></span>
+        <span class="iconbtn"><span class="ms">notifications</span><span class="badge">3</span></span>
+      </header>
+      <div class="content pad-top">
+        <div class="searchbar"><span class="ms">search</span>Cari pesan</div>
+
+        <div class="litem unread">
+          <div class="avatar av-t">DL<span class="online"></span></div>
+          <div class="mid">
+            <div class="t1"><span class="pname pname-sapphire">Dewi Lestari</span> <span class="ms fill" style="color:var(--primary);">workspace_premium</span></div>
+            <div class="t2"><b>Iya beneran enak! Besok ke sana bareng?</b></div>
+          </div>
+          <div class="trail"><span class="time">09.12</span><span class="count">2</span></div>
+        </div>
+
+        <div class="litem">
+          <div class="avatar av-p">RP</div>
+          <div class="mid">
+            <div class="t1">Raka Pratama</div>
+            <div class="t2">Oke siap, ketemu di lobby ya 👍</div>
+          </div>
+          <div class="trail"><span class="time">08.45</span></div>
+        </div>
+
+        <div class="litem unread">
+          <div class="avatar av-s">AS</div>
+          <div class="mid">
+            <div class="t1">Andi Saputra</div>
+            <div class="t2"><b>Bro, futsal jadi nggak malam ini?</b></div>
+          </div>
+          <div class="trail"><span class="time">08.02</span><span class="count">1</span></div>
+        </div>
+
+        <div class="litem">
+          <div class="avatar av-c">MP<span class="online"></span></div>
+          <div class="mid">
+            <div class="t1">Maya Putri</div>
+            <div class="t2">Makasih infonya! Membantu banget 🙏</div>
+          </div>
+          <div class="trail"><span class="time">Kemarin</span></div>
+        </div>
+
+        <div class="litem">
+          <div class="avatar av-g">FR</div>
+          <div class="mid">
+            <div class="t1">Fajar Ramadhan</div>
+            <div class="t2">Sampai ketemu besok di acara bazar</div>
+          </div>
+          <div class="trail"><span class="time">Kemarin</span></div>
+        </div>
+
+        <div class="litem">
+          <div class="avatar av-a">PA</div>
+          <div class="mid">
+            <div class="t1">Putri Ayu</div>
+            <div class="t2">Wkwkwk iya bener 😂</div>
+          </div>
+          <div class="trail"><span class="time">Sel</span></div>
+        </div>
+
+        <div class="litem">
+          <div class="avatar av-p">SM</div>
+          <div class="mid">
+            <div class="t1">Sinta Maharani</div>
+            <div class="t2">Kamu: Nanti aku kabari lagi ya</div>
+          </div>
+          <div class="trail"><span class="time">Sen</span></div>
+        </div>
+      </div>
+      <div class="fab"><span class="ms">edit_square</span></div>
+      <nav class="navbar">
+        <div class="navitem">
+          <span class="ind"><span class="ms">home</span></span><span class="lbl">Beranda</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">notifications</span><span class="nbadge">3</span></span><span class="lbl">Notifikasi</span>
+        </div>
+        <div class="navitem active">
+          <span class="ind"><span class="ms fill">chat_bubble</span></span><span class="lbl">Pesan</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">person</span></span><span class="lbl">Profil</span>
+        </div>
+      </nav>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>2 · Pesan — daftar percakapan</h3>
+      <p>SearchBar M3 · ListItem 2 baris: avatar (dot online = success), display name, chat terakhir,
+        waktu + badge jumlah belum dibaca (primary) · FAB <i>edit_square</i> untuk pesan baru
+        · chat 1:1, batas 2000 karakter per spec.</p>
+      <span class="tag usulan">Belum dibangun — sesuai docs/02 § Chat</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 3 · PROFIL -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="title">Profil</span>
+        <span class="spacer"></span>
+        <span class="iconbtn"><span class="ms">settings</span></span>
+      </header>
+      <div class="content">
+        <div style="padding:16px 20px 0; display:flex; gap:18px; align-items:center;">
+          <div class="avatar lg av-p">AN</div>
+          <div style="flex:1;">
+            <div style="font-size:21px; font-weight:800; display:flex; align-items:center; gap:8px;"><span class="pname pname-gold">Arya Nugraha</span></div>
+            <div style="font-size:13.5px; color:var(--on-surface-variant); margin-top:2px;">@arya.ngrh</div>
+            <div style="margin-top:8px;"><span class="chip prem anim"><span class="ms fill">workspace_premium</span>Premium · 91 hari</span></div>
+          </div>
+        </div>
+        <div style="padding:14px 20px 0; font-size:14px; line-height:1.55;">
+          Anak Jaksel yang suka kulineran &amp; lari pagi 🏃 Info seputar Senopati–Blok M.
+        </div>
+        <div style="padding:8px 20px 0; display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--on-surface-variant);">
+          <span class="ms fill" style="font-size:15px; color:var(--pin);">location_on</span>Jakarta Selatan
+          <span style="margin:0 2px;">·</span>Gabung Feb 2026
+        </div>
+        <div class="pstats" style="padding:0 20px;">
+          <div class="pstat"><div class="n">128</div><div class="l">Postingan</div></div>
+          <div class="pstat"><div class="n">1.204</div><div class="l">Pengikut</div></div>
+          <div class="pstat"><div class="n">356</div><div class="l">Mengikuti</div></div>
+        </div>
+        <!-- padding bawah kecil disengaja: label tab di bawah sudah punya ~14px whitespace internal
+             (teks center dalam tinggi 48px), jadi 2px di sini ≈ jarak visual 16px = sama dengan sisi atas -->
+        <div style="padding:16px 20px 2px;">
+          <span class="btn tonal" style="width:100%;"><span class="ms">edit</span>Edit Profil</span>
+        </div>
+        <div class="tabs">
+          <div class="tab active"><span>Postingan</span></div>
+          <div class="tab"><span>Disukai</span></div>
+        </div>
+
+        <div class="post" style="margin-top:10px;">
+          <div class="head">
+            <div class="avatar av-p">AN</div>
+            <div class="who">
+              <div class="name"><span class="pname pname-gold">Arya Nugraha</span> <span class="ms fill">workspace_premium</span></div>
+              <div class="meta">@arya.ngrh · 2 j</div>
+            </div>
+            <div class="more"><span class="ms">more_vert</span></div>
+          </div>
+          <div class="body">Sunset di Taman Langsat sore ini bagus banget, langit oranye semua 🌇</div>
+          <div class="loc"><span class="ms fill">location_on</span>Jakarta Selatan · 5km</div>
+          <div class="actions">
+            <span class="action"><span class="ms">mode_comment</span>6</span>
+            <span class="action"><span class="ms">send</span></span>
+            <span class="action liked"><span class="ms fill">favorite</span>31</span>
+          </div>
+        </div>
+
+        <div class="post">
+          <div class="head">
+            <div class="avatar av-p">AN</div>
+            <div class="who">
+              <div class="name"><span class="pname pname-gold">Arya Nugraha</span> <span class="ms fill">workspace_premium</span></div>
+              <div class="meta">@arya.ngrh · Kemarin</div>
+            </div>
+            <div class="more"><span class="ms">more_vert</span></div>
+          </div>
+          <div class="body">Rekomendasi tukang kunci 24 jam daerah Kebayoran? Kunci motor ketinggalan di jok 🙃</div>
+          <div class="loc"><span class="ms fill">location_on</span>Jakarta Selatan · 5km</div>
+        </div>
+
+      </div>
+      <nav class="navbar">
+        <div class="navitem">
+          <span class="ind"><span class="ms">home</span></span><span class="lbl">Beranda</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">notifications</span><span class="nbadge">3</span></span><span class="lbl">Notifikasi</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">chat_bubble</span><span class="nbadge">2</span></span><span class="lbl">Pesan</span>
+        </div>
+        <div class="navitem active">
+          <span class="ind"><span class="ms fill">person</span></span><span class="lbl">Profil</span>
+        </div>
+      </nav>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>3 · Profil — profil sendiri</h3>
+      <p>Header: avatar 84dp, <b>display name ber-shimmer warna tier</b> (pengganti cincin avatar —
+        dibatalkan karena menyerupai ring story), @username, chip <b>Premium · 91 hari</b> tier Emas
+        ber-animasi kilau (Premium Tenure Counter docs/01 — akumulatif; tap chip → sheet "Perjalanan
+        Premium", frame 9; angka tenure butuh field backend dari <i>subscription_events</i>), bio,
+        lokasi, statistik · FilledTonalButton <b>Edit Profil</b> full-width · SecondaryTabRow
+        · ikon ✦ warna tier di samping nama (Arya emas, Dewi safir).</p>
+      <span class="tag usulan">Belum dibangun — pengganti placeholder "Profil segera hadir"</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 4 · NOTIFIKASI -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="title">Notifikasi</span>
+        <span class="spacer"></span>
+        <span class="textbtn">Tandai semua dibaca</span>
+      </header>
+      <div class="content">
+        <div class="subhead">Baru</div>
+
+        <div class="nitem unread">
+          <div class="nicon" style="background:var(--premium-container); color:var(--premium);"><span class="ms fill">workspace_premium</span></div>
+          <div class="mid">
+            <div class="txt">Badge Premium kamu naik ke <b>Emas</b> ✦</div>
+            <div class="sub">90 hari masa Premium — lihat Perjalanan Premium kamu</div>
+            <div class="when">2 j</div>
+          </div>
+          <div class="udot"></div>
+        </div>
+
+        <div class="nitem unread">
+          <div class="nicon" style="background:var(--pin-container); color:var(--pin);"><span class="ms fill">favorite</span></div>
+          <div class="mid">
+            <div class="txt"><b><span class="pname pname-sapphire">Dewi Lestari</span></b> menyukai postingan kamu</div>
+            <div class="sub">"Ada yang tau kenapa Jalan Senopati ditutup…"</div>
+            <div class="when">5 mnt</div>
+          </div>
+          <div class="udot"></div>
+        </div>
+
+        <div class="nitem unread">
+          <div class="nicon" style="background:var(--primary-container); color:var(--on-primary-container);"><span class="ms fill">mode_comment</span></div>
+          <div class="mid">
+            <div class="txt"><b>Raka Pratama</b> membalas postingan kamu</div>
+            <div class="sub">"Setuju, jam 5.30 jauh lebih sepi"</div>
+            <div class="when">20 mnt</div>
+          </div>
+          <div class="udot"></div>
+        </div>
+
+        <div class="nitem unread">
+          <div class="nicon" style="background:var(--secondary-container); color:var(--on-secondary-container);"><span class="ms fill">person_add</span></div>
+          <div class="mid">
+            <div class="txt"><b>Maya Putri</b> mulai mengikuti kamu</div>
+            <div class="when">1 j</div>
+          </div>
+          <div class="udot"></div>
+        </div>
+
+        <div class="divider" style="margin-top:6px;"></div>
+        <div class="subhead" style="color:var(--on-surface-variant);">Sebelumnya</div>
+
+        <div class="nitem">
+          <div class="nicon" style="background:var(--tertiary-container); color:var(--on-tertiary-container);"><span class="ms fill">chat_bubble</span></div>
+          <div class="mid">
+            <div class="txt">Pesan baru dari <b>Andi Saputra</b></div>
+            <div class="sub">"Bro, futsal jadi nggak malam ini?"</div>
+            <div class="when">3 j</div>
+          </div>
+        </div>
+
+        <div class="nitem">
+          <div class="nicon" style="background:var(--warning-container); color:var(--on-warning-container);"><span class="ms fill">visibility_off</span></div>
+          <div class="mid">
+            <div class="txt">Postingan kamu disembunyikan otomatis setelah beberapa laporan</div>
+            <div class="sub">Tinjau pedoman komunitas untuk detailnya</div>
+            <div class="when">Kemarin</div>
+          </div>
+        </div>
+
+        <div class="nitem">
+          <div class="nicon" style="background:var(--pin-container); color:var(--pin);"><span class="ms fill">favorite</span></div>
+          <div class="mid">
+            <div class="txt"><b>Fajar Ramadhan</b> menyukai postingan kamu</div>
+            <div class="sub">"Sunset di Taman Langsat sore ini…"</div>
+            <div class="when">Kemarin</div>
+          </div>
+        </div>
+
+        <div class="nitem">
+          <div class="nicon" style="background:var(--secondary-container); color:var(--on-secondary-container);"><span class="ms fill">person_add</span></div>
+          <div class="mid">
+            <div class="txt"><b>Putri Ayu</b> mulai mengikuti kamu</div>
+            <div class="when">2 hr</div>
+          </div>
+        </div>
+      </div>
+      <nav class="navbar">
+        <div class="navitem">
+          <span class="ind"><span class="ms">home</span></span><span class="lbl">Beranda</span>
+        </div>
+        <div class="navitem active">
+          <span class="ind"><span class="ms fill">notifications</span></span><span class="lbl">Notifikasi</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">chat_bubble</span><span class="nbadge">2</span></span><span class="lbl">Pesan</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">person</span></span><span class="lbl">Profil</span>
+        </div>
+      </nav>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>4 · Notifikasi — seksi bottom nav</h3>
+      <p>TopAppBar judul + aksi "Tandai semua dibaca" (string asli) · item belum dibaca diberi tint
+        surfaceContainerLow + titik primary · ikon kontainer per tipe: suka (coral), balasan (primary),
+        follow (secondary), pesan (tertiary), moderasi auto-hide (warning) — 5 tipe sesuai
+        <i>NotificationType</i> di app · NavigationBar 4 seksi, ikon lonceng filled saat aktif
+        · plus contoh notifikasi <b>naik-tier badge Premium</b> (ikon amber; tipe baru — usulan,
+        perlu masuk katalog NotificationType).</p>
+      <span class="tag ada">Sudah ada di app sebagai seksi bottom-nav (#162)</span>
+    </div>
+  </article>
+
+</div>
+
+<div class="section-title">Layar pushed — alur lanjutan</div>
+<div class="grid">
+
+  <!-- ============================================================ 5 · CHAT ROOM -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="iconbtn lead"><span class="ms">arrow_back</span></span>
+        <div class="who-chat">
+          <div class="avatar sm av-t">DL</div>
+          <div>
+            <div class="nm"><span class="pname pname-sapphire">Dewi Lestari</span> <span class="ms fill" style="font-size:14px; color:var(--primary); vertical-align:-1px;">workspace_premium</span></div>
+            <div class="st"><span class="ms fill">location_on</span>Jakarta Selatan · 6km</div>
+          </div>
+        </div>
+        <span class="iconbtn"><span class="ms">more_vert</span></span>
+      </header>
+      <div class="content">
+        <div class="chat-bg">
+          <div class="datechip">Hari ini</div>
+          <div class="bubble out wide">
+            <div class="post embed">
+              <div class="head">
+                <div class="avatar av-t">DL</div>
+                <div class="who">
+                  <div class="name"><span class="pname pname-sapphire">Dewi Lestari</span> <span class="ms fill" style="color:var(--primary);">workspace_premium</span></div>
+                  <div class="meta">@dewi.kuliner · 18 mnt</div>
+                </div>
+              </div>
+              <div class="body">Nemu warung nasi goreng baru di belakang Blok M Square. Porsinya gede, harga 15rb aja. Wajib coba sih ini 🔥</div>
+              <div class="loc"><span class="ms fill">location_on</span>Jakarta Selatan · 6km</div>
+            </div>
+            Halo! Liat postingan ini — lokasinya tepatnya di mana ya? 😄
+            <span class="bt">09.02 <span class="ms">done_all</span></span>
+          </div>
+          <div class="bubble in">Di belakang Blok M Square, deret warung yang baris kedua. Yang gerobaknya warna biru
+            <span class="bt">09.05</span></div>
+          <div class="bubble out">Wah oke besok aku mau coba ah. Buka sampai jam berapa?
+            <span class="bt">09.08 <span class="ms">done_all</span></span></div>
+          <div class="bubble in">Sampai jam 11 malam. Rame pas jam makan siang, mending sore
+            <span class="bt">09.10</span></div>
+          <div class="bubble in">Iya beneran enak! Besok ke sana bareng?
+            <span class="bt">09.12</span></div>
+        </div>
+        <div class="chatinput column">
+          <div class="reply-preview">
+            <span class="ms rp-close">close</span>
+            <div class="post embed">
+              <div class="head">
+                <div class="avatar av-t">DL</div>
+                <div class="who">
+                  <div class="name"><span class="pname pname-sapphire">Dewi Lestari</span> <span class="ms fill" style="color:var(--primary);">workspace_premium</span></div>
+                  <div class="meta">@dewi.kuliner · 18 mnt</div>
+                </div>
+              </div>
+              <div class="body">Nemu warung nasi goreng baru di belakang Blok M Square. Porsinya gede, harga 15rb aja. Wajib coba sih ini 🔥</div>
+              <div class="loc"><span class="ms fill">location_on</span>Jakarta Selatan · 6km</div>
+            </div>
+          </div>
+          <div class="ci-row">
+            <div class="field">Tulis pesan…<span class="spacer"></span><span class="ms">image</span></div>
+            <div class="sendbtn"><span class="ms fill">send</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="handle" style="background:var(--on-surface);"></div>
+    </div>
+    <div class="cap">
+      <h3>5 · Ruang chat 1:1</h3>
+      <p>Header lawan bicara dengan konteks khas NearYou: kota + jarak (coral pin, tetap difuzz ≥5km)
+        · bubble masuk = surfaceContainerHigh, keluar = primaryContainer · centang dibaca <i>done_all</i>
+        · <b>embed postingan = reuse kartu post timeline</b> (varian kompak read-only: header author +
+        teks 2 baris + pin kota/jarak) di dua keadaan — preview di atas chat box (bisa ✕) saat masuk via
+        tombol kirim-pesan, dan <b>di dalam bubble terkirim</b> bersama teks pesan (spek docs/02:
+        <i>embedded_post_snapshot</i> disalin saat chat dimulai)
+        · input TextField pill + tombol kirim primary · batas pesan 2000 karakter.</p>
+      <span class="tag usulan">Belum dibangun — sesuai docs/02 § Chat</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 6 · BUAT POSTING -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="iconbtn lead"><span class="ms">close</span></span>
+        <span class="spacer"></span>
+        <span class="btn filled sm">Posting</span>
+      </header>
+      <div class="content">
+        <div class="composer-body">
+          <div class="avatar av-p">AN</div>
+          <div style="flex:1;">
+            <div class="composer-text">Sore ini ada bazar UMKM di Taman Menteng, rame banget! Ada live music juga 🎶<span class="caret"></span></div>
+          </div>
+        </div>
+        <div style="padding:4px 16px 10px;">
+          <span class="chip loc"><span class="ms fill">location_on</span>Jakarta Selatan</span>
+        </div>
+        <div class="privacy-note">
+          <span class="ms fill">verified_user</span>
+          Lokasi kamu disamarkan (±5 km) sebelum tampil ke pengguna lain
+        </div>
+        <div class="composer-bar">
+          <span class="iconbtn"><span class="ms">image</span></span>
+          <span class="iconbtn"><span class="ms">photo_camera</span></span>
+          <span class="spacer"></span>
+          <span class="counter">78/280</span>
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>6 · Buat postingan (composer)</h3>
+      <p>Full-screen dialog: tutup ✕ + tombol <b>Posting</b> (string <i>cta_post</i> asli) · TextField
+        multiline · chip lokasi coral container + catatan privasi fuzzing (UU PDP) · toolbar lampiran
+        gambar · counter <b>78/280</b> sesuai <i>post_create_char_counter</i>.</p>
+      <span class="tag ada">Sudah ada — di-extend dengan lampiran gambar (media = roadmap)</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 7 · DETAIL POSTINGAN -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="iconbtn lead"><span class="ms">arrow_back</span></span>
+        <span class="title">Postingan</span>
+        <span class="spacer"></span>
+        <span class="iconbtn"><span class="ms">more_vert</span></span>
+      </header>
+      <div class="content pad-top">
+
+        <div class="post" style="border:none; margin-top:0; padding-top:8px;">
+          <div class="head">
+            <div class="avatar av-p">RP</div>
+            <div class="who">
+              <div class="name">Raka Pratama</div>
+              <div class="meta">@raka.jkt · Jakarta Selatan · 5km</div>
+            </div>
+            <span class="btn tonal sm">Ikuti</span>
+          </div>
+          <div class="body" style="font-size:17px;">Ada yang tau kenapa Jalan Senopati ditutup dari arah SCBD? Macetnya sampai Gunawarman 😩</div>
+          <div class="loc"><span class="ms">schedule</span>09.36 · 11 Jun 2026</div>
+          <div class="divider" style="margin:12px 0 2px;"></div>
+          <div class="actions">
+            <span class="action"><span class="ms">mode_comment</span>4</span>
+            <span class="action"><span class="ms">send</span></span>
+            <span class="action liked"><span class="ms fill">favorite</span>13</span>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="subhead" style="color:var(--on-surface-variant);">4 balasan</div>
+
+        <div class="litem" style="align-items:flex-start;">
+          <div class="avatar av-a">SM</div>
+          <div class="mid">
+            <div class="t1" style="font-size:14px;">Sinta Maharani <span style="font-weight:500; color:var(--on-surface-variant); font-size:12px;">· 25 mnt</span></div>
+            <div class="t2" style="white-space:normal; color:var(--on-surface);">Iya ada perbaikan gorong-gorong, kemarin juga ditutup setengah jalan</div>
+            <div class="actions" style="margin-top:2px;">
+              <span class="action" style="padding:4px 8px;"><span class="ms" style="font-size:16px;">favorite</span>3</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="litem" style="align-items:flex-start;">
+          <div class="avatar av-g">BW</div>
+          <div class="mid">
+            <div class="t1" style="font-size:14px;">Bagus Wicaksono <span style="font-weight:500; color:var(--on-surface-variant); font-size:12px;">· 18 mnt</span></div>
+            <div class="t2" style="white-space:normal; color:var(--on-surface);">Lewat Wolter aja, muter dikit tapi lancar kok</div>
+            <div class="actions" style="margin-top:2px;">
+              <span class="action" style="padding:4px 8px;"><span class="ms" style="font-size:16px;">favorite</span>5</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="litem" style="align-items:flex-start;">
+          <div class="avatar av-t">DL</div>
+          <div class="mid">
+            <div class="t1" style="font-size:14px;"><span class="pname pname-sapphire">Dewi Lestari</span> <span class="ms fill" style="font-size:14px; color:var(--primary);">workspace_premium</span> <span style="font-weight:500; color:var(--on-surface-variant); font-size:12px;">· 10 mnt</span></div>
+            <div class="t2" style="white-space:normal; color:var(--on-surface);">Makanya tadi pagi ojolku muter jauh banget 😅</div>
+            <div class="actions" style="margin-top:2px;">
+              <span class="action" style="padding:4px 8px;"><span class="ms" style="font-size:16px;">favorite</span>1</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="chatinput">
+          <div class="avatar sm av-p" style="flex:none;">AN</div>
+          <div class="field">Tulis balasan…<span class="spacer"></span></div>
+          <div class="sendbtn"><span class="ms fill">send</span></div>
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>7 · Detail postingan + balasan</h3>
+      <p>Post diperbesar (bodyLarge → 17sp) + tombol <b>Ikuti</b> tonal · daftar balasan (cap 280 kar.)
+        dengan suka per balasan · bar tulis balasan menempel bawah · counter balasan tanpa
+        block-exclusion sesuai keputusan privasi <i>post-replies-v8</i>.</p>
+      <span class="tag ada">In-flight #159 — layar post-detail</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 8 · EDIT PROFIL -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="iconbtn lead"><span class="ms">close</span></span>
+        <span class="title">Edit Profil</span>
+        <span class="spacer"></span>
+        <span class="btn filled sm">Simpan</span>
+      </header>
+      <div class="content">
+        <div style="display:flex; flex-direction:column; align-items:center; padding:22px 0 8px;">
+          <div class="avatar lg av-p av-edit">AN
+            <span class="cam"><span class="ms fill">photo_camera</span></span>
+          </div>
+        </div>
+
+        <div class="otf focus">
+          <span class="flabel">Nama tampilan</span>Arya Nugraha<span class="caret"></span>
+        </div>
+        <div class="support"><span class="spacer"></span>12/50</div>
+
+        <div class="otf" style="margin-top:18px; min-height:110px;">
+          <span class="flabel">Bio</span>Anak Jaksel yang suka kulineran &amp; lari pagi 🏃 Info seputar Senopati–Blok M.
+        </div>
+        <div class="support">Ceritakan dirimu singkat<span class="spacer"></span>76/160</div>
+
+        <div class="privacy-note" style="margin-top:18px;">
+          <span class="ms fill">verified_user</span>
+          Lokasi tidak diatur di sini — selalu dari perangkat &amp; disamarkan ±5 km
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>8 · Edit profil</h3>
+      <p>Full-screen dialog M3: ✕ + aksi <b>Simpan</b> · avatar dengan badge kamera (ubah foto) ·
+        OutlinedTextField (label mengambang, supporting + counter): Nama tampilan <b>maks 50</b>,
+        Bio <b>maks 160</b> (docs/02 §Content limits) · <b>username sengaja TIDAK di sini</b> —
+        entry point ganti username yang terdokumentasi adalah Pengaturan (docs/03 §Premium Username
+        Customization: Free → paywall, Premium → layar kustomisasi), lihat frame Pengaturan.</p>
+      <span class="tag usulan">Belum dibangun — pasangan layar Profil</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 9 · PERJALANAN PREMIUM (BOTTOM SHEET) -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="title">Profil</span>
+        <span class="spacer"></span>
+        <span class="iconbtn"><span class="ms">settings</span></span>
+      </header>
+      <div class="content">
+        <div style="padding:16px 20px 0; display:flex; gap:18px; align-items:center;">
+          <div class="avatar lg av-p">AN</div>
+          <div style="flex:1;">
+            <div style="font-size:21px; font-weight:800;"><span class="pname pname-gold">Arya Nugraha</span></div>
+            <div style="font-size:13.5px; color:var(--on-surface-variant); margin-top:2px;">@arya.ngrh</div>
+            <div style="margin-top:8px;"><span class="chip prem"><span class="ms fill">workspace_premium</span>Premium · 91 hari</span></div>
+          </div>
+        </div>
+        <div style="padding:14px 20px 0; font-size:14px; line-height:1.55;">
+          Anak Jaksel yang suka kulineran &amp; lari pagi 🏃 Info seputar Senopati–Blok M.
+        </div>
+      </div>
+      <nav class="navbar">
+        <div class="navitem">
+          <span class="ind"><span class="ms">home</span></span><span class="lbl">Beranda</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">notifications</span><span class="nbadge">3</span></span><span class="lbl">Notifikasi</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">chat_bubble</span><span class="nbadge">2</span></span><span class="lbl">Pesan</span>
+        </div>
+        <div class="navitem active">
+          <span class="ind"><span class="ms fill">person</span></span><span class="lbl">Profil</span>
+        </div>
+      </nav>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div style="display:flex; flex-direction:column; align-items:center;">
+          <div class="tbadge t-gold">
+            <span class="core"><span class="ms fill">workspace_premium</span></span>
+            <span class="shine"></span>
+          </div>
+          <div style="font-size:19px; font-weight:800; margin-top:12px;">Premium · 91 hari</div>
+          <div style="font-size:12px; font-weight:700; color:var(--on-premium-container); background:var(--premium-container); border-radius:100px; padding:4px 12px; margin-top:6px;">Tier Emas</div>
+        </div>
+        <div class="ladder">
+          <div class="lstep">
+            <span class="lmini lm-bronze"><span class="ms fill">workspace_premium</span></span>
+            <span class="ln">Perunggu</span><span class="lt">&lt;30 hr</span>
+          </div>
+          <div class="lstep">
+            <span class="lmini lm-silver"><span class="ms fill">workspace_premium</span></span>
+            <span class="ln">Perak</span><span class="lt">30 hr</span>
+          </div>
+          <div class="lstep">
+            <span class="lmini lm-gold"><span class="ms fill">workspace_premium</span></span>
+            <span class="ln">Emas</span><span class="lt">90 hr</span>
+          </div>
+          <div class="lstep locked">
+            <span class="lmini lm-sapphire"><span class="ms fill">workspace_premium</span></span>
+            <span class="ln">Safir</span><span class="lt">180 hr</span>
+          </div>
+          <div class="lstep locked">
+            <span class="lmini lm-diamond"><span class="ms fill">workspace_premium</span></span>
+            <span class="ln">Berlian</span><span class="lt">365 hr</span>
+          </div>
+        </div>
+        <div style="margin-top:20px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700;">
+            <span>Menuju Safir</span><span>91 / 180 hari</span>
+          </div>
+          <div class="progressbar"><i></i></div>
+          <div style="font-size:11.5px; color:var(--on-surface-variant); margin-top:8px; line-height:1.5;">
+            89 hari lagi — masa Premium kamu akumulatif, tidak hangus walau jeda langganan.
+          </div>
+        </div>
+      </div>
+      <div class="handle" style="background:#FFFFFF; opacity:.6;"></div>
+    </div>
+    <div class="cap">
+      <h3>9 · Perjalanan Premium — bottom sheet</h3>
+      <p>ModalBottomSheet M3 (scrim + drag handle) terbuka saat chip Premium di profil di-tap: badge tier
+        besar ber-animasi (kilau + glow), <b>ladder 5 tier</b> — tercapai vs terkunci (pola yang sama
+        dipakai untuk showcase di paywall/Settings) — dan progress ke tier berikutnya. Jangkar
+        retensi: tenure akumulatif (docs/01), jeda langganan tidak menghanguskan hitungan.</p>
+      <span class="tag usulan">Usulan — butuh field tenure dari subscription_events</span>
+    </div>
+  </article>
+
+</div>
+
+<div class="section-title">Onboarding, langganan &amp; pengaturan</div>
+<div class="grid">
+
+  <!-- ============================================================ 10 · ONBOARDING -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <div class="content" style="display:flex; flex-direction:column; padding:0 28px;">
+        <div style="display:flex; justify-content:flex-end; padding-top:4px;">
+          <span class="textbtn" style="padding:10px 4px;">Lewati</span>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+          <div style="position:relative; width:224px; height:224px; display:flex; align-items:center; justify-content:center;">
+            <div style="position:absolute; inset:0; border:2px solid var(--outline-variant); border-radius:50%; opacity:.6;"></div>
+            <div style="position:absolute; inset:36px; border:2px solid var(--primary-container); border-radius:50%;"></div>
+            <div style="position:absolute; inset:72px; background:var(--primary-container); border-radius:50%; opacity:.5;"></div>
+            <span class="ms fill" style="font-size:44px; color:var(--pin); position:relative; z-index:2;">location_on</span>
+            <div class="avatar av-t" style="position:absolute; top:18px; right:46px; width:28px; height:28px; font-size:11px;">DL</div>
+            <div class="avatar av-g" style="position:absolute; bottom:32px; left:26px; width:28px; height:28px; font-size:11px;">BW</div>
+            <div class="avatar av-s" style="position:absolute; top:86px; left:4px; width:24px; height:24px; font-size:10px;">AS</div>
+          </div>
+          <div style="font-size:24px; font-weight:800; text-align:center; margin-top:28px;">Lihat yang terjadi di sekitarmu</div>
+          <div style="font-size:14.5px; color:var(--on-surface-variant); text-align:center; line-height:1.6; margin-top:10px;">
+            Postingan dari orang-orang di sekitarmu, bukan dari seluruh dunia. Kamu yang menentukan radiusnya.
+          </div>
+          <div style="display:flex; gap:6px; margin-top:24px;">
+            <span style="width:20px; height:6px; border-radius:3px; background:var(--primary);"></span>
+            <span style="width:6px; height:6px; border-radius:3px; background:var(--outline-variant);"></span>
+            <span style="width:6px; height:6px; border-radius:3px; background:var(--outline-variant);"></span>
+          </div>
+        </div>
+        <div style="padding-bottom:28px;">
+          <span class="btn filled" style="width:100%; height:48px;">Lanjut</span>
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>10 · Onboarding 1/3 — sekitar</h3>
+      <p>Intro pra-login (HorizontalPager + pager dots M3, 3 slide → frame 10–12): slide pertama =
+        nilai inti feed Sekitar — "the viewer chooses the radius" (docs/02) · "Lewati" → langsung
+        ke Masuk.</p>
+      <span class="tag usulan">Belum dibangun — layar intro pra-login</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 11 · ONBOARDING 2/3 -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <div class="content" style="display:flex; flex-direction:column; padding:0 28px;">
+        <div style="display:flex; justify-content:flex-end; padding-top:4px;">
+          <span class="textbtn" style="padding:10px 4px;">Lewati</span>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+          <div style="position:relative; width:224px; height:224px; display:flex; align-items:center; justify-content:center;">
+            <div style="position:absolute; inset:0; border:2px dashed var(--outline); border-radius:50%; opacity:.7;"></div>
+            <div style="position:absolute; inset:40px; background:var(--pin-container); border-radius:50%; opacity:.55;"></div>
+            <span class="ms fill" style="font-size:44px; color:var(--pin); position:relative; z-index:2; transform:translate(26px,-18px);">location_on</span>
+            <span class="ms fill" style="font-size:22px; color:var(--primary); position:absolute; z-index:2; transform:translate(-34px,30px);">person_pin_circle</span>
+            <span style="position:absolute; top:-6px; left:50%; transform:translateX(-50%); background:var(--inverse-surface); color:var(--inverse-on-surface); font-size:11.5px; font-weight:700; border-radius:8px; padding:4px 10px;">±5 km</span>
+          </div>
+          <div style="font-size:24px; font-weight:800; text-align:center; margin-top:28px;">Lokasimu tetap samar</div>
+          <div style="font-size:14.5px; color:var(--on-surface-variant); text-align:center; line-height:1.6; margin-top:10px;">
+            Lokasi pastimu tidak pernah dibagikan. Orang lain hanya melihat perkiraan yang disamarkan hingga ±5 km.
+          </div>
+          <div style="display:flex; gap:6px; margin-top:24px;">
+            <span style="width:6px; height:6px; border-radius:3px; background:var(--outline-variant);"></span>
+            <span style="width:20px; height:6px; border-radius:3px; background:var(--primary);"></span>
+            <span style="width:6px; height:6px; border-radius:3px; background:var(--outline-variant);"></span>
+          </div>
+        </div>
+        <div style="padding-bottom:28px;">
+          <span class="btn filled" style="width:100%; height:48px;">Lanjut</span>
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>11 · Onboarding 2/3 — privasi lokasi</h3>
+      <p>Janji privasi dari dok: lokasi pasti <b>tidak pernah dibagikan</b> (selaras copy shipped
+        <i>location_consent_body</i>); yang tampil hanya perkiraan ter-fuzz dengan floor <b>±5 km</b>
+        (docs/06 §spatial fuzzing + <i>DistanceRenderer</i>) — pin coral = lokasi tampil,
+        pin biru = posisi asli di dalam area samar.</p>
+      <span class="tag usulan">Belum dibangun — layar intro pra-login</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 12 · ONBOARDING 3/3 -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <div class="content" style="display:flex; flex-direction:column; padding:0 28px;">
+        <div style="display:flex; justify-content:flex-end; padding-top:4px;">
+          <span class="textbtn" style="padding:10px 4px; opacity:0;">Lewati</span>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+          <div style="width:248px; display:flex; flex-direction:column; gap:8px;">
+            <div class="bubble in" style="font-size:13.5px; max-width:86%;">Lokasinya tepatnya di mana ya?</div>
+            <div class="bubble out" style="font-size:13.5px; max-width:86%;">Di belakang Blok M Square 😄</div>
+            <div class="bubble in" style="font-size:13.5px; max-width:86%;">Oke besok aku coba!</div>
+          </div>
+          <div style="font-size:24px; font-weight:800; text-align:center; margin-top:30px;">Ngobrol langsung 1:1</div>
+          <div style="font-size:14.5px; color:var(--on-surface-variant); text-align:center; line-height:1.6; margin-top:10px;">
+            Lihat postingan menarik? Kirim pesan ke penulisnya — postingannya ikut terlampir di chat.
+          </div>
+          <div style="display:flex; gap:6px; margin-top:24px;">
+            <span style="width:6px; height:6px; border-radius:3px; background:var(--outline-variant);"></span>
+            <span style="width:6px; height:6px; border-radius:3px; background:var(--outline-variant);"></span>
+            <span style="width:20px; height:6px; border-radius:3px; background:var(--primary);"></span>
+          </div>
+        </div>
+        <div style="padding-bottom:28px;">
+          <span class="btn filled" style="width:100%; height:48px;">Mulai</span>
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>12 · Onboarding 3/3 — chat 1:1</h3>
+      <p>Chat 1:1 dimulai dari tombol kirim-pesan di post; postingannya ikut terlampir
+        (<i>embedded_post_snapshot</i>, docs/02 §Chat) · slide terakhir: "Lewati" hilang,
+        CTA berubah jadi <b>Mulai</b> → layar Masuk.</p>
+      <span class="tag usulan">Belum dibangun — layar intro pra-login</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 13 · MASUK -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <div class="content" style="display:flex; flex-direction:column; padding:0 28px;">
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0;">
+          <svg class="logo" style="width:96px; height:96px;" viewBox="31 31 46 46" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M43.8,50.2 L54,56.1 L64.2,50.2 L64.2,38.5 L54,32.6 L43.8,38.5 L43.8,45.5"/>
+            <path d="M54,56.1 L43.8,50.2 L33.7,56.1 L33.7,67.9 L43.8,73.7 L46.3,73.7"/>
+            <path d="M64.2,73.7 L74.3,67.9 L74.3,56.1 L68.3,52.6"/>
+            <path d="M64.2,73.7 L56.7,73.7"/>
+            <circle cx="51.5" cy="73.7" r="2" fill="currentColor" stroke="none"/>
+          </svg>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:12px; padding-bottom:28px;">
+          <div class="authbtn">
+            <svg viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 5.8 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.7-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 5.8 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.1 5.7l6.2 5.2C36.9 40.2 44 35 44 24c0-1.3-.1-2.7-.4-3.9z"/></svg>
+            Masuk dengan Google
+          </div>
+          <div class="authbtn">
+            <svg viewBox="0 0 20 24" fill="currentColor"><path d="M16.7 12.9c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.86-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3.1 2.4 1.2-.05 1.7-.8 3.2-.8s1.9.8 3.2.77c1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8 0-.01-2.5-1-2.5-3.9zM14.4 5.6c.7-.8 1.1-1.9 1-3.1-1 .04-2.2.66-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.6 2.9-1.4z"/></svg>
+            Masuk dengan Apple
+          </div>
+          <div style="font-size:11px; color:var(--on-surface-variant); text-align:center; line-height:1.6; margin-top:4px;">
+            Khusus 18 tahun ke atas. Dengan melanjutkan, kamu menyetujui<br>
+            <span style="color:var(--primary); font-weight:600;">Ketentuan Layanan</span> dan
+            <span style="color:var(--primary); font-weight:600;">Kebijakan Privasi</span>.
+          </div>
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>13 · Masuk</h3>
+      <p>Logo brand tanpa teks (clean) · CTA persis string shipped (<i>cta_signin_google</i>) ·
+        Google OIDC sudah ada di app; tombol Apple = rencana iOS (kolom <i>apple_id_hash</i> +
+        <i>apple_relay_email</i> sudah di schema V2) · catatan 18+ sesuai age gate produk.</p>
+      <span class="tag ada">Google sign-in sudah ada — Apple direncanakan</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 14 · GERBANG USIA -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <div class="content" style="display:flex; flex-direction:column; padding:0 24px;">
+        <div style="padding-top:84px;">
+          <span class="ms" style="font-size:40px; color:var(--primary);">cake</span>
+          <div style="font-size:25px; font-weight:800; margin-top:16px;">Verifikasi usia kamu</div>
+          <div style="font-size:14.5px; color:var(--on-surface-variant); line-height:1.6; margin-top:10px;">
+            NearYouID hanya untuk pengguna berusia 18 tahun ke atas. Masukkan tanggal lahir kamu untuk melanjutkan.
+          </div>
+          <div class="otf" style="margin:32px 0 0; display:flex; align-items:center;">
+            <span class="flabel" style="color:var(--primary); font-weight:600;">Tanggal lahir</span>
+            17 Agustus 1998
+            <span class="ms" style="margin-left:auto; font-size:22px; color:var(--on-surface-variant);">calendar_today</span>
+          </div>
+          <div class="support" style="padding:4px 16px 0;">Pilih tanggal lahir</div>
+        </div>
+        <div style="flex:1;"></div>
+        <div style="padding-bottom:28px;">
+          <span class="btn filled" style="width:100%; height:48px;">Lanjutkan</span>
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>14 · Gerbang usia</h3>
+      <p>Copy persis string shipped (<i>age_gate_title</i>, <i>age_gate_explainer</i>,
+        <i>age_gate_dob_label</i>, <i>age_gate_dob_picker_cta</i>) · field tanggal membuka M3 DatePicker ·
+        di bawah 18 tahun → diblokir dengan <i>age_gate_under18_blocked</i> ("Platform ini hanya tersedia
+        untuk pengguna usia 18 tahun ke atas.").</p>
+      <span class="tag ada">Sudah ada di app (AgeGateScreen)</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 15 · PRIVASI & DATA -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <div class="content" style="display:flex; flex-direction:column; padding:0 24px;">
+        <div style="padding-top:64px;">
+          <span class="ms" style="font-size:40px; color:var(--primary);">shield_person</span>
+          <div style="font-size:25px; font-weight:800; margin-top:16px;">Privasi &amp; data</div>
+          <div style="font-size:14.5px; color:var(--on-surface-variant); line-height:1.6; margin-top:10px;">
+            Pilih data yang boleh kami kumpulkan untuk meningkatkan NearYouID. Kamu bisa mengubahnya kapan saja di Pengaturan.
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; margin-top:28px;">
+            <div style="flex:1;">
+              <div style="font-size:14.5px; font-weight:600;">Analitik penggunaan</div>
+              <div style="font-size:12px; color:var(--on-surface-variant); margin-top:1px;">Bantu kami perbaiki aplikasi dengan data penggunaan anonim (Amplitude)</div>
+            </div>
+            <span class="switch on"></span>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; margin-top:20px;">
+            <div style="flex:1;">
+              <div style="font-size:14.5px; font-weight:600;">Laporan crash</div>
+              <div style="font-size:12px; color:var(--on-surface-variant); margin-top:1px;">Laporkan crash otomatis untuk perbaikan bug (Sentry)</div>
+            </div>
+            <span class="switch on"></span>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; margin-top:20px;">
+            <div style="flex:1;">
+              <div style="font-size:14.5px; font-weight:600;">Personalisasi iklan</div>
+              <div style="font-size:12px; color:var(--on-surface-variant); margin-top:1px;">Iklan dapat disesuaikan dengan minat kamu (Google AdMob UMP)</div>
+            </div>
+            <span class="switch off"></span>
+          </div>
+        </div>
+        <div style="flex:1;"></div>
+        <div style="display:flex; flex-direction:column; gap:8px; padding-bottom:24px; align-items:center;">
+          <span class="btn filled" style="width:100%; height:48px;">Simpan &amp; lanjutkan</span>
+          <span class="textbtn" style="padding:8px;">Lewati untuk sekarang</span>
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>15 · Persetujuan analitik</h3>
+      <p>Seluruh copy persis strings.xml shipped (<i>consent_title/explainer</i>, 3 pasang
+        <i>label/desc</i>: Amplitude / Sentry / AdMob UMP, <i>consent_cta_continue</i>, <i>consent_skip</i>)
+        · M3 Switch per kategori · preferensi bisa diubah lagi dari Pengaturan (frame 16).</p>
+      <span class="tag ada">Sudah ada di app — analytics-consent (#157)</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 16 · PENGATURAN -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="iconbtn lead"><span class="ms">arrow_back</span></span>
+        <span class="title">Pengaturan</span>
+      </header>
+      <div class="content">
+        <div class="set-h">AKUN</div>
+        <div class="sitem">
+          <span class="ms si">person</span>
+          <div class="smid"><div class="st1">Edit profil</div></div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+        <div class="sitem">
+          <span class="ms si">alternate_email</span>
+          <div class="smid">
+            <div class="st1">Ganti username <span class="ms fill">workspace_premium</span></div>
+            <div class="st2">@arya.ngrh · 1× per 30 hari</div>
+          </div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+        <div class="set-h">PREMIUM</div>
+        <div class="sitem">
+          <span class="ms si" style="color:var(--premium);">workspace_premium</span>
+          <div class="smid">
+            <div class="st1">Perjalanan Premium</div>
+            <div class="st2">Tier Emas · 91 hari</div>
+          </div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+        <div class="sitem">
+          <span class="ms si">credit_card</span>
+          <div class="smid">
+            <div class="st1">Kelola langganan</div>
+            <div class="st2">Bulanan · via Google Play</div>
+          </div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+        <div class="set-h">PRIVASI</div>
+        <div class="sitem">
+          <span class="ms si">lock</span>
+          <div class="smid">
+            <div class="st1">Profil privat <span class="ms fill">workspace_premium</span></div>
+            <div class="st2">Jadi publik 72 jam setelah Premium berakhir</div>
+          </div>
+          <span class="switch on"></span>
+        </div>
+        <div class="sitem">
+          <span class="ms si">location_off</span>
+          <div class="smid">
+            <div class="st1">Sembunyikan jarak <span class="ms fill">workspace_premium</span></div>
+            <div class="st2">Angka jarak saja; nama kota tetap tampil</div>
+          </div>
+          <span class="switch off"></span>
+        </div>
+        <div class="sitem">
+          <span class="ms si">shield_person</span>
+          <div class="smid">
+            <div class="st1">Privasi &amp; data</div>
+            <div class="st2">Analitik, laporan crash, personalisasi iklan</div>
+          </div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+        <div class="sitem">
+          <span class="ms si">block</span>
+          <div class="smid"><div class="st1">Pengguna diblokir</div></div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+        <div class="set-h">LAINNYA</div>
+        <div class="sitem">
+          <span class="ms si">description</span>
+          <div class="smid"><div class="st1">Ketentuan &amp; kebijakan privasi</div></div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+        <div class="sitem">
+          <span class="ms si" style="color:var(--error);">logout</span>
+          <div class="smid"><div class="st1" style="color:var(--error);">Keluar</div></div>
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>16 · Pengaturan</h3>
+      <p>Setiap entri dipetakan ke fungsionalitas terdokumentasi: Ganti username ✦ (docs/02 — Premium,
+        1×/30 hari; Free di-paywall), Perjalanan Premium (frame 9), Kelola langganan (RevenueCat wrap
+        Play Billing), Profil privat ✦ dengan catatan grace 72 jam (docs/01), Sembunyikan jarak ✦
+        (angka saja, kota tetap — docs/01), Privasi &amp; data (toggle consent #157), Pengguna diblokir
+        (user-blocking shipped), Keluar.</p>
+      <span class="tag usulan">Belum dibangun — ada di menu critical-path mobile</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 17 · PAYWALL PREMIUM -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="iconbtn lead"><span class="ms">close</span></span>
+      </header>
+      <div class="content" style="padding:0 24px;">
+        <div style="display:flex; flex-direction:column; align-items:center;">
+          <span class="ms fill" style="font-size:44px; color:var(--premium);">workspace_premium</span>
+          <div style="font-size:24px; font-weight:800; margin-top:8px;">NearYouID <span style="color:var(--on-premium-container);">Premium</span></div>
+        </div>
+        <div style="margin-top:16px;">
+          <div class="feat"><span class="ms">check_circle</span>Post, balasan &amp; like tanpa batas</div>
+          <div class="feat"><span class="ms">check_circle</span>Radius Sekitar 10–100 km</div>
+          <div class="feat"><span class="ms">check_circle</span>Sembunyikan jarak (nama kota tetap tampil)</div>
+          <div class="feat"><span class="ms">check_circle</span>Username kustom · 1× per 30 hari</div>
+          <div class="feat"><span class="ms">check_circle</span>Pencarian postingan · edit post 30 menit</div>
+          <div class="feat"><span class="ms">check_circle</span>Tanpa iklan · badge + tenure Premium</div>
+        </div>
+        <div class="ladder" style="margin-top:14px;">
+          <div class="lstep">
+            <span class="lmini lm-bronze"><span class="ms fill">workspace_premium</span></span>
+            <span class="ln">Perunggu</span><span class="lt">&lt;30 hr</span>
+          </div>
+          <div class="lstep">
+            <span class="lmini lm-silver"><span class="ms fill">workspace_premium</span></span>
+            <span class="ln">Perak</span><span class="lt">30 hr</span>
+          </div>
+          <div class="lstep">
+            <span class="lmini lm-gold" style="box-shadow:none;"><span class="ms fill">workspace_premium</span></span>
+            <span class="ln">Emas</span><span class="lt">90 hr</span>
+          </div>
+          <div class="lstep">
+            <span class="lmini lm-sapphire"><span class="ms fill">workspace_premium</span></span>
+            <span class="ln">Safir</span><span class="lt">180 hr</span>
+          </div>
+          <div class="lstep">
+            <span class="lmini lm-diamond"><span class="ms fill">workspace_premium</span></span>
+            <span class="ln">Berlian</span><span class="lt">365 hr</span>
+          </div>
+        </div>
+        <div style="font-size:11px; color:var(--on-surface-variant); text-align:center; margin-top:6px;">
+          Masa Premium akumulatif — badge naik tier seiring waktu
+        </div>
+        <div class="pcards">
+          <div class="pcard">
+            <div class="pl">Mingguan</div>
+            <div class="pp">Rp9.900</div>
+            <div class="ps">Rp1.414/hari</div>
+          </div>
+          <div class="pcard sel">
+            <div class="pl">Bulanan</div>
+            <div class="strike">Rp39.600</div>
+            <div class="pp">Rp29.000</div>
+            <div class="ps hemat">Hemat 27%</div>
+          </div>
+          <div class="pcard">
+            <span class="ptag">Paling hemat</span>
+            <div class="pl">Tahunan</div>
+            <div class="strike">Rp348.000</div>
+            <div class="pp">Rp249.000</div>
+            <div class="ps hemat">Hemat 28%</div>
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <span class="btn filled" style="width:100%; height:48px;">Aktifkan Premium</span>
+        </div>
+        <div style="font-size:10.5px; color:var(--on-surface-variant); text-align:center; margin-top:10px; font-style:italic;">
+          Fitur Premium dapat berubah atau ditambahkan seiring waktu.
+        </div>
+      </div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>17 · Paywall Premium</h3>
+      <p>Fitur = set Month-1 persis tabel docs/01 §Freemium Tiers — <b>tanpa upload gambar</b> (Month 6;
+        disclosure wajib bulan 1–5, klausa ToS verbatim di footer) · harga = target docs/01
+        §Multi-Period Pricing (verifikasi Pre-Phase 1; tier harian di-drop karena Apple) · <b>harga
+        coret = anchor turunan</b> (Bulanan vs 4× mingguan → hemat 27%; Tahunan vs 12× bulanan →
+        hemat 28%) menggantikan label per-hari di kartu diskon agar tidak tumpang tindih — Mingguan
+        tetap per-hari sebagai baseline · ladder tenure sebagai pitch retensi (poin opsional board)
+        · pembayaran via RevenueCat (Play Billing + StoreKit).</p>
+      <span class="tag usulan">Belum dibangun — paywall Month 1</span>
+    </div>
+  </article>
+
+  <!-- ============================================================ 18 · UPSELL KENA BATAS -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar center">
+        <svg class="logo" viewBox="31 31 46 46" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M43.8,50.2 L54,56.1 L64.2,50.2 L64.2,38.5 L54,32.6 L43.8,38.5 L43.8,45.5"/>
+          <path d="M54,56.1 L43.8,50.2 L33.7,56.1 L33.7,67.9 L43.8,73.7 L46.3,73.7"/>
+          <path d="M64.2,73.7 L74.3,67.9 L74.3,56.1 L68.3,52.6"/>
+          <path d="M64.2,73.7 L56.7,73.7"/>
+          <circle cx="51.5" cy="73.7" r="2" fill="currentColor" stroke="none"/>
+        </svg>
+      </header>
+      <div class="tabs">
+        <div class="tab active"><span>Sekitar</span></div>
+        <div class="tab"><span>Mengikuti</span></div>
+        <div class="tab"><span>Global</span></div>
+      </div>
+      <div class="content">
+        <div class="post" style="margin-top:8px;">
+          <div class="head">
+            <div class="avatar av-p">RP</div>
+            <div class="who">
+              <div class="name">Raka Pratama</div>
+              <div class="meta">@raka.jkt · 5 mnt</div>
+            </div>
+            <div class="more"><span class="ms">more_vert</span></div>
+          </div>
+          <div class="body">Ada yang tau kenapa Jalan Senopati ditutup dari arah SCBD? Macetnya sampai Gunawarman 😩</div>
+          <div class="loc"><span class="ms fill">location_on</span>Jakarta Selatan · 5km</div>
+          <div class="actions">
+            <span class="action"><span class="ms">mode_comment</span>4</span>
+            <span class="action"><span class="ms">send</span></span>
+            <span class="action"><span class="ms">favorite</span>12</span>
+          </div>
+        </div>
+        <div class="dialog-wrap">
+          <div class="dialog">
+            <div class="d-icon"><span class="ms fill">favorite</span></div>
+            <h4>Batas harian tercapai</h4>
+            <div class="d-body">
+              Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas,
+              atau tunggu reset dalam 14 j 19 mnt.
+            </div>
+            <div class="d-actions">
+              <span class="textbtn">Tutup</span>
+              <span class="btn filled sm">Aktifkan Premium</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="handle" style="background:#FFFFFF; opacity:.6;"></div>
+    </div>
+    <div class="cap">
+      <h3>18 · Upsell saat kena batas (Free)</h3>
+      <p>M3 AlertDialog dengan copy <b>verbatim docs/03</b> §Free tier like limit modal — batas Free
+        10 like/hari (docs/01), countdown ke reset tengah malam WIB (pola <i>computeTTLToNextReset</i>)
+        · CTA "Aktifkan Premium" (primary) → paywall frame 17, "Tutup" (secondary) · pola yang sama
+        berlaku untuk batas post 10/hari, balasan 20/hari, chat 50/hari.</p>
+      <span class="tag usulan">Belum dibangun — modal upsell Month 1</span>
+    </div>
+  </article>
+
+</div>
+
+<div class="section-title">Dark theme — scheme gelap dari token yang sama</div>
+<div class="grid">
+
+  <!-- ============================================================ 8 · BERANDA DARK -->
+  <article class="device">
+    <div class="frame dark">
+      <div class="statusbar">
+        <span>21.18</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_3_bar</span></span>
+      </div>
+      <header class="appbar center">
+        <svg class="logo" viewBox="31 31 46 46" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M43.8,50.2 L54,56.1 L64.2,50.2 L64.2,38.5 L54,32.6 L43.8,38.5 L43.8,45.5"/>
+          <path d="M54,56.1 L43.8,50.2 L33.7,56.1 L33.7,67.9 L43.8,73.7 L46.3,73.7"/>
+          <path d="M64.2,73.7 L74.3,67.9 L74.3,56.1 L68.3,52.6"/>
+          <path d="M64.2,73.7 L56.7,73.7"/>
+          <circle cx="51.5" cy="73.7" r="2" fill="currentColor" stroke="none"/>
+        </svg>
+      </header>
+      <div class="tabs">
+        <div class="tab active"><span>Sekitar</span></div>
+        <div class="tab"><span>Mengikuti</span></div>
+        <div class="tab"><span>Global</span></div>
+      </div>
+      <div class="radius-bar">
+        <div class="rb-row">
+          <span class="rb-end">Terdekat</span>
+          <div class="slider">
+            <div class="tooltip">20 km</div>
+            <div class="track"></div>
+            <div class="track-active"></div>
+            <div class="dot" style="left:66.66%;"></div>
+            <div class="dot" style="left:calc(100% - 3px);"></div>
+            <div class="thumb"></div>
+          </div>
+          <span class="rb-end">Terjauh</span>
+        </div>
+      </div>
+      <div class="content">
+
+        <div class="post">
+          <div class="head">
+            <div class="avatar av-t">DL</div>
+            <div class="who">
+              <div class="name"><span class="pname pname-sapphire">Dewi Lestari</span> <span class="ms fill" style="color:var(--primary);">workspace_premium</span></div>
+              <div class="meta">@dewi.kuliner · 2 mnt</div>
+            </div>
+            <div class="more"><span class="ms">more_vert</span></div>
+          </div>
+          <div class="body">Malam-malam gini paling enak nongkrong di kopi tubruk deket Barito. Masih buka sampai jam 1 ✨</div>
+          <div class="loc"><span class="ms fill">location_on</span>Jakarta Selatan · 6km</div>
+          <div class="actions">
+            <span class="action"><span class="ms">mode_comment</span>1</span>
+            <span class="action"><span class="ms">send</span></span>
+            <span class="action liked"><span class="ms fill">favorite</span>9</span>
+          </div>
+        </div>
+
+        <div class="post">
+          <div class="head">
+            <div class="avatar av-s">AS</div>
+            <div class="who">
+              <div class="name">Andi Saputra</div>
+              <div class="meta">@andisptr · 15 mnt</div>
+            </div>
+            <div class="more"><span class="ms">more_vert</span></div>
+          </div>
+          <div class="body">Lapangan futsal di Pasar Minggu masih ada slot jam 9. Kurang 2 orang nih, siapa mau merapat?</div>
+          <div class="pic pic-park"></div>
+          <div class="loc"><span class="ms fill">location_on</span>Jakarta Selatan · 8km</div>
+          <div class="actions">
+            <span class="action"><span class="ms">mode_comment</span>7</span>
+            <span class="action"><span class="ms">send</span></span>
+            <span class="action"><span class="ms">favorite</span>14</span>
+          </div>
+        </div>
+
+      </div>
+      <div class="fab"><span class="ms">add</span></div>
+      <nav class="navbar">
+        <div class="navitem active">
+          <span class="ind"><span class="ms fill">home</span></span><span class="lbl">Beranda</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">notifications</span><span class="nbadge">3</span></span><span class="lbl">Notifikasi</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">chat_bubble</span><span class="nbadge">2</span></span><span class="lbl">Pesan</span>
+        </div>
+        <div class="navitem">
+          <span class="ind"><span class="ms">person</span></span><span class="lbl">Profil</span>
+        </div>
+      </nav>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>19 · Beranda — dark theme</h3>
+      <p>Token <code>NearYouColorScheme.dark</code> apa adanya: primary #B7C4FF, surface #121318,
+        coral pin #FFB59E, premium #E8B941 — komponen identik (termasuk logo &amp; slider radius),
+        hanya scheme yang berganti (sudah didukung theme light/dark app saat ini).</p>
+      <span class="tag ada">Theme dark sudah ada di app</span>
+    </div>
+  </article>
+
+</div>
+
+</body>
+</html>
