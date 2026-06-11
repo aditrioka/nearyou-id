@@ -1,5 +1,6 @@
 package id.nearyou.app.post
 
+import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
 import id.nearyou.app.guard.ContentLengthGuard
 import id.nearyou.app.infra.repo.NewPostRow
 import id.nearyou.app.infra.repo.PostRepository
@@ -13,6 +14,9 @@ import id.nearyou.data.repository.ReportTargetType
 import id.nearyou.distance.JitterEngine
 import id.nearyou.distance.LatLng
 import id.nearyou.distance.UuidV7
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.UUID
 import javax.sql.DataSource
@@ -44,6 +48,10 @@ class CreatePostService(
     private val layer3DispatcherScope: Layer3DispatcherScope? = null,
     private val layer3Moderator: Layer3Moderator? = null,
     private val nowProvider: () -> Instant = Instant::now,
+    // docs/05 § Layer 2 daily cap — 10/day Free, Premium skips (2026-06-10 audit, 02-M2).
+    private val rateLimiter: PostRateLimiter = PostRateLimiter(),
+    // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /**
      * Validates + persists the post inside a single DB transaction. Returns the
@@ -63,6 +71,9 @@ class CreatePostService(
         rawContent: String?,
         latitude: Double,
         longitude: Double,
+        // The route MUST pass the principal's tier (PostRoutes does); the default
+        // exists only so pre-cap test fixtures keep constructing the Free path.
+        subscriptionStatus: String = "free",
     ): CreatedPost {
         // 1. Length + normalize (throws ContentEmpty / ContentTooLong).
         val content = contentGuard.enforce("post.content", rawContent)
@@ -73,12 +84,29 @@ class CreatePostService(
             throw LocationOutOfBoundsException(latitude, longitude)
         }
 
+        // 2.5. Daily cap — 10/day Free, Premium skips (docs/05 § Layer 2; 02-M2).
+        //    AFTER the free validation gates (malformed requests burn no slot),
+        //    BEFORE the moderation I/O (a capped user burns no Redis/RC budget).
+        //    Slots consumed by later rejections (moderation Reject) are NOT
+        //    released — anti-abuse, mirrors the like limiter's 404-no-release.
+        if (subscriptionStatus !in PREMIUM_STATES) {
+            val outcome =
+                withContext(dbDispatcher) {
+                    rateLimiter.tryAcquire(authorId, computeTTLToNextReset(authorId, nowProvider()))
+                }
+            if (outcome is PostRateLimiter.Outcome.RateLimited) {
+                throw PostRateLimitedException(outcome.retryAfterSeconds)
+            }
+        }
+
         // 3. Text moderation gate — Reject short-circuits to 400, Flag falls through
         //    to INSERT + queue row in same tx, Allow falls through to plain INSERT.
         //    Per call-order spec: AFTER length + envelope, BEFORE INSERT. Coord-envelope
         //    ordering relative to moderator is unconstrained per the spec scenario
         //    "Static analysis confirms call order".
-        val verdict = textModerator.moderate(content)
+        //    Runs on the bounded dispatcher — moderate() does Redis/Remote-Config/
+        //    Secret-Manager I/O on a cold cache (2026-06-10 audit, 04-#2).
+        val verdict = withContext(dbDispatcher) { textModerator.moderate(content) }
         if (verdict is Verdict.Reject) {
             throw ContentModeratedProfanityException(verdict.matchedKeywords)
         }
@@ -90,35 +118,38 @@ class CreatePostService(
         // 5. Fuzz the coordinate deterministically — docs/05 § Coordinate Fuzzing.
         val display = JitterEngine.offsetByBearing(LatLng(latitude, longitude), kotlinUuid, jitterSecret)
 
-        // 6. Single-INSERT transaction (+ moderation_queue row on Flag).
-        dataSource.connection.use { conn ->
-            conn.autoCommit = false
-            try {
-                posts.create(
-                    conn,
-                    NewPostRow(
-                        id = postId,
-                        authorId = authorId,
-                        content = content,
-                        actualLat = latitude,
-                        actualLng = longitude,
-                        displayLat = display.lat,
-                        displayLng = display.lng,
-                    ),
-                )
-                if (verdict is Verdict.Flag) {
-                    moderationQueue.upsertUuIteKeywordMatchRow(
-                        conn = conn,
-                        targetType = ReportTargetType.POST,
-                        targetId = postId,
+        // 6. Single-INSERT transaction (+ moderation_queue row on Flag) — on the
+        //    pool-bounded dispatcher (docs/11 §3.2; 02-H2).
+        withContext(dbDispatcher) {
+            dataSource.connection.use { conn ->
+                conn.autoCommit = false
+                try {
+                    posts.create(
+                        conn,
+                        NewPostRow(
+                            id = postId,
+                            authorId = authorId,
+                            content = content,
+                            actualLat = latitude,
+                            actualLng = longitude,
+                            displayLat = display.lat,
+                            displayLng = display.lng,
+                        ),
                     )
+                    if (verdict is Verdict.Flag) {
+                        moderationQueue.upsertUuIteKeywordMatchRow(
+                            conn = conn,
+                            targetType = ReportTargetType.POST,
+                            targetId = postId,
+                        )
+                    }
+                    conn.commit()
+                } catch (t: Throwable) {
+                    conn.rollback()
+                    throw t
+                } finally {
+                    conn.autoCommit = true
                 }
-                conn.commit()
-            } catch (t: Throwable) {
-                conn.rollback()
-                throw t
-            } finally {
-                conn.autoCommit = true
             }
         }
 
@@ -157,6 +188,10 @@ class CreatePostService(
         const val LAT_MAX: Double = 6.5
         const val LNG_MIN: Double = 94.0
         const val LNG_MAX: Double = 142.0
+
+        // Mirrors LikeService.PREMIUM_STATES — the daily-cap skip applies through a
+        // billing retry, matching the like/reply limiter precedent.
+        private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
     }
 }
 
@@ -181,3 +216,12 @@ data class CreatedPost(
 
 class LocationOutOfBoundsException(val latitude: Double, val longitude: Double) :
     RuntimeException("coordinate ($latitude, $longitude) is outside the Indonesia envelope")
+
+/**
+ * Thrown when the Free-tier daily post cap is exhausted (docs/05 § Layer 2;
+ * 2026-06-10 audit, finding 02-M2). Mapped at the StatusPages layer to HTTP 429
+ * with a `Retry-After` header carrying [retryAfterSeconds] (time to the user's
+ * WIB-staggered daily reset).
+ */
+class PostRateLimitedException(val retryAfterSeconds: Long) :
+    RuntimeException("post daily cap exhausted; retry after $retryAfterSeconds s")

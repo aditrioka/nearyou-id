@@ -8,6 +8,13 @@
 	     permission prompt. Coarse/approximate accuracy only (reduced); no "Always"/background. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>NearYouID memakai lokasi perkiraan kamu untuk menampilkan postingan di sekitar.</string>
+	<!-- Default the OS permission prompt + grant to APPROXIMATE accuracy (user can still opt up).
+	     Without this the prompt defaults to Precise ON and the coarse-only posture rests solely on
+	     IosLocationProvider's kCLLocationAccuracyReduced line — one regression away from precise
+	     coordinates, and the prompt UI contradicts the UU-PDP data-minimization copy above
+	     (openspec/specs/mobile-location § reduced accuracy; 2026-06-10 audit, 07-#8). -->
+	<key>NSLocationDefaultAccuracyReduced</key>
+	<true/>
 	<!-- Env-aware API base URL, driven by APP_API_BASE_URL in the active xcconfig
 	     (Config.xcconfig base / Staging.xcconfig / Production.xcconfig). Read at runtime by
 	     the iosMain `apiBaseUrl` actual via NSBundle.objectForInfoDictionaryKey("ApiBaseUrl"). -->

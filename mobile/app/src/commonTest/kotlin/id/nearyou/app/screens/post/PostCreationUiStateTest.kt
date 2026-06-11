@@ -100,6 +100,7 @@ class PostCreationUiStateTest {
             postCreationUiState("halo", PostCreationOutcome.LocationOutOfBounds, false).banner,
         )
         assertEquals(PostCreationBanner.CONTENT_REJECTED, postCreationUiState("halo", PostCreationOutcome.ContentRejected, false).banner)
+        assertEquals(PostCreationBanner.RATE_LIMITED, postCreationUiState("halo", PostCreationOutcome.RateLimited, false).banner)
         assertEquals(
             PostCreationBanner.LOCATION_UNAVAILABLE,
             postCreationUiState("halo", PostCreationOutcome.LocationUnavailable, false).banner,

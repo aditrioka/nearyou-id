@@ -739,28 +739,61 @@ CREATE INDEX posts_timeline_cursor_idx ON posts (created_at DESC, id DESC) WHERE
 CREATE INDEX posts_nearby_cursor_idx ON posts USING GIST (display_location, created_at) WHERE deleted_at IS NULL;
 ```
 
-**Nearby** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsTimelineRepository.kt`. Update both when changing the canonical query shape:
+**Nearby** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsTimelineRepository.kt`. Update both when changing the canonical query shape (refreshed 2026-06-10, audit finding 02-M3 — the prior block predated the V7/V8 projections and the LIMIT 31 probe row):
 ```sql
-SELECT p.* FROM visible_posts p
-WHERE (p.created_at, p.id) < ($cursor_ts, $cursor_id)
-  AND ST_DWithin(p.display_location, $viewer_loc, $radius_m)
-  AND p.is_auto_hidden = FALSE
-  AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
-  AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
-ORDER BY p.created_at DESC, p.id DESC
-LIMIT 20;
+SELECT p.id,
+       p.author_id,
+       p.content,
+       ST_Y(p.display_location::geometry) AS lat,
+       ST_X(p.display_location::geometry) AS lng,
+       ST_Distance(p.display_location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography) AS distance_m,
+       p.city_name,
+       p.created_at,
+       (pl.user_id IS NOT NULL) AS liked_by_viewer,
+       c.n AS reply_count
+  FROM visible_posts p          -- auto-hide + soft-delete + author shadow-ban/delete via the V20 view
+  LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = :viewer_id
+  LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS n
+        FROM post_replies pr
+        JOIN visible_users vu ON vu.id = pr.author_id
+       WHERE pr.post_id = p.id
+         AND pr.deleted_at IS NULL
+  ) c ON TRUE
+ WHERE ST_DWithin(p.display_location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :radius_m)
+   AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
+   AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
+   AND (p.created_at, p.id) < (:cursor_ts, :cursor_id)   -- omitted on the first page
+ ORDER BY p.created_at DESC, p.id DESC
+ LIMIT 31;  -- page-size 30 + one probe row for next_cursor
 ```
 
-**Following** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsFollowingRepository.kt`. Update both when changing the canonical query shape:
+**Following** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsFollowingRepository.kt`. Update both when changing the canonical query shape (refreshed 2026-06-10, audit finding 02-M3):
 ```sql
-SELECT p.* FROM visible_posts p
-WHERE (p.created_at, p.id) < ($cursor_ts, $cursor_id)
-  AND p.author_id IN (SELECT followee_id FROM follows WHERE follower_id = :viewer_id)
-  AND p.is_auto_hidden = FALSE
-  AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
-  AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
-ORDER BY p.created_at DESC, p.id DESC
-LIMIT 20;
+SELECT p.id,
+       p.author_id,
+       p.content,
+       ST_Y(p.display_location::geometry) AS lat,
+       ST_X(p.display_location::geometry) AS lng,
+       p.city_name,
+       p.created_at,
+       (pl.user_id IS NOT NULL) AS liked_by_viewer,
+       c.n AS reply_count
+  FROM visible_posts p          -- auto-hide + soft-delete + author shadow-ban/delete via the V20 view
+  LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = :viewer_id
+  LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS n
+        FROM post_replies pr
+        JOIN visible_users vu ON vu.id = pr.author_id
+       WHERE pr.post_id = p.id
+         AND pr.deleted_at IS NULL
+  ) c ON TRUE
+ WHERE p.author_id IN (SELECT followee_id FROM follows WHERE follower_id = :viewer_id)
+   AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
+   AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
+   AND (p.created_at, p.id) < (:cursor_ts, :cursor_id)   -- omitted on the first page
+ ORDER BY p.created_at DESC, p.id DESC
+ LIMIT 31;  -- page-size 30 + one probe row for next_cursor
 ```
 
 **Global** — verbatim from `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsGlobalRepository.kt`, shipped in `global-timeline-with-region-polygons` change. Update both when changing the canonical query shape:
@@ -969,7 +1002,9 @@ Hit → 403 "Tidak dapat mengirim pesan ke user ini". Existing history stays rea
 CREATE TABLE user_blocks (
     blocker_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     blocked_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    blocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Shipped column name is created_at (V5 migration + all code); this doc
+    -- previously said blocked_at — reconciled 2026-06-10 (audit finding 03-#10).
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (blocker_id, blocked_id),
     CHECK (blocker_id != blocked_id)
 );
@@ -1214,11 +1249,16 @@ Immutable: UPDATE/DELETE revoked at the role level for `admin_app`. Retention 1 
 ### Server-Side Consistency via Database Views
 
 ```sql
-CREATE VIEW visible_posts AS
+-- Shipped shape (V20, 2026-06-10 audit): the canonical author-side filters below
+-- merged with the V4-era is_auto_hidden filter that the reports auto-hide
+-- capability depends on. (V4..V19 had shipped ONLY the is_auto_hidden filter —
+-- audit finding 02-C1.)
+CREATE OR REPLACE VIEW visible_posts AS
 SELECT p.*
 FROM posts p
 JOIN users u ON p.author_id = u.id
-WHERE p.deleted_at IS NULL
+WHERE p.is_auto_hidden = FALSE
+    AND p.deleted_at IS NULL
     AND u.deleted_at IS NULL
     AND u.is_shadow_banned = FALSE;
 

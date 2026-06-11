@@ -96,14 +96,16 @@ The convention for IP-keyed callers (the first such call site is the `health-che
 
 ### Requirement: Redis-backed `RateLimiter` implementation via Lua sliding window
 
-The `:infra:redis` module SHALL provide a Redis-backed implementation of `RateLimiter` that uses a single Lua script (atomic on the Redis side) to:
+The `:infra:redis` module SHALL provide a Redis-backed implementation of `RateLimiter` that uses a single Lua script (atomic on the Redis side) for ROLLING-WINDOW keys to:
 
-1. `ZREMRANGEBYSCORE key 0 (now_ms - window_ms)` — prune entries older than the window. `window_ms` is always `ttl_ms` (the caller-supplied `ttl` converted to milliseconds): daily callers pass `computeTTLToNextReset(userId)`; hourly callers pass `Duration.ofHours(1)` directly; sub-hourly anti-scrape callers pass the window duration directly (e.g., the `/health` 60-second window passes `Duration.ofSeconds(60)`). There is no hardcoded `window_ms` in the script — it is always an `ARGV` value derived from the caller's `ttl`.
+1. `ZREMRANGEBYSCORE key 0 (now_ms - window_ms)` — prune entries older than the window. `window_ms` is always `ttl_ms` (the caller-supplied `ttl` converted to milliseconds): hourly callers pass `Duration.ofHours(1)` directly; sub-hourly anti-scrape callers pass the window duration directly (e.g., the `/health` 60-second window passes `Duration.ofSeconds(60)`). There is no hardcoded `window_ms` in the script — it is always an `ARGV` value derived from the caller's `ttl`.
 2. `ZCARD key` — count remaining entries.
 3. If count `>= capacity`: read the oldest score via `ZRANGE key 0 0 WITHSCORES`, compute `retry_after_seconds = ceil((oldest_ms + window_ms - now_ms) / 1000)` coerced to `>= 1`, return `RateLimited(retry_after_seconds)`. Do NOT add an entry.
 4. Else: `ZADD key now_ms <unique-jti>`, `PEXPIRE key ttl_ms`, return `Allowed(capacity - count - 1)`.
 
-`releaseMostRecent` MUST be implemented as `ZPOPMAX key 1` (atomic).
+DAILY keys — every key whose scope hash-tag ends in `_day` (marker substring `_day}`, exposed as `RateLimiter.FIXED_WINDOW_KEY_MARKER`) — SHALL instead use a FIXED-WINDOW Lua script: `INCR key`; `PEXPIRE key ttl_ms` only when the incremented count is 1 (first event of the window — `ttl` is `computeTTLToNextReset(userId)` at that moment, so the bucket expires exactly at the user's WIB-staggered reset); reject with `retry_after_seconds = ceil(PTTL / 1000)` (coerced `>= 1`) when the count exceeds `capacity`. Rationale (amended 2026-06-10, holistic audit finding 02-H4): under the previous always-sliding rule, `window_ms = ttl_ms` made the prune window equal the time *remaining* until reset — entries spent early in the day aged out before the reset, silently refilling daily caps several-fold late in the day. Fixed-window counting makes "N per day" mean exactly N between resets.
+
+`releaseMostRecent` MUST be implemented as `ZPOPMAX key 1` (atomic) for rolling keys, and as an atomic decrement floored at zero (TTL preserved) for fixed-window `_day}` keys.
 
 The implementation MUST run the Lua call inside `withContext(Dispatchers.IO)` to keep the Ktor coroutine dispatcher unblocked.
 
@@ -122,6 +124,14 @@ Both `tryAcquire(userId, key, capacity, ttl)` and `tryAcquireByKey(key, capacity
 #### Scenario: Two same-millisecond inserts both land via random JTI
 - **WHEN** two `tryAcquire` calls from the same `userId + key` execute via parallel coroutines such that both Lua scripts observe the same `now_ms` value
 - **THEN** both `ZADD` operations succeed AND the bucket size after both calls is exactly 2 (the random per-call JTI prevents the sorted-set member key from colliding even when the score is identical)
+
+#### Scenario: Daily-key slots do not refill before the reset
+- **WHEN** a user exhausts a `_day}` key's capacity early in the day (ttl-at-spend = time remaining to the WIB-staggered reset) AND more time elapses than the ttl-at-spend value before the reset moment
+- **THEN** the next `tryAcquire` on that key still returns `RateLimited` AND its `retryAfterSeconds` is at most the time remaining to the reset (no sliding-window age-out refill)
+
+#### Scenario: Daily-key bucket resets at the WIB-staggered boundary
+- **WHEN** a `_day}` key's bucket expires at the user's reset moment AND the user calls `tryAcquire` again
+- **THEN** the call returns `Allowed` AND a fresh window opens with the new call's `computeTTLToNextReset` value as its expiry
 
 #### Scenario: Bucket already over-capacity preserved on cap reduction
 - **WHEN** the bucket holds 7 entries within the window AND a subsequent `tryAcquire` is issued with `capacity = 5` (e.g., `premium_like_cap_override` was lowered mid-window)

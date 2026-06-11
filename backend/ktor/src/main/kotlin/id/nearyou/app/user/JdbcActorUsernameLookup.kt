@@ -33,17 +33,6 @@ class JdbcActorUsernameLookup(
      *     `visible_users` in this module are restricted to the actor-username
      *     path.
      */
-    @AllowMissingBlockJoin(
-        "Notification-rendering actor-username lookup (PK seek on visible_users). " +
-            "Two reasons block-exclusion does not apply: (1) the recipient is the known " +
-            "audience and was already cleared via the NotificationEmitter bidirectional " +
-            "block-check at emit-time (see in-app-notifications spec, NotificationEmitter " +
-            "write-path requirement) — re-applying the block-join here would re-litigate " +
-            "an already-gated relationship; (2) the read goes through visible_users which " +
-            "applies shadow-ban filtering — that is the active privacy filter on this " +
-            "surface (see fcm-push-dispatch design D13). Reads to visible_users in this " +
-            "module are restricted to the actor-username path.",
-    )
     override fun lookup(actorUserId: UUID?): String? {
         if (actorUserId == null) return null
         dataSource.connection.use { conn ->
@@ -58,6 +47,20 @@ class JdbcActorUsernameLookup(
     }
 
     private companion object {
+        // Annotation sits on the SQL-holding PROPERTY (not the function): the lint
+        // rule walks UP from the string literal, so a function-level annotation is
+        // inert — PR #207 lesson; repositioned by the 2026-06-10 audit (03-#11).
+        @AllowMissingBlockJoin(
+            "Notification-rendering actor-username lookup (PK seek on visible_users). " +
+                "Two reasons block-exclusion does not apply: (1) the recipient is the known " +
+                "audience and was already cleared via the NotificationEmitter bidirectional " +
+                "block-check at emit-time (see in-app-notifications spec, NotificationEmitter " +
+                "write-path requirement) — re-applying the block-join here would re-litigate " +
+                "an already-gated relationship; (2) the read goes through visible_users which " +
+                "applies shadow-ban filtering — that is the active privacy filter on this " +
+                "surface (see fcm-push-dispatch design D13). Reads to visible_users in this " +
+                "module are restricted to the actor-username path.",
+        )
         const val SQL_SELECT_USERNAME = """
             SELECT username FROM visible_users WHERE id = ? LIMIT 1
         """

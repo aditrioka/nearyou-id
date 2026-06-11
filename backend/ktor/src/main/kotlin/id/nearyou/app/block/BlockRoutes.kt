@@ -5,10 +5,12 @@ import id.nearyou.app.auth.UserPrincipal
 import id.nearyou.app.common.InvalidCursorException
 import id.nearyou.app.common.decodeCursor
 import id.nearyou.app.common.encodeCursor
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
@@ -45,6 +47,10 @@ fun Application.blockRoutes(service: BlockService) {
                 } catch (_: TargetUserNotFoundException) {
                     call.respondError(HttpStatusCode.NotFound, "user_not_found", "Target user does not exist.")
                     return@post
+                } catch (e: BlockRateLimitedException) {
+                    call.response.header(HttpHeaders.RetryAfter, e.retryAfterSeconds.toString())
+                    call.respondError(HttpStatusCode.TooManyRequests, "rate_limited", "Too many block changes. Try again later.")
+                    return@post
                 }
                 call.respond(HttpStatusCode.NoContent)
             }
@@ -60,7 +66,13 @@ fun Application.blockRoutes(service: BlockService) {
                         call.respondError(HttpStatusCode.BadRequest, "invalid_request", "user_id must be a UUID.")
                         return@delete
                     }
-                service.unblock(principal.userId, target)
+                try {
+                    service.unblock(principal.userId, target)
+                } catch (e: BlockRateLimitedException) {
+                    call.response.header(HttpHeaders.RetryAfter, e.retryAfterSeconds.toString())
+                    call.respondError(HttpStatusCode.TooManyRequests, "rate_limited", "Too many block changes. Try again later.")
+                    return@delete
+                }
                 call.respond(HttpStatusCode.NoContent)
             }
 

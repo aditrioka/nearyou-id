@@ -27,6 +27,4 @@ class JwtIssuer(
             .withClaim("token_version", tokenVersion)
             .sign(algorithm)
     }
-
-    fun verifier() = JWT.require(algorithm).build()
 }

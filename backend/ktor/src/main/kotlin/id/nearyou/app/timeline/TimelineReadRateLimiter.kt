@@ -2,6 +2,7 @@ package id.nearyou.app.timeline
 
 import id.nearyou.app.auth.UserPrincipal
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -56,7 +57,7 @@ import java.util.UUID
  *
  * **Lettuce sync API blocks Netty I/O.** The shared `RateLimiter` interface is
  * non-suspending; the wrap belongs at this call site. All `tryAcquire` calls run
- * inside `withContext(Dispatchers.IO)` to keep the Ktor coroutine dispatcher
+ * inside `withContext(dbDispatcher)` to keep the Ktor coroutine dispatcher
  * unblocked. This mirrors the `LikeService` precedent.
  *
  * **Stateless above the Redis seam.** The class holds no per-request state — the
@@ -65,6 +66,9 @@ import java.util.UUID
  */
 class TimelineReadRateLimiter(
     private val rateLimiter: RateLimiter,
+    // Pool-bounded dispatcher for the blocking Lettuce-sync calls (docs/11 §3.2);
+    // production passes DbDispatchers.db — default keeps test constructions working.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /**
      * Outcome of [preCheck]. The route handler dispatches on this value:
@@ -100,7 +104,7 @@ class TimelineReadRateLimiter(
 
         // 2. Rolling pre-check (hard cap).
         val rollingOutcome =
-            withContext(Dispatchers.IO) {
+            withContext(dbDispatcher) {
                 rateLimiter.tryAcquire(
                     userId = viewer.userId,
                     key = rollingKey(viewer.userId),
@@ -117,7 +121,7 @@ class TimelineReadRateLimiter(
 
         // 3. Session pre-check (soft cap; advisory only — never blocks).
         val sessionOutcome =
-            withContext(Dispatchers.IO) {
+            withContext(dbDispatcher) {
                 rateLimiter.tryAcquire(
                     userId = viewer.userId,
                     key = sessionKey(viewer.userId, sanitizedSessionId),
@@ -162,10 +166,10 @@ class TimelineReadRateLimiter(
         coroutineScope {
             (1..extra).flatMap {
                 listOf(
-                    async(Dispatchers.IO) {
+                    async(dbDispatcher) {
                         rateLimiter.tryAcquire(viewer.userId, rollingKeyStr, ROLLING_CAPACITY, WINDOW_TTL)
                     },
-                    async(Dispatchers.IO) {
+                    async(dbDispatcher) {
                         rateLimiter.tryAcquire(viewer.userId, sessionKeyStr, SESSION_CAPACITY, WINDOW_TTL)
                     },
                 )

@@ -4,6 +4,7 @@ import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.exceptions.JWTVerificationException
 import id.nearyou.app.auth.provider.JwksCache
+import id.nearyou.app.common.AppJson
 import id.nearyou.app.infra.repo.UserRepository
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -12,7 +13,6 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
 import java.util.Collections
@@ -112,7 +112,9 @@ fun Application.appleS2SRoutes(
             val payloadJson = String(java.util.Base64.getUrlDecoder().decode(envelope.signedPayload.split(".")[1]))
             val payload =
                 try {
-                    Json { ignoreUnknownKeys = true }.decodeFromString(AppleS2SPayload.serializer(), payloadJson)
+                    // Shared AppJson (01-#14) — this previously constructed a fresh
+                    // Json (codec-cache and all) on EVERY notification.
+                    AppJson.decodeFromString(AppleS2SPayload.serializer(), payloadJson)
                 } catch (ex: Exception) {
                     call.respond(
                         HttpStatusCode.BadRequest,

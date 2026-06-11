@@ -32,6 +32,9 @@ enum class PostCreationBanner {
 
     /** `signin_error_network` + a retry control — `NetworkError` / retryable `Error`. */
     NETWORK,
+
+    /** `post_create_error_rate_limited` — 429 daily cap; no retry control (resets daily). */
+    RATE_LIMITED,
 }
 
 /**
@@ -89,6 +92,7 @@ fun postCreationUiState(
             PostCreationOutcome.LocationOutOfBounds -> PostCreationBanner.LOCATION_OUT_OF_BOUNDS
             PostCreationOutcome.ContentRejected -> PostCreationBanner.CONTENT_REJECTED
             PostCreationOutcome.LocationUnavailable -> PostCreationBanner.LOCATION_UNAVAILABLE
+            PostCreationOutcome.RateLimited -> PostCreationBanner.RATE_LIMITED
             PostCreationOutcome.NetworkError, PostCreationOutcome.Error -> PostCreationBanner.NETWORK
             is PostCreationOutcome.Success, null -> null
         }

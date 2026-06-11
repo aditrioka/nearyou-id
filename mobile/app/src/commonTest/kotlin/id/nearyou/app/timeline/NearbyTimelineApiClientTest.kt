@@ -37,6 +37,7 @@ private const val MIXED_CASE_BODY =
 class NearbyTimelineApiClientTest {
     private fun client(handler: MockRequestHandler): HttpClient =
         HttpClientFactory.create(
+            installTimeouts = false,
             apiBaseUrl = "http://test.local",
             tokenStore = InMemoryTokenStore(),
             sessionInvalidator = SessionInvalidator(InMemoryTokenStore()),

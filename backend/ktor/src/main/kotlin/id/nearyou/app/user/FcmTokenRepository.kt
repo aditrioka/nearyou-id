@@ -1,5 +1,6 @@
 package id.nearyou.app.user
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -23,7 +24,11 @@ import javax.sql.DataSource
  * state. Powers the design D3 tripwire (per-user registration cadence
  * visible in INFO logs). Both statements run inside `Dispatchers.IO`.
  */
-class FcmTokenRepository(private val dataSource: DataSource) {
+class FcmTokenRepository(
+    private val dataSource: DataSource,
+    // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) {
     data class UpsertResult(val created: Boolean, val userTokenCount: Long)
 
     suspend fun upsert(
@@ -32,7 +37,7 @@ class FcmTokenRepository(private val dataSource: DataSource) {
         token: String,
         appVersion: String?,
     ): UpsertResult =
-        withContext(Dispatchers.IO) {
+        withContext(dbDispatcher) {
             dataSource.connection.use { conn ->
                 val created =
                     conn.prepareStatement(SQL_UPSERT).use { ps ->

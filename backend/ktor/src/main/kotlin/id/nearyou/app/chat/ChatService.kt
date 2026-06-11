@@ -11,6 +11,7 @@ import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.ReportTargetType
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonNull
@@ -69,6 +70,9 @@ class ChatService(
     private val textModerator: TextModerator,
     private val moderationQueue: ModerationQueueRepository,
     private val clock: () -> Instant = Instant::now,
+    // Pool-bounded JDBC/Redis-sync dispatcher (docs/11 §3.2); production passes
+    // DbDispatchers.db — the default keeps direct-construction tests working.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     sealed interface CreateConversationResult {
         data class Created(val outcome: CreateConversationOutcome) : CreateConversationResult
@@ -119,7 +123,7 @@ class ChatService(
         }
         val cap = resolveDailyCap(userId)
         val outcome =
-            withContext(Dispatchers.IO) {
+            withContext(dbDispatcher) {
                 rateLimiter.tryAcquire(
                     userId = userId,
                     key = dailyKey(userId),
@@ -134,12 +138,12 @@ class ChatService(
         }
     }
 
-    fun createConversation(
+    suspend fun createConversation(
         callerId: UUID,
         recipientId: UUID,
     ): CreateConversationResult {
         return try {
-            val outcome = repository.findOrCreate1to1(callerId, recipientId)
+            val outcome = withContext(dbDispatcher) { repository.findOrCreate1to1(callerId, recipientId) }
             if (outcome.wasCreated) {
                 CreateConversationResult.Created(outcome)
             } else {
@@ -154,18 +158,18 @@ class ChatService(
         }
     }
 
-    fun listMyConversations(
+    suspend fun listMyConversations(
         viewerId: UUID,
         cursor: ConversationsCursor?,
         limit: Int,
-    ): List<ConversationListRow> = repository.listMyConversations(viewerId, cursor, limit)
+    ): List<ConversationListRow> = withContext(dbDispatcher) { repository.listMyConversations(viewerId, cursor, limit) }
 
-    fun listMessages(
+    suspend fun listMessages(
         conversationId: UUID,
         viewerId: UUID,
         cursor: MessagesCursor?,
         limit: Int,
-    ): List<ChatMessageRow> = repository.listMessages(conversationId, viewerId, cursor, limit)
+    ): List<ChatMessageRow> = withContext(dbDispatcher) { repository.listMessages(conversationId, viewerId, cursor, limit) }
 
     /**
      * Inserts a chat message + emits the V10 `chat_message` notification + updates
@@ -194,7 +198,7 @@ class ChatService(
      * limiter does NOT call `releaseMostRecent` on any path — once a slot is acquired, it
      * stays consumed even if this method throws or rolls back the transaction.
      */
-    fun sendMessage(
+    suspend fun sendMessage(
         conversationId: UUID,
         senderId: UUID,
         content: String,
@@ -233,6 +237,16 @@ class ChatService(
         //   transaction as the chat_messages INSERT. The Flag verdict produced by the
         //   pre-INSERT hook is captured in the `verdictForFlag` variable so the after-INSERT
         //   hook can read it.
+        // Moderation stays INSIDE the pre-INSERT hook: the chat-conversations
+        // spec pins "blocked sender does NOT invoke the TextModerator"
+        // (ChatFoundationRouteTest 7.16.a) — the in-tx block check must run
+        // first, so the verdict cannot be precomputed. The 04-#2 dispatcher
+        // concern is solved by the withContext(dbDispatcher) wrap around
+        // repository.sendMessage below (the hook runs on the bounded
+        // dispatcher). 03-#1's residual risk — moderate()'s Redis read while
+        // holding the tx connection — is bounded by the boot prime + 5-min
+        // cache and is AUDIT-FLAGGED for a spec amendment (move the block
+        // check pre-tx) rather than silently reordered here.
         var verdictForFlag: Verdict.Flag? = null
         val preInsertHookInTx: (java.sql.Connection) -> Unit = { _ ->
             when (val verdict = textModerator.moderate(content)) {
@@ -253,14 +267,16 @@ class ChatService(
             }
 
         val row =
-            repository.sendMessage(
-                conversationId = conversationId,
-                senderId = senderId,
-                content = content,
-                emitInTx = emitInTx,
-                preInsertHookInTx = preInsertHookInTx,
-                afterInsertHookInTx = afterInsertHookInTx,
-            )
+            withContext(dbDispatcher) {
+                repository.sendMessage(
+                    conversationId = conversationId,
+                    senderId = senderId,
+                    content = content,
+                    emitInTx = emitInTx,
+                    preInsertHookInTx = preInsertHookInTx,
+                    afterInsertHookInTx = afterInsertHookInTx,
+                )
+            }
         emittedId?.let(dispatcher::dispatch)
         return row
     }

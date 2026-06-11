@@ -56,7 +56,9 @@ class ConsentRepository(
         when (result) {
             is ConsentApiResult.Success -> ConsentOutcome.Success
             is ConsentApiResult.NetworkError -> {
-                diagnosticLog("consent_network_error: ${result.cause.message}")
+                // Type-only, not cause.message (a transport exception message can embed the request URL)
+                // — the module-wide diagnostic convention (2026-06-10 audit, 06 low).
+                diagnosticLog("consent_network_error: ${result.cause::class.simpleName}")
                 ConsentOutcome.RetryableError
             }
             is ConsentApiResult.HttpError ->

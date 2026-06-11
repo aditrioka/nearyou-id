@@ -7,6 +7,7 @@ import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.PostLikeRepository
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
@@ -57,7 +58,7 @@ import javax.sql.DataSource
  * Lettuce's sync API blocks the calling thread on Netty I/O; per the
  * `RateLimiter` contract (interface non-suspending to preserve V9 compatibility),
  * the wrap belongs at this call site. Both [tryAcquire] and [releaseMostRecent]
- * calls run inside `withContext(Dispatchers.IO)` to keep the Ktor coroutine
+ * calls run inside `withContext(dbDispatcher)` to keep the Ktor coroutine
  * dispatcher unblocked.
  */
 class LikeService(
@@ -68,6 +69,9 @@ class LikeService(
     private val rateLimiter: RateLimiter,
     private val remoteConfig: RemoteConfig,
     private val clock: () -> Instant = Instant::now,
+    // Pool-bounded JDBC/Redis-sync dispatcher (docs/11 §3.2); production passes
+    // DbDispatchers.db — the default keeps direct-construction tests working.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /**
      * Result of the like attempt. The HTTP layer maps each variant to a status code
@@ -94,7 +98,7 @@ class LikeService(
         if (!skipDaily) {
             val cap = resolveDailyCap(userId)
             val outcome =
-                withContext(Dispatchers.IO) {
+                withContext(dbDispatcher) {
                     rateLimiter.tryAcquire(
                         userId = userId,
                         key = dailyKey(userId),
@@ -111,7 +115,7 @@ class LikeService(
 
         // 2. Burst limiter — both tiers, capacity 500, fixed 1-hour TTL.
         val burstOutcome =
-            withContext(Dispatchers.IO) {
+            withContext(dbDispatcher) {
                 rateLimiter.tryAcquire(
                     userId = userId,
                     key = burstKey(userId),
@@ -120,46 +124,57 @@ class LikeService(
                 )
             }
         when (burstOutcome) {
-            is RateLimiter.Outcome.RateLimited ->
+            is RateLimiter.Outcome.RateLimited -> {
+                // The daily slot consumed in step 1 must be returned — the request
+                // never reached the DB, so charging the (scarcer) daily budget for
+                // a burst rejection double-penalizes Free users (2026-06-10 audit,
+                // finding 02-L2).
+                if (!skipDaily) {
+                    withContext(dbDispatcher) { rateLimiter.releaseMostRecent(userId, dailyKey(userId)) }
+                }
                 return Result.RateLimited(retryAfterSeconds = burstOutcome.retryAfterSeconds)
+            }
             is RateLimiter.Outcome.Allowed -> Unit
         }
 
         // 3. visible_posts resolution. 404 path does NOT release — the slot was
         //    consumed (anti-abuse: counts toward the cap).
-        likes.resolveVisiblePost(postId, userId) ?: return Result.NotFound
+        withContext(dbDispatcher) { likes.resolveVisiblePost(postId, userId) } ?: return Result.NotFound
 
-        // 4. INSERT ... ON CONFLICT DO NOTHING + (5) no-op release on 0 rows.
+        // 4. INSERT ... ON CONFLICT DO NOTHING + (5) no-op release on 0 rows —
+        //    on the pool-bounded dispatcher (docs/11 §3.2; 02-H2).
         var emittedId: UUID? = null
         var inserted = false
-        dataSource.connection.use { conn ->
-            conn.autoCommit = false
-            try {
-                inserted = likes.likeInTx(conn, postId, userId)
-                if (inserted) {
-                    val target = likes.loadPostAuthorAndExcerpt(conn, postId)
-                    if (target != null) {
-                        emittedId =
-                            notifications.emit(
-                                conn = conn,
-                                recipientId = target.authorId,
-                                actorUserId = userId,
-                                type = NotificationType.POST_LIKED,
-                                targetType = "post",
-                                targetId = postId,
-                                bodyData =
-                                    buildJsonObject {
-                                        put("post_excerpt", JsonPrimitive(target.excerpt))
-                                    },
-                            )
+        withContext(dbDispatcher) {
+            dataSource.connection.use { conn ->
+                conn.autoCommit = false
+                try {
+                    inserted = likes.likeInTx(conn, postId, userId)
+                    if (inserted) {
+                        val target = likes.loadPostAuthorAndExcerpt(conn, postId)
+                        if (target != null) {
+                            emittedId =
+                                notifications.emit(
+                                    conn = conn,
+                                    recipientId = target.authorId,
+                                    actorUserId = userId,
+                                    type = NotificationType.POST_LIKED,
+                                    targetType = "post",
+                                    targetId = postId,
+                                    bodyData =
+                                        buildJsonObject {
+                                            put("post_excerpt", JsonPrimitive(target.excerpt))
+                                        },
+                                )
+                        }
                     }
+                    conn.commit()
+                } catch (t: Throwable) {
+                    conn.rollback()
+                    throw t
+                } finally {
+                    conn.autoCommit = true
                 }
-                conn.commit()
-            } catch (t: Throwable) {
-                conn.rollback()
-                throw t
-            } finally {
-                conn.autoCommit = true
             }
         }
 
@@ -169,7 +184,7 @@ class LikeService(
         //    it always protects against a future regression where a tier
         //    flip mid-day populates the bucket and the slot leaks.
         if (!inserted) {
-            withContext(Dispatchers.IO) {
+            withContext(dbDispatcher) {
                 rateLimiter.releaseMostRecent(userId, dailyKey(userId))
                 rateLimiter.releaseMostRecent(userId, burstKey(userId))
             }
@@ -183,20 +198,21 @@ class LikeService(
         return Result.Success
     }
 
-    fun unlike(
+    suspend fun unlike(
         postId: UUID,
         userId: UUID,
     ) {
-        likes.unlike(postId, userId)
+        withContext(dbDispatcher) { likes.unlike(postId, userId) }
     }
 
-    fun countLikes(
+    suspend fun countLikes(
         postId: UUID,
         viewerId: UUID,
-    ): Long {
-        likes.resolveVisiblePost(postId, viewerId) ?: throw PostNotFoundException()
-        return likes.countVisibleLikes(postId)
-    }
+    ): Long =
+        withContext(dbDispatcher) {
+            likes.resolveVisiblePost(postId, viewerId) ?: throw PostNotFoundException()
+            likes.countVisibleLikes(postId)
+        }
 
     /**
      * Resolves the daily cap for a Free-tier caller. Reads

@@ -38,6 +38,7 @@ private fun OutgoingContent.bodyText(): String = (this as? OutgoingContent.ByteA
 class PostCreationApiClientTest {
     private fun client(handler: MockRequestHandler): HttpClient =
         HttpClientFactory.create(
+            installTimeouts = false,
             apiBaseUrl = "http://test.local",
             tokenStore = InMemoryTokenStore(),
             sessionInvalidator = SessionInvalidator(InMemoryTokenStore()),

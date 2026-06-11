@@ -34,6 +34,7 @@ class NotificationsRepositoryTest {
     ): NotificationsRepository {
         val httpClient =
             HttpClientFactory.create(
+                installTimeouts = false,
                 apiBaseUrl = "http://test.local",
                 tokenStore = InMemoryTokenStore(),
                 sessionInvalidator = SessionInvalidator(InMemoryTokenStore()),

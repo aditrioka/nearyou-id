@@ -127,6 +127,7 @@ fun userRow(
     tokenVersion: Int = 0,
     appleRelayEmail: Boolean = false,
     subscriptionStatus: String = "free",
+    deletedAt: Instant? = null,
 ) = UserRow(
     id = id,
     username = "tester",
@@ -139,6 +140,6 @@ fun userRow(
     isBanned = isBanned,
     suspendedUntil = suspendedUntil,
     tokenVersion = tokenVersion,
-    deletedAt = null,
+    deletedAt = deletedAt,
     subscriptionStatus = subscriptionStatus,
 )

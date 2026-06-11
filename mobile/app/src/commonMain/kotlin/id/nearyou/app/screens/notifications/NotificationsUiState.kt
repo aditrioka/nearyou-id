@@ -64,21 +64,30 @@ sealed interface NotificationsUiState {
 
     /** `NetworkError` or retryable `Error` → network copy + a retry control. */
     data object Error : NotificationsUiState
+
+    /** `SessionExpired` (terminal 401) → a neutral redirect placeholder (NO retry, NOT the connectivity
+     *  copy) for the sub-second window before the `SessionInvalidator` re-route reaches `SignInScreen`. */
+    data object SessionRedirect : NotificationsUiState
 }
 
 /**
- * Maps the current [outcome] (null = not yet loaded) + [inFlight] to the screen state. Exhaustive over
- * [NotificationsOutcome] — no generic fallthrough (design D8):
+ * Maps the current [outcome] (null = not yet loaded) + [isInitialLoad] to the screen state. Exhaustive
+ * over [NotificationsOutcome] — no generic fallthrough (design D8):
  *
- * - in-flight (or not-yet-loaded) ⇒ [Loading].
+ * - initial load (or not-yet-loaded) ⇒ [Loading] (the skeleton).
  * - `Loaded` empty ⇒ [Empty]; `Loaded` non-empty ⇒ [Content].
  * - `NetworkError` / `Error` ⇒ [Error].
+ *
+ * A REFRESH deliberately does NOT map to [Loading]: the prior outcome stays mounted (the list keeps
+ * rendering) and only the pull-to-refresh indicator spins — the canonical mobile-design-system
+ * "list loading and refresh" split the timelines use (2026-06-10 audit, finding 05-#2; previously the
+ * single `inFlight` flag collapsed Content back to the skeleton mid-refresh).
  */
 fun notificationsUiState(
     outcome: NotificationsOutcome?,
-    inFlight: Boolean,
+    isInitialLoad: Boolean,
 ): NotificationsUiState {
-    if (inFlight) return NotificationsUiState.Loading
+    if (isInitialLoad) return NotificationsUiState.Loading
     return when (outcome) {
         null -> NotificationsUiState.Loading
         is NotificationsOutcome.Loaded -> {
@@ -86,5 +95,6 @@ fun notificationsUiState(
             if (rows.isEmpty()) NotificationsUiState.Empty else NotificationsUiState.Content(rows)
         }
         NotificationsOutcome.NetworkError, NotificationsOutcome.Error -> NotificationsUiState.Error
+        NotificationsOutcome.SessionExpired -> NotificationsUiState.SessionRedirect
     }
 }

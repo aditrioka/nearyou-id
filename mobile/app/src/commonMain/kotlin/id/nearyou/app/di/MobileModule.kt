@@ -144,7 +144,9 @@ val mobileModule =
         // plugin); no X-Session-Id / SessionIdProvider (the notifications routes carry no per-session
         // soft-cap accounting). No new HttpClient.
         single { NotificationsApiClient(get()) }
-        single { NotificationsRepository(get()) }
+        // diagnosticLog wired to the real sink — the repo's status-only diagnostic strings went
+        // nowhere via the no-op default (2026-06-10 audit, 06 medium: sink-wiring drift).
+        single { NotificationsRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<NotificationsFlow> { get<NotificationsRepository>() }
 
         // mobile-post-creation-screen — the create-post graph. Reuses the shared HttpClient, the
@@ -154,14 +156,26 @@ val mobileModule =
         // CreatePostRepository is bound behind the CreatePostFlow seam so a FakeCreatePostFlow can drive
         // the screen tests (the concrete stays resolvable).
         single { PostCreationApiClient(get()) }
-        single { CreatePostRepository(get(), get(), get()) }
+        // The (status, errorCode) sink shape is adapted onto the shared string DiagnosticSink
+        // (2026-06-10 audit, 06 medium). Coordinate-free by construction: an Int + a server
+        // error-code enum.
+        single {
+            val sink = get<DiagnosticSink>()
+            CreatePostRepository(
+                get(),
+                get(),
+                get(),
+                diagnosticLog = { status, errorCode -> sink.log("create_post_error: status=$status code=$errorCode") },
+            )
+        }
         single<CreatePostFlow> { get<CreatePostRepository>() }
 
         // mobile-analytics-consent-screen — the consent-submit graph. Reuses the shared
         // (bearer-authed) HttpClient; ConsentRepository is bound behind the ConsentFlow seam so a
         // FakeConsentFlow can drive the screen tests (the concrete stays resolvable).
         single { ConsentApiClient(get()) }
-        single { ConsentRepository(get()) }
+        // diagnosticLog wired to the real sink (2026-06-10 audit, 06 medium: sink-wiring drift).
+        single { ConsentRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<ConsentFlow> { get<ConsentRepository>() }
 
         // mobile-post-detail-screen — the post-detail graph (like toggle + replies + reply composer).
@@ -171,7 +185,15 @@ val mobileModule =
         // drive the screen tests; the concrete stays resolvable.
         single { LikeApiClient(get()) }
         single { ReplyApiClient(get()) }
-        single { PostDetailRepository(get(), get()) }
+        // Same (status, errorCode) → string-sink adapter as CreatePostRepository above.
+        single {
+            val sink = get<DiagnosticSink>()
+            PostDetailRepository(
+                get(),
+                get(),
+                diagnosticLog = { status, errorCode -> sink.log("post_detail_error: status=$status code=$errorCode") },
+            )
+        }
         single<PostDetailFlow> { get<PostDetailRepository>() }
     }
 

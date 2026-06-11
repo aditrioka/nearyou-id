@@ -36,6 +36,13 @@ class NotificationsRepository(
                         diagnosticLog("notifications_invalid_request: status=400")
                         NotificationsOutcome.Error
                     }
+                    // Terminal 401 (survived the shipped Auth refresh) → SessionExpired, NOT a
+                    // retryable error — mirrors GlobalTimelineRepository (session-expiry D4;
+                    // 2026-06-10 audit, finding 06-#3).
+                    result.status == 401 -> {
+                        diagnosticLog("notifications_session_expired: status=401")
+                        NotificationsOutcome.SessionExpired
+                    }
                     result.status in 500..599 -> {
                         diagnosticLog("notifications_server_error: status=${result.status}")
                         NotificationsOutcome.NetworkError

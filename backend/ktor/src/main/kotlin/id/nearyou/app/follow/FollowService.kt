@@ -6,6 +6,9 @@ import id.nearyou.data.repository.FollowListRow
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.UserFollowsRepository
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import java.util.UUID
 import javax.sql.DataSource
@@ -30,48 +33,58 @@ class FollowService(
     private val follows: UserFollowsRepository,
     private val notifications: NotificationEmitter,
     private val dispatcher: NotificationDispatcher,
+    // docs/05 § Follow Schema 50/h cap (2026-06-10 audit, finding 03-#3).
+    private val rateLimiter: FollowRateLimiter = FollowRateLimiter(),
+    // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes
+    // DbDispatchers.db — the default keeps direct-construction tests working.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    fun follow(
+    suspend fun follow(
         followerId: UUID,
         followeeId: UUID,
     ) {
         if (followerId == followeeId) throw CannotFollowSelfException()
+        checkRateLimit(followerId)
         var emittedId: UUID? = null
-        dataSource.connection.use { conn ->
-            conn.autoCommit = false
-            try {
-                val inserted = follows.followInTx(conn, followerId, followeeId)
-                if (inserted) {
-                    emittedId =
-                        notifications.emit(
-                            conn = conn,
-                            recipientId = followeeId,
-                            actorUserId = followerId,
-                            type = NotificationType.FOLLOWED,
-                            targetType = null,
-                            targetId = null,
-                            bodyData = buildJsonObject {},
-                        )
+        withContext(dbDispatcher) {
+            dataSource.connection.use { conn ->
+                conn.autoCommit = false
+                try {
+                    val inserted = follows.followInTx(conn, followerId, followeeId)
+                    if (inserted) {
+                        emittedId =
+                            notifications.emit(
+                                conn = conn,
+                                recipientId = followeeId,
+                                actorUserId = followerId,
+                                type = NotificationType.FOLLOWED,
+                                targetType = null,
+                                targetId = null,
+                                bodyData = buildJsonObject {},
+                            )
+                    }
+                    conn.commit()
+                } catch (t: Throwable) {
+                    conn.rollback()
+                    throw t
+                } finally {
+                    conn.autoCommit = true
                 }
-                conn.commit()
-            } catch (t: Throwable) {
-                conn.rollback()
-                throw t
-            } finally {
-                conn.autoCommit = true
             }
         }
         emittedId?.let(dispatcher::dispatch)
     }
 
-    fun unfollow(
+    suspend fun unfollow(
         followerId: UUID,
         followeeId: UUID,
     ) {
-        follows.unfollow(followerId, followeeId)
+        // Shares the follow bucket — both legs of a follow↔unfollow loop burn quota.
+        checkRateLimit(followerId)
+        withContext(dbDispatcher) { follows.unfollow(followerId, followeeId) }
     }
 
-    fun listFollowers(
+    suspend fun listFollowers(
         profileId: UUID,
         viewerId: UUID,
         cursor: Cursor?,
@@ -86,7 +99,7 @@ class FollowService(
             )
         }
 
-    fun listFollowing(
+    suspend fun listFollowing(
         profileId: UUID,
         viewerId: UUID,
         cursor: Cursor?,
@@ -101,7 +114,20 @@ class FollowService(
             )
         }
 
-    private fun paginate(fetch: (Int) -> List<FollowListRow>): FollowPage {
+    private fun checkRateLimit(userId: UUID) {
+        when (val outcome = rateLimiter.tryAcquire(userId)) {
+            is FollowRateLimiter.Outcome.Allowed -> Unit
+            is FollowRateLimiter.Outcome.RateLimited ->
+                throw FollowRateLimitedException(outcome.retryAfterSeconds)
+        }
+    }
+
+    private suspend fun paginate(fetch: (Int) -> List<FollowListRow>): FollowPage =
+        withContext(dbDispatcher) {
+            paginateBlocking(fetch)
+        }
+
+    private fun paginateBlocking(fetch: (Int) -> List<FollowListRow>): FollowPage {
         val rows = fetch(PAGE_SIZE + 1)
         return if (rows.size > PAGE_SIZE) {
             val page = rows.take(PAGE_SIZE)
@@ -123,3 +149,7 @@ data class FollowPage(
 )
 
 class CannotFollowSelfException : RuntimeException("cannot follow self")
+
+class FollowRateLimitedException(
+    val retryAfterSeconds: Long,
+) : RuntimeException("follow rate limit exceeded")

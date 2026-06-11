@@ -99,6 +99,12 @@ class JdbcNotificationRepository(
                      WHERE user_id = ?
                     """.trimIndent(),
                 )
+                // Unknown types are filtered in SQL so LIMIT semantics stay exact —
+                // the previous post-fetch skip (toRowOrNull → drop) made a page with
+                // a version-skewed row look short, so the service emitted
+                // nextCursor=null and silently truncated all older notifications
+                // (2026-06-10 audit, finding 03-#8). toRowOrNull stays as defense.
+                append("\n   AND type IN (${NotificationType.entries.joinToString(",") { "?" }})")
                 if (unreadOnly) append("\n   AND read_at IS NULL")
                 if (cursorCreatedAt != null && cursorId != null) {
                     append("\n   AND (created_at, id) < (?, ?)")
@@ -110,6 +116,7 @@ class JdbcNotificationRepository(
             conn.prepareStatement(sql).use { ps ->
                 var i = 1
                 ps.setObject(i++, userId)
+                NotificationType.entries.forEach { ps.setString(i++, it.wire) }
                 if (cursorCreatedAt != null && cursorId != null) {
                     ps.setTimestamp(i++, Timestamp.from(cursorCreatedAt))
                     ps.setObject(i++, cursorId)

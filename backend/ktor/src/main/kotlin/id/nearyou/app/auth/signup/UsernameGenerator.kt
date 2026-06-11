@@ -124,7 +124,19 @@ class UsernameGenerator(
             users.create(conn, row)
             true
         } catch (ex: SQLException) {
-            if (ex.sqlState == UNIQUE_VIOLATION_SQLSTATE) false else throw ex
+            if (ex.sqlState != UNIQUE_VIOLATION_SQLSTATE) throw ex
+            // 23505 means "username collision — try the next candidate" ONLY when
+            // users_username_key is the violated constraint. A concurrent duplicate
+            // signup for the same provider identity violates the identity-hash
+            // uniques instead; treating that as a username collision burned all six
+            // candidates against the same conflict and surfaced as a false 503
+            // username_generation_failed (2026-06-10 audit, finding 01-#13). Map it
+            // to the same 409 user_exists the pre-INSERT exists-check produces.
+            val message = ex.message.orEmpty()
+            if ("users_google_id_hash_key" in message || "users_apple_id_hash_key" in message) {
+                throw UserExistsException()
+            }
+            false
         }
     }
 

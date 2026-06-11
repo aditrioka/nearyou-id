@@ -34,6 +34,12 @@ sealed interface PostCreationOutcome {
      */
     data object LocationUnavailable : PostCreationOutcome
 
+    /** HTTP 429 — the docs/05 Layer-2 daily post cap (10/day free tier). NOT retryable until
+     *  the daily reset; the UI shows the cap copy WITHOUT a retry control (2026-06-11 device
+     *  verification: this previously fell into the unenumerated-status NetworkError arm and
+     *  rendered the misleading "periksa koneksi internet" copy against a healthy backend). */
+    data object RateLimited : PostCreationOutcome
+
     /** HTTP 5xx, transport/IO failure, or any unenumerated status — retryable. */
     data object NetworkError : PostCreationOutcome
 

@@ -25,14 +25,19 @@ import id.nearyou.app.auth.signup.SignupService
 import id.nearyou.app.auth.signup.UsernameGenerator
 import id.nearyou.app.auth.signup.WordPairResource
 import id.nearyou.app.auth.signup.signupRoutes
+import id.nearyou.app.block.BlockRateLimiter
 import id.nearyou.app.block.BlockService
 import id.nearyou.app.block.blockRoutes
 import id.nearyou.app.chat.ChatRepository
 import id.nearyou.app.chat.ChatService
 import id.nearyou.app.chat.chatRoutes
+import id.nearyou.app.common.AppJson
 import id.nearyou.app.common.ClientIpExtractorPlugin
+import id.nearyou.app.common.DbDispatchers
+import id.nearyou.app.common.installAppStatusPages
 import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.RemoteConfig
+import id.nearyou.app.config.RemoteConfigClientAdapter
 import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.config.StubRemoteConfig
 import id.nearyou.app.config.secretKey
@@ -47,12 +52,11 @@ import id.nearyou.app.engagement.LikeService
 import id.nearyou.app.engagement.ReplyService
 import id.nearyou.app.engagement.likeRoutes
 import id.nearyou.app.engagement.replyRoutes
+import id.nearyou.app.follow.FollowRateLimiter
 import id.nearyou.app.follow.FollowService
 import id.nearyou.app.follow.followRoutes
 import id.nearyou.app.follow.userSocialRoutes
-import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentLengthGuard
-import id.nearyou.app.guard.ContentTooLongException
 import id.nearyou.app.guard.installContentLengthGuard
 import id.nearyou.app.health.JdbcPostgresProbe
 import id.nearyou.app.health.KtorSupabaseRealtimeProbe
@@ -73,9 +77,7 @@ import id.nearyou.app.infra.otel.installKtorServerTelemetry
 import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.redis.NoOpRedisStringCache
 import id.nearyou.app.infra.redis.RedisStringCache
-import id.nearyou.app.infra.redis.lettuceRedisProbeFromUrl
-import id.nearyou.app.infra.redis.lettuceRedisStringCacheFromUrl
-import id.nearyou.app.infra.redis.redisRateLimiterFromUrl
+import id.nearyou.app.infra.redis.redisHandlesFromUrl
 import id.nearyou.app.infra.remoteconfig.RemoteConfigClient
 import id.nearyou.app.infra.remoteconfig.RemoteConfigInitException
 import id.nearyou.app.infra.remoteconfig.firebaseRemoteConfigClient
@@ -108,7 +110,6 @@ import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
 import id.nearyou.app.infra.supabase.realtime.SupabaseBroadcastChatClient
-import id.nearyou.app.internal.InternalEndpointAuth
 import id.nearyou.app.moderation.CachingLayer3ConfigLoader
 import id.nearyou.app.moderation.CachingModerationListLoader
 import id.nearyou.app.moderation.DefaultLayer3Moderator
@@ -126,9 +127,8 @@ import id.nearyou.app.notifications.NoopNotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.notifications.NotificationService
 import id.nearyou.app.notifications.notificationRoutes
-import id.nearyou.app.post.ContentModeratedProfanityException
 import id.nearyou.app.post.CreatePostService
-import id.nearyou.app.post.LocationOutOfBoundsException
+import id.nearyou.app.post.PostRateLimiter
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
@@ -164,24 +164,26 @@ import id.nearyou.data.repository.UserFollowsRepository
 import id.nearyou.data.repository.UserProfileReader
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.http.HttpStatusCode
+import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.netty.EngineMain
+import io.ktor.server.plugins.callid.CallId
+import io.ktor.server.plugins.callid.callIdMdc
 import io.ktor.server.plugins.calllogging.CallLogging
+import io.ktor.server.plugins.compression.Compression
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.plugins.statuspages.StatusPages
-import io.ktor.server.response.respond
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 import org.flywaydb.core.Flyway
+import org.flywaydb.core.api.exception.FlywayValidateException
 import org.koin.dsl.module
 import org.koin.ktor.plugin.Koin
 import org.koin.logger.slf4jLogger
 import java.util.Base64
+import java.util.UUID
 import javax.sql.DataSource
 
 fun main(args: Array<String>) {
@@ -212,90 +214,35 @@ fun Application.module() {
     install(ClientIpExtractorPlugin)
 
     install(ContentNegotiation) {
-        json(
-            Json {
-                ignoreUnknownKeys = true
-                explicitNulls = false
-            },
-        )
+        // ONE shared Json (docs/11 §3.3; 01-#14) — see common/AppJson.kt.
+        json(AppJson)
     }
 
-    install(CallLogging)
-
-    install(StatusPages) {
-        exception<ContentEmptyException> { call, _ ->
-            call.respond(
-                HttpStatusCode.BadRequest,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "content_empty",
-                            "message" to "Content is required.",
-                        ),
-                ),
-            )
-        }
-        exception<ContentTooLongException> { call, cause ->
-            call.respond(
-                HttpStatusCode.BadRequest,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "content_too_long",
-                            "message" to "Content exceeds the maximum of ${cause.limit} characters.",
-                        ),
-                ),
-            )
-        }
-        exception<LocationOutOfBoundsException> { call, _ ->
-            call.respond(
-                HttpStatusCode.BadRequest,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "location_out_of_bounds",
-                            "message" to "Coordinate is outside the supported region.",
-                        ),
-                ),
-            )
-        }
-        // Layer 1 profanity hit per `content-moderation-keyword-lists` Verdict.Reject.
-        // The matched keyword list intentionally does NOT appear in the response body
-        // — see `### Requirement: User-facing rejection message is in Bahasa Indonesia,
-        // omits matched keywords`. The exception's matchedKeywords field is captured by
-        // the TextModerator's Sentry breadcrumb, NOT by this StatusPages handler.
-        exception<ContentModeratedProfanityException> { call, _ ->
-            call.respond(
-                HttpStatusCode.BadRequest,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "content_moderated_profanity",
-                            "message" to "Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi.",
-                        ),
-                ),
-            )
-        }
-        exception<Throwable> { call, cause ->
-            call.respond(
-                HttpStatusCode.InternalServerError,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to "internal_error",
-                            "message" to (cause.message ?: "Internal server error"),
-                        ),
-                ),
-            )
-        }
+    // Request-correlation id on every log line (docs/11 §3.3). Honors an inbound
+    // X-Request-Id (Cloudflare/Cloud Run propagation), generates one otherwise,
+    // and reflects it on the response for client-side correlation. The
+    // CallId × CallLogging pairing is safe ≥ Ktor 3.4.3 (cascading-failure bug
+    // fixed upstream; we're on 3.5.0).
+    install(CallId) {
+        retrieveFromHeader(HttpHeaders.XRequestId)
+        generate { UUID.randomUUID().toString() }
+        verify { it.isNotBlank() }
+        replyToHeader(HttpHeaders.XRequestId)
     }
+    install(CallLogging) {
+        callIdMdc("call_id")
+    }
+    // Timeline/chat JSON compresses well and Cloud Run egress is billed (docs/11 §3.3).
+    install(Compression)
+
+    installAppStatusPages()
 
     val dbConfig =
         DbConfig(
             url = environment.config.property("db.url").getString(),
             user = environment.config.property("db.user").getString(),
             password = environment.config.property("db.password").getString(),
-            maxPoolSize = environment.config.propertyOrNull("db.maxPoolSize")?.getString()?.toInt() ?: 20,
+            maxPoolSize = environment.config.propertyOrNull("db.maxPoolSize")?.getString()?.toInt() ?: 10,
         )
     // JDBC OTel instrumentation: every PreparedStatement gets a span with
     // `db.system="postgresql"` and parameterized `db.statement` (raw values
@@ -303,6 +250,10 @@ fun Application.module() {
     // wrap happens post-construction in the smaller-blast-radius shape so
     // `:infra:supabase`'s DataSourceFactory stays decoupled from OTel.
     val dataSource: DataSource = OtelInstrumentation.wrapDataSource(DataSourceFactory.create(dbConfig))
+    // Single pool-bounded dispatcher for ALL blocking JDBC work (docs/11 §3.2
+    // rule #1) — sized to the Hikari pool so floods queue as suspended
+    // coroutines instead of starving Dispatchers.IO threads on pool waits.
+    val dbDispatchers = DbDispatchers(dbConfig.maxPoolSize)
 
     // Staging-simplified bootstrap: Ktor runs Flyway migrations at startup on the same
     // data source the app will serve requests against. The `RUN_FLYWAY_ON_STARTUP` env
@@ -317,10 +268,23 @@ fun Application.module() {
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
                 .load()
-        // Clears any failed entries + realigns checksums so a previously-broken
-        // migration can be retried after the SQL is fixed. No-op on a clean DB.
-        flyway.repair()
-        flyway.migrate()
+        // Validate-first: checksum drift on an applied migration is a
+        // checksum-immutability violation (CLAUDE.md invariant) that MUST surface
+        // loudly — the previous unconditional repair() before every migrate()
+        // silently realigned checksums and would have deployed edited history.
+        // repair() now runs ONLY on the failed/drifted path, logged at ERROR,
+        // preserving the original intent (retry a previously-FAILED migration
+        // on staging after its SQL is fixed).
+        try {
+            flyway.migrate()
+        } catch (e: FlywayValidateException) {
+            org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").error(
+                "event=flyway_validate_failed action=repair_and_retry message={}",
+                e.message,
+            )
+            flyway.repair()
+            flyway.migrate()
+        }
     }
 
     val secrets: SecretResolver = EnvVarSecretResolver()
@@ -328,7 +292,12 @@ fun Application.module() {
         environment.config.propertyOrNull("auth.rsaPrivateKey")?.getString()
             ?.takeIf { it.isNotBlank() }
             ?: error("Missing required config auth.rsaPrivateKey (set KTOR_RSA_PRIVATE_KEY)")
-    val rsaKeys = RsaKeyLoader(rsaPem)
+    // kid is the publicly-served JWKS key id; env-configurable ahead of the first
+    // prod key event (docs/05's rotation plan is kid-based — 2026-06-10 audit, 01-#23).
+    val rsaKid =
+        environment.config.propertyOrNull("auth.rsaKid")?.getString()?.takeIf { it.isNotBlank() }
+            ?: "dev-1"
+    val rsaKeys = RsaKeyLoader(rsaPem, kid = rsaKid)
     val jwtIssuer = JwtIssuer(rsaKeys)
 
     val userRepository: UserRepository = JdbcUserRepository(dataSource)
@@ -340,7 +309,17 @@ fun Application.module() {
     // active span context. Consumed by `JwksCache` (Google + Apple JWKS),
     // `KtorSupabaseRealtimeProbe`, `appleS2SJwks`. Per spec § "W3C Trace
     // Context propagation on outbound HTTP from `:backend:ktor` (excluding FCM)".
-    val httpClient: HttpClient = httpClientWithOtel()
+    val httpClient: HttpClient =
+        httpClientWithOtel {
+            // A hung upstream (Google/Apple JWKS, Supabase probe) must not suspend
+            // signins/probes indefinitely — the shared client previously had NO
+            // timeout (docs/11 §3.3).
+            install(HttpTimeout) {
+                requestTimeoutMillis = 3_000
+                connectTimeoutMillis = 3_000
+                socketTimeoutMillis = 3_000
+            }
+        }
     val googleJwksUrl =
         environment.config.propertyOrNull("auth.google.jwksUrl")?.getString()?.takeIf { it.isNotBlank() }
             ?: GOOGLE_JWKS_URL_DEFAULT
@@ -352,8 +331,10 @@ fun Application.module() {
     val appleAudiences = csvAudiences("auth.apple.audiences")
 
     val googleVerifier = GoogleIdTokenVerifier(JwksCache(httpClient, googleJwksUrl), googleAudiences)
-    val appleVerifier = AppleIdTokenVerifier(JwksCache(httpClient, appleJwksUrl), appleAudiences)
-    val appleS2SJwks = JwksCache(httpClient, appleJwksUrl)
+    // ONE Apple JWKS cache shared by the signin verifier AND the S2S webhook —
+    // two independent caches double-fetched the same URL with divergent state.
+    val appleJwks = JwksCache(httpClient, appleJwksUrl)
+    val appleVerifier = AppleIdTokenVerifier(appleJwks, appleAudiences)
 
     val supabaseSecret =
         environment.config.propertyOrNull("auth.supabaseJwtSecret")?.getString()?.takeIf { it.isNotBlank() }
@@ -421,9 +402,13 @@ fun Application.module() {
     // moderator falls all the way through to the repo-file Tier 3 (the
     // `__seed_*_placeholder__` sentinels), producing Verdict.Allow on every call.
     // Production bootstraps the Firebase Admin SDK Remote Config FirebaseApp.
+    // ONE Lettuce client (one Netty event-loop group, one Upstash connection)
+    // backs the cache, rate limiter, AND probe — previously three *FromUrl
+    // factories each built a private client per instance (docs/11 §3.3).
+    val redisHandles = redisUrl?.let { redisHandlesFromUrl(it) }
     val redisStringCache: RedisStringCache =
-        if (redisUrl != null) {
-            lettuceRedisStringCacheFromUrl(redisUrl)
+        if (redisHandles != null) {
+            redisHandles.stringCache
         } else {
             require(ktorEnv != "staging" && ktorEnv != "production") {
                 "Required env var 'REDIS_URL' is unset (env=$ktorEnv) — Redis is a hard startup requirement"
@@ -550,22 +535,14 @@ fun Application.module() {
     // moderation pipeline scaffolding instead of further down with the report
     // wiring so both consumers reach it without forward references.
     val moderationQueueRepository: ModerationQueueRepository = JdbcModerationQueueRepository()
-    val createPostService =
-        CreatePostService(
-            dataSource = dataSource,
-            posts = postRepository,
-            contentGuard = contentLengthGuard,
-            textModerator = textModerator,
-            moderationQueue = moderationQueueRepository,
-            jitterSecret = jitterSecret,
-            layer3DispatcherScope = layer3DispatcherScope,
-            layer3Moderator = layer3Moderator,
-        )
+    // createPostService is constructed AFTER the shared rateLimiter (below) so its
+    // PostRateLimiter (docs/05 daily cap; 02-M2) rides the same Redis seam.
     val userBlockRepository: UserBlockRepository = JdbcUserBlockRepository(dataSource)
-    val blockService = BlockService(userBlockRepository)
+    // blockService is constructed AFTER the shared rateLimiter (below) so its
+    // BlockRateLimiter rides the same Redis seam — see the social-graph wiring block.
     val notificationRepository: NotificationRepository = JdbcNotificationRepository(dataSource)
     val notificationEmitter: NotificationEmitter = DbNotificationEmitter(notificationRepository)
-    val notificationService = NotificationService(notificationRepository)
+    val notificationService = NotificationService(notificationRepository, dbDispatchers.db)
     val userFcmTokenReader: UserFcmTokenReader = JdbcUserFcmTokenReader(dataSource)
     val actorUsernameLookup: ActorUsernameLookup = JdbcActorUsernameLookup(dataSource)
     val inAppDispatcher: NotificationDispatcher = NoopNotificationDispatcher()
@@ -625,10 +602,10 @@ fun Application.module() {
         }
     }
     val userFollowsRepository: UserFollowsRepository = JdbcUserFollowsRepository(dataSource)
-    val followService =
-        FollowService(dataSource, userFollowsRepository, notificationEmitter, notificationDispatcher)
+    // followService is constructed AFTER the shared rateLimiter (below) so its
+    // FollowRateLimiter rides the same Redis seam — see the social-graph wiring block.
     val userProfileReader: UserProfileReader = JdbcUserProfileReader(dataSource)
-    val userProfileService = UserProfileService(userProfileReader)
+    val userProfileService = UserProfileService(userProfileReader, dbDispatchers.db)
     val postLikeRepository: PostLikeRepository = JdbcPostLikeRepository(dataSource)
     // Conditional Redis wiring (task 4.6 of like-rate-limit):
     //  - In staging/production: fail-fast on missing `REDIS_URL` env var — Redis is
@@ -653,16 +630,15 @@ fun Application.module() {
     // `redisUrl` is resolved earlier in this file (above the moderation pipeline)
     // and reused here.
     val rateLimiter: RateLimiter =
-        if (redisUrl != null) {
-            // The factory in `:infra:redis` owns the Lettuce client lifecycle so
-            // `:backend:ktor` does not need to import `io.lettuce.core.*` (would
-            // violate the "no vendor SDK outside :infra:*" invariant). Process
-            // termination closes the underlying Netty event loop; explicit
-            // shutdown is not needed for the V1 rollout (matches V9
-            // ReportRateLimiter precedent).
-            // OTel Lettuce tracing enabled by default — the factory pulls the
-            // global OpenTelemetry registered by OtelBootstrap above.
-            redisRateLimiterFromUrl(redisUrl)
+        if (redisHandles != null) {
+            // `:infra:redis` owns the Lettuce client lifecycle so `:backend:ktor`
+            // never imports `io.lettuce.core.*` (the "no vendor SDK outside
+            // :infra:*" invariant). The limiter shares the single RedisHandles
+            // client built above. Process termination closes the underlying
+            // Netty event loop; explicit shutdown is not needed for the V1
+            // rollout (matches V9 ReportRateLimiter precedent). OTel Lettuce
+            // tracing enabled by default via the factory.
+            redisHandles.rateLimiter
         } else {
             require(ktorEnv != "staging" && ktorEnv != "production") {
                 "Required env var 'REDIS_URL' is unset (env=$ktorEnv) — " +
@@ -685,8 +661,8 @@ fun Application.module() {
     // boot succeeds without a running Redis container. Production paths require
     // REDIS_URL → Redis-backed probe by construction.
     val redisProbe: RedisProbe =
-        if (redisUrl != null) {
-            lettuceRedisProbeFromUrl(redisUrl)
+        if (redisHandles != null) {
+            redisHandles.probe
         } else {
             object : RedisProbe {
                 override suspend fun ping(timeout: java.time.Duration): ProbeResult = ProbeResult(ok = true, latencyMs = 0L, error = null)
@@ -695,7 +671,49 @@ fun Application.module() {
     val supabaseProbe: SupabaseRealtimeProbe = KtorSupabaseRealtimeProbe(httpClient, supabaseUrl)
     val postgresProbe: PostgresProbe = JdbcPostgresProbe(dataSource)
 
-    val remoteConfig: RemoteConfig = StubRemoteConfig()
+    // Real Remote Config in staging/prod: the `search_enabled` kill switch +
+    // `premium_*_cap_override` flags are now LIVE (StubRemoteConfig had stayed
+    // bound after the Firebase Admin SDK client landed in-process for the
+    // moderation pipeline, leaving them permanently inert). Test env keeps the
+    // stub (null → call-site defaults). AUDIT-FLAGGED 2026-06-10: behavior
+    // activation — see dev/audits/2026-06-10-holistic-audit/PROGRESS.md.
+    val remoteConfig: RemoteConfig =
+        when (ktorEnv) {
+            "test" -> StubRemoteConfig()
+            else -> RemoteConfigClientAdapter(remoteConfigClient)
+        }
+    // Post + social-graph services — constructed here (not at their repo
+    // declarations above) because their mutation limiters (docs/05; 2026-06-10
+    // audit, findings 02-M2 + 03-#3) wrap the shared Redis-backed rateLimiter
+    // built just above.
+    val createPostService =
+        CreatePostService(
+            dataSource = dataSource,
+            posts = postRepository,
+            contentGuard = contentLengthGuard,
+            textModerator = textModerator,
+            moderationQueue = moderationQueueRepository,
+            jitterSecret = jitterSecret,
+            layer3DispatcherScope = layer3DispatcherScope,
+            layer3Moderator = layer3Moderator,
+            rateLimiter = PostRateLimiter(rateLimiter),
+            dbDispatcher = dbDispatchers.db,
+        )
+    val followService =
+        FollowService(
+            dataSource = dataSource,
+            follows = userFollowsRepository,
+            notifications = notificationEmitter,
+            dispatcher = notificationDispatcher,
+            rateLimiter = FollowRateLimiter(rateLimiter),
+            dbDispatcher = dbDispatchers.db,
+        )
+    val blockService =
+        BlockService(
+            blocks = userBlockRepository,
+            rateLimiter = BlockRateLimiter(rateLimiter),
+            dbDispatcher = dbDispatchers.db,
+        )
     val likeService =
         LikeService(
             dataSource = dataSource,
@@ -704,6 +722,7 @@ fun Application.module() {
             dispatcher = notificationDispatcher,
             rateLimiter = rateLimiter,
             remoteConfig = remoteConfig,
+            dbDispatcher = dbDispatchers.db,
         )
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
     val replyService =
@@ -718,6 +737,7 @@ fun Application.module() {
             moderationQueue = moderationQueueRepository,
             layer3DispatcherScope = layer3DispatcherScope,
             layer3Moderator = layer3Moderator,
+            dbDispatcher = dbDispatchers.db,
         )
     val chatRepository = ChatRepository(dataSource)
     val chatService =
@@ -729,6 +749,7 @@ fun Application.module() {
             remoteConfig = remoteConfig,
             textModerator = textModerator,
             moderationQueue = moderationQueueRepository,
+            dbDispatcher = dbDispatchers.db,
         )
     // chat-realtime-broadcast wiring per design § D8 (extends `:infra:supabase`).
     // Test profile binds NoopChatRealtimeClient — local tests have no real Supabase
@@ -777,14 +798,14 @@ fun Application.module() {
             }
         }
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
-    val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository)
+    val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository, dbDispatchers.db)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
-    val followingTimelineService = FollowingTimelineService(postsFollowingRepository)
+    val followingTimelineService = FollowingTimelineService(postsFollowingRepository, dbDispatchers.db)
     val postsGlobalRepository: PostsGlobalRepository = JdbcPostsGlobalRepository(dataSource)
-    val globalTimelineService = GlobalTimelineService(postsGlobalRepository)
+    val globalTimelineService = GlobalTimelineService(postsGlobalRepository, dbDispatchers.db)
     // Per `timeline-read-rate-limit` capability: shared across all three timeline
     // routes. Stateless above the Redis seam, so a single Koin binding suffices.
-    val timelineReadRateLimiter = TimelineReadRateLimiter(rateLimiter)
+    val timelineReadRateLimiter = TimelineReadRateLimiter(rateLimiter, dbDispatchers.db)
     val reportRepository: ReportRepository = JdbcReportRepository()
     val postAutoHideRepository: PostAutoHideRepository = JdbcPostAutoHideRepository()
     // Wrap the shared `rateLimiter` (Redis or NoOp/InMemory fallback per the
@@ -800,6 +821,7 @@ fun Application.module() {
             repository = searchRepository,
             rateLimiter = searchRateLimiter,
             remoteConfig = remoteConfig,
+            dbDispatcher = dbDispatchers.db,
         )
     val reportService =
         ReportService(
@@ -811,8 +833,8 @@ fun Application.module() {
             notifications = notificationEmitter,
             dispatcher = notificationDispatcher,
         )
-    val fcmTokenRepository = FcmTokenRepository(dataSource)
-    val consentRepository = ConsentRepository(dataSource)
+    val fcmTokenRepository = FcmTokenRepository(dataSource, dbDispatchers.db)
+    val consentRepository = ConsentRepository(dataSource, dbDispatchers.db)
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -830,6 +852,7 @@ fun Application.module() {
         modules(
             module {
                 single<DataSource> { dataSource }
+                single { dbDispatchers }
                 single<SecretResolver> { secrets }
                 single { rsaKeys }
                 single { jwtIssuer }
@@ -893,14 +916,14 @@ fun Application.module() {
         )
     }
 
-    installAuth(rsaKeys, userRepository)
+    installAuth(rsaKeys, userRepository, dbDispatcher = dbDispatchers.db)
 
     jwksRoutes()
     healthRoutes()
     authRoutes(Providers(googleVerifier, appleVerifier), userRepository, refreshTokenService, jwtIssuer)
     signupRoutes(signupService)
     realtimeRoutes(realtimeIssuer)
-    appleS2SRoutes(appleS2SJwks, appleAudiences, userRepository, InMemoryDedup())
+    appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())
     postRoutes(createPostService)
     blockRoutes(blockService)
     followRoutes(followService)
@@ -918,15 +941,17 @@ fun Application.module() {
     fcmTokenRoutes(fcmTokenRepository)
     consentRoutes(consentRepository)
 
-    // /internal/* — Cloud-Scheduler-invoked endpoints. The OIDC plugin is mounted
-    // here exactly once on the route subtree, so every nested route inherits OIDC
-    // verification by default. Vendor-webhook endpoints (revenuecat-webhook,
-    // csam-webhook) MUST live in a sibling route block that does NOT install
-    // InternalEndpointAuth — see the internal-endpoint-auth capability spec.
+    // /internal/* — Cloud-Scheduler-invoked job endpoints. The OIDC gate is
+    // installed PER JOB SUBTREE inside unbanWorkerRoute (internal-endpoint-auth
+    // spec scenario: "mounted on /internal/unban-worker") — NEVER on this shared
+    // /internal node: Ktor merges identical path segments across separate
+    // routing blocks, so a plugin here would ALSO gate the vendor-auth Apple S2S
+    // webhook at /internal/apple/s2s-notifications (Apple sends no Google-OIDC
+    // bearer → every notification would 401 before its signed-payload
+    // verification ran). Regression guard: InternalRoutingIsolationTest.
     routing {
         route("/internal") {
-            install(InternalEndpointAuth) { verifier = oidcTokenVerifier }
-            unbanWorkerRoute(suspensionUnbanWorker)
+            unbanWorkerRoute(suspensionUnbanWorker, oidcTokenVerifier)
         }
     }
 

@@ -2,16 +2,33 @@
 
 ## Purpose
 
-The visible-posts-view capability defines `visible_posts` as the canonical read surface for any business code that lists or aggregates posts. It filters out auto-hidden rows (`WHERE is_auto_hidden = FALSE`) so timelines, search, replies, and counters never have to repeat that predicate. The companion `RawFromPostsRule` Detekt rule pins the convention by failing CI on any raw `FROM posts` / `JOIN posts` outside the sanctioned allowlist (Repository own-content paths, the admin module, the report-target existence helper, and the V4 view definition itself), preventing shadow-ban bypass at commit time rather than at audit time.
+The visible-posts-view capability defines `visible_posts` as the canonical read surface for any business code that lists or aggregates posts. It filters out auto-hidden rows, soft-deleted rows, and rows whose AUTHOR is shadow-banned or soft-deleted, so timelines, search, replies, and counters never have to repeat those predicates. The companion `RawFromPostsRule` Detekt rule pins the convention by failing CI on any raw `FROM posts` / `JOIN posts` outside the sanctioned allowlist (Repository own-content paths, the admin module, the report-target existence helper, and the migration view definitions themselves), preventing shadow-ban bypass at commit time rather than at audit time.
 
 ## Requirements
 ### Requirement: visible_posts view definition
 
-Migration `V4__post_creation.sql` SHALL create a SQL view `visible_posts` defined as `SELECT * FROM posts WHERE is_auto_hidden = FALSE`. The view MUST be created in the same migration as the `posts` table, not in a later migration.
+Migration `V4__post_creation.sql` SHALL create a SQL view `visible_posts` in the same migration as the `posts` table (originally `SELECT * FROM posts WHERE is_auto_hidden = FALSE`). Migration `V20__visible_posts_shadow_ban_author.sql` SHALL redefine the view to the canonical docs/05 § "Shadow Ban Implementation" shape merged with the auto-hide filter (amended 2026-06-10, holistic-audit finding 02-C1 — the narrow V4 definition left shadow-banned authors' posts visible in every consumer once the `shadow_ban_author` admin action went live):
+
+```sql
+CREATE OR REPLACE VIEW visible_posts AS
+SELECT p.*
+FROM posts p
+JOIN users u ON u.id = p.author_id
+WHERE p.is_auto_hidden = FALSE
+  AND p.deleted_at IS NULL
+  AND u.deleted_at IS NULL
+  AND u.is_shadow_banned = FALSE;
+```
+
+The `p.deleted_at IS NULL` predicate additionally makes the V4 partial cursor indexes (`WHERE deleted_at IS NULL`) eligible for view-backed timeline queries (finding 02-H1).
 
 #### Scenario: View exists after V4
 - **WHEN** querying `pg_views WHERE viewname = 'visible_posts'`
-- **THEN** one row returns AND its `definition` contains both `FROM posts` and `is_auto_hidden = FALSE`
+- **THEN** one row returns AND its `definition` reads from `posts` and contains `is_auto_hidden = FALSE` (post-V20, Postgres renders the source as `FROM (posts p JOIN users u ...)`)
+
+#### Scenario: Post-V20 definition carries the author-side predicates
+- **WHEN** querying `pg_views WHERE viewname = 'visible_posts'` on a database migrated to V20 or later
+- **THEN** the `definition` contains `JOIN users`, `is_shadow_banned = FALSE`, and both `deleted_at IS NULL` predicates
 
 ### Requirement: View excludes auto-hidden rows
 
@@ -28,6 +45,26 @@ Rows where `is_auto_hidden = TRUE` MUST NOT appear in `visible_posts`. Rows wher
 #### Scenario: Toggle updates visibility live
 - **WHEN** a `posts` row is flipped from `is_auto_hidden = TRUE` to `FALSE`
 - **THEN** `visible_posts` starts returning that row WITHOUT a view refresh step
+
+### Requirement: View excludes shadow-banned and soft-deleted authors' posts
+
+Rows whose author has `is_shadow_banned = TRUE` or `deleted_at IS NOT NULL`, and rows that are themselves soft-deleted (`posts.deleted_at IS NOT NULL`), MUST NOT appear in `visible_posts` (added by V20; per docs/06 § Shadow Ban, a shadow-banned author's content is "invisible to others"). The own-content exception — a shadow-banned user sees their OWN content normally — is carried by the Repository own-content paths that read raw `posts` (docs/05 § Own-content exception), NOT by this viewer-agnostic view.
+
+#### Scenario: Shadow-banning an author hides their posts live
+- **WHEN** `users.is_shadow_banned` is flipped to `TRUE` for an author with existing posts
+- **THEN** `SELECT 1 FROM visible_posts WHERE id = <their post>` returns zero rows WITHOUT a view refresh step
+
+#### Scenario: Un-shadow-banning restores visibility live
+- **WHEN** `users.is_shadow_banned` is flipped back to `FALSE`
+- **THEN** the author's non-auto-hidden, non-deleted posts reappear in `visible_posts`
+
+#### Scenario: Soft-deleted author's posts are excluded
+- **WHEN** an author row has `deleted_at IS NOT NULL`
+- **THEN** none of that author's posts appear in `visible_posts`
+
+#### Scenario: Soft-deleted post is excluded
+- **WHEN** a `posts` row has `deleted_at IS NOT NULL`
+- **THEN** that row does not appear in `visible_posts`
 
 ### Requirement: Detekt rule RawFromPostsRule enforces view usage
 

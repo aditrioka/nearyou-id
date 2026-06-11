@@ -1,5 +1,6 @@
 package id.nearyou.app.user
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -24,7 +25,11 @@ import javax.sql.DataSource
  *
  * Runs inside `Dispatchers.IO`.
  */
-class ConsentRepository(private val dataSource: DataSource) {
+class ConsentRepository(
+    private val dataSource: DataSource,
+    // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) {
     /**
      * Writes the consent triple for [userId] (full-object replace). The JWT-`sub`
      * caller's row always exists — the `sub` is FK-anchored (`configureUserJwt`
@@ -38,7 +43,7 @@ class ConsentRepository(private val dataSource: DataSource) {
         crash: Boolean,
         adsPersonalization: Boolean,
     ) {
-        withContext(Dispatchers.IO) {
+        withContext(dbDispatcher) {
             val json =
                 """{"analytics":$analytics,"crash":$crash,"ads_personalization":$adsPersonalization}"""
             dataSource.connection.use { conn ->

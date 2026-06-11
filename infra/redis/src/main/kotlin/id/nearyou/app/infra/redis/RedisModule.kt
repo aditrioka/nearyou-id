@@ -78,6 +78,29 @@ fun lettuceRedisProbeFromUrl(
     openTelemetry: OpenTelemetry? = null,
 ): LettuceRedisProbe = LettuceRedisProbe(buildClient(url, tracingEnabled, openTelemetry))
 
+/**
+ * All three Redis consumers built on ONE shared [RedisClient] (one Netty
+ * event-loop group, one connection budget against Upstash). Prefer this in
+ * application wiring — the per-consumer `*FromUrl` factories above each build
+ * a PRIVATE client and are retained for tests / single-consumer contexts only.
+ * (2026-06-10 audit: Application.kt previously built three clients per instance.)
+ */
+class RedisHandles internal constructor(client: RedisClient) {
+    val rateLimiter: RedisRateLimiter = RedisRateLimiter(client)
+    val probe: LettuceRedisProbe = LettuceRedisProbe(client)
+    val stringCache: LettuceRedisStringCache = LettuceRedisStringCache(client)
+}
+
+/**
+ * Builds the shared-client [RedisHandles] from a Redis URL. Same OTel tracing
+ * + URI-sanitization shape as the per-consumer factories.
+ */
+fun redisHandlesFromUrl(
+    url: String,
+    tracingEnabled: Boolean = true,
+    openTelemetry: OpenTelemetry? = null,
+): RedisHandles = RedisHandles(buildClient(url, tracingEnabled, openTelemetry))
+
 private fun buildClient(
     url: String,
     tracingEnabled: Boolean,

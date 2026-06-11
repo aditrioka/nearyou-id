@@ -2,7 +2,9 @@ package id.nearyou.app.auth
 
 import cocoapods.GoogleSignIn.GIDSignIn
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import platform.UIKit.UIApplication
 import platform.UIKit.UIViewController
 import platform.UIKit.UIWindow
@@ -12,6 +14,13 @@ import kotlin.coroutines.resume
 // across GoogleSignIn 6.x/7.x/8.x; we compare numerically because the K/N cinterop binding
 // for the enum case name varies by SDK header layout.
 private const val GID_SIGN_IN_ERROR_CANCELED: Long = -5
+
+// kGIDSignInErrorDomain's value (GIDSignIn.h). Compared as a literal because the cinterop
+// binding for extern NSErrorDomain constants varies by SDK header layout; the string is
+// API-stable across GoogleSignIn 6.x/7.x/8.x. Without the domain check, ANY NSError with
+// code -5 (e.g. a network-layer error surfaced through the completion) would be
+// misclassified as a silent user-cancel (2026-06-10 audit, 07-#12).
+private const val GID_SIGN_IN_ERROR_DOMAIN: String = "com.google.GIDSignIn"
 
 /**
  * iOS `GoogleSignInClient` actual: Google Sign-In iOS SDK.
@@ -32,7 +41,16 @@ private const val GID_SIGN_IN_ERROR_CANCELED: Long = -5
  */
 @OptIn(ExperimentalForeignApi::class)
 actual class GoogleSignInClient : GoogleSignInGateway {
+    // Main-confined (2026-06-10 audit, 07-#7): GIDSignIn presents UIKit UI and
+    // topViewController() walks UIApplication.windows — both main-thread-only API. Works
+    // today only because all callers are viewModelScope (Main); the wrap makes the
+    // requirement structural so an innocent dispatcher refactor upstream can't break it.
     actual override suspend fun signIn(): GoogleSignInResult =
+        withContext(Dispatchers.Main) {
+            signInOnMain()
+        }
+
+    private suspend fun signInOnMain(): GoogleSignInResult =
         suspendCancellableCoroutine { continuation ->
             val presenter = topViewController()
             if (presenter == null) {
@@ -43,7 +61,7 @@ actual class GoogleSignInClient : GoogleSignInGateway {
             GIDSignIn.sharedInstance.signInWithPresentingViewController(presenter) { signInResult, error ->
                 when {
                     error != null -> {
-                        if (error.code == GID_SIGN_IN_ERROR_CANCELED) {
+                        if (error.domain == GID_SIGN_IN_ERROR_DOMAIN && error.code == GID_SIGN_IN_ERROR_CANCELED) {
                             continuation.resume(GoogleSignInResult.UserCancelled)
                         } else {
                             continuation.resume(

@@ -31,18 +31,17 @@ object OtelInstrumentation {
      * [getOpenTelemetry] returns the no-op global. Post-bootstrap: returns a
      * proxying data source whose connections produce spans.
      */
-    @Suppress("DEPRECATION")
     fun wrapDataSource(
         dataSource: DataSource,
         openTelemetry: OpenTelemetry = getOpenTelemetry(),
     ): DataSource =
-        // setStatementSanitizationEnabled is deprecated in 2.25.0-alpha in
-        // favor of the new builder shape; the project's queries are all
-        // PreparedStatement-driven so the sanitization is idempotent here,
-        // but we keep the explicit toggle to lock the contract per spec
-        // § "Mandatory span attributes — db.statement parameterized only".
+        // Instrumentation 2.28.x renamed setStatementSanitizationEnabled →
+        // setQuerySanitizationEnabled (verified 2026-06-10 against the
+        // 2.28.1-alpha artifact). Same semantics; the explicit toggle stays to
+        // lock the contract per spec § "Mandatory span attributes —
+        // db.statement parameterized only".
         JdbcTelemetry.builder(openTelemetry)
-            .setStatementSanitizationEnabled(true)
+            .setQuerySanitizationEnabled(true)
             .build()
             .wrap(dataSource)
 
@@ -59,13 +58,12 @@ object OtelInstrumentation {
      * itself (passwords stripped via [sanitizeRedisUri]) at the construction
      * site — defense in depth.
      */
-    @Suppress("DEPRECATION")
     fun lettuceClientResources(openTelemetry: OpenTelemetry = getOpenTelemetry()): ClientResources {
-        // newTracing is deprecated in 2.25.0-alpha in favor of an event-bus
-        // based wiring; the legacy Tracing surface is still required by the
-        // installed Lettuce 6.5 release (which doesn't yet emit OTel events
-        // natively). Revisit at the next OTel BOM bump.
-        val tracing: Tracing = LettuceTelemetry.create(openTelemetry).newTracing()
+        // Instrumentation 2.28.x renamed newTracing → createTracing (verified
+        // 2026-06-10 against the 2.28.1-alpha artifact); the anticipated
+        // event-bus rewiring did not happen — the lettuce-core Tracing surface
+        // remains the integration point for Lettuce 6.x.
+        val tracing: Tracing = LettuceTelemetry.create(openTelemetry).createTracing()
         return ClientResources.builder()
             .tracing(tracing)
             .build()

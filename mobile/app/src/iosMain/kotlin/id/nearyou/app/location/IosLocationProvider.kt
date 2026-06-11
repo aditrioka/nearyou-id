@@ -4,7 +4,9 @@ import id.nearyou.app.timeline.LocationProvider
 import id.nearyou.distance.LatLng
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import platform.CoreLocation.CLLocation
 import platform.CoreLocation.CLLocationManager
@@ -35,33 +37,39 @@ import platform.darwin.NSObject
  */
 @OptIn(ExperimentalForeignApi::class)
 class IosLocationProvider : LocationProvider {
-    override suspend fun current(): LatLng {
-        val manager = CLLocationManager()
-        manager.desiredAccuracy = kCLLocationAccuracyReduced
+    // Main-confined (2026-06-10 audit, 07-#7): CLLocationManager delivers delegate callbacks on
+    // the run loop of the creating thread — created off-main the one-shot callback never arrives
+    // and every acquisition burns the full timeout. Works today only because all callers are
+    // viewModelScope (Main); the wrap makes the requirement structural, not accidental, and keeps
+    // the retained-delegate set main-thread-confined.
+    override suspend fun current(): LatLng =
+        withContext(Dispatchers.Main) {
+            val manager = CLLocationManager()
+            manager.desiredAccuracy = kCLLocationAccuracyReduced
 
-        manager.recentCachedFix()?.let { return it }
+            manager.recentCachedFix()?.let { return@withContext it }
 
-        return withTimeoutOrNull(LocationTuning.acquisitionTimeout) {
-            suspendCancellableCoroutine { cont ->
-                lateinit var delegate: OneShotLocationDelegate
-                delegate =
-                    OneShotLocationDelegate { result ->
+            withTimeoutOrNull(LocationTuning.acquisitionTimeout) {
+                suspendCancellableCoroutine { cont ->
+                    lateinit var delegate: OneShotLocationDelegate
+                    delegate =
+                        OneShotLocationDelegate { result ->
+                            retainedLocationDelegates.remove(delegate)
+                            if (cont.isActive) cont.resumeWith(result)
+                        }
+                    // CLLocationManager holds its delegate weakly; retain the delegate (and, transitively
+                    // via the cancellation handler, the manager) through the suspension so the one-shot
+                    // callback is not lost to deallocation.
+                    retainedLocationDelegates.add(delegate)
+                    manager.delegate = delegate
+                    cont.invokeOnCancellation {
+                        manager.delegate = null
                         retainedLocationDelegates.remove(delegate)
-                        if (cont.isActive) cont.resumeWith(result)
                     }
-                // CLLocationManager holds its delegate weakly; retain the delegate (and, transitively
-                // via the cancellation handler, the manager) through the suspension so the one-shot
-                // callback is not lost to deallocation.
-                retainedLocationDelegates.add(delegate)
-                manager.delegate = delegate
-                cont.invokeOnCancellation {
-                    manager.delegate = null
-                    retainedLocationDelegates.remove(delegate)
+                    manager.requestLocation()
                 }
-                manager.requestLocation()
-            }
-        } ?: throw LocationUnavailableException()
-    }
+            } ?: throw LocationUnavailableException()
+        }
 }
 
 /**

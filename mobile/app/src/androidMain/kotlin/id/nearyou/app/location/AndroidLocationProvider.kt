@@ -51,9 +51,13 @@ class AndroidLocationProvider(
                 .setMaxUpdateAgeMillis(LocationTuning.maxCachedFixAge.inWholeMilliseconds)
                 .setGranularity(Granularity.GRANULARITY_COARSE)
                 .build()
+        // The CTS is wired into awaitOrNull's cancellation handler so navigating away
+        // mid-acquisition cancels the fused request instead of letting it run its full
+        // duration in the background (2026-06-10 audit, 07-#11).
+        val cts = CancellationTokenSource()
         val location =
             client.lastLocation.awaitOrNull()?.takeIf { it.isWithinMaxAge() }
-                ?: client.getCurrentLocation(request, CancellationTokenSource().token).awaitOrNull()
+                ?: client.getCurrentLocation(request, cts.token).awaitOrNull(onCancel = { cts.cancel() })
                 ?: throw LocationUnavailableException()
         return LatLng(lat = location.latitude, lng = location.longitude)
     }
@@ -73,11 +77,13 @@ private fun Location.isWithinMaxAge(): Boolean {
 /**
  * Awaits a Play Services [Task], resuming with the result on success or `null` on failure/cancel — so
  * "no fix" surfaces as a uniform `null` the caller maps to [LocationUnavailableException]. Avoids a
- * `kotlinx-coroutines-play-services` dependency by wrapping the listener API directly.
+ * `kotlinx-coroutines-play-services` dependency by wrapping the listener API directly. [onCancel]
+ * propagates the coroutine's cancellation to the underlying request (the Task API has no direct hook).
  */
-private suspend fun <T> Task<T>.awaitOrNull(): T? =
+private suspend fun <T> Task<T>.awaitOrNull(onCancel: (() -> Unit)? = null): T? =
     suspendCancellableCoroutine { cont ->
         addOnSuccessListener { cont.resume(it) }
         addOnFailureListener { cont.resume(null) }
         addOnCanceledListener { cont.resume(null) }
+        if (onCancel != null) cont.invokeOnCancellation { onCancel() }
     }

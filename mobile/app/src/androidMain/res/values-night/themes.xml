@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark counterpart of Theme.NearYou.Launch — dark window background pre-first-frame. -->
+<resources>
+    <style name="Theme.NearYou.Launch" parent="android:Theme.Material.NoActionBar" />
+</resources>

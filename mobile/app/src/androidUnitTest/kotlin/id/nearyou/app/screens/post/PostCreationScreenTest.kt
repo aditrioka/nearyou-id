@@ -238,6 +238,7 @@ class PostCreationScreenTest {
         // coordinate; the minimal CreatedPostDto reads only `id`, so the echo must never render.
         val mockHttp =
             HttpClientFactory.create(
+                installTimeouts = false,
                 apiBaseUrl = "http://test.local",
                 tokenStore = InMemoryTokenStore(),
                 sessionInvalidator = SessionInvalidator(InMemoryTokenStore()),

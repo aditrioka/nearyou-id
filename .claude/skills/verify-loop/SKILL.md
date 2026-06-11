@@ -71,7 +71,16 @@ adb logcat -d | grep -i <expected|Exception>          # observe
 
 **Drive the UI with Maestro (don't hand-script taps):** `dev/scripts/maestro-run.sh <flow> --app-id id.nearyou.app.dev [--record]`. Reads the accessibility tree (tap by `testTag`, not pixels) and captures screenshots + mp4 + `maestro.log` into `mobile/app/maestro/artifacts/<run>/` for human review. Flows live in `mobile/app/maestro/flows/` (see that dir's [README](../../../mobile/app/maestro/README.md)); builds on the official [Maestro AI-agent skill](https://github.com/mobile-dev-inc/Maestro/discussions/2985). After a run, write a plain-English summary (what you tested, which screenshot proves it, what the log says). `auth-gated` flows need the Phase 2 dev test-login.
 
-**Physical device = `staging` flavor** (`installStagingDebug`). The `dev` flavor CANNOT reach a local backend from a device: `10.0.2.2` is emulator-only AND there's no `usesCleartextTraffic`, so Android blocks the cleartext (`UnknownServiceException: CLEARTEXT ... not permitted`). Staging is `https://api-staging.nearyou.id` with a real Google OAuth client (debug SHA-1 registered → Credential Manager sign-in works).
+**Physical device + staging backend = `staging` flavor** (`installStagingDebug`): `https://api-staging.nearyou.id`, real Google OAuth client (debug SHA-1 registered → Credential Manager sign-in works).
+
+**Physical device + LOCAL backend = `dev` flavor + adb reverse** (wired 2026-06-11):
+```bash
+adb reverse tcp:8080 tcp:8080     # device localhost:8080 → host 8080 over USB (re-run after replug)
+./gradlew :mobile:app:installDevDebug -PdevApiBaseUrl=http://localhost:8080
+```
+`devApiBaseUrl` overrides the dev flavor's default `10.0.2.2` (emulator-only host alias). Cleartext to `localhost`/`127.0.0.1`/`10.0.2.2` is allowlisted dev-only via `mobile/app/src/dev/res/xml/network_security_config.xml` (referenced by the dev manifest overlay; staging/production untouched). Auth without Google: `dev/scripts/mint-dev-jwt.sh <local-users.id>` + the `nearyou-dev://test-login` deep link (same params as staging). **Deep-link quoting from zsh:** build the URI in a var and pass `-d "'$URI'"` (single quotes survive to the device shell). Do NOT hand-escape `&` as `\&` inside double quotes — zsh keeps the backslash, the token stores with a trailing `\`, and every request then carries a malformed Authorization header.
+
+**One command for all of the above (backend already booted):** `dev/scripts/dev-device-login.sh` — checks :8080, applies `adb reverse`, seeds the fixed dev-login user (idempotent), mints, fires the deep link with safe quoting. Re-run it whenever the session expires (~15 min; the test-login refresh token is deliberately bogus).
 
 **Auth-gated screen without signing in:** temporarily edit `mobile/app/src/commonMain/.../App.kt` to `Navigator(<TargetScreen>())` (boot straight in, bypassing `RootRouterScreen`), build dev-debug, verify, then **`git restore App.kt` before commit**. Real platform actuals still bind.
 
@@ -92,8 +101,10 @@ Recipes (build `:mobile:app:installStagingDebug`; ALWAYS `adb shell pm clear id.
 **ALWAYS pod-install via `dev/scripts/ios-pod-install.sh`, NEVER raw `pod install`.** CMP `compose-resources` (Plus Jakarta Sans `plus_jakarta_sans.ttf`, strings, drawables) are a BUILD artifact; CocoaPods only wires the `[CP] Copy Pods Resources` phase when that dir is already populated at install time. Raw `pod install` on an empty resources dir STRIPS the phase → launch aborts with `MissingResourceException: ...plus_jakarta_sans.ttf` (NearYouTheme `FontFamilyResolver.preload`). The script populates resources (needs `ARCHS=arm64 PLATFORM_NAME=iphonesimulator CONFIGURATION=Debug`) THEN installs.
 
 - **UTF-8 locale** or `pod install` dies (`Unicode Normalization not appropriate for ASCII-8BIT`): `export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` (script sets this).
-- **Sim runtime ≥ 18.2** (deployment target); an 18.1 sim refuses install. **Bundle id = `id.nearyou.app.staging`.**
-- **Clean rebuild:** `rm -rf iosApp/Pods iosApp/Podfile.lock iosApp/iosApp.xcworkspace mobile/app/build` + fresh `-derivedDataPath /tmp/<x>`, THEN `dev/scripts/ios-pod-install.sh`, THEN `xcodebuild -workspace iosApp/iosApp.xcworkspace -scheme iosApp -configuration Debug -destination 'platform=iOS Simulator,id=<simId>' -derivedDataPath <dd> build` (use a concrete `id=` from `xcodebuild -list`/destination list — `simctl list` ids can be stale).
+- **Sim runtime ≥ 16.0** (the deliberate deployment floor since the 2026-06-10 audit; was an accidental 18.2). **Bundle id = `id.nearyou.app.staging`.**
+- **Scheme names are flavor-qualified:** `iosApp (Dev)` / `iosApp (Staging)` / `iosApp (Production)` (project shared schemes; there is NO plain `iosApp` scheme). The workspace ALSO lists a KMP-generated `app` scheme — building it "SUCCEEDS" having only run the Gradle framework sync and produces NO .app; if `find <dd> -name '*.app'` comes up empty, you built the wrong scheme. With a named scheme, `-configuration` is unnecessary.
+- **Never pipe xcodebuild through `head`/early-exiting filters** — SIGPIPE kills the build mid-flight and the half-written DerivedData can make the NEXT run report `BUILD SUCCEEDED` with no product. Redirect to a log file, then grep the file.
+- **Clean rebuild:** `rm -rf iosApp/Pods iosApp/Podfile.lock iosApp/iosApp.xcworkspace mobile/app/build` + fresh `-derivedDataPath /tmp/<x>`, THEN `dev/scripts/ios-pod-install.sh`, THEN `xcodebuild -workspace iosApp/iosApp.xcworkspace -scheme 'iosApp (Staging)' -destination 'platform=iOS Simulator,id=<simId>' -derivedDataPath <dd> build > /tmp/xc.log 2>&1` (use a concrete `id=` from the destination list — `simctl list` ids can be stale).
 - **Resource-presence proof:** `find <dd>/Build/Products/Debug-iphonesimulator/NearYouID.app -path '*compose-resources*'`.
 - **Observe:** boot sim → `simctl install` → `simctl spawn <dev> log stream --predicate 'processImagePath CONTAINS "NearYouID"'` to a file → `simctl launch` → grep for `MissingResource`/`Throwable` → `simctl io <dev> screenshot /tmp/x.png` and Read it. Crash `.ips` reports land in `~/Library/Logs/DiagnosticReports/`.
 - **Location-gated screens:** `xcrun simctl privacy <udid> grant|revoke location <bundle>` + `xcrun simctl location <udid> set <lat>,<lng>`.
@@ -103,6 +114,8 @@ Recipes (build `:mobile:app:installStagingDebug`; ALWAYS `adb shell pm clear id.
 ---
 
 ## §D — The gate (run before declaring done)
+
+This gate implements [`docs/11-Engineering-Standards.md`](../../../docs/11-Engineering-Standards.md) §5 (Definition of Done). For UI-affecting changes the DoD additionally requires the §B/§C bring-up with screenshot evidence in the PR body — the test gate below alone does not clear it (`/opsx:apply` step 7.5 is the enforcement point).
 
 CI runs **both** lint frameworks; passing only one is insufficient. `:mobile:app` has flavors, so test tasks MUST be flavor-qualified (`testDebugUnitTest` alone is ambiguous and fails graph resolution).
 
@@ -116,12 +129,16 @@ CI runs **both** lint frameworks; passing only one is insufficient. `:mobile:app
 
 ## Known blockers (grow this list)
 
+- **§D gate while a local `:backend:ktor:run` is alive → `SQLTransientConnectionException` on unrelated DB-tagged tests:** the live server's Hikari pool (10) plus the suite's per-spec pools exceed the dev Postgres connection budget — same "too many clients" mechanism as the CI memory, reproduced locally 2026-06-11 (16 connections with server up → gate red; 6 after kill → gate green). Kill the server (`lsof -ti tcp:8080 | xargs kill`) before running the gate; reboot it after if device testing continues.
+
 - **Robolectric async-repo screen test never settles:** real `MockEngine` network submit isn't awaited by `waitForIdle` (a synchronous Fake flow is) → poll the end state with `waitUntil`.
 - **Source-scan guard test trips on its own KDoc:** strip comments before a forbidden-token scan, else the file's own "MUST NOT println" doc trips it.
 - **CI heavy lanes skipped after a force-push:** CI's path filter reads `github.event.before`; a rebase orphans it → "bad object" → empty diff → code lanes skip. Fix with a tiny fast-forward re-poke commit.
 - **Docs-only commit cancels in-progress code CI:** `cancel-in-progress` + the docs path filter can leave a code commit with zero CI signal — don't push a docs tick before the code commit's CI finishes.
 - **Auth/test-login verification false positive:** `adb install -r` PRESERVES app data, so a leftover session makes the app land on Home regardless of whether your login/injection actually worked. ALWAYS start auth-flow verification from a wiped state (`adb shell pm clear <appId>` or Maestro `clearState`) and first confirm the clean state shows Sign-In — otherwise "it reached Home" proves nothing. (Caught in the Phase 2 dev test-login verification.)
 - **Offline "render the shell" harness bounces to Sign-In on the staging/prod flavor:** seeding `HomeRoute` in `App.kt` + Koin-overriding the feed flows is NOT enough — the authenticated shell fires a one-shot **unread-badge** fetch (`NotificationsFlow.unreadCount()`) on composition; against a real backend with no session that 401s, the Auth plugin clears the token store, and `SessionExpiryEffect` re-routes to Sign-In before you see Home. Fix: ALSO override **every** flow that makes a network call on shell composition (`NotificationsFlow` too, not just Nearby/Global), or harness on the `dev` flavor (talks to `10.0.2.2`, no real 401). To Koin-override from `MainActivity`: `initKoin { androidContext(...); allowOverride(true); modules(harnessModule) }` (Koin 4.2). (Caught harnessing `mobile-home-shell-redesign` 10.7.)
+- **Emulator segfaults at launch (exit 139) on this host:** the API-30 arm64 playstore AVD crashes in the gfxstream/SwiftShader-Vulkan path with BOTH default and `-gpu host` flags (macOS, emulator 35.6.11). Don't burn time on GPU flags — use the physical-device-to-local-backend path above (adb reverse + `-PdevApiBaseUrl`).
+- **A `Throwable` catch-all in StatusPages eats Ktor's built-in 4xx mappings:** `BadRequestException` (malformed Authorization header; malformed JSON body via `receive`) became a 500 `unhandled_exception`. The built-in client-error types are re-registered in `common/AppStatusPages.kt`; regression test `StatusPagesClientErrorTest`. When adding any catch-all-style handler, check which default mapping it shadows.
 - **Nearby tab shows "Tidak bisa terhubung" on a real device with good internet:** the Nearby feed needs a device **GPS coordinate** BEFORE it calls `/timeline/nearby`; if the Fused provider has no cached fix (common indoors) the coordinate acquisition fails and maps to the existing retryable `NetworkError` — whose copy is the generic "check your connection." It is NOT a connectivity bug. Confirm via logcat: no `REQUEST: …/timeline/nearby` line at all, while `…/timeline/global` returns `RESPONSE: 200` (Global needs no location). To verify Nearby content, warm up a location fix (open Maps once) or use Global; permission alone (`pm grant … ACCESS_*_LOCATION`, `settings get secure location_mode`=3) isn't sufficient without an actual fix.
 
 ---

@@ -415,9 +415,9 @@ class ReportsReadPathNonRegressionTest : StringSpec({
         src shouldContain "pr.is_auto_hidden = FALSE OR pr.author_id = ?"
     }
 
-    // --- 7.8 visible_posts view definition equivalence ---
+    // --- 7.8 visible_posts view definition — auto-hide filter preserved ---
 
-    "7.8 visible_posts view still equals SELECT * FROM posts WHERE is_auto_hidden = FALSE" {
+    "7.8 visible_posts view still excludes is_auto_hidden rows (V20 added author-side filters on top)" {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 "SELECT definition FROM pg_views WHERE viewname = 'visible_posts'",
@@ -425,11 +425,16 @@ class ReportsReadPathNonRegressionTest : StringSpec({
                 ps.executeQuery().use { rs ->
                     rs.next() shouldBe true
                     val def = rs.getString(1)
-                    // Postgres normalizes: `SELECT ... FROM posts WHERE (NOT posts.is_auto_hidden)`
-                    // OR preserves literal `is_auto_hidden = false`. Accept either form.
+                    // The V9 auto-hide invariant this non-regression test guards:
+                    // the view must keep filtering is_auto_hidden rows. V20
+                    // (2026-06-10 audit, 02-C1) ADDED a users join + author-side
+                    // shadow-ban/soft-delete filters — those are pinned by
+                    // MigrationV20SmokeTest; here we only require the auto-hide
+                    // predicate survived the redefinition. Postgres may normalize
+                    // to `(NOT p.is_auto_hidden)` or keep `is_auto_hidden = false`.
                     val normalized = def.replace("\\s+".toRegex(), " ").lowercase()
                     (
-                        normalized.contains("from posts") &&
+                        normalized.contains("posts") &&
                             (
                                 normalized.contains("is_auto_hidden = false") ||
                                     normalized.contains("not") && normalized.contains("is_auto_hidden")

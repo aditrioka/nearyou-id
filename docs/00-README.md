@@ -30,12 +30,13 @@ This master plan consists of the following domain-focused files:
 | 08 | **08-Roadmap-Risk.md** | Development phases (Pre-Phase 1 through Public Launch), development tools & CI lint rules, risk register, open decisions |
 | 09 | **09-Versions.md** | Version Pinning Decisions Log: pin policy, update cadence, rationale per non-default library version |
 | 10 | **10-Setup-Checklist.md** | Operational state tracker: deployed services, secret slots, smoke-test results, [~]/[x] progress markers per environment |
+| 11 | **11-Engineering-Standards.md** | Architectural baseline (MUST-read per product change): mobile state/nav/data contracts, backend layering + JDBC/perf contracts, Pattern Registry (anti-patchwork), version currency policy, Definition of Done |
 
 ## Reading Order Suggestions
 
 - **For business stakeholders**: 00 → 01 → 02 → 08 (risk register)
 - **For product/design**: 00 → 02 → 03
-- **For engineers**: 00 → 04 → 05 → 06 → 07 → 08 (phases)
+- **For engineers**: 00 → 04 → 11 (standards baseline) → 05 → 06 → 07 → 08 (phases)
 - **For security/compliance**: 00 → 06 → 05 (schemas) → 07 (admin)
 - **For investors/financial review**: 00 → 01 → 08
 

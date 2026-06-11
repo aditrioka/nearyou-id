@@ -35,7 +35,7 @@ class RealtimeRoutesTest : StringSpec({
             application {
                 install(ContentNegotiation) { json() }
                 install(Authentication) {
-                    configureUserJwt(keys, users) { now }
+                    configureUserJwt(keys, users, nowProvider = { now })
                 }
                 realtimeRoutes(RealtimeTokenIssuer(supabaseSecret))
             }
@@ -64,7 +64,7 @@ class RealtimeRoutesTest : StringSpec({
             application {
                 install(ContentNegotiation) { json() }
                 install(Authentication) {
-                    configureUserJwt(keys, users) { now }
+                    configureUserJwt(keys, users, nowProvider = { now })
                 }
                 realtimeRoutes(RealtimeTokenIssuer(supabaseSecret) { now })
             }

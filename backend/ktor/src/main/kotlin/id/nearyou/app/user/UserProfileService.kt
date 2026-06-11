@@ -2,6 +2,9 @@ package id.nearyou.app.user
 
 import id.nearyou.data.repository.ProfileUserNotFoundException
 import id.nearyou.data.repository.UserProfileReader
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
@@ -17,12 +20,16 @@ import java.util.UUID
  */
 class UserProfileService(
     private val reader: UserProfileReader,
+    // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    fun getProfile(
+    suspend fun getProfile(
         viewerId: UUID,
         targetId: UUID,
     ): UserProfileResponse {
-        val row = reader.readProfile(viewerId = viewerId, targetId = targetId) ?: throw ProfileUserNotFoundException()
+        val row =
+            withContext(dbDispatcher) { reader.readProfile(viewerId = viewerId, targetId = targetId) }
+                ?: throw ProfileUserNotFoundException()
         return UserProfileResponse(
             userId = row.userId.toString(),
             username = row.username,

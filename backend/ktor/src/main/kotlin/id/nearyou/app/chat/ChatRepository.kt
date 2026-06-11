@@ -164,7 +164,7 @@ open class ChatRepository(
                            other.user_id AS partner_id,
                            COALESCE(u.username, 'akun_dihapus') AS partner_username,
                            COALESCE(u.display_name, 'Akun Dihapus') AS partner_display_name,
-                           COALESCE(u.subscription_status IN ('premium_active', 'premium_billing_retry'), FALSE) AS partner_is_premium
+                           COALESCE(u.subscription_status = 'premium_active', FALSE) AS partner_is_premium
                       FROM conversations c
                       JOIN conversation_participants me
                         ON me.conversation_id = c.id
@@ -173,6 +173,7 @@ open class ChatRepository(
                       JOIN conversation_participants other
                         ON other.conversation_id = c.id
                        AND other.user_id <> ?
+                       AND other.left_at IS NULL
                       LEFT JOIN visible_users u ON u.id = other.user_id
                     """.trimIndent(),
                 )

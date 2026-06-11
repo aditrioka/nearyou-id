@@ -135,8 +135,6 @@ class RootRouterScreenTest {
                 ) = SignUpOutcome.Cancelled
 
                 override suspend fun isAuthenticated(): Boolean = gate.await()
-
-                override suspend fun handleTerminal401() = Unit
             }
         installKoin(neverCompletes)
         runComposeUiTest {

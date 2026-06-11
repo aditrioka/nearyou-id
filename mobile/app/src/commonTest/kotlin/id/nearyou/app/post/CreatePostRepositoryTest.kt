@@ -57,6 +57,7 @@ class CreatePostRepositoryTest {
     ): CreatePostRepository {
         val httpClient =
             HttpClientFactory.create(
+                installTimeouts = false,
                 apiBaseUrl = "http://test.local",
                 tokenStore = InMemoryTokenStore(),
                 sessionInvalidator = SessionInvalidator(InMemoryTokenStore()),
@@ -201,6 +202,24 @@ class CreatePostRepositoryTest {
 
             assertEquals(PostCreationOutcome.Error, repo.submit("halo"))
             assertTrue(logged.any { it.first == 400 }, "a diagnostic must be emitted on an unknown 400 (not a silent no-op): $logged")
+        }
+
+    @Test
+    fun `429 daily cap maps to RateLimited instead of the NetworkError fallthrough`() =
+        runTest {
+            // 2026-06-11 device-verification regression: the docs/05 Layer-2 daily post cap
+            // (backend wave-2 of the audit) returned 429 but the client rendered the
+            // misleading "periksa koneksi internet" copy via the unenumerated-status arm.
+            val controller = FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
+            val repo =
+                repository(controller, CountingLocationProvider()) {
+                    respond(
+                        """{"error":{"code":"rate_limited","message":"Too many posts today."}}""",
+                        HttpStatusCode.TooManyRequests,
+                        JSON_HEADERS,
+                    )
+                }
+            assertEquals(PostCreationOutcome.RateLimited, repo.submit("halo"))
         }
 
     @Test

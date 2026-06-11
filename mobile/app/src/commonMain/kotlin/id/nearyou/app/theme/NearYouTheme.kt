@@ -56,6 +56,10 @@ fun NearYouTheme(
         try {
             resolver.preload(brandFamily)
             brandFontReady = true
+        } catch (cancellation: kotlin.coroutines.cancellation.CancellationException) {
+            // Never swallow cancellation (the module-wide convention — mirrors
+            // AuthApiClient; this was the one catch that ate it, 2026-06-10 audit 05-#15).
+            throw cancellation
         } catch (_: Throwable) {
             brandFontFailed = true
         }

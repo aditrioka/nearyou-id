@@ -36,7 +36,7 @@ This project (nearyou-id) is built incrementally via OpenSpec changes. The roadm
 - Read [`openspec/project.md`](../../../openspec/project.md).
 - List [`openspec/specs/`](../../../openspec/specs/) and [`openspec/changes/archive/`](../../../openspec/changes/archive/).
 - Read any in-progress change in [`openspec/changes/`](../../../openspec/changes/) (non-archive). If one exists, that's likely the current focus, not a new proposal.
-- **Survey in-flight claims from parallel sessions** (per Context § Parallel-session coordination). Run `gh pr list --state open --json number,title,headRefName,isDraft,createdAt` and `git fetch origin --quiet && git branch -r`. Each open PR / non-`main` remote branch is a change another concurrent `/next-change` (or `/opsx:apply`) session has already claimed — treat the branch name as a reserved change name. Build this in-flight set now; A.2 dedups against it.
+- **Survey in-flight claims from parallel sessions** (per Context § Parallel-session coordination). Run `gh pr list --state open --json number,title,headRefName,isDraft,createdAt`, `git fetch origin --quiet && git branch -r`, AND `git worktree list` — unpushed sibling-worktree branches are invisible to the first two; a real collision (`admin-report-queue-resolution-actions`) only surfaced via the worktree list. Each open PR / non-`main` remote branch / sibling-worktree branch is a change another concurrent session has already claimed — treat the branch name as a reserved change name. Build this in-flight set now; A.2 dedups against it.
 - Run `git log --oneline -20` for direction and the V-number sequence.
 
 **A.2 — Identify the next change.** Cross-reference:
@@ -61,7 +61,7 @@ This project (nearyou-id) is built incrementally via OpenSpec changes. The roadm
 
 Immediately after the user confirms the pick in A.4 — **before** the `openspec-propose` scaffold — open a draft "claim" PR so concurrent sessions see the reservation right away (per Context § Parallel-session coordination). This is the half of the collision guard that A.1's pre-check can't provide on its own. Skip this phase only on the non-OpenSpec / regular-PR path (see Notes): there's nothing to scaffold, so there's no scaffold window to protect.
 
-**A.5.1 — Re-check, then branch from `main`.** Re-run the in-flight survey one last time (`gh pr list --state open` + `git branch -r`) to catch a session that claimed the same name in the seconds since A.1. If the pick is now claimed, STOP and surface to the user (take a runner-up, or sequence behind the claim) — do NOT create a duplicate. Otherwise, from a clean `main` (if there's unexpected uncommitted local work, ask the user — do NOT silently stash or commit unknown state):
+**A.5.1 — Re-check, then branch from `main`.** Re-run the in-flight survey one last time (`gh pr list --state open` + `git branch -r` + `git worktree list`) to catch a session that claimed the same name in the seconds since A.1. If the pick is now claimed, STOP and surface to the user (take a runner-up, or sequence behind the claim) — do NOT create a duplicate. Otherwise, from a clean `main` (if there's unexpected uncommitted local work, ask the user — do NOT silently stash or commit unknown state):
 
 ```bash
 git checkout main && git pull --ff-only
@@ -123,6 +123,8 @@ For each divergence found, classify and act:
 
 **Target: zero silent divergence at push time.** If you catch yourself thinking "close enough, ship it," re-read this step. Precedent for why this exists: PR [#18](https://github.com/aditrioka/nearyou-id/pull/18) / [#19](https://github.com/aditrioka/nearyou-id/pull/19) (global-timeline divergence incident), PR [#24](https://github.com/aditrioka/nearyou-id/pull/24) (v10 notifications spillover audit).
 
+**B.4 — Standards-conformance pre-check (anti-patchwork gate).** For changes touching `:mobile:app` or `:backend:ktor`: verify `design.md` names the [`docs/11-Engineering-Standards.md`](../../../docs/11-Engineering-Standards.md) Pattern-Registry patterns it builds on (state holder, navigation, data layer, backend layering — whichever apply) and declares any deviation as an explicit Decision **plus** a `tasks.md` item amending docs/11 § Pattern Registry in the same PR. A design that silently introduces a second pattern for an already-listed concern is the patchwork failure mode this gate exists to stop — fix the design before pushing. (UI look-and-feel conformance is separately covered by `openspec/specs/mobile-design-system/spec.md` + the `mobile-ui-foundation` skill.)
+
 ### Phase C — Push the proposal to the claim PR
 
 The claim branch + draft PR already exist (Phase A.5). This phase pushes the scaffolded proposal onto that SAME branch and fills in the PR body — it does NOT create a branch or a new PR.
@@ -183,7 +185,7 @@ Triage proposal complexity first:
 
 Lens dispatch (non-trivial) — invoke `general-purpose` sub-agents in parallel (one message, multiple Agent tool calls), each with PR URL + change name + "read CLAUDE.md § Reviewing a PR before reviewing" + structured-report-under-600-words ask grouped by severity:
 
-- **general** — overall design coherence, scope creep, missing docs, dependency-order sanity.
+- **general** — overall design coherence, scope creep, missing docs, dependency-order sanity, **and standards conformance: undeclared deviations from `docs/11-Engineering-Standards.md` (Pattern Registry) are blocking findings**.
 - **security-and-invariant** — CLAUDE.md critical-invariants list, allowlist gaps, RLS, rate-limit math, secret reads, block/shadow-ban joins.
 - **OpenSpec format-and-correctness** — `### Requirement:` headers, ADDED/MODIFIED/REMOVED deltas, `#### Scenario:` WHEN/THEN coverage, `tasks.md` checkbox format, `--strict` validation surface.
 - **test-coverage** — missing scenarios, untested edge cases, integration-test surface.

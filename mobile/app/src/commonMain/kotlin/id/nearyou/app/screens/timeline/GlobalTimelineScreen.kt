@@ -22,13 +22,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
@@ -88,14 +89,14 @@ const val GLOBAL_POST_CARD_TAG: String = "globalPostCard"
 fun GlobalTimelineScreen(onOpenPost: (GlobalTimelinePost) -> Unit = {}) {
     val flow = koinInject<GlobalTimelineFlow>()
     val viewModel = viewModel { GlobalTimelineViewModel(flow) }
-    val outcome by viewModel.outcome.collectAsState()
-    val isInitialLoad by viewModel.isInitialLoad.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val outcome by viewModel.outcome.collectAsStateWithLifecycle()
+    val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     GlobalTimelineContent(
         // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
         // list stays mounted). The refresh spinner is conveyed by isRefreshing, NOT by this projection.
-        uiState = globalTimelineUiState(outcome, isInitialLoad),
+        uiState = remember(outcome, isInitialLoad) { globalTimelineUiState(outcome, isInitialLoad) },
         isRefreshing = isRefreshing,
         // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload
         // path). `next_cursor` is retained on Loaded but NOT consumed for load-more (deferred alongside
@@ -228,14 +229,17 @@ private fun PostList(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag(GLOBAL_TIMELINE_LIST_TAG),
-        contentPadding = PaddingValues(vertical = 8.dp),
+        // Bottom clearance for the shell's overlaid composer FAB (56dp + 16 margin + breathing
+        // room) so the last card's like/reply row never sits under it at scroll end
+        // (2026-06-10 audit, 06 low).
+        contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp),
     ) {
         if (banner != null) {
             item {
                 SoftLimitBanner(text = banner)
             }
         }
-        items(items = posts, key = { it.id }) { post ->
+        items(items = posts, key = { it.id }, contentType = { "post" }) { post ->
             GlobalPostCard(post = post, onOpenPost = onOpenPost)
         }
     }

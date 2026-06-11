@@ -50,6 +50,15 @@ Archive a completed change in the experimental workflow.
 
    **If no tasks file exists:** Proceed without task-related warning.
 
+3.5. **Definition-of-Done gate (nearyou-id — per `docs/11-Engineering-Standards.md` §5)**
+
+   Before archiving, verify on the change's PR:
+   - **UI-affecting change** → manual verification evidence (screenshots / artifact path from the `verify-loop` bring-up, per `/opsx:apply` step 7.5) is present in the PR body. A UI change with no verification evidence and no explicit "Verification: N/A" line is NOT done — tests green alone doesn't clear this gate.
+   - **Runtime-impacting backend change** → pre-archive staging smoke ran (or Section 6 is explicitly N/A).
+   - **Gates** → the flavor-qualified mobile test tasks ran when mobile was touched (not just the backend gate).
+
+   If any item is missing: warn, then **AskUserQuestion** — (a) run the missing gate now (recommended), (b) proceed with an explicit waiver recorded in the PR body, (c) cancel archive. Never proceed silently.
+
 4. **Assess delta spec sync state**
 
    Check for delta specs at `openspec/changes/<name>/specs/`. If none exist, proceed without sync prompt.

@@ -7,7 +7,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -89,8 +88,17 @@ class Layer3DispatcherScope private constructor(
         // > 80% of dispatches timed out on the 3000ms budget.
         // Putting Dispatchers.IO LAST in the launch arg makes it win, restoring
         // the scope's design intent.
+        //
+        // `.minusKey(Job)` (2026-06-10 audit, finding 04-#1): the production call
+        // sites pass the REQUEST's coroutineContext, whose Job would win as the
+        // launched coroutine's parent (rightmost Job wins in `scope.launch(ctx)`).
+        // That re-parenting (a) made shutdown(drainMillis) dead code — the scope's
+        // SupervisorJob had no children to drain, (b) let a client disconnect
+        // cancel its own post's Layer 3 dispatch, and (c) bypassed supervisor
+        // sibling isolation. Stripping the Job keeps OTel trace context + MDC
+        // flowing while the dispatch stays a child of THIS scope.
         return try {
-            scope.launch(parentContext + Dispatchers.IO) {
+            scope.launch(parentContext.minusKey(Job) + Dispatchers.IO) {
                 block()
             }
         } catch (t: Throwable) {
@@ -123,17 +131,24 @@ class Layer3DispatcherScope private constructor(
 
         // 2. Snapshot in-flight children before drain.
         val rootJob = scope.coroutineContext[Job]
-        val inFlightBefore = rootJob?.children?.count { it.isActive } ?: 0
+        val children = rootJob?.children?.toList().orEmpty()
+        val inFlightBefore = children.count { it.isActive }
 
-        // 3. Drain with budget.
+        // 3. Drain with budget: JOIN first so in-flight dispatches can reach their
+        //    COMMIT (the KDoc contract), cancel only what exceeds the budget. The
+        //    previous `cancelAndJoin()` cancelled FIRST, so the "drain" never let
+        //    anything complete — unobservable while dispatches were re-parented to
+        //    the request Job (2026-06-10 audit, 04-#1) and exposed by that fix.
         runBlocking {
             withTimeoutOrNull(drainMillis) {
-                rootJob?.cancelAndJoin()
+                children.forEach { it.join() }
             }
         }
 
-        // 4. Count children cancelled mid-dispatch (still alive after drain budget).
-        val cancelledCount = rootJob?.children?.count { it.isCancelled } ?: 0
+        // 4. Cancel + count stragglers that exceeded the drain budget, then close
+        //    the scope for good (new dispatches already no-op via the flag).
+        val cancelledCount = children.count { it.isActive }
+        rootJob?.cancel()
         if (cancelledCount > 0) {
             log.warn(
                 "event={} cancelled_count={} drain_ms={}",

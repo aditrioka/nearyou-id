@@ -56,6 +56,8 @@ Implement tasks from an OpenSpec change.
    - **spec-driven**: proposal, specs, design, tasks
    - Other schemas: follow the contextFiles from CLI output
 
+   **nearyou-id mandatory context (in addition to contextFiles):** read [`docs/11-Engineering-Standards.md`](../../../docs/11-Engineering-Standards.md) — the architectural baseline (state/nav/data/backend contracts + Pattern Registry + Definition of Done). For changes touching `:mobile:app` UI, also read `openspec/specs/mobile-design-system/spec.md` and apply the `mobile-ui-foundation` skill checklist per screen. Implementation MUST conform to the registered patterns or amend docs/11 in the same PR — never silently introduce a second pattern for a listed concern (this is the anti-patchwork contract; a component built today must fit the skeleton built last month).
+
 5. **Show current progress**
 
    Display:
@@ -68,6 +70,7 @@ Implement tasks from an OpenSpec change.
 
    For each pending task:
    - Show which task is being worked on
+   - **Coherence check first (nearyou-id):** before writing a new composable/component/helper, scan `ui/components/` + sibling feature packages (mobile) or the feature package + `docs/05-Implementation.md` canonical queries (backend) for an existing implementation to reuse or extend — reuse-first per docs/11 §4. Match the existing feature's naming scheme; don't introduce synonyms for an existing role.
    - Make the code changes required
    - Keep changes minimal and focused
    - Mark task complete in the tasks file: `- [ ]` → `- [x]`
@@ -118,9 +121,17 @@ Implement tasks from an OpenSpec change.
 
    **Skip cleanly when not applicable.** If the change has no runtime impact (docs-only, refactor-only), mark Section 6 as N/A with a one-line rationale in the archive commit. Don't trigger a deploy that will silently no-op.
 
+7.5. **Manual verification gate (nearyou-id — MANDATORY for UI-affecting changes)**
+
+   "Tests green" alone is NOT done for UI — build-green-but-broken-on-device is this project's recurring failure mode, and unit/Robolectric suites don't catch insets, navigation feel, loading-state flicker, platform-actual gaps, or font/resource crashes. Per docs/11 §5 (Definition of Done) #3:
+
+   - **When the change touches `:mobile:app` screens / Compose UI / navigation / platform actuals:** invoke the `verify-loop` skill BEFORE step 8 — bring the app up on the Android emulator (and the iOS simulator when platform actuals, resources/fonts, or navigation serialization changed), drive the changed flow end-to-end, screenshot, and check against the `mobile-ui-foundation` checklist. Attach the screenshot evidence (or a one-line summary + artifact path) to the PR body.
+   - **When the change touches backend runtime behavior without a smoke script:** at minimum boot locally (`KTOR_ENV=test` recipe in `verify-loop` §A) and curl the changed endpoint(s); paste the observed request/response into the PR body.
+   - **Skip ONLY when the change has zero runtime surface** (docs/spec/lint-rule-only) — record "Verification: N/A (no runtime surface)" in the PR body so the waiver is explicit, not silent.
+
 8. **Mark PR ready + final code review (nearyou-id, qodo + sub-agent)**
 
-   This step runs ONLY when all tasks are complete AND smoke is green (or smoke is N/A for non-runtime changes). If implementation is still in progress or smoke failed, skip to step 9 (status display); do NOT mark the PR ready prematurely.
+   This step runs ONLY when all tasks are complete AND smoke is green (or smoke is N/A for non-runtime changes) AND the verification gate (7.5) passed or was explicitly N/A. If implementation is still in progress, smoke failed, or verification evidence is missing, skip to step 9 (status display); do NOT mark the PR ready prematurely.
 
    The PR has been a draft since `/next-change` opened it (UX signal: work-in-progress, prevents accidental merge). Qodo dashboard is Manual mode (see `next-change` § Context), so qodo did NOT auto-fire on any prior commits — proposal, feat, or otherwise. Now that the implementation is functionally done, we (a) mark the PR ready for human reviewers, and (b) explicitly invoke qodo via `/review` comment so it reviews the full implementation diff exactly once, before `/opsx:archive` runs.
 
@@ -170,7 +181,7 @@ Implement tasks from an OpenSpec change.
 
    Lens dispatch (non-trivial) — invoke `general-purpose` sub-agents with PR URL + change name + "read CLAUDE.md § Reviewing a PR before reviewing" + structured-report-under-600-words ask grouped by severity:
 
-   - **general** — overall design coherence, scope drift from `proposal.md`, dead code, dependency-order sanity.
+   - **general** — overall design coherence, scope drift from `proposal.md`, dead code, dependency-order sanity, **standards conformance (docs/11 Pattern Registry — undeclared pattern forks are blocking)**.
    - **security-and-invariant** — CLAUDE.md critical-invariants list (16 code-level rules), allowlist gaps, RLS, rate-limit math, secret reads, block/shadow-ban joins.
    - **code-correctness** — bugs, edge cases, race conditions, null-handling, off-by-one, transaction boundaries, error propagation.
    - **test-coverage** — missing scenarios from `tasks.md`, untested edge cases, integration-test surface, fixture seeding correctness.
@@ -246,6 +257,7 @@ Working on task 4/7: <task description>
 **Schema:** <schema-name>
 **Progress:** 7/7 tasks complete ✓
 **Smoke:** ✓ green (or "N/A — docs-only change")
+**Verification:** ✓ verified on <surface(s)> — evidence in PR body (or "N/A — no runtime surface")
 **Code review:** ✓ settled (sub-agent + qodo, N blocking fixes applied / 0 blocking)
 **PR:** ready-for-review (#<pr-number>)
 
