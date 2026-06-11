@@ -31,16 +31,16 @@
 
 ## 4. Mobile — post-detail identity + route payload
 
-- [ ] 4.1 Add `authorUsername: String = ""` + `authorDisplayName: String = ""` to `PostDetailRoute` in `NavKeys.kt` (stays registered in the polymorphic `SerializersModule`; no lat/lng, no UUID)
-- [ ] 4.2 Construct the route with the identity fields at the `appEntryProvider` / `AppShellScreen` call-site wiring (`onOpenPost` → `backStack.add(PostDetailRoute(...))`)
-- [ ] 4.3 Render the identity row in the `PostDetailScreen` header from the payload, reusing the shared avatar/identity sub-components from `ui/components` (NOT the whole card); omit the row gracefully when the payload identity is empty
-- [ ] 4.4 Tests: route round-trip with the new fields; decode-missing-fields → defaults `""` (restore-compat scenario); header renders identity without any new network request; empty-identity payload renders no "@" orphan; no-UUID/no-coordinate assertion stays green
-- [ ] 4.5 Update `HomeScreen` / `AppShellScreen` / `appEntryProvider` tests for the widened `onOpenPost` payload (root-stack push carries identity, never lat/lng)
+- [x] 4.1 Add `authorUsername: String = ""` + `authorDisplayName: String = ""` to `PostDetailRoute` in `NavKeys.kt` (stays registered in the polymorphic `SerializersModule`; no lat/lng, no UUID)
+- [x] 4.2 Construct the route with the identity fields at the `appEntryProvider` / `AppShellScreen` call-site wiring (`onOpenPost` → `backStack.add(PostDetailRoute(...))`)
+- [x] 4.3 Render the identity row in the `PostDetailScreen` header from the payload, reusing the shared avatar/identity sub-components from `ui/components` (NOT the whole card); omit the row gracefully when the payload identity is empty
+- [x] 4.4 Tests: route round-trip with the new fields; decode-missing-fields → defaults `""` (restore-compat scenario); header renders identity without any new network request; empty-identity payload renders no "@" orphan; no-UUID/no-coordinate assertion stays green
+- [x] 4.5 Update `HomeScreen` / `AppShellScreen` / `appEntryProvider` tests for the widened `onOpenPost` payload (root-stack push carries identity, never lat/lng)
 
 ## 5. Mobile — shell app bar with brand logo
 
-- [ ] 5.1 Add the pinned `CenterAlignedTopAppBar` to `AppShellScreen`'s Scaffold `topBar` slot, Home section only: centered `logo_brand_light`/`logo_brand_dark` per active scheme, `contentDescription = stringResource(Res.string.app_name)`
-- [ ] 5.2 Shell tests: Home shows the logo app bar (contentDescription match), light vs dark asset selection, Notifikasi/Profil sections render no shell top app bar, insets still applied once (no double status-bar gap — flush-under-app-bar check)
+- [x] 5.1 Add the pinned `CenterAlignedTopAppBar` to `AppShellScreen`'s Scaffold `topBar` slot, Home section only: centered `logo_brand_light`/`logo_brand_dark` per active scheme, `contentDescription = stringResource(Res.string.app_name)`
+- [x] 5.2 Shell tests: Home shows the logo app bar (contentDescription match), light vs dark asset selection, Notifikasi/Profil sections render no shell top app bar, insets still applied once (no double status-bar gap — flush-under-app-bar check)
 
 ## 6. Docs amendments (same PR — canonical-docs reconciliation)
 

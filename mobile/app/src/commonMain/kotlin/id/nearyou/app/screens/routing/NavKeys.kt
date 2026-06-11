@@ -63,6 +63,11 @@ data object ConsentRoute : NavKey
  * is public post text, safe to serialize; [distanceM] is Nearby-origin only (`null` from Global) and is
  * carried per the spec'd payload but NOT rendered in the v1 header (the header reuses the card's
  * posted-from treatment, which shows no distance — `mobile-post-detail` § "post header").
+ *
+ * [authorUsername] / [authorDisplayName] (added by `mobile-timeline-card-redesign`) carry the author
+ * DISPLAY identity to the header — display data, NOT the banned author UUID. Defaulted to `""` so a
+ * back stack serialized BEFORE this change still decodes on process-death restore; an empty value
+ * renders the header without the identity row (graceful, spec'd).
  */
 @Serializable
 data class PostDetailRoute(
@@ -73,4 +78,6 @@ data class PostDetailRoute(
     val createdAtIso: String,
     val likedByViewer: Boolean,
     val replyCount: Int,
+    val authorUsername: String = "",
+    val authorDisplayName: String = "",
 ) : NavKey

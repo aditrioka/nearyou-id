@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.post.LikeCountOutcome
 import id.nearyou.app.post.LikeOutcome
@@ -43,6 +44,7 @@ import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.RepliesOutcome
 import id.nearyou.app.post.ReplyPostOutcome
 import id.nearyou.app.screens.routing.PostDetailRoute
+import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_reply
@@ -50,6 +52,7 @@ import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.ic_post_like
 import id.nearyou.resources.generated.resources.ic_post_like_filled
 import id.nearyou.resources.generated.resources.ic_post_reply
+import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.post_detail_like_count
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
 import id.nearyou.resources.generated.resources.post_detail_post_gone
@@ -257,6 +260,8 @@ fun PostDetailScreen(
                     content = route.content,
                     cityName = route.cityName,
                     createdAtIso = route.createdAtIso,
+                    authorUsername = route.authorUsername,
+                    authorDisplayName = route.authorDisplayName,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -306,16 +311,54 @@ private fun BackBar(onBack: () -> Unit) {
     }
 }
 
-/** The post header: content + a "Diposting dari {city}, {date}" line (empty `cityName` → the no-city
- *  variant, no dangling comma). Built solely from the route payload — no `author_id`, no coordinate. */
+/** The post header: the author display-identity row (mobile-timeline-card-redesign — the shared
+ *  `LetterAvatar` + display name + @handle, the SAME treatments as the `ui/components` card so they
+ *  cannot drift; omitted gracefully when the payload identity is empty, e.g. a back stack serialized
+ *  before the fields existed) + content + a "Diposting dari {city}, {date}" line (empty `cityName` →
+ *  the no-city variant, no dangling comma). Built solely from the route payload — no `author_id`
+ *  (UUID), no coordinate. The identity is NOT a tap target (no profile screen yet — issue #196). */
 @Composable
 private fun PostHeader(
     content: String,
     cityName: String,
     createdAtIso: String,
+    authorUsername: String,
+    authorDisplayName: String,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
+        if (authorUsername.isNotEmpty() || authorDisplayName.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                LetterAvatar(
+                    displayName = authorDisplayName,
+                    username = authorUsername,
+                )
+                Column {
+                    if (authorDisplayName.isNotEmpty()) {
+                        Text(
+                            text = authorDisplayName,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (authorUsername.isNotEmpty()) {
+                        Text(
+                            text = stringResource(Res.string.post_card_handle, authorUsername),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
         Text(
             text = content,
             style = MaterialTheme.typography.bodyLarge,

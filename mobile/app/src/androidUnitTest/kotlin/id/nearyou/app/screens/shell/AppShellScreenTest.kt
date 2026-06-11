@@ -6,6 +6,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -64,6 +65,8 @@ private const val PROFILE_PLACEHOLDER = "Profil segera hadir." // profile_placeh
 private const val FAB_POST = "Posting" // cta_post — the Home-section icon-only composer FAB contentDescription
 private const val NOTIF_COPY = "Seseorang menyukai postingan kamu" // notif_post_liked — proves the screen rendered
 private const val BADGE_CD = "Notifikasi belum dibaca" // notifications_badge contentDescription
+private const val APP_NAME = "NearYouID" // app_name — the shell app-bar logo contentDescription
+private const val TAB_SEKITAR = "Sekitar" // tab_nearby — the Home section's default feed tab label
 
 /** WCAG 2.x AA contrast threshold for normal text (4.5:1) — the selected nav label must clear it. */
 private const val MIN_LABEL_CONTRAST = 4.5
@@ -411,6 +414,73 @@ class AppShellScreenTest {
                 pathsAfterCompose,
                 recordedPaths.toList(),
                 "the Profil section captures NO new outbound request (the placeholder issues no fetch)",
+            )
+        }
+    }
+
+    // ---- the Home-section centered brand-logo app bar (mobile-timeline-card-redesign, mockup 1/19) ----
+
+    // mobile-home-tab-host § "Home section shows the centered brand-logo app bar" — the shell Scaffold's
+    // topBar renders the logo with the app-name contentDescription (light scheme → light asset tag).
+    @Test
+    fun homeSection_showsTheCenteredBrandLogoAppBar() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithContentDescription(APP_NAME).assertExists()
+            onNodeWithTag(SHELL_LOGO_LIGHT_TAG, useUnmergedTree = true).assertExists()
+        }
+    }
+
+    // mobile-home-tab-host § "Logo asset follows the active scheme" — under the night configuration
+    // (isSystemInDarkTheme() = true, the SignInScreen idiom NearYouTheme also defaults to) the dark
+    // logo variant renders.
+    @Test
+    @Config(sdk = [33], qualifiers = "night")
+    fun homeSection_underTheDarkScheme_usesTheDarkLogoAsset() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(SHELL_LOGO_DARK_TAG, useUnmergedTree = true).assertExists()
+            onNodeWithTag(SHELL_LOGO_LIGHT_TAG, useUnmergedTree = true).assertDoesNotExist()
+        }
+    }
+
+    // mobile-home-tab-host § "Non-Home sections render no shell top app bar" — Notifikasi/Profil keep
+    // their in-body headers; the logo app bar leaves composition.
+    @Test
+    fun nonHomeSections_renderNoShellTopAppBar() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(SECTION_NOTIFICATIONS).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithContentDescription(APP_NAME).assertDoesNotExist()
+            onNodeWithText(SECTION_PROFILE).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithContentDescription(APP_NAME).assertDoesNotExist()
+        }
+    }
+
+    // mobile-design-system § "The feed surface applies the system-bar inset exactly once under the
+    // shell app bar" — the tab row sits flush BELOW the app-bar logo (no nested Scaffold re-adds a
+    // status-bar-height gap; the single shell Scaffold positions both).
+    @Test
+    fun feedTabRow_sitsBelowTheShellAppBar_insetsAppliedOnce() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            val logoBottom =
+                onNodeWithTag(SHELL_LOGO_LIGHT_TAG, useUnmergedTree = true)
+                    .getUnclippedBoundsInRoot().bottom
+            val tabTop = onNodeWithText(TAB_SEKITAR).getUnclippedBoundsInRoot().top
+            assertTrue(
+                tabTop >= logoBottom,
+                "the feed tab row must sit below the shell app bar (tabTop=$tabTop, logoBottom=$logoBottom)",
             )
         }
     }

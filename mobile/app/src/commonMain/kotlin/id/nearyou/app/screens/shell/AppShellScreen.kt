@@ -1,12 +1,17 @@
 package id.nearyou.app.screens.shell
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -25,20 +30,25 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.screens.home.HomeScreen
 import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.screens.notifications.NotificationsScreen
 import id.nearyou.app.screens.profile.ProfilePlaceholderScreen
 import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.app_name
 import id.nearyou.resources.generated.resources.ic_nav_home
 import id.nearyou.resources.generated.resources.ic_nav_home_filled
 import id.nearyou.resources.generated.resources.ic_nav_notifications
 import id.nearyou.resources.generated.resources.ic_nav_notifications_filled
 import id.nearyou.resources.generated.resources.ic_nav_profile
 import id.nearyou.resources.generated.resources.ic_nav_profile_filled
+import id.nearyou.resources.generated.resources.logo_brand_dark
+import id.nearyou.resources.generated.resources.logo_brand_light
 import id.nearyou.resources.generated.resources.notifications_badge
 import id.nearyou.resources.generated.resources.section_home
 import id.nearyou.resources.generated.resources.section_home_icon_description
@@ -103,6 +113,15 @@ fun AppShellScreen(
     LaunchedEffect(Unit) { unreadCount = flow.unreadCount() ?: 0L }
 
     Scaffold(
+        // The shell Scaffold's topBar slot is the only top app bar on the shell-rendered section
+        // surfaces (mobile-design-system § single-Scaffold; mobile-timeline-card-redesign D5):
+        // the Home section gets the centered brand-logo CenterAlignedTopAppBar per mockup frames
+        // 1/19; Notifikasi/Profil keep their own in-body headers (no shell top bar).
+        topBar = {
+            if (selectedSection == Section.Home) {
+                HomeBrandTopBar()
+            }
+        },
         bottomBar = {
             NavigationBar {
                 SectionItem(
@@ -157,6 +176,38 @@ fun AppShellScreen(
             }
         }
     }
+}
+
+/** Scheme-keyed test tags on the app-bar logo — which drawable rendered is otherwise opaque to
+ *  semantics (both variants share the `app_name` contentDescription). */
+const val SHELL_LOGO_LIGHT_TAG: String = "shellLogoLight"
+const val SHELL_LOGO_DARK_TAG: String = "shellLogoDark"
+
+/**
+ * The Home section's pinned centered brand-logo app bar (mockup frames 1 + 19): the bundled
+ * `logo_brand_light`/`logo_brand_dark` vector selected by [isSystemInDarkTheme] (the SignInScreen
+ * idiom — `NearYouTheme` itself defaults to the same flag), `contentDescription` = the app name via
+ * `stringResource`. Pinned — no scroll-collapse behavior (design D5: collapse would be new motion
+ * surface with no spec backing). Lives in the shell Scaffold's `topBar` slot so window insets stay
+ * applied exactly once.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomeBrandTopBar() {
+    val dark = isSystemInDarkTheme()
+    val logo = if (dark) Res.drawable.logo_brand_dark else Res.drawable.logo_brand_light
+    CenterAlignedTopAppBar(
+        title = {
+            Image(
+                painter = painterResource(logo),
+                contentDescription = stringResource(Res.string.app_name),
+                modifier =
+                    Modifier.height(28.dp).testTag(
+                        if (dark) SHELL_LOGO_DARK_TAG else SHELL_LOGO_LIGHT_TAG,
+                    ),
+            )
+        },
+    )
 }
 
 /**
