@@ -30,7 +30,14 @@ private val logger = LoggerFactory.getLogger("HealthRoutes")
 
 const val POSTGRES_PROBE_TIMEOUT_MS: Long = 500L
 const val REDIS_PROBE_TIMEOUT_MS: Long = 200L
-const val SUPABASE_PROBE_TIMEOUT_MS: Long = 500L
+
+// 1500ms, NOT 500ms: this probe crosses the public internet to Supabase's edge with a
+// full TLS handshake on a cold connection (~450-500ms observed) — at 500ms the budget
+// was razor-thin and the 2026-06-11 audit-merge deploy was REJECTED by Cloud Run's
+// startup probe (3× readiness 503, supabase_realtime "timeout" at ~502ms) while
+// postgres/redis passed. Still well under READY_OUTER_CAP_MS (2s) and the workflow's
+// 3s probe timeout. Spec: health-check § per-probe budgets (amended same day).
+const val SUPABASE_PROBE_TIMEOUT_MS: Long = 1500L
 const val READY_OUTER_CAP_MS: Long = 2000L
 const val HEALTH_RATE_LIMIT_CAPACITY: Int = 60
 val HEALTH_RATE_LIMIT_WINDOW: Duration = Duration.ofSeconds(60)

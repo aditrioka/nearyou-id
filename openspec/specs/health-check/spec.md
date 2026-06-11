@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The health-check capability defines the `/health/live` and `/health/ready` HTTP endpoints that Cloud Run startup + liveness probes and external uptime monitors consume. `/health/live` returns `200 OK` unconditionally as a pure process-alive signal. `/health/ready` runs Postgres, Redis, and Supabase Realtime probes in parallel with per-probe timeouts (500/200/500ms) under a 2-second outer cap, returning `200 {status: "ready"}` only when every dependency is green. Both endpoints are public but rate-limited at 60 req/min/IP via the shared rate-limit infrastructure, and Cloud Run native probes bypass the limit by User-Agent so deploys never self-block.
+The health-check capability defines the `/health/live` and `/health/ready` HTTP endpoints that Cloud Run startup + liveness probes and external uptime monitors consume. `/health/live` returns `200 OK` unconditionally as a pure process-alive signal. `/health/ready` runs Postgres, Redis, and Supabase Realtime probes in parallel with per-probe timeouts (500/200/1500ms) under a 2-second outer cap, returning `200 {status: "ready"}` only when every dependency is green. Both endpoints are public but rate-limited at 60 req/min/IP via the shared rate-limit infrastructure, and Cloud Run native probes bypass the limit by User-Agent so deploys never self-block.
 ## Requirements
 ### Requirement: `/health/live` endpoint returns 200 unconditionally
 
@@ -29,7 +29,7 @@ The Ktor backend SHALL expose `GET /health/ready` as a public, unauthenticated e
 Per-probe timeouts:
 - **Postgres**: 500 ms. Probe is `SELECT 1` over an idle connection from the HikariCP pool.
 - **Redis**: 200 ms. Probe is `PING` via the Lettuce client.
-- **Supabase Realtime**: 500 ms. Probe is `GET ${SUPABASE_URL}/rest/v1/` over the existing `HttpClient(CIO)` instance, expecting any response status (including `401` / `404`) — TLS-handshake completion plus an HTTP response is sufficient liveness signal because Supabase Realtime and REST share the same edge.
+- **Supabase Realtime**: 1500 ms (raised from 500 ms on 2026-06-11: the probe crosses the public internet with a cold-connection TLS handshake (~450-500 ms observed), and the 500 ms budget caused Cloud Run to reject an otherwise-healthy deploy — startup probe 3× readiness 503 with `supabase_realtime` timing out at ~502 ms while postgres/redis were green; still under the 2 s outer cap and the deploy workflow's 3 s probe timeout). Probe is `GET ${SUPABASE_URL}/rest/v1/` over the existing `HttpClient(CIO)` instance, expecting any response status (including `401` / `404`) — TLS-handshake completion plus an HTTP response is sufficient liveness signal because Supabase Realtime and REST share the same edge.
 
 The whole `/health/ready` handler MUST respect a 2-second outer cap regardless of per-probe timeouts (defense-in-depth against a probe that hangs past its individual timeout). When the outer cap fires, any unfinished probe is recorded as `ok=false` with `error="timeout"` in the response.
 
@@ -50,7 +50,7 @@ The endpoint MUST be exempt from authentication middleware.
 - **THEN** the response status is `503 Service Unavailable`
 
 #### Scenario: Supabase Realtime probe fails
-- **WHEN** the Supabase Realtime HTTP probe times out (>500 ms) OR the connection is refused AND `GET /health/ready` is requested
+- **WHEN** the Supabase Realtime HTTP probe times out (>1500 ms) OR the connection is refused AND `GET /health/ready` is requested
 - **THEN** the response status is `503 Service Unavailable`
 
 #### Scenario: Probes run in parallel, not sequentially
@@ -75,7 +75,7 @@ The `/health/ready` response body SHALL be a JSON object with exactly two top-le
   "checks": [
     { "name": "postgres",          "ok": true,  "latency_ms": 42 },
     { "name": "redis",             "ok": true,  "latency_ms": 7 },
-    { "name": "supabase_realtime", "ok": false, "latency_ms": 503, "error": "timeout" }
+    { "name": "supabase_realtime", "ok": false, "latency_ms": 1503, "error": "timeout" }
   ]
 }
 ```
