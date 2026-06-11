@@ -52,6 +52,12 @@ Note: the canonical `docs/05-Implementation.md` §669–687 uses the column name
 
 A Ktor route SHALL be registered at `POST /api/v1/follows/{user_id}` requiring Bearer JWT auth via the existing `auth-jwt` plugin. On success, the endpoint MUST insert `(follower_id = caller, followee_id = path-user_id)` via `INSERT ... ON CONFLICT (follower_id, followee_id) DO NOTHING` and return HTTP 204 with no body. Re-following an already-followed user MUST also return 204 (no error).
 
+Follow and unfollow share a rate limit of 50 actions/hour/user via the shared `RateLimiter`, keyed `{scope:rate_follow}:{user:<user_id>}` (sliding window, checked before any DB work; shipped as audit fix 03-#3, 2026-06-10). The 51st action within the window MUST return HTTP 429 with error code `rate_limited` and a `Retry-After` header.
+
+#### Scenario: Follow churn is rate-limited
+- **WHEN** a user has performed 50 follow/unfollow actions within the rolling hour AND issues another follow
+- **THEN** the response is HTTP 429 with `error.code = "rate_limited"` AND a positive-integer `Retry-After` header AND no `follows` row is written
+
 #### Scenario: First follow returns 204
 - **WHEN** caller A follows user B for the first time
 - **THEN** the response is HTTP 204 AND a `follows` row `(A, B, ...)` exists

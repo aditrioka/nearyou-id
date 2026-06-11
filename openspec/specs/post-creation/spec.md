@@ -82,11 +82,27 @@ The 201 response body SHALL contain exactly the fields `id`, `content`, `latitud
 
 ### Requirement: Error envelope matches existing auth routes
 
-All 4xx responses SHALL use the envelope `{ "error": { "code": "<kebab-or-snake>", "message": "<human-readable>" } }` already established by `/api/v1/auth/*`. The route handler's own 400 codes SHALL be `content_empty`, `content_too_long`, `location_out_of_bounds`, `invalid_json`, and `content_moderated_profanity` (the last defined by the § "Verdict.Reject" requirement below, folded in when `content-moderation-keyword-lists` archived into this capability), plus `unauthenticated` emitted by the `Authentication` plugin (not by the route handler).
+All 4xx responses SHALL use the envelope `{ "error": { "code": "<kebab-or-snake>", "message": "<human-readable>" } }` already established by `/api/v1/auth/*`. The route handler's own 400 codes SHALL be `content_empty`, `content_too_long`, `location_out_of_bounds`, `invalid_json`, and `content_moderated_profanity` (the last defined by the § "Verdict.Reject" requirement below, folded in when `content-moderation-keyword-lists` archived into this capability), plus `unauthenticated` emitted by the `Authentication` plugin (not by the route handler) and `rate_limited` (HTTP 429, defined by § "Daily post cap" below).
 
 #### Scenario: Error envelope for content_too_long
 - **WHEN** the request is rejected for exceeding 280 code points
 - **THEN** the response body is `{ "error": { "code": "content_too_long", "message": "..." } }` AND `message` is non-empty
+
+### Requirement: Daily post cap (10/day, Premium exempt)
+
+The endpoint SHALL enforce a fixed-window daily cap of 10 posts per Free user via the shared `RateLimiter`, keyed `{scope:rate_post_day}:{user:<user_id>}` with `computeTTLToNextReset(user_id)` semantics and the `_day}` fixed-window key marker (docs/05 § Layer 2; shipped as audit fix 02-M2, 2026-06-10). Premium users (`premium_active`) skip the cap. The gate runs AFTER the free validations (length, envelope) and BEFORE moderation I/O. The 11th Free post in a window MUST return HTTP 429 with error code `rate_limited` and a `Retry-After` header carrying the seconds to the next reset.
+
+#### Scenario: 11th post of the day is rate-limited
+- **WHEN** a Free user has created 10 posts in the current daily window AND submits an 11th valid post
+- **THEN** the response is HTTP 429 with `error.code = "rate_limited"` AND a positive-integer `Retry-After` header AND no `posts` row is inserted
+
+#### Scenario: Premium user is exempt from the daily cap
+- **WHEN** a `premium_active` user has created 10 posts in the current daily window AND submits an 11th valid post
+- **THEN** the response is HTTP 201 AND the `{scope:rate_post_day}` bucket for the user has never been written
+
+#### Scenario: Validation failures do not consume the daily slot
+- **WHEN** a Free user submits a post that fails the length guard
+- **THEN** the response is HTTP 400 AND the `{scope:rate_post_day}` bucket size is unchanged
 
 ### Requirement: posts.is_auto_hidden actively written by the V9 reports auto-hide path
 

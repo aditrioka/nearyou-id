@@ -55,6 +55,12 @@ A Ktor route SHALL be registered at `POST /api/v1/blocks/{user_id}` requiring Be
 
 Both statements MUST be committed together or rolled back together; a crash between them MUST leave the database in a consistent state (either the block is absent and follows remain, or the block is present and both directions of the follow relationship are gone). The endpoint MUST return HTTP 204 with no body on success, whether or not the INSERT actually inserted (already-blocked case) and whether or not the DELETE removed any rows (no-follow case). Re-blocking an already-blocked user MUST also return 204.
 
+Block and unblock share a rate limit of 30 actions/hour/user via the shared `RateLimiter`, keyed `{scope:rate_block}:{user:<user_id>}` (sliding window, checked before any DB work; shipped as audit fix 03-#3, 2026-06-10). The 31st action within the window MUST return HTTP 429 with error code `rate_limited` and a `Retry-After` header.
+
+#### Scenario: Block churn is rate-limited
+- **WHEN** a user has performed 30 block/unblock actions within the rolling hour AND issues another block
+- **THEN** the response is HTTP 429 with `error.code = "rate_limited"` AND a positive-integer `Retry-After` header AND no `user_blocks` row is written
+
 The canonical SQL flow is `docs/05-Implementation.md` §1286–1300 and MUST be matched verbatim (module the `followed_id`→`followee_id` rename enacted by V6).
 
 #### Scenario: First block returns 204
