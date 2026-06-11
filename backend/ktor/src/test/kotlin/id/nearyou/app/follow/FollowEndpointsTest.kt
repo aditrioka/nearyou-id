@@ -459,7 +459,7 @@ class FollowEndpointsTest : StringSpec({
                 val client = createClient { install(ClientCN) { json() } }
                 listOf("followers", "following").forEach { leg ->
                     val resp =
-                        client.get("/api/v1/users/$viewer/$leg?cursor=%%%not-base64url%%%") {
+                        client.get("/api/v1/users/$viewer/$leg?cursor=not-a-valid-base64-cursor") {
                             header(HttpHeaders.Authorization, "Bearer $tv")
                         }
                     resp.status shouldBe HttpStatusCode.BadRequest
