@@ -46,7 +46,7 @@ A Ktor route SHALL be registered at `GET /api/v1/users/{user_id}/followers?curso
 
 **Profile-target resolution (constant-404 contract).** Before reading the list, the profile target MUST be resolved under the `user-profile-read` contract: when `{user_id}` equals the caller, via raw `users` existence on the own-content path (a shadow-banned caller keeps their own lists; the raw-`users` SQL carries the `@AllowMissingBlockJoin` allowlist annotation on the SQL-holding declaration); otherwise via `visible_users` plus a bidirectional `user_blocks` exclusion. An unresolvable target — unknown UUID, soft-deleted, shadow-banned, or blocked-in-either-direction — MUST yield HTTP 404 with the CONSTANT byte-identical body `{"error":{"code":"user_not_found"}}` (no `message` field), identical to the `user-profile-read` 404 body.
 
-**Row sourcing and filtering.** The list query MUST source rows `FROM follows` with an INNER `JOIN visible_users` on the row user (`follower_id`) — the join `docs/05-Implementation.md` §1272 mandates — so shadow-banned and soft-deleted followers do NOT appear. The returned set MUST also exclude, via the two bidirectional `user_blocks` NOT-IN subqueries on the `follows` clause (which MUST both remain present so `BlockExclusionJoinRule` continues to pass):
+**Row sourcing and filtering.** The list query MUST source rows `FROM follows` with an INNER `JOIN visible_users` on the row user (`follower_id`) — the join `docs/05-Implementation.md` §1272 mandates — so shadow-banned and soft-deleted followers do NOT appear. The returned set MUST also exclude, via the two bidirectional `user_blocks` NOT-IN subqueries on the `follows` clause, both of which MUST remain present (NOTE: `follows` is deliberately outside `BlockExclusionJoinRule`'s protected-table pattern and `visible_users` does not trip the rule either, so the linter does NOT enforce these subqueries — the block-exclusion scenarios below are the guardrail, the same stance `user-profile-read` documents):
 1. Users the CALLING VIEWER has blocked (`user_blocks` row `(viewer, X)`).
 2. Users who have blocked the CALLING VIEWER (`user_blocks` row `(X, viewer)`).
 
@@ -69,7 +69,7 @@ The filter applies regardless of whether the caller is the profile owner. The id
 }
 ```
 
-(The example reflects the SHIPPED bare-camelCase wire of `FollowRoutes.kt` — `userId`/`createdAt`/`nextCursor`; the pre-change spec text showed a snake_case example that never matched the shipped DTOs, corrected here following the `mobile-timeline-card-redesign` precedent.) The new fields are declared EXPLICITLY as bare camelCase `username` / `displayName` / `isPremium` (no `@SerialName`), matching the `UserProfileResponse` vocabulary. `username` and `displayName` MUST equal the row user's `visible_users.username` / `visible_users.display_name` (never null — NOT NULL since V2). `isPremium` MUST be computed as `subscription_status = 'premium_active'` (the `user-profile-read` design-D2 formula; deliberately NOT the `chat-conversations` two-status variant). `createdAt` is the follow-edge timestamp.
+(The example reflects the SHIPPED bare-camelCase wire of `FollowRoutes.kt` — `userId`/`createdAt`/`nextCursor`; the pre-change spec text showed a snake_case example that never matched the shipped DTOs, corrected here following the `mobile-timeline-card-redesign` precedent.) The new fields are declared EXPLICITLY as bare camelCase `username` / `displayName` / `isPremium` (no `@SerialName`), matching the `UserProfileResponse` vocabulary. `username` and `displayName` MUST equal the row user's `visible_users.username` / `visible_users.display_name` (never null — NOT NULL since V2). `isPremium` MUST be computed as `subscription_status = 'premium_active'` only (the `user-profile-read` `isPremium` formula; `chat-conversations` was aligned to the same formula by the 2026-06-10 audit). `createdAt` is the follow-edge timestamp.
 
 The cursor MUST use the same base64url-encoded JSON format as `nearby-timeline` (`{"c":"...","i":"..."}`), with `i` encoding the `follower_id` UUID of the row at the page boundary. A malformed cursor MUST yield HTTP 400 with error code `invalid_cursor`.
 
@@ -89,7 +89,7 @@ The cursor MUST use the same base64url-encoded JSON format as `nearby-timeline` 
 - **WHEN** profile P has a visible follower with `username = "raka.jkt"`, `display_name = "Raka Pratama"`
 - **THEN** that row contains the keys `userId`, `username`, `displayName`, `isPremium`, `createdAt` with `username = "raka.jkt"` AND `displayName = "Raka Pratama"` AND contains NO snake_case variants (`user_id` / `display_name` / `is_premium` / `created_at`)
 
-#### Scenario: isPremium uses the design-D2 formula
+#### Scenario: isPremium uses the profile-read formula
 - **WHEN** profile P has two visible followers, one with `subscription_status = 'premium_active'` and one with `subscription_status = 'premium_billing_retry'`
 - **THEN** the first row has `isPremium = true` AND the second has `isPremium = false`
 
@@ -129,7 +129,7 @@ The cursor MUST use the same base64url-encoded JSON format as `nearby-timeline` 
 
 A Ktor route SHALL be registered at `GET /api/v1/users/{user_id}/following?cursor=` requiring Bearer JWT auth. The endpoint MUST return the set of users whom `{user_id}` follows, paginated by keyset on `(created_at DESC, followee_id DESC)` with a per-page cap of 30.
 
-The profile-target resolution (constant-404 contract), row sourcing (INNER `JOIN visible_users` on the row user — here `followee_id`), bidirectional viewer-block filtering, profile-summary response shape, camelCase wire declaration, design-D2 `isPremium` formula, and cursor format are identical to `/followers`; `i` encodes the `followee_id` UUID of the row at the page boundary.
+The profile-target resolution (constant-404 contract), row sourcing (INNER `JOIN visible_users` on the row user — here `followee_id`), bidirectional viewer-block filtering, profile-summary response shape, camelCase wire declaration, profile-read `isPremium` formula, and cursor format are identical to `/followers`; `i` encodes the `followee_id` UUID of the row at the page boundary.
 
 #### Scenario: Unauthenticated rejected
 - **WHEN** the request lacks a valid JWT
@@ -178,8 +178,9 @@ The profile-target resolution (constant-404 contract), row sourcing (INNER `JOIN
 18. `/following` returns profile outbound follows ordered `created_at DESC` with embedded profile summaries.
 19. `/following` excludes viewer-blocked users (both directions) and hidden members.
 20. `/following` answers the constant 404 for unresolvable targets, byte-identically.
-21. `isPremium` is `true` for `premium_active` and `false` for `premium_billing_retry` (design-D2 formula).
-22. All five follow endpoints return 401 without JWT.
+21. `isPremium` is `true` for `premium_active` and `false` for `premium_billing_retry` (profile-read formula).
+22. All four follow endpoints (`POST /follows`, `DELETE /follows`, `/followers`, `/following`) return 401 without JWT (corrects the previous enumeration's "five" — only four routes exist).
+23. The in-transaction block guard is covered at repo level (seed a block, call `followInTx` directly → `FollowBlockedException`) AND a route-mapping test asserts `FollowBlockedException` → the constant 404 (the resolution gate makes the endpoint path unreachable for pre-existing blocks, so endpoint tests alone never exercise the guard).
 
 `MigrationV6SmokeTest` (tagged `database`) SHALL cover: migration runs cleanly from V5, both indexes exist with documented column orders, PK enforces uniqueness, CHECK enforces self-follow rejection, both FK cascades behave as specified.
 
@@ -187,10 +188,62 @@ The profile-target resolution (constant-404 contract), row sourcing (INNER `JOIN
 - **WHEN** running `./gradlew :backend:ktor:test --tests '*FollowEndpointsTest*' --tests '*MigrationV6SmokeTest*'`
 - **THEN** both classes are discovered AND every numbered scenario above corresponds to at least one `@Test` method
 
+### Requirement: Successful follow emits a followed notification for the followee
+
+V10 introduces the FIRST notification-write side-effect for follows. On a successful `POST /api/v1/follows/{user_id}` that inserts a new row into `follows`, the `FollowService` SHALL invoke `NotificationEmitter.emit(type = 'followed', recipient = followee.id, actor = caller, target_type = NULL, target_id = NULL, body_data = {})` in the SAME DB transaction as the `follows` INSERT.
+
+The emit is subject to the `NotificationEmitter` suppression rules (see `in-app-notifications` capability):
+- Self-action: the `follows` table CHECK constraint (`follower_id <> followee_id`) already prevents self-follow at the DB layer, so this case is defended-in-depth but unreachable via the endpoint; the emitter's self-action short-circuit is a belt-and-suspenders match to the schema invariant.
+- Block: if the follower and followee have a `user_blocks` row in either direction, no notification row is written. Whether the block prevents the follow insertion itself is a V6 `follow-system` concern that V10 does NOT change — V10 only decides whether to emit a notification given that a follow row was inserted.
+
+Unfollow (`DELETE /api/v1/follows/{user_id}`) MUST NOT emit a counter-notification (no `unfollowed` type exists in the V10 enum). The previously-written `followed` notification MAY remain in the followee's feed as a historical record.
+
+Re-follow after an unfollow (which produces a NEW `follows` row given the cascade on unfollow) SHOULD emit a new `followed` notification (each distinct follow relationship produces one notification). If the follow row insertion is idempotent (e.g. unique-constraint-ON-CONFLICT-DO-NOTHING), only the first (actually-inserted) follow emits.
+
+If the notification INSERT fails (e.g. followee hard-deleted between request and emit), the encompassing transaction rolls back; the `follows` INSERT does NOT persist.
+
+Response shapes for `POST /follow` and `DELETE /follow` MUST NOT change. The `is_following` / `followed_by_viewer` fields on user profiles / timelines are unchanged.
+
+#### Scenario: Bob follows Alice produces followed notification for Alice
+- **WHEN** Bob POSTs `/api/v1/follows/{aliceId}` AND no block exists between Alice and Bob
+- **THEN** HTTP 2xx (per V6 contract) AND exactly one `notifications` row exists with `user_id = Alice.id, type = 'followed', actor_user_id = Bob.id, target_type = NULL, target_id = NULL, body_data = {}`
+
+#### Scenario: Self-follow rejection still fires first
+- **WHEN** Alice POSTs `/api/v1/follows/{aliceId}` on her own id
+- **THEN** the V6 CHECK constraint / endpoint logic rejects the follow (per the V6 contract) AND zero `notifications` rows are inserted
+
+#### Scenario: Follow from blocked user produces no notification (Alice blocked Bob)
+- **WHEN** Alice has a `user_blocks` row `(blocker_id = Alice, blocked_id = Bob)` AND Bob successfully inserts a follow row (whatever the V6 block semantics permit)
+- **THEN** zero `notifications` rows are inserted for Alice
+
+#### Scenario: Follow from blocked user produces no notification (Bob blocked Alice)
+- **WHEN** Bob has a `user_blocks` row `(blocker_id = Bob, blocked_id = Alice)` AND Bob successfully inserts a follow row
+- **THEN** zero `notifications` rows are inserted for Alice (bidirectional suppression)
+
+#### Scenario: body_data is empty object, target_type and target_id are NULL
+- **WHEN** Bob follows Alice
+- **THEN** the emitted notification's `target_type IS NULL` AND `target_id IS NULL` AND `body_data = {}` (matches the `docs/05-Implementation.md:857` catalog)
+
+#### Scenario: Unfollow does NOT emit a counter-notification
+- **WHEN** Bob has followed Alice (producing a notification) AND Bob DELETEs `/api/v1/follows/{aliceId}`
+- **THEN** HTTP 2xx AND no new `notifications` row is inserted (the original `followed` row for Alice persists as a historical record)
+
+#### Scenario: Re-follow after unfollow emits a new notification
+- **WHEN** Bob has followed Alice AND then unfollowed AND then re-follows (producing a new `follows` row insert)
+- **THEN** a second `notifications` row with `type = 'followed'` is inserted for Alice (each distinct follow relationship emits once)
+
+#### Scenario: Notification INSERT failure rolls back the follow
+- **WHEN** Bob attempts to follow Alice AND Alice is hard-deleted between the follow validation and the notification INSERT
+- **THEN** the transaction rolls back AND zero `follows` rows persist
+
+#### Scenario: Follow endpoint response shapes unchanged
+- **WHEN** inspecting the response bodies of `POST /follow` and `DELETE /follow` pre-V10 and post-V10
+- **THEN** each matches the V6 contract (V10 does not alter the follow endpoint response shapes)
+
 ## REMOVED Requirements
 
 ### Requirement: Mutual-block rejects follow with 409
 
-**Reason**: The 409 `follow_blocked` status is itself a cross-user leak: its body hides the block direction, but receiving 409 instead of 404 tells a caller who has NOT blocked the target that the target blocked them, and distinguishes "blocked" from "gone" — the exact differential the `user-profile-read` constant-404 design (D4) closes. The newer profile-read posture supersedes the V6-era 409 contract before any client codes against it.
+**Reason**: Consistency with the adjacent profile-read posture (design D4), which collapses blocked-either-direction into the constant 404. The mobile client reaches follow actions through profiles, so a profile that answers 404 paired with a follow that answers 409 is a contradictory contract — and the 409 additionally tells a caller who has NOT blocked the target that the target blocked them. System-wide this REDUCES rather than eliminates block-state visibility: chat-create deliberately answers 403 for blocked pairs as user-visible symmetric friction (`docs/06-Security-Privacy.md` posture, unchanged here). The follow surface aligns with profile-read before any client codes against the 409.
 
 **Migration**: Blocked pairs now answer the CONSTANT 404 under the modified "Follow target user must exist" requirement, which also absorbs the pre-insert bidirectional `user_blocks` guard text (the in-transaction SELECT + user-pair advisory lock are unchanged — only the HTTP mapping changes). The `FOLLOW_BLOCKED_BODY` constant and the 409 scenarios are removed; clients distinguish nothing beyond "target not available".
