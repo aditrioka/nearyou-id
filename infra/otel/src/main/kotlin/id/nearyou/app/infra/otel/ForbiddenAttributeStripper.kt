@@ -40,7 +40,10 @@ internal class ForbiddenAttributeStripper(
 
     private fun strip(source: SpanData): SpanData {
         val original = source.attributes
-        if (FORBIDDEN_KEYS.none { original.get(AttributeKey.stringKey(it)) != null }) {
+        // Name-based detection: `client.port`/`network.peer.port`/`net.peer.port` are
+        // LONG-typed in semconv, so a string-typed `get(stringKey)` probe would miss a
+        // span whose only forbidden attributes are ports and skip the rebuild.
+        if (original.asMap().keys.none { it.key in FORBIDDEN_KEYS }) {
             return source
         }
         val builder = Attributes.builder()

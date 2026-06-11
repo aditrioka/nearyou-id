@@ -364,6 +364,28 @@ class FcmTokenRoutesTest : StringSpec({
         }
     }
 
+    "6.10b token longer than 4096 chars → 400 token_too_long + zero rows (no DB round-trip)" {
+        val (uid, jwt) = seedUser()
+        try {
+            withFcm {
+                val oversize = "x".repeat(4097)
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/user/fcm-token") {
+                            header(HttpHeaders.Authorization, "Bearer $jwt")
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"token":"$oversize","platform":"android"}""")
+                        }
+                resp.status shouldBe HttpStatusCode.BadRequest
+                Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["error"]!!.jsonPrimitive.content shouldBe "token_too_long"
+            }
+            countTokens(uid) shouldBe 0
+        } finally {
+            cleanup(uid)
+        }
+    }
+
     "6.10 whitespace-only token → 400 empty_token + zero rows" {
         val (uid, jwt) = seedUser()
         try {

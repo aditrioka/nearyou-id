@@ -167,6 +167,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.netty.EngineMain
 import io.ktor.server.plugins.callid.CallId
@@ -190,6 +191,10 @@ fun main(args: Array<String>) {
     EngineMain.main(args)
 }
 
+// Inbound X-Request-Id values must be short header-safe tokens (UUIDs, Cloudflare ray
+// ids, Cloud Run trace ids all fit); anything else is regenerated server-side.
+private val CALL_ID_PATTERN = Regex("^[A-Za-z0-9_.-]{1,128}$")
+
 fun Application.module() {
     // OTel bootstrap MUST be the first call inside `Application.module()` so
     // every subsequent install + DI binding is auto-instrumented. The
@@ -198,7 +203,11 @@ fun Application.module() {
     // Logback). Per `observability-otel-foundation` capability spec.
     val otelEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
     val otelSecrets = EnvVarSecretResolver()
-    OtelBootstrap.start(env = otelEnv, secretResolver = otelSecrets::resolve)
+    val otelHandle = OtelBootstrap.start(env = otelEnv, secretResolver = otelSecrets::resolve)
+    // Flush + close the span pipeline during graceful stop — BatchSpanProcessor buffers
+    // up to ~5 s of spans, so without this every SIGTERM/deploy drops the tail spans
+    // (including the errors that explain why the instance died).
+    monitor.subscribe(ApplicationStopped) { otelHandle.shutdown() }
 
     // Ktor server OTel plugin: emits a server span per inbound request with
     // `http.route` = Ktor route pattern, `http.status_code`, etc. Forbidden
@@ -222,11 +231,14 @@ fun Application.module() {
     // X-Request-Id (Cloudflare/Cloud Run propagation), generates one otherwise,
     // and reflects it on the response for client-side correlation. The
     // CallId × CallLogging pairing is safe ≥ Ktor 3.4.3 (cascading-failure bug
-    // fixed upstream; we're on 3.5.0).
+    // fixed upstream; we're pinned to 3.4.3 — KTOR-9546 blocks the 3.5.x line).
     install(CallId) {
         retrieveFromHeader(HttpHeaders.XRequestId)
         generate { UUID.randomUUID().toString() }
-        verify { it.isNotBlank() }
+        // Bounded charset/length: the id is reflected into the response header and
+        // (via callIdMdc) into every log line — an unconstrained inbound value is a
+        // log-forging / header-injection vector. Rejection falls through to generate.
+        verify { CALL_ID_PATTERN.matches(it) }
         replyToHeader(HttpHeaders.XRequestId)
     }
     install(CallLogging) {

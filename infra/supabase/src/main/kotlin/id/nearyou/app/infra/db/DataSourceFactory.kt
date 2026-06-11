@@ -39,6 +39,13 @@ object DataSourceFactory {
                 // pgjdbc still prepares client-side; on direct Postgres (dev/CI) this
                 // only skips the server-prepare optimization — correctness first.
                 addDataSourceProperty("prepareThreshold", "0")
+                // Socket-read backstop for black-holed connections: without it a dead-but-
+                // ESTABLISHED socket pins its caller (and /health/ready's thread) until the
+                // OS gives up. 30 s is far above every legitimate query in the app (probes
+                // set their own 2 s statement timeout) while still bounding the failure mode.
+                // Startup Flyway runs on this datasource — any future migration expected to
+                // hold a single statement >30 s must raise this deliberately.
+                addDataSourceProperty("socketTimeout", "30")
             }
         return HikariDataSource(hikariConfig)
     }
