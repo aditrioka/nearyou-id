@@ -6,6 +6,9 @@ import java.util.UUID
 data class TimelineRow(
     val id: UUID,
     val authorId: UUID,
+    // Author display identity from visible_users (shadow-ban-safe; NOT NULL since V2).
+    val authorUsername: String,
+    val authorDisplayName: String,
     val content: String,
     val latitude: Double,
     val longitude: Double,

@@ -59,7 +59,10 @@ class FollowingTimelineServiceTest : StringSpec({
     val service = FollowingTimelineService(timeline)
     val rateLimiter = TimelineReadRateLimiter(InMemoryRateLimiter())
 
-    fun seedUser(): Pair<UUID, String> {
+    fun seedUser(
+        username: String? = null,
+        displayName: String = "Following Timeline Tester",
+    ): Pair<UUID, String> {
         val id = UUID.randomUUID()
         val short = id.toString().replace("-", "").take(8)
         dataSource.connection.use { conn ->
@@ -71,8 +74,8 @@ class FollowingTimelineServiceTest : StringSpec({
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
-                ps.setString(2, "ft_$short")
-                ps.setString(3, "Following Timeline Tester")
+                ps.setString(2, username ?: "ft_$short")
+                ps.setString(3, displayName)
                 ps.setDate(4, Date.valueOf(LocalDate.of(1990, 1, 1)))
                 ps.setString(5, "g${short.take(7)}")
                 ps.executeUpdate()
@@ -250,6 +253,8 @@ class FollowingTimelineServiceTest : StringSpec({
                     setOf(
                         "id",
                         "authorUserId",
+                        "authorUsername",
+                        "authorDisplayName",
                         "content",
                         "latitude",
                         "longitude",
@@ -263,6 +268,46 @@ class FollowingTimelineServiceTest : StringSpec({
             }
         } finally {
             cleanup(viewer, a, b, c)
+        }
+    }
+
+    "author identity — camelCase values from visible_users, incl. two posts by one followed author" {
+        val (viewer, vt) = seedUser()
+        val short = UUID.randomUUID().toString().replace("-", "").take(8)
+        val (authorA, _) = seedUser(username = "idf_$short", displayName = "Fajar Ramadhan")
+        val (authorB, _) = seedUser(displayName = "Putri Ayu")
+        try {
+            follow(viewer, authorA)
+            follow(viewer, authorB)
+            val a1 = seedPost(authorA)
+            Thread.sleep(10)
+            val a2 = seedPost(authorA)
+            Thread.sleep(10)
+            val b1 = seedPost(authorB)
+            withFollowing {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/following") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val posts =
+                    Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!
+                        .jsonArray.associateBy { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                listOf(a1, a2).forEach { postId ->
+                    val item = posts[postId.toString()]!!.jsonObject
+                    item["authorUsername"]!!.jsonPrimitive.content shouldBe "idf_$short"
+                    item["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Fajar Ramadhan"
+                }
+                posts[b1.toString()]!!.jsonObject["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Putri Ayu"
+                posts.values.forEach { item ->
+                    val keys = (item as JsonObject).keys
+                    keys.contains("author_username") shouldBe false
+                    keys.contains("author_display_name") shouldBe false
+                }
+            }
+        } finally {
+            cleanup(viewer, authorA, authorB)
         }
     }
 

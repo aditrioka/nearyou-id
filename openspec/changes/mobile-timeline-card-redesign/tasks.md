@@ -2,15 +2,15 @@
 
 ## 1. Backend — author identity on the three timeline responses
 
-- [ ] 1.1 Add `JOIN visible_users u ON u.id = p.author_id` + `u.username AS author_username, u.display_name AS author_display_name` projections to the Nearby SQL in `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsTimelineRepository.kt` and extend its row type
-- [ ] 1.2 Same join + projections + row type in `JdbcPostsFollowingRepository.kt`
-- [ ] 1.3 Same join + projections + row type in `JdbcPostsGlobalRepository.kt`
-- [ ] 1.4 Thread the two fields through the three services' row models (`NearbyTimelineService` / `FollowingTimelineService` / `GlobalTimelineService`)
-- [ ] 1.5 Add `authorUsername: String` + `authorDisplayName: String` (bare camelCase, NO `@SerialName`) to `NearbyPostDto` / `FollowingPostDto` / `GlobalPostDto` in `TimelineRoutes.kt` + the three route mappings
-- [ ] 1.6 Extend `NearbyTimelineServiceTest` (tagged `database`): identity values match the author's users row; author-identity JOIN does not alter row count (35-post scenario); fixtures seed ≥2 posts by ONE author and assert identity on both; existing scenarios stay green
-- [ ] 1.7 Extend `FollowingTimelineServiceTest` + `GlobalTimelineServiceTest` with the same identity scenarios each (values-match + row-count + same-author-two-posts)
-- [ ] 1.8 Extend the route-level wire tests: `authorUsername`/`authorDisplayName` keys present with exact camelCase (assert NO `author_username` snake variant) on all three endpoints
-- [ ] 1.9 Amend `docs/05-Implementation.md` § Timeline Implementation — add the join + two SELECT columns to all three canonical SQL blocks (keep the "mirrors `Jdbc*Repository`" note accurate)
+- [x] 1.1 Add `JOIN visible_users u ON u.id = p.author_id` + `u.username AS author_username, u.display_name AS author_display_name` projections to the Nearby SQL in `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsTimelineRepository.kt` and extend its row type
+- [x] 1.2 Same join + projections + row type in `JdbcPostsFollowingRepository.kt`
+- [x] 1.3 Same join + projections + row type in `JdbcPostsGlobalRepository.kt`
+- [x] 1.4 Thread the two fields through the three services' row models (`NearbyTimelineService` / `FollowingTimelineService` / `GlobalTimelineService`)
+- [x] 1.5 Add `authorUsername: String` + `authorDisplayName: String` (bare camelCase, NO `@SerialName`) to `NearbyPostDto` / `FollowingPostDto` / `GlobalPostDto` in `TimelineRoutes.kt` + the three route mappings
+- [x] 1.6 Extend `NearbyTimelineServiceTest` (tagged `database`): identity values match the author's users row; author-identity JOIN does not alter row count (35-post scenario); fixtures seed ≥2 posts by ONE author and assert identity on both; existing scenarios stay green
+- [x] 1.7 Extend `FollowingTimelineServiceTest` + `GlobalTimelineServiceTest` with the same identity scenarios each (values-match + row-count + same-author-two-posts)
+- [x] 1.8 Extend the route-level wire tests: `authorUsername`/`authorDisplayName` keys present with exact camelCase (assert NO `author_username` snake variant) on all three endpoints
+- [x] 1.9 Amend `docs/05-Implementation.md` § Timeline Implementation — add the join + two SELECT columns to all three canonical SQL blocks (keep the "mirrors `Jdbc*Repository`" note accurate)
 
 ## 2. Mobile — shared post card in ui/components
 
@@ -44,7 +44,7 @@
 
 ## 6. Docs amendments (same PR — canonical-docs reconciliation)
 
-- [ ] 6.1 Amend `docs/05-Implementation.md` § Timeline Implementation (covered by 1.9 — verify all three blocks + the "mirrors" notes after the backend lands)
+- [x] 6.1 Amend `docs/05-Implementation.md` § Timeline Implementation (covered by 1.9 — verify all three blocks + the "mirrors" notes after the backend lands)
 - [ ] 6.2 Amend `docs/03-UX-Design.md` § canonical glyph list (≈line 316): remove **time (clock)** from the post-card glyphs (time renders as text in the identity header per mockup frames 1/19) and note the shell-owned centered brand-logo app bar in the § inset paragraph (≈line 312)
 
 ## 7. Verification gates
