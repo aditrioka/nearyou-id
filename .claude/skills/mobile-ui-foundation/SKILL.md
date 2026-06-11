@@ -18,7 +18,7 @@ This is nearyou-id's **mobile UI/UX foundation** skill. Atomic per-screen change
 ## The per-screen loop
 
 1. **Read the contract** (the two canonical sources above) + skim a recently-polished screen (`screens/home/HomeScreen.kt`, `screens/timeline/*`) as the reference pattern.
-2. **Get visual input.** If the screen has an aesthetic target, ask the user for inspiration screenshots/Figma *before* building — don't invent the look. (Scaffolding-menu precedent: "Visual input required before proposing.")
+2. **Get visual input — the mockup board first.** Check `dev/mockups/nearyou-screens-mockup.html` (+ `nearyou-premium-tenure-badges.html` for premium-tier visuals) for the frame covering your screen, and **render it** (open in a browser / preview panel, or capture via a browser screenshot tool — whichever reads clearest); it is the canonical look-and-feel target (docs/11 § 2.8), with captions citing the governing spec per element and tagging shipped vs proposed. Translate to CMP idioms (M3 composables + theme tokens), not literal CSS; on behavior conflicts the spec wins — flag it. Only when no frame covers the screen: ask the user for inspiration screenshots/Figma *before* building — don't invent the look. (Scaffolding-menu precedent: "Visual input required before proposing.")
 3. **Build to the checklist below**, consuming the substrate (single Scaffold from the shell, tokens not literals, the loading/refresh pattern, `Res.drawable.*` icons, `stringResource` Bahasa Indonesia copy).
 4. **Verify on a real surface** (see Verification) — Android emulator AND iOS simulator. Screenshot. Don't call it done until you've watched it work.
 5. **Test** to the conventions below.
