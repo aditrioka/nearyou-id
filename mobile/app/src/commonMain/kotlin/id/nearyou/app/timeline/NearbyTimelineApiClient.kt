@@ -17,18 +17,23 @@ import kotlin.coroutines.cancellation.CancellationException
  * is **mixed-case, NOT uniformly snake_case** (design D10). The field names are regenerated from the
  * shipped DTO, NOT from the `nearby-timeline` spec's snake_case JSON example (which is stale relative
  * to the deployed wire — tracked by the `timeline-response-dto-casing-drift` FOLLOW_UP):
- *  - bare camelCase (no `@SerialName`): `id`, `authorUserId`, `content`, `latitude`, `longitude`,
- *    `distanceM`, `createdAt`;
+ *  - bare camelCase (no `@SerialName`): `id`, `authorUserId`, `authorUsername`, `authorDisplayName`,
+ *    `content`, `latitude`, `longitude`, `distanceM`, `createdAt`;
  *  - `@SerialName` snake_case for exactly three: `city_name`, `liked_by_viewer`, `reply_count`.
  *
  * `latitude`/`longitude` are display-only (derived from `display_location`) and MUST NOT be rendered
  * as raw coordinates; the user-facing distance string is produced by `DistanceRenderer.render(distanceM)`.
- * `authorUserId` is a UUID and MUST NOT be rendered (PII discipline).
+ * `authorUserId` is a UUID and MUST NOT be rendered (PII discipline). `authorUsername` /
+ * `authorDisplayName` (added by `mobile-timeline-card-redesign`) are the author DISPLAY identity the
+ * card renders — required non-null: the backend sends them on every post (NOT NULL since V2) and
+ * mobile + backend land in the same squash-merge.
  */
 @Serializable
 data class NearbyPostDto(
     val id: String,
     val authorUserId: String,
+    val authorUsername: String,
+    val authorDisplayName: String,
     val content: String,
     val latitude: Double,
     val longitude: Double,

@@ -14,20 +14,20 @@
 
 ## 2. Mobile — shared post card in ui/components
 
-- [ ] 2.1 Add `:shared:resources` strings for the card + app bar: handle format (`post_card_handle` = "@%s"-style), any meta separator, `app_name` reuse check for the logo `contentDescription` — no hardcoded UI literals
-- [ ] 2.2 Create `ui/components/PostCard.kt` (new package, docs/11 §2.1 first occupant): identity header row (letter avatar, display name, handle, time label), content, location meta row (coral `locationPin` pin + city + optional `DistanceRenderer` distance; row omitted when city empty AND distance null), read-only counts row (like state icon + reply icon + count; no click semantics), whole-card `onOpen` tap only
-- [ ] 2.3 Create the pure letter-avatar derivation in commonMain (initials: first code point of first + last word, uppercased; deterministic `authorUsername` → {primary,secondary,tertiary}Container token-pair mapping) as testable non-composable functions + the avatar composable
-- [ ] 2.4 commonTest: initials derivation ("Budi Santoso"→"BS", "Raka"→"R", surrogate-pair-leading name no-crash, blank `""`/whitespace-only → empty initials no-crash, `" Budi  Santoso"` double-space → "BS"), deterministic color mapping (same username → same pair)
-- [ ] 2.5 Robolectric `PostCardTest` (androidUnitTest, added to the Release-variant exclude): identity nodes rendered, no-UUID/no-coordinate assertion, liked-state icon switch, the ONLY clickable node is the card itself (counts row + avatar/name expose no click action; avatar-region tap fires whole-card `onOpen` exactly once), `distanceM` present → DistanceRenderer string shown vs `distanceM = null` → NO distance string, empty-city+null-distance hides the meta row, NO clock-icon node (time is text in the identity header), maximal-length identity (50/60 chars) single-line ellipsized with time label still visible, light+dark render
+- [x] 2.1 Add `:shared:resources` strings for the card + app bar: handle format (`post_card_handle` = "@%s"-style), any meta separator, `app_name` reuse check for the logo `contentDescription` — no hardcoded UI literals
+- [x] 2.2 Create `ui/components/PostCard.kt` (new package, docs/11 §2.1 first occupant): identity header row (letter avatar, display name, handle, time label), content, location meta row (coral `locationPin` pin + city + optional `DistanceRenderer` distance; row omitted when city empty AND distance null), read-only counts row (like state icon + reply icon + count; no click semantics), whole-card `onOpen` tap only
+- [x] 2.3 Create the pure letter-avatar derivation in commonMain (initials: first code point of first + last word, uppercased; deterministic `authorUsername` → {primary,secondary,tertiary}Container token-pair mapping) as testable non-composable functions + the avatar composable
+- [x] 2.4 commonTest: initials derivation ("Budi Santoso"→"BS", "Raka"→"R", surrogate-pair-leading name no-crash, blank `""`/whitespace-only → empty initials no-crash, `" Budi  Santoso"` double-space → "BS"), deterministic color mapping (same username → same pair)
+- [x] 2.5 Robolectric `PostCardTest` (androidUnitTest, added to the Release-variant exclude): identity nodes rendered, no-UUID/no-coordinate assertion, liked-state icon switch, the ONLY clickable node is the card itself (counts row + avatar/name expose no click action; avatar-region tap fires whole-card `onOpen` exactly once), `distanceM` present → DistanceRenderer string shown vs `distanceM = null` → NO distance string, empty-city+null-distance hides the meta row, NO clock-icon node (time is text in the identity header), maximal-length identity (50/60 chars) single-line ellipsized with time label still visible, light+dark render
 
 ## 3. Mobile — consume the card in Nearby + Global feeds
 
-- [ ] 3.1 Add `authorUsername` + `authorDisplayName` (required `String`, bare camelCase) to `NearbyPostDto` + domain `NearbyTimelinePost` mapping; update MockEngine fixtures to the shipped wire keys
-- [ ] 3.2 Same DTO + domain + fixture updates for the Global feed (`GlobalPostDto` / its domain model)
-- [ ] 3.3 Replace `NearbyPostCard` usage with the shared `PostCard` in `NearbyTimelineScreen.kt` and DELETE the local composable; pass `distanceM` through; extend `onOpenPost` payload with the two identity fields
-- [ ] 3.4 Replace `GlobalPostCard` usage with the shared `PostCard` in `GlobalTimelineScreen.kt` and DELETE the local composable; `distanceM = null`; extend `onOpenPost` payload with the two identity fields
-- [ ] 3.5 Update Nearby + Global DTO parse tests (shipped mixed-case wire incl. the two new keys; snake_case-guard fixture extended with `author_username`/`author_display_name` non-population)
-- [ ] 3.6 Update `NearbyTimelineScreenTest` + `GlobalTimelineScreenTest`: display identity rendered, UUID/coords still absent, `onOpenPost` payload carries the identity fields, DistanceRenderer assertion still at rendered-card level (Nearby)
+- [x] 3.1 Add `authorUsername` + `authorDisplayName` (required `String`, bare camelCase) to `NearbyPostDto` + domain `NearbyTimelinePost` mapping; update MockEngine fixtures to the shipped wire keys
+- [x] 3.2 Same DTO + domain + fixture updates for the Global feed (`GlobalPostDto` / its domain model)
+- [x] 3.3 Replace `NearbyPostCard` usage with the shared `PostCard` in `NearbyTimelineScreen.kt` and DELETE the local composable; pass `distanceM` through; extend `onOpenPost` payload with the two identity fields
+- [x] 3.4 Replace `GlobalPostCard` usage with the shared `PostCard` in `GlobalTimelineScreen.kt` and DELETE the local composable; `distanceM = null`; extend `onOpenPost` payload with the two identity fields
+- [x] 3.5 Update Nearby + Global DTO parse tests (shipped mixed-case wire incl. the two new keys; snake_case-guard fixture extended with `author_username`/`author_display_name` non-population)
+- [x] 3.6 Update `NearbyTimelineScreenTest` + `GlobalTimelineScreenTest`: display identity rendered, UUID/coords still absent, `onOpenPost` payload carries the identity fields, DistanceRenderer assertion still at rendered-card level (Nearby)
 
 ## 4. Mobile — post-detail identity + route payload
 

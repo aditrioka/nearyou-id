@@ -34,6 +34,8 @@ class FakeNearbyTimelineFlow(
 fun fakeNearbyPost(
     id: String = "p1",
     authorUserId: String = "11111111-1111-1111-1111-111111111111",
+    authorUsername: String = "raka.jkt",
+    authorDisplayName: String = "Raka Pratama",
     content: String = "Halo dari sekitar sini",
     latitude: Double = -6.21,
     longitude: Double = 106.85,
@@ -46,6 +48,8 @@ fun fakeNearbyPost(
     NearbyPostDto(
         id = id,
         authorUserId = authorUserId,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
         content = content,
         latitude = latitude,
         longitude = longitude,

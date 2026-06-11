@@ -21,11 +21,12 @@ import kotlin.test.assertTrue
 
 private val JSON_HEADERS = headersOf("Content-Type", "application/json")
 
-/** A 200 body whose post object uses the SHIPPED Global wire (camelCase authorUserId/createdAt/nextCursor;
- *  snake city_name/liked_by_viewer/reply_count) and — because Global has no spatial filter — carries NO
- *  `distanceM`. NOT the spec's snake_case example. */
+/** A 200 body whose post object uses the SHIPPED Global wire (camelCase authorUserId/authorUsername/
+ *  authorDisplayName/createdAt/nextCursor; snake city_name/liked_by_viewer/reply_count) and — because
+ *  Global has no spatial filter — carries NO `distanceM`. NOT the spec's stale snake_case example. */
 private const val MIXED_CASE_BODY =
-    """{"posts":[{"id":"p1","authorUserId":"a-1","content":"halo","latitude":-6.21,"longitude":106.85,""" +
+    """{"posts":[{"id":"p1","authorUserId":"a-1","authorUsername":"dewi.kuliner","authorDisplayName":"Dewi Lestari",""" +
+        """"content":"halo","latitude":-6.21,"longitude":106.85,""" +
         """"city_name":"Jakarta","createdAt":"2026-05-31T10:00:00Z","liked_by_viewer":true,""" +
         """"reply_count":3}],"nextCursor":"tok"}"""
 
@@ -113,6 +114,8 @@ class GlobalTimelineApiClientTest {
             val post = body.posts.first()
             assertEquals("p1", post.id)
             assertEquals("a-1", post.authorUserId)
+            assertEquals("dewi.kuliner", post.authorUsername)
+            assertEquals("Dewi Lestari", post.authorDisplayName)
             assertEquals("halo", post.content)
             assertEquals(-6.21, post.latitude)
             assertEquals(106.85, post.longitude)
@@ -146,7 +149,8 @@ class GlobalTimelineApiClientTest {
     fun `empty city_name parses to empty string`() =
         runTest {
             val body =
-                """{"posts":[{"id":"p1","authorUserId":"a","content":"c","latitude":-6.2,"longitude":106.8,""" +
+                """{"posts":[{"id":"p1","authorUserId":"a","authorUsername":"u","authorDisplayName":"D",""" +
+                    """"content":"c","latitude":-6.2,"longitude":106.8,""" +
                     """"city_name":"","createdAt":"t","liked_by_viewer":false,"reply_count":0}]}"""
             val api = GlobalTimelineApiClient(client { respond(body, HttpStatusCode.OK, JSON_HEADERS) })
             assertEquals("", assertIsSuccess(api.fetchGlobal(sessionId = "s")).posts.first().cityName)
@@ -161,11 +165,13 @@ class GlobalTimelineApiClientTest {
                 ignoreUnknownKeys = true
                 explicitNulls = false
             }
-        // author_user_id / created_at are snake_case (the stale spec JSON example); the REQUIRED
-        // camelCase fields are then absent → decoding throws. A fixture MUST use the shipped mixed-case
-        // keys, so regenerating the DTO from the spec example cannot silently slip in.
+        // author_user_id / author_username / author_display_name / created_at are snake_case (the
+        // stale spec JSON shape); the REQUIRED camelCase fields are then absent → decoding throws. A
+        // fixture MUST use the shipped mixed-case keys, so regenerating the DTO from a stale spec
+        // example cannot silently slip in.
         val snakePost =
-            """{"id":"p1","author_user_id":"a","content":"c","latitude":-6.2,"longitude":106.8,""" +
+            """{"id":"p1","author_user_id":"a","author_username":"u","author_display_name":"D",""" +
+                """"content":"c","latitude":-6.2,"longitude":106.8,""" +
                 """"city_name":"X","created_at":"t","liked_by_viewer":false,"reply_count":0}"""
         assertFailsWithSerialization { json.decodeFromString(GlobalPostDto.serializer(), snakePost) }
     }

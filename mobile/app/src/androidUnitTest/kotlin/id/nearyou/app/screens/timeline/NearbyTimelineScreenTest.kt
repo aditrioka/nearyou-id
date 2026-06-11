@@ -266,15 +266,18 @@ class NearbyTimelineScreenTest {
         }
     }
 
-    // author_user_id (a UUID) and raw coordinates are NEVER in the rendered tree (PII discipline).
+    // author_user_id (a UUID) and raw coordinates are NEVER in the rendered tree (PII discipline) —
+    // while the author DISPLAY identity (mobile-timeline-card-redesign) IS rendered by the shared card.
     @Test
-    fun noAuthorIdNorRawCoordinates_inRenderedTree() {
+    fun noAuthorIdNorRawCoordinates_inRenderedTree_whileDisplayIdentityIs() {
         installKoin(
             NearbyTimelineOutcome.Loaded(
                 listOf(
                     fakeNearbyPost(
                         content = "PII_POST",
                         authorUserId = "11111111-1111-1111-1111-111111111111",
+                        authorUsername = "raka.jkt",
+                        authorDisplayName = "Raka Pratama",
                         latitude = -6.21,
                         longitude = 106.85,
                     ),
@@ -287,6 +290,8 @@ class NearbyTimelineScreenTest {
             setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("PII_POST").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("PII_POST").assertExists()
+            onNodeWithText("Raka Pratama").assertExists()
+            onNodeWithText("@raka.jkt").assertExists()
             onNodeWithText("11111111-1111-1111-1111-111111111111", substring = true).assertDoesNotExist()
             onNodeWithText("-6.21", substring = true).assertDoesNotExist()
             onNodeWithText("106.85", substring = true).assertDoesNotExist()
@@ -321,7 +326,8 @@ class NearbyTimelineScreenTest {
     }
 
     // mobile-nearby-timeline § "Nearby post card opens post detail via a hoisted onOpenPost lambda" —
-    // tapping a card invokes the hoisted onOpenPost with the card's PII-free display fields.
+    // tapping a card invokes the hoisted onOpenPost with the card's PII-free display fields (incl. the
+    // author display identity as of mobile-timeline-card-redesign).
     @Test
     fun postCard_tap_invokesOnOpenPostWithDisplayFields() {
         installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(id = "p9", content = "TAP_POST", cityName = "Bandung")), null, null))
@@ -334,10 +340,13 @@ class NearbyTimelineScreenTest {
             assertEquals("p9", tapped?.id)
             assertEquals("TAP_POST", tapped?.content)
             assertEquals("Bandung", tapped?.cityName)
-            // No coordinates in the payload — NearbyTimelinePost drops the DTO's lat/long (fakeNearbyPost
-            // defaults -6.21 / 106.85); structurally absent, asserted explicitly per the spec scenario.
+            assertEquals("raka.jkt", tapped?.authorUsername)
+            assertEquals("Raka Pratama", tapped?.authorDisplayName)
+            // No coordinates / author UUID in the payload — NearbyTimelinePost drops the DTO's lat/long
+            // (fakeNearbyPost defaults -6.21 / 106.85) and the UUID; asserted per the spec scenario.
             assertFalse(tapped.toString().contains("-6.21"), "no latitude in the onOpenPost payload")
             assertFalse(tapped.toString().contains("106.85"), "no longitude in the onOpenPost payload")
+            assertFalse(tapped.toString().contains("11111111-1111"), "no author UUID in the onOpenPost payload")
         }
     }
 }
