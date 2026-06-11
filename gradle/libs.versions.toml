@@ -42,7 +42,16 @@ kotlinx-coroutines = "1.11.0"
 kotlinx-datetime = "0.8.0"
 kotlinx-serialization = "1.11.0"
 ktlint-plugin = "12.1.2"
-ktor = "3.5.0"
+# 3.4.3, NOT 3.5.x: Ktor 3.5.0's KTOR-9546 (responseJobHolder as a child of the call job)
+# makes the OTel-instrumented client (httpClientWithOtel -> opentelemetry-ktor) hang until
+# its HttpTimeout on EVERY outbound call — caught live 2026-06-11 when two staging deploys
+# were rejected by the startup probe (supabase_realtime timeout at the full budget while
+# the old 3.4-line revision probed the same edge in 53-257ms). Upstream:
+# https://github.com/open-telemetry/opentelemetry-java-instrumentation/issues/18779
+# (fix merged on the instrumentation side; not yet in our pinned 2.28.1 pair). This is the
+# D5-declared fallback ("fallback to 3.4.3 if red"). Re-attempt 3.5.x ONLY together with
+# an instrumentation pair release that contains the invokeOnCompletion fix.
+ktor = "3.4.3"
 robolectric = "4.14.1"
 # Lettuce: last 6.x line (7.x is a major — deferred, docs/11 §1). Hikari 6.3.3 = last 6.x patch.
 lettuce = "6.8.2.RELEASE"
