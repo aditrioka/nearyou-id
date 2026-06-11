@@ -4,6 +4,13 @@ services:
   postgres:
     image: postgis/postgis:16-3.4
     container_name: nearyouid-dev-postgres
+    # max_connections raised from the 100 default: the backend test suite's
+    # per-spec Hikari pools accumulate for the lifetime of the test JVM (the
+    # known CI connection-budget pattern, PR #157), and the full DB-tagged run
+    # now peaks past 100 locally — "FATAL: sorry, too many clients already"
+    # mid-suite. 200 gives the gate headroom; CI's service container is
+    # configured separately in the workflow.
+    command: postgres -c max_connections=200
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
