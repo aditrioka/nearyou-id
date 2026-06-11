@@ -98,11 +98,6 @@ class SocialGraphRateLimitTest : StringSpec({
 private class RecordingFollowsRepo : UserFollowsRepository {
     var unfollows = 0
 
-    override fun follow(
-        follower: UUID,
-        followee: UUID,
-    ) = Unit
-
     override fun unfollow(
         follower: UUID,
         followee: UUID,
@@ -125,6 +120,15 @@ private class RecordingFollowsRepo : UserFollowsRepository {
         cursorUserId: UUID?,
         limit: Int,
     ): List<FollowListRow> = emptyList()
+
+    override fun ensureProfileVisible(
+        profileId: UUID,
+        viewerId: UUID,
+    ) {
+        // No-op: the rate-limited paths under test reject BEFORE the visibility gate
+        // (429 precedes 404 — FollowService runs checkRateLimit first), so this is
+        // never reached when the limiter fires.
+    }
 
     override fun followInTx(
         conn: Connection,

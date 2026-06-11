@@ -312,6 +312,29 @@ class UserProfileRoutesTest : StringSpec({
         }
     }
 
+    "6.7b 200 — counts are NOT visibility-filtered (shadow-banned follower still counted; locks D1 vs the visibility-filtered lists)" {
+        // social-list-profile-summaries: /followers now excludes hidden members from its
+        // ROWS, but the profile counts stay raw totals — this pins the deliberate
+        // count/list asymmetry so a future change can't silently align them.
+        val viewer = seedUser()
+        val target = seedUser()
+        val visible1 = seedUser()
+        val visible2 = seedUser()
+        val hidden = seedUser(shadowBanned = true)
+        follow(visible1.id, target.id)
+        follow(visible2.id, target.id)
+        follow(hidden.id, target.id)
+        try {
+            withApp {
+                val (status, body) = getProfile("/api/v1/users/${target.id}", viewer.token)
+                status shouldBe HttpStatusCode.OK
+                body.obj().long("followerCount") shouldBe 3L
+            }
+        } finally {
+            cleanup(viewer.id, target.id, visible1.id, visible2.id, hidden.id)
+        }
+    }
+
     "6.8 200 — isPremium true only for premium_active (false for free and premium_billing_retry)" {
         val viewer = seedUser()
         val premium = seedUser(subscriptionStatus = "premium_active")

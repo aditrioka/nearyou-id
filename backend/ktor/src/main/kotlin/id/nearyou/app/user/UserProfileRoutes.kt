@@ -27,7 +27,9 @@ import java.util.UUID
  * The 404 covers four indistinguishable causes — unknown UUID, soft-deleted, shadow-banned, and
  * blocked-in-either-direction — and is emitted as a CONSTANT, byte-identical body via `respondText`
  * (NOT `respond`) so a viewer cannot tell which cause applies, nor which direction a block runs
- * (design D4, mirroring `FollowRoutes.FOLLOW_BLOCKED_BODY` leak-prevention).
+ * (design D4). The follow + social-list endpoints adopted this same contract in
+ * `social-list-profile-summaries` — their `USER_NOT_FOUND_BODY` literal in `FollowRoutes.kt`
+ * MUST stay byte-identical to the one below (cross-route byte equality is integration-tested).
  */
 fun Application.userProfileRoutes(service: UserProfileService) {
     routing {

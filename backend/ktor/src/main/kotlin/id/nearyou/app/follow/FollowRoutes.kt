@@ -12,6 +12,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.response.header
@@ -28,13 +29,18 @@ import java.util.UUID
  * `POST/DELETE /api/v1/follows/{user_id}` — create and remove follow edges.
  *
  * Error mapping:
- *  - [CannotFollowSelfException] → 400 `cannot_follow_self`
- *  - [UserNotFoundException]     → 404 `user_not_found`
- *  - [FollowBlockedException]    → 409 `follow_blocked`
- *    Body is the constant `{ "error": { "code": "follow_blocked" } }` with NO direction
- *    hint — revealing which side initiated the block would leak block state across the
- *    other user. `respondText` is used (not `respond`) so the body is byte-for-byte
- *    identical regardless of which direction of the block exists.
+ *  - [CannotFollowSelfException]     → 400 `cannot_follow_self`
+ *  - [ProfileUserNotFoundException]  → 404 [USER_NOT_FOUND_BODY] (visibility gate:
+ *    unknown / soft-deleted / shadow-banned / blocked-either-direction target)
+ *  - [UserNotFoundException]         → 404 [USER_NOT_FOUND_BODY] (FK 23503 backstop)
+ *  - [FollowBlockedException]        → 404 [USER_NOT_FOUND_BODY] (in-tx guard — the
+ *    TOCTOU backstop for a block landing after the gate)
+ *
+ * All three 404 causes answer ONE constant, byte-identical body via `respondText` (NOT
+ * `respond`) — the `user-profile-read` constant-404 contract (design D4). The V6-era 409
+ * `follow_blocked` mapping was removed by `social-list-profile-summaries`: a 409 would
+ * contradict the adjacent profile read (which 404s the same causes) and tell a caller
+ * who has NOT blocked the target that the target blocked them.
  */
 fun Application.followRoutes(service: FollowService) {
     routing {
@@ -55,20 +61,18 @@ fun Application.followRoutes(service: FollowService) {
                 } catch (_: CannotFollowSelfException) {
                     call.respondError(HttpStatusCode.BadRequest, "cannot_follow_self", "You cannot follow yourself.")
                     return@post
-                } catch (_: UserNotFoundException) {
-                    call.respondError(HttpStatusCode.NotFound, "user_not_found", "Target user does not exist.")
-                    return@post
                 } catch (e: FollowRateLimitedException) {
                     call.response.header(HttpHeaders.RetryAfter, e.retryAfterSeconds.toString())
                     call.respondError(HttpStatusCode.TooManyRequests, "rate_limited", "Too many follow changes. Try again later.")
                     return@post
+                } catch (_: ProfileUserNotFoundException) {
+                    call.respondUserNotFound()
+                    return@post
+                } catch (_: UserNotFoundException) {
+                    call.respondUserNotFound()
+                    return@post
                 } catch (_: FollowBlockedException) {
-                    // Constant body, no direction hint — see KDoc above.
-                    call.respondText(
-                        text = FOLLOW_BLOCKED_BODY,
-                        contentType = ContentType.Application.Json,
-                        status = HttpStatusCode.Conflict,
-                    )
+                    call.respondUserNotFound()
                     return@post
                 }
                 call.respond(HttpStatusCode.NoContent)
@@ -98,8 +102,21 @@ fun Application.followRoutes(service: FollowService) {
     }
 }
 
+/**
+ * Wire row for the follower/following lists — the embedded profile summary
+ * (`social-list-profile-summaries`). Bare camelCase keys (no `@SerialName`), matching
+ * `UserProfileResponse` and the timeline `author*` identity-field precedent. `isPremium`
+ * uses the `user-profile-read` formula (`subscription_status = 'premium_active'` only);
+ * `createdAt` is the follow-edge timestamp (cursor axis), not a profile field.
+ */
 @Serializable
-data class FollowListItem(val userId: String, val createdAt: String)
+data class FollowListItem(
+    val userId: String,
+    val username: String,
+    val displayName: String,
+    val isPremium: Boolean,
+    val createdAt: String,
+)
 
 @Serializable
 data class FollowListResponse(
@@ -108,12 +125,16 @@ data class FollowListResponse(
 )
 
 /**
- * `GET /api/v1/users/{user_id}/followers|following` — paginated, viewer-block-filtered
- * lists of profile followers / profile outbound follows.
+ * `GET /api/v1/users/{user_id}/followers|following` — paginated lists of profile
+ * followers / profile outbound follows, each row carrying the embedded profile summary.
  *
- * Missing profile → 404 `user_not_found`. Malformed cursor → 400 `invalid_cursor`. All
- * visible users are filtered bidirectionally against the calling viewer's `user_blocks`
- * rows (repo-layer concern).
+ * Rows are sourced via `visible_users` (shadow-banned / soft-deleted members never
+ * appear) and filtered bidirectionally against the calling viewer's `user_blocks`
+ * (repo-layer concerns). The profile target resolves under the `user-profile-read`
+ * contract: self via raw `users` (a shadow-banned caller keeps their own lists),
+ * others via `visible_users` + bidirectional block exclusion — an unresolvable target
+ * answers the CONSTANT byte-identical 404 [USER_NOT_FOUND_BODY] (no cause hint).
+ * Malformed cursor → 400 `invalid_cursor`.
  */
 fun Application.userSocialRoutes(service: FollowService) {
     routing {
@@ -140,7 +161,7 @@ fun Application.userSocialRoutes(service: FollowService) {
                     try {
                         service.listFollowers(profileId = profileId, viewerId = principal.userId, cursor = cursor)
                     } catch (_: ProfileUserNotFoundException) {
-                        call.respondError(HttpStatusCode.NotFound, "user_not_found", "Profile user does not exist.")
+                        call.respondUserNotFound()
                         return@get
                     }
                 call.respond(page.toResponse())
@@ -168,7 +189,7 @@ fun Application.userSocialRoutes(service: FollowService) {
                     try {
                         service.listFollowing(profileId = profileId, viewerId = principal.userId, cursor = cursor)
                     } catch (_: ProfileUserNotFoundException) {
-                        call.respondError(HttpStatusCode.NotFound, "user_not_found", "Profile user does not exist.")
+                        call.respondUserNotFound()
                         return@get
                     }
                 call.respond(page.toResponse())
@@ -183,17 +204,34 @@ private fun FollowPage.toResponse(): FollowListResponse =
             rows.map {
                 FollowListItem(
                     userId = it.userId.toString(),
+                    username = it.username,
+                    displayName = it.displayName,
+                    isPremium = it.isPremium,
                     createdAt = it.createdAt.toString(),
                 )
             },
         nextCursor = nextCursor?.let(::encodeCursor),
     )
 
-private const val FOLLOW_BLOCKED_BODY = """{"error":{"code":"follow_blocked"}}"""
+/**
+ * Constant, direction-less 404 body — byte-identical for every unresolvable cause.
+ * MUST stay byte-identical to `UserProfileRoutes.kt`'s `USER_NOT_FOUND_BODY` (that
+ * constant is file-private; the integration tests assert cross-route byte equality
+ * against the live profile route).
+ */
+private const val USER_NOT_FOUND_BODY = """{"error":{"code":"user_not_found"}}"""
+
+private suspend fun ApplicationCall.respondUserNotFound() {
+    respondText(
+        text = USER_NOT_FOUND_BODY,
+        contentType = ContentType.Application.Json,
+        status = HttpStatusCode.NotFound,
+    )
+}
 
 private fun parseUserId(raw: String?): UUID? = raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
-private suspend fun io.ktor.server.application.ApplicationCall.respondError(
+private suspend fun ApplicationCall.respondError(
     status: HttpStatusCode,
     code: String,
     message: String,

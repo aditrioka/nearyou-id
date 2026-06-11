@@ -69,7 +69,7 @@ The cursor MUST use the same base64url-encoded JSON format as the `nearby-timeli
 11. List masks a hidden (shadow-banned or soft-deleted) blocked user via the COALESCE placeholders while the row survives with the real `userId`.
 12. Counter-block does not mask identity.
 13. List paginates correctly with cursor.
-14. All four endpoints return 401 without JWT.
+14. All three endpoints (`POST /blocks/{user_id}`, `DELETE /blocks/{user_id}`, `GET /blocks`) return 401 without JWT (corrects the previous enumeration's "four" — only three routes exist).
 
 `MigrationV5SmokeTest` SHALL cover: migration runs cleanly, both indexes exist with the documented column orders, UNIQUE constraint present, CHECK constraint present, both FK cascades behave as specified.
 
