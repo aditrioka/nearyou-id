@@ -36,7 +36,7 @@
 ## 5. Gates + delivery
 
 - [x] 5.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally (no local `:backend:ktor:run` alive during the run)
-- [ ] 5.2 `openspec validate social-list-profile-summaries --strict` green; PR title/body updated at the phase boundary (`gh pr edit`)
-- [ ] 5.3 Staging branch-deploy smoke (docs/11 §5 item 4, runtime-impacting backend change): seed a follower fixture incl. one shadow-banned member; verify enriched rows, the byte-identical 404 set, `POST /follows` 404 on a hidden target; guard against main auto-deploy clobber mid-smoke
+- [x] 5.2 `openspec validate social-list-profile-summaries --strict` green; PR title/body updated at the phase boundary (`gh pr edit`)
+- [x] 5.3 Staging branch-deploy smoke (docs/11 §5 item 4) — deploy run 27356512714 success; fixtures seeded via Supabase MCP (premium + shadow-banned followers of `smoketest_adi`); verified: enriched camelCase rows + `isPremium=true` (premium_active), hidden follower excluded, byte-identical `{"error":{"code":"user_not_found"}}` 404 across hidden-followers/ghost-followers/hidden-following/hidden-profile, `POST /follows` constant 404 for hidden + ghost targets; fixtures cleaned (0 remaining)
 - [ ] 5.4 At archive: refresh the `follow-system` Purpose paragraph (constant-404 posture, visible_users filtering, profile summaries) and touch the `user-blocking` Purpose line for the enriched list (stale-Purpose precedent: PR #171)
 - [ ] 5.5 Close-the-loop after merge: close #211; comment the social-list action item done on #196 (issue stays open for the mobile profile screen); update `dev/audits/2026-06-10-holistic-audit/PROGRESS.md` § Remaining (03-#5 + 03-#6 → shipped via this PR)
