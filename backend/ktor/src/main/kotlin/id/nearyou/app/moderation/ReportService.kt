@@ -1,6 +1,6 @@
 package id.nearyou.app.moderation
 
-import id.nearyou.app.lint.AllowMissingBlockJoin
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
@@ -68,9 +68,12 @@ class ReportService(
             }
 
         // 3. Target existence — outside the TX so 404 doesn't open a connection.
+        //    A 404 DELIBERATELY consumes the slot: the reports spec releases only on
+        //    the 409 duplicate path, and `targetExists` reads raw tables (auto-hidden
+        //    posts must stay reportable) — releasing here would hand out an unmetered
+        //    existence oracle. Mirrors the like limiter's 404-no-release precedent.
         dataSource.connection.use { conn ->
             if (!reports.targetExists(conn, targetType, targetId)) {
-                rateLimiter.releaseMostRecent(reporterId) // 404 does not consume a slot.
                 return Result.TargetNotFound
             }
         }

@@ -21,6 +21,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.utils.io.writeFully
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
@@ -364,17 +365,30 @@ class FcmTokenRoutesTest : StringSpec({
         }
     }
 
-    "6.10b token longer than 4096 chars → 400 token_too_long + zero rows (no DB round-trip)" {
+    "6.10b oversize token via chunked transfer → 400 token_too_long + zero rows" {
         val (uid, jwt) = seedUser()
         try {
             withFcm {
+                // Chunked transfer omits Content-Length, bypassing the transport-layer
+                // 4 KB cap (D10's documented gap) — without the route-level length
+                // check this rode into the V14 char_length CHECK as a 500 whose
+                // PSQLException detail carried the raw token.
                 val oversize = "x".repeat(4097)
+                val bodyBytes = """{"token":"$oversize","platform":"android"}""".toByteArray()
                 val resp =
                     createClient { install(ClientCN) { json() } }
                         .post("/api/v1/user/fcm-token") {
                             header(HttpHeaders.Authorization, "Bearer $jwt")
-                            contentType(ContentType.Application.Json)
-                            setBody("""{"token":"$oversize","platform":"android"}""")
+                            setBody(
+                                object : io.ktor.http.content.OutgoingContent.WriteChannelContent() {
+                                    override val contentType = ContentType.Application.Json
+                                    override val contentLength: Long? = null
+
+                                    override suspend fun writeTo(channel: io.ktor.utils.io.ByteWriteChannel) {
+                                        channel.writeFully(bodyBytes, 0, bodyBytes.size)
+                                    }
+                                },
+                            )
                         }
                 resp.status shouldBe HttpStatusCode.BadRequest
                 Json.parseToJsonElement(resp.bodyAsText())

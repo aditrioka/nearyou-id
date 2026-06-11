@@ -357,7 +357,10 @@ internal suspend fun publishBroadcast(
             mapOf(
                 "conversation_id" to conversationId.toString(),
                 "message_id" to row.id.toString(),
-                "supabase.realtime.channel" to "chat:$conversationId",
+                // Spec § Channel name format: the publisher channel identifier is
+                // `realtime:conversation:<id>` — the attr must match what's on the wire
+                // or trace debugging chases a channel that doesn't exist.
+                "supabase.realtime.channel" to "realtime:conversation:$conversationId",
             ),
     ) {
         val result =

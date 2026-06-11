@@ -147,7 +147,10 @@ data class NotificationRow(
     val actorUserId: UUID?,
     val targetType: String?,
     val targetId: UUID?,
-    val bodyDataJson: String,
+    // NULL when the jsonb column is NULL (defensive case) — consumers decide their
+    // own NULL rendering: FCM payloads use "" (fcm-push-dispatch spec), the in-app
+    // list renders {}. A real `{}` value (e.g. `followed`) must stay distinguishable.
+    val bodyDataJson: String?,
     val createdAt: Instant,
     val readAt: Instant?,
 )

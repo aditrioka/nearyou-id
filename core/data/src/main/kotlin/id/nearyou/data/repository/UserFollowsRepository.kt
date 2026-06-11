@@ -15,22 +15,10 @@ data class FollowListRow(
 )
 
 interface UserFollowsRepository {
-    /**
-     * Create a follow edge `(follower, followee)`. Semantics:
-     *  - Performs the mutual-block rejection read (`SELECT 1 FROM user_blocks WHERE
-     *    (blocker, blocked) matches either direction`) BEFORE the INSERT; if a row is
-     *    found, throws [FollowBlockedException] without writing.
-     *  - INSERT is `ON CONFLICT (follower_id, followee_id) DO NOTHING` — re-follow is
-     *    idempotent (no exception).
-     *  - On FK violation (SQLState 23503, target user does not exist), throws
-     *    [UserNotFoundException].
-     *  - Self-follow is NOT checked here (the service layer rejects it before the call);
-     *    the V6 CHECK constraint remains defense-in-depth.
-     */
-    fun follow(
-        follower: UUID,
-        followee: UUID,
-    )
+    // NOTE: the non-transactional `follow(follower, followee)` member was REMOVED
+    // (2026-06-11 review): it carried the pre-UserPairLock SELECT-blocks-then-INSERT
+    // race (audit 03-#4) and had zero production callers — FollowService routes every
+    // follow through [followInTx] under the pair lock.
 
     /**
      * `DELETE FROM follows WHERE follower_id = ? AND followee_id = ?`. Idempotent —

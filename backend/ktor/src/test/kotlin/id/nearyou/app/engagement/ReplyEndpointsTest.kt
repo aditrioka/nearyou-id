@@ -122,16 +122,17 @@ class ReplyEndpointsTest : StringSpec({
     fun seedPost(
         authorId: UUID,
         autoHidden: Boolean = false,
+        softDeleted: Boolean = false,
     ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
-                INSERT INTO posts (id, author_id, content, display_location, actual_location, is_auto_hidden)
+                INSERT INTO posts (id, author_id, content, display_location, actual_location, is_auto_hidden, deleted_at)
                 VALUES (?, ?, ?,
                   ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
                   ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
-                  ?)
+                  ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
@@ -142,6 +143,11 @@ class ReplyEndpointsTest : StringSpec({
                 ps.setDouble(6, 106.8)
                 ps.setDouble(7, -6.2)
                 ps.setBoolean(8, autoHidden)
+                if (softDeleted) {
+                    ps.setTimestamp(9, java.sql.Timestamp.from(java.time.Instant.now()))
+                } else {
+                    ps.setNull(9, java.sql.Types.TIMESTAMP)
+                }
                 ps.executeUpdate()
             }
         }
@@ -410,16 +416,14 @@ class ReplyEndpointsTest : StringSpec({
         }
     }
 
-    "POST /replies — 404 on missing/auto-hidden/caller-blocked/author-blocked (opaque envelope)" {
-        // Note: the "soft-deleted post" sub-case from post-replies-v8 spec is currently
-        // unreachable — V4 `visible_posts` filters only `is_auto_hidden = FALSE`, not
-        // `deleted_at IS NULL`, and no code path soft-deletes posts at runtime. When a
-        // future change extends `visible_posts` to also gate on `deleted_at`, the
-        // identical opaque envelope will automatically apply (no code change here).
+    "POST /replies — 404 on missing/auto-hidden/soft-deleted/caller-blocked/author-blocked (opaque envelope)" {
+        // The soft-deleted sub-case became reachable when V20 added `deleted_at IS NULL`
+        // to `visible_posts` (the V4-era view filtered only `is_auto_hidden`).
         val (v1, t1) = seedUser()
         val (a1, _) = seedUser()
         val missingUuid = UUID.randomUUID()
         val autoHiddenPost = seedPost(a1, autoHidden = true)
+        val softDeletedPost = seedPost(a1, softDeleted = true)
         val (v2, t2) = seedUser()
         val (a2, _) = seedUser()
         val p2 = seedPost(a2)
@@ -440,6 +444,12 @@ class ReplyEndpointsTest : StringSpec({
                     }.bodyAsText()
                 bodies +=
                     client.post("/api/v1/posts/$autoHiddenPost/replies") {
+                        header(HttpHeaders.Authorization, "Bearer $t1")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"content":"hi"}""")
+                    }.bodyAsText()
+                bodies +=
+                    client.post("/api/v1/posts/$softDeletedPost/replies") {
                         header(HttpHeaders.Authorization, "Bearer $t1")
                         contentType(ContentType.Application.Json)
                         setBody("""{"content":"hi"}""")

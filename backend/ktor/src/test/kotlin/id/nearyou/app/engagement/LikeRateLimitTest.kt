@@ -433,6 +433,31 @@ class LikeRateLimitTest : StringSpec({
         }
     }
 
+    "scenario 7b — burst-reject releases the consumed daily slot (02-L2 pin)" {
+        val (liker, tok) = seedUser()
+        val (author, _) = seedUser()
+        val targetPost = seedPost(author)
+        try {
+            val spy = SpyRateLimiter(InMemoryRateLimiter())
+            val dailyKey = "{scope:rate_like_day}:{user:$liker}"
+            val burstKey = "{scope:rate_like_burst}:{user:$liker}"
+            // Daily bucket holds 5 (under cap); burst bucket is AT cap.
+            repeat(5) { spy.tryAcquire(liker, dailyKey, 10, Duration.ofHours(24)) }
+            repeat(500) { spy.tryAcquire(liker, burstKey, 500, Duration.ofHours(1)) }
+            withLikeService(rateLimiter = spy) {
+                postLike(tok, targetPost).status shouldBe HttpStatusCode.TooManyRequests
+            }
+            // The daily slot consumed by THIS request must be handed back — without the
+            // release every burst-rejected request burns daily budget the caller never
+            // got to use (post-likes spec § sanctioned burst-reject release path).
+            spy.releaseKeys().count { it == dailyKey } shouldBe 1
+            spy.releaseKeys().count { it == burstKey } shouldBe 0
+            countLikeRows(targetPost, liker) shouldBe 0
+        } finally {
+            cleanup(liker, author)
+        }
+    }
+
     // ----------------------------------------------------------------------------------
     // Scenario 8 — premium_like_cap_override raises the cap to 20.
     // ----------------------------------------------------------------------------------

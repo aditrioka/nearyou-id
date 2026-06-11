@@ -98,11 +98,6 @@ class SocialGraphRateLimitTest : StringSpec({
 private class RecordingFollowsRepo : UserFollowsRepository {
     var unfollows = 0
 
-    override fun follow(
-        follower: UUID,
-        followee: UUID,
-    ) = Unit
-
     override fun unfollow(
         follower: UUID,
         followee: UUID,
