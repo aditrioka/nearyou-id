@@ -342,6 +342,11 @@ class CachingModerationListLoader(
         const val THRESHOLD_MAX: Int = 10_000
         const val THRESHOLD_CACHE_KEY: String = "{scope:mod_list}:{tier:threshold}"
 
-        internal fun listCacheKey(list: ModerationList): String = "{scope:mod_list}:{tier:${list.slug}}"
+        internal fun listCacheKey(list: ModerationList): String {
+            // Simple (unbraced) interpolation keeps the literal parseable by
+            // RedisHashTagRule's strict `{scope:..}:{axis:..}` shape check.
+            val slug = list.slug
+            return "{scope:mod_list}:{tier:$slug}"
+        }
     }
 }

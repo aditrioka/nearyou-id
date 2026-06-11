@@ -1,5 +1,6 @@
 package id.nearyou.app.infra.repo
 
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
 import id.nearyou.data.repository.FollowBlockedException
 import id.nearyou.data.repository.FollowListRow
 import id.nearyou.data.repository.ProfileUserNotFoundException
@@ -23,42 +24,6 @@ import javax.sql.DataSource
 class JdbcUserFollowsRepository(
     private val dataSource: DataSource,
 ) : UserFollowsRepository {
-    override fun follow(
-        follower: UUID,
-        followee: UUID,
-    ) {
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                SELECT 1 FROM user_blocks
-                 WHERE (blocker_id = ? AND blocked_id = ?)
-                    OR (blocker_id = ? AND blocked_id = ?)
-                 LIMIT 1
-                """.trimIndent(),
-            ).use { ps ->
-                ps.setObject(1, follower)
-                ps.setObject(2, followee)
-                ps.setObject(3, followee)
-                ps.setObject(4, follower)
-                ps.executeQuery().use { rs ->
-                    if (rs.next()) throw FollowBlockedException()
-                }
-            }
-            try {
-                conn.prepareStatement(
-                    "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?) ON CONFLICT (follower_id, followee_id) DO NOTHING",
-                ).use { ps ->
-                    ps.setObject(1, follower)
-                    ps.setObject(2, followee)
-                    ps.executeUpdate()
-                }
-            } catch (ex: SQLException) {
-                if (ex.sqlState == "23503") throw UserNotFoundException()
-                throw ex
-            }
-        }
-    }
-
     override fun unfollow(
         follower: UUID,
         followee: UUID,
@@ -175,6 +140,10 @@ class JdbcUserFollowsRepository(
         }
     }
 
+    @AllowMissingBlockJoin(
+        "raw-users existence probe behind the social-list constant-404 contract — returns no " +
+            "content; aligning its response shape with the profile 404 oracle is tracked in #211",
+    )
     private fun ensureProfileExists(
         conn: java.sql.Connection,
         profileId: UUID,

@@ -1,9 +1,13 @@
 package id.nearyou.app.infra.repo
 
+import id.nearyou.app.core.domain.lint.AllowContentWriteWithoutModeration
 import java.sql.Connection
 import java.util.UUID
 
 class JdbcPostRepository : PostRepository {
+    // CreatePostService runs TextModerator.moderate() before invoking this sink
+    // (PostCreationModerationIntegrationTest pins the call order).
+    @AllowContentWriteWithoutModeration("service_layer_moderated")
     override fun create(
         conn: Connection,
         row: NewPostRow,
