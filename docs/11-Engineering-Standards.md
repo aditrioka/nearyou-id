@@ -21,7 +21,7 @@ Verified 2026-06-10. Current pins that are **correct and current**: CMP `1.11.1`
 | Pin | From → To | Driver |
 |---|---|---|
 | `postgresql-jdbc` | 42.7.7 → 42.7.11 | CVE-2026-42198 (SCRAM iteration DoS) — security, immediate |
-| `ktor` | 3.4.1 → 3.5.0 | 3.4.3 fixed `HttpRequestLifecycle` × `CallLogging.callIdMdc` cascading request failures (directly in our plugin set); 3.5.0 adds `requireQueryParameter`/`requireHeader`, suspending `authenticate()` |
+| `ktor` | 3.4.1 → 3.4.3 (3.5.0 attempted, rolled back) | 3.4.3 fixed `HttpRequestLifecycle` × `CallLogging.callIdMdc` cascading request failures (directly in our plugin set). The audit landed 3.5.0, rolled back 2026-06-11 (PR [#216](https://github.com/aditrioka/nearyou-id/pull/216), deploy-blocking): KTOR-9546 makes the OTel-instrumented client hang to `HttpTimeout` on every outbound call — rejected two staging deploys at the readiness probe. Upstream fix merged ([open-telemetry/opentelemetry-java-instrumentation#18779](https://github.com/open-telemetry/opentelemetry-java-instrumentation/issues/18779)) but NOT in our pinned 2.28.1 instrumentation pair. Re-attempt 3.5.x ONLY together with an instrumentation-pair release that contains the fix |
 | `kotlin` | 2.3.20 → 2.3.21 | drop-in patch |
 | `kotlinx-coroutines` / `-serialization` / `-datetime` | 1.10.2→1.11.0 / 1.9.0→1.11.0 / 0.7.1→0.8.0 | bumped together (one PR); serialization 1.11 hides user input from JSON exception messages (PII-safe logs for a social app) |
 | `material3` (JetBrains) | 1.10.0-alpha05 → 1.11.0-alpha07 | the CMP-1.11.x-aligned M3 artifact; alpha line is deliberate (stable 1.9.0 strips Expressive APIs) |
