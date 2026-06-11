@@ -123,7 +123,7 @@ The pre-audit flat `screens/` package (35 mixed files) is the legacy shape. **Ne
 - Standard plugin set: ContentNegotiation, StatusPages (single error envelope), CallId + CallLogging with `callIdMdc` (safe ≥ Ktor 3.4.3), Compression, Caching/ConditionalHeaders where responses allow, RequestValidation for input-shape checks (length guards remain the lint-enforced backstop).
 - Rate limiting stays Redis-backed custom (`computeTTLToNextReset` invariant); Ktor's built-in RateLimit plugin is per-instance in-memory — wrong on Cloud Run, do not adopt.
 - Engine: **Netty stays** (CIO is HTTP/1.1-only and slower in community benches; Netty is the h2c path if ever needed). Set `shutdownGracePeriod`/`shutdownTimeout` to fit Cloud Run's termination window.
-- Streaming/pagination: timeline-style endpoints stay cursor-paginated (no OFFSET); response sizes bounded by limits validated at the route.
+- Streaming/pagination: timeline-style endpoints stay cursor-paginated (no OFFSET); response sizes bounded by limits validated at the route. **Deliberate exception: search** (`GET /api/v1/search`) keeps OFFSET pagination — results are relevance-ranked and shallow-paged (users rarely go past the first pages), so keyset's deep-page advantage doesn't apply, and a stable cursor over a mutating tsv-ranked result set is ill-defined. Operator-ratified 2026-06-11 (audit finding 03-#13); revisit only if search depth telemetry says otherwise.
 
 ### 3.4 Cloud Run runtime posture
 
