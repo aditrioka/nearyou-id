@@ -390,7 +390,7 @@
             <div class="cardlet" style="margin-top:0;"><h4><span class="ms">flag</span>Report queue</h4>
               <div class="kv"><dt>Pending</dt><dd>4</dd><dt>Oldest</dt><dd>2 h ago</dd></div></div>
             <div class="cardlet" style="margin-top:0;"><h4><span class="ms">block</span>Rejected identifiers</h4>
-              <div class="kv"><dt>Last 24 h</dt><dd>12</dd><dt>Top reason</dt><dd>age_gate_failed</dd></div></div>
+              <div class="kv"><dt>Last 24 h</dt><dd>12</dd><dt>Top reason</dt><dd>age_under_18</dd></div></div>
             <div class="cardlet" style="margin-top:0;"><h4><span class="ms">receipt_long</span>Audit log</h4>
               <div class="kv"><dt>Actions today</dt><dd>9</dd><dt>Last</dt><dd>user_suspended</dd></div></div>
           </div>
@@ -407,7 +407,7 @@
     <p>Yang shipped (<code>layout.peb</code>): nav 4 link (Reports, Users, Audit log, Rejected
     identifiers) + tombol Logout (POST + <code>_csrf</code>) + index scaffold. Sidebar bergrup di
     atas adalah target saat fitur bertambah — dot hijau = shipped, dot hollow = usulan. Kartu sesi:
-    identitas admin + role chip (owner/admin/moderator, V16 CHECK) + countdown idle. Deployment
+    identitas admin + role chip (owner/admin/moderator/read_only, V16 CHECK) + countdown idle. Deployment
     target <code>admin.nearyou.id</code> di belakang IAP (Phase 3.5 #2; staging hari ini masih
     <code>api-staging.nearyou.id/admin/*</code>). Spec: <code>admin-panel-scaffold</code>.</p>
     <span class="tag sebagian">Sebagian</span>
@@ -506,8 +506,8 @@
       </div>
       <div class="banner warn"><span class="ms">warning</span>
         <span><b>Queue enforcement berlaku seketika</b> (keep/hide konten · suspend/ban/shadow-ban author)
-        — selalu lewat hx-confirm; ban &amp; shadow-ban tier owner/admin. “Report decision” hanya
-        bookkeeping status laporan.</span></div>
+        — selalu lewat hx-confirm; ban permanen tier owner/admin (shadow-ban boleh semua role tulis,
+        termasuk moderator). “Report decision” hanya bookkeeping status laporan.</span></div>
 
       <div class="rcard">
         <div class="rc-head">
@@ -586,7 +586,8 @@
     Field &amp; aksi tetap mirror <code>reports.peb</code> + <code>reports-table.peb</code>: filter
     komposabel (status, target_type, reason_category, trigger, from–to) via hx-get swap fragment
     (no-JS fallback GET), filter terbawa hidden inputs saat resolve, keyset “Load older”, deep-link
-    author → <code>/admin/users?q=…</code>. Satu baris <code>admin_actions_log</code> per aksi;
+    author → <code>/admin/users?q=…</code>. Filter sebagai select = target styling; kontrak
+    backend tetap toleran nilai di luar enum (bound literal → zero rows), no-JS input bebas tetap sah. Satu baris <code>admin_actions_log</code> per aksi;
     re-resolusi idempoten. Filter “has edit history” = usulan
     <a href="https://github.com/aditrioka/nearyou-id/issues/191">#191</a>. Spec:
     <code>admin-report-queue</code>. <i>Catatan template: layout kartu = loop elemen non-tabel di
@@ -674,7 +675,7 @@
           <div class="ctl" style="min-width:340px;"><span class="ms">search</span>budi_kopi</div></div>
         <div class="btn filled">Look up</div>
       </div>
-      <div class="outcome"><span class="ms">check_circle</span>User suspended for 7 days. Action logged.</div>
+      <div class="outcome"><span class="ms">check_circle</span>Suspended until 2026-06-18 09:42 UTC. Action logged.</div>
       <div class="cardlet">
         <h4><span class="ms">person</span>budi_kopi</h4>
         <div class="kv">
@@ -750,7 +751,7 @@
           <div class="btn outl sm"><span class="ms">lock_open</span>Unban</div>
         </div>
         <div class="banner warn"><span class="ms">warning</span>
-          <span>Permanent ban &amp; shadow-ban: owner/admin tier. Setiap aksi minta reason +
+          <span>Permanent ban: owner/admin tier (shadow-ban: semua role tulis). Setiap aksi minta reason +
           hx-confirm; SEMUA tercatat di audit log. <b>Tidak ada</b> edit username langsung —
           gunakan Username Oversight (frame 22).</span></div>
       </div>
@@ -819,7 +820,7 @@ after:  { is_banned: true,
             <td><span class="code">203.0.113.41</span></td><td><span class="sub">Chrome 137 · macOS</span></td>
             <td><details class="state"><summary>view</summary><div class="statebox">…</div></details></td></tr>
           <tr><td>2026-06-11 07:55</td><td>oka <span class="rolechip owner">OWNER</span></td>
-            <td><span class="st info">admin_login</span></td>
+            <td><span class="st info">admin_login_success</span></td>
             <td>—</td><td>—</td>
             <td><span class="code">203.0.113.41</span></td><td><span class="sub">Chrome 137 · macOS</span></td>
             <td>—</td></tr>
@@ -940,7 +941,7 @@ after:  { is_banned: true,
       <div class="pg">Rejected Identifiers</div>
       <p class="pg-sub">Anti-abuse audit/triage — hash-only (SHA-256 of sub/email), no recoverable PII</p>
       <div class="filters">
-        <div class="field"><label>Reason</label><div class="ctl sel">age_gate_failed</div></div>
+        <div class="field"><label>Reason</label><div class="ctl sel">age_under_18</div></div>
         <div class="field"><label>Identifier type</label><div class="ctl sel"><span class="ph">any</span></div></div>
         <div class="field"><label>From</label><div class="ctl"><span class="ms">calendar_today</span>2026-06-04</div></div>
         <div class="field"><label>To</label><div class="ctl"><span class="ms">calendar_today</span>2026-06-11</div></div>
@@ -948,22 +949,22 @@ after:  { is_banned: true,
       </div>
       <div class="pills">
         <span class="pill">Total matching: <b>47</b></span>
-        <span class="pill">age_gate_failed: <b>39</b></span>
-        <span class="pill">underage_retry: <b>8</b></span>
-        <span class="pill">type google_sub: <b>41</b></span>
-        <span class="pill">type apple_sub: <b>6</b></span>
+        <span class="pill">age_under_18: <b>39</b></span>
+        <span class="pill">attestation_persistent_fail: <b>8</b></span>
+        <span class="pill">type google: <b>41</b></span>
+        <span class="pill">type apple: <b>6</b></span>
       </div>
       <table class="tbl">
         <thead><tr><th>Identifier hash</th><th>Type</th><th>Reason</th><th>Rejected at (UTC)</th>
           <th style="width:170px;">Clear <span class="tag usulan" style="margin:0;padding:1px 6px;">USULAN #190</span></th></tr></thead>
         <tbody>
-          <tr><td><span class="code">9f8a3c…d41e</span></td><td>google_sub</td><td>age_gate_failed</td>
+          <tr><td><span class="code">9f8a3c…d41e</span></td><td>google</td><td>age_under_18</td>
             <td>2026-06-11 06:21</td>
             <td><div class="btn outl sm"><span class="ms">lock_open</span>Clear for re-verify</div></td></tr>
-          <tr><td><span class="code">77b1e0…2a9c</span></td><td>google_sub</td><td>age_gate_failed</td>
+          <tr><td><span class="code">77b1e0…2a9c</span></td><td>google</td><td>age_under_18</td>
             <td>2026-06-10 22:48</td>
             <td><div class="btn outl sm"><span class="ms">lock_open</span>Clear for re-verify</div></td></tr>
-          <tr><td><span class="code">c54d92…88f0</span></td><td>apple_sub</td><td>underage_retry</td>
+          <tr><td><span class="code">c54d92…88f0</span></td><td>apple</td><td>attestation_persistent_fail</td>
             <td>2026-06-10 18:02</td>
             <td><div class="btn outl sm"><span class="ms">lock_open</span>Clear for re-verify</div></td></tr>
         </tbody>
@@ -1205,7 +1206,7 @@ after:  { is_banned: true,
         <thead><tr><th>User</th><th>Requested (UTC)</th><th>Scheduled hard-delete</th><th>Countdown</th><th></th></tr></thead>
         <tbody>
           <tr><td><a>mantan.warga</a> <span class="code">88a2…f1</span></td><td>2026-05-14 10:05</td>
-            <td>2026-06-13 10:05</td><td><span class="st warn" style="background:var(--warning-container);color:var(--on-warning-container);">2 days</span></td>
+            <td>2026-06-13 10:05</td><td><span class="st pend">2 days</span></td>
             <td><div class="btn dangert sm"><span class="ms">bolt</span>Expedite now</div></td></tr>
           <tr><td><a>pamit.dulu</a> <span class="code">19c4…7d</span></td><td>2026-06-02 21:40</td>
             <td>2026-07-02 21:40</td><td><span class="st neut">21 days</span></td>
@@ -1281,7 +1282,7 @@ after:  { is_banned: true,
       <table class="tbl">
         <thead><tr><th>User</th><th>Scheduled flip (UTC)</th><th>Remaining</th><th>Cause</th></tr></thead>
         <tbody>
-          <tr><td><a>rina.sore</a></td><td>2026-06-13 08:00</td><td>47 h</td>
+          <tr><td><a>langit.biru</a></td><td>2026-06-13 08:00</td><td>47 h</td>
             <td>premium expired (billing retry exhausted)</td></tr>
           <tr><td><a>budi_kopi</a></td><td>2026-06-12 11:30</td><td>26 h</td>
             <td>subscription cancelled</td></tr>
@@ -1301,7 +1302,9 @@ after:  { is_banned: true,
     <h3>17 · Privacy Flip Monitor <span class="path">— GET /admin/privacy-flips</span></h3>
     <p>docs/07 § Privacy Flip Monitor: daftar read-only user dalam window downgrade 72 jam
     (<code>privacy_flip_scheduled_at IS NOT NULL AND NOW() &lt; scheduled</code>), plus deteksi baris
-    macet melewati deadline. Tanpa aksi tulis — anomali dieskalasi ke perbaikan worker.</p>
+    macet melewati deadline (baris OVERDUE sengaja DI LUAR predicate window — kueri monitor
+    menambahkan cabang stuck-row sesuai prose docs/07). Tanpa aksi tulis — anomali dieskalasi ke
+    perbaikan worker.</p>
     <span class="tag usulan">Usulan</span>
   </div>
 </div>
@@ -1412,8 +1415,8 @@ after:  { is_banned: true,
               <td><b>image_upload_enabled</b><span class="sub">media pipeline — off until image launch (docs/02)</span></td>
               <td style="text-align:right;"><span class="st neut">OFF</span></td></tr>
             <tr><td><div class="tgl on"></div></td>
-              <td><b>attestation_mode</b><span class="sub">enforce / monitor / off</span></td>
-              <td style="text-align:right;"><span class="st info">MONITOR</span></td></tr>
+              <td><b>attestation_mode</b><span class="sub">enforce / warn / off</span></td>
+              <td style="text-align:right;"><span class="st info">WARN</span></td></tr>
             <tr><td><div class="tgl off"></div></td>
               <td><b>search_enabled</b><span class="sub">user + post search surfaces</span></td>
               <td style="text-align:right;"><span class="st neut">OFF</span></td></tr>
@@ -1433,7 +1436,7 @@ after:  { is_banned: true,
         <div class="kv" style="margin-top:10px;">
           <dt>moderation_profanity_list</dt><dd><span class="code">v14 · 312 entries</span> <a style="font-size:11.5px;">edit</a></dd>
           <dt>moderation_uu_ite_list</dt><dd><span class="code">v6 · 87 entries</span> <a style="font-size:11.5px;">edit</a></dd>
-          <dt>moderation_match_threshold</dt><dd><span class="code">0.82</span></dd></div></div>
+          <dt>moderation_match_threshold</dt><dd><span class="code">3</span> <span style="font-size:11px;color:var(--on-surface-variant);">(match count)</span></dd></div></div>
       <div class="banner warn"><span class="ms">warning</span>
         <span>Tiap toggle: hx-confirm + reason → audit log (<code>feature_flag_toggled</code>) +
         rate limit. Flag yang menyentuh keamanan (attestation_mode) butuh role owner/admin.</span></div>
@@ -1566,6 +1569,8 @@ after:  { is_banned: true,
   <b>Cara pakai board ini</b> (ringkas; lengkapnya di README): render → cari frame → baca caption
   (status + sitasi docs/spec) → terjemahkan ke idiom panel (Pebble template + fragment HTMX +
   vendored CSS dengan token di atas — bukan framework client). Konflik perilaku: spec/docs menang. Data sintetis semua — UUID/hash/IP palsu (203.0.113.0/24), tanpa PII nyata.
+  Satu permukaan menyusul: <b>appeal-review workflow</b> (docs/08 § Open Decisions #2) belum
+  didesain — frame-nya ditambahkan saat desainnya final di Phase 3.5.
 </footer>
 
 </body>

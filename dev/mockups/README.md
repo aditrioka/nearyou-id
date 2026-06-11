@@ -11,7 +11,9 @@ building.
 ## Files
 
 - **`nearyou-admin-mockup.html`** — the 23-frame **admin panel** board (desktop frames, light-only),
-  the canonical UI/UX reference for ALL admin features — shipped and planned. Five sections:
+  the canonical UI/UX reference for ALL admin features — shipped and planned (sole known gap: the
+  appeal-review workflow, docs/08 § Open Decisions #2, not yet designed — its frame is added when
+  the design lands in Phase 3.5). Five sections:
   - *A · Shell, akses & dasbor* (1–3): login (Argon2id + TOTP), app shell + sidebar nav + session
     card + logout, Operational Dashboard.
   - *B · Moderasi inti* (4–9): Report Queue card-based triage + in-row resolution, **4b** narrow-width

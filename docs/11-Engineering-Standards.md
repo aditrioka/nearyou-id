@@ -161,7 +161,8 @@ consumption guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
 
 [`dev/mockups/nearyou-admin-mockup.html`](../dev/mockups/nearyou-admin-mockup.html) is the
 **canonical visual reference** for every `/admin/*` surface — a 23-frame board covering ALL admin
-features (shipped and planned), rendered from the same theme tokens as the mobile board
+features (shipped and planned; sole known gap: the appeal-review workflow, docs/08 § Open
+Decisions #2, gets its frame when its design lands), rendered from the same theme tokens as the mobile board
 (`NearYouColorScheme.light`, Plus Jakarta Sans, brand logo vector). Frame inventory + consumption
 guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
 
