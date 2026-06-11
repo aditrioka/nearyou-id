@@ -2,6 +2,8 @@
 
 **Mandate (operator):** review all backend implementations against specs (`openspec/specs/`), requirements and supporting docs; per feature/endpoint estimate completion, identify gaps, flag suboptimal/buggy code; recommend and apply fixes.
 
+**Delivery note:** the PR branch was rebased over #223 mid-review; this commit re-pokes CI after the documented force-push/path-filter skip (see memory: orphaned `github.event.before` → empty diff → heavy lanes skip).
+
 **Method:** 8 parallel review agents, one per backend area (auth, posts/timelines, engagement/search, social/profiles, chat/notifications/push, moderation/reports, admin/workers, platform/cross-cutting), each reading the area's specs + implementation + tests + the 2026-06-10 holistic-audit findings as the known-issue exclusion baseline. Every load-bearing claim was re-verified in source before any fix was applied. This review is complementary to the 2026-06-10 audit (PR #209): it re-verified that audit's shipped fixes (all PRESENT; two arrived without their tests/spec sync — closed here) and hunted only NEW findings beyond the tracked backlog (#210–#214, #208, #202, #195, #194, #190, #191, #181, deferred 02/04 items).
 
 ## Completion matrix (vs spec requirements + scenario test coverage, before this PR's fixes)
