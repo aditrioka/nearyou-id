@@ -531,6 +531,8 @@ class BlockEndpointsTest : StringSpec({
                 row["userId"]!!.jsonPrimitive.content shouldBe target.id.toString()
                 row["username"]!!.jsonPrimitive.content shouldBe target.username
                 row["displayName"]!!.jsonPrimitive.content shouldBe "Block Tester"
+                // Wire-exact: JSON boolean true, not the string "true".
+                row["isPremium"]!!.jsonPrimitive.isString shouldBe false
                 row["isPremium"]!!.jsonPrimitive.content shouldBe "true"
             }
         } finally {
@@ -557,6 +559,7 @@ class BlockEndpointsTest : StringSpec({
                     val row = r as JsonObject
                     row["username"]!!.jsonPrimitive.content shouldBe "akun_dihapus"
                     row["displayName"]!!.jsonPrimitive.content shouldBe "Akun Dihapus"
+                    row["isPremium"]!!.jsonPrimitive.isString shouldBe false
                     row["isPremium"]!!.jsonPrimitive.content shouldBe "false"
                 }
                 val ids = rows.map { (it as JsonObject)["userId"]!!.jsonPrimitive.content }.toSet()

@@ -93,6 +93,29 @@ class SocialGraphRateLimitTest : StringSpec({
             )
         shouldThrow<FollowRateLimitedException> { service.follow(UUID.randomUUID(), UUID.randomUUID()) }
     }
+
+    "429 takes precedence over the visibility 404 (gate runs AFTER checkRateLimit — design D5)" {
+        // The fake gate would 404 every target; at cap=0 the limiter must still win,
+        // pinning the FollowService ordering (self-check → limiter → gate → tx) so
+        // 404-probes keep burning the 50/h bucket.
+        val wouldAlways404 =
+            object : UserFollowsRepository by RecordingFollowsRepo() {
+                override fun ensureProfileVisible(
+                    profileId: UUID,
+                    viewerId: UUID,
+                ): Unit = throw id.nearyou.data.repository.ProfileUserNotFoundException()
+            }
+        val service =
+            FollowService(
+                dataSource = UnusedDataSource,
+                follows = wouldAlways404,
+                notifications = NoopEmitter,
+                dispatcher = { },
+                rateLimiter = FollowRateLimiter(cap = 0),
+                dbDispatcher = kotlinx.coroutines.Dispatchers.Unconfined,
+            )
+        shouldThrow<FollowRateLimitedException> { service.follow(UUID.randomUUID(), UUID.randomUUID()) }
+    }
 })
 
 private class RecordingFollowsRepo : UserFollowsRepository {
@@ -124,11 +147,7 @@ private class RecordingFollowsRepo : UserFollowsRepository {
     override fun ensureProfileVisible(
         profileId: UUID,
         viewerId: UUID,
-    ) {
-        // No-op: the rate-limited paths under test reject BEFORE the visibility gate
-        // (429 precedes 404 — FollowService runs checkRateLimit first), so this is
-        // never reached when the limiter fires.
-    }
+    ): Unit = error("visibility gate must not run on the rate-limited path (429 precedes 404)")
 
     override fun followInTx(
         conn: Connection,

@@ -202,7 +202,7 @@ Re-follow after an unfollow (which produces a NEW `follows` row given the cascad
 
 If the notification INSERT fails (e.g. followee hard-deleted between request and emit), the encompassing transaction rolls back; the `follows` INSERT does NOT persist.
 
-Response shapes for `POST /follow` and `DELETE /follow` MUST NOT change. The `is_following` / `followed_by_viewer` fields on user profiles / timelines are unchanged.
+Response shapes for `POST /api/v1/follows/{user_id}` and `DELETE /api/v1/follows/{user_id}` MUST NOT change as part of V10. The `is_following` / `followed_by_viewer` fields on user profiles / timelines are unchanged.
 
 #### Scenario: Bob follows Alice produces followed notification for Alice
 - **WHEN** Bob POSTs `/api/v1/follows/{aliceId}` AND no block exists between Alice and Bob
@@ -237,8 +237,8 @@ Response shapes for `POST /follow` and `DELETE /follow` MUST NOT change. The `is
 - **THEN** the transaction rolls back AND zero `follows` rows persist
 
 #### Scenario: Follow endpoint response shapes unchanged
-- **WHEN** inspecting the response bodies of `POST /follow` and `DELETE /follow` pre-V10 and post-V10
-- **THEN** each matches the V6 contract (V10 does not alter the follow endpoint response shapes)
+- **WHEN** inspecting the response bodies of `POST /api/v1/follows/{user_id}` and `DELETE /api/v1/follows/{user_id}` pre-V10 and post-V10
+- **THEN** each matches the pre-V10 contract (V10 does not alter the follow endpoint response shapes; the later `social-list-profile-summaries` 404 alignment is a separate, deliberate change)
 
 ## REMOVED Requirements
 

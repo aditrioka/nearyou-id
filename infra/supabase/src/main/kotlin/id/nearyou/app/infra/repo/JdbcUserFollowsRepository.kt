@@ -134,8 +134,11 @@ class JdbcUserFollowsRepository(
         // under READ COMMITTED, committing a follow edge alongside a block —
         // the stale edge then resurrects on unblock (2026-06-10 audit, 03-#4).
         // Behind the service-level visibility gate this re-check is also the
-        // TOCTOU backstop: a block landing after the gate still prevents the
-        // edge, and the route maps it to the same constant 404.
+        // TOCTOU backstop for the BLOCK half only: a block landing after the
+        // gate still prevents the edge (mapped to the same constant 404). A
+        // target hidden (shadow-banned/soft-deleted) in that same window is
+        // NOT re-checked — the edge commits, which is accepted: lists filter
+        // hidden users at read time and counts are deliberately raw (D1).
         id.nearyou.app.infra.db.UserPairLock.acquire(conn, follower, followee)
         conn.prepareStatement(
             """

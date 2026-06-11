@@ -366,6 +366,10 @@ class FollowEndpointsTest : StringSpec({
                 profile404.status shouldBe HttpStatusCode.NotFound
                 (bodies + profile404.bodyAsText()).distinct() shouldHaveSize 1
                 bodies[0] shouldBe USER_NOT_FOUND_BODY
+                // Header parity too: a refactor back to map-serialized respond() would keep
+                // the bytes but drift the Content-Type parameters.
+                val follow404 = client.post("/api/v1/follows/${UUID.randomUUID()}") { header(HttpHeaders.Authorization, "Bearer $ta") }
+                follow404.headers[HttpHeaders.ContentType] shouldBe profile404.headers[HttpHeaders.ContentType]
             }
         } finally {
             cleanup(a, sb, dl, cb, tb)
@@ -664,12 +668,18 @@ class FollowEndpointsTest : StringSpec({
                         bodies += resp.bodyAsText()
                     }
                 }
-                val profile404 =
+                val profile404Resp =
                     client.get("/api/v1/users/${UUID.randomUUID()}") {
                         header(HttpHeaders.Authorization, "Bearer $tv")
-                    }.bodyAsText()
-                (bodies + profile404).distinct() shouldHaveSize 1
+                    }
+                (bodies + profile404Resp.bodyAsText()).distinct() shouldHaveSize 1
                 bodies[0] shouldBe USER_NOT_FOUND_BODY
+                // Header parity with the profile route (see the POST differential test).
+                val list404 =
+                    client.get("/api/v1/users/${UUID.randomUUID()}/followers") {
+                        header(HttpHeaders.Authorization, "Bearer $tv")
+                    }
+                list404.headers[HttpHeaders.ContentType] shouldBe profile404Resp.headers[HttpHeaders.ContentType]
             }
         } finally {
             cleanup(viewer, sb, dl, cb, tb)

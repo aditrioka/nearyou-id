@@ -30,6 +30,8 @@ import java.util.UUID
  *
  * Error mapping:
  *  - [CannotFollowSelfException]     → 400 `cannot_follow_self`
+ *  - [FollowRateLimitedException]    → 429 `rate_limited` + `Retry-After` (precedes the
+ *    visibility gate — 404-probes burn the 50/h bucket)
  *  - [ProfileUserNotFoundException]  → 404 [USER_NOT_FOUND_BODY] (visibility gate:
  *    unknown / soft-deleted / shadow-banned / blocked-either-direction target)
  *  - [UserNotFoundException]         → 404 [USER_NOT_FOUND_BODY] (FK 23503 backstop)
