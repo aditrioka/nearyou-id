@@ -185,4 +185,22 @@
          as the shell logo contentDescription. -->
     <string name="post_card_handle" formatted="true">@%1$s</string>
     <string name="post_card_meta_separator">·</string>
+    <!-- mobile-inline-post-actions: the card action row's interactive affordances (now real controls,
+         so the prior decorative contentDescription=null posture no longer applies) + the liked-state
+         accessibility announcement (state must not be visual-only). -->
+    <string name="post_card_action_reply">Balas</string>
+    <string name="post_card_action_like">Suka</string>
+    <string name="post_card_like_state_liked">Disukai</string>
+    <string name="post_card_like_state_not_liked">Belum disukai</string>
+    <!-- mobile-cap-upsell-dialog (mockup frame 18): the shared daily-cap upsell M3 AlertDialog. The
+         title is cap-GENERIC ("Batas harian tercapai") because the frame's caption declares the same
+         modal pattern for the future post/reply/chat caps; the like body REUSES
+         post_detail_likes_cap_upsell (the verbatim docs/03 §Rate Limit Communication modal copy) and
+         the secondary CTA reuses cta_close ("Tutup"). The countdown renders "X j Y mnt" (frame 18's
+         treatment) / "Y mnt" under an hour — finer than the detail banner's coarse
+         post_detail_reset_hours, which deliberately keeps its own format. -->
+    <string name="cap_dialog_title">Batas harian tercapai</string>
+    <string name="cta_activate_premium">Aktifkan Premium</string>
+    <string name="cap_countdown_hours_minutes" formatted="true">%1$d j %2$d mnt</string>
+    <string name="cap_countdown_minutes" formatted="true">%1$d mnt</string>
 </resources>

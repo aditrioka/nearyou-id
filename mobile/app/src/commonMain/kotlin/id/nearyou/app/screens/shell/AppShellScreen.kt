@@ -87,11 +87,12 @@ import org.koin.compose.koinInject
  * [Section.Home]). There is **no** per-section `NavDisplay` and **no** section-root `NavKey`.
  *
  * The composer FAB stays inside [HomeScreen] (the Home section), so it shows on Home only — never on the
- * Notifikasi / Profil sections. [onOpenComposer] and [onOpenPost] are forwarded to [HomeScreen] (wired by
- * `appEntryProvider` to root-stack `PostCreationRoute` / `PostDetailRoute` pushes, above the shell, so they
- * overlay the bottom bar). [onOpenPost] absorbs #159's feed-card → post-detail tap through the shell
- * (design D9): the Home feeds hoist it up via [HomeScreen], which the call site turns into a
- * `PostDetailRoute` push — the Notifikasi / Profil sections wire no `onOpenPost`.
+ * Notifikasi / Profil sections. [onOpenComposer], [onOpenPost], and [onOpenPostReply] are forwarded to
+ * [HomeScreen] (wired by `appEntryProvider` to root-stack `PostCreationRoute` / `PostDetailRoute` pushes,
+ * above the shell, so they overlay the bottom bar). [onOpenPost] absorbs #159's feed-card → post-detail
+ * tap through the shell (design D9); [onOpenPostReply] is the cards' reply shortcut
+ * (`mobile-inline-post-actions` — the call site pushes with `focusReplyComposer = true`) — the
+ * Notifikasi / Profil sections wire neither card callback.
  *
  * The Notifikasi nav item carries an unread **badge** (design D6) sourced from
  * `GET /api/v1/notifications/unread-count` — fetched **once** on shell composition and refreshed **once**
@@ -103,6 +104,7 @@ import org.koin.compose.koinInject
 fun AppShellScreen(
     onOpenComposer: () -> Unit,
     onOpenPost: (PostDetailTarget) -> Unit = {},
+    onOpenPostReply: (PostDetailTarget) -> Unit = {},
 ) {
     val flow = koinInject<NotificationsFlow>()
     var selectedSection by rememberSaveable { mutableStateOf(Section.Home) }
@@ -162,8 +164,14 @@ fun AppShellScreen(
             when (selectedSection) {
                 // The Home section's content (HomeScreen) composes directly under the HomeRoute NavEntry
                 // (this shell IS that entry), so the feed viewModel { }s stay HomeRoute-scoped (design D3).
-                // onOpenPost is forwarded so a Home feed-card tap pushes PostDetailRoute (#159, design D9).
-                Section.Home -> HomeScreen(onOpenComposer = onOpenComposer, onOpenPost = onOpenPost)
+                // onOpenPost + onOpenPostReply are forwarded so a Home feed-card tap / reply shortcut
+                // pushes PostDetailRoute (#159 + mobile-inline-post-actions, design D9).
+                Section.Home ->
+                    HomeScreen(
+                        onOpenComposer = onOpenComposer,
+                        onOpenPost = onOpenPost,
+                        onOpenPostReply = onOpenPostReply,
+                    )
                 Section.Notifikasi -> {
                     NotificationsScreen()
                     // Refresh the badge once when leaving Notifikasi (the user likely read some). One-shot,

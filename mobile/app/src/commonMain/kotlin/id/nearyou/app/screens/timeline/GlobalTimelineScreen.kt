@@ -26,12 +26,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
+import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.PostCard
 import id.nearyou.app.ui.components.PostCardModel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_retry
+import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_limit_hard
 import id.nearyou.resources.generated.resources.timeline_limit_soft
@@ -76,12 +79,19 @@ const val GLOBAL_POST_CARD_TAG: String = "globalPostCard"
  * spatial filter). A host-level callback, NOT a back-stack reference, so the screen stays navigation-free.
  */
 @Composable
-fun GlobalTimelineScreen(onOpenPost: (GlobalTimelinePost) -> Unit = {}) {
+fun GlobalTimelineScreen(
+    onOpenPost: (GlobalTimelinePost) -> Unit = {},
+    onOpenPostReply: (GlobalTimelinePost) -> Unit = {},
+) {
     val flow = koinInject<GlobalTimelineFlow>()
-    val viewModel = viewModel { GlobalTimelineViewModel(flow) }
+    // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
+    // PostDetailRepository singleton post-detail and Nearby use.
+    val likeFlow = koinInject<LikeFlow>()
+    val viewModel = viewModel { GlobalTimelineViewModel(flow, likeFlow) }
     val outcome by viewModel.outcome.collectAsStateWithLifecycle()
     val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val likeCapRetryAfterSeconds by viewModel.likeCapRetryAfterSeconds.collectAsStateWithLifecycle()
 
     GlobalTimelineContent(
         // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
@@ -94,7 +104,22 @@ fun GlobalTimelineScreen(onOpenPost: (GlobalTimelinePost) -> Unit = {}) {
         onRefresh = viewModel::reload,
         onRetry = viewModel::reload,
         onOpenPost = onOpenPost,
+        // Inline like (shared controller in the VM) + the reply shortcut (hoisted to the tab host,
+        // which pushes PostDetailRoute(focusReplyComposer = true)).
+        onToggleLike = { post -> viewModel.toggleLike(post.id, post.likedByViewer) },
+        onReplyShortcut = onOpenPostReply,
     )
+
+    // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18) — same one-shot wiring as Nearby;
+    // the Premium CTA is the v1 dismiss-only placeholder (paywall deferred, issue #235).
+    likeCapRetryAfterSeconds?.let { retryAfterSeconds ->
+        DailyCapUpsellDialog(
+            retryAfterSeconds = retryAfterSeconds,
+            body = { countdown -> stringResource(Res.string.post_detail_likes_cap_upsell, countdown) },
+            onDismiss = viewModel::onLikeCapDialogDismissed,
+            onActivatePremium = viewModel::onLikeCapDialogDismissed,
+        )
+    }
 }
 
 /**
@@ -112,6 +137,8 @@ private fun GlobalTimelineContent(
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
     onOpenPost: (GlobalTimelinePost) -> Unit,
+    onToggleLike: (GlobalTimelinePost) -> Unit,
+    onReplyShortcut: (GlobalTimelinePost) -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -128,11 +155,19 @@ private fun GlobalTimelineContent(
             // NOT signin_error_network (the SessionInvalidator re-route whisks the user to SignInScreen).
             GlobalTimelineUiState.SessionRedirect ->
                 CenteredMessageState(stringResource(Res.string.timeline_session_redirect))
-            is GlobalTimelineUiState.Content -> PostList(posts = uiState.posts, onOpenPost = onOpenPost)
+            is GlobalTimelineUiState.Content ->
+                PostList(
+                    posts = uiState.posts,
+                    onOpenPost = onOpenPost,
+                    onToggleLike = onToggleLike,
+                    onReplyShortcut = onReplyShortcut,
+                )
             is GlobalTimelineUiState.SoftLimit ->
                 PostList(
                     posts = uiState.posts,
                     onOpenPost = onOpenPost,
+                    onToggleLike = onToggleLike,
+                    onReplyShortcut = onReplyShortcut,
                     banner = stringResource(Res.string.timeline_limit_soft),
                 )
         }
@@ -215,6 +250,8 @@ private fun ErrorState(onRetry: () -> Unit) {
 private fun PostList(
     posts: List<GlobalTimelinePost>,
     onOpenPost: (GlobalTimelinePost) -> Unit,
+    onToggleLike: (GlobalTimelinePost) -> Unit,
+    onReplyShortcut: (GlobalTimelinePost) -> Unit,
     banner: String? = null,
 ) {
     LazyColumn(
@@ -232,11 +269,13 @@ private fun PostList(
         items(items = posts, key = { it.id }, contentType = { "post" }) { post ->
             // The ONE shared card (ui/components, mobile-post-card) — distanceM = null on this
             // surface (Global has no spatial filter, no distance is rendered). The whole card is
-            // the open-detail tap; onOpenPost carries the PII-free post (display identity
-            // included, never the author UUID / coordinates).
+            // the open-detail tap; the action row's like/reply affordances are the only other
+            // targets (mobile-inline-post-actions). All callbacks carry the PII-free post.
             PostCard(
                 model = post.toCardModel(),
                 onOpen = { onOpenPost(post) },
+                onToggleLike = { onToggleLike(post) },
+                onReplyShortcut = { onReplyShortcut(post) },
                 modifier = Modifier.testTag(GLOBAL_POST_CARD_TAG),
             )
         }

@@ -31,9 +31,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -163,6 +167,24 @@ fun PostDetailScreen(
 
     val reloadReplies: () -> Unit = { repliesRetryKey++ }
 
+    // Reply-shortcut autofocus (mobile-inline-post-actions § "Reply composer autofocuses on
+    // reply-shortcut entry"): when the route carries focusReplyComposer = true, focus the composer
+    // (IME up) exactly ONCE on the entry's first composition. The consumed marker is SAVEABLE state
+    // (rememberSaveable under the entry's saveable-state holder), so recomposition, a manual focus
+    // clear, AND a config-change/process-death restore never re-fire it. Whole-card opens
+    // (focusReplyComposer = false) keep today's no-autofocus behavior.
+    val replyFocusRequester = remember { FocusRequester() }
+    var replyAutofocusConsumed by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (route.focusReplyComposer && !replyAutofocusConsumed) {
+            replyAutofocusConsumed = true
+            // Wait one frame before requesting: a first-composition requestFocus can race the focus
+            // system's attachment pass and silently no-op (the field stays unfocused).
+            withFrameNanos {}
+            replyFocusRequester.requestFocus()
+        }
+    }
+
     val onToggleLike: () -> Unit = {
         if (!likeInFlight) {
             val wasLiked = liked
@@ -246,6 +268,7 @@ fun PostDetailScreen(
                 inFlight = replyInFlight,
                 banner = replyBanner(replyOutcome),
                 onSubmit = onSubmitReply,
+                focusRequester = replyFocusRequester,
             )
         },
     ) { padding ->
@@ -541,6 +564,7 @@ private fun ReplyComposer(
     inFlight: Boolean,
     banner: PostDetailBanner?,
     onSubmit: () -> Unit,
+    focusRequester: FocusRequester,
 ) {
     val composer = replyComposerUiState(content, inFlight)
     // Bottom-bar insets: keep the composer above the nav bar AND the keyboard —
@@ -560,7 +584,11 @@ private fun ReplyComposer(
             placeholder = { Text(text = stringResource(Res.string.post_detail_reply_placeholder)) },
             enabled = !inFlight,
             minLines = 2,
-            modifier = Modifier.fillMaxWidth().testTag(POST_DETAIL_REPLY_FIELD_TAG),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+                    .testTag(POST_DETAIL_REPLY_FIELD_TAG),
         )
         Text(
             text = stringResource(Res.string.post_detail_reply_counter, composer.charCount),

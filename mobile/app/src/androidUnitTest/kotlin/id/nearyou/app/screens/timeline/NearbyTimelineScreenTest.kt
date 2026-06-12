@@ -1,6 +1,7 @@
 package id.nearyou.app.screens.timeline
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -9,9 +10,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
+import id.nearyou.app.data.like.FakeLikeFlow
+import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
+import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.screens.home.HomeScreen
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
@@ -19,6 +23,13 @@ import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.timeline.UpsellDto
 import id.nearyou.app.timeline.fakeNearbyPost
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
+import id.nearyou.app.ui.components.POST_CARD_LIKE_ACTION_TAG
+import id.nearyou.app.ui.components.POST_CARD_LIKE_FILLED_TAG
+import id.nearyou.app.ui.components.POST_CARD_LIKE_OUTLINED_TAG
+import id.nearyou.app.ui.components.POST_CARD_REPLY_ACTION_TAG
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -65,6 +76,7 @@ private const val HOME_PLACEHOLDER_TITLE = "NearYouID" // home_placeholder_title
 @OptIn(ExperimentalTestApi::class)
 class NearbyTimelineScreenTest {
     private lateinit var fake: FakeNearbyTimelineFlow
+    private lateinit var likeFake: FakeLikeFlow
 
     // The Nearby surface is gated on location permission (mobile-location-permission-flow): bind a
     // GRANTED FakeLocationPermissionController so these render assertions reach the fetch path.
@@ -72,13 +84,16 @@ class NearbyTimelineScreenTest {
         outcome: NearbyTimelineOutcome = NearbyTimelineOutcome.Loaded(emptyList(), null, null),
         suspendForever: Boolean = false,
         suspendFromCall: Int = Int.MAX_VALUE,
+        likeOutcome: LikeOutcome = LikeOutcome.Liked,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeNearbyTimelineFlow(outcome = outcome, suspendForever = suspendForever, suspendFromCall = suspendFromCall)
+        likeFake = FakeLikeFlow(likeOutcome)
         startKoin {
             modules(
                 module {
                     single<NearbyTimelineFlow> { fake }
+                    single<LikeFlow> { likeFake }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
@@ -347,6 +362,112 @@ class NearbyTimelineScreenTest {
             assertFalse(tapped.toString().contains("-6.21"), "no latitude in the onOpenPost payload")
             assertFalse(tapped.toString().contains("106.85"), "no longitude in the onOpenPost payload")
             assertFalse(tapped.toString().contains("11111111-1111"), "no author UUID in the onOpenPost payload")
+        }
+    }
+
+    // ---- mobile-inline-post-actions: inline like + the Free like-cap dialog + the reply shortcut ----
+
+    // The verbatim docs/03:187 modal body with the frame-18 "14 j 19 mnt" countdown (51 540 s).
+    private val capDialogBody =
+        "Kamu sudah menggunakan 10 like hari ini. " +
+            "Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam 14 j 19 mnt."
+
+    @Test
+    fun likeTap_flipsTheCardTreatment_andStandsOnSuccess() {
+        installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(likedByViewer = false)), null, null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_LIKE_OUTLINED_TAG, useUnmergedTree = true).assertExists()
+            onNodeWithTag(POST_CARD_LIKE_ACTION_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithTag(POST_CARD_LIKE_FILLED_TAG, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            assertEquals(listOf("p1" to false), likeFake.invocations, "the like direction is the card's current state")
+        }
+    }
+
+    @Test
+    fun rateLimitedLike_reverts_andShowsTheCapDialog_withVerbatimCopy_tutupClears() {
+        installKoin(
+            NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(likedByViewer = false)), null, null),
+            likeOutcome = LikeOutcome.RateLimited(retryAfterSeconds = 51_540),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_LIKE_ACTION_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            // The verbatim docs/03:187 body + the frame-18 CTAs; the optimistic flip is reverted behind it.
+            onNodeWithText(capDialogBody).assertExists()
+            onNodeWithText("Batas harian tercapai").assertExists()
+            onNodeWithTag(POST_CARD_LIKE_OUTLINED_TAG, useUnmergedTree = true).assertExists()
+            // Tutup clears the one-shot state; the dialog does not re-show on recomposition.
+            onNodeWithTag(DAILY_CAP_DIALOG_CLOSE_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isEmpty() }
+        }
+    }
+
+    @Test
+    fun premiumCta_v1Wiring_dismissesTheDialogOnly() {
+        installKoin(
+            NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(likedByViewer = false)), null, null),
+            likeOutcome = LikeOutcome.RateLimited(retryAfterSeconds = 1_140),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_LIKE_ACTION_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            // "Aktifkan Premium" is the v1 dismiss-only placeholder (paywall deferred, issue #235):
+            // the dialog closes and the feed surface is unchanged — no navigation side-effect (this
+            // surface holds no back stack; the push-only wiring is pinned by HomeTabHostScreenTest).
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isEmpty() }
+            onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists()
+        }
+    }
+
+    @Test
+    fun networkErrorLike_revertsSilently_noErrorSurface() {
+        installKoin(
+            NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(likedByViewer = false)), null, null),
+            likeOutcome = LikeOutcome.NetworkError,
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_LIKE_ACTION_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { likeFake.invocationCount == 1 }
+            waitForIdle()
+            // Reverted with NO error node, dialog, or banner — the deliberate, spec-recorded v1 posture.
+            onNodeWithTag(POST_CARD_LIKE_OUTLINED_TAG, useUnmergedTree = true).assertExists()
+            onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).assertCountEquals(0)
+            onNodeWithText(ERROR_NETWORK).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun replyAffordance_invokesOnOpenPostReply_notOnOpenPost() {
+        installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(id = "p7")), null, null))
+        var opened = 0
+        var replied: NearbyTimelinePost? = null
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        NearbyTimelineScreen(
+                            onOpenPost = { opened++ },
+                            onOpenPostReply = { replied = it },
+                        )
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_REPLY_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_REPLY_ACTION_TAG).performClick()
+            waitForIdle()
+            assertEquals("p7", replied?.id, "the reply shortcut carries the tapped post")
+            assertEquals(0, opened, "the reply shortcut does NOT fire the whole-card onOpenPost")
         }
     }
 }

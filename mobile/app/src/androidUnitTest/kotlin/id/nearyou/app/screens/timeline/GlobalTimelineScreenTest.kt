@@ -9,12 +9,21 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
+import id.nearyou.app.data.like.FakeLikeFlow
+import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.timeline.UpsellDto
 import id.nearyou.app.timeline.fakeGlobalPost
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
+import id.nearyou.app.ui.components.POST_CARD_LIKE_ACTION_TAG
+import id.nearyou.app.ui.components.POST_CARD_LIKE_FILLED_TAG
+import id.nearyou.app.ui.components.POST_CARD_LIKE_OUTLINED_TAG
+import id.nearyou.app.ui.components.POST_CARD_REPLY_ACTION_TAG
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -55,16 +64,24 @@ private const val RETRY = "Coba lagi"
 @OptIn(ExperimentalTestApi::class)
 class GlobalTimelineScreenTest {
     private lateinit var fake: FakeGlobalTimelineFlow
+    private lateinit var likeFake: FakeLikeFlow
 
     private fun installKoin(
         outcome: GlobalTimelineOutcome = GlobalTimelineOutcome.Loaded(emptyList(), null, null),
         suspendForever: Boolean = false,
         suspendFromCall: Int = Int.MAX_VALUE,
+        likeOutcome: LikeOutcome = LikeOutcome.Liked,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeGlobalTimelineFlow(outcome = outcome, suspendForever = suspendForever, suspendFromCall = suspendFromCall)
+        likeFake = FakeLikeFlow(likeOutcome)
         startKoin {
-            modules(module { single<GlobalTimelineFlow> { fake } })
+            modules(
+                module {
+                    single<GlobalTimelineFlow> { fake }
+                    single<LikeFlow> { likeFake }
+                },
+            )
         }
     }
 
@@ -280,6 +297,69 @@ class GlobalTimelineScreenTest {
             assertFalse(tapped.toString().contains("-6.21"), "no latitude in the onOpenPost payload")
             assertFalse(tapped.toString().contains("106.85"), "no longitude in the onOpenPost payload")
             assertFalse(tapped.toString().contains("11111111-1111"), "no author UUID in the onOpenPost payload")
+        }
+    }
+
+    // ---- mobile-inline-post-actions: the Global surface shares the SAME inline-like lifecycle ----
+
+    @Test
+    fun likeTap_flipsTheCardTreatment_throughTheSharedSeam() {
+        installKoin(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(likedByViewer = false)), null, null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_LIKE_OUTLINED_TAG, useUnmergedTree = true).assertExists()
+            onNodeWithTag(POST_CARD_LIKE_ACTION_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithTag(POST_CARD_LIKE_FILLED_TAG, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            assertEquals(listOf("p1" to false), likeFake.invocations, "the like direction is the card's current state")
+        }
+    }
+
+    @Test
+    fun rateLimitedLike_showsTheCapDialog_onTheGlobalSurface_tutupClears() {
+        installKoin(
+            GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(likedByViewer = false)), null, null),
+            likeOutcome = LikeOutcome.RateLimited(retryAfterSeconds = 1_140),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_LIKE_ACTION_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            // The verbatim body with the sub-hour "19 mnt" countdown; the flip is reverted behind it.
+            onNodeWithText(
+                "Kamu sudah menggunakan 10 like hari ini. " +
+                    "Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam 19 mnt.",
+            ).assertExists()
+            onNodeWithTag(POST_CARD_LIKE_OUTLINED_TAG, useUnmergedTree = true).assertExists()
+            onNodeWithTag(DAILY_CAP_DIALOG_CLOSE_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isEmpty() }
+        }
+    }
+
+    @Test
+    fun replyAffordance_invokesOnOpenPostReply_notOnOpenPost() {
+        installKoin(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "g7")), null, null))
+        var opened = 0
+        var replied: GlobalTimelinePost? = null
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        GlobalTimelineScreen(
+                            onOpenPost = { opened++ },
+                            onOpenPostReply = { replied = it },
+                        )
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_REPLY_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_REPLY_ACTION_TAG).performClick()
+            waitForIdle()
+            assertEquals("g7", replied?.id, "the reply shortcut carries the tapped post")
+            assertEquals(0, opened, "the reply shortcut does NOT fire the whole-card onOpenPost")
         }
     }
 }

@@ -11,6 +11,7 @@ import id.nearyou.app.config.isDebugBuild
 import id.nearyou.app.consent.ConsentApiClient
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentRepository
+import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.diagnostics.ConsoleDiagnosticSink
 import id.nearyou.app.diagnostics.DiagnosticSink
 import id.nearyou.app.location.CachingLocationProvider
@@ -195,6 +196,11 @@ val mobileModule =
             )
         }
         single<PostDetailFlow> { get<PostDetailRepository>() }
+        // mobile-inline-post-actions (D1) — the extracted cross-surface like seam: the SAME
+        // PostDetailRepository singleton, additionally bound as LikeFlow so the timeline ViewModels'
+        // inline like depends on exactly the like surface (no second like client/repository, no
+        // duplicate status→LikeOutcome mapping).
+        single<LikeFlow> { get<PostDetailRepository>() }
     }
 
 /**

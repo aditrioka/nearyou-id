@@ -9,6 +9,8 @@ import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
 import id.nearyou.app.auth.SignInOutcome
 import id.nearyou.app.auth.SignUpOutcome
+import id.nearyou.app.data.like.FakeLikeFlow
+import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -69,6 +71,7 @@ class RootRouterScreenTest {
                     // The authenticated route lands on Home → NearbyTimelineScreen, which koinInjects a
                     // NearbyTimelineFlow and loads on entry — provide a fast fake so the route completes.
                     single<NearbyTimelineFlow> { FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null)) }
+                    single<LikeFlow> { FakeLikeFlow() }
                     // mobile-location-permission-flow: the Nearby surface is gated on a
                     // LocationPermissionController. Bind a GRANTED fake (not strictly required now that the
                     // marker is the shell's Beranda label, but keeps the Home section fully composable).

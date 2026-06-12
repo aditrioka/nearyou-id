@@ -81,6 +81,25 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                         ),
                     )
                 },
+                // The cards' reply shortcut (mobile-inline-post-actions): the SAME detail push with
+                // focusReplyComposer = true, so the entry autofocuses the reply composer. The
+                // whole-card onOpenPost above keeps the default false.
+                onOpenPostReply = { target ->
+                    backStack.add(
+                        PostDetailRoute(
+                            postId = target.postId,
+                            content = target.content,
+                            cityName = target.cityName,
+                            distanceM = target.distanceM,
+                            createdAtIso = target.createdAtIso,
+                            likedByViewer = target.likedByViewer,
+                            replyCount = target.replyCount,
+                            authorUsername = target.authorUsername,
+                            authorDisplayName = target.authorDisplayName,
+                            focusReplyComposer = true,
+                        ),
+                    )
+                },
             )
         }
         entry<AgeGateRoute> {

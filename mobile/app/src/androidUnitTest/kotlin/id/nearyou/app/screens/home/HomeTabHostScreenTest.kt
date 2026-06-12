@@ -13,6 +13,8 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.data.like.FakeLikeFlow
+import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -39,6 +41,7 @@ import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.timeline.fakeGlobalPost
 import id.nearyou.app.timeline.fakeNearbyPost
+import id.nearyou.app.ui.components.POST_CARD_REPLY_ACTION_TAG
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -98,6 +101,7 @@ class HomeTabHostScreenTest {
                 module {
                     single<NearbyTimelineFlow> { nearbyFake }
                     single<GlobalTimelineFlow> { globalFake }
+                    single<LikeFlow> { FakeLikeFlow() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
@@ -321,6 +325,8 @@ class HomeTabHostScreenTest {
             // structurally, no lat/lng/UUID: PostDetailRoute declares no such properties).
             assertEquals("raka.jkt", top.authorUsername)
             assertEquals("Raka Pratama", top.authorDisplayName)
+            // mobile-inline-post-actions — the whole-card open keeps the autofocus flag at its default.
+            assertEquals(false, top.focusReplyComposer, "a whole-card open pushes focusReplyComposer = false")
         }
     }
 
@@ -344,6 +350,48 @@ class HomeTabHostScreenTest {
             // mobile-timeline-card-redesign — identity rides the route from the Global projection too.
             assertEquals("dewi.kuliner", top.authorUsername)
             assertEquals("Dewi Lestari", top.authorDisplayName)
+            assertEquals(false, top.focusReplyComposer, "a whole-card open pushes focusReplyComposer = false")
+        }
+    }
+
+    // mobile-home-tab-host § "The tab host hoists onOpenPost, wired at the call site to a root-stack
+    // PostDetailRoute push" (reply-shortcut scenario, mobile-inline-post-actions) — tapping a Nearby
+    // card's REPLY affordance under the REAL appEntryProvider pushes the SAME detail route with
+    // focusReplyComposer = true, so the entry autofocuses the reply composer.
+    @Test
+    fun tappingNearbyReplyAffordance_pushesPostDetailRouteWithFocusReplyComposer() {
+        installKoin()
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(HomeRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_REPLY_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_REPLY_ACTION_TAG).performClick()
+            waitForIdle()
+            val top = backStack.last()
+            assertTrue(top is PostDetailRoute, "the reply shortcut pushes PostDetailRoute (was: ${backStack.toList()})")
+            assertEquals("NEARBY_POST", top.content)
+            assertEquals(true, top.focusReplyComposer, "the reply shortcut pushes focusReplyComposer = true")
+            assertEquals("raka.jkt", top.authorUsername)
+        }
+    }
+
+    // The Global feed's reply affordance pushes the same flagged route (distanceM = null on this surface).
+    @Test
+    fun tappingGlobalReplyAffordance_pushesTheFlaggedRouteWithNullDistance() {
+        installKoin()
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(HomeRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(TAB_GLOBAL).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_REPLY_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_REPLY_ACTION_TAG).performClick()
+            waitForIdle()
+            val top = backStack.last()
+            assertTrue(top is PostDetailRoute, "the Global reply shortcut pushes PostDetailRoute (was: ${backStack.toList()})")
+            assertEquals("GLOBAL_POST", top.content)
+            assertEquals(true, top.focusReplyComposer)
+            assertEquals(null, top.distanceM, "a Global-origin route carries no distance")
         }
     }
 }

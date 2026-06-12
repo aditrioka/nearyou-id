@@ -30,12 +30,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.LocationConsentModal
 import id.nearyou.app.location.LocationGate
 import id.nearyou.app.location.LocationGateUiState
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
+import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.PostCard
 import id.nearyou.app.ui.components.PostCardModel
 import id.nearyou.resources.generated.resources.Res
@@ -43,6 +45,7 @@ import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
+import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_empty_nearby
 import id.nearyou.resources.generated.resources.timeline_limit_hard
@@ -99,6 +102,7 @@ const val NEARBY_POST_CARD_TAG: String = "nearbyPostCard"
 fun NearbyTimelineScreen(
     onSeeGlobal: () -> Unit = {},
     onOpenPost: (NearbyTimelinePost) -> Unit = {},
+    onOpenPostReply: (NearbyTimelinePost) -> Unit = {},
 ) {
     val controller = koinInject<LocationPermissionController>()
     val gate = remember { LocationGate(controller) }
@@ -126,7 +130,8 @@ fun NearbyTimelineScreen(
             )
         }
         LocationGateUiState.Denied -> LocationDeniedState(onOpenSettings = { controller.openAppSettings() })
-        LocationGateUiState.Granted -> NearbyFeed(onSeeGlobal = onSeeGlobal, onOpenPost = onOpenPost)
+        LocationGateUiState.Granted ->
+            NearbyFeed(onSeeGlobal = onSeeGlobal, onOpenPost = onOpenPost, onOpenPostReply = onOpenPostReply)
     }
 }
 
@@ -145,12 +150,18 @@ fun NearbyTimelineScreen(
 private fun NearbyFeed(
     onSeeGlobal: () -> Unit,
     onOpenPost: (NearbyTimelinePost) -> Unit,
+    onOpenPostReply: (NearbyTimelinePost) -> Unit,
 ) {
     val flow = koinInject<NearbyTimelineFlow>()
-    val viewModel = viewModel { NearbyTimelineViewModel(flow) }
+    // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
+    // PostDetailRepository singleton post-detail uses; resolved here and handed to the VM's
+    // shared InlineLikeController instance.
+    val likeFlow = koinInject<LikeFlow>()
+    val viewModel = viewModel { NearbyTimelineViewModel(flow, likeFlow) }
     val outcome by viewModel.outcome.collectAsStateWithLifecycle()
     val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val likeCapRetryAfterSeconds by viewModel.likeCapRetryAfterSeconds.collectAsStateWithLifecycle()
 
     NearbyTimelineContent(
         // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
@@ -166,7 +177,26 @@ private fun NearbyFeed(
         // the Global tab), NOT a back-stack reference, so the screen stays navigation-free.
         onSeeGlobal = onSeeGlobal,
         onOpenPost = onOpenPost,
+        // Inline like: the tapped card's CURRENT likedByViewer drives the direction (both directions
+        // valid — false → POST, true → DELETE). The optimistic flip + outcome handling live in the
+        // shared controller inside the VM.
+        onToggleLike = { post -> viewModel.toggleLike(post.id, post.likedByViewer) },
+        // Reply shortcut: hoisted to the tab host, which pushes PostDetailRoute(focusReplyComposer = true).
+        onReplyShortcut = onOpenPostReply,
     )
+
+    // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18): shown while the one-shot cap
+    // state is non-null. The body is the verbatim docs/03:187 modal copy formatted with the live
+    // ticking countdown. The Premium CTA is the v1 dismiss-only placeholder — the paywall destination
+    // is the deferred requirement tracked by issue #235.
+    likeCapRetryAfterSeconds?.let { retryAfterSeconds ->
+        DailyCapUpsellDialog(
+            retryAfterSeconds = retryAfterSeconds,
+            body = { countdown -> stringResource(Res.string.post_detail_likes_cap_upsell, countdown) },
+            onDismiss = viewModel::onLikeCapDialogDismissed,
+            onActivatePremium = viewModel::onLikeCapDialogDismissed,
+        )
+    }
 }
 
 /** Neutral centered spinner shown while the OS permission status is being queried (or behind the modal). */
@@ -218,6 +248,8 @@ private fun NearbyTimelineContent(
     onRetry: () -> Unit,
     onSeeGlobal: () -> Unit,
     onOpenPost: (NearbyTimelinePost) -> Unit,
+    onToggleLike: (NearbyTimelinePost) -> Unit,
+    onReplyShortcut: (NearbyTimelinePost) -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -233,11 +265,19 @@ private fun NearbyTimelineContent(
             // NOT signin_error_network (the SessionInvalidator re-route whisks the user to SignInScreen).
             NearbyTimelineUiState.SessionRedirect ->
                 CenteredMessageState(stringResource(Res.string.timeline_session_redirect))
-            is NearbyTimelineUiState.Content -> PostList(posts = uiState.posts, onOpenPost = onOpenPost)
+            is NearbyTimelineUiState.Content ->
+                PostList(
+                    posts = uiState.posts,
+                    onOpenPost = onOpenPost,
+                    onToggleLike = onToggleLike,
+                    onReplyShortcut = onReplyShortcut,
+                )
             is NearbyTimelineUiState.SoftLimit ->
                 PostList(
                     posts = uiState.posts,
                     onOpenPost = onOpenPost,
+                    onToggleLike = onToggleLike,
+                    onReplyShortcut = onReplyShortcut,
                     banner = stringResource(Res.string.timeline_limit_soft),
                 )
         }
@@ -347,6 +387,8 @@ private fun NearbyEmptyState(onSeeGlobal: () -> Unit) {
 private fun PostList(
     posts: List<NearbyTimelinePost>,
     onOpenPost: (NearbyTimelinePost) -> Unit,
+    onToggleLike: (NearbyTimelinePost) -> Unit,
+    onReplyShortcut: (NearbyTimelinePost) -> Unit,
     banner: String? = null,
 ) {
     LazyColumn(
@@ -363,11 +405,14 @@ private fun PostList(
         }
         items(items = posts, key = { it.id }, contentType = { "post" }) { post ->
             // The ONE shared card (ui/components, mobile-post-card) — the whole card is the
-            // open-detail tap; the hoisted onOpenPost carries the PII-free post (display identity
-            // included, never the author UUID / coordinates) up to the tab host's root-stack push.
+            // open-detail tap; the action row's like/reply affordances are the only other targets
+            // (mobile-inline-post-actions). All callbacks carry the PII-free post (display identity
+            // included, never the author UUID / coordinates).
             PostCard(
                 model = post.toCardModel(),
                 onOpen = { onOpenPost(post) },
+                onToggleLike = { onToggleLike(post) },
+                onReplyShortcut = { onReplyShortcut(post) },
                 modifier = Modifier.testTag(NEARBY_POST_CARD_TAG),
             )
         }

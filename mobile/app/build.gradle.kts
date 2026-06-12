@@ -274,6 +274,7 @@ tasks.withType<Test>().configureEach {
             "**/AppShellScreenTest*",
             "**/PostDetailScreenTest*",
             "**/PostCardTest*",
+            "**/DailyCapUpsellDialogTest*",
         )
     }
 }
