@@ -729,6 +729,49 @@ class TimelineReadRateLimitTest : StringSpec({
         }
     }
 
+    "scenario 23b — out-of-envelope lat/lng returns 400 with zero rate-limit Redis calls" {
+        val (viewer, vt) = seedUser()
+        try {
+            val spy = SpyRateLimiter(InMemoryRateLimiter())
+            withTimeline(rateLimiter = spy) {
+                // Jakarta longitude, but latitude far outside the Indonesia envelope.
+                val resp =
+                    client().get("/api/v1/timeline/nearby?lat=48.85&lng=106.8&radius_m=1000") {
+                        header(HttpHeaders.Authorization, "Bearer $vt")
+                    }
+                resp.status shouldBe HttpStatusCode.BadRequest
+                Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["error"]!!.jsonObject["code"]!!
+                    .jsonPrimitive.content shouldBe "location_out_of_bounds"
+            }
+            // Spec ordering step 2: parameter validation precedes the limiter pre-checks —
+            // a 400 must consume NO rolling/session quota.
+            spy.acquireKeys().shouldBeEmpty()
+        } finally {
+            cleanup(viewer)
+        }
+    }
+
+    "scenario 23c — out-of-range radius returns 400 with zero rate-limit Redis calls" {
+        val (viewer, vt) = seedUser()
+        try {
+            val spy = SpyRateLimiter(InMemoryRateLimiter())
+            withTimeline(rateLimiter = spy) {
+                val resp =
+                    client().get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=99") {
+                        header(HttpHeaders.Authorization, "Bearer $vt")
+                    }
+                resp.status shouldBe HttpStatusCode.BadRequest
+                Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["error"]!!.jsonObject["code"]!!
+                    .jsonPrimitive.content shouldBe "radius_out_of_bounds"
+            }
+            spy.acquireKeys().shouldBeEmpty()
+        } finally {
+            cleanup(viewer)
+        }
+    }
+
     // ----------------------------------------------------------------------------------
     // Scenario 24 (8.20) — empty Following with zero follows: 1 slot consumed; post-increment
     // skipped (`(0-1).coerceAtLeast(0) = 0`).

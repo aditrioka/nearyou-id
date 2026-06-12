@@ -1,5 +1,7 @@
 package id.nearyou.app.chat
 
+import id.nearyou.app.core.domain.lint.AllowContentWriteWithoutModeration
+import id.nearyou.app.infra.db.UserPairLock
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.Timestamp
@@ -389,16 +391,10 @@ open class ChatRepository(
         a: UUID,
         b: UUID,
     ) {
-        // Canonical-ordered pair: LEAST(a, b) || ':' || GREATEST(a, b).
-        conn.prepareStatement(
-            "SELECT pg_advisory_xact_lock(hashtext(LEAST(?::text, ?::text) || ':' || GREATEST(?::text, ?::text)))",
-        ).use { ps ->
-            ps.setObject(1, a)
-            ps.setObject(2, b)
-            ps.setObject(3, a)
-            ps.setObject(4, b)
-            ps.executeQuery().use { it.next() }
-        }
+        // Delegates to the canonical pair-lock helper — keeping a second copy of the
+        // hashtext(LEAST||':'||GREATEST) formula here risked the lock keyspaces
+        // silently diverging (docs/11 Pattern Registry).
+        UserPairLock.acquire(conn, a, b)
     }
 
     private fun acquireConversationLock(
@@ -519,6 +515,9 @@ open class ChatRepository(
         }
     }
 
+    // The embedded-post-snapshot JSON copies content that ALREADY passed Layer 1/2
+    // moderation at post-creation time; `content` itself is literal NULL in this INSERT.
+    @AllowContentWriteWithoutModeration("embedded_snapshot")
     private fun insertEmbeddedOnlyChatMessage(
         conn: Connection,
         conversationId: UUID,
@@ -717,6 +716,9 @@ open class ChatRepository(
         }
     }
 
+    // Moderation runs in ChatService's pre-insert hook (in the same tx) BEFORE this
+    // sink is reached — see ChatModerationIntegrationTest's call-order source scan.
+    @AllowContentWriteWithoutModeration("service_layer_moderated")
     private fun insertChatMessage(
         conn: Connection,
         conversationId: UUID,

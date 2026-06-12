@@ -1,6 +1,6 @@
 package id.nearyou.app.user
 
-import id.nearyou.app.lint.AllowMissingBlockJoin
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
 import id.nearyou.data.repository.UserProfileReader
 import id.nearyou.data.repository.UserProfileRow
 import java.sql.ResultSet

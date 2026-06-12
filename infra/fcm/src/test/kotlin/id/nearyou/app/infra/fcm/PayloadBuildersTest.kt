@@ -51,7 +51,7 @@ class PayloadBuildersTest : StringSpec(
             actorUserId: UUID? = actor,
             targetType: String? = "post",
             targetIdValue: UUID? = targetId,
-            bodyDataJson: String = """{"post_excerpt":"Hi from Jakarta"}""",
+            bodyDataJson: String? = """{"post_excerpt":"Hi from Jakarta"}""",
         ): NotificationRow =
             NotificationRow(
                 id = UUID.randomUUID(),

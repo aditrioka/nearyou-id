@@ -1,7 +1,7 @@
 # iOS Build & Run Runbook
 
-How to build and run `:mobile:app` on the iOS simulator/device from a clean checkout, plus
-the build-ordering fix that keeps Compose Multiplatform resources (fonts, drawables) in the
+Build and run `:mobile:app` on the iOS simulator/device from a clean checkout, plus the
+build-ordering fix that keeps Compose Multiplatform resources (fonts, drawables) in the
 `.app`. For Google Sign-In OAuth client + `GoogleService-Info.plist` + per-env xcconfig
 wiring, see [`google-cloud-oauth-clients.md`](google-cloud-oauth-clients.md).
 
@@ -51,10 +51,9 @@ spec.resources = ['build/compose/cocoapods/compose-resources']
 CocoaPods globs that directory **at `pod install` time** and bakes the result into
 `Pods-iosApp-resources.sh` + the resource `.xcfilelist`s. On a fresh clone the directory does
 not exist yet (no Gradle build has populated it), so the glob is empty and **CocoaPods drops
-the entire `[CP] Copy Pods Resources` build phase**. The app then compiles and links fine but
-ships with no compose resources, and the font lookup throws at first render. This is a known
-fragility of Compose-Multiplatform *multimodule* resources combined with the KMP CocoaPods
-integration.
+the entire `[CP] Copy Pods Resources` build phase**. The app compiles and links fine but ships
+with no compose resources; the font lookup throws at first render. A known fragility of
+Compose-Multiplatform *multimodule* resources combined with the KMP CocoaPods integration.
 
 **Fix (`iosApp/Podfile`).** Top-level Ruby in the Podfile runs, *before* CocoaPods evaluates
 the podspec:
@@ -70,13 +69,12 @@ the podspec:
   the glob is non-empty and the `[CP] Copy Pods Resources` phase + `resources.sh` are
   generated. The font then reaches the `.app`.
 
-Because this runs at Podfile-eval time (before dependency analysis), it fixes both the
-"framework missing" precondition and the "resources missing" bug in one pass. The
-`syncPodComposeResourcesForIos` task needs Xcode's `ARCHS`/`PLATFORM_NAME`/`CONFIGURATION`
-env to infer a target arch; the Podfile sets placeholder values (`arm64`/`iphonesimulator`/
-`Debug`) only to satisfy that guard — Compose resources are byte-identical across archs and
-configs, and the real per-arch framework is (re)built later by the podspec's own
-`syncFramework` Xcode build phase.
+Running at Podfile-eval time (before dependency analysis) fixes both the "framework missing"
+precondition and the "resources missing" bug in one pass. `syncPodComposeResourcesForIos`
+needs Xcode's `ARCHS`/`PLATFORM_NAME`/`CONFIGURATION` env to infer a target arch; the Podfile
+sets placeholder values (`arm64`/`iphonesimulator`/`Debug`) only to satisfy that guard —
+Compose resources are byte-identical across archs and configs, and the real per-arch framework
+is (re)built later by the podspec's own `syncFramework` Xcode build phase.
 
 > Re-run `pod install` whenever `:shared:resources` (or any module's `composeResources/`)
 > changes, so the regenerated manifest captures the new/removed files.
@@ -84,8 +82,8 @@ configs, and the real per-arch framework is (re)built later by the podspec's own
 ## Troubleshooting
 
 - **`MissingResourceException` / brand font renders as system sans-serif.** The compose
-  resources never reached the `.app`. Confirm `pod install` ran the Gradle bootstrap (you set
-  a UTF-8 locale and `./gradlew` is runnable), then re-run `pod install`. Manual equivalent:
+  resources never reached the `.app`. Confirm `pod install` ran the Gradle bootstrap (UTF-8
+  locale set, `./gradlew` runnable), then re-run `pod install`. Manual equivalent:
   ```bash
   ./gradlew :mobile:app:generateDummyFramework
   ARCHS=arm64 PLATFORM_NAME=iphonesimulator CONFIGURATION=Debug \
@@ -101,9 +99,9 @@ configs, and the real per-arch framework is (re)built later by the podspec's own
   shell locale is not UTF-8 (CocoaPods normalizes path strings). Fix:
   `export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`.
 
-- **Sign-in shows "NetworkError" after pulling new code, but the code looks correct.** This
-  was observed during the Mobile #4 smoke and traced to **stale build artifacts**, not a code
-  bug. A clean rebuild resolves it:
+- **Sign-in shows "NetworkError" after pulling new code, but the code looks correct.**
+  Observed during the Mobile #4 smoke; traced to **stale build artifacts**, not a code bug. A
+  clean rebuild resolves it:
   ```bash
   rm -rf ~/Library/Developer/Xcode/DerivedData/iosApp-* mobile/app/build
   cd iosApp && pod install   # re-bootstraps resources

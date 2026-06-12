@@ -1,14 +1,14 @@
 # admin_regions import pipeline
 
-Reproducible one-shot pipeline that pulls Indonesian kabupaten/kota + province boundaries from **OpenStreetMap via the Overpass API**, stages them into a local Postgres+PostGIS, applies the spec-required transforms (12 nautical mile maritime buffer on coastal kabupaten + `ST_MakeValid` on invalid multipolygons), and emits a deterministic SQL seed block ready to append to `backend/ktor/src/main/resources/db/migration/V11__admin_regions.sql`.
+Reproducible one-shot pipeline: pulls Indonesian kabupaten/kota + province boundaries from **OpenStreetMap via the Overpass API**, stages them into a local Postgres+PostGIS, applies the spec-required transforms (12 nautical mile maritime buffer on coastal kabupaten + `ST_MakeValid` on invalid multipolygons), and emits a deterministic SQL seed block ready to append to `backend/ktor/src/main/resources/db/migration/V11__admin_regions.sql`.
 
 ## Why this exists
 
 Session 1 of the `global-timeline-with-region-polygons` change landed the V11 schema (table + indexes + `posts_set_city_tg` trigger + `visible_posts` refresh) without the polygon seed, so `admin_regions` starts empty and the trigger harmlessly falls through to step 4. Session 2 is this pipeline — run it once, commit the output, and the Global/Nearby/Following endpoints start surfacing real `city_name` labels on every post.
 
-The pipeline is scripted (not ad-hoc) so that:
+Scripted (not ad-hoc) so that:
 - A future polygon refresh (re-seed with newer OSM data) is one command, not a re-derivation of 540 rows by hand.
-- The transforms (coastal-buffer heuristic, DKI kotamadya special-case, ID derivation from OSM relation ID) are auditable as code, not as prose in a commit message.
+- The transforms (coastal-buffer heuristic, DKI kotamadya special-case, ID derivation from OSM relation ID) are auditable as code, not prose in a commit message.
 - The output is deterministic given a pinned Overpass timestamp — two invocations on the same day produce byte-identical SQL.
 
 ## Dataset decision — OSM (design Open Question 1, resolved)
@@ -92,9 +92,9 @@ psql -h localhost -p 5433 -U postgres -d nearyou_dev -c \
 
 ## Output determinism notes
 
-- OSM relation IDs are stable across re-seeds. A kabupaten renamed or resplit in OSM upstream → its row UPDATEs by ID, not re-INSERTs. Per design Decision 8.
-- The Overpass API returns relations in arbitrary order. `generate-seed.py` sorts by `(level, id)` before emission, so diffs between runs reflect only real upstream changes.
-- The 12nm buffer uses `ST_Buffer(geom::geometry, <degrees>)` with a per-row degree conversion appropriate for the polygon's latitude. This is a reasonable approximation for the 22 km band; exact geodesic buffering (`ST_Buffer(geom::geography, 22000)`) is more expensive and produces visually-identical results at this scale.
+- OSM relation IDs are stable across re-seeds: a kabupaten renamed or resplit in OSM upstream UPDATEs by ID, not re-INSERTs. Per design Decision 8.
+- Overpass returns relations in arbitrary order; `generate-seed.py` sorts by `(level, id)` before emission, so diffs between runs reflect only real upstream changes.
+- The 12nm buffer uses `ST_Buffer(geom::geometry, <degrees>)` with a per-row degree conversion appropriate for the polygon's latitude — a reasonable approximation for the 22 km band; exact geodesic buffering (`ST_Buffer(geom::geography, 22000)`) is more expensive and produces visually-identical results at this scale.
 
 ## Coastal-kabupaten heuristic
 
@@ -102,7 +102,7 @@ Per task 1.3.5 and `docs/02-Product.md–203`:
 
 > A kabupaten is "coastal" if its centroid lies within 50 km of Indonesia's coastline. Coastline = `ST_Boundary(ST_Union(all_province_polygons))`.
 
-This is a one-shot computation run server-side in the staging DB:
+One-shot computation run server-side in the staging DB:
 
 ```sql
 WITH country_boundary AS (
@@ -117,13 +117,11 @@ UPDATE admin_regions_staging kab
    AND ST_DWithin(kab.geom_centroid, country_boundary.coast, 50000);
 ```
 
-Land-locked kabupaten (e.g., Bandung, most of Kalimantan interior) skip the buffer. Coastal kabupaten get their polygon extended outward by ~22 km into adjacent sea, so posts at sea nearshore match step 1 of the fallback ladder with `city_match_type = 'strict'`.
+Land-locked kabupaten (e.g., Bandung, most of Kalimantan interior) skip the buffer. Coastal kabupaten get their polygon extended ~22 km outward into adjacent sea, so nearshore posts at sea match step 1 of the fallback ladder with `city_match_type = 'strict'`.
 
 ## DKI Jakarta special case
 
-Both BPS and OSM model DKI Jakarta as a single `admin_level = 5` relation (one "kabupaten-equivalent" that spans all 5 kotamadya + Kepulauan Seribu). Product spec requires the 6 child entities at `level = 'kabupaten_kota'` with `parent_id` pointing to DKI's province row.
-
-The scaffold handles this automatically:
+Both BPS and OSM model DKI Jakarta as a single `admin_level = 5` relation (one "kabupaten-equivalent" spanning all 5 kotamadya + Kepulauan Seribu); the product spec requires the 6 child entities at `level = 'kabupaten_kota'` with `parent_id` pointing to DKI's province row. Handled automatically:
 
 1. `fetch-overpass.sh` issues a separate query at `admin_level = 6` inside DKI's area for the 5 kotamadya + Kepulauan Seribu.
 2. `generate-seed.py` skips OSM's DKI `admin_level = 5` row (it would otherwise conflate all of Jakarta into one polygon) and inserts only the 6 `admin_level = 6` children at `kabupaten_kota`, with `parent_id` resolved to DKI's `admin_level = 4` province row.
@@ -132,14 +130,14 @@ No manual polygon-splitting required.
 
 ## Historical context (pipeline already run; preserved for reproducibility)
 
-> **Status (2026-05-07).** This pipeline RAN successfully on 2026-04-25, producing the 552-row polygon seed shipped as `backend/ktor/src/main/resources/db/migration/V12__admin_regions_seed.sql` (34.5 MB). Earlier drafts of this README marked the scripts as "scaffold only" — that label is no longer accurate; V12 is in production. The directory is preserved so a future re-seed (after an Overpass dataset refresh, an admin-boundary change, or a polygon-precision upgrade) can follow the same pipeline rather than starting over.
+> **Status (2026-05-07).** This pipeline RAN successfully on 2026-04-25, producing the 552-row polygon seed shipped as `backend/ktor/src/main/resources/db/migration/V12__admin_regions_seed.sql` (34.5 MB). Earlier README drafts marked the scripts "scaffold only" — no longer accurate; V12 is in production. The directory is preserved so a future re-seed (after an Overpass dataset refresh, an admin-boundary change, or a polygon-precision upgrade) can follow the same pipeline rather than starting over.
 
-The notes below are the lessons learned during the original 2026-04-25 run, retained so a re-seed doesn't re-discover them. The original `tasks.md` for the change is archived under `openspec/changes/archive/2026-04-25-global-timeline-with-region-polygons/tasks.md`.
+Lessons from the original 2026-04-25 run, retained so a re-seed doesn't re-discover them. The original `tasks.md` is archived under `openspec/changes/archive/2026-04-25-global-timeline-with-region-polygons/tasks.md`.
 
-1. **Overpass area IDs require explicit verification at run time.** The original scaffold hardcoded `area:3600304716` — that is the OSM area for an INDIAN relation, not Indonesia. The correct Indonesia area is `area:3600304751` (relation 304751). Before running, fetch `relation(304751); out tags;` and confirm the response contains `name=Indonesia` + `ISO3166-1=ID`. Do NOT trust comments in old import scripts — OSM relation IDs can be re-numbered, and pasting the value forward without verification was the root cause of 3 wasted fetch cycles in PR [#31](https://github.com/aditrioka/nearyou-id/pull/31).
-2. **DKI Jakarta polygon split.** OSM models DKI as a single `admin_level = 5` row; product wants the 5 kotamadya + Kepulauan Seribu instead. The pipeline issues a separate Overpass query at `admin_level = 6` inside DKI's area (NOT `admin_level = 5` as initially assumed) and skips DKI's own row to avoid conflation. This was the second discovery in PR [#31](https://github.com/aditrioka/nearyou-id/pull/31).
-3. **Degree-vs-geography buffer.** The 22 km maritime buffer is applied as a fixed-degree buffer in degree space. 22 km in degrees at latitude 0 ≠ 22 km at latitude −11; if a future re-seed requires precise km-equidistant buffering, switch to `ST_Buffer(geog, 22000)` and accept the perf hit (one-time during import, not per-request).
+1. **Overpass area IDs require explicit verification at run time.** The original scaffold hardcoded `area:3600304716` — the OSM area for an INDIAN relation, not Indonesia. The correct Indonesia area is `area:3600304751` (relation 304751). Before running, fetch `relation(304751); out tags;` and confirm the response contains `name=Indonesia` + `ISO3166-1=ID`. Do NOT trust comments in old import scripts — OSM relation IDs can be re-numbered; pasting the value forward without verification was the root cause of 3 wasted fetch cycles in PR [#31](https://github.com/aditrioka/nearyou-id/pull/31).
+2. **DKI Jakarta polygon split** (see § DKI Jakarta special case): the separate Overpass query runs at `admin_level = 6` inside DKI's area — NOT `admin_level = 5` as initially assumed — and DKI's own row is skipped to avoid conflation. The second discovery in PR [#31](https://github.com/aditrioka/nearyou-id/pull/31).
+3. **Degree-vs-geography buffer.** The 22 km maritime buffer is applied as a fixed-degree buffer in degree space; 22 km in degrees at latitude 0 ≠ 22 km at latitude −11. If a future re-seed requires precise km-equidistant buffering, switch to `ST_Buffer(geog, 22000)` and accept the perf hit (one-time during import, not per-request).
 4. **Antimeridian-crossing relations.** OSM relations for parts of Maluku Utara / Papua can produce degenerate geometries via `ST_Union`. Validate the seed file against a staging DB before merging to main.
 5. **Record the exact Overpass timestamp.** The V12 header comment includes the import timestamp so reviewers can verify row counts against a known OSM snapshot.
 
-If you start a fresh re-seed, copy this README into a dated subfolder under `openspec/changes/archive/<re-seed-change-name>/` so future contributors can see both the original-run notes and the re-seed-run notes side by side.
+For a fresh re-seed, copy this README into a dated subfolder under `openspec/changes/archive/<re-seed-change-name>/` so future contributors can see both the original-run and re-seed-run notes side by side.

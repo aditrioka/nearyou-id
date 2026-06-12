@@ -18,9 +18,11 @@ import javax.sql.DataSource
  * `withTimeoutOrNull` guard.
  *
  * Connection is returned to the pool via `.use { }` even if the timeout fires
- * after acquire — the JDBC blocking call itself may not honor cancellation, but
- * the caller's coroutine is freed and the outer 2-second cap (in the route
- * handler) bounds total latency as defense-in-depth.
+ * after acquire. The coroutine-level guards are COOPERATIVE — they cannot abandon a
+ * blocking JDBC call (and the route's outer cap waits on this child either way), so
+ * the real bound is driver-level: `Statement.setQueryTimeout` here (pgjdbc enforces
+ * via its cancel timer) plus the pool's `connectionTimeout` for the borrow and the
+ * datasource-wide `socketTimeout` backstop for black-holed connections.
  */
 class JdbcPostgresProbe(
     private val dataSource: DataSource,
@@ -33,6 +35,9 @@ class JdbcPostgresProbe(
                     runCatching {
                         dataSource.connection.use { conn ->
                             conn.createStatement().use { stmt ->
+                                // Driver-enforced bound — coroutine timeouts can't interrupt
+                                // a blocking executeQuery. Whole seconds, floor 1.
+                                stmt.queryTimeout = maxOf(1, (timeout.toMillis() / 1000L).toInt())
                                 stmt.executeQuery("SELECT 1").use { rs -> rs.next() }
                             }
                         }

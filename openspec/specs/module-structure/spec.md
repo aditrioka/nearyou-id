@@ -47,11 +47,11 @@ A placeholder shared module SHALL exist at `:shared:tmp` (directory `shared/tmp/
 
 ### Requirement: Core domain module
 
-A pure-Kotlin module SHALL exist at `:core:domain` (directory `core/domain/`) containing zero vendor dependencies. It MUST apply the `nearyou.kotlin.jvm` convention plugin (which provides Kotlin/JVM setup + ktlint) and depend on no other project module.
+A pure-Kotlin module SHALL exist at `:core:domain` (directory `core/domain/`) containing zero vendor dependencies. It MUST apply the `nearyou.kotlin.jvm` convention plugin (which provides Kotlin/JVM setup + ktlint) and the `nearyou.detekt` convention plugin (invariant-ruleset scanning; its `detektPlugins(:lint:detekt-rules)` entry is lint-tool classpath, not a code dependency), and depend on no other project module at compile time. `kotlinx-serialization` (plugin + `-json` artifact) is the one sanctioned library addition — required by `ChatRealtimeClient`'s broadcast payload (chat-realtime design § D13).
 
 #### Scenario: Plugin set
 - **WHEN** inspecting `core/domain/build.gradle.kts`
-- **THEN** the only applied plugin is `id("nearyou.kotlin.jvm")` and the `dependencies { }` block contains no `implementation`/`api` entries other than the Kotlin standard library
+- **THEN** the applied plugins are exactly `id("nearyou.kotlin.jvm")`, `id("nearyou.detekt")`, and the `kotlinxSerialization` alias, and the `dependencies { }` block's compile entries are limited to the Kotlin standard library + `kotlinx-serialization-json`
 
 #### Scenario: Build succeeds
 - **WHEN** running `./gradlew :core:domain:build`
@@ -59,11 +59,11 @@ A pure-Kotlin module SHALL exist at `:core:domain` (directory `core/domain/`) co
 
 ### Requirement: Core data module
 
-A pure-Kotlin module SHALL exist at `:core:data` (directory `core/data/`) containing only interfaces and DTOs. It MUST apply the `nearyou.kotlin.jvm` convention plugin and depend on no module other than `:core:domain`.
+A pure-Kotlin module SHALL exist at `:core:data` (directory `core/data/`) containing only interfaces and DTOs. It MUST apply the `nearyou.kotlin.jvm` and `nearyou.detekt` convention plugins and depend on no module other than `:core:domain` at compile time.
 
 #### Scenario: Plugin set
 - **WHEN** inspecting `core/data/build.gradle.kts`
-- **THEN** the only applied plugin is `id("nearyou.kotlin.jvm")`
+- **THEN** the applied plugins are exactly `id("nearyou.kotlin.jvm")` and `id("nearyou.detekt")`
 
 #### Scenario: Allowed dependencies
 - **WHEN** inspecting `core/data/build.gradle.kts`

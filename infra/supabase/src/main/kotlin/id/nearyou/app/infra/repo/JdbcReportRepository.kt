@@ -1,5 +1,7 @@
 package id.nearyou.app.infra.repo
 
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
+import id.nearyou.app.core.domain.lint.AllowRawPostsRead
 import id.nearyou.data.repository.ReportReasonCategory
 import id.nearyou.data.repository.ReportRepository
 import id.nearyou.data.repository.ReportTargetType
@@ -19,6 +21,11 @@ import java.util.UUID
  * `:backend:ktor` sources only). See V9 proposal + design Decision 3.
  */
 class JdbcReportRepository : ReportRepository {
+    @AllowRawPostsRead(
+        "moderation-plane existence check — auto-hidden posts MUST remain reportable " +
+            "(reports spec), so visible_posts would wrongly exclude them",
+    )
+    @AllowMissingBlockJoin("report targets stay reportable regardless of block state; SELECT 1 returns no content")
     override fun targetExists(
         conn: Connection,
         targetType: ReportTargetType,
@@ -63,6 +70,7 @@ class JdbcReportRepository : ReportRepository {
         }
     }
 
+    @AllowMissingBlockJoin("aggregate reporter count for the auto-hide threshold — moderation-plane, no per-viewer surface")
     override fun countDistinctAgedReporters(
         conn: Connection,
         targetType: ReportTargetType,

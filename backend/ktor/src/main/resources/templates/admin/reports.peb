@@ -4,39 +4,66 @@
 
 {% block content %}
 <h2>Report Queue</h2>
+<p class="pg-sub">reports ⟕ moderation_queue (representative row via LEFT JOIN LATERAL) · keyset newest-first</p>
 
 {# Filter form. hx-get swaps only the #reports-table fragment; method=GET means
    it also works as a plain navigation when JS is unavailable (progressive
    enhancement — design.md D7). All values are autoescaped. Out-of-enum values
-   are tolerated by the backend (bound as literals → zero matches). #}
-<form hx-get="/admin/reports"
-      hx-target="#reports-table"
-      hx-swap="outerHTML"
-      hx-push-url="true"
-      method="GET">
-    <label>Status
-        <input type="text" name="status" value="{{ filters.status | default('') }}"
-               placeholder="pending / actioned / dismissed">
-    </label>
-    <label>Target type
-        <input type="text" name="target_type" value="{{ filters.target_type | default('') }}"
-               placeholder="post / reply / user / chat_message">
-    </label>
-    <label>Reason category
-        <input type="text" name="reason_category" value="{{ filters.reason_category | default('') }}">
-    </label>
-    <label>Trigger
-        <input type="text" name="trigger" value="{{ filters.trigger | default('') }}"
-               placeholder="auto_hide_3_reports">
-    </label>
-    <label>From
-        <input type="date" name="from" value="{{ filters.from | default('') }}">
-    </label>
-    <label>To
-        <input type="date" name="to" value="{{ filters.to | default('') }}">
-    </label>
-    <button type="submit">Filter</button>
-</form>
+   are tolerated by the backend (bound as literals → zero matches) — the
+   status/target_type selects are a styling-only affordance over the same
+   tolerant contract (board frame 4); their option lists are grounded in the
+   shipped placeholders' enums. reason_category and trigger stay free-text
+   (the board draws them as selects too, but no template-grounded enum list
+   exists for them — hardcoding one would drift from the schema CHECKs). #}
+<div class="filterbar">
+    <input type="checkbox" id="filters-toggle" class="filters-toggle" aria-label="Toggle filters">
+    <label for="filters-toggle" class="btn tonal sm filters-label">Filters</label>
+    <span class="filters-chips">{% for f in filters %}{% if f.value is not empty %}<span class="pill">{{ f.key }}: {{ f.value }}</span>{% endif %}{% endfor %}</span>
+    <form class="filters"
+          hx-get="/admin/reports"
+          hx-target="#reports-table"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          method="GET">
+        <label class="field">
+            <span>Status</span>
+            <select name="status">
+                <option value="">any</option>
+                <option value="pending" {% if filters.status == 'pending' %}selected{% endif %}>pending</option>
+                <option value="actioned" {% if filters.status == 'actioned' %}selected{% endif %}>actioned</option>
+                <option value="dismissed" {% if filters.status == 'dismissed' %}selected{% endif %}>dismissed</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>Target type</span>
+            <select name="target_type">
+                <option value="">any</option>
+                <option value="post" {% if filters.target_type == 'post' %}selected{% endif %}>post</option>
+                <option value="reply" {% if filters.target_type == 'reply' %}selected{% endif %}>reply</option>
+                <option value="user" {% if filters.target_type == 'user' %}selected{% endif %}>user</option>
+                <option value="chat_message" {% if filters.target_type == 'chat_message' %}selected{% endif %}>chat_message</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>Reason category</span>
+            <input type="text" name="reason_category" value="{{ filters.reason_category | default('') }}">
+        </label>
+        <label class="field">
+            <span>Trigger</span>
+            <input type="text" name="trigger" value="{{ filters.trigger | default('') }}"
+                   placeholder="auto_hide_3_reports">
+        </label>
+        <label class="field">
+            <span>From</span>
+            <input type="date" name="from" value="{{ filters.from | default('') }}">
+        </label>
+        <label class="field">
+            <span>To</span>
+            <input type="date" name="to" value="{{ filters.to | default('') }}">
+        </label>
+        <button type="submit" class="btn filled">Filter</button>
+    </form>
+</div>
 
 {% include "reports-table.peb" %}
 {% endblock %}

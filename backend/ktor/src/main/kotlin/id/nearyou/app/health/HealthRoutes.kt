@@ -122,10 +122,13 @@ private fun Routing.healthReadyRoute(
 
 /**
  * Runs the three dependency probes in parallel via `coroutineScope { ... awaitAll() }`,
- * with an outer 2-second cap as defense-in-depth (any probe that ignores its own
- * cooperative timeout — e.g., a non-cancellable JDBC blocking call — is bounded
- * by the outer cap). Returns the checks in deterministic declaration order
- * regardless of completion order: postgres, redis, supabase_realtime.
+ * with an outer 2-second cap. NOTE the outer cap is COOPERATIVE — `withTimeoutOrNull`
+ * cancels the children but still waits for them, and it cannot interrupt a blocking
+ * call. The hard bounds live at the driver layer: the Postgres probe sets a JDBC
+ * statement timeout, the Redis client carries a 2 s command timeout, and the JDBC
+ * datasource has a 30 s `socketTimeout` backstop for black-holed sockets. Returns the
+ * checks in deterministic declaration order regardless of completion order:
+ * postgres, redis, supabase_realtime.
  */
 private suspend fun runReadyProbes(
     postgresProbe: PostgresProbe,

@@ -28,9 +28,9 @@ interface ModerationClient {
 
 **Why vendor-neutral interface:** the underlying vendor pivoted mid-implementation (Google Perspective → OpenAI Moderation) when Perspective announced end-of-2026 sunset. The interface stays neutral so future vendor swaps (e.g., to Azure AI Content Safety or a self-hosted classifier) don't require changes in `:backend:ktor` consumer code. OpenAI's 13 categories (e.g., `harassment`, `harassment/threatening`, `hate`, `hate/threatening`, `sexual`, `sexual/minors`, `violence`, `violence/graphic`, etc.) flow through as `Map<String, Double>` keys; the orchestrator aggregates via `maxScore()`.
 
-The implementation SHALL use the Ktor HTTP client (CIO engine, already on the classpath) for the outbound call and `kotlinx.serialization` for JSON parsing. The implementation SHALL NOT pull in OpenAI-vendor SDK libraries.
+The implementation SHALL use the Ktor HTTP client (Apache5 engine — swapped from CIO for idle-connection eviction control; see `OpenAiModerationClient` KDoc) for the outbound call and `kotlinx.serialization` for JSON parsing. The implementation SHALL NOT pull in OpenAI-vendor SDK libraries.
 
-The Ktor HTTP client SHALL configure CIO `requestTimeoutMillis = 3000`, `connectTimeoutMillis = 1000`, AND `socketTimeoutMillis = 3000` so the underlying socket is closed when the orchestrator's `withTimeoutOrNull(3000.ms)` cancels the coroutine. Engine-level timeouts defend against socket-pin under load (per design.md Decision 2).
+The Ktor HTTP client SHALL configure `requestTimeoutMillis = 3000`, `connectTimeoutMillis = 1000`, AND `socketTimeoutMillis = 3000` (HttpTimeout plugin over the Apache5 engine) so the underlying socket is closed when the orchestrator's `withTimeoutOrNull(3000.ms)` cancels the coroutine. Engine-level timeouts defend against socket-pin under load (per design.md Decision 2).
 
 The OpenAI API key SHALL be passed into the `OpenAiModerationClient` constructor as a `String` parameter at boot. `:backend:ktor`'s `Application.module()` resolves the API key via `secrets.resolve("openai-api-key")` (bare slot name; mirroring [`Application.kt`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/Application.kt) `secrets.resolve("firebase-admin-sa")` precedent), with `secretKey(env, "openai-api-key")` computed for the diagnostic init log line. `:infra:openai-moderation` SHALL NOT depend on `:backend:ktor`'s `SecretResolver` interface — secret resolution happens at the `:backend:ktor` boundary, mirroring the established `:infra:fcm` / `:infra:remote-config` precedent.
 
@@ -59,7 +59,7 @@ The OpenAI API key SHALL be passed into the `OpenAiModerationClient` constructor
 
 #### Scenario: Ktor HTTP client is configured with engine-level timeouts
 - **WHEN** the `OpenAiModerationClient` HTTP client construction is inspected
-- **THEN** the CIO engine config sets `requestTimeoutMillis = 3000`, `connectTimeoutMillis = 1000`, AND `socketTimeoutMillis = 3000` (defense-in-depth against socket-pin under load per design.md Decision 2)
+- **THEN** the client config sets `requestTimeoutMillis = 3000`, `connectTimeoutMillis = 1000`, AND `socketTimeoutMillis = 3000` (defense-in-depth against socket-pin under load per design.md Decision 2)
 
 ### Requirement: `Layer3Moderator` aggregates per-category scores via `maxScore()` and applies canonical thresholds
 

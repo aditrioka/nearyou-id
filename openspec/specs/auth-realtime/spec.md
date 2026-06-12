@@ -6,7 +6,7 @@ Defines the Supabase-compatible HS256 token issuance contract used by the chat W
 ## Requirements
 ### Requirement: HS256 realtime-token endpoint
 
-`GET /api/v1/realtime/token` SHALL be authenticated (requires a valid Ktor RS256 access token). It MUST return a Supabase-compatible HS256 JWT with claims `{ sub, role: "authenticated", iat, exp }`, TTL 1 hour, signed with the secret resolved by `secretKey(env, "supabase-jwt-secret")`.
+`GET /api/v1/realtime/token` SHALL be authenticated (requires a valid Ktor RS256 access token). It MUST return a Supabase-compatible HS256 JWT with claims `{ sub, role: "authenticated", iat, exp }`, TTL 1 hour, signed with the secret resolved from the `SUPABASE_JWT_SECRET` environment binding (`auth.supabaseJwtSecret` in application.conf).
 
 #### Scenario: Authenticated caller receives token
 - **WHEN** a request with a valid Ktor access token calls the endpoint
@@ -26,11 +26,11 @@ The endpoint MUST require authentication; an unauthenticated request SHALL recei
 
 ### Requirement: HS256 secret resolved through secretKey helper
 
-The signing key SHALL be obtained via `secretKey(env, "supabase-jwt-secret")` so the staging vs production prefix is honored. Hardcoded secret strings MUST NOT appear in the codebase.
+The signing key SHALL be obtained from the `SUPABASE_JWT_SECRET` environment binding (config key `auth.supabaseJwtSecret`); boot MUST fail fast when it is absent. Hardcoded secret strings MUST NOT appear in the codebase. The env-prefix concern (`staging-supabase-jwt-secret` vs `supabase-jwt-secret` Secret Manager slots) is honored at the DEPLOY layer: Cloud Run binds the env-specific slot VALUE to the prod-style env var name, the same convention as every other staging secret (`REDIS_URL=staging-redis-url:latest` precedent — composing the slot name in-process via `secretKey(env, ...)` produced `STAGING_*` env lookups Cloud Run never sets and broke a staging boot; see the RedisModule wiring comment in Application.kt).
 
-#### Scenario: Source code search
-- **WHEN** searching the backend source for the literal string `"supabase-jwt-secret"`
-- **THEN** the only occurrence is the call to `secretKey(env, "supabase-jwt-secret")`
+#### Scenario: Boot fails fast without the secret
+- **WHEN** the application boots without `SUPABASE_JWT_SECRET` set
+- **THEN** startup fails with an error naming `auth.supabaseJwtSecret` / `SUPABASE_JWT_SECRET` (no silent fallback secret)
 
 ### Requirement: Realtime RLS policy installed with shadow-ban-aware subscriber semantics
 

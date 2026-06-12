@@ -5,7 +5,7 @@
 
 > Location-based social-media MVP for Indonesia (18+ only). Text posts pinned to fuzzed coordinates, nearby discovery, 1:1 chat, freemium with a Premium tier.
 
-**Status:** pre-launch, solo-operator build. The repository is public for transparency, free GitHub Actions minutes, and as a working reference for AI-assisted Kotlin Multiplatform development. Not currently accepting external contributions — see the [License](#license) section for what you can and can't do with the source.
+**Status:** pre-launch, solo-operator build. The repo is public for transparency, free GitHub Actions minutes, and as a working reference for AI-assisted Kotlin Multiplatform development. External contributions are closed for now (see [Contributing](#contributing)); the [License](#license) section covers what you can and can't do with the source.
 
 ---
 
@@ -47,11 +47,11 @@ Plus [`iosApp/`](iosApp/) — the Xcode entry point that consumes the `ComposeAp
 
 ## Documentation map
 
-The README is the elevator pitch; the load-bearing context lives in three places, all version-controlled in this repo:
+The README is the elevator pitch; the load-bearing context lives in three places in this repo:
 
-- [`docs/00-README.md`](docs/00-README.md) → master design doc, principles, cross-reference map. Start here for product intent, architecture, security/privacy posture, and roadmap. Engineering-wise, [`docs/11-Engineering-Standards.md`](docs/11-Engineering-Standards.md) is the architectural baseline every change conforms to (state/nav/data contracts, backend layering, Definition of Done).
-- [`openspec/specs/`](openspec/specs) → 42 capability specs in OpenSpec format (regenerate count from `ls openspec/specs/ | wc -l` if drift suspected). Every shipped feature has a spec describing requirements, scenarios, and invariants. The archive at [`openspec/changes/archive/`](openspec/changes/archive) is a chronological log of every change proposal that landed, including rejected alternatives and reconciliation notes.
-- [`CLAUDE.md`](CLAUDE.md) → project instructions for AI agents (Claude Code, GitHub Action). Documents the critical invariants (shadow-ban safety, block enforcement, spatial fuzzing, rate-limit conventions, RLS policies) and the change-delivery workflow. Useful as a fast-onboarding read for humans too.
+- [`docs/00-README.md`](docs/00-README.md) → master design doc: principles + cross-reference map. Start here for product intent, architecture, security/privacy posture, and roadmap. [`docs/11-Engineering-Standards.md`](docs/11-Engineering-Standards.md) is the architectural baseline every change conforms to (state/nav/data contracts, backend layering, Definition of Done).
+- [`openspec/specs/`](openspec/specs) → 42 capability specs in OpenSpec format (regenerate count from `ls openspec/specs/ | wc -l` if drift suspected); every shipped feature has a spec describing requirements, scenarios, and invariants. [`openspec/changes/archive/`](openspec/changes/archive) is a chronological log of every landed change proposal, including rejected alternatives and reconciliation notes.
+- [`CLAUDE.md`](CLAUDE.md) → project instructions for AI agents (Claude Code, GitHub Action): the critical invariants (shadow-ban safety, block enforcement, spatial fuzzing, rate-limit conventions, RLS policies) and the change-delivery workflow. A fast onboarding read for humans too.
 
 ## Local development
 
@@ -102,7 +102,7 @@ In plain language:
 - ❌ You **may not** make this software (or substantially-similar functionality) available to others as part of a commercial product or service that competes with nearyou-id.
 - ⏳ Two years after each commit lands, that commit is automatically re-licensed to **Apache License 2.0** — fully open source. The commercial restriction sunsets; nothing is locked up forever.
 
-This balances "public for transparency + free CI" with the realities of a pre-launch consumer product. See [LICENSE](LICENSE) for the canonical text.
+This balances "public for transparency + free CI" with a pre-launch consumer product. See [LICENSE](LICENSE) for the canonical text.
 
 ## Contributing
 

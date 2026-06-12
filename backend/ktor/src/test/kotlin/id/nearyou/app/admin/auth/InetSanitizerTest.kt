@@ -35,6 +35,18 @@ class InetSanitizerTest : StringSpec({
         InetSanitizer.isInetLiteral("1.2.3.256") shouldBe false
     }
 
+    "rejects structurally invalid colon-junk that passes the hex-colon charset" {
+        // Each of these matched the old `^[0-9a-fA-F:]+$` screen but throws at
+        // Postgres' `?::inet` cast — a 500 on the login/audit path (the exact
+        // failure mode this class exists to prevent).
+        InetSanitizer.isInetLiteral(":::") shouldBe false
+        InetSanitizer.isInetLiteral(":") shouldBe false
+        InetSanitizer.isInetLiteral("12345::") shouldBe false
+        InetSanitizer.isInetLiteral("1:2:3:4:5:6:7:8:9") shouldBe false
+        InetSanitizer.isInetLiteral("fe80::1::2") shouldBe false
+        InetSanitizer.isInetLiteral("f".repeat(46)) shouldBe false
+    }
+
     "orFallback returns the IP when literal, the fallback otherwise" {
         InetSanitizer.orFallback("1.2.3.4", "0.0.0.0") shouldBe "1.2.3.4"
         InetSanitizer.orFallback("localhost", "0.0.0.0") shouldBe "0.0.0.0"

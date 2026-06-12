@@ -6,29 +6,29 @@ Device attestation, content moderation, CSAM handling, privacy compliance (UU PD
 
 ## Age Gate (UU PDP Compliance, 18+ Only)
 
-Registration is restricted to users aged 18 and above. This is enforced at the application layer (signup flow) and as a DB-level CHECK constraint on `users.date_of_birth`.
+18+ only; enforced in the signup flow and by a DB CHECK constraint on `users.date_of_birth`.
 
 ### Signup Policy
 
-- **Mandatory date-of-birth declaration** at onboarding (not a "18+" checkbox)
-- **<18**: Rejected. User-facing: "Platform ini hanya tersedia untuk pengguna usia 18 tahun ke atas." The hashed identifier is inserted into `rejected_identifiers` (reason = `age_under_18`) to block retry with a different DOB. No `users` row is created; DOB is NOT stored on rejection.
-- **18+**: Normal flow, `users` row created with `date_of_birth` recorded.
+- **Mandatory date-of-birth declaration** at onboarding (not an "18+" checkbox)
+- **<18**: rejected — user-facing: "Platform ini hanya tersedia untuk pengguna usia 18 tahun ke atas." The hashed identifier is inserted into `rejected_identifiers` (reason = `age_under_18`); no `users` row is created and the DOB is NOT stored.
+- **18+**: normal flow, `users` row created with `date_of_birth` recorded.
 
 ### Under-18 Bypass Prevention (`rejected_identifiers`)
 
-Schema in `05-Implementation.md`. The identifier hash + type is the only data retained for an under-18 rejection; no DOB, email, or personal data is kept. On every signup attempt the server pre-checks this table and returns the same user-facing message if a row is found (does not confirm the rejection reason to the user). This stops trivial DOB-shopping bypass without creating any under-18 data store.
+Schema: `05-Implementation.md`. An under-18 rejection retains only the identifier hash + type — no DOB, email, or personal data. Every signup attempt pre-checks this table; a hit returns the same user-facing message without confirming the rejection reason. This blocks trivial DOB-shopping retries without creating any under-18 data store.
 
 ### Verification
 
 - Self-declared DOB + consistency check vs Google/Apple account birthday (if exposed via API)
-- **Apple Declared Age Range API**: available on iOS 18+ (publicly shipped; not a future capability). Use for cross-check where the user has consented at the OS level.
-- Google Play Families SDK (Android) if account is categorized as kid (signup rejected)
-- DB-level backstop: `CHECK (date_of_birth <= CURRENT_DATE - INTERVAL '18 years')` on `users`
+- **Apple Declared Age Range API**: available on iOS 18+ (publicly shipped, not a future capability); use as cross-check where the user consented at the OS level
+- Google Play Families SDK (Android): account categorized as kid → signup rejected
+- DB backstop: `CHECK (date_of_birth <= CURRENT_DATE - INTERVAL '18 years')` on `users`
 
 ### Storage
 
-- `users.date_of_birth DATE NOT NULL` (only stored for accepted 18+ users, for audit + consistency)
-- DOB field access is restricted (admin only, audit logged)
+- `users.date_of_birth DATE NOT NULL` (stored only for accepted 18+ users; audit + consistency)
+- DOB access restricted (admin only, audit logged)
 
 ---
 
@@ -49,54 +49,54 @@ Stored in `users.analytics_consent JSONB`:
 ```
 
 - `analytics`: Amplitude, product analytics
-- `crash`: Sentry crash + error reporting (essential, opt-out only)
+- `crash`: Sentry crash + error reporting
 - `ads_personalization`: AdMob personalized (also covered by UMP)
 
 ### Defaults
 
-All three categories are prompted at the onboarding consent screen. Default OFF for `analytics` and `ads_personalization` (opt-in model). Default ON for `crash` (opt-out model, essential for bug fixes, but user can still decline).
+All three are prompted at the onboarding consent screen; `analytics` + `ads_personalization` default OFF (opt-in model), `crash` defaults ON (opt-out model — essential for bug fixes, still declinable).
 
 ### Enforcement
 
-- Amplitude event tracking: check `analytics_consent.analytics` before firing; silently suppress if FALSE
-- Sentry: default ON for crash; if user declines, SDK `Sentry.close()` for their session (client-side), backend skips error enrichment with user_id
-- AdMob: UMP SDK handles IAB TCF 2.2 consent + server-side check `ads_personalization`
+- Amplitude: check `analytics_consent.analytics` before firing; silently suppress if FALSE
+- Sentry: on decline, client-side `Sentry.close()` for the session; backend skips error enrichment with user_id
+- AdMob: UMP SDK handles IAB TCF 2.2 consent + server-side `ads_personalization` check
 
 ### User Can Change Anytime
 
-Settings > Privasi > "Pengaturan Data" (user-facing). Toggle change takes effect immediately for future events. Past events remain (immutable audit). A user wanting deletion of past analytics data uses the "Hapus Akun" flow.
+Settings > Privasi > "Pengaturan Data" (user-facing). Toggles apply immediately to future events; past events remain (immutable audit) — deleting past analytics data requires the "Hapus Akun" flow.
 
 ---
 
 ## Device Attestation — DESIGN
 
-> **Status: DESIGN.** No code today. The `:infra:attestation` module is unscaffolded; signup flow does not invoke Play Integrity / App Attest verification. The `attestation_mode` and `attestation_bypass_google_ids_sha256` Remote Config keys described below do not yet have a consumer in `SignupService.kt`. This section describes the intended posture for when attestation work begins (post-MVP per `docs/08-Roadmap-Risk.md`).
+> **Status: DESIGN — no code today.** `:infra:attestation` is unscaffolded, signup does not invoke Play Integrity / App Attest verification, and the `attestation_mode` / `attestation_bypass_google_ids_sha256` Remote Config keys have no consumer in `SignupService.kt` yet. Intended posture for when attestation work begins (post-MVP per `docs/08-Roadmap-Risk.md`).
 
 **Mandatory at registration + sensitive operations**:
 
-- Android: Play Integrity API (Classic for signup, Standard for frequent ops), verify token via Google public key
-- iOS: App Attest, verify attestation + assertion via Apple root cert
-- Reject signup if: emulator, rooted/jailbroken, debuggable, tampered APK/IPA, attestation signature invalid
+- Android: Play Integrity API (Classic for signup, Standard for frequent ops), token verified via Google public key
+- iOS: App Attest, attestation + assertion verified via Apple root cert
+- Reject signup if: emulator, rooted/jailbroken, debuggable, tampered APK/IPA, invalid attestation signature
 
 ### Play Integrity Quota Management
 
 - Default quota 10,000 verdicts/day, Google-enforced
-- Pre-Phase 1: submit formal quota increase request (linked Cloud project, target 100k/day, processing up to 1 week)
-- Judicious use: Classic only for signup + sensitive ops (account delete, session kick). Standard for frequent attestation (post creation <7 days old account). Cached verdict TTL 1 hour in Redis for regular authenticated requests.
-- Cache bypass only when a high-risk signal is detected (IP jump, anomaly)
-- Monitor daily quota; budget for paid tier in the cost model when MAU >50k and verdicts approach 100k/day
+- Pre-Phase 1: submit a formal quota increase request (linked Cloud project, target 100k/day, processing up to 1 week)
+- Judicious use: Classic only for signup + sensitive ops (account delete, session kick); Standard for frequent attestation (post creation, account <7 days old); cached verdict TTL 1 hour in Redis for regular authenticated requests
+- Cache bypass only on a high-risk signal (IP jump, anomaly)
+- Monitor daily quota; budget the paid tier in the cost model when MAU >50k and verdicts approach 100k/day
 
 ### Attestation Bypass Infrastructure (QA team + beta tester)
 
-- Firebase Remote Config key `attestation_mode`: `enforce` | `warn` | `off`
-- Whitelist `attestation_bypass_google_ids_sha256`: list of SHA256 Google ID for QA accounts
-- Android build variant: `production` (enforce), `qa` (off default), `debug` (off)
+- Firebase Remote Config `attestation_mode`: `enforce` | `warn` | `off`
+- Whitelist `attestation_bypass_google_ids_sha256`: SHA256 Google IDs of QA accounts
+- Android build variants: `production` (enforce), `qa` (off default), `debug` (off)
 - iOS build config: production vs internal test (TestFlight internal)
-- Audit log every bypass event for traceability
+- Every bypass event audit-logged for traceability
 
 ### Attestation False-Positive Fallback
 
-Users with a legitimate device but failed attestation (custom ROM, LineageOS non-root, older HW) can request manual review via support form. Tolerance threshold configurable via Remote Config. After N persistent attestation failures on the same identifier across different sessions, the server inserts the identifier into `rejected_identifiers` (reason = `attestation_persistent_fail`) to avoid attestation-bypass brute force.
+Legitimate devices that fail attestation (custom ROM, LineageOS non-root, older HW) get manual review via the support form; the tolerance threshold is Remote Config-tunable. After N persistent failures on one identifier across different sessions, the server inserts it into `rejected_identifiers` (reason = `attestation_persistent_fail`) against attestation-bypass brute force.
 
 ---
 
@@ -104,47 +104,41 @@ Users with a legitimate device but failed attestation (custom ROM, LineageOS non
 
 **Mandatory layers**:
 
-1. **Device attestation mandatory** at registration + sensitive operations. Reject emulator/rooted/tampered/invalid signature. Bypass whitelist via Remote Config for QA accounts.
-2. **Per-identifier signup rate limit**:
-   - Max 3 signup attempts per Google/Apple ID hash per 24 hours
-   - Attestation fail + signup attempt from the same identifier then permanent block via `rejected_identifiers`
-3. **Behavioral flag for new accounts (<7 days)**:
-   - Rate limit 50% of normal on write operations
-   - Re-check attestation at post creation (lightweight assertion)
-4. **One identifier = 1 active account**. Ban is sticky at the identifier level. Google + Apple = 2 separate identifiers, 2 separate accounts (no linking by design).
-5. **Shadow ban capability** (see the Shadow Ban section).
-6. **Device fingerprint: best-effort correlation signal, NOT primary defense**. The mobile `SignInRequest` / `RefreshRequest` bodies carry `device_fingerprint_hash` only once platform attestation (Play Integrity / App Attest) ships the fingerprint generation; until then the field is omitted (spec-optional per `auth-signin`) and refresh-token rows persist with `device_fingerprint_hash = NULL`. Lands with the mobile attestation integration ([`docs/08-Roadmap-Risk.md`](08-Roadmap-Risk.md) § Phase 3).
+1. **Device attestation mandatory** at registration + sensitive operations (reject list, quotas, QA bypass whitelist: § Device Attestation — DESIGN).
+2. **Per-identifier signup rate limit**: max 3 signup attempts per Google/Apple ID hash per 24 hours; attestation fail + signup attempt from the same identifier → permanent block via `rejected_identifiers`.
+3. **Behavioral flag for new accounts (<7 days)**: write-operation rate limit 50% of normal; attestation re-checked at post creation (lightweight assertion).
+4. **One identifier = 1 active account.** Ban is sticky at the identifier level; Google + Apple = 2 separate identifiers, 2 separate accounts (no linking by design).
+5. **Shadow ban capability** (§ Shadow Ban).
+6. **Device fingerprint: best-effort correlation signal, NOT primary defense.** The mobile `SignInRequest` / `RefreshRequest` bodies carry `device_fingerprint_hash` only once platform attestation (Play Integrity / App Attest) ships fingerprint generation; until then the field is omitted (spec-optional per `auth-signin`) and refresh-token rows persist `device_fingerprint_hash = NULL`. Lands with the mobile attestation integration ([`docs/08-Roadmap-Risk.md`](08-Roadmap-Risk.md) § Phase 3).
 
 ---
 
 ## Account Security
 
-- Input validation on every endpoint (length limits: post 280, reply 280, chat 2000, bio 160, display_name 50, username schema 60 / Premium custom 30)
-- HTTPS enforced in production for REST; WSS/TLS enforced for Supabase Realtime
+- Input validation on every endpoint. All content-length limits + rationale: `01-Business.md` § Content Length Limits.
+- HTTPS enforced in production for REST; WSS/TLS for Supabase Realtime
 - Google/Apple ID hashed in logs
 - Device fingerprinting (correlation signal only)
 - Attestation verification at sensitive operations
 
 ### Account Recovery: Intentionally None
 
-Losing your Google/Apple account means losing your NearYouID account. By design. Disclosed in onboarding + FAQ explicitly. A user-facing "Hapus Akun" button lives in Settings.
+Losing the Google/Apple account means losing the NearYouID account — by design, disclosed explicitly in onboarding + FAQ. A user-facing "Hapus Akun" button lives in Settings.
 
 ### Account Linking Policy (MVP)
 
-There is no merging/linking between Google and Apple accounts. A user who has both will have 2 separate NearYouID accounts. Tradeoff: simplicity + identifier ban stickiness outweigh convenience. Re-evaluate post-MVP if user request volume is significant.
+No Google↔Apple merging/linking: a user with both has 2 separate NearYouID accounts. Tradeoff: simplicity + identifier ban stickiness outweigh convenience; re-evaluate post-MVP if user request volume is significant.
 
 ### Apple S2S Notification Handling
 
-Two distinct Apple-originated account deletion flows, each with its own `deletion_requests.source` value:
+Two Apple-originated account deletion flows, distinguished by `deletion_requests.source`:
 
-- **`consent-revoked`** (user revoked Sign in with Apple): treated as a standard user-initiated deletion intent. Handler inserts `deletion_requests` row with `source = 'apple_s2s_consent_revoked'` and `scheduled_hard_delete_at = NOW() + 30 days`. User can cancel during the grace window like a normal deletion. Sessions are kicked immediately (`token_version++`).
-- **`account-delete`** (user deleted their Apple ID entirely): Apple-required immediate action, no grace. Handler inserts `deletion_requests` row with `source = 'apple_s2s_account_delete'` and `scheduled_hard_delete_at = NOW()`, AND synchronously enqueues a one-shot tombstone+cascade job before responding 200 to Apple. The daily worker backstops any synchronous failure via `deletion_requests_immediate_idx`. This flow cannot be cancelled.
+- **`consent-revoked`** (user revoked Sign in with Apple): standard user-initiated deletion intent — `deletion_requests` row with `source = 'apple_s2s_consent_revoked'`, `scheduled_hard_delete_at = NOW() + 30 days`; cancellable during the grace window like a normal deletion; sessions kicked immediately (`token_version++`).
+- **`account-delete`** (user deleted their Apple ID entirely): Apple-required immediate action, no grace — row with `source = 'apple_s2s_account_delete'`, `scheduled_hard_delete_at = NOW()`, AND a one-shot tombstone+cascade job enqueued synchronously before responding 200 to Apple; the daily worker backstops synchronous failure via `deletion_requests_immediate_idx`. Cannot be cancelled.
 
-Additional events handled by the same endpoint (no deletion-request row; relay-email state mutation only):
+The same endpoint also handles `email-disabled` / `email-enabled` (relay-email state mutation only, no deletion-request row): update the `users.apple_relay_email` flag + insert a `notifications` row with `type = 'apple_relay_email_changed'`.
 
-- `email-disabled` / `email-enabled`: update `users.apple_relay_email` flag; insert `notifications` row with `type = 'apple_relay_email_changed'`.
-
-Both flows land at `POST /internal/apple/s2s-notifications` (OIDC-exempt, Apple JWT signature verified against Apple JWKS, `aud` claim = bundle ID, dedup via `transaction_id`). See `05-Implementation.md` Apple Sign-In Specifics for handler verification and the deletion-request schema source semantics.
+All land at `POST /internal/apple/s2s-notifications` (OIDC-exempt; Apple JWT signature verified against Apple JWKS, `aud` claim = bundle ID, dedup via `transaction_id`). Handler verification + deletion-request source semantics: `05-Implementation.md` Apple Sign-In Specifics.
 
 ---
 
@@ -155,23 +149,23 @@ Both flows land at `POST /internal/apple/s2s-notifications` (OIDC-exempt, Apple 
 1. **Manual keyword blocklist**: profanity, slurs, scam patterns
 2. **UU ITE content categories**: SARA (suku/agama/ras/antargolongan), defamation, incitement patterns
    - Indonesian-specific wordlist, AI + manual review (Pre-Phase 1 budget 1 day)
-   - Higher threshold: matches the Remote Config-tunable threshold (`moderation_match_threshold`, default 3) → soft flag to the moderation queue (not auto-hide)
+   - Higher threshold: Remote Config-tunable `moderation_match_threshold` (default 3) → soft flag to the moderation queue (not auto-hide)
    - Quarterly review cadence with legal advisor
 3. **OpenAI Moderation API (Layer 3 toxicity classifier)**:
-   - Free tier: no per-call cost on the Moderation endpoint; subject to OpenAI's default rate limits (~1000 RPM for free-tier accounts)
-   - **Vendor history**: original capability spec planned Google Perspective API. Mid-implementation Perspective announced sunset (end-of-2026, signups closed Feb 2026). Vendor pivoted to OpenAI Moderation `omni-moderation-latest`. The Firebase Remote Config flag names + capability name + V9 SQL trigger string retain historical "perspective" branding (operator-facing or schema-fixed); the Kotlin code surface + Sentry events + Redis cache scope are vendor-agnostic (`layer3_*`).
-   - Model: `omni-moderation-latest` (GPT-4o-based, multimodal-capable; we only use text)
+   - Free tier: no per-call cost on the Moderation endpoint; OpenAI default rate limits apply (~1000 RPM for free-tier accounts)
+   - **Vendor history**: the original capability spec (Phase 2 §16 plan) targeted Google Perspective API; mid-implementation Perspective announced sunset (end-of-2026, signups closed Feb 2026), so the vendor pivoted to OpenAI Moderation (`openspec/changes/archive/<timestamp>-text-moderation-perspective-api-layer/proposal.md` § Vendor Swap Amendment). Remote Config flag names + capability name + V9 SQL trigger string retain historical "perspective" branding (operator-facing or schema-fixed); the Kotlin code surface + Sentry events + Redis cache scope are vendor-agnostic (`layer3_*`).
+   - Model: `omni-moderation-latest` (GPT-4o-based, multimodal-capable; we use text only)
    - Categories: `harassment`, `harassment/threatening`, `hate`, `hate/threatening`, `illicit`, `illicit/violent`, `self-harm`, `self-harm/intent`, `self-harm/instructions`, `sexual`, `sexual/minors`, `violence`, `violence/graphic` (13 categories, slash-separated subcategory names preserved as Map keys)
-   - The score compared against the thresholds is the per-call max across all 13 categories: `score = ModerationScore.maxScore() = max(categoryScores.values)`. Threshold comparisons are STRICTLY greater-than: boundary value `0.80` falls into the FlagOnly band (NOT AutoHide); `score ≤ 0.6` returns NoAction.
-   - Score `> 0.8` = auto-hide (`posts.is_auto_hidden = TRUE`) + queue to `moderation_queue` with `trigger = 'perspective_api_high_score'` (V9 enum value retained as historical artifact)
-   - Score `> 0.6` AND `≤ 0.8` = flag to `moderation_queue` only
-   - Thresholds tunable via Firebase Remote Config: `perspective_api_high_score_threshold` (default 0.8), `perspective_api_flag_threshold` (default 0.6). Both clamped to `[0.0, 1.0]` on every read.
-   - User content is sent to a third-party (OpenAI, US-hosted) for classification — flag for the Pre-Launch Privacy Policy / RoPA update. UU PDP cross-border transfer (Pasal 56) requires Tier 2 (SCC / DPA — OpenAI publishes a DPA) OR Tier 3 (explicit consent in signup flow).
-   - Indonesian language: OpenAI omni-moderation explicitly benchmarks Indonesian as a top-performing language alongside Spanish/German/Italian/Polish/Vietnamese/Portuguese/French/Chinese/English (per the model's launch announcement). Step up from Perspective's "partial ID support" caveat.
-   - Feature flag `perspective_api_enabled` for kill switch (flag name historical; toggle controls the OpenAI Moderation dispatch)
+   - Scoring: `score = ModerationScore.maxScore() = max(categoryScores.values)` — the per-call max across all 13 categories. Threshold comparisons are STRICTLY greater-than: boundary value `0.80` falls in the FlagOnly band (NOT AutoHide); `score ≤ 0.6` returns NoAction.
+   - Score `> 0.8`: auto-hide (`posts.is_auto_hidden = TRUE`) + `moderation_queue` row with `trigger = 'perspective_api_high_score'` (V9 enum value retained as historical artifact)
+   - Score `> 0.6` AND `≤ 0.8`: flag to `moderation_queue` only
+   - Firebase Remote Config thresholds: `perspective_api_high_score_threshold` (default 0.8), `perspective_api_flag_threshold` (default 0.6), both clamped to `[0.0, 1.0]` on every read
+   - User content goes to a third party (OpenAI, US-hosted) — flag for the Pre-Launch Privacy Policy / RoPA update; UU PDP cross-border transfer (Pasal 56) requires Tier 2 (SCC / DPA — OpenAI publishes a DPA) OR Tier 3 (explicit consent in signup flow)
+   - Indonesian: omni-moderation explicitly benchmarks Indonesian as top-performing alongside Spanish/German/Italian/Polish/Vietnamese/Portuguese/French/Chinese/English (per the launch announcement) — a step up from Perspective's "partial ID support" caveat
+   - Kill switch: feature flag `perspective_api_enabled` (name historical; toggles the OpenAI Moderation dispatch)
 4. **Month 6+ scope (if MAU >10k)**: dedicated ID-language moderation (Meta XLM-R open model self-host, or Hive Moderation paid)
 
-> Keyword list storage, hot-reload mechanism, and matching engine: see `05-Implementation.md` "Content Moderation Keyword Lists". Profanity list is editable by admins via the Admin Panel with audit-logged changes; UU ITE list is reviewed quarterly with the legal advisor.
+> Keyword list storage, hot-reload, and matching engine: `05-Implementation.md` "Content Moderation Keyword Lists". Profanity list is admin-editable via the Admin Panel (audit-logged); UU ITE list reviewed quarterly with the legal advisor.
 
 ### Endpoint Flow
 
@@ -181,101 +175,80 @@ POST /api/v1/post
 → Layer 1: profanity blocklist (sync) — match → 400 REJECT pre-INSERT
 → Layer 2: UU ITE category check (sync, threshold per moderation_match_threshold) — match → soft-flag (INSERT proceeds, moderation_queue row inserted, no is_auto_hidden flip)
 → Insert post (Layer 1 + 2 passed)
-→ Layer 3: OpenAI Moderation API (async post-INSERT, 3000ms timeout regional baseline for asia-southeast1, fail-open) — score >0.8 → set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed). Original Phase 2 §16 plan targeted Google Perspective; vendor pivoted to OpenAI Moderation mid-implementation per `openspec/changes/archive/<timestamp>-text-moderation-perspective-api-layer/proposal.md` § Vendor Swap Amendment. 3000ms budget covers the bimodal Singapore → OpenAI US TTFB distribution (measured 2026-05-11: ~40% at 550-700ms, ~40% at 1500-1550ms slow path, ~20% gateway-timeout outliers at 15s+). Constructor-tunable via `analyzeTimeoutMillis` on `DefaultLayer3Moderator` for non-Singapore deployments.
+→ Layer 3: OpenAI Moderation API (async post-INSERT, 3000ms timeout regional baseline for asia-southeast1, fail-open) — score >0.8 → set is_auto_hidden = TRUE + insert moderation_queue row (visible to author, hidden from timeline until reviewed). 3000ms budget covers the bimodal Singapore → OpenAI US TTFB distribution (measured 2026-05-11: ~40% at 550-700ms, ~40% at 1500-1550ms slow path, ~20% gateway-timeout outliers at 15s+). Constructor-tunable via `analyzeTimeoutMillis` on `DefaultLayer3Moderator` for non-Singapore deployments.
 
-**Cloud Run deployment requirement — `--no-cpu-throttling` is MANDATORY for any environment running Layer 3.** Cloud Run's default request-based CPU billing throttles CPU to ~5% when no inbound request is in flight. Layer 3 dispatch is fire-and-forget AFTER the 201 response is sent, so the dispatch coroutine runs on throttled CPU; every async operation (Redis cache lookup, TLS handshake to OpenAI, response body parse) takes ~20x longer. Empirically (issue [#88](https://github.com/aditrioka/nearyou-id/issues/88) iter 14 vs iter 15 staging data): identical Redis `isEnabled()` calls measured 5-16ms during user requests vs 2800-7400ms on a background heartbeat timer — a 1000x slowdown driven purely by CPU throttling. Without `--no-cpu-throttling`, Layer 3 dispatches timeout 100% on the 3000ms budget; with it, they complete in 300-1200ms total (matching the raw-curl baseline from a one-shot CRJ in the same region). Staging applies the flag in [`.github/workflows/deploy-staging.yml`](../.github/workflows/deploy-staging.yml); production deploy MUST mirror. Trade-off: instance-based billing charges for CPU continuously (~+\$15-25/mo per always-on instance), but this is the documented Cloud Run pattern for any service doing post-response background work ([Cloud Run gets always-on CPU allocation](https://cloud.google.com/blog/products/serverless/cloud-run-gets-always-on-cpu-allocation)).
+**Cloud Run deployment requirement — `--no-cpu-throttling` is MANDATORY for any environment running Layer 3.** Default request-based CPU billing throttles CPU to ~5% when no inbound request is in flight; Layer 3 dispatch is fire-and-forget AFTER the 201 response, so it runs on throttled CPU and every async operation (Redis cache lookup, TLS handshake to OpenAI, response body parse) takes ~20x longer. Empirically (issue [#88](https://github.com/aditrioka/nearyou-id/issues/88) iter 14 vs iter 15 staging data): identical Redis `isEnabled()` calls measured 5-16ms during user requests vs 2800-7400ms on a background heartbeat timer — a 1000x slowdown purely from CPU throttling. Without the flag, Layer 3 dispatches timeout 100% on the 3000ms budget; with it they complete in 300-1200ms total (matching the raw-curl baseline from a one-shot CRJ in the same region). Staging applies the flag in [`.github/workflows/deploy-staging.yml`](../.github/workflows/deploy-staging.yml); production deploy MUST mirror. Trade-off: instance-based billing charges for CPU continuously (~+\$15-25/mo per always-on instance) — the documented Cloud Run pattern for post-response background work ([Cloud Run gets always-on CPU allocation](https://cloud.google.com/blog/products/serverless/cloud-run-gets-always-on-cpu-allocation)).
 ```
 
 ### Legal Documentation
 
 - RoPA includes moderation decision data retention for 1 year
-- Yearly transparency report (post-Month 12): stats on removals by category
+- Yearly transparency report (post-Month 12): removal stats by category
 
 ### Premium Username Customization Moderation
 
-When a Premium user attempts to change their username via `PATCH /api/v1/user/username`, the server runs the same text moderation pipeline (profanity blocklist + UU ITE keyword match) against the candidate handle. On hit:
+A Premium username change (`PATCH /api/v1/user/username`) runs the same text moderation pipeline (profanity blocklist + UU ITE keyword match) against the candidate handle. On hit, the change is REJECTED upfront (the user sees a rejection message and can pick another) and a `moderation_queue` row with `trigger = 'username_flagged'` is inserted for admin awareness (potential pattern signal); repeated flagged attempts from the same user (>3 in 24 hours) raise the user's anomaly score. Admin can explicitly allow a borderline candidate via an override action if context warrants (e.g. a legitimate Indonesian word matching the UU ITE list in an unrelated sense).
 
-- The change is REJECTED upfront (the user sees a rejection message and can pick another)
-- A `moderation_queue` row is inserted with `trigger = 'username_flagged'` for admin awareness (potential pattern signal)
-- Repeated flagged attempts from the same user (>3 in 24 hours) raise the user's anomaly score
-
-Admin can explicitly allow a borderline candidate via an override action if context warrants (e.g. a legitimate Indonesian word that matches the UU ITE list in an unrelated sense).
-
-**Anti-impersonation (30-day release hold)**: when a user changes their username, the old handle is held in `username_history` for 30 days before another account can claim it. This prevents immediate impersonation of someone who just changed handles. See `05-Implementation.md` for the `username_history` schema.
+**Anti-impersonation (30-day release hold)**: on username change the old handle is held in `username_history` for 30 days before another account can claim it — no immediate impersonation of someone who just changed handles. Schema: `05-Implementation.md`.
 
 ### Media Moderation (Month 6+ Image Launch)
 
 **Cloudflare CSAM Scanning Tool** (non-negotiable, free):
-- Enable via Dashboard: Caching > Configuration > CSAM Scanning Tool > toggle on + verify email
-- No NCMEC credential required (available globally)
+- Enable via Dashboard: Caching > Configuration > CSAM Scanning Tool > toggle on + verify email; no NCMEC credential required (available globally)
 - Automatic scan on cached images, matched against NCMEC NGO + Industry lists
-- On match: URL blocked (HTTP 451), daily email notification
-- Cloudflare files third-party reports to NCMEC
+- On match: URL blocked (HTTP 451) + daily email notification; Cloudflare files third-party reports to NCMEC
 
-**Important: Cloudflare CSAM Scanning Tool does NOT emit webhooks to custom endpoints.** The downstream `/internal/csam-webhook` handler must be invoked by one of the supported paths:
+The tool emits no webhooks to custom endpoints; the `/internal/csam-webhook` handler is invoked admin-triggered at MVP and via a Cloudflare Worker from Phase 2+ — full three-path architecture: `04-Architecture.md` § System Architecture; auth posture: § Internal Endpoint Security. Whichever path triggers it, the handler's auto-action is fixed policy: hard-delete the post, permanent ban + `token_version` bump, cascade the user's other posts, archive metadata with AES-256-GCM, queue the Kominfo report.
 
-- **Primary (MVP)**: admin reviews the CF email notification and triggers the handler manually via the Admin Panel. The admin pastes the matched URL / image_id from the email; the handler executes the auto-action (hard-delete post, permanent ban + token_version bump, cascade other posts of the user, archive metadata with AES-256-GCM, queue Kominfo report).
-- **Automated Phase 2+**: a Cloudflare Worker attached to the `img.nearyou.id` route watches for `451` responses and POSTs to `/internal/csam-webhook` with a signed payload. The signature is verified with a dedicated CF-Worker-secret; see the Internal Endpoint Security section.
-- **Alternative (deferred)**: daily Cloud Run Job that parses the inbound email via IMAP or the email provider API.
+**Google Cloud Vision Safe Search** (explicit content upfront): pay-per-image, synchronous scan at upload; block adult/violent/racy score >0.8 upfront, before the image enters the cache. Complementary to CSAM (general explicit vs known child abuse hash).
 
-**Google Cloud Vision Safe Search** (explicit content upfront):
-- Pay-per-image, scan synchronous at upload
-- Block adult/violent/racy score >0.8 upfront before the image enters the cache
-- Complementary to CSAM (different category: general explicit vs known child abuse hash)
-
-> Upload flow + CSAM webhook handler: see `02-Product.md` (product flow) and `05-Implementation.md` (archive schema + CF IP extraction). Full architecture trigger paths: `04-Architecture.md`.
+> Upload flow + CSAM webhook handler: `02-Product.md` (product flow), `05-Implementation.md` (archive schema + CF IP extraction).
 
 ### Kominfo Reporting Obligation (Indonesia)
 
-- Cloudflare auto-files to NCMEC (US clearing house)
-- Oka must report to Kominfo (Ditjen Aptika) within <24 hours of detection
-- SOP step in the Admin Panel:
-  1. CSAM webhook triggered then admin notification (in-app + Resend email)
+- Cloudflare auto-files to NCMEC (US clearing house); Oka must report to Kominfo (Ditjen Aptika) within <24 hours of detection
+- Admin Panel SOP:
+  1. CSAM webhook triggered → admin notification (in-app + Resend email)
   2. Admin reviews metadata (hash + timestamp + user_id_hash, NOT the content itself)
   3. File to Kominfo via official form or email contact point at Ditjen Aptika
   4. Log `kominfo_report_id` to the archive
-- Polri Siber is optional but recommended for severe cases; documented in the SOP
+- Polri Siber optional but recommended for severe cases; documented in the SOP
 
 ### CSAM Archive Purge Worker
 
-Cloud Scheduler daily checks `WHERE expires_at < NOW() AND kominfo_reported_at IS NOT NULL`, deletes rows. Preservation is extended if investigation is active.
+Cloud Scheduler daily: `WHERE expires_at < NOW() AND kominfo_reported_at IS NOT NULL` → delete rows. Preservation is extended while an investigation is active.
 
 ### CSAM Archive Encryption
 
-Archive row encrypts metadata (`encrypted_metadata BYTEA`) with AES-256-GCM using the `csam-archive-aes-key` from GCP Secret Manager. Access restricted to the admin role; decryption happens only via the admin panel service account + audit log entry. Image hash + matched NCMEC reference are stored in plaintext columns (needed for Kominfo filing), but no image bytes are ever retained.
+The archive row's `encrypted_metadata BYTEA` is AES-256-GCM-encrypted with the `csam-archive-aes-key` from GCP Secret Manager; access is admin-role-restricted and decryption happens only via the admin panel service account + an audit log entry. Image hash + matched NCMEC reference stay in plaintext columns (needed for Kominfo filing); no image bytes are ever retained.
 
 ---
 
 ## Report System
 
-- One-tap report from a post, reply, profile, and chat message
-- Recorded in the `reports` table (see `05-Implementation.md`)
-- Auto-hide: 3 unique reporters (accounts >7 days old) then `is_auto_hidden = TRUE` pre-review + `moderation_queue` row
-- Shadow ban capability
-- Ban is sticky via Google/Apple ID
+- One-tap report from a post, reply, profile, and chat message; recorded in the `reports` table (`05-Implementation.md`)
+- Auto-hide: 3 unique reporters (accounts >7 days old) → `is_auto_hidden = TRUE` pre-review + `moderation_queue` row
+- Shadow ban capability; ban sticky via Google/Apple ID
 
 ---
 
 ## Block User (Privacy + Anti-Harassment)
 
-Users can block other users from the profile or a post context menu. Effect is bidirectional invisibility:
-- Blocker and blocked cannot see each other's posts or profiles
-- Blocker and blocked cannot initiate new DMs with each other (existing history preserved)
-- Follow relationships automatically removed in both directions on block
+Block from the profile or a post context menu. Bidirectional invisibility: neither party sees the other's posts or profiles; neither can initiate new DMs with the other (existing history preserved); follow relationships are automatically removed in both directions.
 
-Block differs from shadow ban: block = user-initiated, with visible friction (user-facing "Pengguna ini diblokir"), symmetric. Shadow ban = admin-initiated, invisible to the banned user.
+Block vs shadow ban: block = user-initiated, visible friction (user-facing "Pengguna ini diblokir"), symmetric; shadow ban = admin-initiated, invisible to the banned user.
 
-> Schema + query rules + CI lint: see `05-Implementation.md` (Block User Implementation).
+> Schema + query rules + CI lint: `05-Implementation.md` (Block User Implementation).
 
 ---
 
 ## Shadow Ban
 
-Principle: **all actions succeed from the banned user's perspective, invisible to others**. High-friction layer, not an invisible shield (a sophisticated adversary will detect within 24-48 hours).
+Principle: **all actions succeed from the banned user's perspective, invisible to others** — a high-friction layer, not an invisible shield (a sophisticated adversary detects it within 24-48 hours).
 
-> Database view implementation + CI lint: see `05-Implementation.md`.
+> Database view implementation + CI lint: `05-Implementation.md`.
 
-**Admin entry point (where `is_shadow_banned` is set TRUE).** The Report Queue resolution action `shadow_ban_author` (`POST /admin/moderation-queue/{id}/resolve`, capability `admin-report-queue`) sets `users.is_shadow_banned = TRUE` on the resolved offending author. Unlike the sibling `suspend_author_7d` / `ban_author` resolutions, it writes **no** user-facing notification (no `account_action_applied`, no other `notifications` row) — the absence of a notification is the stealth invariant (a shadow ban that notified would defeat its own purpose, since the whole point is invisibility to the banned user). The action still writes its `admin_actions_log` row for accountability. This is the first admin surface that sets `is_shadow_banned`.
+**Admin entry point (where `is_shadow_banned` is set TRUE).** Report Queue resolution `shadow_ban_author` (`POST /admin/moderation-queue/{id}/resolve`, capability `admin-report-queue`) sets `users.is_shadow_banned = TRUE` on the resolved offending author — the first admin surface to do so. Unlike sibling `suspend_author_7d` / `ban_author` it writes **no** user-facing notification (no `account_action_applied`, no other `notifications` row): that absence is the stealth invariant — a notifying shadow ban would defeat its purpose, invisibility to the banned user. It still writes its `admin_actions_log` row for accountability.
 
 ### Known Leak Surfaces (Accepted Risk, Documented)
 
@@ -290,7 +263,7 @@ Shadow ban is not 100% invisible across multiple devices:
 
 ### Phased Moderation
 
-Early phase: manual review via Admin Panel. Add AI moderation when Premium media upload launches.
+Early phase: manual review via Admin Panel; add AI moderation when Premium media upload launches.
 
 ---
 
@@ -301,7 +274,7 @@ Two distinct admin actions, same underlying columns:
 - **7-day suspension**: `UPDATE users SET is_banned = TRUE, suspended_until = NOW() + INTERVAL '7 days', token_version = token_version + 1 WHERE id = :uid`. A daily worker (`/internal/unban-worker`) flips `is_banned = FALSE` and nulls `suspended_until` when the window elapses. See `05-Implementation.md`.
 - **Permanent ban**: `UPDATE users SET is_banned = TRUE, suspended_until = NULL, token_version = token_version + 1 WHERE id = :uid`. No automatic unban.
 
-In both cases, all active refresh tokens for the user are deleted, so all active sessions are kicked on the next REST call.
+In both cases all active refresh tokens for the user are deleted, so all active sessions are kicked on the next REST call.
 
 ---
 
@@ -345,7 +318,7 @@ In both cases, all active refresh tokens for the user are deleted, so all active
 
 ### Account Deletion (Tombstone Pattern)
 
-Request is recorded in `deletion_requests` (see `05-Implementation.md`).
+Request recorded in `deletion_requests` (`05-Implementation.md`).
 
 **Tombstone pattern for the user row**:
 - `deleted_at` column set
@@ -370,9 +343,9 @@ Request is recorded in `deletion_requests` (see `05-Implementation.md`).
 - Reports submitted by the user (audit integrity)
 - Post edit history
 
-**Rationale for chat tombstone over cascade**: It breaks UX if User A deleting their account wipes out the entire conversation for User B. Tombstone preserves context for the other party. Sender PII is still nulled (display name becomes "Akun Dihapus", avatar default). If the message content itself is problematic (third-party PII, doxxing), admin-triggered redaction via the `redacted_at` field (not default behavior).
+**Rationale for chat tombstone over cascade**: User A's deletion must not wipe the whole conversation for User B — tombstone preserves the other party's context while sender PII is still nulled (display name "Akun Dihapus", avatar default). If the message content itself is problematic (third-party PII, doxxing): admin-triggered redaction via `redacted_at`, not default behavior.
 
-**30-day grace period**: data intact, user can restore. After 30 days, the hard-delete worker executes and writes an entry to the deletion log.
+**30-day grace period**: data intact, user can restore. After 30 days the hard-delete worker executes and writes an entry to the deletion log.
 
 ### Data Export Scope Matrix
 
@@ -404,35 +377,35 @@ Endpoint `/account/export` returns JSON + CSV ZIP:
 | CSAM detection archive | No | - | Out of scope, legal preservation |
 | `rejected_identifiers` hash | No | - | Anti-abuse signal, may cross other users |
 
-**Delivery**: async worker packs a ZIP, uploads to R2, creates a signed URL TTL 24 hours, and emails via Resend (user-facing): "Data export kamu siap diunduh".
+**Delivery**: an async worker packs the ZIP, uploads to R2, creates a signed URL TTL 24 hours, and emails via Resend (user-facing): "Data export kamu siap diunduh".
 
 **SLA**: 7 days (confirm with legal advisor before launch).
 
 ### Infrastructure
 
 - **Hard delete worker**: Cloud Scheduler calls `/internal/cleanup` daily (consolidated endpoint; reads `deletion_requests`)
-- **Audit log table**: every hard delete is logged with timestamp, entity, and reason
+- **Audit log table**: every hard delete logged with timestamp, entity, and reason
 - **Deletion log (R2)**: append-only JSONL objects, 7-year retention, input for post-restore reconciliation
-- **Data export endpoint**: `/account/export`, async job packs JSON+CSV ZIP + Resend email delivery
-- **Breach notification**: template + PDP Agency contact ready. Window to report: 3x24 hours mandatory per UU PDP
-- **DPO**: appoint Oka himself in the solo phase, with RoPA documentation. External DPO-as-a-service when scale is significant
-- **Suspension unban worker**: daily cron to flip time-bound suspensions back to active (see `05-Implementation.md`)
+- **Data export endpoint**: `/account/export` (§ Data Export Scope Matrix)
+- **Breach notification**: template + PDP Agency contact ready; reporting window 3x24 hours mandatory per UU PDP
+- **DPO**: Oka himself in the solo phase, with RoPA documentation; external DPO-as-a-service when scale is significant
+- **Suspension unban worker**: daily cron flips time-bound suspensions back to active (`05-Implementation.md`)
 
 ---
 
 ## Internal Endpoint Security
 
-All internal scheduler endpoints served under `/internal/*` with mandatory OIDC middleware.
+All internal scheduler endpoints are served under `/internal/*` with mandatory OIDC middleware.
 
 ### Implementation
 
 - Cloud Scheduler natively supports OIDC tokens
-- Ktor middleware verifies the signature via Google JWKS + audience claim matching service URL
+- Ktor middleware verifies the signature via Google JWKS + audience claim matching the service URL
 - Service account in GCP Secret Manager
 
 ### Covered Endpoints
 
-> **Status (2026-05-07).** Only **2 of the endpoints below are shipped**. The rest are DESIGN — the route is not yet mounted in `Application.kt`. Cross-check against `find backend/ktor/src/main -name "*Routes.kt" -path "*internal*"` if drift suspected.
+> **Status (2026-05-07).** Only **2 of the endpoints below are shipped**; the rest are DESIGN — route not yet mounted in `Application.kt`. If drift suspected, cross-check: `find backend/ktor/src/main -name "*Routes.kt" -path "*internal*"`.
 
 **Shipped:**
 - Apple S2S notifications (`/internal/apple/s2s-notifications`) — `AppleS2SRoutes.kt`
@@ -453,12 +426,12 @@ All internal scheduler endpoints served under `/internal/*` with mandatory OIDC 
 - Stream GC (post-swap, weekly)
 - RevenueCat webhook (`/internal/revenuecat-webhook`)
 
-**Exceptions to OIDC** (use alternative auth) — **ALL DESIGN as of 2026-05-07**: neither endpoint below is mounted; the auth posture described is the intended future shape, not active code.
+**Exceptions to OIDC** (alternative auth) — **ALL DESIGN as of 2026-05-07**: neither endpoint is mounted; this is intended future shape, not active code.
 
-- RevenueCat webhook (`/internal/revenuecat-webhook`) — DESIGN: Bearer token + HMAC signature (vendor doesn't support OIDC). See `05-Implementation.md` § RevenueCat Webhook (also tagged DESIGN).
-- CSAM webhook handler (`/internal/csam-webhook`) — DESIGN: when implemented, it will be invoked via two supported paths, both non-OIDC.
-  - **Admin-triggered (MVP)** — DESIGN: the Admin Panel will call the handler internally using the admin's scoped session + a session-bound CSRF-style token. Since both services would share the cluster network, the call never leaves the trust boundary. (Admin Panel itself is DESIGN per `docs/07-Operations.md`.)
-  - **Cloudflare Worker forwarding (Phase 2+)** — DESIGN: the CF Worker will sign its POST with a Bearer token pulled from a Worker secret and an HMAC-SHA256 body signature (key reserved as `cf-worker-csam-secret` in GCP Secret Manager). The Ktor handler will verify both before processing. Rate limit will be 100 req/hour per IP (prevents replay amplification).
+- RevenueCat webhook (`/internal/revenuecat-webhook`) — Bearer token + HMAC signature (vendor doesn't support OIDC). See `05-Implementation.md` § RevenueCat Webhook (also tagged DESIGN).
+- CSAM webhook handler (`/internal/csam-webhook`) — when implemented, both supported invocation paths are non-OIDC:
+  - **Admin-triggered (MVP)**: the Admin Panel calls the handler internally with the admin's scoped session + a session-bound CSRF-style token; the services share the cluster network, so the call never leaves the trust boundary. (Admin Panel itself is DESIGN per `docs/07-Operations.md`.)
+  - **Cloudflare Worker forwarding (Phase 2+)**: the CF Worker watching for `451` responses on the `img.nearyou.id` route signs its POST with a Bearer token pulled from a Worker secret + an HMAC-SHA256 body signature (key reserved as `cf-worker-csam-secret` in GCP Secret Manager); the Ktor handler verifies both before processing. Rate limit 100 req/hour per IP (prevents replay amplification).
 
 **Backup NOT via `/internal/*` endpoint**: backup runs as a standalone Cloud Run Jobs container, not an HTTP endpoint.
 
@@ -480,4 +453,4 @@ Declare:
 - `NSPrivacyTracking`: TRUE if AdMob is active + user opts in to ads personalization
 - `NSPrivacyTrackingDomains`: AdMob + analytics domains if tracking is TRUE
 
-Pre-Phase 1 task: generate manifest from the third-party SDK list (Sentry, Amplitude, RevenueCat, FCM, AdMob) + merge with app-specific declarations.
+Pre-Phase 1 task: generate from the third-party SDK list (Sentry, Amplitude, RevenueCat, FCM, AdMob) + merge with app-specific declarations.

@@ -1,6 +1,6 @@
 # NearYouID - Technical Implementation
 
-Database schemas, algorithms, auth/session implementation, rate limiting implementation, cache key formats, feature flags, and key implementation notes.
+Database schemas, algorithms, auth/session implementation, rate limiting implementation, cache key formats, feature flags, and key implementation notes. A `> Mirrors <path>` callout names the code a section is the canonical twin of: update code and doc together when changing that canonical shape.
 
 ---
 
@@ -8,7 +8,7 @@ Database schemas, algorithms, auth/session implementation, rate limiting impleme
 
 ### JWT Strategy: Asymmetric Primary + HS256 WSS Companion
 
-> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/auth/jwt/` (verifier) + `auth/jwks/` (JWKS publisher). Update both when changing the canonical claim shape.
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/auth/jwt/` (verifier) + `auth/jwks/` (JWKS publisher).
 
 Two tokens, one primary key pair:
 
@@ -246,11 +246,11 @@ Audit log inserted per unban. Permanent bans (`suspended_until IS NULL`) are unt
 
 ### DB Constraints
 
-The `username VARCHAR(60) NOT NULL UNIQUE` constraint and `users_username_lower_idx` index are defined inline in the `users` table schema above. No additional ALTER needed.
+`username VARCHAR(60) NOT NULL UNIQUE` + `users_username_lower_idx` are defined inline in the `users` table schema above; no additional ALTER needed.
 
 ### Atomic Generation Algorithm (signup-only)
 
-> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/auth/signup/UsernameGenerator.kt`. Update both when changing the candidate ladder. Produces ≤60 char username.
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/auth/signup/UsernameGenerator.kt`. Produces ≤60 char username.
 
 ```
 for attempt in 1..5:
@@ -268,7 +268,7 @@ candidate = "{adj}_{noun}_{uuid8hex}"; INSERT
 
 ### Username History Schema (30-Day Release Hold)
 
-Tracks historical usernames held during the post-change release hold window. Used for collision check + impersonation prevention.
+Tracks historical usernames during the 30-day post-change release hold; used for collision check + impersonation prevention.
 
 ```sql
 CREATE TABLE username_history (
@@ -326,7 +326,7 @@ CREATE INDEX posts_author_idx ON posts(author_id, created_at DESC) WHERE deleted
 
 ### Jitter Generation (HMAC-based, non-reversible)
 
-> Mirrors `shared/distance/src/commonMain/kotlin/id/nearyou/distance/JitterEngine.kt`. Update both when changing the derivation.
+> Mirrors `shared/distance/src/commonMain/kotlin/id/nearyou/distance/JitterEngine.kt`.
 
 ```
 JITTER_SECRET = secret from GCP Secret Manager (256-bit random, long-lived)
@@ -384,7 +384,7 @@ Append-only: each edit inserts a new row with the **before-edit** snapshot, orde
 
 ### Transactional Atomicity (mandatory)
 
-> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/post/CreatePostService.kt` and the future post-edit service. Update both when changing the lock+snapshot+update transaction shape.
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/post/CreatePostService.kt` and the future post-edit service.
 
 ```sql
 BEGIN;
@@ -409,7 +409,7 @@ App-level retry on `unique_violation` edge case (sub-microsecond collision): rol
 
 ## Follow Schema
 
-> Mirrors V6 (`V6__follows.sql`) and `backend/ktor/src/main/kotlin/id/nearyou/app/follow/FollowService.kt`. Update both when changing the follow/unfollow shape.
+> Mirrors V6 (`V6__follows.sql`) and `backend/ktor/src/main/kotlin/id/nearyou/app/follow/FollowService.kt`.
 
 ```sql
 CREATE TABLE follows (
@@ -430,7 +430,7 @@ CREATE INDEX follows_followee_idx ON follows(followee_id, created_at DESC);
 
 ## Post Likes Schema
 
-> Mirrors V7 (`V7__post_likes.sql`) and `backend/ktor/src/main/kotlin/id/nearyou/app/engagement/LikeService.kt`. V7 shipped in change `post-likes-v7`. Update both when changing the like shape.
+> Mirrors V7 (`V7__post_likes.sql`) and `backend/ktor/src/main/kotlin/id/nearyou/app/engagement/LikeService.kt`. V7 shipped in change `post-likes-v7`.
 
 ```sql
 CREATE TABLE post_likes (
@@ -479,7 +479,7 @@ CREATE INDEX post_replies_author_idx ON post_replies(author_id, created_at DESC)
 
 ## Reports Schema
 
-> Mirrors V9 (`V9__reports_moderation.sql`). Update both when changing the report shape.
+> Mirrors V9 (`V9__reports_moderation.sql`).
 
 ```sql
 CREATE TABLE reports (
@@ -577,7 +577,7 @@ CREATE INDEX notifications_user_all_idx
 
 `body_data` stores type-specific JSON (excerpts, billing grace end date, etc.). Retention: 90 days auto-purge via `/internal/cleanup`. Delivered via FCM push in parallel; the DB row is the source of truth for the in-app list.
 
-**Event type catalog**: canonical addressing is `(target_type, target_id)` on the outer row — that column pair is what deep-links route to. `body_data` carries only what the outer pair can't supply (excerpts, secondary entity IDs, status strings, timestamps). Do NOT duplicate `target_id` inside `body_data`. See `V10__notifications.sql` + `NotificationWritePathTest.kt` for shipped shapes.
+**Event type catalog** (V10 shipped this; table amended 2026-04-24, PR [#24](https://github.com/aditrioka/nearyou-id/pull/24)): canonical addressing is `(target_type, target_id)` on the outer row — that column pair is what deep-links route to; outer `(target_type='post', target_id=<post_id>)` answers "which post". `body_data` carries only what the outer pair can't supply: excerpts, secondary entity IDs (`reply_id`, since target points at the parent), status strings, timestamps, `reason` for auto-hide copy. Do NOT duplicate `target_id` inside `body_data`. For `chat_message_redacted`, target_id is the redacted message; `conversation_id` lets the client route without a second fetch. See `V10__notifications.sql` + `NotificationWritePathTest.kt` for shipped shapes.
 
 | Type | Trigger | Actor | `target_type` | Body data |
 |------|---------|-------|---------------|-----------|
@@ -594,8 +594,6 @@ CREATE INDEX notifications_user_all_idx
 | `privacy_flip_warning` | Downgrade-to-Free with private profile, flip scheduled | NULL | NULL | `{privacy_flip_scheduled_at}` |
 | `username_release_scheduled` | Custom username change confirmed; old handle releases at `released_at` | NULL | NULL | `{old_username, released_at}` |
 | `apple_relay_email_changed` | Apple S2S `email-disabled`/`email-enabled` event | NULL | NULL | `{new_email_masked}` |
-
-Rationale: outer `(target_type='post', target_id=<post_id>)` answers "which post"; body_data carries only what can't be inferred (excerpt, `reply_id` since target points at the parent, `reason` for auto-hide copy). V10 shipped this; table amended 2026-04-24 (PR [#24](https://github.com/aditrioka/nearyou-id/pull/24)). For `chat_message_redacted`, target_id is the redacted message; `conversation_id` lets the client route without a second fetch.
 
 ---
 
@@ -994,7 +992,7 @@ Hit → 403 "Tidak dapat mengirim pesan ke user ini". Existing history stays rea
 
 ## Block User Implementation
 
-> Mirrors V5 (`V5__user_blocks.sql`) and `backend/ktor/src/main/kotlin/id/nearyou/app/block/BlockService.kt`. Update both when changing the block-action shape.
+> Mirrors V5 (`V5__user_blocks.sql`) and `backend/ktor/src/main/kotlin/id/nearyou/app/block/BlockService.kt`.
 
 ### Schema
 
@@ -1279,7 +1277,7 @@ WHERE u.deleted_at IS NULL
 
 ## Client IP Extraction
 
-> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/common/ClientIpExtractor.kt`. Update both when changing the precedence ladder.
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/common/ClientIpExtractor.kt`.
 
 All inbound HTTPS to `api.nearyou.id` / `admin.nearyou.id` transits Cloudflare; Cloud Run sees the CF edge IP in `X-Forwarded-For`. The real client IP is carried in `CF-Connecting-IP`.
 

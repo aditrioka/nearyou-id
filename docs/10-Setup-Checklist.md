@@ -1,8 +1,8 @@
 # NearYouID - External Setup Checklist
 
-Operational checklist untuk akun, infrastruktur, domain, credentials, dan datasets yang perlu disiapin **di luar kodingan**. Ini komplemen ke `08-Roadmap-Risk.md` Pre-Phase 1 section, tapi fokus ke eksekusi (ceklist yang bisa di-tick).
+Operational checklist untuk akun, infrastruktur, domain, credentials, dan datasets yang disiapkan **di luar kodingan**. Komplemen ke `08-Roadmap-Risk.md` Pre-Phase 1 section, fokus ke eksekusi (ceklist yang bisa di-tick).
 
-**How to use**: tick `[x]` saat selesai, tambah catatan inline (lokasi kredensial, tanggal, dll). Kredensial sensitif JANGAN ditulis di file ini. Simpan di GCP Secret Manager / 1Password / password manager pilihan, file ini hanya catat "disimpan di mana".
+**How to use**: tick `[x]` saat selesai, tambah catatan inline (lokasi kredensial, tanggal, dll). Kredensial sensitif JANGAN ditulis di file ini — simpan di GCP Secret Manager / 1Password / password manager pilihan; file ini hanya catat "disimpan di mana".
 
 **Status legend**: `[ ]` belum, `[x]` selesai, `[~]` in progress, `[!]` blocked.
 
@@ -10,13 +10,13 @@ Operational checklist untuk akun, infrastruktur, domain, credentials, dan datase
 
 ## 1. Domain & DNS (Start di sini, blocking untuk banyak hal)
 
-Domain `nearyou.id` sudah terdaftar di Hostinger. Langkah berikut memindah DNS management ke Cloudflare (registrasi tetap di Hostinger).
+Domain `nearyou.id` terdaftar di Hostinger. Langkah berikut memindah DNS management ke Cloudflare (registrasi tetap di Hostinger).
 
 - [ ] Signup Cloudflare account (free plan) - https://dash.cloudflare.com/sign-up
 - [ ] Add site `nearyou.id` ke Cloudflare, pilih Free plan
 - [ ] Copy 2 nameservers yang Cloudflare kasih
 - [ ] Login Hostinger → domain `nearyou.id` → Nameservers → ganti ke Cloudflare NS
-- [ ] Tunggu propagasi (biasanya 1-24 jam), verify di Cloudflare dashboard status "Active"
+- [ ] Tunggu propagasi (biasanya 1-24 jam), verify status "Active" di Cloudflare dashboard
 - [ ] Di Cloudflare: enable **CSAM Scanning Tool** di Caching > Configuration
 - [ ] Verify email address untuk CSAM notifications (wajib sebelum production)
 - [ ] Setup SSL/TLS mode ke "Full (strict)" di Cloudflare
@@ -41,10 +41,8 @@ Domain `nearyou.id` sudah terdaftar di Hostinger. Langkah berikut memindah DNS m
 - [ ] Signup Apple Developer account - https://developer.apple.com/programs/enroll
 - [ ] Pilih Individual enrollment (solo founder)
 - [ ] Bayar $99/tahun
-- [ ] Tunggu approval (1-3 hari biasanya, bisa lebih kalau verifikasi tambahan)
-- [ ] Setelah approved, enroll ke **Small Business Program** (fee turun dari 30% ke 15%)
-  - https://developer.apple.com/app-store/small-business-program/
-  - Gratis, wajib enroll biar fee 15% dari hari pertama
+- [ ] Tunggu approval (biasanya 1-3 hari, bisa lebih kalau ada verifikasi tambahan)
+- [ ] Setelah approved, enroll ke **Small Business Program** (https://developer.apple.com/app-store/small-business-program/) — gratis, wajib enroll biar fee turun dari 30% ke 15% dari hari pertama
 - [ ] Buat App ID di Apple Developer Console untuk `id.nearyou.app` (atau naming kamu)
 - [ ] Enable capabilities: Sign in with Apple, App Attest, Push Notifications
 - [ ] Generate APNs `.p8` key (Keys section) - simpan aman, tidak bisa re-download
@@ -60,8 +58,7 @@ Domain `nearyou.id` sudah terdaftar di Hostinger. Langkah berikut memindah DNS m
 - [ ] Signup Google Play Console - https://play.google.com/console/signup
 - [ ] Bayar $25 one-time fee (verify harga terkini, bisa beda)
 - [ ] Complete identity verification (butuh KTP + selfie)
-- [ ] Setelah approved, **verify pricing tier availability**: Rp9,900 / Rp29,000 / Rp249,000 untuk subscription
-  - Document tier terdekat kalau exact tidak ada, update `09-Versions.md`
+- [ ] Setelah approved, **verify pricing tier availability**: Rp9,900 / Rp29,000 / Rp249,000 untuk subscription — document tier terdekat kalau exact tidak ada, update `09-Versions.md`
 - [ ] Request **Play Integrity quota increase** ke 100k/day via Play Console form (processing up to 1 minggu)
 
 **Notes**:
@@ -94,7 +91,7 @@ Domain `nearyou.id` sudah terdaftar di Hostinger. Langkah berikut memindah DNS m
 - Region: `asia-southeast1` (Jakarta)
 - Raw URL (fallback if custom domain breaks): `https://nearyou-backend-staging-gswrppbqaa-as.a.run.app`
 - Custom domain: `https://api-staging.nearyou.id` (pending TLS cert on initial setup)
-- Deploy workflow: `.github/workflows/deploy-staging.yml` (auto-triggers on push to `main`)
+- Deploy workflow: `.github/workflows/deploy-staging.yml` (auto-triggers on push to `main`; referenced below as `deploy-staging.yml`)
 - Secrets: loaded from Secret Manager as `staging-*` (see deploy workflow `--set-secrets`)
 - Domain ownership verified via Search Console under `nearyouid.founder@gmail.com`
 
@@ -107,23 +104,23 @@ Bisa signup berurutan dalam 1-2 sore. Gunakan email dedicated untuk admin NearYo
 ### 3.1 Supabase
 
 - [x] Signup - https://supabase.com — done (staging project active)
-- [ ] Create project `nearyou-prod` (pilih region Singapore / AWS ap-southeast-1) — pending GCP prod project setup
-- [x] Create project `nearyou-staging` (same region) — done. Staging URL stored in GCP Secret Manager `staging-supabase-url` + `staging-db-url`.
-- [~] Save connection string + JWT secret untuk kedua project — staging done (`staging-db-url` v1, `staging-db-user` v1, `staging-db-password` v1, `staging-supabase-jwt-secret` v1, `staging-supabase-url` v1, `staging-supabase-service-role-key` v1; all wired in `deploy-staging.yml --set-secrets`). Prod equivalents pending.
+- [ ] Create project `nearyou-prod` (region Singapore / AWS ap-southeast-1) — pending GCP prod project setup
+- [x] Create project `nearyou-staging` (same region) — done; staging URL di Secret Manager `staging-supabase-url` + `staging-db-url`
+- [~] Save connection string + JWT secret untuk kedua project — staging done: 6 slots (`staging-db-url`, `staging-db-user`, `staging-db-password`, `staging-supabase-jwt-secret`, `staging-supabase-url`, `staging-supabase-service-role-key`) semua v1 + wired (§ 4.2); prod equivalents pending
 - [ ] Prod: stay on Free tier sampai Pre-Launch, lalu upgrade ke Pro ($25/bulan)
 - [x] Staging: stay on Free tier selamanya (auto-pause setelah 7 hari idle = OK) — Free tier active
 
 **Notes**:
 - Prod project URL: _________________
-- Staging project URL: stored in GCP Secret Manager as `staging-db-url` (project `nearyou-staging`). Flyway history V1..V9 verified 2026-04-22, all `success=true`.
+- Staging project URL: in Secret Manager `staging-db-url` (project `nearyou-staging`). Flyway history V1..V9 verified 2026-04-22, all `success=true`.
 
 ### 3.2 Upstash (Redis)
 
 - [x] Signup - https://upstash.com — done (staging DB active)
 - [ ] Create Redis database `nearyou-cache-prod` (region Singapore) — pending GCP prod project setup
 - [x] Create Redis database `nearyou-cache-staging` — done
-- [~] Save REST URL + REST token untuk masing-masing — staging done (`staging-redis-url` v1, wired as `REDIS_URL` in `deploy-staging.yml --set-secrets`; consumed by `:infra:redis` Lettuce client). Prod equivalent pending.
-- [x] **TCP/RESP URL must use `rediss://` scheme (TLS), NOT `redis://`.** Upstash enables TLS on port 6379 by default, but the dashboard's quick-connect string is shown as `redis-cli --tls -u redis://...` which is misleading — the `--tls` flag is what's actually doing the work. Lettuce (`:infra:redis`) parses `redis://` as plain TCP and opens an unencrypted socket; Upstash drops the connection mid-handshake. Symptom is `RedisConnectionException: Connection closed prematurely` in Cloud Run logs and the rate limit silently no-ops via the fail-soft path. Solve at the secret value, not in code: store `rediss://default:<password>@<host>:6379` in `staging-redis-url` and `redis-url` (prod). Precedent: like-rate-limit task 9.7 smoke (2026-04-25) failed exactly this way; archive notes capture the full diagnostic trail. **Staging fix applied** — `staging-redis-url` uses `rediss://` scheme; staging deploys + rate-limit infrastructure run cleanly. Apply same scheme to `redis-url` (prod) when minting.
+- [~] Save REST URL + REST token untuk masing-masing — staging done (`staging-redis-url` v1, wired as `REDIS_URL`; consumed by `:infra:redis` Lettuce client); prod pending
+- [x] **TCP/RESP URL must use `rediss://` scheme (TLS), NOT `redis://`.** Upstash enables TLS on port 6379 by default, but the dashboard quick-connect `redis-cli --tls -u redis://...` misleads — the `--tls` flag does the work. Lettuce parses `redis://` as plain TCP → unencrypted socket → Upstash drops it mid-handshake; symptom: `RedisConnectionException: Connection closed prematurely` in Cloud Run logs + rate limit silently no-ops via fail-soft. Fix at the secret value, not code: store `rediss://default:<password>@<host>:6379` in `staging-redis-url` + `redis-url` (prod). Precedent: like-rate-limit task 9.7 smoke, 2026-04-25 (diagnostic trail in archive notes). **Staging fix applied** — deploys + rate-limit infra clean; apply the same scheme to prod when minting.
 
 **Notes**:
 - Prod Redis REST URL: _________________
@@ -133,41 +130,40 @@ Bisa signup berurutan dalam 1-2 sore. Gunakan email dedicated untuk admin NearYo
 
 - [x] Signup / use existing Google account (`nearyouid.founder@gmail.com`) - https://console.firebase.google.com
 - [ ] Create project `nearyou-prod` (link ke GCP project prod)
-- [x] Create project `nearyou-staging` (link ke GCP project staging) — done 2026-04-26. Project ID exactly `nearyou-staging` (linked to existing GCP project, not a fresh Firebase-created one). Inherits Blaze plan from GCP billing — no cost impact since FCM + Remote Config stay on free tier.
-- [x] Enable **FCM** (Cloud Messaging) — `fcm.googleapis.com` auto-enabled when Firebase added to staging GCP project. Verified via `gcloud services list`.
-- [x] Enable **Phone Authentication** — `identitytoolkit.googleapis.com` auto-enabled in staging. Sign-in method (Phone) still needs explicit toggle in Console UI before first use; backend doesn't require it for FCM/Remote Config flow.
-- [x] Enable **Remote Config** untuk feature flags — `firebaseremoteconfig.googleapis.com` + `firebaseremoteconfigrealtime.googleapis.com` auto-enabled in staging.
+- [x] Create project `nearyou-staging` (link ke GCP project staging) — done 2026-04-26; project ID exactly `nearyou-staging` (linked to the existing GCP project, not a fresh Firebase-created one); inherits Blaze plan from GCP billing — no cost impact, FCM + Remote Config stay free-tier
+- [x] Enable **FCM** (Cloud Messaging) — `fcm.googleapis.com` auto-enabled when Firebase joined the staging GCP project; verified via `gcloud services list`
+- [x] Enable **Phone Authentication** — `identitytoolkit.googleapis.com` auto-enabled in staging; Phone sign-in method still needs an explicit Console UI toggle before first use (backend's FCM/Remote Config flow doesn't require it)
+- [x] Enable **Remote Config** untuk feature flags — `firebaseremoteconfig.googleapis.com` + `firebaseremoteconfigrealtime.googleapis.com` auto-enabled in staging
 - [ ] Download `GoogleService-Info.plist` (iOS) untuk kedua environment — **deferred** until mobile flavor config + Apple Dev account ready
 - [ ] Download `google-services.json` (Android) untuk kedua environment — **deferred** until mobile flavor config decision (`applicationIdSuffix = ".staging"` or not)
-- [x] Generate Firebase Admin SDK service account JSON untuk backend (staging done 2026-04-26; prod pending). Staging SA email: `firebase-adminsdk-fbsvc@nearyou-staging.iam.gserviceaccount.com`. Stored in GCP Secret Manager as `staging-firebase-admin-sa` (version 1). Local copy deleted after upload — Secret Manager is single source of truth. Cloud Run runtime SA (`27815942904-compute@developer.gserviceaccount.com`) granted `roles/secretmanager.secretAccessor` on this secret.
+- [x] Generate Firebase Admin SDK service account JSON untuk backend — staging done 2026-04-26 (prod pending) as `staging-firebase-admin-sa` v1; local copy deleted post-upload (Secret Manager = single source of truth); Cloud Run runtime SA (`27815942904-compute@developer.gserviceaccount.com`, referenced below as "Cloud Run runtime SA") granted `roles/secretmanager.secretAccessor`
 
 **Initial Remote Config flags** (create dengan default values):
 
-⚠️ **Server vs Client template gotcha** (important — not in original docs): Firebase Remote Config now has **two independent templates per project**: `Client` (for mobile/web SDKs) and `Server` (for Admin SDK). Server-side Remote Config went GA in 2023 and uses a separate template — they do NOT share parameters. Backend Ktor reads from **Server** template. Mobile reads from **Client** template. For flags consumed by both sides (`image_upload_enabled`, `premium_username_customization_enabled`), parameters must be seeded in both templates and kept in sync manually.
+⚠️ **Server vs Client template gotcha** (not in original docs): Firebase Remote Config has **two independent templates per project** — `Client` (mobile/web SDKs) and `Server` (Admin SDK; server-side Remote Config GA since 2023) — which do NOT share parameters. Backend Ktor reads **Server**; mobile reads **Client**. Dual-consumer flags (`image_upload_enabled`, `premium_username_customization_enabled`) must be seeded in both templates and kept in sync manually.
 
 Seeded in **Server template** (staging) — done 2026-04-26, Version 1 published:
-- [x] `image_upload_enabled` = false (boolean) — also needs Client template entry when mobile work starts
+- [x] `image_upload_enabled` = false (boolean)
 - [x] `attestation_mode` = "off" (string) — staging override; prod will be `"enforce"`
 - [x] `search_enabled` = true (boolean)
 - [x] `perspective_api_enabled` = true (boolean)
-- [x] `premium_username_customization_enabled` = true (boolean) — also needs Client template entry when mobile work starts
+- [x] `premium_username_customization_enabled` = true (boolean)
 - [x] `moderation_profanity_list` = [] (JSON array — Firebase has no native string-array type, JSON is the canonical workaround; backend `JSON.parse` to `List<String>`)
 - [x] `moderation_uu_ite_list` = [] (JSON array, same as above)
 - [x] `moderation_match_threshold` = 3 (number)
 
-End-to-end verified 2026-04-26: pulled credential from Secret Manager → minted OAuth token via SA private key → fetched Server template via `firebaseremoteconfig.googleapis.com/v1/projects/nearyou-staging/namespaces/firebase-server/serverRemoteConfig` → all 8 parameters returned with correct defaults. Same flow Firebase Admin SDK uses internally.
+End-to-end verified 2026-04-26: Secret Manager credential → OAuth token via SA private key → Server template fetched at `firebaseremoteconfig.googleapis.com/v1/projects/nearyou-staging/namespaces/firebase-server/serverRemoteConfig` → all 8 parameters returned correct defaults (same flow the Firebase Admin SDK uses internally).
 
 **Notes**:
 - Firebase prod project ID: _________________
 - Firebase staging project ID: `nearyou-staging` (matches GCP project ID — single ID for all staging infra)
 - Staging Admin SA email: `firebase-adminsdk-fbsvc@nearyou-staging.iam.gserviceaccount.com`
-- Staging Admin SDK credential: GCP Secret Manager `staging-firebase-admin-sa` (project `nearyou-staging`)
-- Wired: `FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest` in `.github/workflows/deploy-staging.yml --set-secrets` (added 2026-04-29 via PR #60 `fcm-push-dispatch`; `:infra:remote-config` consumer landed 2026-05-07 via PR #70 `content-moderation-keyword-lists`)
+- Staging Admin SDK credential slot, wiring + consumers: § 4.2 (`staging-firebase-admin-sa`)
 - Pending Client template seed: 2 dual-template flags (`image_upload_enabled`, `premium_username_customization_enabled`) need Client-template entries when mobile work starts
 
 ### 3.4 RevenueCat
 
-> **DEFERRED 2026-05-09 (E20 audit)**: signup deferred until Phase 4 IAP webhook backend implementation actively starts. No IAP code in flight, no subscription products to validate, no webhook to test. Signing up now = idle account hygiene burden + premature optimization. **Trigger to revisit**: first OpenSpec change for IAP/subscription module proposed. Items below preserved as future work.
+> **DEFERRED 2026-05-09 (E20 audit)** until Phase 4 IAP webhook backend implementation actively starts — no IAP code in flight, no subscription products to validate, no webhook to test; signing up now = idle account hygiene burden + premature optimization. **Trigger to revisit**: first OpenSpec change for the IAP/subscription module proposed. Items below preserved as future work.
 
 - [ ] Signup - https://www.revenuecat.com
 - [ ] Create project "NearYouID"
@@ -185,112 +181,100 @@ End-to-end verified 2026-04-26: pulled credential from Secret Manager → minted
 
 ### 3.5 Cloudflare (additional services beyond DNS)
 
-- [x] Dari Cloudflare dashboard, enable **R2** (object storage) — done 2026-04-26. Free tier active (10GB storage / 1M Class A ops / 10M Class B ops per month). Subscription $0/mo unless free tier exceeded. Cancellable anytime via Billing.
+- [x] Dari Cloudflare dashboard, enable **R2** (object storage) — done 2026-04-26; free tier active (10GB storage / 1M Class A ops / 10M Class B ops per month); subscription $0/mo unless free tier exceeded, cancellable anytime via Billing
 - [~] Create buckets:
   - [ ] `nearyou-media-prod` — pending GCP prod project setup
-  - [x] `nearyou-media-staging` — done 2026-04-26. Region: APAC (Asia Pacific). Storage class: Standard. Public Access: Disabled (private — served via CF Images later, never directly).
+  - [x] `nearyou-media-staging` — done 2026-04-26; region APAC (Asia Pacific), storage class Standard, Public Access Disabled (private — served via CF Images later, never directly)
   - [ ] `nearyou-backups` (production backup target) — pending Pre-Launch backup spec
-- [ ] Enable **Cloudflare Images** — **deferred (Phase B)** until media spec starts. CF Images = $5/mo minimum regardless of usage; not worth burning while `image_upload_enabled = false`. When enabling, also do: configure variants, register custom domain `img-staging.nearyou.id` in CF Images Custom Domains, add DNS CNAME (the DNS record alone is useless without CF Images backend registration).
+- [ ] Enable **Cloudflare Images** — **deferred (Phase B)** until media spec starts: CF Images = $5/mo minimum regardless of usage, not worth burning while `image_upload_enabled = false`. At enable-time also: configure variants, register `img-staging.nearyou.id` in CF Images Custom Domains, add DNS CNAME (the DNS record alone is useless without CF Images backend registration).
   - [ ] Note account hash (buat URL structure)
   - [ ] Note delivery URL pattern (custom subdomain locked per Decision #32 in `08-Roadmap-Risk.md` — `img-staging.nearyou.id` / `img.nearyou.id`)
-- [x] Generate R2 S3-compatible API token untuk backend access — done 2026-04-26. Token name `nearyou-staging-r2-rw`. Permissions: Object Read & Write. **Bucket-scoped** (only `nearyou-media-staging`, not account-wide — least privilege). TTL: forever. No IP filter. Credentials uploaded to GCP Secret Manager (5 secrets — see § 4.2 below). **End-to-end smoke test PASSED 2026-04-26**: PUT, LIST, GET (sha256 content match), DELETE, HEAD-after-DELETE (404) all verified via boto3 + S3v4 signing — same flow backend Ktor will use via AWS SDK.
+- [x] Generate R2 S3-compatible API token untuk backend access — done 2026-04-26; token `nearyou-staging-r2-rw`, Object Read & Write, **bucket-scoped** (only `nearyou-media-staging`, not account-wide — least privilege), TTL forever, no IP filter; credentials → Secret Manager (5 secrets, § 4.2). **E2E smoke PASSED 2026-04-26**: PUT, LIST, GET (sha256 content match), DELETE, HEAD-after-DELETE (404) via boto3 + S3v4 signing — same flow backend Ktor will use via AWS SDK.
 
 **Notes**:
 - CF account ID: `c0e93113188e87a99848a2c6cb3e55e9`
-- R2 staging credentials: GCP Secret Manager (`staging-r2-access-key-id`, `staging-r2-secret-access-key`, `staging-r2-bucket-name`, `staging-r2-endpoint-url`, `staging-r2-account-id` — all v1, all granted to Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com`)
+- R2 staging credentials: 5 secrets, all v1, all granted to Cloud Run runtime SA — slot names § 4.2
 - R2 staging endpoint: `https://c0e93113188e87a99848a2c6cb3e55e9.r2.cloudflarestorage.com`
 - CF Images account hash: _________________ (defer with Phase B enable)
-- Pending wiring: 5 R2 staging secrets not yet in `.github/workflows/deploy-staging.yml --set-secrets` — will be added when backend media module code lands (separate OpenSpec change, likely with Firebase Admin SDK wiring)
+- Pending wiring: 5 R2 staging secrets not yet in `deploy-staging.yml --set-secrets` — add when backend media module code lands (separate OpenSpec change, likely with Firebase Admin SDK wiring)
 
 ### 3.6 Sentry
 
-- [x] Signup - https://sentry.io — done 2026-04-26 via Google OAuth (`nearyouid.founder@gmail.com`). Plan: Developer (Free, 5k errors/month). Sentry auto-enrolled into 14-day Business trial — will auto-fall-back to Developer plan after expire as long as no payment method added (do NOT add payment to keep free).
-- [x] Create organization "NearYouID" — done 2026-04-26. Slug: `nearyouid`. URL: `https://nearyouid.sentry.io`. **Data Storage Location: 🇪🇺 European Union (Frankfurt)** — confirmed via DSN `region=de`. ⚠️ Permanent, cannot be changed.
-- [x] Create projects: `nearyou-android`, `nearyou-ios`, `nearyou-backend` — done 2026-04-26. Org ID: `4511287321165824`. Project IDs: backend `4511287333945424`, android `4511287347511376`, ios `4511287349411920`. All 3 projects have alert frequency "Alert me on high priority issues" (Sentry's algorithmic detection — non-noisy, default). Email notifications on (`nearyouid.founder@gmail.com`).
-- [x] Save DSN untuk masing-masing — done 2026-04-26. All 3 DSN uploaded to GCP Secret Manager (see § 4.2). Local files deleted post-upload.
-- [x] Note: separate staging pakai `environment=staging` tag (single project) — strategy locked per `04-Architecture.md`. ONE Sentry project per platform, env distinguished at runtime via SDK init `environment=staging` vs `environment=production` tag. Same DSN used by both envs (mirror to `prod-sentry-*-dsn` secrets when prod env is set up).
-- [ ] Siapkan `sentry-cli` auth token untuk CI/CD (upload ProGuard + dSYM) — **deferred** until mobile release build pipeline starts (Phase 3 mobile work per `08-Roadmap-Risk.md`). Backend Ktor doesn't need auth token (no symbolication artifacts to upload — JVM stack traces are already readable). Generating now = unused secret sitting; rotate-when-needed pattern preferred.
+- [x] Signup - https://sentry.io — done 2026-04-26 via Google OAuth (`nearyouid.founder@gmail.com`); plan Developer (Free, 5k errors/month); auto-enrolled 14-day Business trial — falls back to Developer at expiry if no payment method is added (do NOT add one; keeps it free)
+- [x] Create organization "NearYouID" — done 2026-04-26; slug `nearyouid`, URL `https://nearyouid.sentry.io`; **Data Storage Location: 🇪🇺 European Union (Frankfurt)**, confirmed via DSN `region=de` — ⚠️ permanent, cannot be changed
+- [x] Create projects: `nearyou-android`, `nearyou-ios`, `nearyou-backend` — done 2026-04-26; project IDs: backend `4511287333945424`, android `4511287347511376`, ios `4511287349411920`; all 3 on alert frequency "Alert me on high priority issues" (Sentry's algorithmic detection — non-noisy, default), email notifications on (`nearyouid.founder@gmail.com`)
+- [x] Save DSN untuk masing-masing — done 2026-04-26; all 3 DSN in Secret Manager (§ 4.2), local files deleted post-upload
+- [x] Note: separate staging pakai `environment=staging` tag (single project) — locked per `04-Architecture.md`: ONE Sentry project per platform, env distinguished at runtime via the SDK-init `environment` tag (`staging` vs `production`); same DSN serves both envs (mirror to `prod-sentry-*-dsn` secrets at prod setup)
+- [ ] Siapkan `sentry-cli` auth token untuk CI/CD (upload ProGuard + dSYM) — **deferred** until the mobile release build pipeline starts (Phase 3 mobile work per `08-Roadmap-Risk.md`); backend Ktor needs no auth token (no symbolication artifacts to upload — JVM stack traces already readable); generating now = unused secret sitting, rotate-when-needed preferred
 
 **Notes**:
-- Sentry org slug: `nearyouid` (URL: `https://nearyouid.sentry.io`)
-- Sentry org ID: `4511287321165824`
-- DSN backend: GCP Secret Manager `staging-sentry-backend-dsn` v1 (granted to Cloud Run runtime SA)
-- DSN android: GCP Secret Manager `staging-sentry-android-dsn` v1 (no Cloud Run SA grant — mobile DSN consumed by CI build pipeline, not Cloud Run runtime; least privilege)
-- DSN ios: GCP Secret Manager `staging-sentry-ios-dsn` v1 (no Cloud Run SA grant — same reason as android)
-- Pending wiring: `staging-sentry-backend-dsn` not yet in `.github/workflows/deploy-staging.yml --set-secrets` — will be added when backend `:infra:sentry` module wires SDK init (separate OpenSpec change)
+- Sentry org slug: `nearyouid`; org ID: `4511287321165824`
+- DSN secrets (`staging-sentry-{backend,android,ios}-dsn`): grants + details § 4.2
+- Pending wiring: `staging-sentry-backend-dsn` not yet in `deploy-staging.yml --set-secrets` — add when backend `:infra:sentry` module wires SDK init (separate OpenSpec change)
 
 ### 3.7 Grafana Cloud (OTel backend)
 
-OTel foundation shipped 2026-05-07 via PR #66 `observability-otel-foundation` — `:infra:otel` module + OpenTelemetry SDK + auto-instrumentation (Ktor server, JDK/CIO HTTP client, HikariCP, Lettuce) + OTLP/HTTP exporter to Grafana Cloud Tempo. Staging fully wired; production stack + slots pending prod environment buildout.
+OTel foundation shipped 2026-05-07 via PR #66 `observability-otel-foundation`: `:infra:otel` module + OpenTelemetry SDK + auto-instrumentation (Ktor server, JDK/CIO HTTP client, HikariCP, Lettuce) + OTLP/HTTP exporter to Grafana Cloud Tempo. Staging fully wired; production stack + slots pending prod environment buildout.
 
 - [x] Signup - https://grafana.com/auth/sign-up/create-user — done (Free tier)
 - [x] Pilih Free tier — done
-- [~] Create stack `nearyou-staging` (staging) and `nearyou-prod` (production) — one Grafana Cloud project, two stacks. Staging done; prod pending GCP prod project setup.
-- [~] Mint OTLP/HTTP token for each stack with **Read+Write trace permissions only** (no metric/log scope at the `observability-otel-foundation` change). Token format: `<instance-id>:<api-key>` for the OTLP/HTTP `Authorization: Basic` header. Staging token minted via OTLP setup wizard (over-grants `metrics:write` + `logs:write` + `profiles:write` + `stacks:read` — see ⚠️ rotation item below); prod pending.
+- [~] Create stack `nearyou-staging` (staging) and `nearyou-prod` (production) — one Grafana Cloud project, two stacks; staging done, prod pending GCP prod project setup
+- [~] Mint OTLP/HTTP token per stack with **Read+Write trace permissions only** (no metric/log scope at the `observability-otel-foundation` change); token format `<instance-id>:<api-key>` for the OTLP/HTTP `Authorization: Basic` header. Staging token minted via the OTLP setup wizard (over-grants — see ⚠️ rotation item below); prod pending.
 - [~] Populate GCP Secret Manager slots (verbatim names — match `secretKey(env, ...)` lookups in `:infra:otel`):
-    - [x] `staging-otel-grafana-otlp-endpoint` v1 — staging Tempo OTLP/HTTP endpoint (e.g., `https://tempo-prod-XX-us-central-0.grafana.net/tempo`). Cloud Run runtime SA granted `secretAccessor`.
-    - [x] `staging-otel-grafana-otlp-token` v1 — staging HTTP Basic auth credential (base64 of `<instance_id>:<api_token>` from the Grafana OTLP wizard; `OtelBootstrap` prepends `Basic ` scheme). Cloud Run runtime SA granted `secretAccessor`.
+    - [x] `staging-otel-grafana-otlp-endpoint` v1 — staging Tempo OTLP/HTTP endpoint (e.g., `https://tempo-prod-XX-us-central-0.grafana.net/tempo`); granted to Cloud Run runtime SA
+    - [x] `staging-otel-grafana-otlp-token` v1 — staging HTTP Basic credential (base64 of `<instance_id>:<api_token>` from the wizard; `OtelBootstrap` prepends `Basic ` scheme); granted to Cloud Run runtime SA
     - [ ] `otel-grafana-otlp-endpoint` — production Tempo OTLP/HTTP endpoint (pending)
-    - [ ] `otel-grafana-otlp-token` — production HTTP Basic auth credential (pending; mint from least-privilege Access Policy per ⚠️ below, NOT from the wizard)
-- [~] Confirm IAM: ONLY the staging + production Cloud Run service accounts have `roles/secretmanager.secretAccessor` on these slots — no CI / dev access. Staging Cloud Run runtime SA (`27815942904-compute@developer.gserviceaccount.com`) granted on both staging slots; prod pending.
-- [~] Wire env-var bindings: staging wired in `.github/workflows/deploy-staging.yml --set-secrets` as `OTEL_GRAFANA_OTLP_ENDPOINT=staging-otel-grafana-otlp-endpoint:latest` and `OTEL_GRAFANA_OTLP_TOKEN=staging-otel-grafana-otlp-token:latest` (added in PR #66, 2026-05-07). Production deploy workflow doesn't exist yet.
-- [ ] ⚠️ **Pre-Launch (before prod tag-deploy)**: rotate `otel-grafana-otlp-token` (and optionally `staging-otel-grafana-otlp-token` at next maintenance window) from the OTLP-wizard token to a custom Grafana Cloud Access Policy token (`nearyou-prod-traces-write-only`, realm = stack `nearyouid`, scope = `traces:write` only). The wizard token over-grants `metrics:write` + `logs:write` + `profiles:write` + `stacks:read`. GCP Secret Manager IAM is the primary defense, but the wizard token is unacceptable at production tag-deploy. Canonical: `08-Roadmap-Risk.md` § Pre-Launch (Week 18-20) checklist.
+    - [ ] `otel-grafana-otlp-token` — production HTTP Basic credential (pending; mint from least-privilege Access Policy per ⚠️ below, NOT the wizard)
+- [~] Confirm IAM: ONLY the staging + production Cloud Run service accounts hold `roles/secretmanager.secretAccessor` on these slots — no CI / dev access. Staging Cloud Run runtime SA granted on both staging slots; prod pending.
+- [~] Wire env-var bindings: staging wired as `OTEL_GRAFANA_OTLP_ENDPOINT=staging-otel-grafana-otlp-endpoint:latest` + `OTEL_GRAFANA_OTLP_TOKEN=staging-otel-grafana-otlp-token:latest` (PR #66, 2026-05-07); production deploy workflow doesn't exist yet
+- [ ] ⚠️ **Pre-Launch (before prod tag-deploy)**: rotate `otel-grafana-otlp-token` (optionally `staging-otel-grafana-otlp-token` at next maintenance window) from the wizard token to a custom Grafana Cloud Access Policy token — `nearyou-prod-traces-write-only`, realm = stack `nearyouid`, scope `traces:write` only. The wizard token over-grants `metrics:write` + `logs:write` + `profiles:write` + `stacks:read`; Secret Manager IAM is the primary defense, but a wizard token is unacceptable at production tag-deploy. Canonical: `08-Roadmap-Risk.md` § Pre-Launch (Week 18-20) checklist.
 
 **Notes**:
-- Grafana stack URLs (staging / prod): _________________ / _________________ (staging URL embedded in `staging-otel-grafana-otlp-endpoint`; fill in human-readable form here when convenient)
-- Staging OTLP endpoint: GCP Secret Manager `staging-otel-grafana-otlp-endpoint` v1 (project `nearyou-staging`)
-- Staging OTLP token: GCP Secret Manager `staging-otel-grafana-otlp-token` v1 (wizard-minted; rotation to least-privilege Access Policy token tracked above)
-- Prod stack URL / endpoint: _________________ (pending)
+- Grafana stack URLs (staging / prod): _________________ / _________________ (staging URL embedded in `staging-otel-grafana-otlp-endpoint`, fill in human-readable form when convenient; prod URL/endpoint pending)
 - Cloud Run SA grants verified: [x] staging  [ ] production
 - Pending wiring (prod): all 4 slots above + production deploy workflow
 
 ### 3.8 Amplitude
 
-> **Multi-agent dialectic 2026-05-09**: 4-perspective pressure-test (pro-vendor / pro-build / compliance / pragmatist) + synthesizer recommended AMEND Decision #31 to default Postgres `product_events` substrate. Founder reviewed and chose to proceed with Amplitude signup since cost is $0 + setup is ~15 min ("siapin biar ready, kayak nyewa kotak surat — kosong sekarang, isi nanti pas ada surat"). Status quo retained on Decision #31; substrate proposal preserved in conversation history if trigger conditions later force re-visit. Item below ticked accordingly.
+> **Multi-agent dialectic 2026-05-09**: 4-perspective pressure-test (pro-vendor / pro-build / compliance / pragmatist) + synthesizer recommended AMENDing Decision #31 to a default Postgres `product_events` substrate. Founder chose to proceed with Amplitude signup anyway — $0 cost, ~15 min setup ("siapin biar ready, kayak nyewa kotak surat — kosong sekarang, isi nanti pas ada surat"). Decision #31 status quo retained; substrate proposal preserved in conversation history if trigger conditions force a re-visit.
 
-- [x] Signup - https://amplitude.com — done 2026-05-09 via Google OAuth (`nearyouid.founder@gmail.com`). Plan: Starter (Free, 10M events/month). Org renamed `frosty-paper-787498` → `nearyouid` (matches Sentry/Resend pattern). Org URL: `app.amplitude.com/analytics/nearyouid/...`. Org ID: 428773.
-- [x] Create project "NearYouID" — done 2026-05-09. Single project staging: name kept as auto-generated `default` (Amplitude project name is internal label only, NOT used in API calls — rename non-trivial in current UI, cosmetic-only). Project ID: 814353. URL scheme (mobile): `amp-3c1a065a74bf5472`. Per multi-agent dialectic outcome + CTO-multi-project recommendation: prod project (`nearyou-prod`) deferred until prod environment exists.
-- [x] Pilih Free tier (10M events/month) — done. Starter Plan = Free tier. No payment method on file (avoids accidental upgrade).
-- [x] Save API key — done. Stored in GCP Secret Manager (see § 4.2). 32 bytes alphanumeric (Amplitude standard format). Never touched disk or shell history (clipboard piped directly to `gcloud secrets create`).
+- [x] Signup - https://amplitude.com — done 2026-05-09 via Google OAuth (`nearyouid.founder@gmail.com`); plan Starter (Free, 10M events/month); org renamed `frosty-paper-787498` → `nearyouid` (matches Sentry/Resend pattern), org URL `app.amplitude.com/analytics/nearyouid/...`
+- [x] Create project "NearYouID" — done 2026-05-09; single staging project, name kept as auto-generated `default` (internal label only, NOT used in API calls; rename non-trivial in current UI, cosmetic-only); URL scheme (mobile) `amp-3c1a065a74bf5472`; per dialectic outcome + CTO-multi-project recommendation, prod project (`nearyou-prod`) deferred until prod environment exists
+- [x] Pilih Free tier (10M events/month) — done; Starter Plan = Free tier; no payment method on file (avoids accidental upgrade)
+- [x] Save API key — done, stored as `staging-amplitude-api-key` (key format + upload handling: § 4.2)
 
 **Notes**:
-- Amplitude API key location: GCP Secret Manager `staging-amplitude-api-key` v1 (project `nearyou-staging`, granted to Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com`)
-- Amplitude org slug: `nearyouid`
-- Amplitude org ID: `428773`
-- Staging project ID: `814353`
-- Pending wiring: `staging-amplitude-api-key` not yet in `.github/workflows/deploy-staging.yml --set-secrets` — will be added when backend `:infra:amplitude` module wires SDK init (separate OpenSpec change, per Phase 1 line 89 schedule)
+- Amplitude org slug: `nearyouid`; org ID: `428773`; staging project ID: `814353`
 - Pending Pre-Launch test (`08-Roadmap-Risk.md` § Pre-Launch security review checklist): "Analytics consent suppression tested (Amplitude opt-out silent)" — gated on `:infra:amplitude` module landing first
 
 ### 3.9 Resend (transactional email)
 
-- [x] Signup - https://resend.com — done 2026-04-27 via Google OAuth (`nearyouid.founder@gmail.com`). Plan: **Free Developer** ($0/mo, 100 emails/day, 3k/month, 1 verified domain). Org slug: `nearyouid.founder`. Region: **Tokyo (ap-northeast-1)** — closer to backend (Cloud Run asia-southeast1) + Indonesian users; ~70ms vs ~250ms Ireland. Per-region decision (NOT consistent with Sentry EU because Sentry has no APAC frankfurt-equivalent and error tracking async background; Resend has sync API call latency that matters).
-- [x] Verify sending domain — **`send.nearyou.id`** (subdomain, NOT root `nearyou.id`). Verified 2026-04-27 12:35 AM. Subdomain isolates email reputation from main domain. Per `04-Architecture.md` strategy: shared Resend account + same verified domain for staging + prod, distinguished by app-level `environment=staging` tag (NOT separate verified domains).
-  - [x] Tambah SPF record — `send.send.nearyou.id` TXT = `v=spf1 include:amazonses.com ~all`. Added in Cloudflare DNS via Manual setup (NOT auto-configure — chose to keep DNS write authority within Cloudflare, not granted to third-party Resend OAuth). Verified via `dig +short TXT send.send.nearyou.id`.
-  - [x] Tambah DKIM records — `resend._domainkey.send.nearyou.id` TXT = `p=MIGfMA0...wIDAQAB` (long DKIM public key). Verified via `dig +short TXT resend._domainkey.send.nearyou.id`.
-  - [x] Tambah DMARC record — `_dmarc.nearyou.id` TXT = `v=DMARC1; p=none;`. Org-wide policy (NOT subdomain-only) per Resend's recommended pattern. **`p=none` = monitoring only**, no enforcement — safe for now. Tighten to `p=quarantine` or `p=reject` pre-launch after deliverability tracked. Also added MX bounce record: `send.send.nearyou.id` MX 10 → `feedback-smtp.ap-northeast-1.amazonses.com` (Resend's sub-subdomain bounce architecture, NOT a typo).
-- [x] Generate API key — done 2026-04-27. Name: `nearyou-staging`. Permission: **Full access** (free tier doesn't support scoped/per-domain keys). Domain scope: All Domains (effectively = `send.nearyou.id` since only one verified). Stored in GCP Secret Manager (see § 4.2).
-- [x] Test send 1 email untuk verify — **PASSED** 2026-04-27 12:41 AM. Smoke test: HTTP POST to `https://api.resend.com/emails` with `Authorization: Bearer ...` and `User-Agent: nearyou-id-setup/1.0`. ⚠️ **Note**: default Python `urllib` User-Agent (`Python-urllib/3.9`) gets blocked by Cloudflare WAF (error 1010 — bot signature flagged). Custom User-Agent required. Email arrived in **Inbox (not Spam)** — domain reputation already strong out of gate; Gmail Smart Reply suggestions appeared (sign of trusted source).
+- [x] Signup - https://resend.com — done 2026-04-27 via Google OAuth (`nearyouid.founder@gmail.com`); plan **Free Developer** ($0/mo, 100 emails/day, 3k/month, 1 verified domain); org slug `nearyouid.founder`; region **Tokyo (ap-northeast-1)** — closer to backend (Cloud Run asia-southeast1) + Indonesian users, ~70ms vs ~250ms Ireland; per-region decision (NOT matching Sentry's EU — Sentry has no APAC Frankfurt-equivalent and error tracking is async background; Resend's sync API latency matters)
+- [x] Verify sending domain — **`send.nearyou.id`** (subdomain, NOT root `nearyou.id` — isolates email reputation from the main domain); verified 2026-04-27 12:35 AM. Per `04-Architecture.md` strategy: shared Resend account + same verified domain for staging + prod, distinguished by app-level `environment=staging` tag (NOT separate verified domains).
+  - [x] Tambah SPF record — `send.send.nearyou.id` TXT = `v=spf1 include:amazonses.com ~all`; added in Cloudflare DNS via Manual setup (NOT auto-configure — DNS write authority stays within Cloudflare, not granted to third-party Resend OAuth); verified via `dig +short TXT send.send.nearyou.id`
+  - [x] Tambah DKIM records — `resend._domainkey.send.nearyou.id` TXT = `p=MIGfMA0...wIDAQAB` (long DKIM public key); verified via `dig +short TXT resend._domainkey.send.nearyou.id`
+  - [x] Tambah DMARC record — `_dmarc.nearyou.id` TXT = `v=DMARC1; p=none;`; org-wide policy (NOT subdomain-only) per Resend's recommended pattern; **`p=none` = monitoring only**, no enforcement — safe for now, tighten to `p=quarantine`/`p=reject` pre-launch after deliverability tracked. Also added MX bounce record `send.send.nearyou.id` MX 10 → `feedback-smtp.ap-northeast-1.amazonses.com` (Resend's sub-subdomain bounce architecture, NOT a typo).
+- [x] Generate API key — done 2026-04-27; name `nearyou-staging`, permission **Full access** (free tier doesn't support scoped/per-domain keys), domain scope All Domains (effectively = `send.nearyou.id` since only one verified); stored in Secret Manager (§ 4.2)
+- [x] Test send 1 email untuk verify — **PASSED** 2026-04-27 12:41 AM: HTTP POST `https://api.resend.com/emails`, `Authorization: Bearer ...`, `User-Agent: nearyou-id-setup/1.0`. ⚠️ Default Python `urllib` UA (`Python-urllib/3.9`) is blocked by Cloudflare WAF (error 1010 — bot signature); custom User-Agent required. Arrived in **Inbox (not Spam)** — domain reputation strong out of the gate; Gmail Smart Reply suggestions appeared (trusted-source sign).
 
 **Notes**:
-- Resend API key location: GCP Secret Manager `staging-resend-api-key` v1 (project `nearyou-staging`, granted to Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com`)
+- Resend API key slot + wiring status: § 4.2 (`staging-resend-api-key`)
 - Resend org slug: `nearyouid.founder`
-- Sender domain: `send.nearyou.id` (verified, Tokyo region)
-- Standard from address: `noreply@send.nearyou.id` (system emails, no reply expected)
+- Sender domain: `send.nearyou.id` (verified, Tokyo region); standard from address: `noreply@send.nearyou.id` (system emails, no reply expected)
 - DKIM key fingerprint (first 8): `MIGfMA0G...` (full key in DNS at `resend._domainkey.send.nearyou.id`)
-- ⚠️ **Staging recipient guard required**: backend code MUST override recipient to test inbox (e.g., hardcoded `nearyouid.founder@gmail.com` OR `delivered@resend.dev` Resend test address) when `environment=staging` to prevent staging emails accidentally reaching real users via stale data. Implement in `:infra:resend` module wrapper.
-- Pending wiring: `staging-resend-api-key` not yet in `.github/workflows/deploy-staging.yml --set-secrets` — will be added when backend `:infra:resend` module wires up (separate OpenSpec change)
+- ⚠️ **Staging recipient guard required**: backend code MUST override recipient to a test inbox (hardcoded `nearyouid.founder@gmail.com` OR Resend test address `delivered@resend.dev`) when `environment=staging`, so staging emails can't accidentally reach real users via stale data; implement in the `:infra:resend` module wrapper
 
 ### 3.10 GitHub
 
 - [x] Confirm repo `nearyou-id` sudah siap — public, FSL-1.1-ALv2 licensed (per `CLAUDE.md` § Public repository posture); CI workflows live; PR-driven flow enforced
 - [~] Setup GitHub Actions secrets untuk CI/CD:
   - [x] `GCP_SA_KEY` (service account untuk deploy ke Cloud Run) — wired; staging deploy workflow runs success consistently (5/5 most-recent)
-  - [x] `GCP_PROJECT_ID` + `GCP_REGION` — wired (referenced in `deploy-staging.yml` for Artifact Registry + Cloud Run target). Not in original checklist; tracked here for completeness.
-  - [ ] `SENTRY_AUTH_TOKEN` (upload ProGuard/dSYM) — **deferred** until mobile release build pipeline (Phase 3); see § 3.6 + § 4.2 for full reasoning
-  - [ ] `SUPABASE_DB_URL_STAGING` (untuk Flyway migrate staging) — **NOT NEEDED**: Flyway runs on Cloud Run startup via `RUN_FLYWAY_ON_STARTUP=true` using the `staging-db-*` Secret Manager slots; no separate GH Actions secret required. Strike if/when prod confirms same pattern.
+  - [x] `GCP_PROJECT_ID` + `GCP_REGION` — wired (referenced in `deploy-staging.yml` for Artifact Registry + Cloud Run target); not in original checklist, tracked for completeness
+  - [ ] `SENTRY_AUTH_TOKEN` (upload ProGuard/dSYM) — **deferred** until mobile release build pipeline (Phase 3); full reasoning § 3.6 + § 4.2
+  - [ ] `SUPABASE_DB_URL_STAGING` (untuk Flyway migrate staging) — **NOT NEEDED**: Flyway runs on Cloud Run startup via `RUN_FLYWAY_ON_STARTUP=true` using the `staging-db-*` Secret Manager slots, no separate GH Actions secret required; strike if/when prod confirms same pattern
   - [ ] `SUPABASE_DB_URL_PROD` — same as above; deferred + likely obsolete
   - [ ] Tokens lain sesuai kebutuhan
-- [x] Setup branch protection untuk `main` — **GitHub Ruleset `main-protection` (id 16164557) active 2026-05-09**. Targets `~DEFAULT_BRANCH` (= `main`). 6 rules: `creation` + `deletion` + `non_fast_forward` + `required_linear_history` + `pull_request` (squash-only merge, 0 required approvals — solo dev) + `required_status_checks` (3 contexts: `lint`, `test`, `migrate-supabase-parity`; `strict_required_status_checks_policy=false` so up-to-date branch not required). No bypass list. Verified via `gh api repos/aditrioka/nearyou-id/rulesets/16164557`. Local pre-push hook (per `CLAUDE.md`) remains as defense-in-depth; ruleset is now the server-side authoritative gate that survives compromised-local / future-collaborator scenarios. Caveat noted at config time: docs-only PR via `paths-ignore` workflow-skip → checks bypassed cleanly; but per-push job-level `if:` skip on mixed PRs may report `skipped` on heavy jobs and block merge — workaround is push 1 no-op code commit or click "Re-run all jobs". Live with it for solo velocity; revisit if friction.
+- [x] Setup branch protection untuk `main` — **GitHub Ruleset `main-protection` (id 16164557) active 2026-05-09**; targets `~DEFAULT_BRANCH` (= `main`), no bypass list; verified via `gh api repos/aditrioka/nearyou-id/rulesets/16164557`. 6 rules: `creation`, `deletion`, `non_fast_forward`, `required_linear_history`, `pull_request` (squash-only, 0 required approvals — solo dev), `required_status_checks` (contexts `lint`, `test`, `migrate-supabase-parity`; `strict_required_status_checks_policy=false` = up-to-date branch not required). Local pre-push hook (per `CLAUDE.md`) stays as defense-in-depth; the ruleset is the server-side authoritative gate surviving compromised-local / future-collaborator scenarios. Caveat from config time: docs-only PRs bypass checks cleanly (`paths-ignore` workflow-skip), but job-level `if:` skips on mixed PRs may report heavy jobs `skipped` and block merge — workaround: 1 no-op code commit or "Re-run all jobs"; accepted for solo velocity, revisit if friction.
 
 ### 3.11 AdMob (bukan blocker sekarang, approval 2-4 minggu)
 
@@ -303,7 +287,7 @@ OTel foundation shipped 2026-05-07 via PR #66 `observability-otel-foundation` �
 
 ## 4. Secrets yang Perlu Di-generate
 
-Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
+Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`. **Singkatan di § 4**: "granted" = `roles/secretmanager.secretAccessor` untuk Cloud Run runtime SA; "wired as `X`" = terpasang di `deploy-staging.yml --set-secrets`; "not yet wired (consumer `:infra:*`)" = ditambahkan saat module consumer-nya land via OpenSpec change terpisah.
 
 ### 4.1 Crypto Keys
 
@@ -311,65 +295,65 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
   - Command: `openssl genpkey -algorithm RSA -out prod-ktor-rsa-private.pem -pkeyopt rsa_keygen_bits:4096`
   - Simpan private key di `prod-ktor-rsa-private-key`
   - Public key untuk JWKS endpoint
-- [x] **Ktor JWT RS256 keypair** (staging) - same process, secret slot `staging-ktor-rsa-private-key` v1, wired as `KTOR_RSA_PRIVATE_KEY` in `deploy-staging.yml --set-secrets`
+- [x] **Ktor JWT RS256 keypair** (staging) - same process, secret slot `staging-ktor-rsa-private-key` v1, wired as `KTOR_RSA_PRIVATE_KEY`
 - [ ] **JITTER_SECRET** (prod) - 256-bit random
   - Command: `openssl rand -base64 32`
   - Slot: `prod-jitter-secret`
   - ⚠️ Long-lived by design, rotation = re-fuzz semua posts
-- [x] **JITTER_SECRET** (staging) - slot `staging-jitter-secret` v1, wired as `JITTER_SECRET` in `deploy-staging.yml --set-secrets`
+- [x] **JITTER_SECRET** (staging) - slot `staging-jitter-secret` v1, wired as `JITTER_SECRET`
 - [ ] **age keypair** untuk backup encryption
   - Install `age`: `brew install age` (macOS)
   - Generate: `age-keygen -o backup-key.txt`
   - Public key di-bake ke backup Docker image
   - Private key simpan di `prod-backup-age-private-key`
 - [~] **CSAM archive AES-256 key** - 256-bit random
-  - Slot: `prod-csam-archive-aes-key` (pending) dan `staging-csam-archive-aes-key` v1 (done 2026-05-09; project `nearyou-staging`; generated via `openssl rand -base64 32` piped directly to `gcloud secrets create --data-file=-` so plaintext never touched disk; replication=automatic; labels env=staging,purpose=csam-archive-encryption; verified length 44 bytes = base64(32). Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com` granted `roles/secretmanager.secretAccessor`. NOT yet wired in `deploy-staging.yml --set-secrets` — wire pas CSAM archive writer module landed via OpenSpec change. No CSAM trigger path live yet on staging, so secret idle until consumer ships.)
+  - Slot: `prod-csam-archive-aes-key` (pending) dan `staging-csam-archive-aes-key` v1 (done 2026-05-09, project `nearyou-staging`: `openssl rand -base64 32` piped directly to `gcloud secrets create --data-file=-`, plaintext never touched disk; replication=automatic; labels env=staging,purpose=csam-archive-encryption; length verified 44 bytes = base64(32); granted. NOT yet wired — wire when the CSAM archive writer module lands via OpenSpec change; no CSAM trigger path live on staging yet, secret idle until its consumer ships.)
 - [~] **Invite code secret** - 256-bit random untuk HMAC derivation
-  - Slot: `prod-invite-code-secret` dan `staging-invite-code-secret`. Staging done (`staging-invite-code-secret` v1, wired as `INVITE_CODE_SECRET` in `deploy-staging.yml`); prod pending.
+  - Slot: `prod-invite-code-secret` dan `staging-invite-code-secret`. Staging done (`staging-invite-code-secret` v1, wired as `INVITE_CODE_SECRET`); prod pending.
 - [ ] **Admin session cookie signing key** (reserved untuk future signed-cookie mode)
   - Slot: `prod-admin-session-cookie-signing-key` (belum perlu di-generate, reserve slot dulu)
 
 ### 4.2 Third-Party Secrets (simpan hasil dari section 3 di atas)
 
-**Supabase + DB connection secrets** (all wired in `deploy-staging.yml --set-secrets` since 2026-04-22 staging buildout; consumed by HikariCP main pool + Flyway + `:infra:supabase`):
-- [~] `staging-db-url` v1 — Postgres direct connection. Wired as `DB_URL`. Cloud Run runtime SA granted `secretAccessor`. Prod equivalent pending.
-- [~] `staging-db-user` v1 — wired as `DB_USER`. Prod equivalent pending.
-- [~] `staging-db-password` v1 — wired as `DB_PASSWORD`. Prod equivalent pending.
-- [~] `staging-supabase-url` v1 — wired as `SUPABASE_URL` (centralized via Secret Manager though URL itself isn't cryptographically secret — see deploy workflow comment for rationale). Prod equivalent pending.
-- [~] `staging-supabase-jwt-secret` v1 — wired as `SUPABASE_JWT_SECRET`. Prod equivalent pending.
-- [~] `staging-supabase-service-role-key` v1 — wired as `SUPABASE_SERVICE_ROLE_KEY`. Prod equivalent pending.
-- [~] `staging-redis-url` v1 — Upstash Redis (`rediss://` scheme). Wired as `REDIS_URL`; consumed by Lettuce in `:infra:redis`. Prod equivalent pending.
+**Supabase + DB connection secrets** (all 7 wired since the 2026-04-22 staging buildout; consumed by HikariCP main pool + Flyway + `:infra:supabase`; prod equivalents pending for all 7):
+- [~] `staging-db-url` v1 — Postgres direct connection, wired as `DB_URL`; granted
+- [~] `staging-db-user` v1 — wired as `DB_USER`
+- [~] `staging-db-password` v1 — wired as `DB_PASSWORD`
+- [~] `staging-supabase-url` v1 — wired as `SUPABASE_URL` (centralized via Secret Manager though the URL itself isn't cryptographically secret — rationale in deploy workflow comment)
+- [~] `staging-supabase-jwt-secret` v1 — wired as `SUPABASE_JWT_SECRET`
+- [~] `staging-supabase-service-role-key` v1 — wired as `SUPABASE_SERVICE_ROLE_KEY`
+- [~] `staging-redis-url` v1 — Upstash Redis (`rediss://` scheme), wired as `REDIS_URL`; consumed by Lettuce in `:infra:redis`
 
 - [ ] `prod-revenuecat-webhook-bearer` dan `staging-revenuecat-webhook-bearer`
 - [ ] `prod-revenuecat-webhook-hmac` dan `staging-revenuecat-webhook-hmac` (opsional)
-- [~] `prod-firebase-admin-sa` dan `staging-firebase-admin-sa` (JSON file) — staging done 2026-04-26 (`staging-firebase-admin-sa` v1, Cloud Run runtime SA granted secretAccessor) AND wired into `deploy-staging.yml` as `FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest` 2026-04-29 (PR #60 `fcm-push-dispatch`). Consumed by `:infra:fcm` + `:infra:remote-config`. Prod pending.
-- [~] `prod-openai-api-key` dan `staging-openai-api-key` — OpenAI Platform API key for the OpenAI Moderation API (`omni-moderation-latest`, Layer 3 toxicity classifier; consumed by `:infra:openai-moderation` `OpenAiModerationClient`). **Vendor pivot 2026-05-11**: original spec targeted Google Perspective API; Perspective announced sunset (end-of-2026, signups closed Feb 2026) mid-implementation so swap → OpenAI Moderation. Staging done 2026-05-11: project-scoped API key (sk-proj-…), generated via platform.openai.com under `NearYouID` org, uploaded via clipboard-pipe pattern (`pbpaste | gcloud secrets create`) so plaintext never touched disk. Slot `staging-openai-api-key` v1, replication=automatic, labels env=staging,purpose=layer3-moderation. Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com` granted `roles/secretmanager.secretAccessor`. Wired in `deploy-staging.yml --set-secrets` as `OPENAI_API_KEY=staging-openai-api-key:latest`. OpenAI Moderation endpoint itself is FREE (no per-call charge); generating any API key on platform.openai.com requires a payment method + $5 minimum prepaid deposit (one-time, idle if only Moderation is used). Prod pending.
+- [~] `prod-firebase-admin-sa` dan `staging-firebase-admin-sa` (JSON file) — staging done 2026-04-26 (v1, granted) + wired as `FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest` 2026-04-29 (PR #60 `fcm-push-dispatch`); consumers `:infra:fcm` + `:infra:remote-config` (latter 2026-05-07, PR #70 `content-moderation-keyword-lists`); prod pending
+- [~] `prod-openai-api-key` dan `staging-openai-api-key` — OpenAI Platform API key untuk OpenAI Moderation API (`omni-moderation-latest`, Layer 3 toxicity classifier; consumer `:infra:openai-moderation` `OpenAiModerationClient`). **Vendor pivot 2026-05-11**: spec originally targeted Google Perspective API, which announced sunset (end-of-2026, signups closed Feb 2026) mid-implementation → swapped to OpenAI Moderation. Staging done 2026-05-11: project-scoped key (sk-proj-…) minted on platform.openai.com under the `NearYouID` org; clipboard-pipe upload (`pbpaste | gcloud secrets create`), plaintext never touched disk; slot v1, replication=automatic, labels env=staging,purpose=layer3-moderation; granted; wired as `OPENAI_API_KEY=staging-openai-api-key:latest`. The Moderation endpoint is FREE (no per-call charge), but any platform.openai.com key requires a payment method + $5 minimum prepaid deposit (one-time, idle if only Moderation is used). Prod pending.
 - [ ] `prod-apns-p8-key` dan `staging-apns-p8-key` (file content)
-- [~] `prod-resend-api-key` dan `staging-resend-api-key` — staging done 2026-04-27 (`staging-resend-api-key` v1, 36 bytes, Cloud Run runtime SA granted secretAccessor). Free Developer plan key, full-access scope, name `nearyou-staging`. End-to-end smoke test PASSED (Inbox delivery, not Spam). Prod equivalent pending; same Resend account + same key may be reused (env-prefix mirror) OR generate separate `nearyou-prod` key for blast-radius isolation — decide pas prod env setup.
-- [~] `prod-r2-access-key` + `prod-r2-secret` dan staging equivalents — staging done 2026-04-26 with 5 secrets (more granular than original spec): `staging-r2-access-key-id` v1 (32 bytes), `staging-r2-secret-access-key` v1 (64 bytes), `staging-r2-bucket-name` v1 (`nearyou-media-staging`), `staging-r2-endpoint-url` v1, `staging-r2-account-id` v1. All granted secretAccessor to Cloud Run runtime SA. Local credential files deleted post-upload. Prod equivalents pending GCP prod project setup.
+- [~] `prod-resend-api-key` dan `staging-resend-api-key` — staging done 2026-04-27: v1, 36 bytes, granted; Free Developer plan key, full-access scope, name `nearyou-staging`; smoke PASSED (Inbox, not Spam — § 3.9); not yet wired (consumer `:infra:resend`). Prod pending: same Resend account + key may be reused (env-prefix mirror) OR mint a separate `nearyou-prod` key for blast-radius isolation — decide pas prod env setup.
+- [~] `prod-r2-access-key` + `prod-r2-secret` dan staging equivalents — staging done 2026-04-26 with 5 secrets (more granular than original spec): `staging-r2-access-key-id` v1 (32 bytes), `staging-r2-secret-access-key` v1 (64 bytes), `staging-r2-bucket-name` v1 (`nearyou-media-staging`), `staging-r2-endpoint-url` v1, `staging-r2-account-id` v1 — all granted, local credential files deleted post-upload; prod equivalents pending GCP prod project setup
 - [ ] `prod-cf-images-api-token` dan `staging-cf-images-api-token`
-- [ ] `prod-sentry-auth-token` (shared untuk upload, tergantung strategi) — **deferred** until mobile release build pipeline (Phase 3 mobile work). Auth token ≠ DSN: token is for CI symbolication artifact upload (ProGuard mappings, dSYM); DSN is for runtime event ingestion. Backend doesn't need auth token. See § 3.6 for full reasoning.
+- [ ] `prod-sentry-auth-token` (shared untuk upload, tergantung strategi) — **deferred** until mobile release build pipeline (Phase 3 mobile work). Auth token ≠ DSN: token = CI symbolication artifact upload (ProGuard mappings, dSYM); DSN = runtime event ingestion; backend needs no auth token — full reasoning § 3.6.
 
-**Sentry DSN secrets** (added 2026-04-26 — separate from auth token; runtime SDK ingestion):
-- [~] `staging-sentry-backend-dsn` v1 — granted Cloud Run runtime SA (`27815942904-compute@developer.gserviceaccount.com`) `secretAccessor`. Prod equivalent pending.
-- [~] `staging-sentry-android-dsn` v1 — no Cloud Run grant (mobile DSN consumed by CI build pipeline, not runtime). Prod equivalent pending.
-- [~] `staging-sentry-ios-dsn` v1 — no Cloud Run grant (same reason). Prod equivalent pending.
+**Sentry DSN secrets** (added 2026-04-26 — separate from auth token; runtime SDK ingestion; prod equivalents pending):
+- [~] `staging-sentry-backend-dsn` v1 — granted
+- [~] `staging-sentry-android-dsn` v1 — no Cloud Run grant (mobile DSN consumed by CI build pipeline, not Cloud Run runtime; least privilege)
+- [~] `staging-sentry-ios-dsn` v1 — no Cloud Run grant (same reason)
 
-**OTel Grafana Cloud secrets** (added 2026-05-07 via PR #66 `observability-otel-foundation`; consumed by `:infra:otel` `OtelBootstrap.start(...)`):
-- [~] `staging-otel-grafana-otlp-endpoint` v1 — granted Cloud Run runtime SA `secretAccessor`. Wired in `deploy-staging.yml` as `OTEL_GRAFANA_OTLP_ENDPOINT`. Prod equivalent pending.
-- [~] `staging-otel-grafana-otlp-token` v1 — granted Cloud Run runtime SA `secretAccessor`. Wired in `deploy-staging.yml` as `OTEL_GRAFANA_OTLP_TOKEN`. Wizard-minted (over-grants metrics/logs/profiles/stacks scope); rotation to least-privilege Access Policy token tracked in § 3.7 ⚠️ before prod tag-deploy. Prod equivalent pending.
+**OTel Grafana Cloud secrets** (added 2026-05-07 via PR #66 `observability-otel-foundation`; consumed by `:infra:otel` `OtelBootstrap.start(...)`; both granted + wired — details § 3.7; prod equivalents pending):
+- [~] `staging-otel-grafana-otlp-endpoint` v1 — wired as `OTEL_GRAFANA_OTLP_ENDPOINT`
+- [~] `staging-otel-grafana-otlp-token` v1 — wired as `OTEL_GRAFANA_OTLP_TOKEN`; wizard-minted (over-grants metrics/logs/profiles/stacks scope) — rotation to a least-privilege Access Policy token tracked in § 3.7 ⚠️ before prod tag-deploy
 
-- [~] `prod-amplitude-api-key` (pending) dan `staging-amplitude-api-key` v1 (done 2026-05-09; 32 bytes Amplitude standard format; granted secretAccessor to Cloud Run runtime SA; not yet wired in `deploy-staging.yml --set-secrets` — will be added when `:infra:amplitude` module SDK init lands per Phase 1 schedule). Pipe-from-clipboard upload pattern (`pbpaste | tr -d '\n\r ' | gcloud secrets create`) — plaintext key never touched disk or shell history.
+- [~] `prod-amplitude-api-key` (pending) dan `staging-amplitude-api-key` v1 — done 2026-05-09: 32 bytes alphanumeric (Amplitude standard format); granted; not yet wired (consumer `:infra:amplitude` SDK init, per Phase 1 line 89 schedule); clipboard-pipe upload (`pbpaste | tr -d '\n\r ' | gcloud secrets create`) — plaintext never touched disk or shell history
 - [ ] `prod-admin-app-db-connection-string` (DB role `admin_app`, separate dari main API)
 - [ ] `prod-main-app-db-connection-string` (DB role `main_app`)
 - [ ] `prod-flyway-db-connection-string` (DB role `flyway_migrator`, DDL rights)
 - [ ] `prod-cf-worker-csam-secret` (kalau pilih Cloudflare Worker auto-forward path untuk CSAM)
 
 **Admin login key slots** (added by `admin-login-argon2-totp` / Admin #3; both 256-bit, resolved via `secretKey(env, name)`, provisioned together by `dev/scripts/admin-totp-key-bootstrap.sh`):
-- [ ] `staging-admin-totp-secret-aes-key` — AES-256-GCM key for `admin_users.totp_secret_encrypted`. Wired in `deploy-staging.yml --set-secrets` as `ADMIN_TOTP_SECRET_AES_KEY` (lazy `aesKeyProvider`, resolved at login-verify time; missing slot fails the first login but does NOT block boot). ⚠ Rotation orphans every existing `totp_secret_encrypted` ciphertext; the script does NOT rotate on re-run.
-- [ ] `staging-admin-csrf-hmac-key` — HMAC-SHA256 key for the Signed Double-Submit CSRF token derivation (distinct slot from the AES key — key separation). Wired as `ADMIN_CSRF_HMAC_KEY` (lazy, resolved at login/render time). ⚠ Rotation invalidates every in-flight session's CSRF token (forces re-login); the script does NOT rotate on re-run.
-- [ ] Both slots grant `secretAccessor` to Cloud Run runtime SA `27815942904-compute@developer.gserviceaccount.com`. **Operational — not part of the change PR.** Run `dev/scripts/admin-totp-key-bootstrap.sh` (default = both staging slots).
-- [ ] **Staging-test admin row** — provision via `dev/scripts/admin-bootstrap/admin-bootstrap.sh` for the pre-archive smoke (`dev/scripts/smoke-admin-login-argon2-totp.sh`). Store the staging-test email + password + base32 TOTP secret in the operator's password manager — NOT in this repo / PR.
+- [ ] `staging-admin-totp-secret-aes-key` — AES-256-GCM key for `admin_users.totp_secret_encrypted`; wired as `ADMIN_TOTP_SECRET_AES_KEY` (lazy `aesKeyProvider`, resolved at login-verify time — missing slot fails the first login but does NOT block boot). ⚠ Rotation orphans every existing `totp_secret_encrypted` ciphertext; the script does NOT rotate on re-run.
+- [ ] `staging-admin-csrf-hmac-key` — HMAC-SHA256 key for the Signed Double-Submit CSRF token derivation (distinct slot from the AES key — key separation); wired as `ADMIN_CSRF_HMAC_KEY` (lazy, resolved at login/render time). ⚠ Rotation invalidates every in-flight session's CSRF token (forces re-login); the script does NOT rotate on re-run.
+- [ ] Both slots grant `secretAccessor` to Cloud Run runtime SA. **Operational — not part of the change PR.** Run the bootstrap script (default = both staging slots).
+- [ ] **Staging-test admin row** — provision via `dev/scripts/admin-bootstrap/admin-bootstrap.sh` for the pre-archive smoke (`dev/scripts/smoke-admin-login-argon2-totp.sh`); store the staging-test email + password + base32 TOTP secret in the operator's password manager — NOT in this repo / PR
 - [ ] `admin-totp-secret-aes-key` + `admin-csrf-hmac-key` (production, unprefixed) — **deferred to the production-bootstrap milestone**. Run once per slot: `PROJECT_OVERRIDE=nearyou-production SLOT_OVERRIDE=admin-totp-secret-aes-key RUNTIME_SA_OVERRIDE=<prod-sa> dev/scripts/admin-totp-key-bootstrap.sh` (then again with `SLOT_OVERRIDE=admin-csrf-hmac-key`).
 
 ---
@@ -378,11 +362,11 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`.
 
 Per `08-Roadmap-Risk.md`, ini harus locked sebelum build mulai. Canonical decisions log lives in `08-Roadmap-Risk.md` § "Open Decisions" (pattern follows existing entries #4 BPS/OSM, #13 IAP, etc.) — `09-Versions.md` is scoped to library version pins only.
 
-- [x] **IAP vs Cloud Armor + VPN** untuk admin panel — **Resolved 2026-04-26: IAP**. Allowlist `nearyouid.founder@gmail.com`. Full rationale in `08-Roadmap-Risk.md` § Open Decisions #13.
-- [x] **OTel backend vendor** — **Resolved 2026-05-07: Grafana Cloud Tempo via OTLP/HTTP** (PR #66 `observability-otel-foundation` shipped `:infra:otel` + exporter wired to Grafana Cloud; staging emitting traces). Vendor swap (Honeycomb / Cloud Trace) remains a within-`:infra:otel` change per the module's encapsulation contract. Decision tracked at `08-Roadmap-Risk.md` § Open Decisions #12.
-- [x] **BPS vs OpenStreetMap** untuk polygon kabupaten/kota — **Resolved + shipped: OSM** (`admin_level=4` provinces + `admin_level=5` kabupaten/kota via Overpass API). Already live in staging DB via V12 552-row seed (`global-timeline-with-region-polygons` change). Attribution surfaced in V12 migration header. Full rationale in `08-Roadmap-Risk.md` § Open Decisions #4.
-- [x] **CF Images URL pattern** — **Resolved 2026-04-26: custom subdomain `img.nearyou.id` (prod) + `img-staging.nearyou.id` (staging)**. Standard `imagedelivery.net` retained as emergency fallback. Full rationale in `08-Roadmap-Risk.md` § Open Decisions #32.
-- [x] **CSAM trigger path** — **Resolved 2026-04-26: MVP = admin-triggered manual via Admin Panel; Phase 2+ = Cloudflare Worker auto-forward**. Both paths converge to `/internal/csam-webhook` + same archive row (dedup via `csam_detection_archive.source` column). Migrate triggers documented. Full rationale in `08-Roadmap-Risk.md` § Open Decisions #33.
+- [x] **IAP vs Cloud Armor + VPN** untuk admin panel — **Resolved 2026-04-26: IAP**; allowlist `nearyouid.founder@gmail.com`. Rationale: `08-Roadmap-Risk.md` § Open Decisions #13.
+- [x] **OTel backend vendor** — **Resolved 2026-05-07: Grafana Cloud Tempo via OTLP/HTTP** (PR #66 `observability-otel-foundation` shipped `:infra:otel` + exporter; staging emitting traces). Vendor swap (Honeycomb / Cloud Trace) remains a within-`:infra:otel` change per the module's encapsulation contract. Decision: `08-Roadmap-Risk.md` § Open Decisions #12.
+- [x] **BPS vs OpenStreetMap** untuk polygon kabupaten/kota — **Resolved + shipped: OSM** (`admin_level=4` provinces + `admin_level=5` kabupaten/kota via Overpass API), live in staging DB via V12 552-row seed (`global-timeline-with-region-polygons` change); attribution surfaced in V12 migration header. Rationale: `08-Roadmap-Risk.md` § Open Decisions #4.
+- [x] **CF Images URL pattern** — **Resolved 2026-04-26: custom subdomain `img.nearyou.id` (prod) + `img-staging.nearyou.id` (staging)**; standard `imagedelivery.net` retained as emergency fallback. Rationale: `08-Roadmap-Risk.md` § Open Decisions #32.
+- [x] **CSAM trigger path** — **Resolved 2026-04-26: MVP = admin-triggered manual via Admin Panel; Phase 2+ = Cloudflare Worker auto-forward**. Both paths converge to `/internal/csam-webhook` + same archive row (dedup via `csam_detection_archive.source` column); migrate triggers documented. Rationale: `08-Roadmap-Risk.md` § Open Decisions #33.
 - [ ] **Verify pricing tiers** di stores (Rp9,900 / Rp29,000 / Rp249,000)
 - [ ] **Verify Supabase pricing**: disk add-on per GB, Realtime per concurrent + per message
 - [ ] **Verify Google Cloud Vision Safe Search pricing** per image
@@ -394,7 +378,7 @@ Per `08-Roadmap-Risk.md`, ini harus locked sebelum build mulai. Canonical decisi
 
 ### 6.1 Indonesian Word-Pair Database
 
-> **SCOPE RE-AUDIT 2026-05-09 (E20 audit)**: 600×600 + 100 modifier (= 360k base combinations) likely overengineered for MVP. Cheaper alternative pattern: 50 curated adjective × 50 curated noun × 4-digit numeric suffix = 25M unique combinations with collision-resistant generation, and the curated word lists are 1-day work instead of 3-4 days. Decide scope BEFORE starting full generation+filter+KBBI cross-check work. **Trigger to revisit scope**: when `anonymous_username` generation OpenSpec change is actually proposed — let the actual usage pattern (collision rate target, regeneration triggers, premium customization spec) drive the scope decision rather than pre-planning. Original target preserved below for that future trigger.
+> **SCOPE RE-AUDIT 2026-05-09 (E20 audit)**: 600×600 + 100 modifier (= 360k base combinations) likely overengineered for MVP. Cheaper: 50 curated adjectives × 50 curated nouns × 4-digit numeric suffix = 25M unique combinations, collision-resistant generation, curated lists = 1-day work instead of 3-4 days. Decide scope BEFORE the full generation+filter+KBBI cross-check. **Trigger to revisit scope**: when the `anonymous_username` generation OpenSpec change is actually proposed — let real usage (collision-rate target, regeneration triggers, premium customization spec) drive scope, not pre-planning. Original target preserved below for that trigger.
 
 Target: 600 kata sifat × 600 kata benda + 100 modifier = 360k+ base kombinasi (36M dengan fallback).
 
@@ -421,18 +405,18 @@ Resolved + shipped via PR [#31](https://github.com/aditrioka/nearyou-id/pull/31)
 - [x] Download dataset — Overpass API `area:3600304751` (Indonesia), fetched 2026-04-25 via `dev/scripts/import-admin-regions/fetch-overpass.sh` + `generate-seed.py`
 - [x] Process: ~500 kabupaten/kota GeoJSON — **552 rows** (38 provinces at `admin_level=4` + 514 kabupaten/kota at `admin_level=5`)
 - [x] DKI Jakarta special: 5 kotamadya + Kepulauan Seribu di level kabupaten — covered natively by OSM `admin_level=5` (Jakarta Pusat/Utara/Selatan/Timur/Barat + Kepulauan Seribu); no hand-curation needed
-- [x] Buffer coastal kabupaten +22km untuk maritime extension (12 nautical miles) — 48 of 514 coastal kabupaten carry `ST_Buffer(geom::geometry, 0.198°)` baked into geom at import time; "coastal" defined as centroid within 50 km of national outline
+- [x] Buffer coastal kabupaten +22km untuk maritime extension (12 nautical miles) — 48 of 514 coastal kabupaten carry `ST_Buffer(geom::geometry, 0.198°)` baked into geom at import time; "coastal" = centroid within 50 km of national outline
 - [~] Spot-check 10 kabupaten kompleks (Kepulauan Riau, Halmahera, dll) — visual spot-check during PR #31 review; not formally documented per-kabupaten
 - [x] Import ke Postgres dengan schema `admin_regions` + GIST index — V11 schema (PR #29) + V12 seed (PR #31); GIST index on `geom` for spatial queries
-- [~] Document attribution di Privacy Policy (kalau OSM) — attribution surfaced in `V12__admin_regions_seed.sql` migration header + `docs/01-Business.md` legal checklist; Privacy Policy itself doesn't exist yet (§ 7 all `[ ]`), so attribution copy needs to migrate there when Privacy Policy is drafted
+- [~] Document attribution di Privacy Policy (kalau OSM) — attribution surfaced in `V12__admin_regions_seed.sql` migration header + `docs/01-Business.md` legal checklist; Privacy Policy doesn't exist yet (§ 7 all `[ ]`) — attribution copy migrates there when it's drafted
 
 ### 6.4 UU ITE / Profanity Wordlist
 
 - [ ] Draft UU ITE keyword list (AI + manual review, 1 hari)
 - [ ] Draft general profanity blocklist (Indonesia + slang)
 - [ ] Draft username-specific profanity filter
-- [x] Upload ke Firebase Remote Config Server template: `moderation_uu_ite_list`, `moderation_profanity_list` — done 2026-04-26 (staging Server template Version 1; see § 3.3). Empty JSON arrays — operational seed lists pending dataset work above.
-- [x] Also commit fallback files: `/backend/ktor/src/main/resources/moderation/uu_ite.default.txt`, `profanity.default.txt` — shipped via PR #70 `content-moderation-keyword-lists` (2026-05-07) with placeholder sentinels; operational seed lists land via Firebase Remote Config (Layer 2 of the 4-step fallback ladder), repo files are fail-soft last-resort.
+- [x] Upload ke Firebase Remote Config Server template: `moderation_uu_ite_list`, `moderation_profanity_list` — done 2026-04-26 (staging Server template Version 1; see § 3.3); empty JSON arrays — operational seed lists pending dataset work above
+- [x] Also commit fallback files: `/backend/ktor/src/main/resources/moderation/uu_ite.default.txt`, `profanity.default.txt` — shipped via PR #70 `content-moderation-keyword-lists` (2026-05-07) with placeholder sentinels; operational seed lists land via Firebase Remote Config (Layer 2 of the 4-step fallback ladder), repo files are fail-soft last-resort
 - [ ] Plan quarterly review cadence (atau on-demand saat regulasi update)
 
 ---
@@ -458,7 +442,7 @@ Resolved + shipped via PR [#31](https://github.com/aditrioka/nearyou-id/pull/31)
 
 ## 8. Post-Setup Verification (Before Phase 1 Starts)
 
-- [x] Semua secret di-inject ke Cloud Run environment bisa di-read via Secret Manager API — verified by 5+ consecutive successful staging deploys (workflow `deploy-staging.yml` runs Flyway + boots Ktor; failure here would surface as 503 on `/health/ready`). Production verification deferred until prod env exists.
+- [x] Semua secret di-inject ke Cloud Run environment bisa di-read via Secret Manager API — verified by 5+ consecutive successful staging deploys (`deploy-staging.yml` runs Flyway + boots Ktor; failure here would surface as 503 on `/health/ready`); production verification deferred until prod env exists
 - [ ] Dari local dev bisa `supabase start` (Supabase CLI)
 - [ ] DNS `nearyou.id` + subdomains resolve benar (dig / nslookup test)
 - [ ] Resend test email berhasil delivered

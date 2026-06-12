@@ -50,7 +50,7 @@ class FcmDispatcherTest : StringSpec(
         fun row(
             type: NotificationType = NotificationType.POST_LIKED,
             actorUserId: UUID? = UUID.randomUUID(),
-            bodyDataJson: String = """{"post_excerpt":"Hi"}""",
+            bodyDataJson: String? = """{"post_excerpt":"Hi"}""",
         ): NotificationRow =
             NotificationRow(
                 id = notificationId,
@@ -367,12 +367,12 @@ class FcmDispatcherTest : StringSpec(
             dispatcher.dispatch(notificationId)
         }
 
-        // 6.4.14 — body_data IS NULL handling: builders tolerate "{}" → empty body_data
+        // 6.4.14 — body_data IS NULL handling: NULL column → null row field → "" payload
         "6.4.14 body_data IS NULL renders as empty-string in payload data fields without exception" {
             val sender = FcmSender { _ -> FcmSendResult.Sent("ok") }
             val dispatcher =
                 build(
-                    row(bodyDataJson = "{}"),
+                    row(bodyDataJson = null),
                     tokens =
                         listOf(
                             FcmTokenRow("android", "tok-a", Instant.now()),

@@ -6,7 +6,7 @@ Defines the Detekt custom rule `BlockExclusionJoinRule` that enforces bidirectio
 ## Requirements
 ### Requirement: BlockExclusionJoinRule lives under lint/detekt-rules
 
-A Detekt custom rule `BlockExclusionJoinRule` SHALL be added to the `:lint:detekt-rules` module (the same module that hosts `RawFromPostsRule` from post-creation-geo). The rule MUST be registered in `NearYouRuleSetProvider` and activated in the project Detekt configuration applied to `:backend:ktor`.
+A Detekt custom rule `BlockExclusionJoinRule` SHALL be added to the `:lint:detekt-rules` module (the same module that hosts `RawFromPostsRule` from post-creation-geo). The rule MUST be registered in `NearYouRuleSetProvider` and activated (`active: true` entry — unlisted rules are silently skipped by detekt 1.23) in every project Detekt configuration that runs the ruleset: `:backend:ktor`'s `backend/ktor/config/detekt/detekt.yml` and the `:infra:*` / `:core:*` modules' shared `config/detekt/invariants.yml` (the latter added 2026-06-11 — most of the SQL this rule guards lives in `:infra:supabase`).
 
 #### Scenario: Rule registered
 - **WHEN** reading the project Detekt configuration
@@ -46,7 +46,7 @@ The rule MUST handle multi-line Kotlin string concatenation in the same way as `
 The rule SHALL allow queries that touch the protected tables WITHOUT a bidirectional `user_blocks` join in any of:
 1. Files under `backend/ktor/src/main/kotlin/id/nearyou/app/admin/` (admin code is exempt — admins need full visibility).
 2. Repository own-content files: filename starts with one of `PostOwnContent`, `UserOwn`, `ChatOwn`, or `ReplyOwn` AND lives under `backend/ktor/src/main/kotlin/id/nearyou/app/.../repository/`.
-3. Any function or class annotated `@AllowMissingBlockJoin("<reason>")`. The annotation MUST be declared under `:backend:ktor` and MUST require a non-empty reason string.
+3. Any function or class annotated `@AllowMissingBlockJoin("<reason>")`. The annotation is declared in `:core:domain` (`id.nearyou.app.core.domain.lint` — moved from `:backend:ktor` on 2026-06-11 so the `:infra:*` modules the rule now scans can reference the same canonical declaration; the rule matches the SHORT name via PSI) and MUST require a non-empty reason string.
 
 #### Scenario: Admin module exempt
 - **WHEN** `backend/ktor/src/main/kotlin/id/nearyou/app/admin/AdminBlockReportRepository.kt` contains `"SELECT * FROM visible_posts"` with no block exclusion

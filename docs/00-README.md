@@ -15,7 +15,7 @@ Location-based social media MVP. Users create text posts with location, discover
 
 ## Document Index
 
-This master plan consists of the following domain-focused files:
+Domain-focused files in this master plan:
 
 | # | File | Scope |
 |---|------|-------|
@@ -42,7 +42,7 @@ This master plan consists of the following domain-focused files:
 
 ## Cross-File References
 
-Many topics span multiple files. Key cross-references:
+Key cross-references for topics spanning multiple files:
 
 - **Authentication**: Business policy (01) → Feature spec (02) → UX flow (03) → Implementation (05) → Security detail (06)
 - **Chat/Direct Messaging**: Feature (02) → Architecture/Realtime (04) → Schemas + Redis Streams (05) → Moderation hooks (06)

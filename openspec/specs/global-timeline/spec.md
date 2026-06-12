@@ -31,8 +31,8 @@ The endpoint SHALL accept only `cursor` as an optional query parameter. No `lat`
 ### Requirement: Canonical query runs FROM visible_posts with bidirectional block exclusion
 
 The endpoint's data query SHALL be `FROM visible_posts` (NOT `FROM posts`), with NO `follows` filter (Global is chronological over every visible author), NO `ST_DWithin` / `ST_Distance`, and two NOT-IN subqueries excluding `user_blocks` rows in BOTH directions:
-- `author_user_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer)`
-- `author_user_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer)`
+- `author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer)`
+- `author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer)`
 
 Both block-exclusion subqueries MUST be present simultaneously so `BlockExclusionJoinRule` passes on the new query literal.
 
@@ -55,7 +55,7 @@ The query SHALL project `p.city_name` directly from `visible_posts` and MUST NOT
 - **THEN** X's post does NOT appear in the response
 
 #### Scenario: Non-followed author NOT excluded (Global has no follows filter)
-- **WHEN** a post has `author_user_id = X` AND the caller does NOT follow X AND there is no `user_blocks` row between caller and X
+- **WHEN** a post has `author_id = X` AND the caller does NOT follow X AND there is no `user_blocks` row between caller and X
 - **THEN** X's post DOES appear in the response (Global surfaces every visible author)
 
 #### Scenario: No admin_regions JOIN at read time

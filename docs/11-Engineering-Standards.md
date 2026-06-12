@@ -1,6 +1,6 @@
 # 11 — Engineering Standards Baseline
 
-**Status: MUST-READ for every product change** (mobile + backend), at BOTH the proposal phase (`/next-change` / `openspec-propose`) and the implementation phase (`/opsx:apply`). This is the architectural design contract that keeps changes built in different sessions fitting the same skeleton. The `/next-change` and `/opsx:apply` skills reference this file; a change that deviates from a rule here MUST either conform or amend this doc in the same PR with rationale (see § Pattern Registry).
+**Status: MUST-READ for every product change** (mobile + backend), at BOTH the proposal phase (`/next-change` / `openspec-propose`) and the implementation phase (`/opsx:apply`) — both skills reference this file. It is the architectural design contract that keeps changes built in different sessions fitting the same skeleton: a change that deviates from a rule here MUST either conform or amend this doc in the same PR with rationale (see § Pattern Registry).
 
 Verified against ecosystem state **2026-06-10** (dated WebSearch per `openspec/project.md` § pre-implementation re-check rules). Re-verify load-bearing claims when this stamp is >1 quarter old.
 
@@ -8,13 +8,13 @@ Relationship to other canon:
 - [`openspec/project.md`](../openspec/project.md) — conventions, CI lint rules, delivery workflow (the 16 code-level invariants live there).
 - [`docs/09-Versions.md`](09-Versions.md) — per-pin rationale log. This doc holds the currency *policy* and planned upgrades; 09 holds the *why* per pin.
 - [`openspec/specs/mobile-design-system/spec.md`](../openspec/specs/mobile-design-system/spec.md) — machine-checkable mobile UI substrate rules (single-Scaffold inset ownership, loading/refresh split, icon + label rules, Bahasa Indonesia single-language).
-- `.claude/skills/mobile-ui-foundation/` (ships via [PR #168](https://github.com/aditrioka/nearyou-id/pull/168)) — per-screen UI/UX application checklist. This doc is the layer *underneath* it: state, navigation, data, backend, versions.
+- `.claude/skills/mobile-ui-foundation/` (ships via [PR #168](https://github.com/aditrioka/nearyou-id/pull/168)) — per-screen UI/UX application checklist; this doc is the layer *underneath* it: state, navigation, data, backend, versions.
 
 ---
 
 ## 1. Version currency policy
 
-Verified 2026-06-10. Current pins that are **correct and current**: CMP `1.11.1`, Navigation 3 (JetBrains) `1.1.1`, Koin `4.2.1`, JetBrains lifecycle `2.10.0`, compileSdk/targetSdk `36`.
+Current pins that are **correct and current** (per the 2026-06-10 stamp above): CMP `1.11.1`, Navigation 3 (JetBrains) `1.1.1`, Koin `4.2.1`, JetBrains lifecycle `2.10.0`, compileSdk/targetSdk `36`.
 
 **Bumps applied by the 2026-06 holistic audit** (rationale rows in `docs/09-Versions.md`):
 
@@ -32,9 +32,9 @@ Verified 2026-06-10. Current pins that are **correct and current**: CMP `1.11.1`
 **Planned upgrades (deliberate, NOT yet)** — each is a real change with its own migration pass, not a casual bump: Kotlin `2.4.0` (stable context parameters, rich-errors preview; let CMP/Koin/kotest soak first), AGP `8.13.x` then the AGP 9 migration (new DSL; legacy DSL removed in AGP 10, H2 2026), kotest `6.x` (breaking: InstancePerRoot, table-testing artifact split — 118 backend test files affected), Flyway `12.x`, HikariCP `7.x`, Lettuce `7.x`, DataStore `1.2.1` KMP (only when a multiplatform prefs need appears; tokens stay Keychain on iOS — DataStore is plaintext).
 
 Rules:
-1. Version changes only via `gradle/libs.versions.toml` + a row in `docs/09-Versions.md` for minor/major bumps. CVE fixes are immediate and out-of-band.
+1. Version changes only via `gradle/libs.versions.toml`; authoritative update cadence + per-pin rationale log: [`docs/09-Versions.md`](09-Versions.md) § Pinning Policy.
 2. Keep alignment sets in lockstep: {CMP, JetBrains material3, JetBrains lifecycle, JetBrains nav3} on the same release cycle; {OTel SDK BOM, instrumentation BOM}; {kotlinx coroutines/serialization/datetime}.
-3. The dated-WebSearch re-check rules in `openspec/project.md` (pre-implementation + apply-phase) apply to every new substrate AND to every entry in the "planned upgrades" list before executing it.
+3. The dated-WebSearch re-check rules in `openspec/project.md` (pre-implementation + apply-phase) apply to every new substrate AND to every "planned upgrades" entry before executing it.
 
 ## 2. Mobile architecture contract (`:mobile:app` + `:shared:resources`)
 
@@ -52,13 +52,13 @@ id.nearyou.app/
   auth/ location/ network/ config/ di/ diagnostics/  # cross-cutting singletons as today
 ```
 
-The pre-audit flat `screens/` package (35 mixed files) is the legacy shape. **New code MUST follow the target shape.** Moving existing files is allowed only as a mechanical move (package decl + imports, zero logic edits) with the full mobile test gate green in the same commit.
+The pre-audit flat `screens/` package (35 mixed files) is the legacy shape. **New code MUST follow the target shape.** Existing files move only as a mechanical move (package decl + imports, zero logic edits) with the full mobile test gate green in the same commit.
 
 ### 2.2 State management
 
 - Screen-level state holder = **androidx `ViewModel` in commonMain** (JetBrains lifecycle), obtained via `koinViewModel()`, scoped to the Nav3 entry (see 2.3). Plain `*Flow`/`*State` holder classes are legacy; do not add new ones for screens. [verified d.android.com state-production 2026-05-14; kotlinlang compose-viewmodel 2026-06-08]
 - Expose ONE `StateFlow<XxxUiState>` via `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initial)`. Collect with `collectAsStateWithLifecycle()` (works in commonMain via JetBrains lifecycle-runtime-compose).
-- UiState shape: `sealed interface` when states are mutually exclusive (Loading/Content/Error); `data class` with independent fields when they vary independently (e.g., list + isRefreshing + errorBanner). Initial-load vs refresh are SEPARATE fields per the `mobile-design-system` spec.
+- UiState shape: `sealed interface` when states are mutually exclusive (Loading/Content/Error); `data class` when fields vary independently (e.g., list + isRefreshing + errorBanner). Initial-load vs refresh are SEPARATE fields per the `mobile-design-system` spec.
 - **One-shot events are state, not streams**: model as nullable UiState fields consumed via an `onXxxShown()` callback that clears them. `Channel`/`SharedFlow` ViewModel→UI event buses are an anti-pattern (official guidance: "ViewModel events should always result in a UI state update"). [verified d.android.com ui-layer/events 2026-05-18]
 - Business/data work never launches from composables; it goes through the ViewModel (`viewModelScope`). No `GlobalScope`, no `CoroutineScope()` ad-hoc construction in UI code.
 
@@ -104,29 +104,11 @@ The pre-audit flat `screens/` package (35 mixed files) is the legacy shape. **Ne
 
 ### 2.8 UI mockup reference (canonical visual target)
 
-[`dev/mockups/nearyou-screens-mockup.html`](../dev/mockups/nearyou-screens-mockup.html) is the
-**canonical visual reference** for mobile screens — a 19-frame Material 3 board (light + dark)
-rendered from the real theme tokens (`NearYouColorScheme.kt`, Plus Jakarta Sans, the coral
-`locationPin` / amber `premiumBadge` accents).
-[`dev/mockups/nearyou-premium-tenure-badges.html`](../dev/mockups/nearyou-premium-tenure-badges.html)
-is the companion concept board for the premium-tenure badge/animation system. Frame inventory +
-consumption guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
+[`dev/mockups/nearyou-screens-mockup.html`](../dev/mockups/nearyou-screens-mockup.html) is the **canonical visual reference** for mobile screens — a 19-frame Material 3 board (light + dark) rendered from the real theme tokens (`NearYouColorScheme.kt`, Plus Jakarta Sans, the coral `locationPin` / amber `premiumBadge` accents). [`dev/mockups/nearyou-premium-tenure-badges.html`](../dev/mockups/nearyou-premium-tenure-badges.html) is the companion concept board for the premium-tenure badge/animation system. Frame inventory + consumption guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
 
-- **Every UI-affecting change (proposal AND implementation) MUST consult the matching frame(s)
-  before building.** Render the HTML — open it in a browser/preview, or capture it via a browser
-  screenshot tool — whichever gives the agent the clearest read; then translate to Compose
-  Multiplatform idioms (the M3 components per § 2.1–2.6, theme tokens not literals). For exact
-  spacing / typography / token mapping / animation parameters, generate the per-frame
-  **measurement annex** (`dev/scripts/mockup-measure.sh <board> <frame-no>` — README step 4)
-  instead of reading pixel offsets off a screenshot; the annex is on-demand output, never
-  committed.
-- **Precedence**: `openspec/specs/` + `docs/02/03` govern *behavior*; the mockups govern *look and
-  layout*. On conflict, specs/docs win — flag the divergence instead of silently following the
-  mockup. Frame captions cite the governing doc per element and tag each frame as shipped
-  ("Sudah ada") vs proposed ("Usulan").
-- Mockups are HTML/CSS approximations: treat spacing/sizing as **dp intent on the 4dp grid**, not
-  pixel-perfect contracts; the M3 component named in the caption is the source of truth for its
-  metrics.
+- **Every UI-affecting change (proposal AND implementation) MUST consult the matching frame(s) before building.** Render the HTML — open it in a browser/preview, or capture it via a browser screenshot tool, whichever gives the agent the clearest read — then translate to Compose Multiplatform idioms (the M3 components per § 2.1–2.6, theme tokens not literals). For exact spacing / typography / token mapping / animation parameters, generate the per-frame **measurement annex** (`dev/scripts/mockup-measure.sh <board> <frame-no>` — README step 4) instead of reading pixel offsets off a screenshot; the annex is on-demand output, never committed.
+- **Precedence**: `openspec/specs/` + `docs/02/03` govern *behavior*; the mockups govern *look and layout*. On conflict, specs/docs win — flag the divergence instead of silently following the mockup. Frame captions cite the governing doc per element and tag each frame as shipped ("Sudah ada") vs proposed ("Usulan").
+- Mockups are HTML/CSS approximations: treat spacing/sizing as **dp intent on the 4dp grid**, not pixel-perfect contracts; the M3 component named in the caption is the source of truth for its metrics.
 - Admin-panel counterpart of this rule: § 3.6.
 
 ## 3. Backend architecture contract (`:backend:ktor` + `:infra:*`)
@@ -163,33 +145,12 @@ consumption guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
 
 ### 3.6 Admin panel UI (Pebble + HTMX) — mockup reference (canonical visual target)
 
-[`dev/mockups/nearyou-admin-mockup.html`](../dev/mockups/nearyou-admin-mockup.html) is the
-**canonical visual reference** for every `/admin/*` surface — a 23-frame board covering ALL admin
-features (shipped and planned; sole known gap: the appeal-review workflow, docs/08 § Open
-Decisions #2, gets its frame when its design lands), rendered from the same theme tokens as the mobile board
-(`NearYouColorScheme.light`, Plus Jakarta Sans, brand logo vector). Frame inventory + consumption
-guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
+[`dev/mockups/nearyou-admin-mockup.html`](../dev/mockups/nearyou-admin-mockup.html) is the **canonical visual reference** for every `/admin/*` surface — a 23-frame board covering ALL admin features (shipped and planned; sole known gap: the appeal-review workflow, docs/08 § Open Decisions #2, gets its frame when its design lands), rendered from the same theme tokens as the mobile board (`NearYouColorScheme.light`, Plus Jakarta Sans, brand logo vector). Frame inventory + consumption guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
 
-- **Every admin-UI-affecting change (proposal AND implementation — whatever the skill) MUST
-  consult the matching frame(s) before building.** Render the HTML (browser / preview / headless
-  Chrome screenshot — agent's choice); for exact spacing / typography / token mapping, generate
-  the per-frame **measurement annex** (`dev/scripts/mockup-measure.sh <board> <frame-no>` —
-  README step 4; on-demand output, never committed); then translate to the panel's idioms: Pebble templates +
-  HTMX fragment swaps (with the existing no-JS fallback discipline) + **vendored vanilla CSS**
-  (design tokens as CSS custom properties copied from the board's `.frame` block). No client
-  framework, no CDN assets, no inline styles in production templates.
-- **Status tags are load-bearing.** "Sudah ada" frames mirror shipped `templates/admin/*.peb`
-  fields/columns/actions — their *styling* is the target, their *content contract* is already
-  spec-bound (restyling them is a regular PR). "Usulan" frames (and "Usulan" elements inside
-  shipped frames) need their OpenSpec change / design doc before any of their behavior ships.
-- **Responsive contract (frame 4b).** Panel CSS is fluid via vanilla media queries: sidebar →
-  hamburger drawer below ~1024 px, filter bars collapse to a "Filters (n)" disclosure + active
-  chips, queue/triage surfaces are card-based (stack naturally), data tables get
-  `overflow-x:auto` below ~900 px. Board frames are fixed-width *snapshots* of that contract —
-  never implement fixed-width layouts from them.
-- **Precedence**: `openspec/specs/admin-*` + `docs/07-Operations.md` govern *behavior*; the board
-  governs *look and layout*. On conflict, specs/docs win — flag the divergence instead of
-  silently following the mockup.
+- **Every admin-UI-affecting change (proposal AND implementation — whatever the skill) MUST consult the matching frame(s) before building.** Render the HTML (browser / preview / headless Chrome screenshot — agent's choice); for exact spacing / typography / token mapping, generate the per-frame **measurement annex** (`dev/scripts/mockup-measure.sh <board> <frame-no>` — README step 4; on-demand output, never committed); then translate to the panel's idioms: Pebble templates + HTMX fragment swaps (with the existing no-JS fallback discipline) + **vendored vanilla CSS** (design tokens as CSS custom properties copied from the board's `.frame` block). No client framework, no CDN assets, no inline styles in production templates.
+- **Status tags are load-bearing.** "Sudah ada" frames mirror shipped `templates/admin/*.peb` fields/columns/actions — their *styling* is the target, their *content contract* is already spec-bound (restyling them is a regular PR). "Usulan" frames (and "Usulan" elements inside shipped frames) need their OpenSpec change / design doc before any of their behavior ships.
+- **Responsive contract (frame 4b).** Panel CSS is fluid via vanilla media queries: sidebar → hamburger drawer below ~1024 px, filter bars collapse to a "Filters (n)" disclosure + active chips, queue/triage surfaces are card-based (stack naturally), data tables get `overflow-x:auto` below ~900 px. Board frames are fixed-width *snapshots* of that contract — never implement fixed-width layouts from them.
+- **Precedence**: `openspec/specs/admin-*` + `docs/07-Operations.md` govern *behavior*; the board governs *look and layout*. On conflict, specs/docs win — flag the divergence instead of silently following the mockup.
 
 ## 4. Cross-cutting engineering principles
 

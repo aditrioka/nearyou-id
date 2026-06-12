@@ -79,6 +79,28 @@ class AppleS2SRoutesTest : StringSpec({
         }
     }
 
+    "empty audience allow-list fails CLOSED (401, mirrors sign-in verifyRs256)" {
+        val sub = "apple-sub-empty-aud"
+        val user = userRow(appleIdHash = sha256Hex(sub), appleRelayEmail = false)
+        val users = InMemoryUsers(listOf(user))
+        testApplication {
+            application {
+                install(ContentNegotiation) { json() }
+                appleS2SRoutes(StubJwksCache(kid, pub), emptySet(), users)
+            }
+            val signed =
+                makeAppleSignedPayload(priv, pub, kid, "email-enabled", sub, "tx-empty-aud", bundleId)
+            val client = createClient { install(ClientCN) { json() } }
+            val response =
+                client.post("/internal/apple/s2s-notifications") {
+                    contentType(ContentType.Application.Json)
+                    setBody(AppleS2SEnvelope(signedPayload = signed))
+                }
+            response.status shouldBe HttpStatusCode.Unauthorized
+            users.rows[user.id]!!.appleRelayEmail shouldBe false
+        }
+    }
+
     "email-enabled flips users.apple_relay_email to true" {
         val sub = "apple-sub-1"
         val user = userRow(appleIdHash = sha256Hex(sub), appleRelayEmail = false)

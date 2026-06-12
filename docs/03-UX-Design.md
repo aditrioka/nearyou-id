@@ -1,19 +1,19 @@
 # NearYouID - UX & Design
 
-User experience flows, copy strategy, onboarding design, empty states, and interaction design decisions.
+User experience flows, copy strategy, onboarding design, empty states, and interaction design decisions. Quoted strings are verbatim user-facing product copy in Bahasa Indonesia unless context indicates otherwise.
 
-> **Status (2026-05-12).** This document is **the spec source for mobile UX scaffolding work** — prescriptive UX copy + flow design that the next 5+ mobile OpenSpec changes implement. As of today, `:mobile:app` is still the JetBrains Compose Multiplatform wizard scaffold; the screens, flows, and copy strings below are not yet rendered to users, but they are the canonical reference proposals should cite when scaffolding each surface. Server contracts referenced (endpoints, error codes, schema columns) match `docs/02-Product.md` § Status tags + `openspec/specs/`. See [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority for the change-by-change menu that consumes this document as its spec input.
+> **Status (2026-05-12).** **The spec source for mobile UX scaffolding work** — prescriptive UX copy + flows that the next 5+ mobile OpenSpec changes implement. `:mobile:app` is still the JetBrains Compose Multiplatform wizard scaffold, so the screens/copy below are not yet rendered to users; proposals cite this document when scaffolding each surface. Server contracts (endpoints, error codes, schema columns) match `docs/02-Product.md` § Status tags + `openspec/specs/`. Change-by-change menu: [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority.
 
 ---
 
 ## UX Copy Strategy (Avoid Misinterpretation)
 
-Because the app's location-based nature is ambiguous between "posts from this location" vs "people around you", copy MUST be unambiguous at every touchpoint. All user-facing strings below are kept in Bahasa Indonesia:
+The app's location-based nature is ambiguous between "posts from this location" vs "people around you" — copy MUST be unambiguous at every touchpoint:
 
-- Disambiguation copy "Post dari lokasi ini" (not "Orang di sekitar kamu"): the `timeline_nearby_title` string is **retained in the catalog** but is **no longer rendered as a Nearby screen header** (amended 2026-06-08, `mobile-home-shell-redesign`). With the Nearby feed now a text tab inside the Home section, a separate header duplicated the **Beranda** section + **Sekitar** tab and re-applied the status-bar inset (the nested-Scaffold gap). The disambiguation it carried moves to the one-time onboarding hint below + the per-card "Diposting dari {city}" context. Implementing the relocated onboarding hint is tracked by GitHub issue [#204](https://github.com/aditrioka/nearyou-id/issues/204) `mobile-location-disambiguation-onboarding-hint` (label `follow-up`).
+- Disambiguation copy "Post dari lokasi ini" (not "Orang di sekitar kamu"): `timeline_nearby_title` stays in the catalog but is **no longer rendered as a Nearby screen header** (amended 2026-06-08, `mobile-home-shell-redesign`: with Nearby a text tab inside Home, the separate header duplicated the **Beranda** section + **Sekitar** tab and re-applied the status-bar inset — the nested-Scaffold gap). Disambiguation now lives in the onboarding hint below + the per-card "Diposting dari {city}" context; implementing the relocated hint: GitHub issue [#204](https://github.com/aditrioka/nearyou-id/issues/204) `mobile-location-disambiguation-onboarding-hint` (`follow-up`).
 - Post detail: "Diposting dari {city_name}, {relative_time}"
-- Posts from an author who has since moved: NOT hidden, NOT updated to the new location. A post is a snapshot of the location at creation, forever.
-- One-time onboarding hint: "NearYouID menampilkan post berdasarkan lokasi saat post dibuat, bukan lokasi terkini penulis" — now the **primary** anti-misinterpretation surface (was a secondary reinforcement of the removed header).
+- Posts from an author who has since moved: NOT hidden, NOT updated — a post is a snapshot of the location at creation, forever.
+- One-time onboarding hint: "NearYouID menampilkan post berdasarkan lokasi saat post dibuat, bukan lokasi terkini penulis" — now the **primary** anti-misinterpretation surface (was secondary reinforcement of the removed header).
 
 ---
 
@@ -21,118 +21,103 @@ Because the app's location-based nature is ambiguous between "posts from this lo
 
 ### First App Open
 
-- Default tab: Global (read-only, no login)
-- User immediately sees content from Indonesia, can scroll through 10 posts
-- At the 11th post: user-facing CTA "Login untuk lihat lebih banyak"
+- Default tab: Global (read-only, no login); immediately shows content from Indonesia, scrollable through 10 posts
+- At the 11th post: CTA "Login untuk lihat lebih banyak"
 
 ### Login Wall
 
-- Switching to Nearby/Following triggers the login wall
-- Post/Like/Reply/Follow/Chat all require login
-- Viewing a profile requires login
+Switching to Nearby/Following triggers it; Post/Like/Reply/Follow/Chat and viewing a profile all require login.
 
 ### Auth Flow
 
-1. Android: "Masuk dengan Google" (primary, user-facing; under the hood uses Android Credential Manager)
-2. iOS: "Masuk dengan Apple" (primary, user-facing)
+1. Android: "Masuk dengan Google" (primary; under the hood uses Android Credential Manager)
+2. iOS: "Masuk dengan Apple" (primary)
 
-> **Status (as of Mobile #3 `mobile-auth-google-signin-flow`, 2026-05):** iOS currently ships Google Sign-In as a substrate-proving stopgap; "Masuk dengan Apple" remains the eventual-state iOS primary, tracked by the `mobile-auth-signin-apple-ios` follow-up. Apple Sign-In is a launch-readiness requirement (App Store Review Guideline 4.8 mandates it when other social logins are offered).
+> **Status (Mobile #3 `mobile-auth-google-signin-flow`, 2026-05):** iOS ships Google Sign-In as a substrate-proving stopgap; "Masuk dengan Apple" remains the eventual iOS primary (follow-up `mobile-auth-signin-apple-ios`), launch-required — App Store Review Guideline 4.8 mandates it when other social logins are offered.
 
-On first login, the attestation check (Play Integrity / App Attest) runs automatically in the background. Emulator/rooted detection rejects with user-facing "Aplikasi tidak dapat digunakan di perangkat ini" + fallback manual review link.
+On first login, the attestation check (Play Integrity / App Attest) runs automatically in the background; emulator/rooted rejection copy + manual-review fallback: § Attestation Rejection UX.
 
 Backend verifies the ID token + attestation, issues a Ktor RS256 JWT (15 minutes) + refresh token (30 days, tagged with `family_id`) + Supabase HS256 JWT (1 hour).
 
-**Account separation disclosure** (in the onboarding FAQ): "Akun Google dan akun Apple terpisah. Satu identifier = satu akun NearYouID".
+**Account separation disclosure** (onboarding FAQ): "Akun Google dan akun Apple terpisah. Satu identifier = satu akun NearYouID".
 
 ### Age Gate Screen
 
-After auth passes but before entering the app:
-- Input date of birth (date picker)
-- Age calculation server-side
-- **<18**: reject with an explicit user-facing message "Platform ini hanya tersedia untuk pengguna usia 18 tahun ke atas.", account is not created. Identifier hash is added to the `rejected_identifiers` blocklist (see `06-Security-Privacy.md`) to prevent DOB-shopping bypass.
+After auth passes, before entering the app: input date of birth (date picker); age calculation server-side.
+
+- **<18**: reject — "Platform ini hanya tersedia untuk pengguna usia 18 tahun ke atas." — account not created. Policy + anti-bypass blocklist: `06-Security-Privacy.md` § Age Gate.
 - **18+**: proceed directly to the next step
 
 ### Analytics & Tracking Consent Screen (UU PDP)
 
-After the age gate, before location permission:
+After the age gate, before location permission. Data-collected summary:
 
-- Short summary of data collected (user-facing):
-  - "Bantu kami perbaiki aplikasi dengan data penggunaan anonim (Amplitude)"
-  - "Laporkan crash otomatis untuk perbaikan bug (Sentry)"
-  - "Iklan dapat disesuaikan dengan minat kamu (Google AdMob UMP)"
-- Opt-in toggle per category (Analytics, Crash Reporting, Ads Personalization)
-- Default: OFF with explanatory copy (opt-in for analytics and ads personalization; crash reporting default ON, user can still decline)
-- Preference stored in `users.analytics_consent JSONB {analytics, crash, ads_personalization}`
-- Settings page allows the user to change the toggle (applies going forward; historical data deletion via the data export + delete account flow)
+- "Bantu kami perbaiki aplikasi dengan data penggunaan anonim (Amplitude)"
+- "Laporkan crash otomatis untuk perbaikan bug (Sentry)"
+- "Iklan dapat disesuaikan dengan minat kamu (Google AdMob UMP)"
+
+Per-category opt-in toggles (Analytics, Crash Reporting, Ads Personalization), default OFF with explanatory copy — analytics + ads personalization opt-in; crash reporting default ON, still declinable. Stored in `users.analytics_consent JSONB {analytics, crash, ads_personalization}`; changeable in Settings going forward (historical data deletion via the data export + delete account flow).
 
 ### Location Permission
 
-- **Granularity**:
-  - Approximate: for radius 10-20km (default)
-  - Precise: only if the user activates a smaller radius or picks manually
-- **Consent modal**: explain why location is needed, what data is collected, and how often it's accessed (UU PDP)
+- **Granularity**: Approximate for radius 10-20km (default); Precise only for a smaller radius or manual pick
+- **Consent modal**: why location is needed, what data is collected, how often it's accessed (UU PDP)
 
 ### Permission Denial Fallback
 
-- **Nearby**: not accessible. Screen shows user-facing "Aktifkan lokasi untuk lihat postingan sekitar" + CTA deep link to Settings
-- **Following**: remains accessible, but distance info is not shown. Replaced with city name + post time
+- **Nearby**: not accessible — "Aktifkan lokasi untuk lihat postingan sekitar" + CTA deep link to Settings
+- **Following**: remains accessible, but distance info is replaced with city name + post time
 - **Global**: remains fully accessible, city name still shown
 
 ### Notification Permission (Android 13+, iOS All Versions)
 
-POST_NOTIFICATIONS + UNNotification authorization runtime permission is requested when the first chat message is sent/received, not at onboarding. Contextual, with higher conversion.
+POST_NOTIFICATIONS + UNNotification authorization runtime permission is requested at the first chat message sent/received, not at onboarding — contextual, higher conversion.
 
-**FCM token registration**: after permission is granted, client sends the FCM token via `POST /api/v1/user/fcm-token`. Client must re-register when:
-- App is first opened after install
-- FCM token refresh event fires (SDK callback)
-- User switches device / reinstalls
-- Manual logout + re-login
+**FCM token registration**: after grant the client sends the token via `POST /api/v1/user/fcm-token`; re-register on first open after install, token refresh (SDK callback), device switch / reinstall, manual logout + re-login.
 
 ### Username Auto-Generate
 
-Generated at the register step. Displayed to the user as informational (not editable at signup). Reserved usernames (from the `reserved_usernames` table) are skipped automatically. Free users keep this auto-generated username permanently; Premium users can customize it later from Settings (see the Premium Username Customization section below).
+Generated at the register step; shown as informational (not editable at signup). Reserved usernames (`reserved_usernames` table) are skipped automatically. Free users keep it permanently; Premium can customize later from Settings (§ Premium Username Customization (UX)).
 
-**Onboarding copy** (user-facing Bahasa Indonesia):
+**Onboarding copy**:
 > "Username kamu: @{username}. Kamu bisa mengubah username nanti dengan berlangganan Premium."
 
 ### Empty State
 
-- **Nearby is sparse**: user-facing "Area kamu belum ramai. Sementara lihat dari seluruh Indonesia dulu?" + button to switch to Global
+- **Nearby is sparse**: "Area kamu belum ramai. Sementara lihat dari seluruh Indonesia dulu?" + button to switch to Global
 - **Following empty**: direct user to Nearby/Global
-- **Global empty** (edge case): loading skeleton user-facing "Sedang memuat postingan…"
+- **Global empty** (edge case): loading skeleton "Sedang memuat postingan…"
 
 ---
 
 ## Paywall & Premium Disclosure
 
-**Paywall disclosure mandatory Months 1-5**: the paywall screen shows features available NOW (does not mention image upload, since the image feature only ships in Month 6).
+**Paywall disclosure**: the paywall screen shows features available NOW (no mention of image upload before it ships). Disclosure-window mandate, ToS clause, downgrade-flow internals — policy: `01-Business.md`; flow spec: `02-Product.md` § Privacy Downgrade Flow.
 
-**ToS clause** (user-facing): "Fitur Premium dapat berubah atau ditambahkan seiring waktu."
-
-**Downgrade flow privacy flip**: users who downgrade to Free and have a private profile are NOT automatically flipped. Send push + in-app banner (user-facing):
+**Downgrade flow privacy flip**: downgrading to Free with a private profile does NOT auto-flip it. Send push + in-app banner:
 > "Private profile akan jadi public dalam 72 jam. Tap untuk Premium ulang atau confirm switch public."
 
-Banner countdown is personalized from `users.privacy_flip_scheduled_at`. Re-subscribing to Premium before the deadline cancels the flip (server clears the column on `premium_active` transition). An hourly worker flips `private_profile_opt_in = FALSE` once the deadline elapses. During the 72h window the client treats the profile as private in every rendering path. See `05-Implementation.md` Privacy Flip Worker for the full mechanism.
+The banner countdown is personalized per user; during the 72h window the client treats the profile as private in every rendering path.
 
-**Username on downgrade**: the custom username stays as last-set (not reverted). Further changes disabled until Premium is renewed. In-app banner (user-facing):
+**Username on downgrade**: the custom username stays as last-set (not reverted); further changes disabled until Premium is renewed. In-app banner:
 > "Username @{username} tetap milikmu. Untuk mengubahnya lagi, aktifkan Premium."
 
 ---
 
 ## Premium Username Customization (UX)
 
+Feature rules: `02-Product.md` § Premium Username Customization.
+
 ### Entry Point
 
-- Settings > Profil > "Ganti Username" (user-facing)
-- Free user taps the entry: paywall opens with copy "Ganti username adalah fitur Premium" + CTA "Aktifkan Premium"
+- Settings > Profil > "Ganti Username"
+- Free user taps: paywall opens with copy "Ganti username adalah fitur Premium" + CTA "Aktifkan Premium"
 - Premium user taps: enters the customization screen
 
 ### Customization Screen
 
-- Shows current username + field for the new username
-- Live availability probe (`GET /api/v1/username/check?candidate=...`, debounced 500ms, rate-limited 3/day)
-- Inline validation: length 3 to 30, charset regex `^[a-z0-9][a-z0-9_.]*[a-z0-9_]$` (must start with a letter or digit, end with a letter/digit/underscore, dots allowed only in the middle), no `..` consecutive
-- Error states (user-facing):
+- Current username + field for the new one; live availability probe (debounced 500ms) with inline validation
+- Error states:
   - Reserved: "Username ini tidak tersedia. Coba username lain."
   - Collision: "Username ini sudah dipakai."
   - On release hold: "Username ini sedang dalam masa tahan. Coba lagi nanti."
@@ -141,18 +126,16 @@ Banner countdown is personalized from `users.privacy_flip_scheduled_at`. Re-subs
 
 ### Cooldown Messaging
 
-- If the user just changed their username, the entry point shows disabled state with copy (user-facing): "Ganti username berikutnya tersedia dalam {countdown} hari."
-- Personalized per user; matches the `users.username_last_changed_at + 30 days` server-side enforcement
+After a username change, the entry point shows a disabled state with copy "Ganti username berikutnya tersedia dalam {countdown} hari." — personalized per user.
 
 ### Submit Confirmation
 
-- Modal (user-facing): "Ganti username dari @{old} menjadi @{new}? Username lama akan dilepas ke publik 30 hari setelah perubahan."
-- Primary button "Ganti", secondary "Batal"
+- Modal: "Ganti username dari @{old} menjadi @{new}? Username lama akan dilepas ke publik 30 hari setelah perubahan." Primary button "Ganti", secondary "Batal"
 - Post-submit: toast "Username berhasil diganti" + the profile reloads
 
 ### 30-Day Release Hold Explanation
 
-- FAQ entry (user-facing): "Setelah kamu ganti username, username lama akan ditahan selama 30 hari agar tidak langsung dipakai orang lain. Ini untuk melindungi kamu dari impersonasi."
+FAQ entry: "Setelah kamu ganti username, username lama akan ditahan selama 30 hari agar tidak langsung dipakai orang lain. Ini untuk melindungi kamu dari impersonasi."
 
 ### Downgrade Copy
 
@@ -160,7 +143,7 @@ Already documented above (banner on downgrade). No reversion.
 
 ### Post-MVP Privacy Note
 
-@mentions, profile URLs, and chat references using the old username continue to work as far as the old username remains in `username_history` within the 30-day hold; after release, the old handle is free to be claimed by another user, and historical references will not re-route to the original account.
+@mentions, profile URLs, and chat references via the old username keep working while it remains in `username_history` during the 30-day hold; after release the handle is claimable by another user and historical references do not re-route to the original account.
 
 ---
 
@@ -168,16 +151,16 @@ Already documented above (banner on downgrade). No reversion.
 
 ### Default Content Privacy
 
-- Chat notification body: user-facing "Pesan baru" + sender username (NOT full content)
-- Post interaction: full context (user-facing "{username} menyukai postingan kamu")
+- Chat notification body: "Pesan baru" + sender username (NOT full content)
+- Post interaction: full context ("{username} menyukai postingan kamu")
 
-**Distance in push body**: not included (MVP). Reason: staleness risk (60-second gap between enqueue and delivery, user could have moved). User sees the actual distance when they open the app.
+**Distance in push body**: not included (MVP) — staleness risk (60-second enqueue→delivery gap; the user could have moved); actual distance shows on app open.
 
 ### In-App Notification List
 
-Backed by the `notifications` table (see `05-Implementation.md`). Pull-to-refresh + infinite scroll. Unread badge count in the tab bar. Tapping a notification deep-links to the target post/reply/profile and flips `read_at`.
+Backed by the `notifications` table (`05-Implementation.md`). Pull-to-refresh + infinite scroll; unread badge count in the tab bar; tapping deep-links to the target post/reply/profile and flips `read_at`.
 
-**Notification type rendering** (user-facing strings):
+**Notification type rendering**:
 - `post_liked`: "{username} menyukai postingan kamu"
 - `post_replied`: "{username} membalas postingan kamu"
 - `followed`: "{username} mulai mengikuti kamu"
@@ -194,64 +177,61 @@ Backed by the `notifications` table (see `05-Implementation.md`). Pull-to-refres
 
 ### User Toggle in Settings
 
-- User-facing toggle "Tampilkan preview pesan chat di notifikasi", default OFF
-- ON then body = full content truncated to 100 characters
+Toggle "Tampilkan preview pesan chat di notifikasi", default OFF; ON then body = full content truncated to 100 characters.
 
 ### Rate Limit Communication (UX)
 
-- **FAQ** (user-facing): "Kuota harian reset setiap hari sekitar jam 00:00-01:00 WIB. Waktu tepat bisa berbeda sedikit per akun."
+- **FAQ**: "Kuota harian reset setiap hari sekitar jam 00:00-01:00 WIB. Waktu tepat bisa berbeda sedikit per akun."
 - **In-app modal countdown**: personalized per user, realtime to the reset moment
 - **Response header** `X-RateLimit-Reset`: user-specific reset timestamp
-- **Free tier like limit modal** (Free user hits the 10/day like cap, user-facing): "Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam {countdown}." CTA: "Aktifkan Premium" primary, "Tutup" secondary.
+- **Free like-cap modal** (10/day cap hit): "Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam {countdown}." CTA: "Aktifkan Premium" primary, "Tutup" secondary.
 
 ---
 
 ## Attestation Rejection UX
 
-**Rejection messaging** (user-facing):
+**Rejection messaging**:
 - Emulator/rooted device: "Aplikasi tidak dapat digunakan di perangkat ini" + fallback manual review link
 
-**CGNAT-aware guest error** (when both IP + fingerprint limits are hit, user-facing):
+**CGNAT-aware guest error** (both IP + fingerprint limits hit):
 > "Terlalu banyak permintaan dari jaringan ini, coba WiFi lain atau login"
 
 ---
 
 ## Post Edit UX
 
-- An edited post shows a "Diedit [relative time]" label (user-facing)
-- Tapping the label opens a user-facing "Riwayat edit" modal with the full chronological history
-- Content version display: user-facing "Versi ke-N"
-- Transactional error edge case (sub-microsecond collision): return 409 CONFLICT with user-facing message "Coba lagi sebentar."
+- An edited post shows a "Diedit [relative time]" label; tapping it opens a "Riwayat edit" modal with the full chronological history
+- Content version display: "Versi ke-N"
+- Transactional error edge case (sub-microsecond collision): return 409 CONFLICT with "Coba lagi sebentar."
 
 ---
 
 ## Chat Context Card UX
 
 **Edit history navigation**:
-- Tap embed then redirect to the post detail at the **current content version**, with banner (user-facing) "Post ini sudah di-edit setelah kamu chat" if current version ≠ snapshot version
-- Tap "Riwayat edit" then modal of all content versions; the version at chat initiation is highlighted
+- Tap embed → post detail at the **current content version**, with banner "Post ini sudah di-edit setelah kamu chat" if current version ≠ snapshot version
+- Tap "Riwayat edit" → modal of all content versions, the version at chat initiation highlighted
 
-**Hard-delete state**: snapshot still renders + permanent label (user-facing) "Post ini sudah dihapus" + author label "Akun Dihapus" if author is tombstoned.
+**Hard-delete state**: snapshot still renders + permanent label "Post ini sudah dihapus" + author label "Akun Dihapus" if the author is tombstoned.
 
 ---
 
 ## Block User UX
 
-- Kebab menu on post, reply, and profile page: user-facing "Blokir @{username}"
-- Confirmation modal (user-facing): "Blokir @{username}? Kalian berdua tidak akan saling melihat post, profil, atau bisa memulai percakapan baru."
-- Red "Blokir" button, secondary "Batal" button (user-facing)
-- Post-block: user-facing toast "Pengguna telah diblokir"
-- Settings > Privasi > "Daftar Diblokir" (user-facing): list with unblock button
+- Kebab menu (post, reply, profile page): "Blokir @{username}"
+- Confirmation modal: "Blokir @{username}? Kalian berdua tidak akan saling melihat post, profil, atau bisa memulai percakapan baru." Red "Blokir" button, secondary "Batal"
+- Post-block: toast "Pengguna telah diblokir"
+- Settings > Privasi > "Daftar Diblokir": list with unblock button
 
 ---
 
 ## Report UX
 
-- Kebab menu on post, reply, and profile page: user-facing "Laporkan"
-- Reason picker (user-facing): "Spam", "Ujaran kebencian (SARA)", "Pelecehan", "Konten dewasa", "Misinformasi", "Lainnya"
-- Optional 200-char note (user-facing placeholder: "Jelaskan lebih detail jika perlu")
-- Post-submit: user-facing toast "Laporan terkirim. Tim moderasi akan meninjau."
-- No visibility into the review outcome for reporters (prevents retaliation). Appeal path is available for the reported party via Settings if action was taken.
+- Kebab menu (post, reply, profile page): "Laporkan"
+- Reason picker: "Spam", "Ujaran kebencian (SARA)", "Pelecehan", "Konten dewasa", "Misinformasi", "Lainnya"
+- Optional 200-char note (placeholder: "Jelaskan lebih detail jika perlu")
+- Post-submit: toast "Laporan terkirim. Tim moderasi akan meninjau."
+- Reporters get no visibility into the review outcome (prevents retaliation); the reported party gets an appeal path via Settings if action was taken
 
 ---
 
@@ -259,10 +239,10 @@ Backed by the `notifications` table (see `05-Implementation.md`). Pull-to-refres
 
 - Search bar at the top of the Timeline (Premium only; Free users see an upsell on tap)
 - Autocomplete: username from the top 5 results (pg_trgm)
-- Query runs when the user presses Enter or stops typing for 500ms
-- Result: post grid (20 per page), user-facing "Lihat lebih banyak" for pagination
-- Empty state (user-facing): "Tidak ada hasil untuk '{query}'. Coba kata kunci lain."
-- 60 queries/hour rate limit: user-facing modal "Kamu sudah mencapai batas pencarian. Reset dalam X menit."
+- Query runs on Enter or after a 500ms typing pause
+- Result: post grid (20 per page), "Lihat lebih banyak" for pagination
+- Empty state: "Tidak ada hasil untuk '{query}'. Coba kata kunci lain."
+- 60 queries/hour rate limit: modal "Kamu sudah mencapai batas pencarian. Reset dalam X menit."
 
 ---
 
@@ -270,26 +250,24 @@ Backed by the `notifications` table (see `05-Implementation.md`). Pull-to-refres
 
 ### Account Deletion
 
-- "Hapus Akun" button (user-facing) in Settings
-- 30-day grace period: user can restore
-- Post deletion tombstone: "Akun Dihapus" (user-facing) placeholder in posts/chats/replies
+- "Hapus Akun" button in Settings; 30-day grace period (user can restore)
+- Post deletion tombstone: "Akun Dihapus" placeholder in posts/chats/replies
 
 ### Account Recovery (None by Design)
 
-- Disclosure in onboarding + FAQ explicit: losing your Google/Apple account means losing your NearYouID account
-- No alternative email/phone/password recovery flow
+Onboarding + FAQ disclose explicitly: losing your Google/Apple account means losing your NearYouID account; no alternative email/phone/password recovery flow.
 
 ### Data Export
 
-- Settings > user-facing "Unduh Data Saya"
-- Confirmation (user-facing): "Export akan dikirim sebagai link download via email dalam 7 hari. Link berlaku 24 jam setelah dikirim."
-- Email sent via Resend with an R2 signed URL
+- Settings > "Unduh Data Saya"
+- Confirmation: "Export akan dikirim sebagai link download via email dalam 7 hari. Link berlaku 24 jam setelah dikirim."
+- Sent via Resend with an R2 signed URL
 
 ### Suspension UX
 
-When `users.is_banned = TRUE` AND `users.suspended_until > NOW()`: login succeeds but all write endpoints return 403 with a user-facing countdown modal: "Akun kamu dalam suspensi sementara sampai {date}. Alasan: lihat email pemberitahuan." The user can still read Global content. Auto-unban when the daily worker flips the flag.
+When `users.is_banned = TRUE` AND `users.suspended_until > NOW()`: login succeeds but all write endpoints return 403 with a countdown modal — "Akun kamu dalam suspensi sementara sampai {date}. Alasan: lihat email pemberitahuan." Global content stays readable; auto-unban when the daily worker flips the flag.
 
-When `users.is_banned = TRUE` AND `users.suspended_until IS NULL` (permanent): login screen shows user-facing "Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru."
+When `users.is_banned = TRUE` AND `users.suspended_until IS NULL` (permanent): login screen shows "Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru."
 
 ---
 

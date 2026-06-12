@@ -101,7 +101,17 @@ fun Application.appleS2SRoutes(
                 }
 
             val tokenAud = verified.audience.orEmpty()
-            if (allowedAudiences.isNotEmpty() && tokenAud.none { it in allowedAudiences }) {
+            if (allowedAudiences.isEmpty()) {
+                // Fail CLOSED on an unconfigured allow-list, mirroring verifyRs256's
+                // sign-in behavior — an unset APPLE_BUNDLE_IDS must not silently skip
+                // the aud check (docs/06 §147 counts aud in S2S verification).
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    ApiError(ApiError.Envelope("invalid_signature", "audience allow-list is empty")),
+                )
+                return@post
+            }
+            if (tokenAud.none { it in allowedAudiences }) {
                 call.respond(
                     HttpStatusCode.Unauthorized,
                     ApiError(ApiError.Envelope("invalid_signature", "audience not allowed")),

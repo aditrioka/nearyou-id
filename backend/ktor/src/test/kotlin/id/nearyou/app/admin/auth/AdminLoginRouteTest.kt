@@ -81,12 +81,15 @@ class AdminLoginRouteTest : StringSpec({
         }
     }
 
-    "login page extends the base layout (header + nav stub + footer)" {
+    "login page extends the base layout (stylesheet) without the authenticated shell" {
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             val body = client.get("/admin/login").bodyAsText()
-            body shouldContain "<header>"
-            body shouldContain "<nav>"
-            body shouldContain "<footer>"
+            // Layout extension is proven by the vendored panel stylesheet; the
+            // authenticated shell (sidebar nav + logout) must NOT render on
+            // the unauthenticated login page (board frame 1, docs/11 § 3.6).
+            body shouldContain "/admin/static/admin.css"
+            body shouldNotContain "<nav>"
+            body shouldNotContain "/admin/logout"
         }
     }
 

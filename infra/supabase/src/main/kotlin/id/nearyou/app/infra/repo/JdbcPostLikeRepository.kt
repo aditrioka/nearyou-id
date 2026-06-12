@@ -1,5 +1,7 @@
 package id.nearyou.app.infra.repo
 
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
+import id.nearyou.app.core.domain.lint.AllowRawPostsRead
 import id.nearyou.data.repository.PostAuthorExcerpt
 import id.nearyou.data.repository.PostLikeRepository
 import java.sql.Connection
@@ -81,14 +83,15 @@ class JdbcPostLikeRepository(
         }
     }
 
+    @AllowRawPostsRead(
+        "like-notification emit input (author_id + excerpt for body_data) — visibility " +
+            "already resolved by resolveVisiblePost earlier in the same service flow",
+    )
+    @AllowMissingBlockJoin("notification emitter suppresses blocked/self recipients downstream; excerpt is the post author's own content")
     override fun loadPostAuthorAndExcerpt(
         conn: Connection,
         postId: UUID,
     ): PostAuthorExcerpt? {
-        // Raw `posts` read is scoped to infra/supabase (outside the :backend:ktor
-        // RawFromPostsRule scan). The caller (LikeService) already gated visibility
-        // via `resolveVisiblePost`; this is a tight author-id + excerpt fetch for
-        // the notification body_data.
         conn.prepareStatement(
             "SELECT author_id, content FROM posts WHERE id = ? AND deleted_at IS NULL",
         ).use { ps ->
