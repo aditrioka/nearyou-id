@@ -32,7 +32,11 @@ This project (nearyou-id) is built incrementally via OpenSpec changes. The roadm
 
 **A.1 — Gather full context in parallel** (multiple tool calls in one message):
 
-- Read **every file in `docs/`** (00-README through latest numbered file). Don't pre-filter — business/product/UX/architecture/security/ops context all feed into scope and sequencing.
+- **Staged doc loading — maps first, sections on demand** (replaces the former "read every file in `docs/`" rule, which cost ~100k tokens/invocation; restructured 2026-06-12):
+  - **Stage 1 — maps + small navigation files.** Build a heading map: `grep -nE '^#{1,3} ' docs/*.md` (~6 KB). Read fully only `docs/00-README.md` (cross-reference map) and `docs/09-Versions.md` (version sequencing) — both small.
+  - **Stage 2 — pick-relevant roadmap sections.** From `docs/08-Roadmap-Risk.md` read § Open Decisions + the phase section(s) matching A.0's declared priority + § Pre-Launch when sequencing matters (use the Stage-1 line numbers with offset/limit reads). Skip § Risk Register and the shipped-detail archive (`docs/archive/08-Shipped-Detail.md`) unless a candidate touches them.
+  - **Stage 3 — candidate-targeted reads.** Once A.2 narrows to ≲3 candidates, read ONLY the sections of docs/01–07/10/11 those candidates touch (locate via the heading map + grep). `docs/11` § Pattern Registry + § 5 DoD are always required for product changes (small reads).
+  - **Escape hatch:** if the heading map leaves genuine ambiguity about where a topic lives, read that whole file — correctness beats budget (CLAUDE.md § Engineering judgment over context budget). B.3's section-level reconciliation reads are unchanged and never skipped.
 - Read [`openspec/project.md`](../../../openspec/project.md).
 - List [`openspec/specs/`](../../../openspec/specs/) and [`openspec/changes/archive/`](../../../openspec/changes/archive/).
 - Read any in-progress change in [`openspec/changes/`](../../../openspec/changes/) (non-archive). If one exists, that's likely the current focus, not a new proposal.
@@ -43,7 +47,7 @@ This project (nearyou-id) is built incrementally via OpenSpec changes. The roadm
 
 - The next unshipped version (V-number) in `docs/09-Versions.md`.
 - Open roadmap items in `docs/08-Roadmap-Risk.md` not yet represented in `openspec/specs/`.
-- Anything in other docs (business, product, UX, architecture, security, ops, setup) describing planned work without a matching archived change.
+- Planned-work signals in other docs (business, product, UX, architecture, security, ops, setup) without a matching archived change — surface them from the Stage-1 heading map plus a marker grep (`grep -nE 'DESIGN|planned|deferred|not yet|Phase [0-9]' docs/*.md`), then read just those sections (A.1 Stage 3).
 - Risks or gaps called out in docs that warrant a dedicated change.
 
 **Dedup against in-flight claims first** (from A.1's survey): if a candidate already has an open PR or a remote branch, it's claimed — drop it and take the next one. When multiple candidates remain, pick the one that's the natural next step given dependency order from the roadmap and recent commits, AND honor A.0. **Among otherwise-equal candidates, prefer the one whose expected footprint (modules, screens, and especially the next Flyway migration number) is disjoint from the in-flight claims** — that lets it squash-merge in parallel without rebase conflicts. If the best dependency-ordered pick DOES overlap an in-flight claim (e.g., both need the next `V<N>__*.sql`, or both edit the same screen), flag the overlap so the user can choose to sequence it behind the claim instead. Briefly note runners-up so the user can redirect.
