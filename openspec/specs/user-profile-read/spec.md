@@ -3,7 +3,6 @@
 ## Purpose
 
 The user-profile-read capability provides `GET /api/v1/users/{user_id}` (Bearer JWT via `AUTH_PROVIDER_USER`) — the single-user profile projection that backs the mobile profile screen for both own and other-user reads. It returns identity (handle, display name, bio), the raw follower / following counts, the viewer's follow state, an actively-premium badge flag, and the self-only effective-private flag. Reads are shadow-ban-safe and bidirectional-block-aware: other-user reads go through `visible_users` while self reads use the own-content raw-`users` path (so a shadow-banned viewer still sees their own profile), and an unknown, soft-deleted, shadow-banned, or blocked-either-direction target collapses to one constant, direction-less `404 user_not_found`. Suspension state is deliberately NOT carried — suspension terminates the session (`is_banned` + `token_version` bump), so a suspended user is rejected at the auth boundary and the "suspended until" countdown belongs on the auth-rejection response, not this read.
-
 ## Requirements
 ### Requirement: GET /api/v1/users/{user_id} returns a single user's profile
 
@@ -94,7 +93,7 @@ A request with a `{user_id}` path segment that is not a valid UUID MUST return `
 
 ### Requirement: Follower and following counts are raw totals
 
-`followerCount` MUST equal the total number of `follows` edges whose followee is the target, and `followingCount` MUST equal the total number of `follows` edges whose follower is the target. These counts MUST NOT be viewer-block-filtered — they are deliberately asymmetric with the `/followers` and `/following` list endpoints (which ARE bidirectionally viewer-block-filtered), because a follower count is a public aggregate and per-viewer filtering would leak block state via count deltas.
+`followerCount` MUST equal the total number of `follows` edges whose followee is the target, and `followingCount` MUST equal the total number of `follows` edges whose follower is the target. These counts MUST NOT be viewer-block-filtered AND MUST NOT be visibility-filtered — they are deliberately asymmetric with the `/followers` and `/following` list endpoints (which are bidirectionally viewer-block-filtered AND, as of `social-list-profile-summaries`, visibility-filtered via `visible_users`), because a follower count is a public aggregate: per-viewer filtering would leak block state via count deltas, and visibility filtering would make every shadow-ban/unban visibly twitch public counters.
 
 #### Scenario: Counts reflect the follows graph
 - **WHEN** target T is followed by 3 users and follows 5 users, and an authenticated viewer reads T's profile
@@ -103,6 +102,10 @@ A request with a `{user_id}` path segment that is not a valid UUID MUST return `
 #### Scenario: Counts are not viewer-block-filtered
 - **WHEN** target T has 3 followers, one of whom (X) has blocked the viewer V, and V reads T's profile
 - **THEN** `followerCount` is still `3` (the raw total; the blocked follower is not subtracted from the count even though X would be excluded from the `/followers` list)
+
+#### Scenario: Counts are not visibility-filtered
+- **WHEN** target T has 3 followers, one of whom is shadow-banned, and an authenticated viewer reads T's profile
+- **THEN** `followerCount` is still `3` even though the `/followers` list returns only the 2 visible members (deliberate count/list asymmetry, design D1)
 
 ### Requirement: Suspension state is NOT carried by this endpoint
 

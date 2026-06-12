@@ -1,81 +1,6 @@
-# follow-system Specification
+# follow-system — Delta Specification
 
-## Purpose
-
-The follow-system capability provides the social-graph primitives for the platform: the `follows` table plus `POST /api/v1/follows/{user_id}`, `DELETE /api/v1/follows/{user_id}`, and the follower / following list endpoints. Self-follow is rejected at both app-layer and via a DB-level CHECK; mutual-block prevents follows in either direction; blocking a user also deletes follows in both directions inside the same transaction as the `user_blocks` INSERT, so the follow-cascade is atomic and the social graph stays consistent with the block state.
-
-As of `social-list-profile-summaries`, the surface follows the `user-profile-read` posture end-to-end: list rows embed the profile summary (`userId`, `username`, `displayName`, `isPremium`, plus the edge `createdAt`) sourced via `visible_users`, so shadow-banned / soft-deleted members never appear and no client N+1 against the single-profile endpoint is needed; lists remain bidirectionally block-excluded against the viewer (not against the profile owner); and both the list profile-target and the `POST /follows` target resolve through the visibility gate — every unresolvable cause (unknown, soft-deleted, shadow-banned, blocked-either-direction) answers one CONSTANT byte-identical `404 user_not_found`, replacing the V6-era 409 `follow_blocked` so block state never leaks cross-endpoint.
-## Requirements
-### Requirement: follows table created via Flyway V6
-
-A migration `V6__follows.sql` SHALL create the `follows` table with columns:
-- `follower_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`
-- `followee_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`
-- `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
-- `PRIMARY KEY (follower_id, followee_id)`
-- `CHECK (follower_id <> followee_id)`
-
-The migration MUST also create both directional indexes:
-- `follows_follower_idx ON follows (follower_id, created_at DESC)` — supports fast "who does X follow (newest first)" queries.
-- `follows_followee_idx ON follows (followee_id, created_at DESC)` — supports fast "who follows X (newest first)" queries.
-
-Note: the canonical `docs/05-Implementation.md` §669–687 uses the column name `followed_id`. V6 deliberately renames to `followee_id` for grammatical symmetry with `follower_id`; the V6 header MUST document the rename and `docs/05-Implementation.md` §1295 MUST be updated in the same PR so the doc and schema agree.
-
-#### Scenario: Migration runs cleanly from V5
-- **WHEN** Flyway runs `V6__follows.sql` against a database at V5
-- **THEN** the migration succeeds AND `flyway_schema_history` records V6
-
-#### Scenario: All canonical columns present
-- **WHEN** querying `information_schema.columns WHERE table_name = 'follows'`
-- **THEN** the columns `follower_id`, `followee_id`, `created_at` are present with the documented types and nullability
-
-#### Scenario: CHECK constraint rejects self-follow
-- **WHEN** a direct DB INSERT is attempted with `follower_id = followee_id`
-- **THEN** the INSERT fails with a check-constraint violation (SQLSTATE `23514`)
-
-#### Scenario: Primary key rejects duplicate
-- **WHEN** two INSERTs share the same `(follower_id, followee_id)`
-- **THEN** the second INSERT fails with a unique-constraint violation (SQLSTATE `23505`)
-
-#### Scenario: Both directional indexes exist
-- **WHEN** querying `pg_indexes WHERE tablename = 'follows'`
-- **THEN** the result contains an index whose definition orders by `follower_id` then `created_at DESC` AND an index whose definition orders by `followee_id` then `created_at DESC`
-
-#### Scenario: Cascade on user hard-delete (follower side)
-- **WHEN** a `users` row referenced as `follower_id` is hard-deleted
-- **THEN** all `follows` rows where `follower_id = <that user>` are cascade-deleted
-
-#### Scenario: Cascade on user hard-delete (followee side)
-- **WHEN** a `users` row referenced as `followee_id` is hard-deleted
-- **THEN** all `follows` rows where `followee_id = <that user>` are cascade-deleted
-
-### Requirement: POST /api/v1/follows/{user_id} creates a follow (idempotent)
-
-A Ktor route SHALL be registered at `POST /api/v1/follows/{user_id}` requiring Bearer JWT auth via the existing `auth-jwt` plugin. On success, the endpoint MUST insert `(follower_id = caller, followee_id = path-user_id)` via `INSERT ... ON CONFLICT (follower_id, followee_id) DO NOTHING` and return HTTP 204 with no body. Re-following an already-followed user MUST also return 204 (no error).
-
-#### Scenario: First follow returns 204
-- **WHEN** caller A follows user B for the first time
-- **THEN** the response is HTTP 204 AND a `follows` row `(A, B, ...)` exists
-
-#### Scenario: Re-follow idempotent
-- **WHEN** caller A follows user B AND then immediately follows user B again
-- **THEN** both responses are HTTP 204 AND there is exactly one `follows` row `(A, B, ...)`
-
-#### Scenario: Unauthenticated rejected
-- **WHEN** the request lacks a valid JWT
-- **THEN** the response is HTTP 401 with `error.code = "unauthenticated"`
-
-### Requirement: Self-follow rejected at app layer
-
-The route handler SHALL reject requests where the path `user_id` equals the caller's UUID with HTTP 400 and error code `cannot_follow_self`. This check MUST run before any DB read or write. The DB CHECK constraint serves as defense-in-depth only.
-
-#### Scenario: Self-follow returns 400
-- **WHEN** caller A calls `POST /api/v1/follows/A`
-- **THEN** the response is HTTP 400 with `error.code = "cannot_follow_self"` AND no `follows` row is inserted
-
-#### Scenario: Self-follow does not reach DB
-- **WHEN** the self-follow request is made
-- **THEN** no DB statement is executed for that request (verifiable via test-side spy or query log)
+## MODIFIED Requirements
 
 ### Requirement: Follow target user must exist
 
@@ -114,18 +39,6 @@ The pre-insert in-transaction guard MUST remain: `followInTx` takes the canonica
 #### Scenario: Visible unblocked target still followable
 - **WHEN** caller A calls `POST /api/v1/follows/B` where B is visible (not shadow-banned, not deleted) and no block exists in either direction
 - **THEN** the response is HTTP 204 AND a `follows` row `(A, B)` exists
-
-### Requirement: DELETE /api/v1/follows/{user_id} removes a follow (idempotent)
-
-A Ktor route SHALL be registered at `DELETE /api/v1/follows/{user_id}` requiring Bearer JWT auth. The endpoint MUST execute `DELETE FROM follows WHERE follower_id = :caller AND followee_id = :path_user_id` and return HTTP 204 regardless of whether a row was deleted. Self-unfollow (path UUID equals caller) SHOULD also return 204 (no DB row will match; no special handling required).
-
-#### Scenario: Existing follow removed
-- **WHEN** caller A has previously followed B AND now calls `DELETE /api/v1/follows/B`
-- **THEN** the response is HTTP 204 AND no `follows` row `(A, B, ...)` exists
-
-#### Scenario: No-op delete still 204
-- **WHEN** caller A has not followed B AND calls `DELETE /api/v1/follows/B`
-- **THEN** the response is HTTP 204 (no error)
 
 ### Requirement: GET /api/v1/users/{user_id}/followers lists profile followers (paginated, viewer-block-filtered)
 
@@ -327,3 +240,10 @@ Response shapes for `POST /api/v1/follows/{user_id}` and `DELETE /api/v1/follows
 - **WHEN** inspecting the response bodies of `POST /api/v1/follows/{user_id}` and `DELETE /api/v1/follows/{user_id}` pre-V10 and post-V10
 - **THEN** each matches the pre-V10 contract (V10 does not alter the follow endpoint response shapes; the later `social-list-profile-summaries` 404 alignment is a separate, deliberate change)
 
+## REMOVED Requirements
+
+### Requirement: Mutual-block rejects follow with 409
+
+**Reason**: Consistency with the adjacent profile-read posture (design D4), which collapses blocked-either-direction into the constant 404. The mobile client reaches follow actions through profiles, so a profile that answers 404 paired with a follow that answers 409 is a contradictory contract — and the 409 additionally tells a caller who has NOT blocked the target that the target blocked them. System-wide this REDUCES rather than eliminates block-state visibility: chat-create deliberately answers 403 for blocked pairs as user-visible symmetric friction (`docs/06-Security-Privacy.md` posture, unchanged here). The follow surface aligns with profile-read before any client codes against the 409.
+
+**Migration**: Blocked pairs now answer the CONSTANT 404 under the modified "Follow target user must exist" requirement, which also absorbs the pre-insert bidirectional `user_blocks` guard text (the in-transaction SELECT + user-pair advisory lock are unchanged — only the HTTP mapping changes). The `FOLLOW_BLOCKED_BODY` constant and the 409 scenarios are removed; clients distinguish nothing beyond "target not available".
