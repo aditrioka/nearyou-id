@@ -18,8 +18,8 @@ The mobile app SHALL ship a composable `PostCreationScreen` (file: `mobile/app/s
 
 #### Scenario: Counter renders in the bottom composer bar
 
-- **WHEN** a test composes the `PostCreationScreen` composable under `NearYouTheme` and reads the layout bounds of the counter node and the content input field node
-- **THEN** the counter node's top edge is at or below the content field's bottom edge (the counter sits in the bottom composer bar, not beside the title or above the field) — asserted via Robolectric bounds comparison (the `AppShellScreenTest` bounds-math idiom)
+- **WHEN** a test composes the `PostCreationScreen` composable under `NearYouTheme` and reads the layout bounds of the counter node and the privacy-note node (the last content element above the bottom bar)
+- **THEN** the counter node's top edge is at or below the privacy note's bottom edge (the counter sits in the pinned bottom composer bar, below ALL scrollable content — strictly stronger than below-the-field, which the pre-change layout also satisfied) — asserted via Robolectric bounds comparison (the `AppShellScreenTest` bounds-math idiom)
 
 #### Scenario: No attachment toolbar is rendered
 
