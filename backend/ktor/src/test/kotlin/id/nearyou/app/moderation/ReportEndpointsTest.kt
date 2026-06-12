@@ -538,6 +538,25 @@ class ReportEndpointsTest : StringSpec({
         }
     }
 
+    "6.4b invalid-target submissions consume rate-limit slots (existence probing is metered)" {
+        val (reporter, tok) = seedAgedUser()
+        try {
+            // Cap of 3 keeps the test fast; the slot accounting is what's pinned.
+            withReports(limiter = ReportRateLimiter(cap = 3)) {
+                repeat(3) {
+                    postReport(tok, validBody("post", UUID.randomUUID())).status shouldBe HttpStatusCode.NotFound
+                }
+                // 4th probe: the three 404s above each consumed a slot (the spec releases
+                // ONLY on the 409 duplicate path) — an unmetered 404 would hand out a
+                // free existence oracle over raw posts/users/chat_messages lookups.
+                val resp = postReport(tok, validBody("post", UUID.randomUUID()))
+                resp.status shouldBe HttpStatusCode.TooManyRequests
+            }
+        } finally {
+            cleanup(reporter)
+        }
+    }
+
     // --- 6.5 Block-aware acceptance ------------------------------------------------------
 
     "6.5 block-aware — all four cases return 204" {

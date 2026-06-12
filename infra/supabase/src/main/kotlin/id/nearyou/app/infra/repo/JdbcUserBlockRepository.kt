@@ -84,13 +84,31 @@ class JdbcUserBlockRepository(
         cursorBlockedId: UUID?,
         limit: Int,
     ): List<UserBlockRow> {
+        // LEFT JOIN visible_users + COALESCE placeholders (the chat-conversations partner
+        // pattern, byte-matching ChatRepository.listMyConversations): a hidden blocked user
+        // keeps their row — the list is the owner's only unblock handle — with masked
+        // identity. Masking is driven ONLY by visible_users membership, never block state
+        // (rows ARE the owner's blocks; counter-block masking would leak "blocked back").
+        // Keyset axis stays (b.created_at, b.blocked_id) — the join feeds projection only.
         val sql =
             buildString {
-                append("SELECT blocked_id, created_at FROM user_blocks WHERE blocker_id = ?")
+                append(
+                    """
+                    SELECT b.blocked_id,
+                           COALESCE(u.username, 'akun_dihapus') AS username,
+                           COALESCE(u.display_name, 'Akun Dihapus') AS display_name,
+                           COALESCE(u.subscription_status = 'premium_active', FALSE) AS is_premium,
+                           b.created_at
+                      FROM user_blocks b
+                      LEFT JOIN visible_users u ON u.id = b.blocked_id
+                     WHERE b.blocker_id = ?
+                    """.trimIndent(),
+                )
                 if (cursorCreatedAt != null && cursorBlockedId != null) {
-                    append(" AND (created_at, blocked_id) < (?, ?)")
+                    append("\n   AND (b.created_at, b.blocked_id) < (?, ?)")
                 }
-                append(" ORDER BY created_at DESC, blocked_id DESC LIMIT ?")
+                append("\n ORDER BY b.created_at DESC, b.blocked_id DESC")
+                append("\n LIMIT ?")
             }
         dataSource.connection.use { conn ->
             conn.prepareStatement(sql).use { ps ->
@@ -107,6 +125,9 @@ class JdbcUserBlockRepository(
                         out +=
                             UserBlockRow(
                                 blockedId = rs.getObject("blocked_id", UUID::class.java),
+                                username = rs.getString("username"),
+                                displayName = rs.getString("display_name"),
+                                isPremium = rs.getBoolean("is_premium"),
                                 createdAt = rs.getTimestamp("created_at").toInstant(),
                             )
                     }

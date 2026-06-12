@@ -372,23 +372,26 @@ V1 through V9 are immutable after merge. V10 MUST NOT edit, drop, or re-create a
 
 ### Requirement: V11 introduces the first spatially-seeded reference table plus a BEFORE INSERT trigger
 
-Migration `V11__admin_regions.sql` SHALL land in a single Flyway file and SHALL atomically:
+The admin-regions foundation SHALL comprise a two-migration split — schema in V11, seed in V12 (this deviates from the original single-file plan; documented in the `global-timeline-with-region-polygons` change's design.md Decision 3 amendment + V12 header, spec reconciled 2026-06-11):
+
+`V11__admin_regions.sql` (schema only) SHALL atomically:
 1. Create the `admin_regions` table and its indexes (GIST on `geom` and `geom_centroid`, btree on `level` and `parent_id`).
-2. Seed `admin_regions` with Indonesian provinces (~38 rows) and kabupaten/kota polygons (~500 rows) from the chosen dataset. Coastal polygons are pre-buffered by 12 nm (~22 km) at import time (see `region-polygons` capability).
-3. Create the PL/pgSQL function `posts_set_city_fn()` implementing the 4-step fallback ladder (strict → buffered_10m → fuzzy_match → NULL) and the BEFORE INSERT trigger `posts_set_city_tg` on `posts`.
-4. Issue `CREATE OR REPLACE VIEW visible_posts AS SELECT * FROM posts WHERE is_auto_hidden = FALSE` as an idempotent no-op refresh — `posts.city_name` and `posts.city_match_type` already exist from V4 and were already projected via `SELECT *`.
+2. Create the PL/pgSQL function `posts_set_city_fn()` implementing the 4-step fallback ladder (strict → buffered_10m → fuzzy_match → NULL) and the BEFORE INSERT trigger `posts_set_city_tg` on `posts`.
+3. Issue `CREATE OR REPLACE VIEW visible_posts AS SELECT * FROM posts WHERE is_auto_hidden = FALSE` as an idempotent no-op refresh — `posts.city_name` and `posts.city_match_type` already exist from V4 and were already projected via `SELECT *`.
+
+`V12__admin_regions_seed.sql` SHALL seed `admin_regions` with Indonesian provinces (~38 rows) and kabupaten/kota polygons (~514 rows) from OSM, coastal polygons pre-buffered by 12 nm (~22 km) at import time (see `region-polygons` capability).
 
 V11 MUST NOT execute any `ALTER TABLE posts`. The target columns for the trigger (`city_name`, `city_match_type`) already exist on `posts` since V4.
 
-The migration MUST execute in a single Flyway transaction (Flyway's default behavior for SQL migrations against PostgreSQL). Splitting any of the four steps into a separate versioned migration is explicitly rejected — the trigger's `SELECT ... FROM admin_regions` would dereference an unseeded or nonexistent table between migrations.
+The empty window between V11 and V12 is safe BY CONSTRUCTION, which is what made the split acceptable: the trigger ladder short-circuits to a NULL match on an empty `admin_regions`, and the whole Global/Nearby/Following response pipeline is NULL-tolerant (`city_name` renders as `""`). Each migration executes in a single Flyway transaction (Flyway's default for SQL migrations against PostgreSQL).
 
 #### Scenario: V11 applies cleanly on an empty V10-schema DB
 - **WHEN** Flyway runs V11 against a Postgres+PostGIS instance with V1–V10 applied
-- **THEN** the migration succeeds AND `flyway_schema_history` records V11 AND all four steps are reflected in the DB
+- **THEN** the migration succeeds AND `flyway_schema_history` records V11 AND all three schema steps are reflected in the DB
 
-#### Scenario: V11 is a single file
-- **WHEN** listing `backend/ktor/src/main/resources/db/migration/V11*`
-- **THEN** exactly one file matches: `V11__admin_regions.sql`
+#### Scenario: V11 and V12 are each a single file
+- **WHEN** listing `backend/ktor/src/main/resources/db/migration/V11*` and `V12*`
+- **THEN** exactly two files match: `V11__admin_regions.sql` and `V12__admin_regions_seed.sql`
 
 #### Scenario: V11 contains no ALTER TABLE posts
 - **WHEN** scanning `V11__admin_regions.sql` for `ALTER TABLE posts`
@@ -396,12 +399,12 @@ The migration MUST execute in a single Flyway transaction (Flyway's default beha
 
 ### Requirement: V11 header carries dataset licensing and consumer list
 
-The V11 migration file SHALL open with a header comment block that includes:
-1. The dataset source (BPS or OSM) and its license (CC-BY 4.0 or ODbL).
-2. The attribution text required by the license, formatted as it must appear in the app's legal section.
-3. The list of read-path consumers that MUST bidirectionally join `user_blocks` on top of `visible_posts`: `nearby-timeline`, `following-timeline`, `global-timeline` (extending the list documented in V5 and V6 headers).
-4. A note that the `posts_set_city_tg` trigger is the first BEFORE INSERT trigger in the migration history AND that the `admin_regions` seed is the first spatially-seeded reference table.
-5. A note that the coastal kabupaten polygons were pre-buffered by 12 nm (~22 km) at import time per `docs/02-Product.md–203`.
+The dataset licensing/attribution header lives in `V12__admin_regions_seed.sql` (the file that actually carries the dataset); the structural notes live in V11. Combined, the two headers SHALL include:
+1. The dataset source (OSM) and its license (ODbL) — in V12.
+2. The attribution text required by the license, formatted as it must appear in the app's legal section — in V12.
+3. The list of read-path consumers that MUST bidirectionally join `user_blocks` on top of `visible_posts`: `nearby-timeline`, `following-timeline`, `global-timeline` (extending the list documented in V5 and V6 headers) — in V11.
+4. A note that the `posts_set_city_tg` trigger is the first BEFORE INSERT trigger in the migration history AND that the `admin_regions` seed is the first spatially-seeded reference table — in V11.
+5. A note that the coastal kabupaten polygons were pre-buffered by 12 nm (~22 km) at import time per `docs/02-Product.md–203` — in both (V11 documents the query-time uniformity; V12 documents the import-time buffer).
 
 #### Scenario: Header present and non-empty
 - **WHEN** reading the first 50 lines of `V11__admin_regions.sql`

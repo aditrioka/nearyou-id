@@ -1,10 +1,17 @@
 <configuration>
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{YYYY-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <!-- %X{call_id} renders the CallId plugin's MDC value (callIdMdc("call_id") in
+                 Application.kt) — without it the docs/11 §3.3 request-correlation contract
+                 is config-dead: the MDC is populated but never emitted. -->
+            <pattern>%d{YYYY-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{call_id}] - %msg%n</pattern>
         </encoder>
     </appender>
-    <root level="trace">
+    <!-- Root INFO: TRACE shipped per-request Ktor routing-resolution dumps + unpinned
+         third-party DEBUG (Hikari/Lettuce/Flyway) to Cloud Logging — cost + disclosure
+         surface. Tests that assert DEBUG/TRACE lines set the specific logger's level
+         programmatically, which overrides root. -->
+    <root level="INFO">
         <appender-ref ref="STDOUT"/>
     </root>
     <logger name="org.eclipse.jetty" level="INFO"/>

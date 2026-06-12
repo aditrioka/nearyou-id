@@ -30,7 +30,7 @@ The endpoint SHALL accept only `cursor` as an optional query parameter. No `lat`
 
 ### Requirement: Canonical query joins visible_posts, follows, and excludes blocks bidirectionally
 
-The endpoint's data query SHALL be the canonical Following query from `docs/05-Implementation.md` § Timeline Implementation: `FROM visible_posts` (NOT `FROM posts`), with `author_id IN (SELECT followee_id FROM follows WHERE follower_id = :viewer)`, AND two NOT-IN subqueries excluding `user_blocks` rows in BOTH directions (column names normalized to the shipped/docs-05 `author_id` as part of this change's reconciliation):
+The endpoint's data query SHALL be the canonical Following query from `docs/05-Implementation.md` § Timeline Implementation: `FROM visible_posts` (NOT `FROM posts`), with `author_id IN (SELECT followee_id FROM follows WHERE follower_id = :viewer)`, AND two NOT-IN subqueries excluding `user_blocks` rows in BOTH directions:
 - `author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer)`
 - `author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer)`
 
@@ -45,7 +45,7 @@ As of `mobile-timeline-card-redesign`, the query SHALL additionally `JOIN visibl
 Both `user_blocks` NOT-IN subqueries (on the primary `FROM visible_posts` clause) MUST remain present simultaneously so `BlockExclusionJoinRule` continues to pass on the updated query literal. The V7 `LEFT JOIN post_likes` MUST remain unchanged.
 
 #### Scenario: Post from a non-followed author excluded
-- **WHEN** a post within the last day has `author_user_id = X` AND the caller does NOT follow X
+- **WHEN** a post within the last day has `author_id = X` AND the caller does NOT follow X
 - **THEN** that post does NOT appear in the response
 
 #### Scenario: Auto-hidden followed-author post excluded

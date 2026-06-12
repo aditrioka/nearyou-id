@@ -19,8 +19,26 @@ import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
+/**
+ * Wire row for `GET /api/v1/blocks` — the blocked user's embedded profile summary
+ * (`social-list-profile-summaries`). Bare camelCase keys (no `@SerialName`), the same
+ * vocabulary as `FollowListItem`/`UserProfileResponse`. Hidden blocked users arrive
+ * pre-masked from the repository (`akun_dihapus` placeholders) with the row preserved —
+ * `userId` stays the real UUID so `DELETE /blocks/{userId}` remains possible.
+ *
+ * `POST`/`DELETE /blocks/{user_id}` deliberately do NOT adopt the constant-404
+ * visibility contract (`user-blocking` § "Block actions deliberately retain
+ * existence-based semantics"): a shadow-banned or soft-deleted target must stay
+ * blockable, so block-create keeps its raw FK existence semantics.
+ */
 @Serializable
-data class BlockListItem(val userId: String, val createdAt: String)
+data class BlockListItem(
+    val userId: String,
+    val username: String,
+    val displayName: String,
+    val isPremium: Boolean,
+    val createdAt: String,
+)
 
 @Serializable
 data class BlockListResponse(val blocks: List<BlockListItem>, val nextCursor: String? = null)
@@ -96,6 +114,9 @@ fun Application.blockRoutes(service: BlockService) {
                             page.rows.map {
                                 BlockListItem(
                                     userId = it.blockedId.toString(),
+                                    username = it.username,
+                                    displayName = it.displayName,
+                                    isPremium = it.isPremium,
                                     createdAt = it.createdAt.toString(),
                                 )
                             },

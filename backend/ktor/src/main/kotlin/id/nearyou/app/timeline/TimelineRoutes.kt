@@ -5,6 +5,7 @@ import id.nearyou.app.auth.UserPrincipal
 import id.nearyou.app.common.InvalidCursorException
 import id.nearyou.app.common.decodeCursor
 import id.nearyou.app.common.encodeCursor
+import id.nearyou.app.post.LocationOutOfBoundsException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
@@ -191,6 +192,24 @@ fun Application.timelineRoutes(
                         call.respondError(HttpStatusCode.BadRequest, "invalid_cursor", "Cursor is malformed.")
                         return@get
                     }
+                // Envelope + radius validation BEFORE the limiter pre-check — the
+                // timeline-read-rate-limit spec's ordering puts parameter validation at
+                // step 2, ahead of the step-5/6 pre-checks: a 400 must not burn a Free
+                // user's rolling/session quota. (The service re-validates as defense in
+                // depth; LocationOutOfBoundsException renders via StatusPages either way.)
+                if (lat !in NearbyTimelineService.LAT_MIN..NearbyTimelineService.LAT_MAX ||
+                    lng !in NearbyTimelineService.LNG_MIN..NearbyTimelineService.LNG_MAX
+                ) {
+                    throw LocationOutOfBoundsException(lat, lng)
+                }
+                if (radius !in NearbyTimelineService.RADIUS_MIN..NearbyTimelineService.RADIUS_MAX) {
+                    call.respondError(
+                        HttpStatusCode.BadRequest,
+                        "radius_out_of_bounds",
+                        "radius_m must be in [${NearbyTimelineService.RADIUS_MIN}, ${NearbyTimelineService.RADIUS_MAX}].",
+                    )
+                    return@get
+                }
                 // Pre-check runs AFTER cursor parsing but BEFORE the (expensive) PostGIS
                 // ST_DWithin query. The rolling pre-check is consulted before the session
                 // pre-check; on rolling hard-cap the response is shaped without the DB

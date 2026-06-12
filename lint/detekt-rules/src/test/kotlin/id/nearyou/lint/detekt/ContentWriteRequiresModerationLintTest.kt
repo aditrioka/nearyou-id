@@ -213,6 +213,40 @@ class ContentWriteRequiresModerationLintTest : StringSpec({
         rule.lint(code).shouldBeEmpty()
     }
 
+    "annotation bypass: @AllowContentWriteWithoutModeration(\"embedded_snapshot\") passes" {
+        val code =
+            """
+            package id.nearyou.app.chat
+
+            annotation class AllowContentWriteWithoutModeration(val reason: String)
+
+            class T {
+                @AllowContentWriteWithoutModeration("embedded_snapshot")
+                fun insertEmbeddedOnly() {
+                    val sql = "INSERT INTO chat_messages (conversation_id, sender_id, content, embedded_post_snapshot) VALUES (?, ?, NULL, ?::jsonb)"
+                }
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
+    "annotation bypass: @AllowContentWriteWithoutModeration(\"service_layer_moderated\") passes" {
+        val code =
+            """
+            package id.nearyou.app.infra.repo
+
+            annotation class AllowContentWriteWithoutModeration(val reason: String)
+
+            class JdbcPostRepository {
+                @AllowContentWriteWithoutModeration("service_layer_moderated")
+                fun create() {
+                    val sql = "INSERT INTO posts (id, author_id, content) VALUES (?, ?, ?)"
+                }
+            }
+            """.trimIndent()
+        rule.lint(code).shouldBeEmpty()
+    }
+
     // ============================================================
     // Task 4.6 — Annotation-bypass empty-reason fails (11)
     // ============================================================

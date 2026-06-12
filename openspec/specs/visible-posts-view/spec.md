@@ -84,7 +84,7 @@ A Detekt custom rule `RawFromPostsRule` SHALL live under `lint/detekt-rules/src/
 
 The rule SHALL allow `FROM posts` / `JOIN posts` in:
 1. Files under `backend/ktor/src/main/kotlin/id/nearyou/app/post/repository/` whose filename starts with `PostOwnContent`.
-2. Any Kotlin function or class annotated with `@AllowRawPostsRead("<reason>")` — the annotation MUST be declared under `:backend:ktor` and MUST require a non-empty reason string.
+2. Any Kotlin function or class annotated with `@AllowRawPostsRead("<reason>")` — the annotation is declared in `:core:domain` (`id.nearyou.app.core.domain.lint`; moved from `:backend:ktor` on 2026-06-11 so the `:infra:*` modules the rule now scans share one canonical declaration) and MUST require a non-empty reason string.
 3. Any file under `backend/ktor/src/main/kotlin/id/nearyou/app/admin/`.
 4. The migration file `backend/ktor/src/main/resources/db/migration/V4__post_creation.sql` (where the `visible_posts` view is defined on top of `FROM posts`).
 
@@ -193,11 +193,11 @@ The rationale is spec-level: the Report submission flow must accept reports on c
 
 ### Requirement: visible_posts view definition unchanged by V9
 
-V9 MUST NOT alter the `visible_posts` view definition. Its authoritative form remains `SELECT * FROM posts WHERE is_auto_hidden = FALSE`. V9 relies exactly on this predicate — flipping `posts.is_auto_hidden = TRUE` is the entire mechanism by which V9 removes a reported post from every authenticated read path. No view-level change is needed.
+V9 MUST NOT alter the `visible_posts` view definition. As of V9 its authoritative form was `SELECT * FROM posts WHERE is_auto_hidden = FALSE`, and V9 relies exactly on that predicate — flipping `posts.is_auto_hidden = TRUE` is the entire mechanism by which V9 removes a reported post from every authenticated read path. No view-level change shipped with V9. (V20 later REDEFINED the view — see `### Requirement: visible_posts view definition` above for the current authoritative form; the V4/V9 auto-hide predicate is preserved as one of its conjuncts.)
 
-#### Scenario: View definition unchanged
-- **WHEN** querying `pg_views WHERE viewname = 'visible_posts'` after V9 has run
-- **THEN** the view's `definition` remains `SELECT * FROM posts WHERE is_auto_hidden = FALSE` (semantic equivalence; Postgres may canonicalize whitespace/case but the predicate is unchanged)
+#### Scenario: V9 preserves the auto-hide predicate
+- **WHEN** querying `pg_views WHERE viewname = 'visible_posts'` on any schema at or after V9
+- **THEN** the view's `definition` contains the `is_auto_hidden = FALSE` predicate (the V9-era full form was `SELECT * FROM posts WHERE is_auto_hidden = FALSE`; the V20 redefinition carries the predicate forward as a conjunct — `MigrationV20SmokeTest` pins the current full shape)
 
 ### Requirement: V9-era writer confirms the V4 contract
 

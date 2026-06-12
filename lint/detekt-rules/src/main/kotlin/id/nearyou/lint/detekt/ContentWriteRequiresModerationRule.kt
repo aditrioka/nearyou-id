@@ -82,8 +82,14 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  * rule when ALL three conditions hold:
  *  - The reason text (after stripping surrounding quotes) is a string literal.
  *  - The reason is `isNotBlank()` (empty `""` or whitespace-only reasons fail).
- *  - The reason is one of the three enumerated values: `tombstone`, `admin_redaction`,
- *    `seed`.
+ *  - The reason is one of the five enumerated values: `tombstone`, `admin_redaction`,
+ *    `seed`, `embedded_snapshot` (writes copying ALREADY-MODERATED content verbatim,
+ *    e.g. a chat message embedding a post snapshot that passed Layer 1/2 at
+ *    post-creation time — no NEW user text enters the system), `service_layer_moderated`
+ *    (repository-layer INSERT sinks invoked exclusively by service paths that ran
+ *    `TextModerator.moderate()` BEFORE the call — the call-order contract is enforced
+ *    at the service call site (arm (b)) plus the 3 moderation integration source-scan
+ *    tests; the annotation makes the contract visible at the SQL site).
  *
  * Non-enumerated reasons fire the rule with an error message naming the allowed set.
  * Empty-string reasons fire (mirror `RateLimitTtlRule`'s `@AllowDailyTtlOverride`
@@ -131,7 +137,8 @@ class ContentWriteRequiresModerationRule(config: Config = Config.empty) : Rule(c
                     "`openspec/specs/content-moderation-keyword-lists/spec.md` § \"Moderator runs " +
                     "after length guard, before INSERT\"; OR annotate the enclosing function with " +
                     "`@AllowContentWriteWithoutModeration(\"<reason>\")` for documented carve-outs " +
-                    "(allowed reasons: `tombstone`, `admin_redaction`, `seed`).",
+                    "(allowed reasons: `tombstone`, `admin_redaction`, `seed`, `embedded_snapshot`, " +
+                    "`service_layer_moderated`).",
             debt = Debt.TEN_MINS,
         )
 
@@ -250,7 +257,8 @@ class ContentWriteRequiresModerationRule(config: Config = Config.empty) : Rule(c
                 "repository" to "sendMessage",
             )
 
-        private val ALLOWED_REASONS: Set<String> = setOf("tombstone", "admin_redaction", "seed")
+        private val ALLOWED_REASONS: Set<String> =
+            setOf("tombstone", "admin_redaction", "seed", "embedded_snapshot", "service_layer_moderated")
 
         /**
          * SQL-INSERT-with-content-column pattern. The `[^)]*` between the table-name and

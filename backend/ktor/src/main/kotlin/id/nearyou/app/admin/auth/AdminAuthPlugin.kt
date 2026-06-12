@@ -52,7 +52,7 @@ class AdminAuthProvider(
         val cookieValue = call.request.cookies[COOKIE_NAME]
 
         if (cookieValue.isNullOrBlank()) {
-            redirectToLogin(call, context, AuthenticationFailedCause.NoCredentials)
+            redirectToLogin(call, context, AuthenticationFailedCause.NoCredentials, clearCookie = false)
             return
         }
 
@@ -60,18 +60,18 @@ class AdminAuthProvider(
             val sessionTokenHash = HashUtil.sha256Hex(cookieValue)
             val session = sessionRepository.findBySessionHash(sessionTokenHash)
             if (session == null) {
-                redirectToLogin(call, context, AuthenticationFailedCause.InvalidCredentials)
+                redirectToLogin(call, context, AuthenticationFailedCause.InvalidCredentials, clearCookie = true)
                 return
             }
             if (!session.isActive(now = clockSource(), idleTimeout = idleTimeout)) {
-                redirectToLogin(call, context, AuthenticationFailedCause.InvalidCredentials)
+                redirectToLogin(call, context, AuthenticationFailedCause.InvalidCredentials, clearCookie = true)
                 return
             }
             val admin = adminUserRepository.findById(session.adminId)
             if (admin == null || !admin.isActive) {
                 // Defense beyond spec: mid-session deactivation or row
                 // hard-delete invalidates the session.
-                redirectToLogin(call, context, AuthenticationFailedCause.InvalidCredentials)
+                redirectToLogin(call, context, AuthenticationFailedCause.InvalidCredentials, clearCookie = true)
                 return
             }
 
@@ -97,7 +97,9 @@ class AdminAuthProvider(
                 ex::class.simpleName,
                 ex,
             )
-            redirectToLogin(call, context, AuthenticationFailedCause.Error("session validation failed"))
+            // Transient failure: do NOT clear the cookie — the session row may be
+            // perfectly valid once the DB recovers.
+            redirectToLogin(call, context, AuthenticationFailedCause.Error("session validation failed"), clearCookie = false)
         }
     }
 
@@ -105,8 +107,15 @@ class AdminAuthProvider(
         call: ApplicationCall,
         context: AuthenticationContext,
         cause: AuthenticationFailedCause,
+        clearCookie: Boolean,
     ) {
         context.challenge(COOKIE_NAME, cause) { challenge, _ ->
+            // Spec § "Session middleware validates the cookie on every authenticated
+            // request": a presented-but-invalid cookie (forged / expired / idle /
+            // deactivated admin) SHALL be cleared alongside the redirect.
+            if (clearCookie) {
+                call.response.cookies.append(AdminLoginRoutes.buildClearSessionCookie())
+            }
             call.respondRedirect(LOGIN_PATH, permanent = false)
             challenge.complete()
         }

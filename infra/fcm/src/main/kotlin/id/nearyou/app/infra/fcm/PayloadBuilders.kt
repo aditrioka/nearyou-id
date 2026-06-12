@@ -32,7 +32,9 @@ fun buildAndroidMessage(
         .putData("actor_user_id", notification.actorUserId?.toString().orEmpty())
         .putData("target_type", notification.targetType.orEmpty())
         .putData("target_id", notification.targetId?.toString().orEmpty())
-        .putData("body_data", notification.bodyDataJson.takeIf { it != "{}" }.orEmpty())
+        // Spec: "" ONLY when body_data IS NULL; any real value — including the
+        // `followed` type's literal {} — is passed through JSON-stringified.
+        .putData("body_data", notification.bodyDataJson.orEmpty())
         .build()
 
 /**
@@ -68,8 +70,8 @@ fun buildIosMessage(
 ): IosPayloadResult {
     val title = PushCopy.titleFor(notification.type.wire)
     val body = PushCopy.bodyFor(notification.type.wire, actorUsername)
-    val rawBodyFull =
-        notification.bodyDataJson.takeIf { it != "{}" }.orEmpty()
+    // Same NULL-vs-{} contract as the Android arm above.
+    val rawBodyFull = notification.bodyDataJson.orEmpty()
     val clampedBodyFull =
         clampBodyFullForApns(rawBodyFull, title = title, body = body)
             ?: return IosPayloadResult.OversizedPayload

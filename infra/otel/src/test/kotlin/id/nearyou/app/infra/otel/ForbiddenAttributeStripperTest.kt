@@ -1,8 +1,13 @@
 package id.nearyou.app.infra.otel
 
+import id.nearyou.app.infra.otel.testing.SpanRecorder
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
+import io.opentelemetry.api.common.AttributeKey
+import io.opentelemetry.sdk.common.CompletableResultCode
+import io.opentelemetry.sdk.trace.data.SpanData
+import io.opentelemetry.sdk.trace.export.SpanExporter
 
 /**
  * Regression tests for [ForbiddenAttributeStripper.FORBIDDEN_KEYS] coverage.
@@ -48,5 +53,34 @@ class ForbiddenAttributeStripperTest : StringSpec({
         // not the peer/client. Not a privacy concern; keep observable.
         (ForbiddenAttributeStripper.FORBIDDEN_KEYS.contains("server.address")) shouldBe false
         (ForbiddenAttributeStripper.FORBIDDEN_KEYS.contains("server.port")) shouldBe false
+    }
+
+    "strips a span whose ONLY forbidden attributes are long-typed port keys" {
+        // The pre-fix fast path probed string-typed keys only — a span carrying just
+        // `client.port` (LONG in semconv) skipped the rebuild and leaked the port.
+        val (otel, recorder) = SpanRecorder.newPipeline()
+        val span = otel.getTracer("stripper-test").spanBuilder("probe").startSpan()
+        span.setAttribute("client.port", 443L)
+        span.setAttribute("http.route", "/api/v1/x")
+        span.end()
+        val source = recorder.recordedSpans().single()
+
+        val captured = mutableListOf<SpanData>()
+        val delegate =
+            object : SpanExporter {
+                override fun export(spans: MutableCollection<SpanData>): CompletableResultCode {
+                    captured.addAll(spans)
+                    return CompletableResultCode.ofSuccess()
+                }
+
+                override fun flush(): CompletableResultCode = CompletableResultCode.ofSuccess()
+
+                override fun shutdown(): CompletableResultCode = CompletableResultCode.ofSuccess()
+            }
+        ForbiddenAttributeStripper(delegate).export(listOf(source))
+
+        val exported = captured.single()
+        exported.attributes.get(AttributeKey.longKey("client.port")) shouldBe null
+        exported.attributes.get(AttributeKey.stringKey("http.route")) shouldBe "/api/v1/x"
     }
 })

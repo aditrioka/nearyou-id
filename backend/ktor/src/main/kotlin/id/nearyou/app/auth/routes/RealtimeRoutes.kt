@@ -10,6 +10,7 @@ import io.ktor.server.auth.principal
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.Instant
 import java.util.Date
@@ -19,6 +20,9 @@ const val REALTIME_TOKEN_TTL_SECONDS = 3600L
 @Serializable
 data class RealtimeTokenResponse(
     val token: String,
+    // Wire name pinned snake_case per auth-realtime spec ("expires_in": 3600) and the
+    // auth-route convention (AuthWireFormatTest: snake_case, never camelCase).
+    @SerialName("expires_in")
     val expiresIn: Long,
 )
 

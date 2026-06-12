@@ -35,7 +35,7 @@ class MessagePayloadStructuralTest : StringSpec(
             actorUserId: UUID? = actor,
             targetType: String? = "post",
             targetIdValue: UUID? = targetId,
-            bodyDataJson: String = """{"post_excerpt":"Hi from Jakarta"}""",
+            bodyDataJson: String? = """{"post_excerpt":"Hi from Jakarta"}""",
         ): NotificationRow =
             NotificationRow(
                 id = UUID.randomUUID(),
@@ -78,7 +78,7 @@ class MessagePayloadStructuralTest : StringSpec(
                             actorUserId = null,
                             targetType = null,
                             targetIdValue = null,
-                            bodyDataJson = "{}",
+                            bodyDataJson = null,
                         ),
                         "tok",
                     ),
@@ -90,6 +90,16 @@ class MessagePayloadStructuralTest : StringSpec(
             data["actor_user_id"]!!.jsonPrimitive.content shouldBe ""
             data["target_type"]!!.jsonPrimitive.content shouldBe ""
             data["body_data"]!!.jsonPrimitive.content shouldBe ""
+        }
+
+        "android payload passes a REAL empty-object body_data through as {} (followed shape)" {
+            // Pre-fix the builder collapsed the literal {} to "" — indistinguishable
+            // from NULL on the client. Spec: "" is reserved for body_data IS NULL.
+            val wire =
+                MessageInspector.toWireJson(
+                    buildAndroidMessage(row(bodyDataJson = "{}"), "tok"),
+                )
+            wire["data"]!!.jsonObject["body_data"]!!.jsonPrimitive.content shouldBe "{}"
         }
 
         // ---- iOS structural assertions ------------------------------------

@@ -16,8 +16,15 @@ import javax.sql.DataSource
 /**
  * Follow lifecycle: create / delete / list. Self-follow is rejected at this layer with
  * [CannotFollowSelfException] before any DB round-trip (the V6 CHECK constraint serves
- * as defense-in-depth). All mutual-block and FK-violation exception types come from the
- * repository; the route handler maps them to HTTP error codes.
+ * as defense-in-depth). All resolution, mutual-block, and FK-violation exception types
+ * come from the repository; the route handler maps them to HTTP error codes.
+ *
+ * Target resolution (`social-list-profile-summaries`): `follow` resolves the followee
+ * through the repository visibility gate ([UserFollowsRepository.ensureProfileVisible])
+ * AFTER the rate-limit check and BEFORE the transaction — ordering is deliberate:
+ * 404-probes burn the 50/h bucket (anti-enumeration; 429 takes precedence over 404),
+ * and the route maps the gate's [id.nearyou.data.repository.ProfileUserNotFoundException]
+ * to the same constant 404 as every other unresolvable cause.
  *
  * List methods own the `page-size + 1` probe pattern for keyset pagination — same shape
  * `BlockService.listOutbound` uses.
@@ -47,6 +54,9 @@ class FollowService(
         checkRateLimit(followerId)
         var emittedId: UUID? = null
         withContext(dbDispatcher) {
+            // Visibility gate (constant-404 contract): hidden or blocked targets are
+            // unresolvable here; the in-tx block guard below remains the TOCTOU backstop.
+            follows.ensureProfileVisible(profileId = followeeId, viewerId = followerId)
             dataSource.connection.use { conn ->
                 conn.autoCommit = false
                 try {

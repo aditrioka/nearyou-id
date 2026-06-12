@@ -1,11 +1,17 @@
 package id.nearyou.app.infra.repo
 
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
 import java.sql.Connection
 import java.sql.Date
 import java.sql.ResultSet
 import java.util.UUID
 import javax.sql.DataSource
 
+@AllowMissingBlockJoin(
+    "auth-plane identity reads/writes keyed by id / identity-hash / invite-code prefix — " +
+        "signin, signup and session validation must see the account regardless of block state; " +
+        "no viewer-scoped content is returned",
+)
 class JdbcUserRepository(
     private val dataSource: DataSource,
 ) : UserRepository {

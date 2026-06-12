@@ -73,16 +73,16 @@ The `/health/ready` response body SHALL be a JSON object with exactly two top-le
 {
   "status": "ready" | "degraded",
   "checks": [
-    { "name": "postgres",          "ok": true,  "latency_ms": 42 },
-    { "name": "redis",             "ok": true,  "latency_ms": 7 },
-    { "name": "supabase_realtime", "ok": false, "latency_ms": 1503, "error": "timeout" }
+    { "name": "postgres",          "ok": true,  "latencyMs": 42 },
+    { "name": "redis",             "ok": true,  "latencyMs": 7 },
+    { "name": "supabase_realtime", "ok": false, "latencyMs": 1503, "error": "timeout" }
   ]
 }
 ```
 
 - `status` is `"ready"` when every `checks[].ok == true`, otherwise `"degraded"`. The literal string `"ready"` (matching the endpoint name `/health/ready`) is canonical per [`docs/05-Implementation.md:1974`](docs/05-Implementation.md); using `"ok"` is a spec violation.
 - `checks` is an array of exactly three entries, in fixed deterministic order: `postgres`, `redis`, `supabase_realtime`. The order MUST NOT depend on probe completion order.
-- Each `checks[]` entry has `name` (one of `postgres` / `redis` / `supabase_realtime`), `ok` (boolean), and `latency_ms` (long; elapsed time in milliseconds for the probe).
+- Each `checks[]` entry has `name` (one of `postgres` / `redis` / `supabase_realtime`), `ok` (boolean), and `latencyMs` (long; elapsed time in milliseconds for the probe — the shipped wire name; deploy gates and the staging smoke parse this shape).
 - `error` is OPTIONAL and present only when `ok == false`. Value MUST be one of a short fixed vocabulary: `"timeout"`, `"connection_refused"`, `"dns_failure"`, `"tls_failure"`, or `"unknown"` (catch-all). Anything else is a spec violation. Operators reading the response in a dashboard get the operationally meaningful classification (transient slowness vs. unreachable vs. cert/DNS misconfiguration); the original exception is logged at WARN with full context for debugging but never appears in the response.
 
 HTTP status alignment: `200 OK` when `status == "ready"`, `503 Service Unavailable` when `status == "degraded"`.
