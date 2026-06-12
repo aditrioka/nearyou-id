@@ -18,10 +18,13 @@ import javax.sql.DataSource
  *
  * - The [resolveVisiblePost] literal is byte-identical in shape to
  *   [JdbcPostLikeRepository.resolveVisiblePost] (four lint-required tokens:
- *   `visible_posts`, `user_blocks`, `blocker_id =`, `blocked_id =`).
- * - The [listByPost] literal JOINs `visible_users` (shadow-ban exclusion) AND
- *   applies bidirectional `user_blocks` NOT-IN on `post_replies.author_id` —
- *   `BlockExclusionJoinRule` passes on the single literal.
+ *   `visible_posts`, `user_blocks`, `blocker_id =`, `blocked_id =`, plus the
+ *   shadow-ban-feed-self-visibility own-content self arm).
+ * - The [listByPost] literal LEFT JOINs `visible_users` with the
+ *   `(vu.id IS NOT NULL OR pr.author_id = :viewer)` author bypass (shadow-ban
+ *   exclusion except the caller's own replies) AND applies bidirectional
+ *   `user_blocks` NOT-IN on `post_replies.author_id` — `BlockExclusionJoinRule`
+ *   passes on the single literal.
  * - There is intentionally NO hard delete against `post_replies` anywhere in this
  *   file (post-replies-v8 design Decision 2: soft-delete only). The build-time grep
  *   guard in ReplyEndpointsTest asserts this literal-free invariant.
@@ -63,12 +66,16 @@ class JdbcPostReplyRepository(
         cursorReplyId: UUID?,
         limit: Int,
     ): List<PostReplyRow> {
-        // Canonical reply-list query (post-replies-v8 spec Requirement
+        // Canonical reply-list query (post-replies spec Requirement
         // "GET replies — canonical query with block exclusion and auto-hidden filter"):
-        //  - JOIN visible_users for shadow-ban exclusion on the reply author.
+        //  - LEFT JOIN visible_users + (vu.id IS NOT NULL OR pr.author_id = :viewer) —
+        //    shadow-ban exclusion on the reply author EXCEPT the caller's own replies
+        //    (shadow-ban-feed-self-visibility: a shadow-banned user still sees their OWN
+        //    replies in any thread they can read; for non-author rows the predicate is
+        //    exactly the previous INNER JOIN semantics).
         //  - Bidirectional user_blocks NOT-IN on pr.author_id (BlockExclusionJoinRule
         //    passes on the combined literal — four tokens present).
-        //  - deleted_at IS NULL excludes soft-deleted rows.
+        //  - deleted_at IS NULL excludes soft-deleted rows (including the author's own).
         //  - (is_auto_hidden = FALSE OR author_id = :viewer) — author still sees
         //    their own auto-hidden replies; everyone else does not.
         //  - Keyset on (created_at DESC, id DESC) via post_replies_post_idx.
@@ -84,9 +91,10 @@ class JdbcPostReplyRepository(
                            pr.created_at,
                            pr.updated_at
                       FROM post_replies pr
-                      JOIN visible_users vu ON vu.id = pr.author_id
+                      LEFT JOIN visible_users vu ON vu.id = pr.author_id
                      WHERE pr.post_id = ?
                        AND pr.deleted_at IS NULL
+                       AND (vu.id IS NOT NULL OR pr.author_id = ?)
                        AND (pr.is_auto_hidden = FALSE OR pr.author_id = ?)
                        AND pr.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?)
                        AND pr.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?)
@@ -102,6 +110,7 @@ class JdbcPostReplyRepository(
             conn.prepareStatement(sql).use { ps ->
                 var i = 1
                 ps.setObject(i++, postId)
+                ps.setObject(i++, viewerId) // shadow-ban author bypass (vu.id IS NOT NULL OR ...)
                 ps.setObject(i++, viewerId) // is_auto_hidden author bypass
                 ps.setObject(i++, viewerId) // blocker_id direction
                 ps.setObject(i++, viewerId) // blocked_id direction
@@ -134,12 +143,19 @@ class JdbcPostReplyRepository(
         }
     }
 
+    @AllowRawPostsRead(
+        "own-content self-arm (shadow-ban-feed-self-visibility): the raw posts arm is scoped " +
+            "to id = :post_id AND author_id = :viewer so a shadow-banned author can still " +
+            "reply to their own post / read its reply thread; other viewers resolve via the " +
+            "visible_posts arm and keep the constant opaque 404",
+    )
     override fun resolveVisiblePost(
         postId: UUID,
         viewerId: UUID,
     ): UUID? {
         // Shape-identical to JdbcPostLikeRepository.resolveVisiblePost — same four
-        // lint tokens, same opaque-404 semantics at the HTTP layer.
+        // lint tokens + the same own-content self arm (raw posts, author_id = :viewer,
+        // deleted_at IS NULL), same opaque-404 semantics at the HTTP layer.
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
@@ -148,12 +164,20 @@ class JdbcPostReplyRepository(
                  WHERE p.id = ?
                    AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?)
                    AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?)
+                UNION ALL
+                SELECT p.id
+                  FROM posts p
+                 WHERE p.id = ?
+                   AND p.author_id = ?
+                   AND p.deleted_at IS NULL
                  LIMIT 1
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, postId)
                 ps.setObject(2, viewerId)
                 ps.setObject(3, viewerId)
+                ps.setObject(4, postId)
+                ps.setObject(5, viewerId)
                 ps.executeQuery().use { rs ->
                     return if (rs.next()) rs.getObject("id", UUID::class.java) else null
                 }

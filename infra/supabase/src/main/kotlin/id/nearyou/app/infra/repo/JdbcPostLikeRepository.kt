@@ -108,13 +108,24 @@ class JdbcPostLikeRepository(
         }
     }
 
+    @AllowRawPostsRead(
+        "own-content self-arm (shadow-ban-feed-self-visibility): the raw posts arm is scoped " +
+            "to id = :post_id AND author_id = :viewer so a shadow-banned author can still " +
+            "like their own post / read its like count; other viewers resolve via the " +
+            "visible_posts arm and keep the constant opaque 404",
+    )
     override fun resolveVisiblePost(
         postId: UUID,
         viewerId: UUID,
     ): UUID? {
-        // Visibility gate shared by POST /like and GET /likes/count. Literal carries
-        // `visible_posts` + `user_blocks` + both `blocker_id =` / `blocked_id =`
-        // tokens for BlockExclusionJoinRule compliance.
+        // Visibility gate shared by POST /like and GET /likes/count. Two arms:
+        //  - visible_posts + bidirectional user_blocks (the literal carries `visible_posts`
+        //    + `user_blocks` + both `blocker_id =` / `blocked_id =` tokens for
+        //    BlockExclusionJoinRule compliance) — everyone else's view of the post;
+        //  - own-content self arm (raw posts, author_id = :viewer, deleted_at IS NULL) —
+        //    the author keeps resolving their own post while shadow-banned or auto-hidden;
+        //    their own soft-deleted posts still 404. Arms may overlap for a normal author's
+        //    own visible post — LIMIT 1 over identical ids makes that harmless.
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
@@ -123,12 +134,20 @@ class JdbcPostLikeRepository(
                  WHERE p.id = ?
                    AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?)
                    AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?)
+                UNION ALL
+                SELECT p.id
+                  FROM posts p
+                 WHERE p.id = ?
+                   AND p.author_id = ?
+                   AND p.deleted_at IS NULL
                  LIMIT 1
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, postId)
                 ps.setObject(2, viewerId)
                 ps.setObject(3, viewerId)
+                ps.setObject(4, postId)
+                ps.setObject(5, viewerId)
                 ps.executeQuery().use { rs ->
                     return if (rs.next()) rs.getObject("id", UUID::class.java) else null
                 }
