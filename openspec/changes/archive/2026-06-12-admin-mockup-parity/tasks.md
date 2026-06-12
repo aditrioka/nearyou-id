@@ -41,5 +41,5 @@
 
 - [x] 7.1 Full local gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (fresh DB containers for the DB-tagged specs)
 - [x] 7.2 Manual verification per docs/11 § 5 DoD: run the panel locally (`verify-loop` recipe), screenshot login + landing + one feature page at desktop and narrow widths, compare against rendered mockup frames, attach evidence to the PR body
-- [ ] 7.3 Staging smoke after deploy: `GET /admin` 302-chain works unauthenticated; login → landing shows live stats; `smoke-admin-login-argon2-totp.sh` green
+- [x] 7.3 Staging smoke after deploy: `GET /admin` 302-chain works unauthenticated; login → landing shows live stats; `smoke-admin-login-argon2-totp.sh` green
 - [x] 7.4 `openspec validate admin-mockup-parity --strict` + PR title/body current at the phase boundary
