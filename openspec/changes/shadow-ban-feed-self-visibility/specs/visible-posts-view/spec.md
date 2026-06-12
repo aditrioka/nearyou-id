@@ -29,4 +29,4 @@ The view definition itself is unchanged by `shadow-ban-feed-self-visibility` —
 
 #### Scenario: View stays viewer-agnostic after the self-visibility change
 - **WHEN** querying `pg_views WHERE viewname = 'visible_posts'` after `shadow-ban-feed-self-visibility` ships
-- **THEN** the definition is byte-equivalent to the V20 shape (no viewer parameter, no `current_setting`, no self-arm in the view)
+- **THEN** the rendered definition still carries all four V20 predicates (`is_auto_hidden`, both `deleted_at IS NULL`, `is_shadow_banned`) AND contains no viewer-aware construct — no `UNION`, no `current_setting`, no self-arm (Postgres re-renders view definitions, so the pin is predicate presence/absence, not raw migration bytes)
