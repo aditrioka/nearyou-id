@@ -23,6 +23,12 @@ data class FollowListRow(
 )
 
 interface UserFollowsRepository {
+    // NOTE: the non-transactional `follow(follower, followee)` member was REMOVED
+    // (2026-06-11 review, converging with the social-list-profile-summaries change):
+    // it carried the pre-UserPairLock SELECT-blocks-then-INSERT race (audit 03-#4) and
+    // had zero production callers — FollowService routes every follow through
+    // [followInTx] under the pair lock.
+
     /**
      * `DELETE FROM follows WHERE follower_id = ? AND followee_id = ?`. Idempotent —
      * returns whether or not a row was removed; no exception on zero rows.

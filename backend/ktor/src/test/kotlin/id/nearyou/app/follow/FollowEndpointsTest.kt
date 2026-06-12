@@ -817,6 +817,46 @@ class FollowEndpointsTest : StringSpec({
         }
     }
 
+    "GET /users/{nonexistent}/following returns 404 user_not_found (previously only /followers was pinned)" {
+        val (viewer, tv) = seedUser()
+        try {
+            withFollows {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/users/${UUID.randomUUID()}/following") {
+                            header(HttpHeaders.Authorization, "Bearer $tv")
+                        }
+                resp.status shouldBe HttpStatusCode.NotFound
+                Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["error"]!!.jsonObject["code"]!!
+                    .jsonPrimitive.content shouldBe "user_not_found"
+            }
+        } finally {
+            cleanup(viewer)
+        }
+    }
+
+    "GET followers/following — malformed cursor returns 400 invalid_cursor (spec scenario, previously untested)" {
+        val (viewer, tv) = seedUser()
+        try {
+            withFollows {
+                val client = createClient { install(ClientCN) { json() } }
+                listOf("followers", "following").forEach { leg ->
+                    val resp =
+                        client.get("/api/v1/users/$viewer/$leg?cursor=not-a-valid-base64-cursor") {
+                            header(HttpHeaders.Authorization, "Bearer $tv")
+                        }
+                    resp.status shouldBe HttpStatusCode.BadRequest
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["error"]!!.jsonObject["code"]!!
+                        .jsonPrimitive.content shouldBe "invalid_cursor"
+                }
+            }
+        } finally {
+            cleanup(viewer)
+        }
+    }
+
     "GET /users/{P}/following ordered DESC by created_at" {
         val (p, _) = seedUser()
         val (viewer, tv) = seedUser()

@@ -8,6 +8,8 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.string.shouldContain
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -160,6 +162,12 @@ class AdminSessionMiddlewareTest : StringSpec({
                 }
             res.status shouldBe HttpStatusCode.Found
             res.headers[HttpHeaders.Location] shouldBe "/admin/login"
+            // Spec: a presented-but-invalid cookie SHALL be cleared alongside the
+            // redirect (Max-Age=0 expiry on the __Host- cookie).
+            val setCookie = res.headers[HttpHeaders.SetCookie]
+            setCookie shouldNotBe null
+            setCookie!! shouldContain AdminAuthProvider.COOKIE_NAME
+            setCookie shouldContain "Max-Age=0"
             // The forged token hashes to no row.
             AdminAuthTestSupport.sessionByTokenHash(dataSource, forged).shouldBeNull()
         }

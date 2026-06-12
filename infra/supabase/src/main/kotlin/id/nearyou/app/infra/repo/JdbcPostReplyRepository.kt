@@ -1,5 +1,8 @@
 package id.nearyou.app.infra.repo
 
+import id.nearyou.app.core.domain.lint.AllowContentWriteWithoutModeration
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
+import id.nearyou.app.core.domain.lint.AllowRawPostsRead
 import id.nearyou.data.repository.PostReplyRepository
 import id.nearyou.data.repository.PostReplyRow
 import java.sql.Connection
@@ -26,6 +29,9 @@ import javax.sql.DataSource
 class JdbcPostReplyRepository(
     private val dataSource: DataSource,
 ) : PostReplyRepository {
+    // ReplyService runs TextModerator.moderate() before either insert sink
+    // (PostRepliesModerationIntegrationTest pins the call order).
+    @AllowContentWriteWithoutModeration("service_layer_moderated")
     override fun insert(
         postId: UUID,
         authorId: UUID,
@@ -155,6 +161,7 @@ class JdbcPostReplyRepository(
         }
     }
 
+    @AllowContentWriteWithoutModeration("service_layer_moderated")
     override fun insertInTx(
         conn: Connection,
         postId: UUID,
@@ -178,13 +185,15 @@ class JdbcPostReplyRepository(
         }
     }
 
+    @AllowRawPostsRead(
+        "reply-notification recipient lookup (author_id only) — visibility already " +
+            "resolved by resolveVisiblePost earlier in the same service flow",
+    )
+    @AllowMissingBlockJoin("notification emitter suppresses blocked/self recipients downstream; this read returns no content surface")
     override fun loadParentAuthorId(
         conn: Connection,
         parentPostId: UUID,
     ): UUID? {
-        // Raw `posts` read is scoped to infra/supabase (outside the :backend:ktor
-        // RawFromPostsRule scan). Caller (ReplyService) already gated visibility
-        // via `resolveVisiblePost`.
         conn.prepareStatement(
             "SELECT author_id FROM posts WHERE id = ? AND deleted_at IS NULL",
         ).use { ps ->

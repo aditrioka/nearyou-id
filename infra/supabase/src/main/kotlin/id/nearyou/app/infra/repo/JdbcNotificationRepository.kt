@@ -233,7 +233,7 @@ class JdbcNotificationRepository(
             actorUserId = getObject("actor_user_id", UUID::class.java),
             targetType = getString("target_type"),
             targetId = getObject("target_id", UUID::class.java),
-            bodyDataJson = getString("body_data_json") ?: "{}",
+            bodyDataJson = getString("body_data_json"),
             createdAt = getTimestamp("created_at").toInstant(),
             readAt = getTimestamp("read_at")?.toInstant(),
         )

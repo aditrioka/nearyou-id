@@ -55,8 +55,9 @@ internal fun redisUrlSlot(env: String): String = if (env == "staging") "staging-
  *
  * The URL is parsed via [RedisURI.create] so the password lives in
  * `RedisURI.password` (not the URI string) — Lettuce's OTel telemetry layer
- * sees a sanitized connection string by default. Defense-in-depth via
- * [OtelInstrumentation.sanitizeRedisUri] is also applied here.
+ * sees a sanitized connection string by default. ([OtelInstrumentation.sanitizeRedisUri]
+ * exists as a helper for any future code path that must log a URI string; it is
+ * deliberately NOT in this construction path, which never logs the URI.)
  *
  * The returned limiter owns its [RedisClient]. Callers SHOULD register it as a
  * Koin singleton; the underlying connection is closed when the JVM exits.
@@ -101,16 +102,24 @@ fun redisHandlesFromUrl(
     openTelemetry: OpenTelemetry? = null,
 ): RedisHandles = RedisHandles(buildClient(url, tracingEnabled, openTelemetry))
 
+private val COMMAND_TIMEOUT: java.time.Duration = java.time.Duration.ofSeconds(2)
+
 private fun buildClient(
     url: String,
     tracingEnabled: Boolean,
     openTelemetry: OpenTelemetry?,
 ): RedisClient {
-    // Strip any userinfo from the URL string before parsing — defense in
-    // depth so Lettuce never sees the password in its URI string form.
-    // RedisURI.create preserves the password internally (extracted into
-    // RedisURI.password), so the connection still authenticates.
-    val redisUri = RedisURI.create(url)
+    // RedisURI.create extracts the password out of the URI string into
+    // RedisURI.password, so Lettuce's telemetry/logging see a sanitized
+    // connection string while the connection still authenticates.
+    val redisUri =
+        RedisURI.create(url).apply {
+            // Default command timeout is 60 s — a black-holed Redis would pin
+            // /health/ready (and every limiter call) for a minute. All real ops
+            // here are sub-millisecond; 2 s is generous, and the rate limiters'
+            // fail-soft catch handles the RedisCommandTimeoutException.
+            timeout = COMMAND_TIMEOUT
+        }
     return if (tracingEnabled) {
         val resources: ClientResources =
             if (openTelemetry != null) {

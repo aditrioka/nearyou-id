@@ -148,7 +148,7 @@ private fun NotificationRow.toDto(): NotificationDto =
         actorUserId = actorUserId?.toString(),
         targetType = targetType,
         targetId = targetId?.toString(),
-        bodyData = parseBodyDataJson(bodyDataJson),
+        bodyData = parseBodyDataJson(bodyDataJson ?: "{}"),
         createdAt = createdAt.toString(),
         readAt = readAt?.toString(),
     )

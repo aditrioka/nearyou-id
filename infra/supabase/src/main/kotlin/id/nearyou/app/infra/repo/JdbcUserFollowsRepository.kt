@@ -1,5 +1,6 @@
 package id.nearyou.app.infra.repo
 
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
 import id.nearyou.data.repository.FollowBlockedException
 import id.nearyou.data.repository.FollowListRow
 import id.nearyou.data.repository.ProfileUserNotFoundException
@@ -20,11 +21,13 @@ import javax.sql.DataSource
  * subqueries — live here intentionally: the repository owns the mapping from SQL state
  * to typed exceptions that the HTTP layer can translate into error codes.
  *
- * Lint note: `BlockExclusionJoinRule` scans only `:backend:ktor` sources (the detekt
- * convention plugin is not applied to `:infra:supabase`), and neither `follows` nor
- * `visible_users` matches its protected-table pattern anyway — the block-exclusion and
- * constant-404 integration scenarios in `FollowEndpointsTest` are the real guardrail
- * for every query in this file, mirroring the stance `user-profile-read` documents.
+ * Lint note: since the 2026-06-11 backend review, `:infra:supabase` IS scanned by the
+ * custom ruleset (`nearyou.detekt` convention plugin) — the raw-`users` self probe
+ * [SQL_SELF_EXISTS] therefore carries `@AllowMissingBlockJoin` with its own-content
+ * justification. Neither `follows` nor `visible_users` matches the rule's
+ * protected-table pattern, so the list queries stay annotation-free; the
+ * block-exclusion and constant-404 integration scenarios in `FollowEndpointsTest`
+ * remain the behavioral guardrail, mirroring the stance `user-profile-read` documents.
  */
 class JdbcUserFollowsRepository(
     private val dataSource: DataSource,
@@ -177,9 +180,9 @@ class JdbcUserFollowsRepository(
      * Self path reads raw `users` deliberately (own-content path): a shadow-banned
      * viewer must keep their own follower/following lists — `visible_users` would
      * filter their row and 404 their own lists. No block predicate (you cannot block
-     * yourself). Precedent: `JdbcUserProfileReader.SQL_SELF`, whose backend-module twin
-     * carries `@AllowMissingBlockJoin`; that annotation is not applicable here (see the
-     * class-level lint note).
+     * yourself). Precedent: `JdbcUserProfileReader.SQL_SELF`; the matching
+     * `@AllowMissingBlockJoin` lives on [SQL_SELF_EXISTS] (this module is scanned by
+     * the custom ruleset since 2026-06-11 — see the class-level lint note).
      */
     private fun ensureProfileVisibleOn(
         conn: Connection,
@@ -247,6 +250,11 @@ class JdbcUserFollowsRepository(
          * Self existence probe — raw `users` (own-content path); see
          * [ensureProfileVisibleOn] for the shadow-banned-viewer justification.
          */
+        @AllowMissingBlockJoin(
+            "own-content existence probe (profileId == viewerId): a shadow-banned viewer " +
+                "must keep their own lists, and you cannot block yourself — no viewer-scoped " +
+                "content is returned",
+        )
         const val SQL_SELF_EXISTS: String = "SELECT 1 FROM users WHERE id = ?"
 
         /**
@@ -255,8 +263,8 @@ class JdbcUserFollowsRepository(
          * `JdbcUserProfileReader.SQL_OTHER` (the `user-profile-read` constant-404
          * contract). An absent row collapses unknown / soft-deleted / shadow-banned /
          * blocked-either-direction into one [ProfileUserNotFoundException]; the
-         * both-direction 404 scenarios are the guardrail (no lint coverage — see the
-         * class-level lint note).
+         * both-direction 404 scenarios are the guardrail (`visible_users` is outside the
+         * rule's protected-table pattern — see the class-level lint note).
          */
         val SQL_OTHER_VISIBLE: String =
             """

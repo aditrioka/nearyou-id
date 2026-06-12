@@ -80,7 +80,7 @@ open class JwksCache(
         // Unknown kid: only force an upstream re-fetch if the cache is older than
         // the cooldown — a bogus-kid flood otherwise amplifies into upstream load.
         if (Duration.between(lastRefreshAt, clock.instant()) < FORCED_REFRESH_COOLDOWN) return null
-        return refresh().keys[kid]
+        return forceRefresh().keys[kid]
     }
 
     open suspend fun availableKids(): Set<String> = (current() ?: refresh()).keys.keys
@@ -90,25 +90,51 @@ open class JwksCache(
         return if (entry.expiresAt.isAfter(clock.instant())) entry else null
     }
 
+    /** Lazy refresh: a TTL-valid cache entry short-circuits (single-flight re-check under the lock). */
     private suspend fun refresh(): JwksCacheEntry =
         refreshMutex.withLock {
             // A concurrent caller may have refreshed while this one waited on the
             // lock — re-check before paying another upstream round-trip.
             current()?.let { return it }
-            val response: HttpResponse = httpClient.get(jwksUrl)
-            val body = response.body<String>()
-            val parsed = jsonParser.decodeFromString(JwksDoc.serializer(), body)
-            val keys =
-                parsed.keys
-                    .asSequence()
-                    .filter { it.kty == "RSA" && it.kid != null && it.n != null && it.e != null }
-                    .associate { jwk -> jwk.kid!! to rsaKeyFrom(jwk.n!!, jwk.e!!) }
-            val ttlSeconds = parseCacheControlMaxAge(response.headers[HttpHeaders.CacheControl])
-            val entry = JwksCacheEntry(keys, clock.instant().plus(Duration.ofSeconds(ttlSeconds)))
-            cached.set(entry)
-            lastRefreshAt = clock.instant()
-            entry
+            fetchLocked()
         }
+
+    /**
+     * Forced refresh for an unknown `kid`: bypasses the TTL short-circuit, because the lazy
+     * path would hand back the still-valid STALE document without fetching — after a mid-TTL
+     * provider key rotation that 401s every new-kid sign-in until `max-age` expiry (Google
+     * serves multi-hour max-age). Single-flight collapse is preserved differently here: a
+     * caller that waited on the lock while a peer completed a fetch observes the bumped
+     * [lastRefreshAt] and reuses the peer's fresh document instead of re-fetching. The
+     * [FORCED_REFRESH_COOLDOWN] gate in [keyFor] still bounds a bogus-kid flood to one
+     * upstream fetch per cooldown window.
+     */
+    private suspend fun forceRefresh(): JwksCacheEntry {
+        val observedRefreshAt = lastRefreshAt
+        refreshMutex.withLock {
+            if (lastRefreshAt != observedRefreshAt) {
+                cached.get()?.let { return it }
+            }
+            return fetchLocked()
+        }
+    }
+
+    /** Upstream fetch + cache replacement. MUST be called while holding [refreshMutex]. */
+    private suspend fun fetchLocked(): JwksCacheEntry {
+        val response: HttpResponse = httpClient.get(jwksUrl)
+        val body = response.body<String>()
+        val parsed = jsonParser.decodeFromString(JwksDoc.serializer(), body)
+        val keys =
+            parsed.keys
+                .asSequence()
+                .filter { it.kty == "RSA" && it.kid != null && it.n != null && it.e != null }
+                .associate { jwk -> jwk.kid!! to rsaKeyFrom(jwk.n!!, jwk.e!!) }
+        val ttlSeconds = parseCacheControlMaxAge(response.headers[HttpHeaders.CacheControl])
+        val entry = JwksCacheEntry(keys, clock.instant().plus(Duration.ofSeconds(ttlSeconds)))
+        cached.set(entry)
+        lastRefreshAt = clock.instant()
+        return entry
+    }
 
     companion object {
         private val jsonParser = Json { ignoreUnknownKeys = true }

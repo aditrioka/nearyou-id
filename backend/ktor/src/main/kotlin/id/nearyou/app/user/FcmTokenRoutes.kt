@@ -30,6 +30,8 @@ private const val ERROR_MALFORMED_BODY = """{"error":"malformed_body"}"""
 private const val ERROR_INVALID_PLATFORM = """{"error":"invalid_platform"}"""
 private const val ERROR_EMPTY_TOKEN = """{"error":"empty_token"}"""
 private const val ERROR_APP_VERSION_TOO_LONG = """{"error":"app_version_too_long"}"""
+private const val MAX_TOKEN_LEN = 4096
+private const val ERROR_TOKEN_TOO_LONG = """{"error":"token_too_long"}"""
 
 /**
  * `POST /api/v1/user/fcm-token` — JWT-required device-token registration.
@@ -88,6 +90,14 @@ fun Application.fcmTokenRoutes(repository: FcmTokenRepository) {
                 if (trimmedToken.isEmpty()) {
                     return@post call.respondError(HttpStatusCode.BadRequest, ERROR_EMPTY_TOKEN)
                 }
+                if (trimmedToken.length > MAX_TOKEN_LEN) {
+                    // Mirrors V14's char_length CHECK at the route layer. Without this,
+                    // an oversize token (reachable via chunked transfer, which bypasses
+                    // the Content-Length cap) rides into the DB CHECK and surfaces as a
+                    // 500 whose PSQLException detail contains the failing row — i.e. the
+                    // raw token (D11 forbids that in any log).
+                    return@post call.respondError(HttpStatusCode.BadRequest, ERROR_TOKEN_TOO_LONG)
+                }
                 if ((req.appVersion?.length ?: 0) > MAX_APP_VERSION_LEN) {
                     return@post call.respondError(HttpStatusCode.BadRequest, ERROR_APP_VERSION_TOO_LONG)
                 }
@@ -113,13 +123,14 @@ fun Application.fcmTokenRoutes(repository: FcmTokenRepository) {
                 } catch (e: Exception) {
                     // D11: WARN log MUST NOT include the raw token value or the
                     // request body. user_id + platform + error_class is the
-                    // operator-debug envelope.
+                    // operator-debug envelope. The throwable itself is deliberately
+                    // NOT passed: a PSQLException stack carries "Detail: Failing row
+                    // contains (…, <raw token>, …)" — exactly what D11 forbids.
                     log.warn(
                         "event=fcm_token_registration_failed user_id={} platform={} error_class={}",
                         principal.userId,
                         req.platform,
                         e::class.simpleName,
-                        e,
                     )
                     call.respond(HttpStatusCode.InternalServerError)
                 }

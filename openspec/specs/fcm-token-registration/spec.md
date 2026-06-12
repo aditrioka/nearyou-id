@@ -102,6 +102,7 @@ The handler SHALL validate request body fields and reject invalid input with HTT
 - `"invalid_platform"` — `platform` field deserialized successfully but is empty after trimming OR is not one of `"android"` / `"ios"` (case-sensitive lowercase only)
 - `"empty_token"` — `token` field deserialized successfully but is empty after trimming whitespace
 - `"app_version_too_long"` — `app_version` field is present and exceeds 64 characters
+- `"token_too_long"` — trimmed `token` exceeds 4096 characters (mirrors the V14 `char_length` CHECK at the route layer; without it an oversize token — reachable via chunked transfer, which bypasses the Content-Length cap — rides into the DB CHECK and 500s with the raw token in the PSQLException detail, violating the token-confidentiality clause)
 - `"malformed_body"` — request body is not valid JSON, is missing the required content-type header `application/json`, fails to deserialize into the expected DTO shape, OR is missing a non-nullable required field (`token` or `platform`)
 
 Other failure modes MAY use HTTP-standard responses without a body-level `error` field: `401 Unauthorized` (missing/invalid JWT), `413 Payload Too Large` (body > 4 KB), `415 Unsupported Media Type` (request body declared as a non-JSON content-type), `500 Internal Server Error` (database connection failure or other unexpected exception).
@@ -129,6 +130,10 @@ The original exception (when one exists) MUST be logged at WARN level with full 
 #### Scenario: Missing `platform` field is rejected with `malformed_body`
 - **WHEN** an authenticated user posts `{"token": "abc"}` (no `platform` field)
 - **THEN** the response status is `400 Bad Request` AND the response body is `{"error": "malformed_body"}` AND no row is inserted (platform is non-nullable in the DTO; deserialization fails before validation runs)
+
+#### Scenario: token longer than 4096 chars is rejected with `token_too_long`
+- **WHEN** an authenticated request carries a syntactically valid body whose trimmed `token` exceeds 4096 characters
+- **THEN** the response status is `400 Bad Request` AND the response body is `{"error": "token_too_long"}` AND no row is inserted AND no DB round-trip occurs
 
 #### Scenario: `app_version` longer than 64 chars is rejected with `app_version_too_long`
 - **WHEN** an authenticated user posts a body whose `app_version` field is 65 chars or longer

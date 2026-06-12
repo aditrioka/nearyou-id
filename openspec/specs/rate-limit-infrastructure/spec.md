@@ -6,7 +6,7 @@ The rate-limit-infrastructure capability provides the shared Redis-backed primit
 ## Requirements
 ### Requirement: `:infra:redis` module exists and exposes a Lettuce-backed client
 
-A Gradle module `:infra:redis` SHALL exist with a `commonMain` source set (JVM target). The module MUST add Lettuce (group `io.lettuce`, artifact `lettuce-core`) as a dependency declared in `gradle/libs.versions.toml`. The module MUST expose a Koin module that provides a singleton `RedisClient` (Lettuce `io.lettuce.core.RedisClient`) configured from the URL resolved via `secretKey(env, "redis-url")` through the existing `SecretResolver` chain.
+A Gradle module `:infra:redis` SHALL exist as a Kotlin/JVM module (`src/main`). The module MUST add Lettuce (group `io.lettuce`, artifact `lettuce-core`) as a dependency declared in `gradle/libs.versions.toml`. The module MUST expose a Koin module that provides a singleton `RedisClient` (Lettuce `io.lettuce.core.RedisClient`) configured from the URL resolved via `secretKey(env, "redis-url")` through the existing `SecretResolver` chain.
 
 The module MUST NOT be imported from `:core:domain` or `:core:data` — only `:backend:ktor` and `:lint:detekt-rules` (test fixtures) may depend on it. No vendor SDK leaks: the `RateLimiter` interface (next requirement) is the only seam into business code.
 
@@ -59,7 +59,7 @@ The convention for IP-keyed callers (the first such call site is the `health-che
 `releaseMostRecent` MUST pop the most-recently-added entry for `userId + key`. No-op if the bucket is empty (defensive — callers only invoke it after a successful `tryAcquire`). A `releaseMostRecent` overload for `tryAcquireByKey` is intentionally NOT introduced in this MODIFIED iteration: the only `tryAcquireByKey` call site at the time of this change (`/health/*` anti-scrape) does not exhibit the idempotent-re-action pattern (likes/posts re-application) that `releaseMostRecent` exists to support. A future change MAY add `releaseMostRecentByKey` if a key-axis call site needs the same idempotent-release affordance.
 
 #### Scenario: Interface lives in :core:domain
-- **WHEN** running `find core/domain/src/commonMain -name 'RateLimiter.kt'`
+- **WHEN** running `find core/domain/src/main -name 'RateLimiter.kt'`
 - **THEN** exactly one file is found AND its package is `id.nearyou.app.core.domain.ratelimit`
 
 #### Scenario: Outcome shape matches V9 ReportRateLimiter precedent
@@ -107,7 +107,7 @@ DAILY keys — every key whose scope hash-tag ends in `_day` (marker substring `
 
 `releaseMostRecent` MUST be implemented as `ZPOPMAX key 1` (atomic) for rolling keys, and as an atomic decrement floored at zero (TTL preserved) for fixed-window `_day}` keys.
 
-The implementation MUST run the Lua call inside `withContext(Dispatchers.IO)` to keep the Ktor coroutine dispatcher unblocked.
+The Lua call is a BLOCKING Lettuce `sync()` invocation behind the non-suspend `RateLimiter` interface, so the implementation cannot dispatch internally; CALLERS MUST invoke it off the request coroutine on a bounded dispatcher (`withContext(dbDispatcher)` per docs/11 §3.2 — the original `withContext(Dispatchers.IO)`-inside-the-implementation wording was unimplementable against the non-suspend interface; reconciled 2026-06-11, see `RedisRateLimiter` KDoc).
 
 The unique-jti added to the sorted set MUST be a per-call random nonce (e.g., `UUID.randomUUID().toString()`) so that two simultaneous `ZADD` calls with the same `now_ms` from the same user do not collide on the sorted-set member key.
 
@@ -163,7 +163,7 @@ The function MUST NOT depend on `:infra:redis`. The `now` parameter MUST be supp
 The returned `Duration` MUST be strictly positive.
 
 #### Scenario: Helper lives in :core:domain
-- **WHEN** running `find core/domain/src/commonMain -name 'ComputeTtlToNextReset*' -o -name '*ratelimit*'`
+- **WHEN** running `find core/domain/src/main -name 'ComputeTtlToNextReset*' -o -name '*ratelimit*'`
 - **THEN** at least one file is found AND its package is `id.nearyou.app.core.domain.ratelimit`
 
 #### Scenario: Same user same offset across calls
@@ -323,7 +323,7 @@ A test class `RedisRateLimiterIntegrationTest` (tagged `database`, runs against 
 9. Bucket already over-capacity preserved on cap reduction — pre-load 7 entries, call `tryAcquire(capacity = 5)`, assert RateLimited AND bucket size remains 7 (no silent truncation).
 10. **V9 contract subsumption** — the test MUST replicate the `ReportRateLimiter`-flavored assertions from V9's `ReportRateLimiterTest` against the Redis-backed implementation: 10-succeed-window, 11th-rate-limited, Retry-After-reflects-oldest, 409-style release on empty-bucket. This explicitly lives in `RedisRateLimiterIntegrationTest` (not in V9's existing test class) because Lua's `redis.call('TIME')` does not honor V9's injected `clock: () -> Instant` seam — the V9 test class cannot be repointed at Redis without a clock-injection refactor that this change explicitly does not undertake.
 
-A test class `ComputeTtlToNextResetTest` (`:core:domain/src/commonTest/`) SHALL exist and cover, at minimum:
+A test class `ComputeTtlToNextResetTest` (`:core:domain/src/test/`) SHALL exist and cover, at minimum:
 
 1. Same user same offset across calls.
 2. Different users different offsets at high probability.
@@ -506,7 +506,7 @@ The `OtelForbiddenAttributeLintTest` class shipped under the `observability-otel
 
 The `:lint:detekt-rules` module SHALL ship a Detekt `Rule` named `IpAxisMustUseTryAcquireByKeyRule` that fires on any `KtCallExpression` whose callee short name is `tryAcquire` AND whose `key` argument is a Kotlin `KtStringTemplateExpression` whose flat textual content matches the regex `\{[^}]*ip:`. The `key` argument MAY appear positionally (index 1) OR as the named argument `key = ...`; both shapes MUST be handled. The fire location SHALL point to the `key`-argument PSI element (the string literal), not the enclosing call. The error message SHALL include a recommended fix: "Use `RateLimiter.tryAcquireByKey(key, capacity, ttl)` for IP-axis bucketing — `tryAcquire(userId, key, ...)` is the user-axis entry point."
 
-The rule SHALL be registered in `lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/NearYouRuleSetProvider.kt`. No edit to the project Detekt config (`backend/ktor/config/detekt/detekt.yml`) is required — the canonical config currently enumerates only 2 of the 7 existing rules (`RawFromPostsRule` + `BlockExclusionJoinRule`); the other 5 are active by default after `NearYouRuleSetProvider` registration. The new rule follows the same default-active pattern.
+The rule SHALL be registered in `lint/detekt-rules/src/main/kotlin/id/nearyou/lint/detekt/NearYouRuleSetProvider.kt` AND listed with `active: true` in the project Detekt configs (`backend/ktor/config/detekt/detekt.yml`, `config/detekt/invariants.yml`). The original "default-active pattern" claim here was WRONG — detekt 1.23 treats rules absent from a provided config as INACTIVE; the unlisted rules were silently skipped in every project run until the 2026-06-11 backend review activated all 10 (`DetektConfigActivationTest` now pins the configs against the provider's rule list).
 
 The rule's effective enforcement scope MATCHES the project Detekt source-set configuration. As of this change that scope is `:backend:ktor`'s `src/main/kotlin` only (per [`build-logic/src/main/kotlin/nearyou.ktor.gradle.kts:20`](../../../../../build-logic/src/main/kotlin/nearyou.ktor.gradle.kts) `source.setFrom(files("src/main/kotlin"))`). Other modules (`:core:domain`, `:infra:redis`, `:infra:otel`, `:shared:*`, `:lint:detekt-rules`) are NOT scanned today. The canonical call-site surface for `RateLimiter.tryAcquire(...)` is `:backend:ktor`; `:infra:redis` and `:core:domain` define the interface but do not consume it. A future change MAY extend the Detekt source scope to additional modules if a regression risk surfaces there.
 

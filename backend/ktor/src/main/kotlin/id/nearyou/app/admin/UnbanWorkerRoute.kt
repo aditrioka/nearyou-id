@@ -40,7 +40,7 @@ private data class ErrorResponse(val error: String)
  * Apple-signed payload, not Google OIDC) — they would 401 before their own
  * verification ran. Regression guard: `InternalRoutingIsolationTest`.
  *
- * Response shape on success: `200 OK` with body `{"unbannedCount": N}`. On any
+ * Response shape on success: `200 OK` with body `{"unbanned_count": N}`. On any
  * thrown exception: `500` with body `{"error": "<classification>"}` where
  * classification is one of `timeout`, `connection_refused`, `unknown`. The
  * original exception is logged at WARN with full context but never leaks into

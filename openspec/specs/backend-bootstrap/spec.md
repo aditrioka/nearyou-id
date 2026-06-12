@@ -28,7 +28,7 @@ The `StatusPages` plugin SHALL convert any uncaught exception into an HTTP 500 w
 
 ### Requirement: Koin module installed
 
-A Koin module SHALL be installed at startup. Subsequent feature changes register their bindings into it. As of the auth-foundation change the module MUST register at least a `javax.sql.DataSource` (HikariCP) singleton configured from environment variables `DB_URL` / `DB_USER` / `DB_PASSWORD` (max pool size 20).
+A Koin module SHALL be installed at startup. Subsequent feature changes register their bindings into it. As of the auth-foundation change the module MUST register at least a `javax.sql.DataSource` (HikariCP) singleton configured from environment variables `DB_URL` / `DB_USER` / `DB_PASSWORD` (max pool size 10 by default, env-tunable via `DB_MAX_POOL_SIZE` — docs/11 §3.2 small-per-instance-pool rule; the original 20 predates the Supavisor connection-budget sizing).
 
 #### Scenario: Koin available for injection
 - **WHEN** the application has started and `application.koin` is referenced
@@ -52,11 +52,11 @@ A Koin module SHALL be installed at startup. Subsequent feature changes register
 
 ### Requirement: Readiness endpoint
 
-`GET /health/ready` SHALL run a real Postgres probe: `SELECT 1` via the application's HikariCP pool with a 500 ms timeout. On success it returns HTTP 200 with `{ "status": "ok" }`. On timeout or query failure it returns HTTP 503 with `{ "status": "degraded" }`. The endpoint MUST remain public (no auth) and is documented as subject to a 60 req/min/IP rate limit (rate-limiter installation deferred). Future deps (Redis, Supabase Realtime HTTP probe) are added by their respective changes via parallel `async { ... }` checks per `docs/04-Architecture.md § Health Check Endpoints`.
+`GET /health/ready` SHALL run a real Postgres probe: `SELECT 1` via the application's HikariCP pool with a 500 ms timeout. On success it returns HTTP 200 with `{ "status": "ready", ... }`; on timeout or dependency failure it returns HTTP 503 with `{ "status": "degraded", ... }` (the canonical body shape — incl. the per-dependency `checks[]` — is owned by the `health-check` capability, which superseded this bootstrap stub). The endpoint MUST remain public (no auth) and is documented as subject to a 60 req/min/IP rate limit (rate-limiter installation deferred). Future deps (Redis, Supabase Realtime HTTP probe) are added by their respective changes via parallel `async { ... }` checks per `docs/04-Architecture.md § Health Check Endpoints`.
 
 #### Scenario: Postgres reachable
 - **WHEN** the local Postgres pool returns within 500 ms
-- **THEN** the response is HTTP 200 with body `{ "status": "ok" }`
+- **THEN** the response is HTTP 200 with `status = "ready"` (body shape per the `health-check` capability)
 
 #### Scenario: Postgres unreachable
 - **WHEN** the Postgres pool query exceeds 500 ms or raises an exception

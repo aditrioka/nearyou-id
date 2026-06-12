@@ -74,8 +74,8 @@ Before inserting, the route handler SHALL resolve the target post via a SELECT f
 SELECT p.id
 FROM visible_posts p
 WHERE p.id = :post_id
-  AND p.author_user_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer)
-  AND p.author_user_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer)
+  AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer)
+  AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer)
 LIMIT 1
 ```
 
@@ -92,11 +92,11 @@ Both block-exclusion subqueries MUST be present simultaneously so `BlockExclusio
 - **THEN** the response is HTTP 404 with `error.code = "post_not_found"` AND no `post_likes` row is inserted
 
 #### Scenario: Caller has blocked post author
-- **WHEN** caller A has a `user_blocks` row `(A, B)` AND tries to like a post whose `author_user_id = B`
+- **WHEN** caller A has a `user_blocks` row `(A, B)` AND tries to like a post whose `author_id = B`
 - **THEN** the response is HTTP 404 with `error.code = "post_not_found"` AND no `post_likes` row is inserted
 
 #### Scenario: Post author has blocked caller
-- **WHEN** author B has a `user_blocks` row `(B, A)` AND caller A tries to like a post whose `author_user_id = B`
+- **WHEN** author B has a `user_blocks` row `(B, A)` AND caller A tries to like a post whose `author_id = B`
 - **THEN** the response is HTTP 404 with `error.code = "post_not_found"` AND no `post_likes` row is inserted
 
 #### Scenario: 404 response body identical across cases
@@ -386,6 +386,8 @@ When `POST /api/v1/posts/{post_id}/like` resolves the `INSERT ... ON CONFLICT (p
 
 This mirrors the V9 reports 409-release precedent: a request that does not produce a state change MUST NOT consume a rate-limit slot.
 
+There is exactly ONE other sanctioned release path: when the Free-tier daily acquire succeeded but the subsequent burst acquire is rejected (429), the handler MUST release the just-consumed daily slot before responding — otherwise every burst-rejected request burns daily budget the caller never got to use (shipped as audit fix 02-L2, 2026-06-10).
+
 The handler MUST NOT release on any other path:
 - 401 unauthenticated → no slot consumed (auth runs before the limiter)
 - 400 invalid_uuid → no slot consumed (UUID validation runs before the limiter)
@@ -400,6 +402,10 @@ The handler MUST NOT release on any other path:
 #### Scenario: Re-like releases burst slot only (Premium)
 - **WHEN** Premium caller A (status `premium_active`) has 5 successful likes today AND has already liked post P AND POSTs `/api/v1/posts/P/like` again
 - **THEN** the response is HTTP 204 AND the `{scope:rate_like_day}:{user:A}` bucket has never been written (size 0; the daily limiter was skipped per the Premium-tier-skip contract) AND the `{scope:rate_like_burst}:{user:A}` bucket size is 5 (unchanged — the burst slot was acquired and then released). The handler MUST call `releaseMostRecent` on the daily key as well; that call is a no-op on the empty bucket per the `RateLimiter` contract — verifying this scenario protects against a future regression where the handler skips the daily-release call for Premium and a non-empty daily bucket leaks slots.
+
+#### Scenario: Burst-reject releases the consumed daily slot (Free)
+- **WHEN** Free caller A's `{scope:rate_like_burst}:{user:A}` bucket is at the burst cap AND the daily bucket holds 5 AND A POSTs a like on a visible post
+- **THEN** the response is HTTP 429 AND the `{scope:rate_like_day}:{user:A}` bucket size is 5 (the daily slot consumed by this request was released) AND the burst bucket is unchanged
 
 #### Scenario: 404 post_not_found does NOT release
 - **WHEN** Free caller A has 5 successful likes today AND POSTs `/like` on a non-existent post UUID
