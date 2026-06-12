@@ -46,11 +46,11 @@ dev/scripts/admin-bootstrap/admin-bootstrap.sh \
 Valid roles: `owner`, `admin`, `moderator`, `read_only` (per the V16
 `admin_users_role_check` constraint).
 
-The script prompts for the password (hidden input). It then prints, on stdout:
+The script prompts for the password (hidden input), then prints on stdout:
 
 1. A `DO NOT save this output to a file` warning.
 2. The admin UUID.
-3. The **base32 TOTP secret** — enter this into your authenticator app
+3. The **base32 TOTP secret** — enter it into your authenticator app
    immediately; it is shown only once.
 4. The SQL `INSERT` statement.
 

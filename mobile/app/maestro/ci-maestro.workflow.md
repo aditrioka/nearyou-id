@@ -1,9 +1,8 @@
 # CI workflow for Maestro (apply manually)
 
-`.github/workflows/**` edits are hook-blocked for AI. Copy the YAML below into
-`.github/workflows/mobile-maestro.yml` yourself, then commit.
+`.github/workflows/**` edits are hook-blocked for AI — copy the YAML below into
+`.github/workflows/mobile-maestro.yml` yourself, then commit. Notes:
 
-Notes before applying:
 - Runs the non-auth flows only (`--exclude-tags auth-gated`) until the Phase 2 test-login lands.
 - Boots an Android emulator in CI (KVM) and installs the **dev** flavor. Heavy (~several min) — gate it
   on `mobile/**` changes and let it run non-blocking at first.
