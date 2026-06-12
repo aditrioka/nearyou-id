@@ -28,7 +28,11 @@ class AdminIndexStatsRepository(
         val oldestPendingAt: Instant?,
         /** `rejected_identifiers` rows in the last 24 h. */
         val rejectedLast24h: Long,
-        /** Most frequent rejection reason in that window (ties → alphabetical); null when none. */
+        /**
+         * Most frequent rejection reason in that window (ties → alphabetical);
+         * null when none. Safe to render: `reason` is CHECK-constrained to the
+         * V3 enum, so the value space is server-controlled.
+         */
         val rejectedTopReason: String?,
         /** `admin_actions_log` rows for the current UTC day. */
         val auditActionsToday: Long,

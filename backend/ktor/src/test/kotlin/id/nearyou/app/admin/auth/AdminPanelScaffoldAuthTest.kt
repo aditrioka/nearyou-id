@@ -60,10 +60,16 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "data-icon=\"group\""
             body shouldContain "data-icon=\"block\""
             body shouldContain "data-icon=\"receipt_long\""
+            // EXACTLY five nav items, under their three group headings.
+            Regex("class=\"nitem").findAll(body).count() shouldBe 5
+            body shouldContain "Moderasi"
+            body shouldContain "Anti-abuse &amp; keamanan"
+            body shouldContain "Sistem"
             // No Usulan menu items, no board-annotation status dots.
             (body.contains("Post edit history")) shouldBe false
             (body.contains("Attestation review")) shouldBe false
             (body.contains("Feature flags")) shouldBe false
+            (body.contains("class=\"dot")) shouldBe false
             // No page footer — frame 2 has none (deliberate removal).
             (body.contains("<footer>")) shouldBe false
 
@@ -77,8 +83,10 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "envchip"
             body shouldContain AdminAuthTestSupport.TEST_ENVIRONMENT_NAME.uppercase()
 
-            // Landing drops the static User moderation card (spec scenario).
+            // Landing drops the static User moderation card (spec scenario)
+            // and renders the CSRF info banner.
             (body.contains("User moderation")) shouldBe false
+            body shouldContain "banner info"
         }
     }
 
@@ -89,6 +97,7 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             val unauthed = client.get("/admin")
             unauthed.status shouldBe HttpStatusCode.Found
             unauthed.headers[HttpHeaders.Location] shouldBe "/admin/"
+            (unauthed.bodyAsText().contains("Welcome back")) shouldBe false
 
             val authed =
                 client.get("/admin") {
@@ -96,6 +105,7 @@ class AdminPanelScaffoldAuthTest : StringSpec({
                 }
             authed.status shouldBe HttpStatusCode.Found
             authed.headers[HttpHeaders.Location] shouldBe "/admin/"
+            (authed.bodyAsText().contains("Welcome back")) shouldBe false
         }
     }
 
@@ -170,13 +180,17 @@ class AdminPanelScaffoldAuthTest : StringSpec({
         }
     }
 
-    "unmapped admin route returns 404 (unauthenticated)" {
+    "unmapped admin route returns 404 regardless of auth state" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             // Per spec: 404 is returned at the routing layer regardless of auth.
             // (Ktor resolves an unmapped path to 404 before the authenticate
             // block's challenge fires for the matched-but-unauthenticated case.)
-            val res = client.get("/admin/nonexistent-page")
-            res.status shouldBe HttpStatusCode.NotFound
+            client.get("/admin/nonexistent-page").status shouldBe HttpStatusCode.NotFound
+            client.get("/admin/nonexistent-page") {
+                header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
+            }.status shouldBe HttpStatusCode.NotFound
         }
     }
 

@@ -29,7 +29,7 @@
 - [x] 5.1 `AdminIndexStatsRepository`: three parameterized aggregate reads per design D4 (pending count + oldest pending `created_at`; rejected last-24h count + top reason with deterministic tie-break; audit actions today (UTC) + newest `action_type`) — `EXPLAIN` each against the dev DB and note index usage in the PR
 - [x] 5.2 Index route: model gains greeting name + stat values + relative-age formatting ("2 h ago") done server-side in the route
 - [x] 5.3 `index.peb` per frame `#f02`: `Welcome back, {name}` heading, three stat cards (icon + title + kv rows, linking to their pages), CSRF info banner; static description cards (incl. User moderation card) removed
-- [x] 5.4 DB-tagged route test: seeded stat values render (4 pending / oldest 2 h; 12 last-24h / `age_under_18`; 9 today / `user_suspended`) + top-reason tie-break case (equal counts → alphabetically-first reason renders) + empty-DB zero-state placeholders + no "User moderation" card. Pool follows the autoClose + size-2 CI pattern
+- [x] 5.4 DB-tagged route test: seeded stat values render (4 pending / oldest 2 h; 12 last-24h / `age_under_18`; 9 today / `user_suspended`) + negative-predicate seeds (actioned report, 25-h-old rejection) + top-reason tie-break case (equal counts → alphabetically-first reason renders) + only-yesterday audit rows (0 today + real last action) + empty-DB zero-state placeholders + no "User moderation" card. Pool reuses the shared `AdminAuthTestSupport.hikari()` (size 4) + `afterSpec { close() }` — same closed-pool budget posture as every sibling admin spec
 
 ## 6. Login page (`login.peb`)
 

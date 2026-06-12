@@ -60,16 +60,31 @@ class AdminIndexStatsRouteTest : StringSpec({
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
         val reporter = UserModerationTestSupport.seedUser(dataSource).also { seededUsers.add(it) }
         val now = Instant.now()
+        // Anchor "today" seeds at max(now − 10 min, UTC day start) and step
+        // FORWARD from there, so a run in the minutes after 00:00 UTC can't
+        // spill rows onto yesterday AND the newest-row ordering stays
+        // deterministic (later offset = newer; may run seconds ahead of
+        // `now`, which the >= day-start count is indifferent to).
+        val utcDayStart =
+            java.time.LocalDate.ofInstant(now, java.time.ZoneOffset.UTC)
+                .atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
+        val todayBase = maxOf(now.minusSeconds(600), utcDayStart)
 
-        // 4 pending reports, oldest 2 h ago.
+        fun todayAt(offsetSeconds: Long): Instant = todayBase.plusSeconds(offsetSeconds)
+
+        // 4 pending reports, oldest 2 h ago — plus one ACTIONED report that
+        // must NOT count toward the pending stat.
         seedReport(dataSource, reporter, createdAt = now.minusSeconds(2 * 3600))
         repeat(3) { seedReport(dataSource, reporter, createdAt = now.minusSeconds(600L * (it + 1))) }
-        // 12 rejections in the last 24 h — age_under_18 the clear top reason.
+        seedReport(dataSource, reporter, createdAt = now.minusSeconds(5 * 3600), status = "actioned")
+        // 12 rejections in the last 24 h — age_under_18 the clear top reason —
+        // plus one 25-h-old row that must NOT count toward the 24-h window.
         repeat(7) { seedRejected(dataSource, "age_under_18", now.minusSeconds(3600L * (it + 1))) }
         repeat(5) { seedRejected(dataSource, "attestation_persistent_fail", now.minusSeconds(3600L * (it + 1))) }
-        // 9 audit actions today (UTC); newest is user_suspended.
-        repeat(8) { seedAudit(dataSource, admin.id, "report_resolved", now.minusSeconds(60L * (it + 2))) }
-        seedAudit(dataSource, admin.id, "user_suspended", now.minusSeconds(30))
+        seedRejected(dataSource, "age_under_18", now.minusSeconds(25 * 3600))
+        // 9 audit actions today (UTC); newest is user_suspended (largest offset).
+        repeat(8) { seedAudit(dataSource, admin.id, "report_resolved", todayAt(10L * (it + 1))) }
+        seedAudit(dataSource, admin.id, "user_suspended", todayAt(300))
 
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             val res =
@@ -101,6 +116,27 @@ class AdminIndexStatsRouteTest : StringSpec({
                     header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
                 }.bodyAsText()
             body shouldContain "<dt>Top reason</dt><dd>age_under_18</dd>"
+        }
+    }
+
+    "audit card with only-yesterday rows shows zero count but the real last action" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val now = Instant.now()
+        val utcDayStart =
+            java.time.LocalDate.ofInstant(now, java.time.ZoneOffset.UTC)
+                .atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
+        // Two rows strictly before the current UTC day; newest is user_unbanned.
+        seedAudit(dataSource, admin.id, "report_resolved", utcDayStart.minusSeconds(7200))
+        seedAudit(dataSource, admin.id, "user_unbanned", utcDayStart.minusSeconds(3600))
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body =
+                client.get("/admin/") {
+                    header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
+                }.bodyAsText()
+            body shouldContain "<dt>Actions today</dt><dd>0</dd>"
+            body shouldContain "<dt>Last</dt><dd>user_unbanned</dd>"
         }
     }
 

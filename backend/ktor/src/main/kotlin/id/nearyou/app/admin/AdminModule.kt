@@ -2,6 +2,7 @@ package id.nearyou.app.admin
 
 import id.nearyou.app.admin.actionslog.AdminActionsLogRepository
 import id.nearyou.app.admin.auth.AdminAuditLogger
+import id.nearyou.app.admin.auth.AdminAuthProvider
 import id.nearyou.app.admin.auth.AdminLoginRoutes
 import id.nearyou.app.admin.auth.AdminLogoutRoute
 import id.nearyou.app.admin.auth.AdminUserRepository
@@ -84,7 +85,11 @@ fun Application.admin(
             csrfHmacKeyProvider = csrfHmacKeyProvider,
         )
     val logoutRoute = AdminLogoutRoute(sessionRepository, auditLogger)
-    val layout = AdminLayout(csrfHmacKeyProvider, environmentName)
+    // ONE idle-timeout value feeds BOTH the auth provider (enforcement) and
+    // the layout's identity-box session line (display) — they must never
+    // drift, or the rendered deadline lies about the real cutoff.
+    val sessionIdleTimeout = AdminAuthProvider.DEFAULT_IDLE_TIMEOUT
+    val layout = AdminLayout(csrfHmacKeyProvider, environmentName, sessionIdleTimeout)
     val indexStatsRepository = AdminIndexStatsRepository(dataSource)
 
     install(Pebble) {
@@ -106,6 +111,7 @@ fun Application.admin(
         adminAuth(ADMIN_AUTH_NAME) {
             this.sessionRepository = sessionRepository
             this.adminUserRepository = adminUserRepository
+            this.idleTimeout = sessionIdleTimeout
         }
     }
 

@@ -108,6 +108,7 @@ class AdminLoginRouteTest : StringSpec({
             body shouldContain "/admin/static/admin.css"
             body shouldNotContain "<nav>"
             body shouldNotContain "/admin/logout"
+            body shouldNotContain "envchip"
         }
     }
 
