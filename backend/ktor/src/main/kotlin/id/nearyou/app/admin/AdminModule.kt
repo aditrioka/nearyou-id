@@ -2,6 +2,7 @@ package id.nearyou.app.admin
 
 import id.nearyou.app.admin.actionslog.AdminActionsLogRepository
 import id.nearyou.app.admin.auth.AdminAuditLogger
+import id.nearyou.app.admin.auth.AdminAuthProvider
 import id.nearyou.app.admin.auth.AdminLoginRoutes
 import id.nearyou.app.admin.auth.AdminLogoutRoute
 import id.nearyou.app.admin.auth.AdminUserRepository
@@ -11,6 +12,8 @@ import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
 import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
+import id.nearyou.app.admin.routes.AdminIndexStatsRepository
+import id.nearyou.app.admin.routes.AdminLayout
 import id.nearyou.app.admin.routes.adminActionsLog
 import id.nearyou.app.admin.routes.adminIndex
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
@@ -18,11 +21,14 @@ import id.nearyou.app.admin.routes.adminReportQueue
 import id.nearyou.app.admin.routes.adminReportResolution
 import id.nearyou.app.admin.routes.adminUserModeration
 import io.ktor.server.application.Application
+import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.authentication
 import io.ktor.server.http.content.staticResources
 import io.ktor.server.pebble.Pebble
+import io.ktor.server.response.respondRedirect
+import io.ktor.server.routing.get
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.pebbletemplates.pebble.loader.ClasspathLoader
@@ -51,11 +57,15 @@ import javax.sql.DataSource
 //                      slot `admin-totp-secret-aes-key` (env-namespaced
 //                      via secretKey(env, name)). Lazy — only invoked at
 //                      login-verify time.
+//   - environmentName: deployment env name (`ktor.environment`) — rendered
+//                      uppercased as the layout top-bar env chip
+//                      (admin-mockup-parity design.md D6).
 // ---------------------------------------------------------------------------
 fun Application.admin(
     dataSource: DataSource,
     aesKeyProvider: () -> ByteArray,
     csrfHmacKeyProvider: () -> ByteArray,
+    environmentName: String,
 ) {
     val adminUserRepository = AdminUserRepository(dataSource)
     val sessionRepository = SessionRepository(dataSource)
@@ -75,6 +85,12 @@ fun Application.admin(
             csrfHmacKeyProvider = csrfHmacKeyProvider,
         )
     val logoutRoute = AdminLogoutRoute(sessionRepository, auditLogger)
+    // ONE idle-timeout value feeds BOTH the auth provider (enforcement) and
+    // the layout's identity-box session line (display) — they must never
+    // drift, or the rendered deadline lies about the real cutoff.
+    val sessionIdleTimeout = AdminAuthProvider.DEFAULT_IDLE_TIMEOUT
+    val layout = AdminLayout(csrfHmacKeyProvider, environmentName, sessionIdleTimeout)
+    val indexStatsRepository = AdminIndexStatsRepository(dataSource)
 
     install(Pebble) {
         loader(
@@ -95,11 +111,19 @@ fun Application.admin(
         adminAuth(ADMIN_AUTH_NAME) {
             this.sessionRepository = sessionRepository
             this.adminUserRepository = adminUserRepository
+            this.idleTimeout = sessionIdleTimeout
         }
     }
 
     routing {
         route("/admin") {
+            // Bare /admin (no trailing slash) → 302 /admin/ (admin-mockup-parity
+            // design.md D1). Outside the authenticate block: the redirect target
+            // applies the session gate, so this response discloses nothing.
+            get("") {
+                call.respondRedirect("/admin/", permanent = false)
+            }
+
             // /admin/login (GET + POST) — outside the authenticate block.
             // The POST endpoint is CSRF-exempt per design.md D7.
             loginRoutes.install(this)
@@ -124,17 +148,17 @@ fun Application.admin(
                 // Unmapped state-changing paths (e.g. POST /admin/) correctly
                 // surface as routing-layer 405s because no handler runs.
                 logoutRoute.install(this)
-                adminIndex(csrfHmacKeyProvider)
-                adminActionsLog(actionsLogRepository, csrfHmacKeyProvider)
-                adminRejectedIdentifiers(rejectedIdentifiersRepository, csrfHmacKeyProvider)
-                adminReportQueue(reportQueueRepository, csrfHmacKeyProvider)
+                adminIndex(layout, indexStatsRepository)
+                adminActionsLog(actionsLogRepository, layout)
+                adminRejectedIdentifiers(rejectedIdentifiersRepository, layout)
+                adminReportQueue(reportQueueRepository, layout)
                 adminReportResolution(
                     reportResolutionRepository,
                     reportQueueRepository,
                     auditLogger,
-                    csrfHmacKeyProvider,
+                    layout,
                 )
-                adminUserModeration(userModerationRepository, auditLogger, csrfHmacKeyProvider)
+                adminUserModeration(userModerationRepository, auditLogger, layout)
             }
         }
     }

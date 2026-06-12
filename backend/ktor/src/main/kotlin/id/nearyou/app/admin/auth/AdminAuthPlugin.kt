@@ -83,6 +83,7 @@ class AdminAuthProvider(
                     sessionId = session.id,
                     csrfTokenHash = session.csrfTokenHash,
                     role = admin.role,
+                    displayName = admin.displayName,
                     expiresAt = session.expiresAt,
                     lastActiveAt = session.lastActiveAt,
                 ),

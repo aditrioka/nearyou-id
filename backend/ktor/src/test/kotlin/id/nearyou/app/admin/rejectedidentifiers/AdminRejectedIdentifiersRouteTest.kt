@@ -67,7 +67,7 @@ class AdminRejectedIdentifiersRouteTest : StringSpec({
             body shouldContain "hash-abc123"
             body shouldContain "age_under_18"
             body shouldContain "<header>" // full page extends layout
-            body shouldContain "<footer>"
+            body shouldContain "<nav>" // frame-2 shell (no footer — admin-mockup-parity)
         }
     }
 

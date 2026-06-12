@@ -30,7 +30,7 @@ class AdminUserRepository(
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
-                SELECT id, email, password_hash, totp_secret_encrypted, role, is_active
+                SELECT id, email, display_name, password_hash, totp_secret_encrypted, role, is_active
                   FROM admin_users
                  WHERE email = ? AND is_active = TRUE
                 """.trimIndent(),
@@ -41,6 +41,7 @@ class AdminUserRepository(
                     return AdminUserRow(
                         id = rs.getObject("id", UUID::class.java),
                         email = rs.getString("email"),
+                        displayName = rs.getString("display_name"),
                         passwordHash = rs.getString("password_hash"),
                         totpSecretEncrypted = rs.getBytes("totp_secret_encrypted"),
                         role = rs.getString("role"),
@@ -67,7 +68,7 @@ class AdminUserRepository(
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
-                SELECT id, email, password_hash, totp_secret_encrypted, role, is_active
+                SELECT id, email, display_name, password_hash, totp_secret_encrypted, role, is_active
                   FROM admin_users
                  WHERE email = ?
                 """.trimIndent(),
@@ -78,6 +79,7 @@ class AdminUserRepository(
                     return AdminUserRow(
                         id = rs.getObject("id", UUID::class.java),
                         email = rs.getString("email"),
+                        displayName = rs.getString("display_name"),
                         passwordHash = rs.getString("password_hash"),
                         totpSecretEncrypted = rs.getBytes("totp_secret_encrypted"),
                         role = rs.getString("role"),
@@ -97,7 +99,7 @@ class AdminUserRepository(
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
-                SELECT id, email, password_hash, totp_secret_encrypted, role, is_active
+                SELECT id, email, display_name, password_hash, totp_secret_encrypted, role, is_active
                   FROM admin_users
                  WHERE id = ?
                 """.trimIndent(),
@@ -108,6 +110,7 @@ class AdminUserRepository(
                     return AdminUserRow(
                         id = rs.getObject("id", UUID::class.java),
                         email = rs.getString("email"),
+                        displayName = rs.getString("display_name"),
                         passwordHash = rs.getString("password_hash"),
                         totpSecretEncrypted = rs.getBytes("totp_secret_encrypted"),
                         role = rs.getString("role"),
@@ -128,6 +131,7 @@ class AdminUserRepository(
 data class AdminUserRow(
     val id: UUID,
     val email: String,
+    val displayName: String,
     val passwordHash: String,
     val totpSecretEncrypted: ByteArray?,
     val role: String,

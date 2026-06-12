@@ -20,7 +20,9 @@ import java.util.UUID
  *    [AdminCsrfGate].
  *  - [role]: the admin's role (`owner`, `admin`, `moderator`, `read_only`)
  *    per V16 schema. Used by future admin routes that gate destructive
- *    actions by role; not consumed in Admin #3.
+ *    actions by role; rendered as the layout identity-box role chip.
+ *  - [displayName]: the admin's `display_name`, rendered in the layout
+ *    identity box + the index greeting (admin-mockup-parity design.md D5).
  *  - [expiresAt]: the session's absolute 8h cap, for diagnostics + future
  *    UI surfacing.
  *  - [lastActiveAt]: the value AT request-arrival time, BEFORE the
@@ -32,6 +34,7 @@ data class AdminPrincipal(
     val sessionId: UUID,
     val csrfTokenHash: String,
     val role: String,
+    val displayName: String,
     val expiresAt: Instant,
     val lastActiveAt: Instant,
 ) : Principal

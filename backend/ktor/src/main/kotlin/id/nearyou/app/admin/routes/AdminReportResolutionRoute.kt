@@ -1,11 +1,9 @@
 package id.nearyou.app.admin.routes
 
 import id.nearyou.app.admin.auth.AdminAuditLogger
-import id.nearyou.app.admin.auth.AdminAuthProvider
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
 import id.nearyou.app.admin.auth.AdminRoleGate
-import id.nearyou.app.admin.auth.HashUtil
 import id.nearyou.app.admin.reportqueue.QueueResolution
 import id.nearyou.app.admin.reportqueue.QueueResolutionOutcome
 import id.nearyou.app.admin.reportqueue.ReportDecision
@@ -63,7 +61,7 @@ fun Route.adminReportResolution(
     resolutionRepo: ReportResolutionRepository,
     reportQueueRepo: ReportQueueRepository,
     auditLogger: AdminAuditLogger,
-    csrfHmacKeyProvider: () -> ByteArray,
+    layout: AdminLayout,
 ) {
     post("/reports/{id}/resolve") {
         if (!AdminCsrfGate.validateCsrf(call, auditLogger)) return@post
@@ -96,9 +94,9 @@ fun Route.adminReportResolution(
         when (outcome) {
             ReportDecisionOutcome.Applied -> call.respondResolutionSuccess(reportQueueRepo, body)
             ReportDecisionOutcome.NoOpAlreadyResolved ->
-                call.respondReportsView(reportQueueRepo, csrfHmacKeyProvider, body, MSG_REPORT_ALREADY_RESOLVED)
+                call.respondReportsView(reportQueueRepo, layout, body, MSG_REPORT_ALREADY_RESOLVED)
             ReportDecisionOutcome.NotFound ->
-                call.respondReportsView(reportQueueRepo, csrfHmacKeyProvider, body, MSG_REPORT_NOT_FOUND)
+                call.respondReportsView(reportQueueRepo, layout, body, MSG_REPORT_NOT_FOUND)
         }
     }
 
@@ -138,22 +136,22 @@ fun Route.adminReportResolution(
         when (outcome) {
             QueueResolutionOutcome.Applied -> call.respondResolutionSuccess(reportQueueRepo, body)
             QueueResolutionOutcome.NoOpAlreadyResolved ->
-                call.respondReportsView(reportQueueRepo, csrfHmacKeyProvider, body, MSG_QUEUE_ALREADY_RESOLVED)
+                call.respondReportsView(reportQueueRepo, layout, body, MSG_QUEUE_ALREADY_RESOLVED)
             QueueResolutionOutcome.NotFound ->
-                call.respondReportsView(reportQueueRepo, csrfHmacKeyProvider, body, MSG_QUEUE_NOT_FOUND)
+                call.respondReportsView(reportQueueRepo, layout, body, MSG_QUEUE_NOT_FOUND)
             QueueResolutionOutcome.RejectedContentNotApplicable ->
-                call.respondReportsView(reportQueueRepo, csrfHmacKeyProvider, body, MSG_CONTENT_NOT_APPLICABLE)
+                call.respondReportsView(reportQueueRepo, layout, body, MSG_CONTENT_NOT_APPLICABLE)
             QueueResolutionOutcome.RejectedAuthorUnresolvable ->
-                call.respondReportsView(reportQueueRepo, csrfHmacKeyProvider, body, MSG_AUTHOR_UNRESOLVABLE)
+                call.respondReportsView(reportQueueRepo, layout, body, MSG_AUTHOR_UNRESOLVABLE)
             QueueResolutionOutcome.RejectedSuspendGuard ->
-                call.respondReportsView(reportQueueRepo, csrfHmacKeyProvider, body, MSG_SUSPEND_GUARD)
+                call.respondReportsView(reportQueueRepo, layout, body, MSG_SUSPEND_GUARD)
             QueueResolutionOutcome.ForbiddenBanTier ->
                 // 200 + message (NOT 403), consistent with the sibling rejection
                 // branches above — so the message renders in the swapped table
                 // fragment under HTMX (htmx does not swap a 4xx body by default).
                 // The base role gate already 403s a non-write role; this tier
                 // rejection is an in-band "no change made" outcome.
-                call.respondReportsView(reportQueueRepo, csrfHmacKeyProvider, body, MSG_BAN_TIER)
+                call.respondReportsView(reportQueueRepo, layout, body, MSG_BAN_TIER)
         }
     }
 }
@@ -208,7 +206,7 @@ private suspend fun ApplicationCall.respondResolutionSuccess(
  */
 private suspend fun ApplicationCall.respondReportsView(
     reportQueueRepo: ReportQueueRepository,
-    csrfHmacKeyProvider: () -> ByteArray,
+    layout: AdminLayout,
     body: Parameters,
     message: String,
 ) {
@@ -222,10 +220,12 @@ private suspend fun ApplicationCall.respondReportsView(
             put("filters", filters.echoMap)
             put("message", message)
             if (!isHtmx) {
-                request.cookies[AdminAuthProvider.COOKIE_NAME]
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { HashUtil.deriveCsrfFromSessionToken(it, csrfHmacKeyProvider()) }
-                    ?.let { put("csrfToken", it) }
+                layout.putShellModel(
+                    this@respondReportsView,
+                    this,
+                    pageTitle = "Reports",
+                    activePath = "/admin/reports",
+                )
             }
         }
     val template = if (isHtmx) "reports-table.peb" else "reports.peb"

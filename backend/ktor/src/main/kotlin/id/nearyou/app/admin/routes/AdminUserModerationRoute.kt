@@ -1,11 +1,9 @@
 package id.nearyou.app.admin.routes
 
 import id.nearyou.app.admin.auth.AdminAuditLogger
-import id.nearyou.app.admin.auth.AdminAuthProvider
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
 import id.nearyou.app.admin.auth.AdminRoleGate
-import id.nearyou.app.admin.auth.HashUtil
 import id.nearyou.app.admin.moderation.SuspendOutcome
 import id.nearyou.app.admin.moderation.UnbanOutcome
 import id.nearyou.app.admin.moderation.UserModerationRepository
@@ -50,12 +48,12 @@ import java.util.UUID
 fun Route.adminUserModeration(
     repo: UserModerationRepository,
     auditLogger: AdminAuditLogger,
-    csrfHmacKeyProvider: () -> ByteArray,
+    layout: AdminLayout,
 ) {
     get("/users") {
         val q = call.request.queryParameters["q"]?.trim()?.takeIf { it.isNotEmpty() }
         val user = q?.let { repo.lookup(it) }
-        call.respondModeration(csrfHmacKeyProvider, q = q, user = user)
+        call.respondModeration(layout, q = q, user = user)
     }
 
     post("/users/{id}/suspend") {
@@ -64,7 +62,7 @@ fun Route.adminUserModeration(
         val targetId =
             call.parseTargetId() ?: run {
                 call.respondModeration(
-                    csrfHmacKeyProvider,
+                    layout,
                     q = null,
                     user = null,
                     message = MSG_INVALID_ID,
@@ -91,21 +89,21 @@ fun Route.adminUserModeration(
             is SuspendOutcome.Applied -> call.respondActionRedirect(targetId)
             SuspendOutcome.RejectedSoftDeleted ->
                 call.respondModeration(
-                    csrfHmacKeyProvider,
+                    layout,
                     q = targetId.toString(),
                     user = repo.lookup(targetId.toString()),
                     message = MSG_SUSPEND_REJECTED_SOFT_DELETED,
                 )
             SuspendOutcome.RejectedPermanentBan ->
                 call.respondModeration(
-                    csrfHmacKeyProvider,
+                    layout,
                     q = targetId.toString(),
                     user = repo.lookup(targetId.toString()),
                     message = MSG_SUSPEND_REJECTED_PERMANENT_BAN,
                 )
             SuspendOutcome.NotFound ->
                 call.respondModeration(
-                    csrfHmacKeyProvider,
+                    layout,
                     q = targetId.toString(),
                     user = null,
                     message = MSG_USER_NOT_FOUND,
@@ -119,7 +117,7 @@ fun Route.adminUserModeration(
         val targetId =
             call.parseTargetId() ?: run {
                 call.respondModeration(
-                    csrfHmacKeyProvider,
+                    layout,
                     q = null,
                     user = null,
                     message = MSG_INVALID_ID,
@@ -147,14 +145,14 @@ fun Route.adminUserModeration(
             UnbanOutcome.Applied -> call.respondActionRedirect(targetId)
             UnbanOutcome.NoOpNotBanned ->
                 call.respondModeration(
-                    csrfHmacKeyProvider,
+                    layout,
                     q = targetId.toString(),
                     user = repo.lookup(targetId.toString()),
                     message = MSG_UNBAN_NOOP_NOT_BANNED,
                 )
             UnbanOutcome.ForbiddenPermanentBan ->
                 call.respondModeration(
-                    csrfHmacKeyProvider,
+                    layout,
                     q = targetId.toString(),
                     user = repo.lookup(targetId.toString()),
                     message = MSG_UNBAN_FORBIDDEN_PERMANENT_BAN,
@@ -162,7 +160,7 @@ fun Route.adminUserModeration(
                 )
             UnbanOutcome.NotFound ->
                 call.respondModeration(
-                    csrfHmacKeyProvider,
+                    layout,
                     q = targetId.toString(),
                     user = null,
                     message = MSG_USER_NOT_FOUND,
@@ -192,7 +190,7 @@ private suspend fun ApplicationCall.readReason(): String? =
  * suspend/unban `_csrf` hidden fields populate for the no-JS path).
  */
 private suspend fun ApplicationCall.respondModeration(
-    csrfHmacKeyProvider: () -> ByteArray,
+    layout: AdminLayout,
     q: String?,
     user: UserModerationState?,
     message: String? = null,
@@ -206,10 +204,12 @@ private suspend fun ApplicationCall.respondModeration(
             user?.let { put("user", it.toViewMap()) }
             message?.let { put("message", it) }
             if (!isHtmx) {
-                request.cookies[AdminAuthProvider.COOKIE_NAME]
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { HashUtil.deriveCsrfFromSessionToken(it, csrfHmacKeyProvider()) }
-                    ?.let { put("csrfToken", it) }
+                layout.putShellModel(
+                    this@respondModeration,
+                    this,
+                    pageTitle = "Users",
+                    activePath = "/admin/users",
+                )
             }
         }
     val template = if (isHtmx) "users-result.peb" else "users.peb"

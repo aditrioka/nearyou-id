@@ -1,8 +1,6 @@
 package id.nearyou.app.admin.routes
 
 import id.nearyou.app.admin.actionslog.ActionLogCursor
-import id.nearyou.app.admin.auth.AdminAuthProvider
-import id.nearyou.app.admin.auth.HashUtil
 import id.nearyou.app.admin.reportqueue.ReportQueueQuery
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
 import id.nearyou.app.admin.reportqueue.toViewMap
@@ -34,13 +32,13 @@ import java.time.ZoneOffset
  * Lenient on malformed input (design.md — never 4xx/5xx): a malformed/absent
  * cursor falls back to the first page; an unparseable date is ignored; an
  * out-of-enum filter value is bound as a literal that matches no row. The
- * full-page render derives `csrfToken` from the session cookie exactly as
- * [adminActionsLog] does so the layout's CSRF meta tag + logout-form token
- * render. Reads are not auditable, so the handler writes NO audit row.
+ * full-page render carries the layout shell model (CSRF token + identity box
+ * + top bar) via [AdminLayout.putShellModel], matching [adminActionsLog].
+ * Reads are not auditable, so the handler writes NO audit row.
  */
 fun Route.adminReportQueue(
     repo: ReportQueueRepository,
-    csrfHmacKeyProvider: () -> ByteArray,
+    layout: AdminLayout,
 ) {
     get("/reports") {
         val params = call.request.queryParameters
@@ -67,12 +65,7 @@ fun Route.adminReportQueue(
                 olderUrl?.let { put("olderUrl", it) }
 
                 if (!isHtmx) {
-                    // Full-page render extends layout.peb → must carry the CSRF
-                    // token so the layout's meta tag + logout-form token render.
-                    call.request.cookies[AdminAuthProvider.COOKIE_NAME]
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { HashUtil.deriveCsrfFromSessionToken(it, csrfHmacKeyProvider()) }
-                        ?.let { put("csrfToken", it) }
+                    layout.putShellModel(call, this, pageTitle = "Reports", activePath = "/admin/reports")
                 }
             }
 

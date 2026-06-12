@@ -4,8 +4,6 @@ import id.nearyou.app.admin.actionslog.ActionLogCursor
 import id.nearyou.app.admin.actionslog.ActionLogQuery
 import id.nearyou.app.admin.actionslog.ActionLogRow
 import id.nearyou.app.admin.actionslog.AdminActionsLogRepository
-import id.nearyou.app.admin.auth.AdminAuthProvider
-import id.nearyou.app.admin.auth.HashUtil
 import io.ktor.server.application.call
 import io.ktor.server.pebble.PebbleContent
 import io.ktor.server.response.respond
@@ -38,7 +36,7 @@ import java.util.UUID
  */
 fun Route.adminActionsLog(
     repo: AdminActionsLogRepository,
-    csrfHmacKeyProvider: () -> ByteArray,
+    layout: AdminLayout,
 ) {
     get("/actions-log") {
         val params = call.request.queryParameters
@@ -100,12 +98,7 @@ fun Route.adminActionsLog(
 
                 val isHtmx = call.request.headers["HX-Request"] == "true"
                 if (!isHtmx) {
-                    // Full-page render extends layout.peb → must carry the CSRF
-                    // token so the layout's meta tag + logout-form token render.
-                    call.request.cookies[AdminAuthProvider.COOKIE_NAME]
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { HashUtil.deriveCsrfFromSessionToken(it, csrfHmacKeyProvider()) }
-                        ?.let { put("csrfToken", it) }
+                    layout.putShellModel(call, this, pageTitle = "Audit log", activePath = "/admin/actions-log")
                 }
             }
 
