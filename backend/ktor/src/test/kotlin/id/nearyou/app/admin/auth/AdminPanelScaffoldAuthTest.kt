@@ -102,12 +102,21 @@ class AdminPanelScaffoldAuthTest : StringSpec({
         }
     }
 
+    "static stylesheet asset is served publicly (no auth required)" {
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/static/admin.css")
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "--primary"
+        }
+    }
+
     "unauthenticated login page extends layout but omits CSRF block" {
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             val body = client.get("/admin/login").bodyAsText()
-            body shouldContain "<header>"
-            body shouldContain "<nav>"
-            body shouldContain "<footer>"
+            // Layout extension is proven by the vendored panel stylesheet; the
+            // authenticated shell (header/nav/footer) intentionally does not
+            // render without a session (board frame 1, docs/11 § 3.6).
+            body shouldContain "/admin/static/admin.css"
             (body.contains("<meta name=\"csrf-token\"")) shouldBe false
             (body.contains("htmx:configRequest")) shouldBe false
         }

@@ -4,5 +4,23 @@
 
 {% block content %}
 <h2>Admin Panel</h2>
-<p>This is the scaffold landing page. Authentication, audit log viewer, and admin actions land in subsequent Admin changes.</p>
+<p class="pg-sub">Scaffold landing page — quick links below while the full Operational Dashboard is in design.</p>
+<div class="card-grid">
+    <a class="cardlet" href="/admin/reports">
+        <h4>Report queue</h4>
+        <p>Triage reports; resolve bookkeeping decisions and queue enforcement in-row.</p>
+    </a>
+    <a class="cardlet" href="/admin/users">
+        <h4>User moderation</h4>
+        <p>Look up a user by UUID or exact username; suspend 7 days or unban.</p>
+    </a>
+    <a class="cardlet" href="/admin/rejected-identifiers">
+        <h4>Rejected identifiers</h4>
+        <p>Hash-only anti-abuse rejections with per-reason and per-type counts.</p>
+    </a>
+    <a class="cardlet" href="/admin/actions-log">
+        <h4>Audit log</h4>
+        <p>Immutable log of every admin action, with before/after state.</p>
+    </a>
+</div>
 {% endblock %}

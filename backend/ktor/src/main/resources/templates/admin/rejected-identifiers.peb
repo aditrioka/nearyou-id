@@ -4,6 +4,7 @@
 
 {% block content %}
 <h2>Rejected Identifiers</h2>
+<p class="pg-sub">Anti-abuse audit/triage — hash-only (SHA-256 of sub/email), no recoverable PII</p>
 
 {# Read-only anti-abuse triage view over `rejected_identifiers`. Hash-only:
    the table surfaces the one-way `identifier_hash`; no raw identifier is
@@ -12,34 +13,46 @@
 
 {# Filter form. hx-get swaps only the #rejected-identifiers-table fragment;
    method=GET means it also works as a plain navigation when JS is unavailable
-   (progressive enhancement). All values are autoescaped. #}
-<form hx-get="/admin/rejected-identifiers"
-      hx-target="#rejected-identifiers-table"
-      hx-swap="outerHTML"
-      hx-push-url="true"
-      method="GET">
-    <label>Reason
-        <select name="reason">
-            <option value="">All</option>
-            <option value="age_under_18" {% if filters.reason == 'age_under_18' %}selected{% endif %}>age_under_18</option>
-            <option value="attestation_persistent_fail" {% if filters.reason == 'attestation_persistent_fail' %}selected{% endif %}>attestation_persistent_fail</option>
-        </select>
-    </label>
-    <label>Identifier type
-        <select name="identifier_type">
-            <option value="">All</option>
-            <option value="google" {% if filters.identifier_type == 'google' %}selected{% endif %}>google</option>
-            <option value="apple" {% if filters.identifier_type == 'apple' %}selected{% endif %}>apple</option>
-        </select>
-    </label>
-    <label>From
-        <input type="date" name="from" value="{{ filters.from | default('') }}">
-    </label>
-    <label>To
-        <input type="date" name="to" value="{{ filters.to | default('') }}">
-    </label>
-    <button type="submit">Filter</button>
-</form>
+   (progressive enhancement). All values are autoescaped. The .filters-toggle
+   checkbox is the pure-CSS "Filters" disclosure of the frame-4b responsive
+   contract. #}
+<div class="filterbar">
+    <input type="checkbox" id="filters-toggle" class="filters-toggle" aria-label="Toggle filters">
+    <label for="filters-toggle" class="btn tonal sm filters-label">Filters</label>
+    <span class="filters-chips">{% for f in filters %}{% if f.value is not empty %}<span class="pill">{{ f.key }}: {{ f.value }}</span>{% endif %}{% endfor %}</span>
+    <form class="filters"
+          hx-get="/admin/rejected-identifiers"
+          hx-target="#rejected-identifiers-table"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          method="GET">
+        <label class="field">
+            <span>Reason</span>
+            <select name="reason">
+                <option value="">All</option>
+                <option value="age_under_18" {% if filters.reason == 'age_under_18' %}selected{% endif %}>age_under_18</option>
+                <option value="attestation_persistent_fail" {% if filters.reason == 'attestation_persistent_fail' %}selected{% endif %}>attestation_persistent_fail</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>Identifier type</span>
+            <select name="identifier_type">
+                <option value="">All</option>
+                <option value="google" {% if filters.identifier_type == 'google' %}selected{% endif %}>google</option>
+                <option value="apple" {% if filters.identifier_type == 'apple' %}selected{% endif %}>apple</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>From</span>
+            <input type="date" name="from" value="{{ filters.from | default('') }}">
+        </label>
+        <label class="field">
+            <span>To</span>
+            <input type="date" name="to" value="{{ filters.to | default('') }}">
+        </label>
+        <button type="submit" class="btn filled">Filter</button>
+    </form>
+</div>
 
 {% include "rejected-identifiers-table.peb" %}
 {% endblock %}

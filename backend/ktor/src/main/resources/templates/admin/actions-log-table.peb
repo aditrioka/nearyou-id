@@ -3,10 +3,12 @@
    navigation. The #actions-log-table id is the hx-target swapped in place.
    Every value is Pebble-autoescaped on output (design.md D8) — no `raw`
    filter is used on any audit-row value, including the client-controlled
-   user_agent and free-text reason. #}
+   user_agent and free-text reason. The .tbl-wrap wrapper provides the
+   frame-4b overflow-x scroll below ~900 px. #}
 <div id="actions-log-table">
 {% if hasRows %}
-    <table>
+    <div class="tbl-wrap">
+    <table class="tbl">
         <thead>
             <tr>
                 <th>Time (UTC)</th>
@@ -22,13 +24,13 @@
         <tbody>
         {% for row in rows %}
             <tr>
-                <td>{{ row.createdAt }}</td>
+                <td class="t">{{ row.createdAt }}</td>
                 <td>{{ row.adminDisplay }}</td>
-                <td>{{ row.actionType }}</td>
+                <td><span class="st neut">{{ row.actionType }}</span></td>
                 <td>{{ row.target }}</td>
                 <td>{{ row.reason }}</td>
-                <td>{{ row.ip }}</td>
-                <td>{{ row.userAgent }}</td>
+                <td><code class="code">{{ row.ip }}</code></td>
+                <td class="ua">{{ row.userAgent }}</td>
                 <td>
                     <details>
                         <summary>view</summary>
@@ -40,13 +42,16 @@
         {% endfor %}
         </tbody>
     </table>
+    </div>
     {% if olderUrl is not null %}
-    <a class="pagination-older"
-       href="{{ olderUrl }}"
-       hx-get="{{ olderUrl }}"
-       hx-target="#actions-log-table"
-       hx-swap="outerHTML"
-       hx-push-url="true">Older &rarr;</a>
+    <div class="pager">
+        <a class="pagination-older"
+           href="{{ olderUrl }}"
+           hx-get="{{ olderUrl }}"
+           hx-target="#actions-log-table"
+           hx-swap="outerHTML"
+           hx-push-url="true">Load older</a>
+    </div>
     {% endif %}
 {% else %}
     <p class="empty-state">No audit log entries match the current filters.</p>
