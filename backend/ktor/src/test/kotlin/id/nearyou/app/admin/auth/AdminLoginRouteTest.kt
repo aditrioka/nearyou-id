@@ -78,6 +78,10 @@ class AdminLoginRouteTest : StringSpec({
             val body = client.get("/admin/login").bodyAsText()
             // No "Admin login" heading — frame 1 shows the logo only.
             body shouldNotContain "Admin login"
+            // Placeholder hints on all three inputs (operator request).
+            body shouldContain "placeholder=\"admin@nearyou.id\""
+            body shouldContain "placeholder=\"Your password\""
+            body shouldContain "placeholder=\"6-digit code\""
             // Leading inline-SVG icons, identified by data-icon.
             body shouldContain "data-icon=\"mail\""
             body shouldContain "data-icon=\"key\""

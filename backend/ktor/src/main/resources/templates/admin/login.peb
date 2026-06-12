@@ -18,11 +18,11 @@
     <form action="/admin/login" method="POST">
         <label class="fld" for="email">
             <span>Email</span>
-            <span class="inp-wrap">{{ icon("mail") }}<input type="email" name="email" id="email" required autocomplete="username"></span>
+            <span class="inp-wrap">{{ icon("mail") }}<input type="email" name="email" id="email" required autocomplete="username" placeholder="admin@nearyou.id"></span>
         </label>
         <label class="fld" for="password">
             <span>Password</span>
-            <span class="inp-wrap">{{ icon("key") }}<input type="password" name="password" id="password" required autocomplete="current-password"><button type="button" id="pw-toggle" class="pw-toggle" aria-label="Show password" aria-pressed="false">{{ icon("visibility") }}<span hidden>{{ icon("visibility_off") }}</span></button></span>
+            <span class="inp-wrap">{{ icon("key") }}<input type="password" name="password" id="password" required autocomplete="current-password" placeholder="Your password"><button type="button" id="pw-toggle" class="pw-toggle" aria-label="Show password" aria-pressed="false">{{ icon("visibility") }}<span hidden>{{ icon("visibility_off") }}</span></button></span>
         </label>
         <label class="fld" for="totp">
             <span>TOTP code</span>
