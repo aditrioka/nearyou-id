@@ -14,44 +14,51 @@
     <p class="outcome-message">{{ message }}</p>
 {% endif %}
 {% if user is not null %}
-    <section class="user-state">
+    <section class="user-state cardlet">
         <h3>{{ user.username }}</h3>
-        <dl>
-            <dt>User ID</dt><dd class="user-id">{{ user.id }}</dd>
-            <dt>Status</dt><dd class="user-status">{{ user.statusLabel }}</dd>
+        <dl class="kv">
+            <dt>User ID</dt><dd class="user-id"><code class="code">{{ user.id }}</code></dd>
+            <dt>Status</dt><dd class="user-status"><span class="st {% if user.isBanned %}err{% else %}ok{% endif %}">{{ user.statusLabel }}</span></dd>
             <dt>is_banned</dt><dd class="user-is-banned">{{ user.isBanned }}</dd>
-            <dt>suspended_until</dt><dd class="user-suspended-until">{{ user.suspendedUntil }}</dd>
+            <dt>suspended_until</dt><dd class="user-suspended-until">{{ user.suspendedUntil }}{% if user.isBanned and user.suspendedUntil != "—" %} <span class="note">(unban worker lifts automatically)</span>{% endif %}</dd>
         </dl>
 
         {# Two state-changing controls. Each carries a _csrf hidden field as the
            no-JS fallback; hx-post + the result-region target give the HTMX swap
            on an informational (200) outcome. A successful action responds with
            HX-Redirect (full navigation back to the lookup view). #}
-        <form class="action-suspend"
-              action="/admin/users/{{ user.id }}/suspend"
-              method="POST"
-              hx-post="/admin/users/{{ user.id }}/suspend"
-              hx-target="#user-moderation-result"
-              hx-swap="outerHTML">
-            <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
-            <label>Reason (optional, audit-only)
-                <input type="text" name="reason">
-            </label>
-            <button type="submit">Suspend 7 days</button>
-        </form>
+        <div class="two-col actions">
+            <form class="action-suspend cardlet"
+                  action="/admin/users/{{ user.id }}/suspend"
+                  method="POST"
+                  hx-post="/admin/users/{{ user.id }}/suspend"
+                  hx-target="#user-moderation-result"
+                  hx-swap="outerHTML">
+                <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                <h4>Suspend 7 days</h4>
+                <label class="field">
+                    <span>Reason (optional, audit-only)</span>
+                    <input type="text" name="reason" placeholder="e.g. harassment in replies">
+                </label>
+                <button type="submit" class="btn dangert sm">Suspend 7 days</button>
+            </form>
 
-        <form class="action-unban"
-              action="/admin/users/{{ user.id }}/unban"
-              method="POST"
-              hx-post="/admin/users/{{ user.id }}/unban"
-              hx-target="#user-moderation-result"
-              hx-swap="outerHTML">
-            <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
-            <label>Reason (optional, audit-only)
-                <input type="text" name="reason">
-            </label>
-            <button type="submit">Unban</button>
-        </form>
+            <form class="action-unban cardlet"
+                  action="/admin/users/{{ user.id }}/unban"
+                  method="POST"
+                  hx-post="/admin/users/{{ user.id }}/unban"
+                  hx-target="#user-moderation-result"
+                  hx-swap="outerHTML">
+                <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                <h4>Unban</h4>
+                <label class="field">
+                    <span>Reason (optional, audit-only)</span>
+                    <input type="text" name="reason" placeholder="e.g. appeal accepted">
+                </label>
+                <button type="submit" class="btn outl sm">Unban</button>
+                <p class="hint">Lifting a permanent ban requires owner or admin role.</p>
+            </form>
+        </div>
     </section>
 {% elseif searched %}
     <p class="empty-state">No matching user.</p>

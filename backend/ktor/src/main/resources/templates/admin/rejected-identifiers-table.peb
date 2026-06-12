@@ -7,11 +7,12 @@
    (defense-in-depth; `rejected_identifiers` has no free-text column). This
    covers the `identifier_hash` rendered in the `title="..."` attribute too:
    Pebble's default escaper is HTML-context, so `< > & " '` are entity-encoded
-   in attribute position, not only in element text. #}
+   in attribute position, not only in element text. The .tbl-wrap wrapper
+   provides the frame-4b overflow-x scroll below ~900 px. #}
 <div id="rejected-identifiers-table">
     {# Per-reason / per-type count summary scoped to the active filters. Counts
        the WHOLE filtered set (not just this page) so a rejection-volume spike
-       is visible at a glance. #}
+       is visible at a glance. Styled as pill chips (board frame 10). #}
     <div class="summary">
         <p class="summary-total">Total matching: {{ summary.total }}</p>
         <ul class="summary-by-reason">
@@ -21,12 +22,13 @@
         </ul>
         <ul class="summary-by-type">
         {% for t in summary.types %}
-            <li>{{ t.key }}: {{ t.count }}</li>
+            <li>type {{ t.key }}: {{ t.count }}</li>
         {% endfor %}
         </ul>
     </div>
 {% if hasRows %}
-    <table>
+    <div class="tbl-wrap">
+    <table class="tbl">
         <thead>
             <tr>
                 <th>Identifier hash</th>
@@ -46,13 +48,16 @@
         {% endfor %}
         </tbody>
     </table>
+    </div>
     {% if olderUrl is not null %}
-    <a class="pagination-older"
-       href="{{ olderUrl }}"
-       hx-get="{{ olderUrl }}"
-       hx-target="#rejected-identifiers-table"
-       hx-swap="outerHTML"
-       hx-push-url="true">Older &rarr;</a>
+    <div class="pager">
+        <a class="pagination-older"
+           href="{{ olderUrl }}"
+           hx-get="{{ olderUrl }}"
+           hx-target="#rejected-identifiers-table"
+           hx-swap="outerHTML"
+           hx-push-url="true">Load older</a>
+    </div>
     {% endif %}
 {% else %}
     <p class="empty-state">No rejected identifiers match the current filters.</p>
