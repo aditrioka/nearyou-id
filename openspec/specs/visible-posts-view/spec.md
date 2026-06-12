@@ -3,7 +3,6 @@
 ## Purpose
 
 The visible-posts-view capability defines `visible_posts` as the canonical read surface for any business code that lists or aggregates posts. It filters out auto-hidden rows, soft-deleted rows, and rows whose AUTHOR is shadow-banned or soft-deleted, so timelines, search, replies, and counters never have to repeat those predicates. The companion `RawFromPostsRule` Detekt rule pins the convention by failing CI on any raw `FROM posts` / `JOIN posts` outside the sanctioned allowlist (Repository own-content paths, the admin module, the report-target existence helper, and the migration view definitions themselves), preventing shadow-ban bypass at commit time rather than at audit time.
-
 ## Requirements
 ### Requirement: visible_posts view definition
 
@@ -48,7 +47,12 @@ Rows where `is_auto_hidden = TRUE` MUST NOT appear in `visible_posts`. Rows wher
 
 ### Requirement: View excludes shadow-banned and soft-deleted authors' posts
 
-Rows whose author has `is_shadow_banned = TRUE` or `deleted_at IS NOT NULL`, and rows that are themselves soft-deleted (`posts.deleted_at IS NOT NULL`), MUST NOT appear in `visible_posts` (added by V20; per docs/06 § Shadow Ban, a shadow-banned author's content is "invisible to others"). The own-content exception — a shadow-banned user sees their OWN content normally — is carried by the Repository own-content paths that read raw `posts` (docs/05 § Own-content exception), NOT by this viewer-agnostic view.
+Rows whose author has `is_shadow_banned = TRUE` or `deleted_at IS NOT NULL`, and rows that are themselves soft-deleted (`posts.deleted_at IS NOT NULL`), MUST NOT appear in `visible_posts` (added by V20; per docs/06 § Shadow Ban, a shadow-banned author's content is "invisible to others"). The own-content exception — a shadow-banned user sees their OWN content normally — is NOT carried by this viewer-agnostic view (views take no viewer parameter). It is carried by the consuming layer:
+
+- the Repository own-content paths that read raw `posts`/`users` (docs/05 § Own-content exception — e.g., the profile self read), and
+- as of `shadow-ban-feed-self-visibility`, the viewer-aware own-content self arms in the Nearby/Global timeline queries and in the like/reply `resolveVisiblePost` resolution (each a `UNION ALL` arm over raw `posts` scoped to `author_id = :viewer AND deleted_at IS NULL`, allowlisted via `@AllowRawPostsRead`).
+
+The view definition itself is unchanged by `shadow-ban-feed-self-visibility` — no migration; V20 remains the authoritative definition.
 
 #### Scenario: Shadow-banning an author hides their posts live
 - **WHEN** `users.is_shadow_banned` is flipped to `TRUE` for an author with existing posts
@@ -65,6 +69,10 @@ Rows whose author has `is_shadow_banned = TRUE` or `deleted_at IS NOT NULL`, and
 #### Scenario: Soft-deleted post is excluded
 - **WHEN** a `posts` row has `deleted_at IS NOT NULL`
 - **THEN** that row does not appear in `visible_posts`
+
+#### Scenario: View stays viewer-agnostic after the self-visibility change
+- **WHEN** querying `pg_views WHERE viewname = 'visible_posts'` after `shadow-ban-feed-self-visibility` ships
+- **THEN** the rendered definition still carries all four V20 predicates (`is_auto_hidden`, both `deleted_at IS NULL`, `is_shadow_banned`) AND contains no viewer-aware construct — no `UNION`, no `current_setting`, no self-arm (Postgres re-renders view definitions, so the pin is predicate presence/absence, not raw migration bytes)
 
 ### Requirement: Detekt rule RawFromPostsRule enforces view usage
 

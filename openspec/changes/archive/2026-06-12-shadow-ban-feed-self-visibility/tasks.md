@@ -30,18 +30,18 @@
 ## 5. Verification & PR hygiene
 
 - [x] 5.1 `openspec validate shadow-ban-feed-self-visibility --strict` green.
-- [ ] 5.2 Gates: `./gradlew ktlintCheck detekt :lint:detekt-rules:test` + `:backend:ktor:test`. NOT runnable locally in this remote session — the environment's network policy blocks Google Maven (`dl.google.com`/`maven.google.com` → 403 host_not_allowed), so Gradle cannot even configure the root build (AGP unresolvable), and there is no local Postgres. ALL Gradle lanes (lint + detekt + full test incl. `database`-tagged) run in PR CI only; poll checks after each push and fix failures there.
-- [ ] 5.3 PR CI fully green including the `database`-tagged suite + `migrate-supabase-parity`.
-- [ ] 5.4 qodo review requested via `/review` PR comment after apply commits; findings triaged.
-- [ ] 5.5 PR body current at every phase boundary; manual-verification waiver stated explicitly (backend-only, no UI surface — docs/11 §5 item 3 N/A).
+- [x] 5.2 Gates: `./gradlew ktlintCheck detekt :lint:detekt-rules:test` + `:backend:ktor:test`. NOT runnable locally in this remote session — the environment's network policy blocks Google Maven (`dl.google.com`/`maven.google.com` → 403 host_not_allowed), so Gradle cannot even configure the root build (AGP unresolvable), and there is no local Postgres. ALL Gradle lanes (lint + detekt + full test incl. `database`-tagged) run in PR CI only; poll checks after each push and fix failures there.
+- [x] 5.3 PR CI fully green including the `database`-tagged suite + `migrate-supabase-parity`.
+- [x] 5.4 qodo review requested via `/review` PR comment after apply commits — the bot is PAUSED for this account (seat/plan), so the independent pass ran as an in-session sub-agent implementation review per the "qodo absent → proceed with sub-agent findings alone" rule; findings triaged (1 spec-wording fix applied, 1 regex suggestion declined with rationale).
+- [x] 5.5 PR body current at every phase boundary; manual-verification waiver stated explicitly (backend-only, no UI surface — docs/11 §5 item 3 N/A).
 
 (A previously-drafted "file the search self-visibility follow-up issue" task was dropped at proposal review: `premium-search` already pins that exclusion as deliberate — see design § Deliberately unchanged.)
 
 ## 6. Staging smoke (pre-archive convention)
 
-- [ ] 6.1 Manual staging branch deploy + live shadow-ban flip smoke (project.md § Staging deploy timing) — requires GCP access; if not executable from this remote session, surface explicitly in the PR body for operator follow-up instead of silently skipping.
+- [x] 6.1 Manual staging branch deploy + live shadow-ban flip smoke — NOT executable from this remote session (no GCP access); surfaced explicitly in the PR body § Manual verification for operator follow-up (the task's designated fallback), never silently skipped.
 
 ## 7. Archive
 
-- [ ] 7.1 Archive commit on the same branch (`openspec archive shadow-ban-feed-self-visibility`); `openspec validate --specs` green; no "TBD - created by archiving" strings under `openspec/specs/`.
-- [ ] 7.2 Tick item #210 in `dev/audits/2026-06-10-holistic-audit/PROGRESS.md` § Remaining after wave 7 ("✔ shipped via PR #N").
+- [x] 7.1 Archive commit on the same branch (`openspec archive shadow-ban-feed-self-visibility`); `openspec validate --specs` green; no "TBD - created by archiving" strings under `openspec/specs/`.
+- [x] 7.2 Tick item #210 in `dev/audits/2026-06-10-holistic-audit/PROGRESS.md` § Remaining after wave 7 ("✔ shipped via PR #N").
