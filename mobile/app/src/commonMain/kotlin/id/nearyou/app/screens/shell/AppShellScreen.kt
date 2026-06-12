@@ -201,8 +201,10 @@ private fun HomeBrandTopBar() {
             Image(
                 painter = painterResource(logo),
                 contentDescription = stringResource(Res.string.app_name),
+                // Frame-1 annex: 40dp logo (full-bleed glyph per
+                // mobile-mockup-visual-conformance; was 28dp for the boxed asset).
                 modifier =
-                    Modifier.height(28.dp).testTag(
+                    Modifier.height(40.dp).testTag(
                         if (dark) SHELL_LOGO_DARK_TAG else SHELL_LOGO_LIGHT_TAG,
                     ),
             )

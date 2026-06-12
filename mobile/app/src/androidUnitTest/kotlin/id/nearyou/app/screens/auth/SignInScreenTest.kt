@@ -29,6 +29,9 @@ import kotlin.test.assertEquals
 
 private const val CTA_GOOGLE = "Masuk dengan Google"
 private const val CTA_RETRY = "Coba lagi"
+
+// signin_screen_title — retained in the catalog but NO LONGER RENDERED (mockup frame 13,
+// mobile-mockup-visual-conformance); asserted absent in the initial-render test.
 private const val TITLE = "Masuk ke NearYouID"
 private const val DISCLOSURE = "Akun Google dan akun Apple terpisah. Satu identifier = satu akun NearYouID"
 private const val ERR_NO_ACCOUNT = "Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya."
@@ -85,14 +88,15 @@ class SignInScreenTest {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
     }
 
-    // 6.7a — initial render shows CTA + title + disclosure.
+    // 6.7a — initial render shows CTA + disclosure and NO text title (frame 13: the large
+    // brand logo is the sole header; mobile-mockup-visual-conformance MODIFIED scenario).
     @Test
-    fun initialRender_showsCtaTitleAndDisclosure() {
+    fun initialRender_showsCtaAndDisclosureWithoutTitle() {
         installKoin(SignInOutcome.Cancelled)
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).assertExists()
-            onNodeWithText(TITLE).assertExists()
+            onNodeWithText(TITLE).assertDoesNotExist()
             onNodeWithText(DISCLOSURE).assertExists()
         }
     }

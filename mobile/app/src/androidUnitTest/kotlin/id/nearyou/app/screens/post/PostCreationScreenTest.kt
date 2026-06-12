@@ -3,6 +3,8 @@ package id.nearyou.app.screens.post
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -47,6 +49,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml) — pins the
 // composer copy alongside the render assertions.
@@ -63,6 +66,10 @@ private const val LOC_UNAVAILABLE = "Aktifkan lokasi untuk membuat postingan."
 private const val OPEN_SETTINGS = "Buka Pengaturan"
 private const val ERR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
 private const val RETRY = "Coba lagi"
+
+// mobile-mockup-visual-conformance (mockup frame 6): the static chip label + privacy note.
+private const val LOCATION_CHIP = "Lokasi saat ini"
+private const val PRIVACY_NOTE = "Lokasi kamu disamarkan hingga ±5 km sebelum tampil ke pengguna lain"
 
 // A 201 create body that ECHOES the author's actual coordinate — the minimal CreatedPostDto reads
 // only `id`, so neither -6.21 nor 106.85 must ever reach the rendered tree (PII discipline).
@@ -118,6 +125,32 @@ class PostCreationScreenTest {
             onNodeWithText(PLACEHOLDER).assertExists()
             onNodeWithText(COUNTER_ZERO).assertExists()
             onNodeWithText(CTA_POST).assertIsNotEnabled()
+        }
+    }
+
+    // mobile-mockup-visual-conformance § "Location chip and privacy note are rendered with static
+    // copy only" + § "Counter renders in the bottom composer bar" + § "No attachment toolbar".
+    @Test
+    fun chipAndPrivacyNote_renderStaticCopy_counterInBottomBar_noAttachmentToolbar() {
+        installKoin(FakeCreatePostFlow())
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}) } } }
+            // Chip + note render the static catalog copy (no coordinate/city — the only location
+            // strings on screen are these two fixed values).
+            onNodeWithText(LOCATION_CHIP).assertExists()
+            onNodeWithText(PRIVACY_NOTE).assertExists()
+            // Counter sits in the bottom composer bar — below the content field (the
+            // AppShellScreenTest bounds-math idiom).
+            val fieldBottom = onNodeWithTag(POST_CONTENT_FIELD_TAG).getUnclippedBoundsInRoot().bottom
+            val counterTop = onNodeWithText(COUNTER_ZERO).getUnclippedBoundsInRoot().top
+            assertTrue(
+                counterTop >= fieldBottom,
+                "the counter must sit in the bottom composer bar, below the content field " +
+                    "(counterTop=$counterTop, fieldBottom=$fieldBottom)",
+            )
+            // Negative guard: no attachment toolbar (media is deferred to the media roadmap phase).
+            onNodeWithContentDescription("image").assertDoesNotExist()
+            onNodeWithContentDescription("photo_camera").assertDoesNotExist()
         }
     }
 

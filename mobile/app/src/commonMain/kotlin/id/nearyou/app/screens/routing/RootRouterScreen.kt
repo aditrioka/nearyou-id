@@ -64,7 +64,7 @@ fun RootRouterScreen(
         Image(
             painter = painterResource(logo),
             contentDescription = stringResource(Res.string.app_name),
-            modifier = Modifier.size(120.dp),
+            modifier = Modifier.size(96.dp),
         )
         CircularProgressIndicator(modifier = Modifier.padding(top = 24.dp))
     }

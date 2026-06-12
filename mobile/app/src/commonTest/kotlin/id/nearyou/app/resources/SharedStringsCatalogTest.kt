@@ -45,7 +45,9 @@ import id.nearyou.resources.generated.resources.post_create_error_location
 import id.nearyou.resources.generated.resources.post_create_error_moderated
 import id.nearyou.resources.generated.resources.post_create_error_too_long
 import id.nearyou.resources.generated.resources.post_create_loading
+import id.nearyou.resources.generated.resources.post_create_location_chip
 import id.nearyou.resources.generated.resources.post_create_location_unavailable
+import id.nearyou.resources.generated.resources.post_create_privacy_note
 import id.nearyou.resources.generated.resources.post_create_title
 import id.nearyou.resources.generated.resources.post_detail_like_count
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
@@ -159,6 +161,8 @@ class SharedStringsCatalogTest {
             Res.string.post_create_error_location,
             Res.string.post_create_error_moderated,
             Res.string.post_create_location_unavailable,
+            Res.string.post_create_location_chip,
+            Res.string.post_create_privacy_note,
             // mobile-home-tab-host + mobile-global-timeline (3 tab labels + 3 tab icon content
             // descriptions + the Global title + the Following placeholder + the "lihat Global" CTA).
             // The Global empty/error states reuse timeline_loading / signin_error_network / cta_retry
@@ -226,7 +230,8 @@ class SharedStringsCatalogTest {
         // + reply-cap upsell + post-gone banner + Balas CTA; the loading/generic-error states reuse
         // timeline_loading / signin_error_network / cta_retry) = 84.
         // + 2 (mobile-session-expiry-and-proactive-refresh: signin_session_expired + timeline_session_redirect) = 86.
-        assertEquals(86, allDeclaredStrings.size)
+        // + 2 (mobile-mockup-visual-conformance: post_create_location_chip + post_create_privacy_note) = 88.
+        assertEquals(88, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }
