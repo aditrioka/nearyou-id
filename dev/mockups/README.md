@@ -67,7 +67,18 @@ building.
 3. **Read the caption** — it is the grounding layer: component mapping, spec citations,
    shipped-vs-proposed status, and deliberate deviations (e.g. asymmetric paddings that produce
    symmetric *visual* gaps are commented in the HTML).
-4. **Translate to the surface's idioms**, not literal CSS:
+4. **Generate the measurement annex when implementing** — don't eyeball spacing off a screenshot:
+   `dev/scripts/mockup-measure.sh <board.html> <frame-no>` (or `--list` to enumerate frames) emits
+   machine-readable redlining for one frame: per-element bounding boxes (frame-relative),
+   padding / gap / radius / typography, colors resolved back to their **token names** (matching
+   `NearYouColorScheme.kt`), and **animation parameters** (name / duration / easing, including
+   `::before`/`::after` shimmer-sweeps) — the part a static render can't show. Mobile-board values
+   are px ≡ **dp intent** (the M3 component in the caption still owns its metrics); admin-board
+   values are desktop CSS px under the frame-4b responsive contract. Output is generated on
+   demand from the board HTML — **never commit it** (it would drift the moment the board
+   changes). Applies to the two screen boards; the badge board's motion specs are already textual
+   in its "Catatan implementasi" cards.
+5. **Translate to the surface's idioms**, not literal CSS:
    - *Mobile boards* → Compose Multiplatform: the named M3 composable + `NearYouTheme` tokens
      (never hex literals), `stringResource` copy, the docs/11 § 2 contracts. Animations
      (shimmer/sweep/glow) map to `rememberInfiniteTransition` + animated `Brush` offsets — see the
@@ -76,7 +87,7 @@ building.
      vendored vanilla CSS: lift the design tokens from the board's `.frame` CSS-custom-property
      block into the panel stylesheet; fluid layout per the frame-4b responsive contract. No client
      framework, no CDN assets, no inline styles in production templates (docs/11 § 3.6).
-5. **Precedence on conflict**: `openspec/specs/` + `docs/02/03` govern *behavior*; mockups govern
+6. **Precedence on conflict**: `openspec/specs/` + `docs/02/03` govern *behavior*; mockups govern
    *look and layout*. If they disagree, the spec wins — flag the divergence, don't silently follow
    the mockup.
 

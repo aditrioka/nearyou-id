@@ -115,7 +115,11 @@ consumption guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
 - **Every UI-affecting change (proposal AND implementation) MUST consult the matching frame(s)
   before building.** Render the HTML — open it in a browser/preview, or capture it via a browser
   screenshot tool — whichever gives the agent the clearest read; then translate to Compose
-  Multiplatform idioms (the M3 components per § 2.1–2.6, theme tokens not literals).
+  Multiplatform idioms (the M3 components per § 2.1–2.6, theme tokens not literals). For exact
+  spacing / typography / token mapping / animation parameters, generate the per-frame
+  **measurement annex** (`dev/scripts/mockup-measure.sh <board> <frame-no>` — README step 4)
+  instead of reading pixel offsets off a screenshot; the annex is on-demand output, never
+  committed.
 - **Precedence**: `openspec/specs/` + `docs/02/03` govern *behavior*; the mockups govern *look and
   layout*. On conflict, specs/docs win — flag the divergence instead of silently following the
   mockup. Frame captions cite the governing doc per element and tag each frame as shipped
@@ -168,7 +172,9 @@ guide: [`dev/mockups/README.md`](../dev/mockups/README.md).
 
 - **Every admin-UI-affecting change (proposal AND implementation — whatever the skill) MUST
   consult the matching frame(s) before building.** Render the HTML (browser / preview / headless
-  Chrome screenshot — agent's choice), then translate to the panel's idioms: Pebble templates +
+  Chrome screenshot — agent's choice); for exact spacing / typography / token mapping, generate
+  the per-frame **measurement annex** (`dev/scripts/mockup-measure.sh <board> <frame-no>` —
+  README step 4; on-demand output, never committed); then translate to the panel's idioms: Pebble templates +
   HTMX fragment swaps (with the existing no-JS fallback discipline) + **vendored vanilla CSS**
   (design tokens as CSS custom properties copied from the board's `.frame` block). No client
   framework, no CDN assets, no inline styles in production templates.
