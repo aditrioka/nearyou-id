@@ -1005,6 +1005,7 @@ fun Application.module() {
                     ?: error("Missing required secret '$slot' (set ADMIN_CSRF_HMAC_KEY)")
             Base64.getDecoder().decode(base64)
         },
+        environmentName = ktorEnv,
     )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime

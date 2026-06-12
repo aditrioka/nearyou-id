@@ -42,6 +42,9 @@ object AdminAuthTestSupport {
     /** Fixed HMAC key for the test CSRF derivation. NOT a real secret. */
     val FIXED_CSRF_HMAC_KEY: ByteArray = ByteArray(32) { (it + 101).toByte() }
 
+    /** Deployment-env name wired into admin() under test — rendered uppercased as the env chip. */
+    const val TEST_ENVIRONMENT_NAME = "test"
+
     private val secureRandom = SecureRandom()
     private val base32 = Base32()
     private val totpGenerator = DefaultCodeGenerator(HashingAlgorithm.SHA1, TotpVerifier.DIGITS)
@@ -284,6 +287,7 @@ object AdminAuthTestSupport {
                     dataSource = dataSource,
                     aesKeyProvider = aesKeyOverride ?: { FIXED_AES_KEY },
                     csrfHmacKeyProvider = { FIXED_CSRF_HMAC_KEY },
+                    environmentName = TEST_ENVIRONMENT_NAME,
                 )
             }
             val client = createClient { followRedirects = false }

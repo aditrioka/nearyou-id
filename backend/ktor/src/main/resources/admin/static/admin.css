@@ -65,20 +65,21 @@ a:hover { text-decoration: underline; }
   *, *::before, *::after { transition: none !important; }
 }
 
-/* ---- authenticated shell grid: header / nav / main / footer ------------ */
+/* ---- vendored inline-SVG icons (icons.peb macro) ------------------------ */
+.ic { width: 16px; height: 16px; flex: none; }
+
+/* ---- authenticated shell grid: header / nav / main (no footer — frame 2) */
 body.shell {
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr);
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr;
   grid-template-areas:
     'nav header'
-    'nav main'
-    'nav footer';
+    'nav main';
 }
 body.shell > header { grid-area: header; }
 body.shell > nav { grid-area: nav; }
 body.shell > main { grid-area: main; }
-body.shell > footer { grid-area: footer; }
 
 body.shell > header {
   display: flex;
@@ -89,11 +90,25 @@ body.shell > header {
   background: var(--sc-low);
   border-bottom: 1px solid var(--outline-variant);
 }
-body.shell > header h1 {
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: -0.1px;
   color: var(--on-surface);
+}
+.spacer { flex: 1; }
+.envchip {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  background: var(--warning-container);
+  color: var(--on-warning-container);
+  white-space: nowrap;
 }
 
 body.shell > nav {
@@ -126,8 +141,13 @@ body.shell > nav .brand svg { width: 30px; height: 30px; color: var(--primary); 
   color: var(--on-surface-variant);
 }
 .nitem:hover { background: var(--sc); text-decoration: none; }
+.nitem .ic { color: inherit; }
+.nitem.active {
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+}
 
-/* session block pinned to the sidebar bottom (logout) */
+/* session identity box pinned to the sidebar bottom (frame 2) */
 .session {
   margin-top: auto;
   background: var(--sc-lowest);
@@ -136,15 +156,23 @@ body.shell > nav .brand svg { width: 30px; height: 30px; color: var(--primary); 
   padding: 10px 12px;
   font-size: 11.5px;
 }
-.session form { display: block; }
+.session-id { display: flex; align-items: center; gap: 8px; }
+.session-line { color: var(--on-surface-variant); margin-top: 4px; }
+.session form { display: block; margin-top: 8px; }
+.rolechip {
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  background: var(--sc-high);
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+.rolechip.owner { background: var(--premium-container); color: var(--on-premium-container); }
 
 body.shell > main { padding: 20px 24px 26px; min-width: 0; }
-body.shell > footer {
-  padding: 10px 24px;
-  border-top: 1px solid var(--outline-variant);
-  background: var(--sc-low);
-}
-body.shell > footer p { font-size: 11px; color: var(--on-surface-variant); }
 
 /* hamburger drawer plumbing (visible below ~1024 px only) */
 .nav-toggle { position: absolute; left: -9999px; }
@@ -328,7 +356,7 @@ table.tbl code {
   color: var(--on-surface);
 }
 .cardlet h3,
-.cardlet h4 { font-size: 13.5px; font-weight: 800; }
+.cardlet h4 { font-size: 13.5px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
 a.cardlet:hover { text-decoration: none; border-color: var(--primary); }
 a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px; font-weight: 400; }
 .card-grid {
@@ -358,6 +386,24 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
 .kv .note { color: var(--on-surface-variant); font-weight: 400; }
 
 .hint { display: block; font-size: 10.5px; color: var(--on-surface-variant); margin-top: 6px; font-weight: 400; text-transform: none; letter-spacing: normal; }
+
+/* informational banner (frame 2 CSRF note; mirrors the login error banner) */
+.banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.banner .ic { margin-top: 1px; }
+.banner.info {
+  margin-top: 16px;
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+}
 
 .outcome-message {
   display: inline-block;
@@ -512,12 +558,6 @@ body.bare > main {
   display: block;
   margin: 0 auto;
 }
-.login-card h2 {
-  text-align: center;
-  font-size: 15px;
-  font-weight: 800;
-  margin-top: 10px;
-}
 .fld { margin-top: 16px; display: block; }
 .fld > span:first-child {
   display: block;
@@ -528,18 +568,43 @@ body.bare > main {
   color: var(--on-surface-variant);
   margin-bottom: 5px;
 }
-.fld input {
-  width: 100%;
+/* input row with a leading icon (frame 1): the wrapper carries the border;
+   the inner input is chromeless so the icon sits inside the field */
+.inp-wrap {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   height: 44px;
+  padding: 0 14px;
   border: 1px solid var(--outline-variant);
   border-radius: 10px;
-  padding: 0 14px;
+  background: var(--surface);
+}
+.inp-wrap:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.inp-wrap .ic { width: 18px; height: 18px; color: var(--on-surface-variant); }
+.inp-wrap input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  padding: 0;
   font: inherit;
   font-size: 13.5px;
-  background: var(--surface);
+  background: transparent;
   color: var(--on-surface);
 }
-.fld input::placeholder { color: var(--outline); }
+.inp-wrap input:focus { outline: none; }
+.inp-wrap input::placeholder { color: var(--outline); }
+.pw-toggle {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--on-surface-variant);
+}
 .login-card .btn { height: 44px; margin-top: 22px; }
 
 /* error banner (login GENERIC_ERROR_MESSAGE) */
@@ -556,6 +621,7 @@ body.bare > main {
   color: var(--on-error-container);
   font-weight: 600;
 }
+.error .ic { margin-top: 1px; }
 
 /* ===========================================================================
    Responsive contract (frame 4b)
@@ -567,8 +633,7 @@ body.bare > main {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       'header'
-      'main'
-      'footer';
+      'main';
   }
   .nav-burger {
     display: flex;

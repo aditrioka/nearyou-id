@@ -1,3 +1,4 @@
+{% import "icons.peb" %}
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -35,25 +36,38 @@
        checkbox is visually hidden; the header burger label and the scrim
        label toggle it below ~1024 px. No JS involved. #}
     <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Toggle navigation">
+    {# Top bar (mockup frame 2): burger (narrow viewports) + active page
+       title crumb + deployment-environment chip. #}
     <header>
         <label for="nav-toggle" class="nav-burger" aria-hidden="true"><span></span><span></span><span></span></label>
-        <h1>NearYouID Admin Panel</h1>
+        <div class="crumb"><b>{{ pageTitle }}</b></div>
+        <div class="spacer"></div>
+        <span class="envchip">{{ envName }}</span>
     </header>
+    {# Grouped sidebar — shipped pages only (admin-mockup-parity design.md
+       D8): no Usulan placeholders, no board-annotation status dots. The
+       Dashboard item is the shipped /admin/ landing. #}
     <nav>
         <span class="brand">
             <svg viewBox="31 31 46 46" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="NearYouID"><path d="M43.8,50.2 L54,56.1 L64.2,50.2 L64.2,38.5 L54,32.6 L43.8,38.5 L43.8,45.5"/><path d="M54,56.1 L43.8,50.2 L33.7,56.1 L33.7,67.9 L43.8,73.7 L46.3,73.7"/><path d="M64.2,73.7 L74.3,67.9 L74.3,56.1 L68.3,52.6"/><path d="M64.2,73.7 L56.7,73.7"/><circle cx="51.5" cy="73.7" r="2" fill="currentColor" stroke="none"/></svg>
         </span>
         <span class="ngroup">Moderasi</span>
-        <a class="nitem" href="/admin/reports">Reports</a>
-        <a class="nitem" href="/admin/users">Users</a>
+        <a class="nitem{% if activePath == "/admin/" %} active{% endif %}" href="/admin/">{{ icon("dashboard") }}Dashboard</a>
+        <a class="nitem{% if activePath == "/admin/reports" %} active{% endif %}" href="/admin/reports">{{ icon("flag") }}Reports</a>
+        <a class="nitem{% if activePath == "/admin/users" %} active{% endif %}" href="/admin/users">{{ icon("group") }}Users</a>
         <span class="ngroup">Anti-abuse &amp; keamanan</span>
-        <a class="nitem" href="/admin/rejected-identifiers">Rejected identifiers</a>
+        <a class="nitem{% if activePath == "/admin/rejected-identifiers" %} active{% endif %}" href="/admin/rejected-identifiers">{{ icon("block") }}Rejected identifiers</a>
         <span class="ngroup">Sistem</span>
-        <a class="nitem" href="/admin/actions-log">Audit log</a>
+        <a class="nitem{% if activePath == "/admin/actions-log" %} active{% endif %}" href="/admin/actions-log">{{ icon("receipt_long") }}Audit log</a>
+        {# Identity box (design.md D5): role chip + display name + the
+           session line (idle window + the sooner of idle-deadline /
+           absolute-cap expiry, HH:mm UTC) + logout. #}
         <div class="session">
+            <div class="session-id"><span class="rolechip {{ adminRole }}">{{ adminRole | upper }}</span><b>{{ adminName }}</b></div>
+            <div class="session-line">Session idle {{ sessionIdleMinutes }} m · expires {{ sessionExpiresAt }} UTC</div>
             <form action="/admin/logout" method="POST">
                 <input type="hidden" name="_csrf" value="{{ csrfToken | escape("html") }}">
-                <button type="submit" class="btn outl sm block">Logout</button>
+                <button type="submit" class="btn outl sm block">{{ icon("logout") }}Logout</button>
             </form>
         </div>
     </nav>
@@ -62,10 +76,5 @@
     <main>
         {% block content %}{% endblock %}
     </main>
-    {% if csrfToken is not null %}
-    <footer>
-        <p>NearYouID admin panel.</p>
-    </footer>
-    {% endif %}
 </body>
 </html>

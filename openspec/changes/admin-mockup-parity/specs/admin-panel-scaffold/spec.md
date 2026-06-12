@@ -38,7 +38,7 @@ The system SHALL expose an admin-panel route subtree under the `/admin/*` URL na
 
 - **WHEN** a client sends `POST /admin/` (or any non-GET method on the bare index path) to the `:backend:ktor` deployable
 - **THEN** the response status SHALL be 405 Method Not Allowed
-- **AND** `POST /admin` (the bare path, no trailing slash) SHALL also return 405 — mounting the GET redirect makes the path node exist, so non-GET methods on it surface as method-not-allowed rather than 404
+- **AND** `POST /admin` (the bare path, no trailing slash) SHALL return 404 — the redirect is registered for GET only, and Ktor resolves a non-GET on that bare node as path-not-found (verified at implementation time), preserving the unmapped-route contract for every non-GET method on the bare path
 - **AND** the route exists but only GET is wired on `/admin/` itself (the `/admin/login` + `/admin/logout` paths handle POST; subsequent admin changes will wire POST/PUT/DELETE handlers on their own paths as auth-gated business actions land)
 
 ### Requirement: Shared base layout template exists and is extended by admin pages

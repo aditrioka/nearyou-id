@@ -78,6 +78,7 @@ class AdminCsrfMiddlewareTest : StringSpec({
                     dataSource = dataSource,
                     aesKeyProvider = { AdminAuthTestSupport.FIXED_AES_KEY },
                     csrfHmacKeyProvider = { AdminAuthTestSupport.FIXED_CSRF_HMAC_KEY },
+                    environmentName = AdminAuthTestSupport.TEST_ENVIRONMENT_NAME,
                 )
                 val auditLogger = AdminAuditLogger(dataSource)
                 routing {

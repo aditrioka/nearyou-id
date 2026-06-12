@@ -36,7 +36,7 @@ class AdminPanelScaffoldAuthTest : StringSpec({
 
     fun seedAdmin(): AdminAuthTestSupport.SeededAdmin = AdminAuthTestSupport.seedAdmin(dataSource).also { seeded.add(it.id) }
 
-    "authenticated GET /admin/ returns 200 with rendered Admin Panel content" {
+    "authenticated GET /admin/ renders the frame-2 shell: nav, identity box, top bar, no footer" {
         val admin = seedAdmin()
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
@@ -46,10 +46,119 @@ class AdminPanelScaffoldAuthTest : StringSpec({
                 }
             res.status shouldBe HttpStatusCode.OK
             val body = res.bodyAsText()
-            body shouldContain "Admin Panel"
+
+            // Landing content block (greeting identifies the index page).
+            body shouldContain "Welcome back, Test Admin"
+
+            // Grouped sidebar: exactly the five shipped nav items, each with
+            // its data-icon-identified inline SVG (spec scenario "Authenticated
+            // page extends the base layout and renders all structural sections").
             body shouldContain "<header>"
             body shouldContain "<nav>"
-            body shouldContain "<footer>"
+            body shouldContain "data-icon=\"dashboard\""
+            body shouldContain "data-icon=\"flag\""
+            body shouldContain "data-icon=\"group\""
+            body shouldContain "data-icon=\"block\""
+            body shouldContain "data-icon=\"receipt_long\""
+            // No Usulan menu items, no board-annotation status dots.
+            (body.contains("Post edit history")) shouldBe false
+            (body.contains("Attestation review")) shouldBe false
+            (body.contains("Feature flags")) shouldBe false
+            // No page footer — frame 2 has none (deliberate removal).
+            (body.contains("<footer>")) shouldBe false
+
+            // Identity box: role chip + display name + session line.
+            body shouldContain "rolechip"
+            body shouldContain "OWNER"
+            body shouldContain "Session idle 30 m"
+            body shouldContain "UTC"
+
+            // Top bar: page title crumb + uppercased env chip.
+            body shouldContain "envchip"
+            body shouldContain AdminAuthTestSupport.TEST_ENVIRONMENT_NAME.uppercase()
+
+            // Landing drops the static User moderation card (spec scenario).
+            (body.contains("User moderation")) shouldBe false
+        }
+    }
+
+    "bare GET /admin redirects 302 to /admin/ regardless of session" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val unauthed = client.get("/admin")
+            unauthed.status shouldBe HttpStatusCode.Found
+            unauthed.headers[HttpHeaders.Location] shouldBe "/admin/"
+
+            val authed =
+                client.get("/admin") {
+                    header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
+                }
+            authed.status shouldBe HttpStatusCode.Found
+            authed.headers[HttpHeaders.Location] shouldBe "/admin/"
+        }
+    }
+
+    "POST /admin (bare path) stays 404 — the redirect is GET-only" {
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.post("/admin")
+            res.status shouldBe HttpStatusCode.NotFound
+        }
+    }
+
+    "active nav item + crumb reflect the current page on /admin/reports" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body =
+                client.get("/admin/reports") {
+                    header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
+                }.bodyAsText()
+            // The Reports nav item carries the active-state class…
+            body shouldContain "nitem active\" href=\"/admin/reports\""
+            // …and the top-bar crumb names the page.
+            body shouldContain "<div class=\"crumb\"><b>Reports</b></div>"
+        }
+    }
+
+    "session line shows the absolute cap when it is the sooner bound" {
+        val admin = seedAdmin()
+        // Session within 10 minutes of its absolute cap: idle deadline
+        // (now + 30 m) is LATER than expires_at → the cap must render.
+        val cap = java.time.Instant.now().plusSeconds(10 * 60)
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id, expiresAt = cap)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body =
+                client.get("/admin/") {
+                    header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
+                }.bodyAsText()
+            val expected =
+                java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+                    .withZone(java.time.ZoneOffset.UTC)
+                    .format(cap)
+            body shouldContain "expires $expected UTC"
+        }
+    }
+
+    "session line shows the idle deadline for a fresh session" {
+        val admin = seedAdmin()
+        // Default seed: expires_at = now + 8 h → idle deadline (now + 30 m)
+        // is the sooner bound. Allow a one-minute boundary race.
+        val before = java.time.Instant.now()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body =
+                client.get("/admin/") {
+                    header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
+                }.bodyAsText()
+            val fmt =
+                java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+                    .withZone(java.time.ZoneOffset.UTC)
+            val candidates =
+                listOf(0L, 60L, 120L).map { skew ->
+                    "expires ${fmt.format(before.plusSeconds(30 * 60 + skew))} UTC"
+                }
+            (candidates.any { body.contains(it) }) shouldBe true
         }
     }
 

@@ -73,6 +73,24 @@ class AdminLoginRouteTest : StringSpec({
         }
     }
 
+    "login page presentation matches mockup frame 1 (no heading, icons, visibility toggle)" {
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body = client.get("/admin/login").bodyAsText()
+            // No "Admin login" heading — frame 1 shows the logo only.
+            body shouldNotContain "Admin login"
+            // Leading inline-SVG icons, identified by data-icon.
+            body shouldContain "data-icon=\"mail\""
+            body shouldContain "data-icon=\"key\""
+            body shouldContain "data-icon=\"timer\""
+            // Password visibility toggle: button + both eye glyphs + wiring script.
+            body shouldContain "id=\"pw-toggle\""
+            body shouldContain "type=\"button\""
+            body shouldContain "data-icon=\"visibility\""
+            body shouldContain "data-icon=\"visibility_off\""
+            body shouldContain "input.type === 'password'"
+        }
+    }
+
     "login page does not include the CSRF meta tag (no session)" {
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             val body = client.get("/admin/login").bodyAsText()
@@ -165,7 +183,12 @@ class AdminLoginRouteTest : StringSpec({
                 res.headers.getAll(HttpHeaders.SetCookie).orEmpty(),
             ).shouldBeNull()
             AdminAuthTestSupport.countSessions(dataSource, admin.id) shouldBe 0
-            res.bodyAsText() shouldContain AdminLoginRoutes.GENERIC_ERROR_MESSAGE
+            val failureBody = res.bodyAsText()
+            failureBody shouldContain AdminLoginRoutes.GENERIC_ERROR_MESSAGE
+            // Frame-1 presentation: the generic error banner carries its icon
+            // (byte-equality across failure paths is owned by the dedicated
+            // no-enumeration test below).
+            failureBody shouldContain "data-icon=\"error\""
         }
     }
 

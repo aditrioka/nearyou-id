@@ -1,7 +1,5 @@
 package id.nearyou.app.admin.routes
 
-import id.nearyou.app.admin.auth.AdminAuthProvider
-import id.nearyou.app.admin.auth.HashUtil
 import id.nearyou.app.admin.rejectedidentifiers.ALLOWED_IDENTIFIER_TYPES
 import id.nearyou.app.admin.rejectedidentifiers.ALLOWED_REJECTION_REASONS
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
@@ -51,7 +49,7 @@ import java.time.format.DateTimeFormatter
  */
 fun Route.adminRejectedIdentifiers(
     repo: AdminRejectedIdentifiersRepository,
-    csrfHmacKeyProvider: () -> ByteArray,
+    layout: AdminLayout,
 ) {
     get("/rejected-identifiers") {
         val params = call.request.queryParameters
@@ -117,12 +115,12 @@ fun Route.adminRejectedIdentifiers(
 
                 val isHtmx = call.request.headers["HX-Request"] == "true"
                 if (!isHtmx) {
-                    // Full-page render extends layout.peb → must carry the CSRF
-                    // token so the layout's meta tag + logout-form token render.
-                    call.request.cookies[AdminAuthProvider.COOKIE_NAME]
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { HashUtil.deriveCsrfFromSessionToken(it, csrfHmacKeyProvider()) }
-                        ?.let { put("csrfToken", it) }
+                    layout.putShellModel(
+                        call,
+                        this,
+                        pageTitle = "Rejected identifiers",
+                        activePath = "/admin/rejected-identifiers",
+                    )
                 }
             }
 
