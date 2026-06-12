@@ -183,7 +183,7 @@ Gates: `testDevDebugUnitTest` + `testDevReleaseUnitTest` + `iosSimulatorArm64Tes
 
 ### Operator decisions on the QUESTION list (2026-06-11, in-chat)
 
-1. **Shadow-ban feed self-visibility — APPROVED** → issue [#210](https://github.com/aditrioka/nearyou-id/issues/210).
+1. **Shadow-ban feed self-visibility — APPROVED** → issue [#210](https://github.com/aditrioka/nearyou-id/issues/210). ✔ **Shipped via PR [#243](https://github.com/aditrioka/nearyou-id/pull/243)** (`shadow-ban-feed-self-visibility`): Nearby/Global own-content UNION ALL self-arm + like/reply resolveVisiblePost self-arm + reply-list author bypass; Following pinned as deliberately unchanged (self-follow impossible).
 2. **/followers constant-404 alignment — APPROVED** → issue [#211](https://github.com/aditrioka/nearyou-id/issues/211). ✔ **Shipped via PR [#222](https://github.com/aditrioka/nearyou-id/pull/222)** (`social-list-profile-summaries`): lists + `POST /follows` adopt the profile constant-404; 409 `follow_blocked` removed.
 3. **Social lists embed profile summaries (kill N+1) — APPROVED** → comment on existing [#196](https://github.com/aditrioka/nearyou-id/issues/196); sequenced BEFORE the mobile profile/follow screens. ✔ **Shipped via PR [#222](https://github.com/aditrioka/nearyou-id/pull/222)** (same change): followers/following via INNER `JOIN visible_users`, blocks via chat-partner LEFT-JOIN masking.
 4. **Batched-Lua timeline limiter — APPROVED, not urgent** → issue [#212](https://github.com/aditrioka/nearyou-id/issues/212) (ships with the `timeline-read-rate-limit` spec amendment).

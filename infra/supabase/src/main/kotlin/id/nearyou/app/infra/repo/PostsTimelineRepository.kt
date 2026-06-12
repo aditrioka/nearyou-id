@@ -6,7 +6,9 @@ import java.util.UUID
 data class TimelineRow(
     val id: UUID,
     val authorId: UUID,
-    // Author display identity from visible_users (shadow-ban-safe; NOT NULL since V2).
+    // Author display identity (NOT NULL since V2): visible_users on the visible arm; raw
+    // users on the own-content self arm, whose rows are always the viewer's own
+    // (shadow-ban-feed-self-visibility).
     val authorUsername: String,
     val authorDisplayName: String,
     val content: String,
@@ -21,9 +23,11 @@ data class TimelineRow(
 
 interface PostsTimelineRepository {
     /**
-     * Canonical Nearby query — returns up to [limit] rows from `visible_posts` within
-     * [radiusMeters] of the viewer, with bidirectional `user_blocks` exclusion baked in.
-     * Keyset on `(created_at DESC, id DESC)`.
+     * Canonical Nearby query — returns up to [limit] rows within [radiusMeters] of the
+     * viewer: `visible_posts` with bidirectional `user_blocks` exclusion for everyone
+     * else's posts, UNION ALL'd with the viewer's own-content self arm
+     * (shadow-ban-feed-self-visibility — a shadow-banned author still sees their own
+     * posts). Keyset on `(created_at DESC, id DESC)`.
      */
     fun nearby(
         viewerId: UUID,

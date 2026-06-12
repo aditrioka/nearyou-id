@@ -123,16 +123,17 @@ class LikeEndpointsTest : StringSpec({
     fun seedPost(
         authorId: UUID,
         autoHidden: Boolean = false,
+        softDeleted: Boolean = false,
     ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
-                INSERT INTO posts (id, author_id, content, display_location, actual_location, is_auto_hidden)
+                INSERT INTO posts (id, author_id, content, display_location, actual_location, is_auto_hidden, deleted_at)
                 VALUES (?, ?, ?,
                   ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
                   ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
-                  ?)
+                  ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
@@ -143,6 +144,11 @@ class LikeEndpointsTest : StringSpec({
                 ps.setDouble(6, 106.8)
                 ps.setDouble(7, -6.2)
                 ps.setBoolean(8, autoHidden)
+                if (softDeleted) {
+                    ps.setTimestamp(9, java.sql.Timestamp.from(java.time.Instant.now()))
+                } else {
+                    ps.setNull(9, java.sql.Types.TIMESTAMP)
+                }
                 ps.executeUpdate()
             }
         }
@@ -284,7 +290,7 @@ class LikeEndpointsTest : StringSpec({
         }
     }
 
-    "POST /like on soft-deleted (auto-hidden) post returns 404 and inserts no row" {
+    "POST /like on auto-hidden post returns 404 and inserts no row" {
         val (liker, tl) = seedUser()
         val (author, _) = seedUser()
         val p = seedPost(author, autoHidden = true)
@@ -294,6 +300,28 @@ class LikeEndpointsTest : StringSpec({
                     createClient { install(ClientCN) { json() } }
                         .post("/api/v1/posts/$p/like") { header(HttpHeaders.Authorization, "Bearer $tl") }
                 resp.status shouldBe HttpStatusCode.NotFound
+            }
+            countLikeRows(p, liker) shouldBe 0
+        } finally {
+            cleanup(liker, author)
+        }
+    }
+
+    "POST /like on soft-deleted post (deleted_at set) returns 404 and inserts no row" {
+        // The shipped spec's "Soft-deleted post" scenario actually exercised auto-hide;
+        // shadow-ban-feed-self-visibility adds a real deleted_at case for non-authors.
+        val (liker, tl) = seedUser()
+        val (author, _) = seedUser()
+        val p = seedPost(author, softDeleted = true)
+        try {
+            withLikes {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/posts/$p/like") { header(HttpHeaders.Authorization, "Bearer $tl") }
+                resp.status shouldBe HttpStatusCode.NotFound
+                Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["error"]!!.jsonObject["code"]!!
+                    .jsonPrimitive.content shouldBe "post_not_found"
             }
             countLikeRows(p, liker) shouldBe 0
         } finally {
@@ -337,17 +365,108 @@ class LikeEndpointsTest : StringSpec({
         }
     }
 
-    "404 body identical across all four invisibility cases (byte-for-byte)" {
+    "POST /like — shadow-banned author can like their OWN post (204 + row inserted)" {
+        val (author, at) = seedUser(shadowBanned = true)
+        val p = seedPost(author)
+        try {
+            withLikes {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/posts/$p/like") { header(HttpHeaders.Authorization, "Bearer $at") }
+                resp.status shouldBe HttpStatusCode.NoContent
+            }
+            countLikeRows(p, author) shouldBe 1
+        } finally {
+            cleanup(author)
+        }
+    }
+
+    "GET /likes/count — shadow-banned author gets 200 on OWN post; own like excluded from the count" {
+        val (author, at) = seedUser(shadowBanned = true)
+        val p = seedPost(author)
+        try {
+            insertLike(p, author)
+            withLikes {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/posts/$p/likes/count") {
+                            header(HttpHeaders.Authorization, "Bearer $at")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                // The count stays visible_users-filtered and viewer-independent: the
+                // shadow-banned author's own like is NOT counted, even for the author
+                // (post-likes spec "Own like visible as liked_by_viewer but excluded
+                // from the public count" — the liked_by_viewer half is pinned by the
+                // timeline service tests, not here).
+                Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["count"]!!.jsonPrimitive.content shouldBe "0"
+            }
+        } finally {
+            cleanup(author)
+        }
+    }
+
+    "shadow-banned author's post stays 404 for OTHER callers on POST /like and GET /likes/count" {
+        val (liker, tl) = seedUser()
+        val (author, _) = seedUser(shadowBanned = true)
+        val p = seedPost(author)
+        try {
+            withLikes {
+                val client = createClient { install(ClientCN) { json() } }
+                val postResp =
+                    client.post("/api/v1/posts/$p/like") { header(HttpHeaders.Authorization, "Bearer $tl") }
+                postResp.status shouldBe HttpStatusCode.NotFound
+                Json.parseToJsonElement(postResp.bodyAsText())
+                    .jsonObject["error"]!!.jsonObject["code"]!!
+                    .jsonPrimitive.content shouldBe "post_not_found"
+                val countResp =
+                    client.get("/api/v1/posts/$p/likes/count") {
+                        header(HttpHeaders.Authorization, "Bearer $tl")
+                    }
+                countResp.status shouldBe HttpStatusCode.NotFound
+                Json.parseToJsonElement(countResp.bodyAsText())
+                    .jsonObject["error"]!!.jsonObject["code"]!!
+                    .jsonPrimitive.content shouldBe "post_not_found"
+            }
+            countLikeRows(p, liker) shouldBe 0
+        } finally {
+            cleanup(liker, author)
+        }
+    }
+
+    "POST /like — author still 404s on their OWN soft-deleted post (self arm keeps deleted_at IS NULL)" {
+        val (author, at) = seedUser()
+        val p = seedPost(author, softDeleted = true)
+        try {
+            withLikes {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/posts/$p/like") { header(HttpHeaders.Authorization, "Bearer $at") }
+                resp.status shouldBe HttpStatusCode.NotFound
+                Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["error"]!!.jsonObject["code"]!!
+                    .jsonPrimitive.content shouldBe "post_not_found"
+            }
+            countLikeRows(p, author) shouldBe 0
+        } finally {
+            cleanup(author)
+        }
+    }
+
+    "404 body identical across all six invisibility cases (byte-for-byte)" {
         val (l1, t1) = seedUser()
         val (a1, _) = seedUser()
         val missingUuid = UUID.randomUUID()
-        val softDel = seedPost(a1, autoHidden = true)
+        val autoHiddenPost = seedPost(a1, autoHidden = true)
+        val softDeletedPost = seedPost(a1, softDeleted = true)
         val (l2, t2) = seedUser()
         val (a2, _) = seedUser()
         val p2 = seedPost(a2)
         val (l3, t3) = seedUser()
         val (a3, _) = seedUser()
         val p3 = seedPost(a3)
+        val (a4, _) = seedUser(shadowBanned = true)
+        val p4 = seedPost(a4)
         try {
             insertBlock(l2, a2) // caller blocks author
             insertBlock(a3, l3) // author blocks caller
@@ -358,7 +477,10 @@ class LikeEndpointsTest : StringSpec({
                     client.post("/api/v1/posts/$missingUuid/like") { header(HttpHeaders.Authorization, "Bearer $t1") }
                         .bodyAsText()
                 bodies +=
-                    client.post("/api/v1/posts/$softDel/like") { header(HttpHeaders.Authorization, "Bearer $t1") }
+                    client.post("/api/v1/posts/$autoHiddenPost/like") { header(HttpHeaders.Authorization, "Bearer $t1") }
+                        .bodyAsText()
+                bodies +=
+                    client.post("/api/v1/posts/$softDeletedPost/like") { header(HttpHeaders.Authorization, "Bearer $t1") }
                         .bodyAsText()
                 bodies +=
                     client.post("/api/v1/posts/$p2/like") { header(HttpHeaders.Authorization, "Bearer $t2") }
@@ -366,11 +488,16 @@ class LikeEndpointsTest : StringSpec({
                 bodies +=
                     client.post("/api/v1/posts/$p3/like") { header(HttpHeaders.Authorization, "Bearer $t3") }
                         .bodyAsText()
+                // shadow-banned-author cause (non-author caller) — added by
+                // shadow-ban-feed-self-visibility; must stay byte-identical.
+                bodies +=
+                    client.post("/api/v1/posts/$p4/like") { header(HttpHeaders.Authorization, "Bearer $t1") }
+                        .bodyAsText()
             }
             bodies[0] shouldBe "{\"error\":{\"code\":\"post_not_found\"}}"
             bodies.toSet().size shouldBe 1
         } finally {
-            cleanup(l1, a1, l2, a2, l3, a3)
+            cleanup(l1, a1, l2, a2, l3, a3, a4)
         }
     }
 

@@ -705,6 +705,156 @@ class ReplyEndpointsTest : StringSpec({
         }
     }
 
+    // ---- shadow-ban-feed-self-visibility: own-content self arm + author bypass ----
+
+    "POST /replies — shadow-banned author can reply to their OWN post (201)" {
+        val (author, at) = seedUser(shadowBanned = true)
+        try {
+            val p = seedPost(author)
+            withReplies {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/posts/$p/replies") {
+                            header(HttpHeaders.Authorization, "Bearer $at")
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"content":"replying on my own thread"}""")
+                        }
+                resp.status shouldBe HttpStatusCode.Created
+                val body = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
+                body["author_id"]!!.jsonPrimitive.content shouldBe author.toString()
+                body["post_id"]!!.jsonPrimitive.content shouldBe p.toString()
+            }
+        } finally {
+            cleanup(author)
+        }
+    }
+
+    "POST /replies — author can reply to their OWN auto-hidden post (201)" {
+        val (author, at) = seedUser()
+        try {
+            val p = seedPost(author, autoHidden = true)
+            withReplies {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/posts/$p/replies") {
+                            header(HttpHeaders.Authorization, "Bearer $at")
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"content":"auto-hide is transparent to the author"}""")
+                        }
+                resp.status shouldBe HttpStatusCode.Created
+            }
+        } finally {
+            cleanup(author)
+        }
+    }
+
+    "GET /replies — shadow-banned author reads OWN post's thread (200) with their own replies listed" {
+        // Pins the listByPost author bypass: the previous INNER JOIN on visible_users
+        // dropped the shadow-banned author's own replies from their own thread.
+        val (author, at) = seedUser(shadowBanned = true)
+        try {
+            val p = seedPost(author)
+            val r = seedReply(p, author)
+            withReplies {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/posts/$p/replies") {
+                            header(HttpHeaders.Authorization, "Bearer $at")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText()).jsonObject["replies"]!!
+                        .jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                ids shouldBe listOf(r.toString())
+            }
+        } finally {
+            cleanup(author)
+        }
+    }
+
+    "shadow-banned author's post returns opaque 404 for OTHER callers on POST and GET /replies" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser(shadowBanned = true)
+        try {
+            val p = seedPost(author)
+            withReplies {
+                val client = createClient { install(ClientCN) { json() } }
+                val postResp =
+                    client.post("/api/v1/posts/$p/replies") {
+                        header(HttpHeaders.Authorization, "Bearer $vt")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"content":"hi"}""")
+                    }
+                postResp.status shouldBe HttpStatusCode.NotFound
+                postResp.bodyAsText() shouldBe "{\"error\":{\"code\":\"post_not_found\"}}"
+                val getResp =
+                    client.get("/api/v1/posts/$p/replies") {
+                        header(HttpHeaders.Authorization, "Bearer $vt")
+                    }
+                getResp.status shouldBe HttpStatusCode.NotFound
+                getResp.bodyAsText() shouldBe "{\"error\":{\"code\":\"post_not_found\"}}"
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "POST /replies — author still 404s on their OWN soft-deleted post (self arm keeps deleted_at IS NULL)" {
+        val (author, at) = seedUser()
+        try {
+            val p = seedPost(author, softDeleted = true)
+            withReplies {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/posts/$p/replies") {
+                            header(HttpHeaders.Authorization, "Bearer $at")
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"content":"hi"}""")
+                        }
+                resp.status shouldBe HttpStatusCode.NotFound
+                resp.bodyAsText() shouldBe "{\"error\":{\"code\":\"post_not_found\"}}"
+            }
+        } finally {
+            cleanup(author)
+        }
+    }
+
+    "GET /replies — shadow-banned caller sees their OWN reply in another author's thread; others do not" {
+        val (banned, bt) = seedUser(shadowBanned = true)
+        val (author, _) = seedUser()
+        val (other, ot) = seedUser()
+        try {
+            val p = seedPost(author)
+            withReplies {
+                val client = createClient { install(ClientCN) { json() } }
+                val createResp =
+                    client.post("/api/v1/posts/$p/replies") {
+                        header(HttpHeaders.Authorization, "Bearer $bt")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"content":"still here for me"}""")
+                    }
+                createResp.status shouldBe HttpStatusCode.Created
+                val replyId =
+                    Json.parseToJsonElement(createResp.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+                val ownIds =
+                    Json.parseToJsonElement(
+                        client.get("/api/v1/posts/$p/replies") {
+                            header(HttpHeaders.Authorization, "Bearer $bt")
+                        }.bodyAsText(),
+                    ).jsonObject["replies"]!!.jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                ownIds shouldBe listOf(replyId)
+                val otherResp =
+                    client.get("/api/v1/posts/$p/replies") {
+                        header(HttpHeaders.Authorization, "Bearer $ot")
+                    }
+                Json.parseToJsonElement(otherResp.bodyAsText()).jsonObject["replies"]!!
+                    .jsonArray shouldHaveSize 0
+            }
+        } finally {
+            cleanup(banned, author, other)
+        }
+    }
+
     // ---- DELETE /replies/{reply_id} ----
 
     "DELETE /replies — author soft-deletes own reply: 204 + deleted_at set" {

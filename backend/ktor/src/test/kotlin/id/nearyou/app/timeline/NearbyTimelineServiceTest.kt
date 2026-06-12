@@ -947,4 +947,271 @@ class NearbyTimelineServiceTest : StringSpec({
             cleanup(viewer, author)
         }
     }
+
+    // ---- shadow-ban-feed-self-visibility: own-content self arm ----
+    //
+    // The Nearby query is a two-arm UNION ALL since shadow-ban-feed-self-visibility:
+    // a visible_posts arm for everyone else's posts + a raw-posts self arm scoped to
+    // author_id = :viewer AND deleted_at IS NULL, so a shadow-banned author keeps
+    // seeing their own posts. These tests pin the nearby-timeline spec's
+    // self-visibility scenarios. The existing seedShadowBannedUser() helper returns
+    // no JWT (it seeds non-callers), so self-visibility tests seed a normal user and
+    // flip the flag via setShadowBanned.
+
+    fun setShadowBanned(
+        userId: UUID,
+        banned: Boolean,
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("UPDATE users SET is_shadow_banned = ? WHERE id = ?").use { ps ->
+                ps.setBoolean(1, banned)
+                ps.setObject(2, userId)
+                ps.executeUpdate()
+            }
+        }
+    }
+
+    fun softDeletePost(postId: UUID) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("UPDATE posts SET deleted_at = NOW() WHERE id = ?").use { ps ->
+                ps.setObject(1, postId)
+                ps.executeUpdate()
+            }
+        }
+    }
+
+    "self-visibility — shadow-banned author sees own in-radius post with all fields populated" {
+        val short = UUID.randomUUID().toString().replace("-", "").take(8)
+        val (author, at) = seedUser(username = "sbn_$short", displayName = "Banned Author")
+        val (replier, _) = seedUser()
+        try {
+            setShadowBanned(author, true)
+            val p = seedPostWithCity(author, cityName = "Jakarta Pusat")
+            seedReply(p, replier)
+            // The author likes their own post — pins the post_likes LEFT JOIN on self rows.
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)").use { ps ->
+                    ps.setObject(1, p)
+                    ps.setObject(2, author)
+                    ps.executeUpdate()
+                }
+            }
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $at")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                post["liked_by_viewer"]!!.jsonPrimitive.content shouldBe "true"
+                post["reply_count"]!!.jsonPrimitive.content shouldBe "1"
+                post["city_name"]!!.jsonPrimitive.content shouldBe "Jakarta Pusat"
+                // Identity from the self arm's raw users join (no visible_users row exists).
+                post["authorUsername"]!!.jsonPrimitive.content shouldBe "sbn_$short"
+                post["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Banned Author"
+            }
+        } finally {
+            cleanup(author, replier)
+        }
+    }
+
+    "self-visibility — shadow-banned author's post stays hidden from a second user" {
+        val (author, _) = seedUser()
+        val (other, ot) = seedUser()
+        try {
+            setShadowBanned(author, true)
+            val p = seedPost(author, -6.200, 106.800)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $ot")
+                        }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                ids.contains(p.toString()) shouldBe false
+            }
+        } finally {
+            cleanup(author, other)
+        }
+    }
+
+    "self-visibility — un-shadow-banning restores visibility for both viewers" {
+        val (author, at) = seedUser()
+        val (other, ot) = seedUser()
+        try {
+            setShadowBanned(author, true)
+            val p = seedPost(author, -6.200, 106.800)
+            withTimeline {
+                val client = createClient { install(ClientCN) { json() } }
+
+                fun postIds(body: String): List<String> =
+                    Json.parseToJsonElement(body).jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                // While banned: the author sees the post (self arm); the second user does not.
+                val bannedAuthor =
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        header(HttpHeaders.Authorization, "Bearer $at")
+                    }
+                postIds(bannedAuthor.bodyAsText()).contains(p.toString()) shouldBe true
+                val bannedOther =
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        header(HttpHeaders.Authorization, "Bearer $ot")
+                    }
+                postIds(bannedOther.bodyAsText()).contains(p.toString()) shouldBe false
+                // Flip the flag back — no other state change required.
+                setShadowBanned(author, false)
+                val restoredAuthor =
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        header(HttpHeaders.Authorization, "Bearer $at")
+                    }
+                postIds(restoredAuthor.bodyAsText()).contains(p.toString()) shouldBe true
+                val restoredOther =
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        header(HttpHeaders.Authorization, "Bearer $ot")
+                    }
+                postIds(restoredOther.bodyAsText()).contains(p.toString()) shouldBe true
+            }
+        } finally {
+            cleanup(author, other)
+        }
+    }
+
+    "self-visibility — author does NOT see their own soft-deleted post" {
+        val (author, at) = seedUser()
+        try {
+            // Shadow-banned so the row could ONLY come back via the self arm —
+            // pins the self arm's deleted_at IS NULL predicate specifically.
+            setShadowBanned(author, true)
+            val p = seedPost(author, -6.200, 106.800)
+            softDeletePost(p)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $at")
+                        }
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                ids.contains(p.toString()) shouldBe false
+            }
+        } finally {
+            cleanup(author)
+        }
+    }
+
+    "self-visibility — author sees their own auto-hidden post; a second user does not" {
+        val (author, at) = seedUser()
+        val (other, ot) = seedUser()
+        try {
+            val p = seedPost(author, -6.200, 106.800, autoHidden = true)
+            withTimeline {
+                val client = createClient { install(ClientCN) { json() } }
+
+                fun postIds(body: String): List<String> =
+                    Json.parseToJsonElement(body).jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                val authorResp =
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        header(HttpHeaders.Authorization, "Bearer $at")
+                    }
+                postIds(authorResp.bodyAsText()).contains(p.toString()) shouldBe true
+                val otherResp =
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        header(HttpHeaders.Authorization, "Bearer $ot")
+                    }
+                postIds(otherResp.bodyAsText()).contains(p.toString()) shouldBe false
+            }
+        } finally {
+            cleanup(author, other)
+        }
+    }
+
+    "self-visibility — cursor pagination with own shadow-banned posts interleaved across the page-30 boundary" {
+        val (viewer, vt) = seedUser()
+        val (other, _) = seedUser()
+        try {
+            setShadowBanned(viewer, true)
+            val ownIds = mutableSetOf<String>()
+            val allIds = mutableSetOf<String>()
+            // 35 eligible posts, alternating other/own by created_at so the viewer's
+            // own posts land on BOTH sides of the page-30 boundary (page 2 = the 5
+            // oldest = indices 0..4, which include own posts at indices 1 and 3).
+            for (i in 0 until 35) {
+                val authorId = if (i % 2 == 1) viewer else other
+                val id = seedPost(authorId, -6.200 + i * 0.0001, 106.800)
+                if (authorId == viewer) ownIds += id.toString()
+                allIds += id.toString()
+                Thread.sleep(10)
+            }
+            withTimeline {
+                val client = createClient { install(ClientCN) { json() } }
+                val r1 =
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        header(HttpHeaders.Authorization, "Bearer $vt")
+                    }
+                r1.status shouldBe HttpStatusCode.OK
+                val b1 = Json.parseToJsonElement(r1.bodyAsText()).jsonObject
+                b1["posts"]!!.jsonArray shouldHaveSize 30
+                val cursor = b1["nextCursor"]!!.jsonPrimitive.content
+                val r2 =
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000&cursor=$cursor") {
+                        header(HttpHeaders.Authorization, "Bearer $vt")
+                    }
+                r2.status shouldBe HttpStatusCode.OK
+                val b2 = Json.parseToJsonElement(r2.bodyAsText()).jsonObject
+                b2["posts"]!!.jsonArray shouldHaveSize 5
+                val ids1 = b1["posts"]!!.jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }.toSet()
+                val ids2 = b2["posts"]!!.jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }.toSet()
+                // No duplicates, no gaps: the union is exactly the 35 eligible rows.
+                (ids1 intersect ids2).isEmpty() shouldBe true
+                (ids1 + ids2) shouldBe allIds
+                // Own posts appear on BOTH pages.
+                (ids1 intersect ownIds).isNotEmpty() shouldBe true
+                (ids2 intersect ownIds).isNotEmpty() shouldBe true
+            }
+        } finally {
+            cleanup(viewer, other)
+        }
+    }
+
+    "self-visibility — reply_count stays viewer-independent on self rows (author's own reply not counted)" {
+        val (author, at) = seedUser()
+        val (replier1, _) = seedUser()
+        val (replier2, _) = seedUser()
+        try {
+            setShadowBanned(author, true)
+            val p = seedPost(author, -6.200, 106.800)
+            seedReply(p, replier1)
+            seedReply(p, replier2)
+            // The shadow-banned author's own reply — excluded by the counter's
+            // visible_users JOIN even in the author's own feed (counts are public
+            // and viewer-independent).
+            seedReply(p, author)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $at")
+                        }
+                val post =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                post["reply_count"]!!.jsonPrimitive.content shouldBe "2"
+            }
+        } finally {
+            cleanup(author, replier1, replier2)
+        }
+    }
 })

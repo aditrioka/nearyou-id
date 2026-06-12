@@ -33,7 +33,17 @@ class JdbcPostsFollowingRepository(
         limit: Int,
     ): List<TimelineRow> {
         // Canonical Following query per docs/05-Implementation.md §1057–1067 and design
-        // Decision 3. Shape differences from Nearby:
+        // Decision 3.
+        //
+        // DELIBERATELY NO own-content self-arm here (shadow-ban-feed-self-visibility
+        // Decision 3 + the following-timeline "Following carries NO own-content self-arm"
+        // requirement): self-follow is impossible (V6 follows_no_self_follow CHECK +
+        // app-layer 400 cannot_follow_self), so own posts never appear in Following for
+        // ANY user — adding the Nearby/Global self-arm here would INVERT the shadow-ban
+        // oracle (a banned user would see own posts where a normal user sees none).
+        // Do not "complete the trio".
+        //
+        // Shape differences from Nearby:
         //  - FROM visible_posts joined against the viewer's `follows` set via IN.
         //  - No ST_DWithin / ST_Distance — no radius, no distance projection.
         //  - lat/lng still come from display_location (jitter invariant preserved).

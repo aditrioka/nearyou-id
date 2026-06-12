@@ -473,7 +473,7 @@ CREATE INDEX post_replies_author_idx ON post_replies(author_id, created_at DESC)
 - Flat structure (no nested reply-to-reply threading in MVP). Max 280 chars (matches post length). Free 20/day, Premium unlimited.
 - Soft delete only (tombstone label on the parent post's reply list).
 - `is_auto_hidden` flag is set by the same 3-unique-reporters auto-hide trigger when `reports.target_type = 'reply'`.
-- Block-aware read path: exclude replies from blocked users (both directions) AND replies where `is_auto_hidden = TRUE` unless the viewer is the author.
+- Block-aware read path: exclude replies from blocked users (both directions) AND replies where `is_auto_hidden = TRUE` unless the viewer is the author AND replies from shadow-banned authors unless the viewer is the author (`LEFT JOIN visible_users` + `(vu.id IS NOT NULL OR pr.author_id = :viewer)` — `shadow-ban-feed-self-visibility`; a shadow-banned user still sees their OWN replies in any thread they can read).
 
 ---
 
@@ -737,12 +737,12 @@ CREATE INDEX posts_timeline_cursor_idx ON posts (created_at DESC, id DESC) WHERE
 CREATE INDEX posts_nearby_cursor_idx ON posts USING GIST (display_location, created_at) WHERE deleted_at IS NULL;
 ```
 
-**Nearby** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsTimelineRepository.kt`. Update both when changing the canonical query shape (refreshed 2026-06-10, audit finding 02-M3 — the prior block predated the V7/V8 projections and the LIMIT 31 probe row; author-identity join added by `mobile-timeline-card-redesign`):
+**Nearby** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsTimelineRepository.kt`. Update both when changing the canonical query shape (refreshed 2026-06-10, audit finding 02-M3; author-identity join added by `mobile-timeline-card-redesign`; viewer-aware two-arm shape added by `shadow-ban-feed-self-visibility` — a shadow-banned author keeps seeing their OWN posts via the self arm while everyone else's view is unchanged):
 ```sql
 SELECT p.id,
        p.author_id,
-       u.username     AS author_username,
-       u.display_name AS author_display_name,
+       p.author_username,
+       p.author_display_name,
        p.content,
        ST_Y(p.display_location::geometry) AS lat,
        ST_X(p.display_location::geometry) AS lng,
@@ -751,25 +751,53 @@ SELECT p.id,
        p.created_at,
        (pl.user_id IS NOT NULL) AS liked_by_viewer,
        c.n AS reply_count
-  FROM visible_posts p          -- auto-hide + soft-delete + author shadow-ban/delete via the V20 view
-  JOIN visible_users u ON u.id = p.author_id   -- author display identity; PK-equality, cardinality-neutral (visible_posts already filters these authors)
+  FROM (
+      (   -- visible arm: everyone else's posts — V20 view + bidirectional block exclusion
+          SELECT p.id, p.author_id, u.username AS author_username,
+                 u.display_name AS author_display_name, p.content,
+                 p.display_location, p.city_name, p.created_at
+            FROM visible_posts p          -- auto-hide + soft-delete + author shadow-ban/delete via the V20 view
+            JOIN visible_users u ON u.id = p.author_id   -- author display identity; PK-equality, cardinality-neutral
+           WHERE p.author_id <> :viewer_id               -- disjoint from the self arm (UNION ALL stays duplicate-free)
+             AND ST_DWithin(p.display_location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :radius_m)
+             AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
+             AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
+             AND (p.created_at, p.id) < (:cursor_ts, :cursor_id)   -- omitted on the first page
+           ORDER BY p.created_at DESC, p.id DESC
+           LIMIT 31
+      )
+      UNION ALL
+      (   -- self arm: the viewer's own posts — the § Shadow Ban own-content exception at the feed layer.
+          -- No is_auto_hidden filter (auto-hide is author-transparent: post_auto_hidden notification);
+          -- no shadow-ban filter (self-visibility is the point); soft-deleted stays hidden;
+          -- no user_blocks (self-blocks are CHECK-impossible). Raw posts/users reads are
+          -- @AllowRawPostsRead-allowlisted, scoped to author_id = :viewer_id.
+          SELECT p.id, p.author_id, u.username AS author_username,
+                 u.display_name AS author_display_name, p.content,
+                 p.display_location, p.city_name, p.created_at
+            FROM posts p
+            JOIN users u ON u.id = p.author_id
+           WHERE p.author_id = :viewer_id
+             AND p.deleted_at IS NULL
+             AND ST_DWithin(p.display_location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :radius_m)
+             AND (p.created_at, p.id) < (:cursor_ts, :cursor_id)   -- omitted on the first page
+           ORDER BY p.created_at DESC, p.id DESC
+           LIMIT 31   -- per-arm top-N keeps posts_author_idx early-exit
+      )
+  ) p
   LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = :viewer_id
   LEFT JOIN LATERAL (
       SELECT COUNT(*) AS n
         FROM post_replies pr
-        JOIN visible_users vu ON vu.id = pr.author_id
+        JOIN visible_users vu ON vu.id = pr.author_id   -- counter stays viewer-independent, incl. self rows
        WHERE pr.post_id = p.id
          AND pr.deleted_at IS NULL
   ) c ON TRUE
- WHERE ST_DWithin(p.display_location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :radius_m)
-   AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
-   AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
-   AND (p.created_at, p.id) < (:cursor_ts, :cursor_id)   -- omitted on the first page
  ORDER BY p.created_at DESC, p.id DESC
  LIMIT 31;  -- page-size 30 + one probe row for next_cursor
 ```
 
-**Following** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsFollowingRepository.kt`. Update both when changing the canonical query shape (refreshed 2026-06-10, audit finding 02-M3; author-identity join added by `mobile-timeline-card-redesign`):
+**Following** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsFollowingRepository.kt`. Update both when changing the canonical query shape (refreshed 2026-06-10, audit finding 02-M3; author-identity join added by `mobile-timeline-card-redesign`). **Deliberately NO own-content self arm here** (`shadow-ban-feed-self-visibility`): self-follow is impossible (V6 `follows_no_self_follow` CHECK + app-layer 400 `cannot_follow_self`), so own posts never appear in Following for ANY user — adding the Nearby/Global self arm would invert the shadow-ban oracle (a banned user would see own posts where a normal user sees none). Pinned by the `following-timeline` spec requirement "Following carries NO own-content self-arm (deliberate)":
 ```sql
 SELECT p.id,
        p.author_id,
@@ -800,12 +828,12 @@ SELECT p.id,
  LIMIT 31;  -- page-size 30 + one probe row for next_cursor
 ```
 
-**Global** — verbatim from `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsGlobalRepository.kt`, shipped in `global-timeline-with-region-polygons` change (author-identity join added by `mobile-timeline-card-redesign`). Update both when changing the canonical query shape:
+**Global** — verbatim from `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsGlobalRepository.kt`, shipped in `global-timeline-with-region-polygons` change (author-identity join added by `mobile-timeline-card-redesign`; viewer-aware two-arm shape added by `shadow-ban-feed-self-visibility`). Update both when changing the canonical query shape:
 ```sql
 SELECT p.id,
        p.author_id,
-       u.username     AS author_username,
-       u.display_name AS author_display_name,
+       p.author_username,
+       p.author_display_name,
        p.content,
        ST_Y(p.display_location::geometry) AS lat,
        ST_X(p.display_location::geometry) AS lng,
@@ -813,19 +841,43 @@ SELECT p.id,
        p.created_at,
        (pl.user_id IS NOT NULL) AS liked_by_viewer,
        c.n AS reply_count
-  FROM visible_posts p
-  JOIN visible_users u ON u.id = p.author_id   -- author display identity; PK-equality, cardinality-neutral (visible_posts already filters these authors)
+  FROM (
+      (   -- visible arm: everyone else's posts — V20 view + bidirectional block exclusion
+          SELECT p.id, p.author_id, u.username AS author_username,
+                 u.display_name AS author_display_name, p.content,
+                 p.display_location, p.city_name, p.created_at
+            FROM visible_posts p
+            JOIN visible_users u ON u.id = p.author_id   -- author display identity; PK-equality, cardinality-neutral
+           WHERE p.author_id <> :viewer_id               -- disjoint from the self arm
+             AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
+             AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
+             AND (p.created_at, p.id) < (:cursor_ts, :cursor_id)   -- omitted on the first page
+           ORDER BY p.created_at DESC, p.id DESC
+           LIMIT 31
+      )
+      UNION ALL
+      (   -- self arm: the viewer's own posts (§ Shadow Ban own-content exception; see the Nearby
+          -- block's annotations — same predicate rationale, no spatial filter on Global)
+          SELECT p.id, p.author_id, u.username AS author_username,
+                 u.display_name AS author_display_name, p.content,
+                 p.display_location, p.city_name, p.created_at
+            FROM posts p
+            JOIN users u ON u.id = p.author_id
+           WHERE p.author_id = :viewer_id
+             AND p.deleted_at IS NULL
+             AND (p.created_at, p.id) < (:cursor_ts, :cursor_id)   -- omitted on the first page
+           ORDER BY p.created_at DESC, p.id DESC
+           LIMIT 31
+      )
+  ) p
   LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = :viewer_id
   LEFT JOIN LATERAL (
       SELECT COUNT(*) AS n
         FROM post_replies pr
-        JOIN visible_users vu ON vu.id = pr.author_id
+        JOIN visible_users vu ON vu.id = pr.author_id   -- counter stays viewer-independent, incl. self rows
        WHERE pr.post_id = p.id
          AND pr.deleted_at IS NULL
   ) c ON TRUE
- WHERE p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = :viewer_id)
-   AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = :viewer_id)
-   AND (p.created_at, p.id) < (:cursor_ts, :cursor_id)
  ORDER BY p.created_at DESC, p.id DESC
  LIMIT 31;  -- page-size 30 + one probe row for next_cursor
 ```
@@ -1278,7 +1330,10 @@ WHERE u.deleted_at IS NULL
 
 **Rules for code**: timeline / search use `FROM visible_posts`; user profile uses `FROM visible_users`; like/reply counters JOIN `visible_users`; notifications consume `visible_posts`; follower/following list JOINs `visible_users`; chat delivery filters at the application layer when consuming from Supabase Realtime.
 
-**Own-content exception**: a banned user sees their own content normally. The own-content path bypasses the views with `WHERE author_id = current_user_id OR viewer_id = current_user_id`, centralized in the Repository layer.
+**Own-content exception**: a banned user sees their own content normally. The exception is carried at the consuming layer (the views stay viewer-agnostic — views take no parameters):
+
+- **Repository own-content paths** that bypass the views with `WHERE author_id = current_user_id OR viewer_id = current_user_id` (e.g., the profile self read).
+- **Viewer-aware feed/engagement self arms** (`shadow-ban-feed-self-visibility`): the Nearby + Global timeline queries and the like/reply `resolveVisiblePost` literals carry a `UNION ALL` own-content arm over raw `posts` scoped to `author_id = :viewer AND deleted_at IS NULL`, and the reply-list query's `visible_users` join carries the author bypass `(vu.id IS NOT NULL OR pr.author_id = :viewer)` — so a shadow-banned author still sees and engages with their own posts while every other viewer sees nothing. Following deliberately has NO self arm (self-follow is impossible; own posts never appear there for anyone). Deliberately NOT self-visible: own soft-deleted posts (`deleted_at IS NULL` stays), the viewer-independent public counters (`reply_count`, `likes/count` — both keep their `visible_users` filter for everyone including the author), and search (`premium-search` pins the exclusion: discovery surface, not a self-archive).
 
 `RawFromPostsRule` Detekt rule detects raw `FROM posts` / `FROM users` / `FROM post_replies` in business queries (allowed only in the Repository own-content path + admin module).
 
