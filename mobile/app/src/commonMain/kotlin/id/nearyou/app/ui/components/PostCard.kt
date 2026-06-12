@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import id.nearyou.distance.DistanceRenderer
@@ -92,7 +93,7 @@ fun PostCard(
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 LetterAvatar(
@@ -103,7 +104,10 @@ fun PostCard(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = model.authorDisplayName,
+                        // Mockup frames 1/19: the display name is BOLD (700) — titleSmall's M3
+                        // default weight (500) reads too light next to the handle line.
                         style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -142,12 +146,12 @@ fun PostCard(
                 text = model.content,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 10.dp),
+                modifier = Modifier.padding(top = 12.dp),
             )
             if (model.cityName.isNotEmpty() || model.distanceM != null) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -179,11 +183,31 @@ fun PostCard(
                     }
                 }
             }
+            // Read-only counts row per mockup frames 1/19: reply group FIRST (icon + count),
+            // then the like-state heart, 24dp between groups, 20dp glyphs (the mockup's send
+            // affordance belongs to the deferred inline-actions change, issue #201).
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_post_reply),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        text = model.replyCount.toString(),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 // Like-state affordance: filled brand-tinted heart when the viewer liked it, else a
                 // muted outlined heart. Decorative within a read-only row → no contentDescription.
                 Icon(
@@ -199,20 +223,9 @@ fun PostCard(
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
                     modifier =
-                        Modifier.size(16.dp).testTag(
+                        Modifier.size(20.dp).testTag(
                             if (model.likedByViewer) POST_CARD_LIKE_FILLED_TAG else POST_CARD_LIKE_OUTLINED_TAG,
                         ),
-                )
-                Icon(
-                    painter = painterResource(Res.drawable.ic_post_reply),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    text = model.replyCount.toString(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

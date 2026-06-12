@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /*
@@ -98,7 +99,9 @@ fun LetterAvatar(
         if (initials.isNotEmpty()) {
             Text(
                 text = initials,
+                // Mockup avatar glyph is bold (700) at the titleSmall size.
                 style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
                 color = content,
             )
         }
