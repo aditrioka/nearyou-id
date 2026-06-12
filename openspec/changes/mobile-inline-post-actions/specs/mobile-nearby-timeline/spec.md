@@ -60,7 +60,7 @@ The cap-dialog one-shot signal SHALL be modeled as nullable state cleared via an
 #### Scenario: One shared controller serves both feeds through the LikeFlow singleton
 
 - **WHEN** inspecting the inline-like implementation and the Koin graph
-- **THEN** ONE shared commonMain controller (in `ui/timeline/`) implements the optimistic/revert/in-flight/cap lifecycle AND `NearbyTimelineViewModel` and `GlobalTimelineViewModel` both delegate to it (no per-feed duplicate of the lifecycle) AND the like call resolves the `LikeFlow` Koin binding backed by the existing `PostDetailRepository` singleton (no second like client/repository is registered)
+- **THEN** ONE shared commonMain controller class (in `ui/timeline/`) implements the optimistic/revert/in-flight/cap lifecycle AND `NearbyTimelineViewModel` and `GlobalTimelineViewModel` both delegate to that shared class (each via its own per-surface instance; no per-feed duplicate of the lifecycle) AND the like call resolves the `LikeFlow` Koin binding backed by the existing `PostDetailRepository` singleton (no second like client/repository is registered)
 
 ### Requirement: A rate-limited inline like opens the Free like-cap dialog
 
