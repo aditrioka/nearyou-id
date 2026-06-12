@@ -40,6 +40,8 @@ The query SHALL carry the V7 `LEFT JOIN post_likes pl ON pl.post_id = p.id AND p
 
 The reply counter MUST filter shadow-banned repliers via `JOIN visible_users` and tombstoned replies via `pr.deleted_at IS NULL`, and MUST NOT apply viewer-block exclusion to the counter (same privacy tradeoff as Nearby and Following).
 
+As of `mobile-timeline-card-redesign`, the query SHALL additionally `JOIN visible_users u ON u.id = p.author_id` (the shadow-ban-safe view — NEVER raw `users`) and project `u.username AS author_username, u.display_name AS author_display_name` into the result set. The join is a PK-equality INNER JOIN and MUST NOT change the result row set (`visible_posts` already excludes posts whose author is shadow-banned or deleted); it MUST NOT appear in the `ORDER BY` or the keyset predicate.
+
 The query SHALL project `p.city_name` directly from `visible_posts` and MUST NOT perform any `ST_Contains`, `admin_regions` JOIN, or other spatial work at read time.
 
 #### Scenario: Post from auto-hidden author excluded
@@ -69,6 +71,14 @@ The query SHALL project `p.city_name` directly from `visible_posts` and MUST NOT
 #### Scenario: Reply counter excludes shadow-banned repliers
 - **WHEN** post P has 3 replies, 1 of which is by a `is_shadow_banned = TRUE` user
 - **THEN** the response item for P has `reply_count = 2`
+
+#### Scenario: Author-identity JOIN does not alter row count
+- **WHEN** 35 visible posts exist for a viewer
+- **THEN** the query returns exactly 35 rows after adding `JOIN visible_users u ON u.id = p.author_id`
+
+#### Scenario: Identity is sourced via visible_users, never raw users
+- **WHEN** inspecting the Global SQL literal in `JdbcPostsGlobalRepository`
+- **THEN** the author-identity join references `visible_users` (NOT a raw `users` table reference)
 
 ### Requirement: Keyset pagination on (created_at DESC, id DESC)
 
@@ -112,6 +122,8 @@ A successful response SHALL be HTTP 200 with body:
     {
       "id": "<uuid>",
       "authorUserId": "<uuid>",
+      "authorUsername": "<string>",
+      "authorDisplayName": "<string>",
       "content": "<string>",
       "latitude": <double>,
       "longitude": <double>,
@@ -125,11 +137,13 @@ A successful response SHALL be HTTP 200 with body:
 }
 ```
 
-The shape is identical to Nearby **minus** `distance_m` and **plus** `city_name`. The `latitude`/`longitude` fields MUST be derived from `display_location` (NOT `actual_location`). Global MUST NOT include a `distance_m` field at all (neither as `null` nor as a number) — it is a chronological feed with no reference point.
+The shape is identical to Nearby **minus** `distanceM` and **plus** `city_name`. The `latitude`/`longitude` fields MUST be derived from `display_location` (NOT `actual_location`). Global MUST NOT include a `distanceM` field at all (neither as `null` nor as a number) — it is a chronological feed with no reference point.
 
 The `city_name` field MUST be a JSON string and MUST be present on EVERY post in the response (never omitted). It MUST equal `posts.city_name` as populated by the `posts_set_city_tg` trigger (see `region-polygons` capability). If the underlying DB value is NULL (legacy pre-trigger post or polygon-coverage gap), the field MUST serialize as the empty string `""`, never as JSON `null` and never omitted.
 
 The `liked_by_viewer` and `reply_count` fields MUST behave exactly as in the Nearby and Following specs: `liked_by_viewer` is derived from the V7 LEFT JOIN, `reply_count` from the V8 LEFT JOIN LATERAL, both always present and never null.
+
+The `authorUsername` and `authorDisplayName` fields (added by `mobile-timeline-card-redesign`) MUST be JSON strings present on EVERY post in the response (never omitted, never null — the V2 columns are NOT NULL). Their wire names are declared EXPLICITLY as bare camelCase `authorUsername` / `authorDisplayName` (no `@SerialName`), following the shipped identity-field precedent (`authorUserId`; `username`/`displayName` in `UserProfileRoutes.kt`) — NOT snake_case. They MUST equal the post author's `visible_users.username` / `visible_users.display_name` values.
 
 #### Scenario: Coordinates from display_location
 - **WHEN** a post in the response has database `display_location = POINT(106.8 -6.2)`
@@ -139,9 +153,9 @@ The `liked_by_viewer` and `reply_count` fields MUST behave exactly as in the Nea
 - **WHEN** searching the response JSON for `actual_location` or any value matching the post's actual coordinates
 - **THEN** no match is found
 
-#### Scenario: distance_m field absent
+#### Scenario: Distance field absent under either casing
 - **WHEN** the response contains any post
-- **THEN** no post object contains a `distance_m` key (neither as `null` nor as a number)
+- **THEN** no post object contains a `distanceM` key NOR a `distance_m` key (neither as `null` nor as a number)
 
 #### Scenario: city_name present and string-typed on every post
 - **WHEN** the response contains any number of posts (including zero, one, or many)
@@ -154,6 +168,14 @@ The `liked_by_viewer` and `reply_count` fields MUST behave exactly as in the Nea
 #### Scenario: city_name reflects trigger-populated value
 - **WHEN** a post was created after the `posts_set_city_tg` trigger was deployed AND its `actual_location` fell inside the polygon named "Jakarta Selatan"
 - **THEN** the response item has `city_name = "Jakarta Selatan"`
+
+#### Scenario: authorUsername and authorDisplayName present on every post with exact camelCase keys
+- **WHEN** the response contains any number of posts
+- **THEN** every post object contains the keys `authorUsername` and `authorDisplayName` with non-null JSON string values AND contains NO `author_username` / `author_display_name` snake_case variants
+
+#### Scenario: Author identity values match the author's row
+- **WHEN** a post P in the response was authored by a user with `username = "dewi.kuliner"`, `display_name = "Dewi Lestari"`
+- **THEN** the response item for P has `authorUsername = "dewi.kuliner"` AND `authorDisplayName = "Dewi Lestari"`
 
 ### Requirement: Integration test coverage
 

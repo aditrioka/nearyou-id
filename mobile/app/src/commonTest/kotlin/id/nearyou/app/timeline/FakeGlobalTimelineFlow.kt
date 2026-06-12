@@ -33,6 +33,8 @@ class FakeGlobalTimelineFlow(
 fun fakeGlobalPost(
     id: String = "p1",
     authorUserId: String = "11111111-1111-1111-1111-111111111111",
+    authorUsername: String = "dewi.kuliner",
+    authorDisplayName: String = "Dewi Lestari",
     content: String = "Halo dari seluruh Indonesia",
     latitude: Double = -6.21,
     longitude: Double = 106.85,
@@ -44,6 +46,8 @@ fun fakeGlobalPost(
     GlobalPostDto(
         id = id,
         authorUserId = authorUserId,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
         content = content,
         latitude = latitude,
         longitude = longitude,

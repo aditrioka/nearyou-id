@@ -22,6 +22,11 @@ import kotlinx.serialization.Serializable
 data class NearbyPostDto(
     val id: String,
     val authorUserId: String,
+    // Author display identity — bare camelCase wire (NO @SerialName), per the shipped
+    // identity-field precedent (authorUserId here; username/displayName in
+    // UserProfileRoutes.kt). Sourced from visible_users; NOT NULL since V2.
+    val authorUsername: String,
+    val authorDisplayName: String,
     val content: String,
     val latitude: Double,
     val longitude: Double,
@@ -44,6 +49,9 @@ data class NearbyResponse(
 data class FollowingPostDto(
     val id: String,
     val authorUserId: String,
+    // Bare camelCase wire — same identity-field convention as NearbyPostDto.
+    val authorUsername: String,
+    val authorDisplayName: String,
     val content: String,
     val latitude: Double,
     val longitude: Double,
@@ -65,6 +73,9 @@ data class FollowingResponse(
 data class GlobalPostDto(
     val id: String,
     val authorUserId: String,
+    // Bare camelCase wire — same identity-field convention as NearbyPostDto.
+    val authorUsername: String,
+    val authorDisplayName: String,
     val content: String,
     val latitude: Double,
     val longitude: Double,
@@ -129,6 +140,8 @@ fun Application.followingTimelineRoutes(
                                         FollowingPostDto(
                                             id = it.id.toString(),
                                             authorUserId = it.authorId.toString(),
+                                            authorUsername = it.authorUsername,
+                                            authorDisplayName = it.authorDisplayName,
                                             content = it.content,
                                             latitude = it.latitude,
                                             longitude = it.longitude,
@@ -241,6 +254,8 @@ fun Application.timelineRoutes(
                                         NearbyPostDto(
                                             id = it.id.toString(),
                                             authorUserId = it.authorId.toString(),
+                                            authorUsername = it.authorUsername,
+                                            authorDisplayName = it.authorDisplayName,
                                             content = it.content,
                                             latitude = it.latitude,
                                             longitude = it.longitude,
@@ -304,6 +319,8 @@ fun Application.globalTimelineRoutes(
                                         GlobalPostDto(
                                             id = it.id.toString(),
                                             authorUserId = it.authorId.toString(),
+                                            authorUsername = it.authorUsername,
+                                            authorDisplayName = it.authorDisplayName,
                                             content = it.content,
                                             latitude = it.latitude,
                                             longitude = it.longitude,

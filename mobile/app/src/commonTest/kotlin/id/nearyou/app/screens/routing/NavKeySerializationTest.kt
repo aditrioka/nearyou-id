@@ -55,6 +55,25 @@ class NavKeySerializationTest {
         assertEquals("2026-06-06T10:00:00Z", typed.createdAtIso)
         assertEquals(true, typed.likedByViewer)
         assertEquals(3, typed.replyCount)
+        assertEquals("raka.jkt", typed.authorUsername)
+        assertEquals("Raka Pratama", typed.authorDisplayName)
+    }
+
+    /** mobile-post-detail § "A payload predating the identity fields still decodes" — a back stack
+     *  serialized BEFORE mobile-timeline-card-redesign lacks authorUsername/authorDisplayName; the
+     *  defaults ("") keep process-death restore decoding instead of throwing. */
+    @Test
+    fun postDetailRoute_payloadWithoutIdentityFields_decodesWithEmptyDefaults() {
+        val legacyEncoded = json.encodeToString(navKeySerializer, samplePostDetailRoute(distanceM = 1234.5))
+        // Strip the identity fields from the serialized form to simulate a pre-change payload.
+        val withoutIdentity =
+            legacyEncoded
+                .replace(Regex(""","authorUsername":"[^"]*""""), "")
+                .replace(Regex(""","authorDisplayName":"[^"]*""""), "")
+        val decoded = json.decodeFromString(navKeySerializer, withoutIdentity) as PostDetailRoute
+        assertEquals("", decoded.authorUsername)
+        assertEquals("", decoded.authorDisplayName)
+        assertEquals("p1", decoded.postId)
     }
 
     private fun samplePostDetailRoute(distanceM: Double?): PostDetailRoute =
@@ -66,5 +85,7 @@ class NavKeySerializationTest {
             createdAtIso = "2026-06-06T10:00:00Z",
             likedByViewer = true,
             replyCount = 3,
+            authorUsername = "raka.jkt",
+            authorDisplayName = "Raka Pratama",
         )
 }

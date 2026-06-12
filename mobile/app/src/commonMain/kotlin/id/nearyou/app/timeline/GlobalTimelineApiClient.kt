@@ -17,17 +17,22 @@ import kotlin.coroutines.cancellation.CancellationException
  * is **mixed-case, NOT uniformly snake_case** (design D4), and which — because Global has **no
  * spatial filter** — carries **NO `distanceM`**. The field names are regenerated from the shipped
  * DTO, NOT from any spec's snake_case JSON example (the casing-drift trap that bit Nearby):
- *  - bare camelCase (no `@SerialName`): `id`, `authorUserId`, `content`, `latitude`, `longitude`,
- *    `createdAt`;
+ *  - bare camelCase (no `@SerialName`): `id`, `authorUserId`, `authorUsername`, `authorDisplayName`,
+ *    `content`, `latitude`, `longitude`, `createdAt`;
  *  - `@SerialName` snake_case for exactly three: `city_name`, `liked_by_viewer`, `reply_count`.
  *
  * `latitude`/`longitude` are NOT rendered as raw coordinates; there is NO distance on this surface (no
  * `DistanceRenderer`). `authorUserId` is a UUID and MUST NOT be rendered (PII discipline).
+ * `authorUsername` / `authorDisplayName` (added by `mobile-timeline-card-redesign`) are the author
+ * DISPLAY identity the card renders — required non-null (NOT NULL since V2; mobile + backend land in
+ * the same squash-merge).
  */
 @Serializable
 data class GlobalPostDto(
     val id: String,
     val authorUserId: String,
+    val authorUsername: String,
+    val authorDisplayName: String,
     val content: String,
     val latitude: Double,
     val longitude: Double,

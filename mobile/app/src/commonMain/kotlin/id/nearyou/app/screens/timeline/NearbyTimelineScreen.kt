@@ -4,20 +4,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -40,15 +36,11 @@ import id.nearyou.app.location.LocationGateUiState
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
-import id.nearyou.distance.DistanceRenderer
+import id.nearyou.app.ui.components.PostCard
+import id.nearyou.app.ui.components.PostCardModel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.cta_see_global
-import id.nearyou.resources.generated.resources.ic_post_like
-import id.nearyou.resources.generated.resources.ic_post_like_filled
-import id.nearyou.resources.generated.resources.ic_post_location
-import id.nearyou.resources.generated.resources.ic_post_reply
-import id.nearyou.resources.generated.resources.ic_post_time
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
 import id.nearyou.resources.generated.resources.signin_error_network
@@ -57,9 +49,7 @@ import id.nearyou.resources.generated.resources.timeline_limit_hard
 import id.nearyou.resources.generated.resources.timeline_limit_soft
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.generated.resources.timeline_session_redirect
-import id.nearyou.resources.theme.locationPin
 import kotlinx.coroutines.launch
-import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
@@ -372,10 +362,32 @@ private fun PostList(
             }
         }
         items(items = posts, key = { it.id }, contentType = { "post" }) { post ->
-            NearbyPostCard(post = post, onOpenPost = onOpenPost)
+            // The ONE shared card (ui/components, mobile-post-card) — the whole card is the
+            // open-detail tap; the hoisted onOpenPost carries the PII-free post (display identity
+            // included, never the author UUID / coordinates) up to the tab host's root-stack push.
+            PostCard(
+                model = post.toCardModel(),
+                onOpen = { onOpenPost(post) },
+                modifier = Modifier.testTag(NEARBY_POST_CARD_TAG),
+            )
         }
     }
 }
+
+/** Nearby → shared-card model: identity + content + city + the server distance (rendered via the
+ *  shared `DistanceRenderer` inside the card). */
+private fun NearbyTimelinePost.toCardModel(): PostCardModel =
+    PostCardModel(
+        id = id,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
+        content = content,
+        cityName = cityName,
+        distanceM = distanceM,
+        createdAt = createdAt,
+        likedByViewer = likedByViewer,
+        replyCount = replyCount,
+    )
 
 @Composable
 private fun SoftLimitBanner(text: String) {
@@ -391,109 +403,3 @@ private fun SoftLimitBanner(text: String) {
         )
     }
 }
-
-/**
- * Read-only post card (design D10, X-style content-forward layout): `content` (bodyLarge), a metadata
- * row (Material location icon + `city_name` when non-empty + the shared `DistanceRenderer` string + a
- * Material time/clock icon + the post date), and a read-only counts row (a Material like icon —
- * filled when the viewer liked it, outlined otherwise — + a Material reply icon + `reply_count`). The
- * brand-tinted placeholder dots are replaced by Material affordance icons (mobile-design-system §
- * "Material 3 icons are the canonical … card affordance"). Renders NO `author_user_id` and NO raw
- * `latitude`/`longitude` (those fields are not even present on [NearbyTimelinePost]). The affordance
- * icons are decorative (the row conveys read-only counts) → `contentDescription = null` (no literal).
- * Built entirely from `NearYouTheme` tokens; the location/like accent is the brand `locationPin`.
- */
-@Composable
-private fun NearbyPostCard(
-    post: NearbyTimelinePost,
-    onOpenPost: (NearbyTimelinePost) -> Unit,
-) {
-    // The whole card is the open-detail tap (the hoisted onOpenPost carries the PII-free post up to the
-    // tab host's root-stack PostDetailRoute push). No inline like/reply control (deferred, design D8).
-    OutlinedCard(
-        onClick = { onOpenPost(post) },
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag(NEARBY_POST_CARD_TAG),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                text = post.content,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    painter = painterResource(Res.drawable.ic_post_location),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.locationPin,
-                    modifier = Modifier.size(16.dp),
-                )
-                if (post.cityName.isNotEmpty()) {
-                    Text(
-                        text = post.cityName,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Text(
-                    text = DistanceRenderer.render(post.distanceM),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Icon(
-                    painter = painterResource(Res.drawable.ic_post_time),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp),
-                )
-                Text(
-                    // The post date (ISO date portion). Richer relative formatting ("2j lalu") is a
-                    // deferred refinement — it needs a localized unit-string set (beyond this change's
-                    // declared timeline strings) + an injected clock; tracked as a FOLLOW_UP.
-                    text = postDateLabel(post.createdAt),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Like-state affordance: a filled brand-tinted heart when the viewer liked it, else a
-                // muted outlined heart. Decorative (the row conveys read-only counts) → no literal.
-                Icon(
-                    painter =
-                        painterResource(
-                            if (post.likedByViewer) Res.drawable.ic_post_like_filled else Res.drawable.ic_post_like,
-                        ),
-                    contentDescription = null,
-                    tint =
-                        if (post.likedByViewer) {
-                            MaterialTheme.colorScheme.locationPin
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    modifier = Modifier.size(16.dp),
-                )
-                Icon(
-                    painter = painterResource(Res.drawable.ic_post_reply),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    text = post.replyCount.toString(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-/** ISO-8601 `createdAt` → its date portion ("2026-05-31"). Pure + deterministic (no wall clock). */
-private fun postDateLabel(createdAt: String): String = createdAt.substringBefore('T')

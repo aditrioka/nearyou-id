@@ -182,6 +182,9 @@ data class PostDetailTarget(
     val createdAtIso: String,
     val likedByViewer: Boolean,
     val replyCount: Int,
+    // Author DISPLAY identity (mobile-timeline-card-redesign) — display data, never the author UUID.
+    val authorUsername: String,
+    val authorDisplayName: String,
 )
 
 private fun NearbyTimelinePost.toTarget(): PostDetailTarget =
@@ -193,6 +196,8 @@ private fun NearbyTimelinePost.toTarget(): PostDetailTarget =
         createdAtIso = createdAt,
         likedByViewer = likedByViewer,
         replyCount = replyCount,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
     )
 
 private fun GlobalTimelinePost.toTarget(): PostDetailTarget =
@@ -205,4 +210,6 @@ private fun GlobalTimelinePost.toTarget(): PostDetailTarget =
         createdAtIso = createdAt,
         likedByViewer = likedByViewer,
         replyCount = replyCount,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
     )

@@ -62,7 +62,10 @@ class NearbyTimelineServiceTest : StringSpec({
     val service = NearbyTimelineService(timeline)
     val rateLimiter = TimelineReadRateLimiter(InMemoryRateLimiter())
 
-    fun seedUser(): Pair<UUID, String> {
+    fun seedUser(
+        username: String? = null,
+        displayName: String = "Timeline Tester",
+    ): Pair<UUID, String> {
         val id = UUID.randomUUID()
         val short = id.toString().replace("-", "").take(8)
         dataSource.connection.use { conn ->
@@ -74,8 +77,8 @@ class NearbyTimelineServiceTest : StringSpec({
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
-                ps.setString(2, "tl_$short")
-                ps.setString(3, "Timeline Tester")
+                ps.setString(2, username ?: "tl_$short")
+                ps.setString(3, displayName)
                 ps.setDate(4, Date.valueOf(LocalDate.of(1990, 1, 1)))
                 ps.setString(5, "t${short.take(7)}")
                 ps.executeUpdate()
@@ -244,12 +247,15 @@ class NearbyTimelineServiceTest : StringSpec({
                 val body = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
                 val ids = body["posts"]!!.jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 ids shouldBe listOf(p3.toString(), p2.toString(), p1.toString())
-                // Each post item carries the documented keys (V7 adds liked_by_viewer; V8 adds reply_count).
+                // Each post item carries the documented keys (V7 adds liked_by_viewer; V8 adds
+                // reply_count; mobile-timeline-card-redesign adds the camelCase identity pair).
                 val first = body["posts"]!!.jsonArray.first().jsonObject
                 first.keys shouldBe
                     setOf(
                         "id",
                         "authorUserId",
+                        "authorUsername",
+                        "authorDisplayName",
                         "content",
                         "latitude",
                         "longitude",
@@ -262,6 +268,47 @@ class NearbyTimelineServiceTest : StringSpec({
             }
         } finally {
             cleanup(viewer, author)
+        }
+    }
+
+    "author identity — camelCase values from visible_users on every post, incl. two posts by one author" {
+        val (viewer, vt) = seedUser()
+        val short = UUID.randomUUID().toString().replace("-", "").take(8)
+        val (authorA, _) = seedUser(username = "idn_$short", displayName = "Raka Pratama")
+        val (authorB, _) = seedUser(displayName = "Dewi Lestari")
+        try {
+            // Same author on two posts + a second author on a third (identity must be
+            // correct per-row, not just on a single fixture).
+            val a1 = seedPost(authorA, -6.200, 106.800)
+            Thread.sleep(10)
+            val a2 = seedPost(authorA, -6.201, 106.801)
+            Thread.sleep(10)
+            val b1 = seedPost(authorB, -6.202, 106.802)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val posts =
+                    Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!
+                        .jsonArray.associateBy { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                listOf(a1, a2).forEach { postId ->
+                    val item = posts[postId.toString()]!!.jsonObject
+                    item["authorUsername"]!!.jsonPrimitive.content shouldBe "idn_$short"
+                    item["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Raka Pratama"
+                }
+                posts[b1.toString()]!!.jsonObject["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Dewi Lestari"
+                // Exact camelCase wire — the snake_case variants must NOT exist.
+                posts.values.forEach { item ->
+                    val keys = (item as JsonObject).keys
+                    keys.contains("author_username") shouldBe false
+                    keys.contains("author_display_name") shouldBe false
+                }
+            }
+        } finally {
+            cleanup(viewer, authorA, authorB)
         }
     }
 

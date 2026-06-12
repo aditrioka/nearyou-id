@@ -737,10 +737,12 @@ CREATE INDEX posts_timeline_cursor_idx ON posts (created_at DESC, id DESC) WHERE
 CREATE INDEX posts_nearby_cursor_idx ON posts USING GIST (display_location, created_at) WHERE deleted_at IS NULL;
 ```
 
-**Nearby** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsTimelineRepository.kt`. Update both when changing the canonical query shape (refreshed 2026-06-10, audit finding 02-M3 — the prior block predated the V7/V8 projections and the LIMIT 31 probe row):
+**Nearby** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsTimelineRepository.kt`. Update both when changing the canonical query shape (refreshed 2026-06-10, audit finding 02-M3 — the prior block predated the V7/V8 projections and the LIMIT 31 probe row; author-identity join added by `mobile-timeline-card-redesign`):
 ```sql
 SELECT p.id,
        p.author_id,
+       u.username     AS author_username,
+       u.display_name AS author_display_name,
        p.content,
        ST_Y(p.display_location::geometry) AS lat,
        ST_X(p.display_location::geometry) AS lng,
@@ -750,6 +752,7 @@ SELECT p.id,
        (pl.user_id IS NOT NULL) AS liked_by_viewer,
        c.n AS reply_count
   FROM visible_posts p          -- auto-hide + soft-delete + author shadow-ban/delete via the V20 view
+  JOIN visible_users u ON u.id = p.author_id   -- author display identity; PK-equality, cardinality-neutral (visible_posts already filters these authors)
   LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = :viewer_id
   LEFT JOIN LATERAL (
       SELECT COUNT(*) AS n
@@ -766,10 +769,12 @@ SELECT p.id,
  LIMIT 31;  -- page-size 30 + one probe row for next_cursor
 ```
 
-**Following** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsFollowingRepository.kt`. Update both when changing the canonical query shape (refreshed 2026-06-10, audit finding 02-M3):
+**Following** — mirrors `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsFollowingRepository.kt`. Update both when changing the canonical query shape (refreshed 2026-06-10, audit finding 02-M3; author-identity join added by `mobile-timeline-card-redesign`):
 ```sql
 SELECT p.id,
        p.author_id,
+       u.username     AS author_username,
+       u.display_name AS author_display_name,
        p.content,
        ST_Y(p.display_location::geometry) AS lat,
        ST_X(p.display_location::geometry) AS lng,
@@ -778,6 +783,7 @@ SELECT p.id,
        (pl.user_id IS NOT NULL) AS liked_by_viewer,
        c.n AS reply_count
   FROM visible_posts p          -- auto-hide + soft-delete + author shadow-ban/delete via the V20 view
+  JOIN visible_users u ON u.id = p.author_id   -- author display identity; PK-equality, cardinality-neutral (visible_posts already filters these authors)
   LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = :viewer_id
   LEFT JOIN LATERAL (
       SELECT COUNT(*) AS n
@@ -794,10 +800,12 @@ SELECT p.id,
  LIMIT 31;  -- page-size 30 + one probe row for next_cursor
 ```
 
-**Global** — verbatim from `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsGlobalRepository.kt`, shipped in `global-timeline-with-region-polygons` change. Update both when changing the canonical query shape:
+**Global** — verbatim from `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/JdbcPostsGlobalRepository.kt`, shipped in `global-timeline-with-region-polygons` change (author-identity join added by `mobile-timeline-card-redesign`). Update both when changing the canonical query shape:
 ```sql
 SELECT p.id,
        p.author_id,
+       u.username     AS author_username,
+       u.display_name AS author_display_name,
        p.content,
        ST_Y(p.display_location::geometry) AS lat,
        ST_X(p.display_location::geometry) AS lng,
@@ -806,6 +814,7 @@ SELECT p.id,
        (pl.user_id IS NOT NULL) AS liked_by_viewer,
        c.n AS reply_count
   FROM visible_posts p
+  JOIN visible_users u ON u.id = p.author_id   -- author display identity; PK-equality, cardinality-neutral (visible_posts already filters these authors)
   LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = :viewer_id
   LEFT JOIN LATERAL (
       SELECT COUNT(*) AS n

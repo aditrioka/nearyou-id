@@ -317,6 +317,10 @@ class HomeTabHostScreenTest {
             assertTrue(top is PostDetailRoute, "tapping a Nearby card pushes PostDetailRoute (was: ${backStack.toList()})")
             assertEquals("NEARBY_POST", top.content)
             assertTrue(top.distanceM != null, "a Nearby-origin route carries the card's distance")
+            // mobile-timeline-card-redesign — the route carries the author DISPLAY identity (and,
+            // structurally, no lat/lng/UUID: PostDetailRoute declares no such properties).
+            assertEquals("raka.jkt", top.authorUsername)
+            assertEquals("Raka Pratama", top.authorDisplayName)
         }
     }
 
@@ -337,6 +341,9 @@ class HomeTabHostScreenTest {
             assertTrue(top is PostDetailRoute, "tapping a Global card pushes PostDetailRoute (was: ${backStack.toList()})")
             assertEquals("GLOBAL_POST", top.content)
             assertEquals(null, top.distanceM, "a Global-origin route carries no distance")
+            // mobile-timeline-card-redesign — identity rides the route from the Global projection too.
+            assertEquals("dewi.kuliner", top.authorUsername)
+            assertEquals("Dewi Lestari", top.authorDisplayName)
         }
     }
 }

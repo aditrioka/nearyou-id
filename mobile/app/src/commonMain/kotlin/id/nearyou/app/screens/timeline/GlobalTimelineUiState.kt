@@ -5,13 +5,17 @@ import id.nearyou.app.timeline.GlobalTimelineOutcome
 
 /**
  * The display-only projection of a Global post — the PII-stripped model the cards render. It carries
- * ONLY the fields a card shows: there is deliberately NO `authorUserId`, NO `latitude`/`longitude`,
- * and (Global has no spatial filter) **NO distance** — so the rendered state STRUCTURALLY cannot leak
- * author identity, raw coordinates, or a distance. [id] is the post's own UUID (not author PII), kept
- * as a stable `LazyColumn` key.
+ * ONLY the fields a card shows: there is deliberately NO `authorUserId` (UUID), NO
+ * `latitude`/`longitude`, and (Global has no spatial filter) **NO distance** — so the rendered state
+ * STRUCTURALLY cannot leak the author identifier, raw coordinates, or a distance. As of
+ * `mobile-timeline-card-redesign` it carries the author **display** identity ([authorUsername] +
+ * [authorDisplayName]) — display data, not the banned UUID. [id] is the post's own UUID (not author
+ * PII), kept as a stable `LazyColumn` key.
  */
 data class GlobalTimelinePost(
     val id: String,
+    val authorUsername: String,
+    val authorDisplayName: String,
     val content: String,
     val cityName: String,
     val createdAt: String,
@@ -22,6 +26,8 @@ data class GlobalTimelinePost(
 private fun GlobalPostDto.toUi(): GlobalTimelinePost =
     GlobalTimelinePost(
         id = id,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
         content = content,
         cityName = cityName,
         createdAt = createdAt,

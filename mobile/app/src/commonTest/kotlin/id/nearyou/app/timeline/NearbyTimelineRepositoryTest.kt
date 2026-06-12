@@ -21,7 +21,8 @@ import kotlin.test.assertTrue
 private val JSON_HEADERS = headersOf("Content-Type", "application/json")
 
 private fun postJson(id: String): String =
-    """{"id":"$id","authorUserId":"a-$id","content":"c","latitude":-6.2,"longitude":106.8,""" +
+    """{"id":"$id","authorUserId":"a-$id","authorUsername":"raka.jkt","authorDisplayName":"Raka Pratama",""" +
+        """"content":"c","latitude":-6.2,"longitude":106.8,""" +
         """"distanceM":10.0,"city_name":"Jakarta","createdAt":"2026-05-31T10:00:00Z","liked_by_viewer":false,"reply_count":0}"""
 
 /**

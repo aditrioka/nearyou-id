@@ -76,6 +76,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                             createdAtIso = target.createdAtIso,
                             likedByViewer = target.likedByViewer,
                             replyCount = target.replyCount,
+                            authorUsername = target.authorUsername,
+                            authorDisplayName = target.authorDisplayName,
                         ),
                     )
                 },

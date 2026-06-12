@@ -211,15 +211,18 @@ class GlobalTimelineScreenTest {
         }
     }
 
-    // author_user_id (a UUID), raw coordinates, AND any distance string are NEVER rendered.
+    // author_user_id (a UUID), raw coordinates, AND any distance string are NEVER rendered — while
+    // the author DISPLAY identity (mobile-timeline-card-redesign) IS rendered by the shared card.
     @Test
-    fun noAuthorIdCoordinatesNorDistance_inRenderedTree() {
+    fun noAuthorIdCoordinatesNorDistance_inRenderedTree_whileDisplayIdentityIs() {
         installKoin(
             GlobalTimelineOutcome.Loaded(
                 listOf(
                     fakeGlobalPost(
                         content = "PII_GLOBAL",
                         authorUserId = "11111111-1111-1111-1111-111111111111",
+                        authorUsername = "dewi.kuliner",
+                        authorDisplayName = "Dewi Lestari",
                         latitude = -6.21,
                         longitude = 106.85,
                     ),
@@ -232,6 +235,8 @@ class GlobalTimelineScreenTest {
             setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("PII_GLOBAL").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("PII_GLOBAL").assertExists()
+            onNodeWithText("Dewi Lestari").assertExists()
+            onNodeWithText("@dewi.kuliner").assertExists()
             onNodeWithText("11111111-1111-1111-1111-111111111111", substring = true).assertDoesNotExist()
             onNodeWithText("-6.21", substring = true).assertDoesNotExist()
             onNodeWithText("106.85", substring = true).assertDoesNotExist()
@@ -268,10 +273,13 @@ class GlobalTimelineScreenTest {
             assertEquals("g9", tapped?.id)
             assertEquals("TAP_GLOBAL", tapped?.content)
             assertEquals("Medan", tapped?.cityName)
-            // No coordinates in the payload — GlobalTimelinePost drops the DTO's lat/long (fakeGlobalPost
-            // defaults -6.21 / 106.85); structurally absent, asserted explicitly per the spec scenario.
+            assertEquals("dewi.kuliner", tapped?.authorUsername)
+            assertEquals("Dewi Lestari", tapped?.authorDisplayName)
+            // No coordinates / author UUID in the payload — GlobalTimelinePost drops the DTO's lat/long
+            // (fakeGlobalPost defaults -6.21 / 106.85) and the UUID; asserted per the spec scenario.
             assertFalse(tapped.toString().contains("-6.21"), "no latitude in the onOpenPost payload")
             assertFalse(tapped.toString().contains("106.85"), "no longitude in the onOpenPost payload")
+            assertFalse(tapped.toString().contains("11111111-1111"), "no author UUID in the onOpenPost payload")
         }
     }
 }

@@ -5,14 +5,18 @@ import id.nearyou.app.timeline.NearbyTimelineOutcome
 
 /**
  * The display-only projection of a Nearby post — the PII-stripped model the cards render. It carries
- * ONLY the fields a card shows: there is deliberately NO `authorUserId` and NO `latitude`/`longitude`,
- * so the rendered state STRUCTURALLY cannot leak author identity or raw coordinates (spec § "No author
- * identifier or coordinate is rendered or logged"). [id] is the post's own UUID (not author PII), kept
- * as a stable `LazyColumn` key. The user-facing distance is produced from [distanceM] via
- * `DistanceRenderer.render` at the card level (not stored pre-rendered).
+ * ONLY the fields a card shows: there is deliberately NO `authorUserId` (UUID) and NO
+ * `latitude`/`longitude`, so the rendered state STRUCTURALLY cannot leak the author identifier or raw
+ * coordinates (spec § "No author identifier or coordinate is rendered or logged"). As of
+ * `mobile-timeline-card-redesign` it carries the author **display** identity ([authorUsername] +
+ * [authorDisplayName]) — the product-spec'd card header — which is display data, not the banned UUID.
+ * [id] is the post's own UUID (not author PII), kept as a stable `LazyColumn` key. The user-facing
+ * distance is produced from [distanceM] via `DistanceRenderer.render` at the card level.
  */
 data class NearbyTimelinePost(
     val id: String,
+    val authorUsername: String,
+    val authorDisplayName: String,
     val content: String,
     val cityName: String,
     val distanceM: Double,
@@ -24,6 +28,8 @@ data class NearbyTimelinePost(
 private fun NearbyPostDto.toUi(): NearbyTimelinePost =
     NearbyTimelinePost(
         id = id,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
         content = content,
         cityName = cityName,
         distanceM = distanceM,

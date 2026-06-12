@@ -48,10 +48,18 @@ class ShellAndTimelineSourceGuardTest {
     private val selectedColorNeedle = "selected" + "ContentColor"
     private val unselectedColorNeedle = "unselected" + "ContentColor"
 
+    // The card-time clock glyph is REMOVED by mobile-timeline-card-redesign (time renders as text in
+    // the identity header) — the shared card must never reference it again.
+    private val clockGlyphNeedle = "ic_post_" + "time"
+
     private val shell by lazy { read("shell/AppShellScreen.kt") }
     private val home by lazy { read("home/HomeScreen.kt") }
     private val nearby by lazy { read("timeline/NearbyTimelineScreen.kt") }
     private val global by lazy { read("timeline/GlobalTimelineScreen.kt") }
+
+    // The ONE shared card (ui/components — mobile-timeline-card-redesign absorbed the per-screen
+    // copies); the icon-affordance assertions moved here with it.
+    private val postCard by lazy { readComponent("PostCard.kt") }
 
     @Test
     fun onlyTheShellDeclaresAScaffold_homeAndTimelinesAreInsetFree() {
@@ -59,6 +67,8 @@ class ShellAndTimelineSourceGuardTest {
         assertScaffoldAndTopBarAbsent("HomeScreen", home)
         assertScaffoldAndTopBarAbsent("NearbyTimelineScreen", nearby)
         assertScaffoldAndTopBarAbsent("GlobalTimelineScreen", global)
+        // The shared card is shell-body content too — no Scaffold/TopAppBar of its own.
+        assertScaffoldAndTopBarAbsent("PostCard", postCard)
     }
 
     private fun assertScaffoldAndTopBarAbsent(
@@ -79,16 +89,43 @@ class ShellAndTimelineSourceGuardTest {
 
     @Test
     fun navAndCardsUseMaterialIconDrawables_notDots() {
-        // Shell nav items + post cards render Material icon drawables (painterResource over a Res.drawable.*)…
+        // Shell nav items + the shared post card render Material icon drawables (painterResource over
+        // a Res.drawable.*). The timeline screens no longer hold the cards (mobile-timeline-card-redesign
+        // moved them to ui/components/PostCard.kt), so the card assertion targets the shared file.
         assertUsesIconDrawables("AppShellScreen", shell)
-        assertUsesIconDrawables("NearbyTimelineScreen", nearby)
-        assertUsesIconDrawables("GlobalTimelineScreen", global)
+        assertUsesIconDrawables("PostCard", postCard)
 
-        // …and NO CircleShape placeholder dot remains anywhere in the Home surface.
+        // …and NO CircleShape placeholder dot remains in the Home-surface screens. (The shared card's
+        // LetterAvatar is a REAL circular avatar in its own file — an avatar, not a placeholder dot —
+        // and is deliberately outside this needle's scope.)
         assertNoCircleShapeDot("AppShellScreen", shell)
         assertNoCircleShapeDot("HomeScreen", home)
         assertNoCircleShapeDot("NearbyTimelineScreen", nearby)
         assertNoCircleShapeDot("GlobalTimelineScreen", global)
+        assertNoCircleShapeDot("PostCard", postCard)
+    }
+
+    // Hex color literals would bypass the NearYouTheme tokens (mobile-post-card § both-schemes
+    // scenario: "the component source contains no hex color literals").
+    private val hexColorNeedle = "Color(" + "0x"
+
+    @Test
+    fun cardComponentsUseThemeTokens_noHexColorLiterals() {
+        val letterAvatar = readComponent("LetterAvatar.kt")
+        assertFalse(postCard.contains(hexColorNeedle), "PostCard must use NearYouTheme tokens, not hex Color literals")
+        assertFalse(letterAvatar.contains(hexColorNeedle), "LetterAvatar must use NearYouTheme tokens, not hex Color literals")
+    }
+
+    @Test
+    fun cardTimeIsTextOnly_noClockGlyphReference() {
+        // mobile-design-system § "Card time label is text-only in the identity header": the clock
+        // glyph is gone from the card affordance set (docs/03 glyph list amended in the same PR).
+        assertFalse(
+            postCard.contains(clockGlyphNeedle),
+            "PostCard must not reference the $clockGlyphNeedle glyph — time renders as text in the identity header",
+        )
+        assertFalse(nearby.contains(clockGlyphNeedle), "NearbyTimelineScreen must not reference the card clock glyph")
+        assertFalse(global.contains(clockGlyphNeedle), "GlobalTimelineScreen must not reference the card clock glyph")
     }
 
     private fun assertNoCircleShapeDot(
@@ -126,8 +163,11 @@ class ShellAndTimelineSourceGuardTest {
 
     private companion object {
         private const val COMMON_MAIN = "mobile/app/src/commonMain/kotlin/id/nearyou/app/screens"
+        private const val UI_COMPONENTS = "mobile/app/src/commonMain/kotlin/id/nearyou/app/ui/components"
 
         fun read(relative: String): String = File(findRepoRoot(), "$COMMON_MAIN/$relative").readText().stripComments()
+
+        fun readComponent(relative: String): String = File(findRepoRoot(), "$UI_COMPONENTS/$relative").readText().stripComments()
 
         /** Walks up to the repo root (the dir holding settings.gradle.kts) so the scan resolves whether
          *  `user.dir` is the module dir or the repo root. */

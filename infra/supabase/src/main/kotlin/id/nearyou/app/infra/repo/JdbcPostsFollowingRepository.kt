@@ -44,12 +44,18 @@ class JdbcPostsFollowingRepository(
         //    applied (privacy tradeoff; post-replies-v8 design Decision 5).
         //
         // Both user_blocks NOT-IN subqueries are required for BlockExclusionJoinRule.
+        //
+        // JOIN visible_users on p.author_id projects the author display identity
+        // (author_username / author_display_name). PK-equality INNER JOIN; visible_posts
+        // already filters shadow-banned/deleted authors (V20) — cardinality unchanged.
         val sql =
             buildString {
                 append(
                     """
                     SELECT p.id,
                            p.author_id,
+                           u.username AS author_username,
+                           u.display_name AS author_display_name,
                            p.content,
                            ST_Y(p.display_location::geometry) AS lat,
                            ST_X(p.display_location::geometry) AS lng,
@@ -58,6 +64,7 @@ class JdbcPostsFollowingRepository(
                            (pl.user_id IS NOT NULL) AS liked_by_viewer,
                            c.n AS reply_count
                       FROM visible_posts p
+                      JOIN visible_users u ON u.id = p.author_id
                       LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = ?
                       LEFT JOIN LATERAL (
                           SELECT COUNT(*) AS n
@@ -96,6 +103,8 @@ class JdbcPostsFollowingRepository(
                             TimelineRow(
                                 id = rs.getObject("id", UUID::class.java),
                                 authorId = rs.getObject("author_id", UUID::class.java),
+                                authorUsername = rs.getString("author_username"),
+                                authorDisplayName = rs.getString("author_display_name"),
                                 content = rs.getString("content"),
                                 latitude = rs.getDouble("lat"),
                                 longitude = rs.getDouble("lng"),

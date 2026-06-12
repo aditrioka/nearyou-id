@@ -77,10 +77,16 @@ private val JSON = headersOf("Content-Type", "application/json")
  * report affordance). In the Release-variant `*ScreenTest` exclude (the ui-test-manifest host is debug-only).
  *
  * `@Suppress("DEPRECATION")` + `KoinContext`: see `SignInScreenTest` for the multi-test startKoin cycle.
+ *
+ * The display is pinned to a realistic phone viewport (`w360dp-h800dp`): Robolectric's legacy default
+ * (320x470) leaves only ~180dp of scrollable height between the back bar and the reply composer, so the
+ * detail `LazyColumn` composes ONLY the header item once the header carries the identity row
+ * (mobile-timeline-card-redesign) — every below-the-header assertion (like row, replies) would fail not
+ * on behavior but on the tiny legacy window. Real device classes are ~780-900dp tall.
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
+@Config(sdk = [33], qualifiers = "w360dp-h800dp")
 @OptIn(ExperimentalTestApi::class)
 class PostDetailScreenTest {
     private fun installKoin(flow: PostDetailFlow) {
@@ -97,6 +103,8 @@ class PostDetailScreenTest {
         cityName: String = CITY,
         likedByViewer: Boolean = false,
         replyCount: Int = 2,
+        authorUsername: String = "raka.jkt",
+        authorDisplayName: String = "Raka Pratama",
     ): PostDetailRoute =
         PostDetailRoute(
             postId = "p1",
@@ -106,6 +114,8 @@ class PostDetailScreenTest {
             createdAtIso = CREATED_AT,
             likedByViewer = likedByViewer,
             replyCount = replyCount,
+            authorUsername = authorUsername,
+            authorDisplayName = authorDisplayName,
         )
 
     // ---- header ----
@@ -120,6 +130,42 @@ class PostDetailScreenTest {
             // Deferral negatives: no block/report affordance on the detail surface.
             onNodeWithText("Blokir", substring = true).assertDoesNotExist()
             onNodeWithText("Laporkan", substring = true).assertDoesNotExist()
+        }
+    }
+
+    // mobile-post-detail § "Header renders the author display identity from the payload" — the identity
+    // row comes SOLELY from the route (no network request for it; the no-single-post-GET test below
+    // keeps pinning the outbound surface).
+    @Test
+    fun header_rendersAuthorDisplayIdentity_fromTheRoutePayload() {
+        installKoin(FakePostDetailFlow())
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            onNodeWithText("Raka Pratama").assertExists()
+            onNodeWithText("@raka.jkt").assertExists()
+            // The shared LetterAvatar renders the derived initials ("Raka Pratama" → "RP").
+            onNodeWithText("RP").assertExists()
+        }
+    }
+
+    // mobile-post-detail § "Empty identity payload renders without an identity row" — a back stack
+    // serialized before the fields existed decodes to "" defaults; no "@" orphan, no empty avatar.
+    @Test
+    fun emptyIdentityPayload_rendersNoIdentityRow_noOrphanHandle() {
+        installKoin(FakePostDetailFlow())
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(route = route(authorUsername = "", authorDisplayName = ""), onBack = {})
+                    }
+                }
+            }
+            onNodeWithText(CONTENT).assertExists()
+            onNodeWithText("@", substring = true).assertDoesNotExist()
+            onNodeWithText("Raka Pratama").assertDoesNotExist()
+            // No avatar either — empty identity yields no initials node ("RP" absent).
+            onNodeWithText("RP").assertDoesNotExist()
         }
     }
 
