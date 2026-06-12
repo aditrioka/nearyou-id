@@ -31,8 +31,8 @@
 
 ## 5. Verification + DoD (docs/11 § 5)
 
-- [ ] 5.1 `./gradlew ktlintCheck detekt :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` green locally (the module is flavored — docs/11 §5 names the Dev-variant tasks; the Release run also exercises the `*ScreenTest` exclude list) plus the full pre-push gate before any push: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`
-- [ ] 5.2 `./gradlew :mobile:app:linkDebugFrameworkIosSimulatorArm64` (K/N compile guard — CI is Linux-only and cannot catch iOS-specific breakage)
-- [ ] 5.3 Manual verification on Android emulator: sign-in, age gate, home app bar, splash, composer — light + dark; screenshots captured
-- [ ] 5.4 Manual verification on iOS simulator: same surfaces, light + dark; screenshots captured
-- [ ] 5.5 PR body updated with the light + dark screenshot evidence (DoD for UI-affecting changes) + retitle via `gh pr edit` at the feat-commit boundary
+- [x] 5.1 `./gradlew ktlintCheck detekt :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` green locally (the module is flavored — docs/11 §5 names the Dev-variant tasks; the Release run also exercises the `*ScreenTest` exclude list) plus the full pre-push gate before any push: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`
+- [x] 5.2 `./gradlew :mobile:app:linkDebugFrameworkIosSimulatorArm64` (K/N compile guard — CI is Linux-only and cannot catch iOS-specific breakage)
+- [x] 5.3 Manual verification on Android emulator: sign-in, age gate, home app bar, splash, composer — light + dark; screenshots captured
+- [x] 5.4 Manual verification on iOS simulator: same surfaces, light + dark; screenshots captured
+- [x] 5.5 PR body updated with the light + dark screenshot evidence (DoD for UI-affecting changes) + retitle via `gh pr edit` at the feat-commit boundary
