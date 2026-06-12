@@ -56,8 +56,8 @@ The change SHALL ship: (1) a Robolectric `PostCreationScreenTest` (`mobile/app/s
 
 #### Scenario: Test classes exist and are discoverable
 
-- **WHEN** running `./gradlew :mobile:app:testDebugUnitTest`
-- **THEN** `PostCreationScreenTest`, `PostCreationUiStateTest`, and the `PostCreationApiClient`/`CreatePostRepository` MockEngine tests are discovered AND each documented state / mapping corresponds to at least one `@Test` (including the chip + privacy-note render coverage)
+- **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest` (the module is flavored; the unflavored `testDebugUnitTest` task does not exist)
+- **THEN** `PostCreationScreenTest`, `PostCreationUiStateTest`, and the `PostCreationApiClient`/`CreatePostRepository` MockEngine tests are discovered AND each documented state / mapping corresponds to at least one `@Test` (including the chip + privacy-note render coverage and the counter bounds assertion)
 
 #### Scenario: Screen test is excluded from the Release variant
 
