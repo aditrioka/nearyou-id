@@ -3,12 +3,12 @@
 ## 1. Mockup grounding (docs/11 § 3.6 render rule)
 
 - [ ] 1.1 Render mockup frames `#f01` (login) and `#f02` (shell + landing) from `dev/mockups/nearyou-admin-mockup.html` (headless-Chrome standalone-frame extraction per the known render recipe) and generate the per-frame measurement annex via `dev/scripts/mockup-measure.sh` for both frames (spacing / typography / tokens; output is on-demand, never committed)
-- [ ] 1.2 Inventory the icon set needed from the frames (mail, key, timer, visibility, visibility_off, error, info, dashboard, flag, group, block, receipt_long, logout) and vendor them as a single `icons.peb` inline-SVG macro partial (Material Symbols outline 24dp paths, `currentColor`, Apache-2.0 attribution comment)
+- [ ] 1.2 Inventory the icon set needed from the frames (mail, key, timer, visibility, visibility_off, error, info, dashboard, flag, group, block, receipt_long, logout) and vendor them as a single `icons.peb` inline-SVG macro partial (Material Symbols outline 24dp paths, `currentColor`, `data-icon="<name>"` attribute on each emitted `<svg>` for test/annex assertions, Apache-2.0 attribution comment)
 
 ## 2. `/admin` redirect (routing)
 
 - [ ] 2.1 Mount `get("")` inside `route("/admin")` (outside the `authenticate` block) responding 302 with `Location: /admin/`, per design D1
-- [ ] 2.2 Route test: `GET /admin` → 302 `/admin/` with and without a session cookie; existing 404-for-unmapped and 405-for-POST-index tests still green
+- [ ] 2.2 Route test: `GET /admin` → 302 `/admin/` with and without a session cookie; `POST /admin` → 405 (path node now exists); existing 404-for-unmapped and 405-for-POST-index tests still green
 
 ## 3. Identity/session plumbing
 
@@ -22,14 +22,14 @@
 - [ ] 4.3 Top bar: page-title crumb + environment chip (STAGING/PRODUCTION/DEV uppercased)
 - [ ] 4.4 Keep the existing narrow-viewport hamburger behavior working with the new sidebar markup (frame `#f04b` responsive contract)
 - [ ] 4.5 Feature pages (`reports.peb`, `users.peb`, `rejected-identifiers.peb`, `actions-log.peb`) pass their `pageTitle` + active-path values; in-page content otherwise untouched
-- [ ] 4.6 Layout/shell route tests: five shipped nav items present with icons, no Usulan items, identity box fields, env chip, active-state on `/admin/reports`
+- [ ] 4.6 Layout/shell route tests: five shipped nav items present with `data-icon` assertions, no Usulan items, no footer, identity box fields, env chip (test-config value), active-state on `/admin/reports`, session-expiry display for both branches (idle-deadline-sooner AND absolute-cap-sooner, `HH:mm` UTC format)
 
 ## 5. Landing page (`index.peb` + stats)
 
 - [ ] 5.1 `AdminIndexStatsRepository`: three parameterized aggregate reads per design D4 (pending count + oldest pending `created_at`; rejected last-24h count + top reason with deterministic tie-break; audit actions today (UTC) + newest `action_type`) — `EXPLAIN` each against the dev DB and note index usage in the PR
 - [ ] 5.2 Index route: model gains greeting name + stat values + relative-age formatting ("2 h ago") done server-side in the route
 - [ ] 5.3 `index.peb` per frame `#f02`: `Welcome back, {name}` heading, three stat cards (icon + title + kv rows, linking to their pages), CSRF info banner; static description cards (incl. User moderation card) removed
-- [ ] 5.4 DB-tagged route test: seeded stat values render (4 pending / oldest 2 h; 12 last-24h / `age_under_18`; 9 today / `user_suspended`) + empty-DB zero-state placeholders + no "User moderation" card. Pool follows the autoClose + size-2 CI pattern
+- [ ] 5.4 DB-tagged route test: seeded stat values render (4 pending / oldest 2 h; 12 last-24h / `age_under_18`; 9 today / `user_suspended`) + top-reason tie-break case (equal counts → alphabetically-first reason renders) + empty-DB zero-state placeholders + no "User moderation" card. Pool follows the autoClose + size-2 CI pattern
 
 ## 6. Login page (`login.peb`)
 

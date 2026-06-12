@@ -38,15 +38,18 @@ The system SHALL expose an admin-panel route subtree under the `/admin/*` URL na
 
 - **WHEN** a client sends `POST /admin/` (or any non-GET method on the bare index path) to the `:backend:ktor` deployable
 - **THEN** the response status SHALL be 405 Method Not Allowed
+- **AND** `POST /admin` (the bare path, no trailing slash) SHALL also return 405 — mounting the GET redirect makes the path node exist, so non-GET methods on it surface as method-not-allowed rather than 404
 - **AND** the route exists but only GET is wired on `/admin/` itself (the `/admin/login` + `/admin/logout` paths handle POST; subsequent admin changes will wire POST/PUT/DELETE handlers on their own paths as auth-gated business actions land)
 
 ### Requirement: Shared base layout template exists and is extended by admin pages
 
 The system SHALL provide a base layout template under `src/main/resources/templates/admin/` in the Pebble templating engine's format that admin pages extend. The layout SHALL render the app shell per the admin mockup board frame 2 (`dev/mockups/nearyou-admin-mockup.html` `#f02`, per [`docs/11-Engineering-Standards.md`](../../../../../docs/11-Engineering-Standards.md) § 3.6):
 
-- a **grouped sidebar** containing the brand logo and the shipped pages only, each nav item with a leading vendored inline-SVG icon: group "Moderasi" → Dashboard (`/admin/`), Reports (`/admin/reports`), Users (`/admin/users`); group "Anti-abuse & keamanan" → Rejected identifiers (`/admin/rejected-identifiers`); group "Sistem" → Audit log (`/admin/actions-log`). Unshipped ("Usulan") mockup menu items SHALL NOT be rendered (no dead links, no disabled placeholders), and the mockup's per-item status dots SHALL NOT be rendered (they are mockup-board annotations, not product UI). The nav item whose path matches the current page SHALL carry an active-state style.
+- a **grouped sidebar** containing the brand logo and the shipped pages only, each nav item with a leading vendored inline-SVG icon (every icon `<svg>` carries a `data-icon="<name>"` attribute identifying the glyph, so tests can assert icon identity): group "Moderasi" → Dashboard (`/admin/`), Reports (`/admin/reports`), Users (`/admin/users`); group "Anti-abuse & keamanan" → Rejected identifiers (`/admin/rejected-identifiers`); group "Sistem" → Audit log (`/admin/actions-log`). Unshipped ("Usulan") mockup menu items SHALL NOT be rendered (no dead links, no disabled placeholders), and the mockup's per-item status dots SHALL NOT be rendered (they are mockup-board annotations, not product UI; the Dashboard item is rendered despite its hollow board dot — that annotation marks the unbuilt frame-3 Operational Dashboard content, not the shipped `/admin/` landing the item links to). The nav item whose path matches the current page SHALL carry an active-state style.
 - a **sidebar footer identity box** on authenticated pages showing the authenticated admin's role as an uppercase role chip, the admin's display name, a session line of the form `Session idle {idle-timeout} · expires {HH:mm} UTC` where the displayed expiry is the sooner of (last-activity + idle-timeout) and the session's absolute expiry, and the Logout control (existing POST + CSRF semantics unchanged).
-- a **top bar** showing the current page title and an environment chip with the uppercased deployment environment name (e.g. `STAGING`).
+- a **top bar** showing the current page title and an environment chip with the uppercased deployment environment name (e.g. `STAGING`), sourced from the existing deployment-environment configuration (tests assert the test-config value).
+
+The previous layout's page footer SHALL NOT be rendered — mockup frame 2 has none (deliberate removal, recorded in the proposal).
 
 The `/admin/` index page and the `/admin/login` page SHALL both extend this layout rather than inlining the layout markup. The layout SHALL conditionally render a `<meta name="csrf-token" content="${csrfToken}">` tag in the `<head>` plus an inline `<script>` block implementing the `htmx:configRequest` CSRF header injection (per the `admin-login` capability) — these conditional sections SHALL render ONLY when the rendering context provides a CSRF token (i.e., authenticated pages); unauthenticated pages (including `/admin/login`) SHALL NOT render either. Session-derived sections (sidebar nav, identity box) SHALL likewise render only on authenticated pages; the login page renders the shell-less centered layout per mockup frame 1.
 
@@ -54,12 +57,19 @@ The `/admin/` index page and the `/admin/login` page SHALL both extend this layo
 
 - **GIVEN** an authenticated session
 - **WHEN** `GET /admin/` is served
-- **THEN** the rendered HTML SHALL contain the grouped sidebar with exactly the five shipped nav items (Dashboard, Reports, Users, Rejected identifiers, Audit log) under their group headings, each with an inline-SVG icon
+- **THEN** the rendered HTML SHALL contain the grouped sidebar with exactly the five shipped nav items (Dashboard, Reports, Users, Rejected identifiers, Audit log) under their group headings, each with an inline-SVG icon identified by its `data-icon` attribute (`dashboard`, `flag`, `group`, `block`, `receipt_long`)
 - **AND** the rendered HTML SHALL NOT contain nav items for unshipped pages (e.g. no "Post edit history", "Attestation review", "Feature flags")
 - **AND** the rendered HTML SHALL contain the identity box with the admin's role chip, display name, and a `Session idle … · expires … UTC` line
 - **AND** the rendered HTML SHALL contain the top bar with the page title and the environment chip
 - **AND** the rendered HTML SHALL contain the index-page-specific content block
 - **AND** template rendering SHALL complete without throwing a template-engine exception (asserted indirectly by the 200 status on the request)
+
+#### Scenario: Session expiry display shows the absolute cap when it is the sooner bound
+
+- **GIVEN** an authenticated session whose absolute expiry (`expiresAt`) is sooner than (last-activity + idle-timeout) — e.g. a session within 30 minutes of its 8 h cap
+- **WHEN** `GET /admin/` is served
+- **THEN** the identity box session line SHALL render the expiry as the session's absolute expiry, formatted `HH:mm` UTC
+- **AND** for a fresh session (idle deadline sooner than the cap) the same line renders the idle deadline instead
 
 #### Scenario: Active nav item reflects the current page
 
@@ -89,6 +99,13 @@ The `/admin/` index page SHALL render, per the admin mockup board frame 2: a gre
 - **THEN** the Report queue card SHALL show a pending count of 4 and an oldest-pending age derived from the 2-hour-old row
 - **AND** the Rejected identifiers card SHALL show 12 and `age_under_18`
 - **AND** the Audit log card SHALL show 9 and `user_suspended`
+
+#### Scenario: Top-reason tie breaks deterministically
+
+- **GIVEN** an authenticated session
+- **AND** the last 24 hours contain an equal count of `rejected_identifiers` rows for two reasons (e.g. `age_under_18` and `duplicate_identifier`)
+- **WHEN** `GET /admin/` is served
+- **THEN** the Rejected identifiers card SHALL show the alphabetically-first of the tied reasons (per the deterministic `ORDER BY count DESC, reason ASC` tie-break)
 
 #### Scenario: Empty database renders zero-state cards
 

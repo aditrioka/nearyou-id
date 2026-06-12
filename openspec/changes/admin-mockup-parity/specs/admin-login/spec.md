@@ -19,15 +19,15 @@ The page's presentation SHALL follow the admin mockup board frame 1 (`dev/mockup
 
 - **WHEN** an unauthenticated client sends `GET /admin/login`
 - **THEN** the response body SHALL NOT contain an "Admin login" heading text
-- **AND** each of the three inputs SHALL be accompanied by its leading inline-SVG icon (mail / key / timer)
-- **AND** the password field SHALL include a visibility-toggle `<button type="button">` with an inline-SVG icon
+- **AND** each of the three inputs SHALL be accompanied by its leading inline-SVG icon, identified by `data-icon` attribute (`mail` / `key` / `timer`)
+- **AND** the password field SHALL include a visibility-toggle `<button type="button">` with an inline-SVG icon (`data-icon="visibility"`)
 - **AND** the page SHALL contain the inline script wiring the toggle (flipping `type="password"` ↔ `type="text"`)
 
 #### Scenario: Error banner renders with icon and identical bytes on every failure path
 
 - **WHEN** a login POST fails (any failure path: wrong password, wrong TOTP, unknown email, inactive admin)
-- **THEN** the re-rendered login page SHALL contain the generic error banner with its leading inline-SVG icon
-- **AND** the error banner markup SHALL be byte-identical across all failure paths (per this capability's no-enumeration requirement)
+- **THEN** the re-rendered login page SHALL contain the generic error banner with its leading inline-SVG icon (`data-icon="error"`)
+- **AND** the error banner markup SHALL be byte-identical across all failure paths — this scenario complements (does not replace) the existing "All failure paths return identical body, status, and headers" scenario under the no-enumeration requirement, which remains the owning byte-equality test
 
 #### Scenario: Login page does not include CSRF meta tag
 
