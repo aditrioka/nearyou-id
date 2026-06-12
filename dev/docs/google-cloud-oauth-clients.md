@@ -1,20 +1,19 @@
 # Google Cloud OAuth Clients + iOS Sign-In Integration Runbook
 
 Provisioning + wiring runbook for the Google Sign-In flow shipped by
-`mobile-auth-google-signin-flow` (Mobile #3). Covers Android + iOS OAuth client IDs,
-the iOS CocoaPods integration, the per-environment xcconfig/scheme wiring, and the
-dev-workstation preconditions.
+`mobile-auth-google-signin-flow` (Mobile #3): Android + iOS OAuth client IDs, the iOS
+CocoaPods integration, per-environment xcconfig/scheme wiring, dev-workstation preconditions.
 
 > **Public-repo posture (CLAUDE.md).** Android OAuth client IDs are non-sensitive — the
-> SHA-1 signing-cert binding is the security boundary, so they may be committed verbatim to
+> SHA-1 signing-cert binding is the security boundary — so they may be committed verbatim to
 > the per-flavor `buildConfigField` declarations once provisioned. The iOS
 > `GoogleService-Info.plist` IS sensitive when paired with the bundle ID (Apple app-binding
-> model) — it is gitignored and pulled from GCP Secret Manager at build time. Only the
+> model) — it is gitignored and pulled from GCP Secret Manager at build time; only the
 > `GoogleService-Info.plist.template` placeholder is tracked.
 
 ## 1. OAuth client IDs (Google Cloud Console, project `nearyou-staging`)
 
-Create these under **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+Create under **APIs & Services → Credentials → Create credentials → OAuth client ID**:
 
 | Client | Type | Bundle / package | Binding |
 |---|---|---|---|
@@ -27,10 +26,10 @@ Create these under **APIs & Services → Credentials → Create credentials → 
   `/api/v1/auth/signin` endpoint validates. Put it in the Android per-flavor
   `GOOGLE_SERVER_CLIENT_ID` `buildConfigField` (in `mobile/app/build.gradle.kts`) and pass it
   to `GetGoogleIdOption.Builder().setServerClientId(...)`. The iOS SDK uses the iOS client ID
-  for the ceremony but the backend still validates against the same server/web client ID's
-  audience — confirm the audience allow-list on the backend includes it.
-- Get the debug SHA-1: `./gradlew :mobile:app:signingReport` (look for the `debug` variant).
-- The release SHA-1 comes from the upload/release keystore (Play App Signing).
+  for the ceremony, but the backend still validates against the same server/web client ID's
+  audience — confirm the backend's audience allow-list includes it.
+- Debug SHA-1: `./gradlew :mobile:app:signingReport` (look for the `debug` variant).
+- Release SHA-1: from the upload/release keystore (Play App Signing).
 
 After provisioning, replace the `REPLACE_WITH_*_SERVER_CLIENT_ID` placeholders in
 `mobile/app/build.gradle.kts`.
@@ -40,9 +39,9 @@ After provisioning, replace the `REPLACE_WITH_*_SERVER_CLIENT_ID` placeholders i
 1. Download the iOS client's `GoogleService-Info.plist` from the Console.
 2. Store it in GCP Secret Manager (e.g. secret `staging-ios-googleservice-info-plist`).
 3. At Xcode build time (or via a pre-build script / CI step) drop the real file at
-   `iosApp/iosApp/GoogleService-Info.plist` — it is gitignored; never commit it.
-4. The `CLIENT_ID` → Info.plist `GIDClientID` (`$(GID_CLIENT_ID)`); the `REVERSED_CLIENT_ID`
-   → the `CFBundleURLTypes` scheme in `iosApp/iosApp/Info.plist`. Replace the
+   `iosApp/iosApp/GoogleService-Info.plist` — gitignored; never commit it.
+4. `CLIENT_ID` → Info.plist `GIDClientID` (`$(GID_CLIENT_ID)`); `REVERSED_CLIENT_ID` → the
+   `CFBundleURLTypes` scheme in `iosApp/iosApp/Info.plist`. Replace the
    `com.googleusercontent.apps.PLACEHOLDER-REVERSED-CLIENT-ID` placeholder with the real
    reversed client ID (it MUST be the reversed-client-ID shape, NOT an arbitrary custom
    scheme — arbitrary schemes are squattable).
@@ -55,13 +54,13 @@ After provisioning, replace the `REPLACE_WITH_*_SERVER_CLIENT_ID` placeholders i
 > `xcodebuild` invocation. The steps below are the original Mobile #3 setup narrative.
 
 `mobile/app/build.gradle.kts` applies `kotlin("native.cocoapods")` with
-`pod("GoogleSignIn")`. The iosApp Xcode project must consume the KMP framework + the
-GoogleSignIn pod through a CocoaPods workspace:
+`pod("GoogleSignIn")`; the iosApp Xcode project consumes the KMP framework + the GoogleSignIn
+pod through a CocoaPods workspace:
 
 1. **Dev-workstation precondition — working `pod` CLI on PATH.** This repo was developed on a
    machine where `~/.gem/bin/pod` was a **broken** gem-shim that shadowed a working
-   `/opt/homebrew/bin/pod` (CocoaPods 1.16.2). If `pod --version` fails, either remove the
-   broken shim or ensure Homebrew's bin precedes `~/.gem/bin` on PATH. All iOS Gradle tasks
+   `/opt/homebrew/bin/pod` (CocoaPods 1.16.2). If `pod --version` fails, remove the broken
+   shim or ensure Homebrew's bin precedes `~/.gem/bin` on PATH. All iOS Gradle tasks
    (`linkPodDebugFrameworkIosSimulatorArm64`, etc.) invoke `pod install` and will fail
    otherwise. (Interim: prefix Gradle invocations with `PATH=/opt/homebrew/bin:$PATH`.)
 2. Generate the synthetic pod spec once: `./gradlew :mobile:app:podInstallSyntheticIos` (the
@@ -92,7 +91,7 @@ Each sets `APP_API_BASE_URL`, `GID_CLIENT_ID`, and `PRODUCT_BUNDLE_IDENTIFIER`; 
 reads `$(APP_API_BASE_URL)` (→ `ApiBaseUrl`, consumed by the iosMain `apiBaseUrl` actual) and
 `$(GID_CLIENT_ID)` (→ `GIDClientID`).
 
-In Xcode (this is GUI/pbxproj work, not a source edit):
+In Xcode (GUI/pbxproj work, not a source edit):
 1. **Project → Info → Configurations**: duplicate `Debug`/`Release` into `Staging` +
    `Production` configurations.
 2. Set each configuration's **Based on Configuration File** to the matching xcconfig

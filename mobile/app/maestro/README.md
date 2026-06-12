@@ -1,18 +1,17 @@
 # Mobile E2E test harness (Maestro)
 
-AI-agent-usable, repeatable mobile UI testing for `:mobile:app`. Drives the **real** app on an
-emulator/simulator/device, and captures **screenshots + screen recording + logs** so that both an
-AI agent *and a human* can validate a change from the artifacts — without reading code.
-
-Part of the verification loop: the [`verify-loop`](../../../.claude/skills/verify-loop/SKILL.md) skill
-calls this harness for the mobile "drive the UI" step. Builds on the official
+AI-agent-usable, repeatable mobile UI testing for `:mobile:app`: drives the **real** app on an
+emulator/simulator/device, capturing **screenshots + screen recording + logs** so an AI agent *and a
+human* can validate a change from the artifacts — without reading code. The
+[`verify-loop`](../../../.claude/skills/verify-loop/SKILL.md) skill calls this harness for the mobile
+"drive the UI" step. Builds on the official
 [Maestro AI-agent skill](https://github.com/mobile-dev-inc/Maestro/discussions/2985) (auth pre-flight,
 iOS Keychain, GraalJS patterns). Tool: [Maestro](https://docs.maestro.dev/) (installed, `maestro --version` ≥ 2.0).
 
 ## Why Maestro (validated 2026)
 
-Maestro is the mainstream mobile E2E tool; works against compiled APK/IPA **without instrumentation**,
-reads the **accessibility tree** (tap by element, not pixel), and natively emits
+Mainstream mobile E2E tool: works against compiled APK/IPA **without instrumentation**, reads the
+**accessibility tree** (tap by element, not pixel), natively emits
 [screenshots, videos, logs, JUnit + AI reports](https://docs.maestro.dev/maestro-flows/workspace-management/test-reports-and-artifacts).
 Production users at this stack (Compose Multiplatform): Bitkey by Block, etc.
 
@@ -47,8 +46,8 @@ Each run writes to `mobile/app/maestro/artifacts/<flow>-<timestamp>/` (gitignore
 - `report.xml` — JUnit (CI)
 - AI report — Maestro's own run analysis (add `--analyze` for AI Insights, beta)
 
-Workflow: AI runs the flow → writes a plain-English summary ("tested X; here's the screenshot of Y;
-log line Z means …") → **you** open the mp4/PNGs and validate the behavior. No code reading required.
+Workflow: the AI runs the flow and writes a plain-English summary; **you** open the mp4/PNGs and
+validate the behavior.
 
 ## Flow inventory
 
@@ -59,22 +58,21 @@ log line Z means …") → **you** open the mp4/PNGs and validate the behavior. 
 | `flows/auth/nearby-timeline.yaml` | **Phase 2** | tagged `auth-gated`; needs dev test-login |
 | `flows/auth/create-post.yaml` | **Phase 2** | tagged `auth-gated`; FAB → composer |
 
-**Phase 2 (this branch — see [`PHASE-2-dev-test-login.md`](./PHASE-2-dev-test-login.md)):** a `dev`-only
-test-login (auth bypass) injects a seeded session so `auth-gated` flows can run past Sign-In. Until then,
-Google/Apple social login can't be driven (the provider UI lives outside the app sandbox + actively blocks
-bots — bypass is the standard pattern, not driving the real provider). Design is grounded + ready; backend
-is untouched (reuses `dev/scripts/mint-dev-jwt.sh` + `dev/scripts/seed-test-user.sh`); guard = dev flavor
-source-set isolation.
+**Phase 2 (this branch):** a `dev`-only test-login (auth bypass) injects a seeded session so
+`auth-gated` flows can run past Sign-In — Google/Apple social login can't be driven by automation, so
+a bypass is the standard pattern. Design is grounded + ready; backend untouched (reuses
+`dev/scripts/mint-dev-jwt.sh` + `dev/scripts/seed-test-user.sh`); guard = dev flavor source-set
+isolation. Why + full design: [`PHASE-2-dev-test-login.md`](./PHASE-2-dev-test-login.md).
 
 ## Selectors
 
-Flows currently use **text selectors** (e.g. `"Posting"`, `"Buat postingan"`). The app's Compose
-`testTag`s (`postContentField`, `nearbyTimelineList`, …) are NOT yet addressable by Maestro `id:` —
-Compose testTags only surface to UiAutomator/Maestro when `testTagsAsResourceId = true` is enabled at
-the Android Compose root. Enabling it (debug-gated) is a small follow-up that would make all existing
-testTags `id:`-addressable and the flows language-independent; the API was not available via the
-CMP `compose-ui` artifact on the first attempt, so it's deferred rather than rushed. Until then, keep
-text selectors and update them if UI copy changes.
+Flows currently use **text selectors** (e.g. `"Posting"`, `"Buat postingan"`) — update them when UI
+copy changes. The app's Compose `testTag`s (`postContentField`, `nearbyTimelineList`, …) are NOT yet
+addressable by Maestro `id:` — testTags only surface to UiAutomator/Maestro when
+`testTagsAsResourceId = true` is enabled at the Android Compose root. Enabling it (debug-gated) is a
+small follow-up that would make all existing testTags `id:`-addressable and the flows
+language-independent; deferred rather than rushed because the API was not available via the CMP
+`compose-ui` artifact on the first attempt.
 
 ## CI (apply manually)
 
