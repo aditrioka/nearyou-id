@@ -6,7 +6,7 @@
 
 Activating a Nearby card's like affordance SHALL flip that post's `likedByViewer` **optimistically** inside the retained `Loaded` outcome (the list stays mounted; only the tapped post's card changes — no full-list teardown) and invoke the extracted `LikeFlow` seam (`suspend fun toggleLike(postId: String, currentlyLiked: Boolean): LikeOutcome`), which Koin binds to the SAME `PostDetailRepository` singleton that powers `PostDetailScreen` (per `mobile-post-detail` § "Repository and ApiClient wired as Koin singletons behind the PostDetailFlow seam"). The feed MUST NOT introduce a second like ApiClient/repository and MUST NOT duplicate the status→`LikeOutcome` mapping.
 
-The toggle lifecycle SHALL be implemented in ONE shared, Compose-free commonMain inline-like controller (target-shape `ui/timeline/` package per docs/11 § 2.1) consumed by BOTH `NearbyTimelineViewModel` and `GlobalTimelineViewModel` — not per-feed copies. The controller SHALL keep a **per-post in-flight guard**: while a toggle for post X is in flight, further like activations on X are ignored (no concurrent duplicate `POST`/`DELETE` for the same post). Outcome handling per `LikeOutcome` member:
+The toggle lifecycle SHALL be implemented in ONE shared, Compose-free commonMain inline-like controller (target-shape `ui/timeline/` package per docs/11 § 2.1) consumed by BOTH `NearbyTimelineViewModel` and `GlobalTimelineViewModel` — not per-feed copies (each ViewModel holds its own instance of the shared class). The controller SHALL keep a **per-post in-flight guard, scoped to its feed surface**: while a toggle for post X is in flight on that surface, further like activations on X there are ignored (no concurrent duplicate `POST`/`DELETE` from the same surface). The guard is deliberately NOT cross-surface — the same post rendered on both feeds may toggle concurrently across them, which is harmless by the backend contract (idempotent 204s; a re-like releases its rate-limit slot per `post-likes` § "Idempotent re-like releases the slot"). The toggle SHALL pass the tapped post's CURRENT `likedByViewer` as `currentlyLiked` — both directions are first-class (`false` → like/`POST`, `true` → unlike/`DELETE`). Outcome handling per `LikeOutcome` member:
 
 - `Liked` / `Unliked` → the optimistic state stands.
 - `RateLimited(retryAfterSeconds)` → revert the flip AND set the one-shot cap-dialog state (§ "A rate-limited inline like opens the Free like-cap dialog").
@@ -20,6 +20,18 @@ The cap-dialog one-shot signal SHALL be modeled as nullable state cleared via an
 - **GIVEN** the Nearby feed in the `Content` state with a post whose `likedByViewer = false` AND a fake `LikeFlow` returning `LikeOutcome.Liked`
 - **WHEN** the post's like affordance is activated
 - **THEN** the card reflects the liked treatment immediately (before the outcome resolves) AND `toggleLike` was invoked exactly once with (that post's id, `currentlyLiked = false`) AND the liked state stands after the outcome
+
+#### Scenario: Unlike on a liked post passes the true direction and stands
+
+- **GIVEN** the Nearby feed in the `Content` state with a post whose `likedByViewer = true` AND a fake `LikeFlow` returning `LikeOutcome.Unliked`
+- **WHEN** the post's like affordance is activated
+- **THEN** the card reflects the not-liked treatment immediately AND `toggleLike` was invoked exactly once with (that post's id, `currentlyLiked = true`) AND the not-liked state stands after the outcome (the controller derives the direction from the post's current state — it MUST NOT hardcode the like direction)
+
+#### Scenario: An outcome swap during an in-flight toggle resolves against the fresh list
+
+- **GIVEN** a toggle for post X in flight (suspending fake `LikeFlow`) AND a `reload()` that completes meanwhile, swapping the retained `Loaded` outcome
+- **WHEN** the in-flight toggle then completes
+- **THEN** no crash occurs AND the toggle's completion applies against the CURRENT outcome — if X is present in the refreshed list its like state reflects the toggle result (kept on success, reverted on failure); if X is absent from the refreshed list the completion is a no-op on the list AND a `RateLimited` completion still raises the one-shot cap state in either case
 
 #### Scenario: RateLimited reverts the flip and raises the one-shot cap state
 
@@ -68,9 +80,28 @@ While the inline-like cap state is set (a like returned `RateLimited`), the Near
 
 ## MODIFIED Requirements
 
+### Requirement: NearbyTimelineScreen renders the Nearby feed surface
+
+The mobile app SHALL ship a composable `NearbyTimelineScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt`) that renders the authenticated Nearby feed. The screen is navigation-free (it holds no back-stack reference and is embedded directly by `HomeScreen` as the Nearby pager page). The screen SHALL be **inset-free**: it MUST NOT declare its own `Scaffold` or `TopAppBar` (the app section shell owns the single inset-owning `Scaffold` per `mobile-design-system` § "The app shell owns a single Scaffold and window insets"). The screen SHALL display: (a) a scrollable list of post cards — the shared `mobile-post-card` composable, whose action row is interactive as of `mobile-inline-post-actions`; field discipline per the § "No author identifier or coordinate is rendered or logged" requirement — wrapped in a pull-to-refresh container that **fills the available space** between the tab row and the bottom navigation; (b) the loading / empty / error / rate-limit states per the § "Screen state mapping" requirement. The screen SHALL NOT render a redundant in-screen header duplicating the selected section/tab (the `timeline_nearby_title` "*Post dari lokasi ini*" `TopAppBar` title is removed — see the `shared-resources` retention note and the docs amendment; the location disambiguation it previously carried moves to the one-time onboarding hint per `docs/03-UX-Design.md`). No hardcoded UI string literals SHALL appear in the screen source. The screen SHALL render under `NearYouTheme` (light/dark).
+
+#### Scenario: Screen renders inset-free with no redundant header
+
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt`
+- **THEN** the screen declares no `Scaffold` and no `TopAppBar` AND renders no node whose text matches `stringResource(Res.string.timeline_nearby_title)` (the redundant "Post dari lokasi ini" header is removed)
+
+#### Scenario: The post list fills the available space
+
+- **GIVEN** `NearbyTimelineScreen` composed under `NearYouTheme` with a fake emitting a loaded list, inside the shell's padded body
+- **THEN** the pull-to-refresh list occupies the full height between the tab row and the bottom navigation (the list is `fillMaxSize` under the shell-provided padding, with no extra header band or unfilled gap)
+
+#### Scenario: No hardcoded UI strings in NearbyTimelineScreen source
+
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/NearbyTimelineScreen.kt`
+- **THEN** every `Text(...)` / `contentDescription = ...` / similar UI-string-bearing call site sources its text via `stringResource(Res.string.<name>)`; zero literal string arguments appear in such call sites
+
 ### Requirement: Nearby post card opens post detail via a hoisted onOpenPost lambda
 
-The Nearby post card (the shared `mobile-post-card` composable) SHALL be tappable: it SHALL invoke a hoisted `onOpenPost(...)` lambda carrying the card's **non-PII display fields** (`postId`, `content`, `cityName`, `distanceM`, `createdAtIso`, `likedByViewer`, `replyCount`, `authorUsername`, `authorDisplayName`) — and explicitly NOT `latitude`/`longitude` and NOT the author UUID. The lambda is a host-level callback (wired by `mobile-home-tab-host` to push `PostDetailRoute` onto the root back stack), NOT a back-stack reference, so `NearbyTimelineScreen` SHALL remain navigation-free exactly as the existing hoisted `onSeeGlobal` callback already permits. As of `mobile-inline-post-actions` the card's action row is wired on this surface: the like affordance routes to the inline-like path (§ "Inline like on Nearby cards is optimistic, status-driven, and reuses the shipped like seam") and the reply affordance invokes a hoisted `onOpenPostReply(...)` lambda carrying the SAME non-PII display fields (wired by `mobile-home-tab-host` to push `PostDetailRoute` with `focusReplyComposer = true`); the whole-card `onOpenPost` keeps pushing with the default `focusReplyComposer = false`. The author identity remains NOT a separate tap target (per `mobile-post-card` § "Whole-card tap opens the detail and identity is not separately tappable").
+The Nearby post card (the shared `mobile-post-card` composable as of `mobile-timeline-card-redesign`) SHALL be tappable: it SHALL invoke a hoisted `onOpenPost(...)` lambda carrying the card's **non-PII display fields** (`postId`, `content`, `cityName`, `distanceM`, `createdAtIso`, `likedByViewer`, `replyCount`, `authorUsername`, `authorDisplayName`) — and explicitly NOT `latitude`/`longitude` and NOT the author UUID. The lambda is a host-level callback (wired by `mobile-home-tab-host` to push `PostDetailRoute` onto the root back stack), NOT a back-stack reference, so `NearbyTimelineScreen` SHALL remain navigation-free exactly as the existing hoisted `onSeeGlobal` callback already permits. As of `mobile-inline-post-actions` the card's action row is wired on this surface: the like affordance routes to the inline-like path (§ "Inline like on Nearby cards is optimistic, status-driven, and reuses the shipped like seam") and the reply affordance invokes a hoisted `onOpenPostReply(...)` lambda carrying the SAME non-PII display fields (wired by `mobile-home-tab-host` to push `PostDetailRoute` with `focusReplyComposer = true`); the whole-card `onOpenPost` keeps pushing with the default `focusReplyComposer = false`. The author identity remains NOT a separate tap target (per `mobile-post-card` § "Whole-card tap opens the detail and identity is not separately tappable").
 
 #### Scenario: Tapping a Nearby card invokes onOpenPost with display fields and no coordinates
 

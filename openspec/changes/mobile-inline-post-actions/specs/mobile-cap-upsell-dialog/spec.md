@@ -35,6 +35,7 @@ No hardcoded UI string literals SHALL appear in the component source (Compose Mu
 The dialog's countdown SHALL be driven by the rate-limited like's `retryAfterSeconds` (the `Retry-After` header value carried on `LikeOutcome.RateLimited` — the like wire's ONLY reset signal; `docs/03-UX-Design.md:186` mentions an `X-RateLimit-Reset` response header, but the shipped like endpoints send only `Retry-After`, which encodes the same per-user staggered WIB reset (`computeTTLToNextReset`, `docs/05-Implementation.md`) — a declared divergence, resolved without a backend change):
 
 - The remaining time SHALL be formatted by a **pure commonMain formatter** (unit-testable without composing UI, no wall-clock dependency): minutes = the remaining seconds rounded **up** to the next full minute (the countdown never shows a zero-minute value while time remains); at ≥ 60 minutes it renders via NEW string `cap_countdown_hours_minutes` ("%1$d j %2$d mnt"); below 60 minutes via NEW string `cap_countdown_minutes` ("%1$d mnt") — matching frame 18's "14 j 19 mnt" treatment.
+- A non-positive input SHALL be floored to one minute: the shipped client maps a 429 whose `Retry-After` is absent, stripped, or unparseable (e.g. proxy/CDN-rewritten to an HTTP-date) to `RateLimited(0)`, and the backend never legitimately sends < 1 s — so `retryAfterSeconds ≤ 0` renders the 1-minute treatment and the dialog MUST NOT auto-dismiss on entry (it ticks its one floored minute, then auto-dismisses). This mirrors the shipped post-detail banner's floor precedent (a 0/absent `Retry-After` still reads as a positive wait, never an instant flash-dismiss).
 - While the dialog is shown, the rendered countdown SHALL tick **per minute** — decrementing via monotonic coroutine delay (NO wall-clock platform API), updating the formatted body — satisfying the `docs/03-UX-Design.md:185` "in-app modal countdown … realtime to the reset moment" mandate at minute granularity.
 - When the remaining time reaches zero, the dialog SHALL auto-dismiss (invoke `onDismiss`): the cap has reset and the user can like again.
 
@@ -49,6 +50,12 @@ The post-detail cap **banner**'s coarse hour treatment (`post_detail_reset_hours
 
 - **WHEN** the pure formatter is invoked with `retryAfterSeconds = 59` and with `3601`
 - **THEN** the first yields the 1-minute rendering ("1 mnt") AND the second yields the 1-hour-1-minute rendering ("1 j 1 mnt") — remaining seconds always round UP to the next minute
+
+#### Scenario: A zero Retry-After is floored, not flash-dismissed
+
+- **GIVEN** the dialog shown with `retryAfterSeconds = 0` (the shipped client's mapping for an absent/stripped/unparseable `Retry-After`)
+- **WHEN** the first frame renders
+- **THEN** the body shows the 1-minute rendering ("1 mnt") AND the dialog does NOT auto-dismiss on entry (it remains shown until its floored minute elapses or the user dismisses)
 
 #### Scenario: The shown dialog ticks down by the minute
 

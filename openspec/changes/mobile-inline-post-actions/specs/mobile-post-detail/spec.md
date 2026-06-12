@@ -4,7 +4,7 @@
 
 ### Requirement: Reply composer autofocuses on reply-shortcut entry
 
-When `PostDetailScreen` is entered with a `PostDetailRoute` carrying `focusReplyComposer = true` (the feed cards' reply shortcut), the reply composer field SHALL receive focus — with the IME requested — exactly ONCE on the detail entry's first composition. Whole-card opens (`focusReplyComposer = false`, the default) SHALL keep today's behavior: no autofocus, no IME. The consumed autofocus SHALL NOT re-trigger on recomposition or when the user manually clears focus and the surface recomposes (the observable contract is consume-once per detail entry; the exact mechanism is an implementation detail). The autofocus MUST NOT change any other detail behavior (header render, replies load, like control).
+When `PostDetailScreen` is entered with a `PostDetailRoute` carrying `focusReplyComposer = true` (the feed cards' reply shortcut), the reply composer field SHALL receive focus — with the IME requested — exactly ONCE on the detail entry's first composition. Whole-card opens (`focusReplyComposer = false`, the default) SHALL keep today's behavior: no autofocus, no IME. The consumed autofocus SHALL NOT re-trigger on recomposition or when the user manually clears focus and the surface recomposes, AND the consumed marker SHALL survive saved-state restoration — a configuration-change or process-death restore of an entry whose autofocus was already consumed does NOT re-fire the focus/IME (the consume-once flag is saveable state; the exact mechanism is an implementation detail). The autofocus MUST NOT change any other detail behavior (header render, replies load, like control).
 
 #### Scenario: Reply-shortcut entry focuses the composer
 
@@ -23,6 +23,12 @@ When `PostDetailScreen` is entered with a `PostDetailRoute` carrying `focusReply
 - **GIVEN** a reply-shortcut entry whose composer received the initial focus
 - **WHEN** focus is cleared (e.g. the user taps elsewhere / dismisses the IME) and the surface recomposes
 - **THEN** the composer is not re-focused by the entry flag (the autofocus was consumed on first composition)
+
+#### Scenario: A restored entry does not re-fire a consumed autofocus
+
+- **GIVEN** a reply-shortcut entry whose autofocus was consumed
+- **WHEN** the entry's state is saved and restored (configuration-change / process-death path, e.g. via a state-restoration test harness)
+- **THEN** the composer is NOT re-focused on the restored composition (the consumed marker survived restoration)
 
 ## MODIFIED Requirements
 

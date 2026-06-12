@@ -9,7 +9,7 @@ The card's bottom row SHALL be the interactive **action row** per the canonical 
 - A **reply affordance** (left): the reply icon + the `replyCount` value rendered as ONE tappable unit, invoking a hoisted `onReplyShortcut: () -> Unit` callback.
 - A **like affordance** (to its right — the row's last action while the send action is deferred, see § "Send-message card action is deferred"): the like icon ONLY — filled + `locationPin`-tinted when `likedByViewer = true`, outlined + `onSurfaceVariant`-muted otherwise (the existing treatment, keeping the existing filled/outlined like-icon test tags) — invoking a hoisted `onToggleLike: () -> Unit` callback. NO numeric like count is rendered: the timeline wire carries no like count — the known, deliberate divergence from the mockup's `favorite 12` action, carried over from the replaced counts-row requirement.
 
-Both affordances SHALL be real interactive controls: click semantics with press indication (ripple), minimum 48dp touch targets (the M3 minimum — the mockup's 20dp glyph + 8dp padding is dp intent, not the touch contract), and a `contentDescription` sourced via `stringResource` (they are interactive now — the prior decorative `contentDescription = null` posture no longer applies to them). The liked state MUST NOT be communicated by color alone — the filled-vs-outlined icon shape carries it. Activating an affordance MUST NOT trigger the whole-card `onOpen`. The card stays presentation-only: both callbacks are hoisted; the card holds no like state machine, no repository reference, and no navigation reference — the rendered like state remains driven solely by the `likedByViewer` value on the supplied model.
+Both affordances SHALL be real interactive controls: click semantics with press indication (ripple), minimum 48dp touch targets (the M3 minimum — the mockup's 20dp glyph + 8dp padding is dp intent, not the touch contract), and a `contentDescription` sourced via `stringResource` (they are interactive now — the prior decorative `contentDescription = null` posture no longer applies to them). The like affordance SHALL additionally expose its toggled state to accessibility services — state-bearing semantics (toggleable/`stateDescription` or a state-dependent content description, all strings via `stringResource`) — so the liked/not-liked state is announced, not visual-only. The liked state MUST NOT be communicated by color alone — the filled-vs-outlined icon shape carries it visually and the accessible state carries it non-visually. Activating an affordance MUST NOT trigger the whole-card `onOpen`. The card stays presentation-only: both callbacks are hoisted; the card holds no like state machine, no repository reference, and no navigation reference — the rendered like state remains driven solely by the `likedByViewer` value on the supplied model.
 
 #### Scenario: Action row exposes exactly two click targets and routes them to the right callbacks
 
@@ -33,6 +33,11 @@ Both affordances SHALL be real interactive controls: click semantics with press 
 - **WHEN** the card is rendered and the like + reply affordance nodes are inspected
 - **THEN** each exposes a content description resolved from a `Res.string` entry AND no hardcoded UI string literal appears in `PostCard.kt` (Compose Multiplatform Resources only, unchanged)
 
+#### Scenario: The like affordance announces its toggled state
+
+- **WHEN** the card is rendered with `likedByViewer = true` and again with `false`, inspecting the like affordance's accessibility semantics
+- **THEN** the two renders expose distinguishable accessible state (toggle state / state description / state-dependent description — sourced via `stringResource`), so the liked state is not visual-only
+
 ### Requirement: Whole-card tap opens the detail and identity is not separately tappable
 
 The card SHALL invoke a hoisted `onOpen` callback when tapped anywhere on the card OUTSIDE the two action-row affordances (including over the avatar/name region). The action-row affordances (§ "Action row renders interactive reply and like affordances per mockup frame 1") are the ONLY interactive sub-controls on the card; the avatar and author identity SHALL NOT be separate tap targets (no profile screen exists yet — issue [#196](https://github.com/aditrioka/nearyou-id/issues/196); per the no-dead-controls rule nothing on the card may look or act tappable without a wired destination). The card itself SHALL NOT hold navigation references; navigation wiring stays with the host screens per their specs.
@@ -45,17 +50,17 @@ The card SHALL invoke a hoisted `onOpen` callback when tapped anywhere on the ca
 
 ### Requirement: Send-message card action is deferred
 
-The action row SHALL render exactly TWO affordances — reply and like. The send-message (kirim pesan) action shown in mockup frame 1 (the `send` glyph between `mode_comment` and `favorite`) SHALL NOT be rendered in any form — no icon node, no disabled placeholder, no third action slot: no 1:1 chat surface exists in `:mobile:app` yet, and an unwired send control would violate the no-dead-controls rule. This requirement is the deliberate, spec-recorded divergence from frame 1 AND the explicit MODIFY hook for the future mobile chat change: that change SHALL MODIFY this requirement to render the send action (between reply and like, per frame 1) wired to the chat entry point with the post embed (`docs/02-Product.md` § Chat Context Card UX, mockup frames 5–6).
+The action row SHALL render exactly TWO affordances — reply and like. The send-message (kirim pesan) action shown in mockup frame 1 (the `send` glyph between `mode_comment` and `favorite`) SHALL NOT be rendered in any form — no icon node, no disabled placeholder, no third action slot: no 1:1 chat surface exists in `:mobile:app` yet, and an unwired send control would violate the no-dead-controls rule. This requirement is the deliberate, spec-recorded divergence from frame 1 AND the explicit MODIFY hook for the future mobile chat change: that change SHALL MODIFY this requirement to render the send action (between reply and like, per frame 1) wired to the chat entry point with the post embed (`docs/02-Product.md` § Chat Context Card UX, mockup frames 5–6). GitHub issue [#238](https://github.com/aditrioka/nearyou-id/issues/238) `mobile-post-card-send-message-action` (label `follow-up`) tracks the deferral.
 
 #### Scenario: No send affordance is rendered
 
 - **WHEN** the card is rendered and its semantics tree plus `PostCard.kt` source are inspected
 - **THEN** the action row contains exactly the reply and like affordances AND no send/kirim-pesan icon node, disabled control, or third action slot exists
 
-#### Scenario: The mockup divergence is tracked by this requirement, not silently dropped
+#### Scenario: The mockup divergence is tracked, not silently dropped
 
-- **WHEN** comparing mockup frame 1's three-action row (reply / send / like) against the shipped card
-- **THEN** the absent send action corresponds to THIS deferred requirement (the divergence is recorded at spec level as the future chat change's MODIFY hook) — it is NOT an undocumented mockup deviation
+- **WHEN** comparing mockup frame 1's three-action row (reply / send / like) against the shipped card AND inspecting the project's open GitHub issues (label `follow-up`)
+- **THEN** the absent send action corresponds to THIS deferred requirement (the future chat change's MODIFY hook) AND GitHub issue [#238](https://github.com/aditrioka/nearyou-id/issues/238) (label `follow-up`) tracks `mobile-post-card-send-message-action` — it is NOT an undocumented mockup deviation
 
 ## MODIFIED Requirements
 
