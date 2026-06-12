@@ -4,10 +4,11 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
-import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.InMemoryTokenStore
@@ -139,18 +140,25 @@ class PostCreationScreenTest {
             // strings on screen are these two fixed values).
             onNodeWithText(LOCATION_CHIP).assertExists()
             onNodeWithText(PRIVACY_NOTE).assertExists()
-            // Counter sits in the bottom composer bar — below the content field (the
-            // AppShellScreenTest bounds-math idiom).
-            val fieldBottom = onNodeWithTag(POST_CONTENT_FIELD_TAG).getUnclippedBoundsInRoot().bottom
+            // Counter sits in the bottom composer bar — below the privacy note, the LAST content
+            // element (strictly stronger than the spec's below-the-field clause: the pre-change
+            // layout, counter directly under the field, fails this; AppShellScreenTest bounds idiom).
+            val noteBottom = onNodeWithText(PRIVACY_NOTE).getUnclippedBoundsInRoot().bottom
             val counterTop = onNodeWithText(COUNTER_ZERO).getUnclippedBoundsInRoot().top
             assertTrue(
-                counterTop >= fieldBottom,
-                "the counter must sit in the bottom composer bar, below the content field " +
-                    "(counterTop=$counterTop, fieldBottom=$fieldBottom)",
+                counterTop >= noteBottom,
+                "the counter must sit in the bottom composer bar, below the privacy note " +
+                    "(counterTop=$counterTop, noteBottom=$noteBottom)",
             )
-            // Negative guard: no attachment toolbar (media is deferred to the media roadmap phase).
-            onNodeWithContentDescription("image").assertDoesNotExist()
-            onNodeWithContentDescription("photo_camera").assertDoesNotExist()
+            // Negative guard: no attachment toolbar (media is deferred to the media roadmap
+            // phase). Structural, not name-based: the ONLY clickable affordances on the composer
+            // are the content field and the Posting CTA — any toolbar icon-button would add one.
+            val clickables = onAllNodes(hasClickAction()).fetchSemanticsNodes()
+            assertTrue(
+                clickables.size <= 2,
+                "unexpected extra clickable affordance(s) on the composer — attachment toolbar " +
+                    "is deferred (found ${clickables.size} clickable nodes)",
+            )
         }
     }
 
@@ -225,7 +233,7 @@ class PostCreationScreenTest {
             waitForIdle()
             onNodeWithText(LOC_UNAVAILABLE).assertExists()
             assertEquals(0, fakeController.openAppSettingsCount)
-            onNodeWithText(OPEN_SETTINGS).performClick()
+            onNodeWithText(OPEN_SETTINGS).performScrollTo().performClick()
             waitForIdle()
             assertEquals(1, fakeController.openAppSettingsCount, "Buka Pengaturan deep-links to settings")
         }
@@ -242,7 +250,7 @@ class PostCreationScreenTest {
             waitForIdle()
             onNodeWithText(ERR_NETWORK).assertExists()
             assertEquals(1, fake.submitInvocationCount)
-            onNodeWithText(RETRY).performClick()
+            onNodeWithText(RETRY).performScrollTo().performClick()
             waitForIdle()
             assertEquals(2, fake.submitInvocationCount, "retry re-invokes submit")
         }

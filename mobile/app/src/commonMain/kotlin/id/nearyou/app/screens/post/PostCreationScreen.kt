@@ -4,14 +4,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -156,95 +157,103 @@ fun PostCreationScreen(onPostCreated: () -> Unit) {
                 .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            text = stringResource(Res.string.post_create_title),
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        OutlinedTextField(
-            value = content,
-            onValueChange = { content = it },
-            placeholder = { Text(text = stringResource(Res.string.post_create_content_placeholder)) },
-            enabled = !uiState.loading,
-            minLines = 4,
-            modifier = Modifier.fillMaxWidth().testTag(POST_CONTENT_FIELD_TAG),
-        )
-        // Frame 6 .chip.loc — the coral location chip (32dp / radius 8 / 12dp pad / 6dp gap per
-        // the measurement annex). STATIC label only: no reverse-geocoding is shipped and the PII
-        // discipline (D7) forbids rendering the coordinate, so no city/coordinate appears here.
-        Surface(
-            color = MaterialTheme.colorScheme.locationPinContainer,
-            contentColor = MaterialTheme.colorScheme.onLocationPinContainer,
-            shape = RoundedCornerShape(8.dp),
+        // The content area scrolls when the banner + retry control + IME leave too little room
+        // (the bottom bar below stays pinned and reachable — the CTA must never be pushed
+        // off-screen by an open keyboard).
+        Column(
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
         ) {
+            Text(
+                text = stringResource(Res.string.post_create_title),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            OutlinedTextField(
+                value = content,
+                onValueChange = { content = it },
+                placeholder = { Text(text = stringResource(Res.string.post_create_content_placeholder)) },
+                enabled = !uiState.loading,
+                minLines = 4,
+                modifier = Modifier.fillMaxWidth().testTag(POST_CONTENT_FIELD_TAG),
+            )
+            // Frame 6 .chip.loc — the coral location chip (32dp / radius 8 / 12dp pad / 6dp gap per
+            // the measurement annex). STATIC label only: no reverse-geocoding is shipped and the PII
+            // discipline (D7) forbids rendering the coordinate, so no city/coordinate appears here.
+            Surface(
+                color = MaterialTheme.colorScheme.locationPinContainer,
+                contentColor = MaterialTheme.colorScheme.onLocationPinContainer,
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.height(32.dp).padding(horizontal = 12.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_post_location),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.locationPin,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = stringResource(Res.string.post_create_location_chip),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+            }
+            // Frame 6 .privacy-note — the UU-PDP fuzzing-transparency note (15dp success-tinted
+            // verified_user shield + 12sp onSurfaceVariant text, 8dp gap per the annex).
             Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.height(32.dp).padding(horizontal = 12.dp),
             ) {
                 Icon(
-                    painter = painterResource(Res.drawable.ic_post_location),
+                    painter = painterResource(Res.drawable.ic_privacy_shield),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.locationPin,
-                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.success,
+                    modifier = Modifier.size(15.dp),
                 )
                 Text(
-                    text = stringResource(Res.string.post_create_location_chip),
-                    style = MaterialTheme.typography.labelLarge,
+                    text = stringResource(Res.string.post_create_privacy_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-        // Frame 6 .privacy-note — the UU-PDP fuzzing-transparency note (15dp success-tinted
-        // verified_user shield + 12sp onSurfaceVariant text, 8dp gap per the annex).
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                painter = painterResource(Res.drawable.ic_privacy_shield),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.success,
-                modifier = Modifier.size(15.dp),
-            )
-            Text(
-                text = stringResource(Res.string.post_create_privacy_note),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (bannerText != null) {
-            Text(
-                text = bannerText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            // The LocationUnavailable banner offers the OS-settings deep link (the terminal-denial
-            // path forward); NetworkError/Error offer a retry that re-submits. The other banners
-            // (content_empty / too_long / out_of_bounds / moderated) are resolved by re-editing +
-            // re-tapping the CTA, so they carry no extra control.
-            when (uiState.banner) {
-                PostCreationBanner.LOCATION_UNAVAILABLE ->
-                    OutlinedButton(
-                        onClick = { permissionController.openAppSettings() },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(text = stringResource(Res.string.location_open_settings))
-                    }
-                PostCreationBanner.NETWORK ->
-                    OutlinedButton(
-                        onClick = onSubmit,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(text = stringResource(Res.string.cta_retry))
-                    }
-                else -> Unit
+            if (bannerText != null) {
+                Text(
+                    text = bannerText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // The LocationUnavailable banner offers the OS-settings deep link (the terminal-denial
+                // path forward); NetworkError/Error offer a retry that re-submits. The other banners
+                // (content_empty / too_long / out_of_bounds / moderated) are resolved by re-editing +
+                // re-tapping the CTA, so they carry no extra control.
+                when (uiState.banner) {
+                    PostCreationBanner.LOCATION_UNAVAILABLE ->
+                        OutlinedButton(
+                            onClick = { permissionController.openAppSettings() },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(text = stringResource(Res.string.location_open_settings))
+                        }
+                    PostCreationBanner.NETWORK ->
+                        OutlinedButton(
+                            onClick = onSubmit,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(text = stringResource(Res.string.cta_retry))
+                        }
+                    else -> Unit
+                }
             }
         }
-        // Frame 6 .composer-bar — the counter lives in the bottom bar, right-aligned (the
-        // weight-spacer pins this block to the screen bottom; the attachment icons in the
-        // mockup's bar are media — Month 6 roadmap — and are deliberately NOT rendered).
-        Spacer(modifier = Modifier.weight(1f))
+        // Frame 6 .composer-bar — the counter + CTA are the pinned bottom bar (the weighted
+        // scrollable content column above keeps them on-screen even with the banner + retry +
+        // IME present; the attachment icons in the mockup's bar are media — Month 6 roadmap —
+        // and are deliberately NOT rendered).
         Text(
             text = stringResource(Res.string.post_create_char_counter, uiState.charCount),
             style = MaterialTheme.typography.labelMedium,

@@ -46,8 +46,9 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
 /**
- * Unauthenticated entry surface ([SignInRoute][id.nearyou.app.screens.routing.SignInRoute]): brand
- * logo + title + "Masuk dengan Google" CTA + the account-separation disclosure footnote. The CTA
+ * Unauthenticated entry surface ([SignInRoute][id.nearyou.app.screens.routing.SignInRoute]): large
+ * brand logo (sole header — no text title per mockup frame 13, mobile-mockup-visual-conformance)
+ * + "Masuk dengan Google" CTA + the account-separation disclosure footnote. The CTA
  * drives `AuthFlow.signInWithGoogle()`; the resulting [SignInOutcome] flows through [signInUiState]
  * to set the CTA label / enabled state / error banner per Decision 7.
  *
