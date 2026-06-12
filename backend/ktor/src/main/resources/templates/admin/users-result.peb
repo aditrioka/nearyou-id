@@ -20,7 +20,7 @@
             <dt>User ID</dt><dd class="user-id"><code class="code">{{ user.id }}</code></dd>
             <dt>Status</dt><dd class="user-status"><span class="st {% if user.isBanned %}err{% else %}ok{% endif %}">{{ user.statusLabel }}</span></dd>
             <dt>is_banned</dt><dd class="user-is-banned">{{ user.isBanned }}</dd>
-            <dt>suspended_until</dt><dd class="user-suspended-until">{{ user.suspendedUntil }}</dd>
+            <dt>suspended_until</dt><dd class="user-suspended-until">{{ user.suspendedUntil }}{% if user.isBanned and user.suspendedUntil != "—" %} <span class="note">(unban worker lifts automatically)</span>{% endif %}</dd>
         </dl>
 
         {# Two state-changing controls. Each carries a _csrf hidden field as the

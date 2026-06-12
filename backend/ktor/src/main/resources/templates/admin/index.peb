@@ -3,6 +3,10 @@
 {% block title %}Admin Panel — NearYouID{% endblock %}
 
 {% block content %}
+{# Board frame 2's landing region, shipped subset: quick-link cards only.
+   The frame's per-card metric rows (pending counts, last action) belong to
+   the Usulan Operational Dashboard (frame 3) — they need real queries, so
+   they ship with that change, not with styling. #}
 <h2>Admin Panel</h2>
 <p class="pg-sub">Scaffold landing page — quick links below while the full Operational Dashboard is in design.</p>
 <div class="card-grid">

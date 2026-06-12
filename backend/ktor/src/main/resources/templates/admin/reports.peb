@@ -11,8 +11,10 @@
    enhancement — design.md D7). All values are autoescaped. Out-of-enum values
    are tolerated by the backend (bound as literals → zero matches) — the
    status/target_type selects are a styling-only affordance over the same
-   tolerant contract (board frame 4). The .filters-toggle checkbox is the
-   pure-CSS "Filters" disclosure of the frame-4b responsive contract. #}
+   tolerant contract (board frame 4); their option lists are grounded in the
+   shipped placeholders' enums. reason_category and trigger stay free-text
+   (the board draws them as selects too, but no template-grounded enum list
+   exists for them — hardcoding one would drift from the schema CHECKs). #}
 <div class="filterbar">
     <input type="checkbox" id="filters-toggle" class="filters-toggle" aria-label="Toggle filters">
     <label for="filters-toggle" class="btn tonal sm filters-label">Filters</label>

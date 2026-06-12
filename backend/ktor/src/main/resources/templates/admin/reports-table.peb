@@ -16,6 +16,10 @@
    labels make that clear. Both forms render on resolved cards too:
    re-resolution is idempotent and allowed by the spec (deliberate divergence
    from the board frame, which hides them on resolved cards — spec wins).
+   Second deliberate divergence: board frame 4's page-level warning banner
+   ("Queue enforcement berlaku seketika…") is not rendered — the enforcement
+   label "(immediate, destructive)" + the hx-confirm step carry the same
+   warning without duplicating policy copy.
 
    Every value is Pebble-autoescaped on output (spec: All rendered values are
    HTML-escaped) — no `raw` filter is used on any value, including the user-

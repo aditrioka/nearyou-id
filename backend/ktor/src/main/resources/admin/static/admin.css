@@ -172,19 +172,16 @@ form.filters {
   align-items: flex-end;
 }
 .field { display: flex; flex-direction: column; gap: 4px; }
-.field > span:first-child,
-.field-label {
+.field > span:first-child {
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--on-surface-variant);
 }
-.ctl,
 form.filters input,
 form.filters select,
 .rc-actions select,
-.rc-actions input,
 .user-state input[type='text'] {
   height: 34px;
   min-width: 130px;
@@ -197,7 +194,6 @@ form.filters select,
   color: var(--on-surface);
 }
 form.filters input::placeholder,
-.rc-actions input::placeholder,
 .user-state input::placeholder { color: var(--outline); }
 .field-wide input { min-width: 340px; }
 
@@ -224,12 +220,14 @@ form.filters input::placeholder,
 .btn.outl { border: 1px solid var(--outline); color: var(--primary); }
 .btn.danger { background: var(--error); color: var(--on-error); }
 .btn.dangert { background: var(--error-container); color: var(--on-error-container); }
-.btn.text { color: var(--primary); padding: 0 10px; }
 .btn.sm { height: 28px; padding: 0 12px; font-size: 11.5px; border-radius: 8px; }
 .btn.block { width: 100%; }
 
 /* ---- tables ------------------------------------------------------------- */
-.tbl-wrap { margin-top: 14px; }
+/* overflow-x is unconditional: the audit table's unbreakable UUID target +
+   nowrap time column can exceed the main column well above the 900px
+   breakpoint (frame 4b's "below ~900px" is a floor, not a ceiling) */
+.tbl-wrap { margin-top: 14px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table.tbl {
   width: 100%;
   border-collapse: separate;
@@ -634,7 +632,6 @@ body.bare > main {
   .filterbar .filters-toggle:checked ~ form.filters select { width: 100%; min-width: 0; }
   .field-wide input { min-width: 0; width: 100%; }
 
-  .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table.tbl { min-width: 720px; }
 
   .rc-actions { flex-direction: column; align-items: stretch; gap: 10px; }
