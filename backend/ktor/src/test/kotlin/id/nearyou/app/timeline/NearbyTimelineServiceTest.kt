@@ -1051,6 +1051,7 @@ class NearbyTimelineServiceTest : StringSpec({
             val p = seedPost(author, -6.200, 106.800)
             withTimeline {
                 val client = createClient { install(ClientCN) { json() } }
+
                 fun postIds(body: String): List<String> =
                     Json.parseToJsonElement(body).jsonObject["posts"]!!.jsonArray
                         .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
@@ -1115,6 +1116,7 @@ class NearbyTimelineServiceTest : StringSpec({
             val p = seedPost(author, -6.200, 106.800, autoHidden = true)
             withTimeline {
                 val client = createClient { install(ClientCN) { json() } }
+
                 fun postIds(body: String): List<String> =
                     Json.parseToJsonElement(body).jsonObject["posts"]!!.jsonArray
                         .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }

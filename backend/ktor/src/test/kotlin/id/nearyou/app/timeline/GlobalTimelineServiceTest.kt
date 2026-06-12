@@ -913,6 +913,7 @@ class GlobalTimelineServiceTest : StringSpec({
             val p = seedPost(author)
             withGlobal {
                 val client = createClient { install(ClientCN) { json() } }
+
                 fun postIds(body: String): List<String> =
                     Json.parseToJsonElement(body).jsonObject["posts"]!!.jsonArray
                         .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
@@ -977,6 +978,7 @@ class GlobalTimelineServiceTest : StringSpec({
             val p = seedPost(author, autoHidden = true)
             withGlobal {
                 val client = createClient { install(ClientCN) { json() } }
+
                 fun postIds(body: String): List<String> =
                     Json.parseToJsonElement(body).jsonObject["posts"]!!.jsonArray
                         .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
