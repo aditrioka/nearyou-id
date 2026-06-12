@@ -32,8 +32,13 @@ Both block-exclusion subqueries MUST be present simultaneously so `BlockExclusio
 - **THEN** the response is HTTP 404 with `error.code = "post_not_found"`
 
 #### Scenario: Soft-deleted post
+- **WHEN** caller A likes a post that has `deleted_at IS NOT NULL` AND A is not its author
+- **THEN** the response is HTTP 404 with `error.code = "post_not_found"` AND no `post_likes` row is inserted
+
+#### Scenario: Auto-hidden post (non-author caller)
 - **WHEN** caller A likes a post that has `is_auto_hidden = TRUE` (excluded by `visible_posts`) AND A is not its author
 - **THEN** the response is HTTP 404 with `error.code = "post_not_found"` AND no `post_likes` row is inserted
+- (Note: the shipped spec carried this WHEN under the title "Soft-deleted post" — the title is corrected here while the requirement is open; both causes now have an accurately-titled scenario.)
 
 #### Scenario: Caller has blocked post author
 - **WHEN** caller A has a `user_blocks` row `(A, B)` AND tries to like a post whose `author_id = B`
@@ -54,6 +59,10 @@ Both block-exclusion subqueries MUST be present simultaneously so `BlockExclusio
 #### Scenario: Shadow-banned author can read their own like count
 - **WHEN** caller A has `is_shadow_banned = TRUE` AND reads `GET /likes/count` for their OWN non-deleted post
 - **THEN** the response is HTTP 200 (the count itself stays shadow-ban-filtered per the count requirement)
+
+#### Scenario: Own like visible as liked_by_viewer but excluded from the public count
+- **WHEN** shadow-banned caller A has liked their OWN post P (now reachable — 204)
+- **THEN** the timeline feeds show `liked_by_viewer = true` for P in A's responses (raw caller-scoped `post_likes` join) AND `GET /likes/count` for P returns a count that EXCLUDES A's like (`visible_users`-filtered) for every caller including A — the count stays viewer-independent; this divergence is the documented residual of the "Count endpoint does NOT apply viewer-block exclusion" tradeoff, NOT a bug to "fix" with a viewer-aware count
 
 #### Scenario: Author still 404s on their own soft-deleted post
 - **WHEN** caller A likes their OWN post that has `deleted_at IS NOT NULL`
