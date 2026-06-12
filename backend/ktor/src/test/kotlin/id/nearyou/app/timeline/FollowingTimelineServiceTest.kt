@@ -898,4 +898,61 @@ class FollowingTimelineServiceTest : StringSpec({
             cleanup(viewer, author)
         }
     }
+
+    // ---- shadow-ban-feed-self-visibility: Following carries NO own-content self arm ----
+    //
+    // Nearby and Global gained a viewer-aware self arm so a shadow-banned author keeps
+    // seeing their own posts. Following DELIBERATELY did not (following-timeline spec,
+    // "Following carries NO own-content self-arm"): self-follow is impossible (V6
+    // follows_no_self_follow CHECK + app-layer 400 cannot_follow_self), so own posts
+    // never appear in Following for ANY user — a self arm here would INVERT the
+    // shadow-ban oracle (a banned user would see own posts where a normal user sees
+    // none). This test pins the parity.
+
+    fun setShadowBanned(
+        userId: UUID,
+        banned: Boolean,
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("UPDATE users SET is_shadow_banned = ? WHERE id = ?").use { ps ->
+                ps.setBoolean(1, banned)
+                ps.setObject(2, userId)
+                ps.executeUpdate()
+            }
+        }
+    }
+
+    "self-visibility — shadow-banned viewer's own posts absent from Following (parity with normal users)" {
+        val (viewer, vt) = seedUser()
+        val (followed, _) = seedUser()
+        try {
+            setShadowBanned(viewer, true)
+            follow(viewer, followed)
+            val own1 = seedPost(viewer)
+            Thread.sleep(10)
+            val own2 = seedPost(viewer)
+            Thread.sleep(10)
+            val theirs = seedPost(followed)
+            withFollowing {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/following") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val ids =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                // The followed author's post IS there (the feed works for the banned
+                // viewer), but the viewer's own recent posts are NOT — identical to a
+                // non-banned user's Following feed, which never contains own posts.
+                ids shouldBe listOf(theirs.toString())
+                ids.contains(own1.toString()) shouldBe false
+                ids.contains(own2.toString()) shouldBe false
+            }
+        } finally {
+            cleanup(viewer, followed)
+        }
+    }
 })

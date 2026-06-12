@@ -3,6 +3,7 @@ package id.nearyou.app.infra.db
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import org.flywaydb.core.Flyway
 import java.sql.Connection
 import java.sql.DriverManager
@@ -163,6 +164,40 @@ class MigrationV20SmokeTest : StringSpec({
                 ps.executeUpdate()
             }
             visibleCount(conn, post) shouldBe 0
+        }
+    }
+
+    "view definition stays viewer-agnostic after shadow-ban-feed-self-visibility (V20 shape, no self-arm)" {
+        // The visible-posts-view delta scenario "View stays viewer-agnostic after the
+        // self-visibility change": the own-content self arm lives in the FEED queries
+        // (JdbcPostsTimelineRepository / JdbcPostsGlobalRepository), NOT in the view —
+        // the pg_views definition keeps the V20 shape. Postgres normalizes the
+        // rendered definition (whitespace, parens), so we pin the V20 predicates plus
+        // the absence of any viewer-aware construct rather than raw migration bytes.
+        connect().use { conn ->
+            conn.prepareStatement(
+                "SELECT definition FROM pg_views WHERE viewname = 'visible_posts'",
+            ).use { ps ->
+                ps.executeQuery().use { rs ->
+                    rs.next() shouldBe true
+                    val def = rs.getString(1).replace("\\s+".toRegex(), " ").lowercase()
+                    // The full V20 predicate set, all present.
+                    (
+                        def.contains("is_auto_hidden = false") ||
+                            (def.contains("not") && def.contains("is_auto_hidden"))
+                    ) shouldBe true
+                    def shouldContain "p.deleted_at is null"
+                    def shouldContain "u.deleted_at is null"
+                    (
+                        def.contains("is_shadow_banned = false") ||
+                            (def.contains("not") && def.contains("is_shadow_banned"))
+                    ) shouldBe true
+                    // Viewer-agnostic: no viewer parameter, no session-GUC hack, no
+                    // UNION self-arm.
+                    def.contains("union") shouldBe false
+                    def.contains("current_setting") shouldBe false
+                }
+            }
         }
     }
 
