@@ -181,7 +181,7 @@
     <string name="cta_reply">Balas</string>
     <!-- mobile-timeline-card-redesign: the shared post card (ui/components/PostCard.kt). The
          @-handle prefix and the meta middot separator are data-driven via resources so no UI
-         glyph is hardcoded in Kotlin (CMP-Resources-only invariant). The card reuses `app_name`
+         glyph is hardcoded in Kotlin (CMP-Resources-only invariant). The shell reuses `app_name`
          as the shell logo contentDescription. -->
     <string name="post_card_handle" formatted="true">@%1$s</string>
     <string name="post_card_meta_separator">·</string>

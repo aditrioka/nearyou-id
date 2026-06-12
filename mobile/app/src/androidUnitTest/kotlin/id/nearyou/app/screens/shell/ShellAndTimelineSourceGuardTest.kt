@@ -105,6 +105,17 @@ class ShellAndTimelineSourceGuardTest {
         assertNoCircleShapeDot("PostCard", postCard)
     }
 
+    // Hex color literals would bypass the NearYouTheme tokens (mobile-post-card § both-schemes
+    // scenario: "the component source contains no hex color literals").
+    private val hexColorNeedle = "Color(" + "0x"
+
+    @Test
+    fun cardComponentsUseThemeTokens_noHexColorLiterals() {
+        val letterAvatar = readComponent("LetterAvatar.kt")
+        assertFalse(postCard.contains(hexColorNeedle), "PostCard must use NearYouTheme tokens, not hex Color literals")
+        assertFalse(letterAvatar.contains(hexColorNeedle), "LetterAvatar must use NearYouTheme tokens, not hex Color literals")
+    }
+
     @Test
     fun cardTimeIsTextOnly_noClockGlyphReference() {
         // mobile-design-system § "Card time label is text-only in the identity header": the clock

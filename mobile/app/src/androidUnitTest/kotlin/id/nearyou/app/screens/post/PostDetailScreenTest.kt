@@ -143,6 +143,8 @@ class PostDetailScreenTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
             onNodeWithText("Raka Pratama").assertExists()
             onNodeWithText("@raka.jkt").assertExists()
+            // The shared LetterAvatar renders the derived initials ("Raka Pratama" → "RP").
+            onNodeWithText("RP").assertExists()
         }
     }
 
@@ -162,6 +164,8 @@ class PostDetailScreenTest {
             onNodeWithText(CONTENT).assertExists()
             onNodeWithText("@", substring = true).assertDoesNotExist()
             onNodeWithText("Raka Pratama").assertDoesNotExist()
+            // No avatar either — empty identity yields no initials node ("RP" absent).
+            onNodeWithText("RP").assertDoesNotExist()
         }
     }
 

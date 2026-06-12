@@ -46,6 +46,7 @@ import id.nearyou.app.post.RepliesOutcome
 import id.nearyou.app.post.ReplyPostOutcome
 import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.ui.components.LetterAvatar
+import id.nearyou.app.ui.components.postDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_reply
@@ -610,4 +611,3 @@ private fun BannerText(
 
 /** ISO-8601 `created_at` → its date portion ("2026-06-06"). Pure + deterministic (no wall clock) —
  *  the same treatment the feed cards use; richer relative formatting is the deferred follow-up. */
-private fun postDateLabel(createdAtIso: String): String = createdAtIso.substringBefore('T')

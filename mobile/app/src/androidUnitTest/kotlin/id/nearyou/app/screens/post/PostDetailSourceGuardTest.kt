@@ -72,7 +72,12 @@ class PostDetailSourceGuardTest {
         assertFalse(navKeys.contains("longitude"), "no route may declare a longitude")
         // Positive: PostDetailRoute declares the expected non-PII display fields.
         assertTrue(navKeys.contains("data class PostDetailRoute"), "PostDetailRoute is a payload-carrying data class")
-        for (field in listOf("postId", "content", "cityName", "distanceM", "createdAtIso", "likedByViewer", "replyCount")) {
+        val declaredFields =
+            listOf(
+                "postId", "content", "cityName", "distanceM", "createdAtIso",
+                "likedByViewer", "replyCount", "authorUsername", "authorDisplayName",
+            )
+        for (field in declaredFields) {
             assertTrue(navKeys.contains(field), "PostDetailRoute must declare $field")
         }
     }
