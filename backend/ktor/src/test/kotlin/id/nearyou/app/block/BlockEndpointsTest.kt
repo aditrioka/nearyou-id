@@ -59,27 +59,40 @@ class BlockEndpointsTest : StringSpec({
     val blocks = JdbcUserBlockRepository(dataSource)
     val service = BlockService(blocks)
 
-    fun seedUser(): Pair<UUID, String> {
+    // Destructures like the old Pair (component1 = id, component2 = token); `username`
+    // backs the enriched-row value assertions.
+    data class Seeded(val id: UUID, val token: String, val username: String)
+
+    fun seedUser(
+        subscriptionStatus: String = "free",
+        shadowBanned: Boolean = false,
+        deleted: Boolean = false,
+    ): Seeded {
         val id = UUID.randomUUID()
         val short = id.toString().replace("-", "").take(8)
+        val username = "blk_$short"
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
                 INSERT INTO users (
-                    id, username, display_name, date_of_birth, invite_code_prefix
-                ) VALUES (?, ?, ?, ?, ?)
+                    id, username, display_name, date_of_birth, invite_code_prefix,
+                    subscription_status, is_shadow_banned, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
-                ps.setString(2, "blk_$short")
+                ps.setString(2, username)
                 ps.setString(3, "Block Tester")
                 ps.setDate(4, Date.valueOf(LocalDate.of(1990, 1, 1)))
                 ps.setString(5, "k${short.take(7)}")
+                ps.setString(6, subscriptionStatus)
+                ps.setBoolean(7, shadowBanned)
+                ps.setTimestamp(8, if (deleted) java.sql.Timestamp.from(java.time.Instant.now()) else null)
                 ps.executeUpdate()
             }
         }
         val token = jwtIssuer.issueAccessToken(id, tokenVersion = 0)
-        return id to token
+        return Seeded(id, token, username)
     }
 
     fun cleanup(vararg ids: UUID) {
@@ -283,7 +296,7 @@ class BlockEndpointsTest : StringSpec({
 
     "GET /blocks — cursor pagination across page boundary" {
         val (a, tokenA) = seedUser()
-        val targets = (1..32).map { seedUser().first }
+        val targets = (1..32).map { seedUser().id }
         try {
             // create 32 blocks with monotonically increasing created_at
             for (t in targets) {
@@ -450,7 +463,135 @@ class BlockEndpointsTest : StringSpec({
         }
     }
 
-    "auth — all four endpoints return 401 without JWT" {
+    "POST /blocks/{shadow-banned} still succeeds — 204, row created (block actions exempt from constant-404)" {
+        val (a, tokenA) = seedUser()
+        val (sb, _) = seedUser(shadowBanned = true)
+        try {
+            withBlocks {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/blocks/$sb") { header(HttpHeaders.Authorization, "Bearer $tokenA") }
+                resp.status shouldBe HttpStatusCode.NoContent
+            }
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("SELECT COUNT(*) FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?").use { ps ->
+                    ps.setObject(1, a)
+                    ps.setObject(2, sb)
+                    ps.executeQuery().use { rs ->
+                        rs.next() shouldBe true
+                        rs.getInt(1) shouldBe 1
+                    }
+                }
+            }
+        } finally {
+            cleanup(a, sb)
+        }
+    }
+
+    "POST /blocks/{soft-deleted} still succeeds — 204, row created" {
+        val (a, tokenA) = seedUser()
+        val (dl, _) = seedUser(deleted = true)
+        try {
+            withBlocks {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/blocks/$dl") { header(HttpHeaders.Authorization, "Bearer $tokenA") }
+                resp.status shouldBe HttpStatusCode.NoContent
+            }
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("SELECT COUNT(*) FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?").use { ps ->
+                    ps.setObject(1, a)
+                    ps.setObject(2, dl)
+                    ps.executeQuery().use { rs ->
+                        rs.next() shouldBe true
+                        rs.getInt(1) shouldBe 1
+                    }
+                }
+            }
+        } finally {
+            cleanup(a, dl)
+        }
+    }
+
+    "GET /blocks rows embed the blocked user's summary — exact camelCase keys, no snake_case" {
+        val (a, tokenA) = seedUser()
+        val target = seedUser(subscriptionStatus = "premium_active")
+        try {
+            blocks.create(a, target.id)
+            withBlocks {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/blocks") { header(HttpHeaders.Authorization, "Bearer $tokenA") }
+                resp.status shouldBe HttpStatusCode.OK
+                val rows = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["blocks"]!!.jsonArray
+                rows shouldHaveSize 1
+                val row = rows[0] as JsonObject
+                row.keys.containsAll(listOf("userId", "username", "displayName", "isPremium", "createdAt")) shouldBe true
+                listOf("user_id", "display_name", "is_premium", "created_at").any { it in row.keys } shouldBe false
+                row["userId"]!!.jsonPrimitive.content shouldBe target.id.toString()
+                row["username"]!!.jsonPrimitive.content shouldBe target.username
+                row["displayName"]!!.jsonPrimitive.content shouldBe "Block Tester"
+                // Wire-exact: JSON boolean true, not the string "true".
+                row["isPremium"]!!.jsonPrimitive.isString shouldBe false
+                row["isPremium"]!!.jsonPrimitive.content shouldBe "true"
+            }
+        } finally {
+            cleanup(a, target.id)
+        }
+    }
+
+    "GET /blocks masks a hidden blocked user via placeholders — row survives with the real userId" {
+        val (a, tokenA) = seedUser()
+        val (sb, _) = seedUser(shadowBanned = true)
+        val (dl, _) = seedUser(deleted = true)
+        try {
+            blocks.create(a, sb)
+            Thread.sleep(5)
+            blocks.create(a, dl)
+            withBlocks {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/blocks") { header(HttpHeaders.Authorization, "Bearer $tokenA") }
+                resp.status shouldBe HttpStatusCode.OK
+                val rows = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["blocks"]!!.jsonArray
+                rows shouldHaveSize 2
+                rows.forEach { r ->
+                    val row = r as JsonObject
+                    row["username"]!!.jsonPrimitive.content shouldBe "akun_dihapus"
+                    row["displayName"]!!.jsonPrimitive.content shouldBe "Akun Dihapus"
+                    row["isPremium"]!!.jsonPrimitive.isString shouldBe false
+                    row["isPremium"]!!.jsonPrimitive.content shouldBe "false"
+                }
+                val ids = rows.map { (it as JsonObject)["userId"]!!.jsonPrimitive.content }.toSet()
+                ids shouldBe setOf(sb.toString(), dl.toString())
+            }
+        } finally {
+            cleanup(a, sb, dl)
+        }
+    }
+
+    "GET /blocks — counter-block does NOT mask identity (masking is visibility-driven only)" {
+        val (a, tokenA) = seedUser()
+        val b = seedUser()
+        try {
+            blocks.create(a, b.id)
+            blocks.create(b.id, a) // counter-block
+            withBlocks {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/blocks") { header(HttpHeaders.Authorization, "Bearer $tokenA") }
+                val rows = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["blocks"]!!.jsonArray
+                rows shouldHaveSize 1
+                val row = rows[0] as JsonObject
+                row["username"]!!.jsonPrimitive.content shouldBe b.username
+                row["displayName"]!!.jsonPrimitive.content shouldBe "Block Tester"
+            }
+        } finally {
+            cleanup(a, b.id)
+        }
+    }
+
+    "auth — all three block endpoints return 401 without JWT" {
         val ghost = UUID.randomUUID()
         withBlocks {
             val client = createClient { install(ClientCN) { json() } }

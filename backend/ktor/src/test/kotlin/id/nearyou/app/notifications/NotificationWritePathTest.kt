@@ -24,7 +24,6 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import io.kotest.matchers.string.shouldStartWith
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -489,7 +488,8 @@ class NotificationWritePathTest : StringSpec({
             note["actor_user_id"] shouldBe bob
             note["target_type"] shouldBe null
             note["target_id"] shouldBe null
-            (note["body"] as String) shouldStartWith "{"
+            // body_data = {} exactly (docs/05:857 catalog) — not merely JSON-shaped.
+            (note["body"] as String) shouldBe "{}"
         } finally {
             cleanupUsers(dataSource, alice, bob)
         }
@@ -509,14 +509,23 @@ class NotificationWritePathTest : StringSpec({
     }
 
     "10.12 Follow suppressed by block (either direction)" {
+        // Since social-list-profile-summaries, a blocked pair exits at the service
+        // visibility gate (ProfileUserNotFoundException) BEFORE the transaction — the
+        // zero-notification outcome below is enforced by the gate in steady state, and
+        // by the in-tx block guard + emitter suppression as defense-in-depth.
         val alice = seedUser(dataSource, "fx1")
         val bob = seedUser(dataSource, "fx2")
-        insertBlock(dataSource, alice, bob)
+        insertBlock(dataSource, alice, bob) // direction 1: recipient blocked the actor
+        val carol = seedUser(dataSource, "fx3")
+        val dave = seedUser(dataSource, "fx4")
+        insertBlock(dataSource, dave, carol) // direction 2: actor blocked the recipient
         try {
             runCatching { followService.follow(bob, alice) }
             countNotifications(dataSource, alice) shouldBe 0
+            runCatching { followService.follow(dave, carol) }
+            countNotifications(dataSource, carol) shouldBe 0
         } finally {
-            cleanupUsers(dataSource, alice, bob)
+            cleanupUsers(dataSource, alice, bob, carol, dave)
         }
     }
 

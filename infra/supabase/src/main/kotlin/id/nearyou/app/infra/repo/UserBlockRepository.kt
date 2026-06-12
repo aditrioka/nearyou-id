@@ -3,8 +3,20 @@ package id.nearyou.app.infra.repo
 import java.time.Instant
 import java.util.UUID
 
+/**
+ * Outbound-block list row with the blocked user's embedded profile summary
+ * (`social-list-profile-summaries`). Identity fields come from `LEFT JOIN visible_users`
+ * with COALESCE placeholders (`akun_dihapus` / `Akun Dihapus` / `false` — the
+ * `chat-conversations` partner pattern): a hidden (shadow-banned / soft-deleted) blocked
+ * user keeps their row (the list is the owner's only unblock handle) with masked
+ * identity. `isPremium` uses the `user-profile-read` formula
+ * (`subscription_status = 'premium_active'` only).
+ */
 data class UserBlockRow(
     val blockedId: UUID,
+    val username: String,
+    val displayName: String,
+    val isPremium: Boolean,
     val createdAt: Instant,
 )
 
