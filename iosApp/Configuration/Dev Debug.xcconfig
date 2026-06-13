@@ -1,6 +1,0 @@
-// Per-configuration xcconfig for the `Dev Debug` build configuration (mobile-ios-build-config-matrix).
-// Layers: env values (Dev.xcconfig) + the build-type-correct CocoaPods base. The Pods #include below
-// is added/confirmed by `pod install` (Pods-iosApp.dev debug.xcconfig) — a missing include is a
-// non-fatal xcconfig warning, so headless `xcodebuild -showBuildSettings` still resolves env values.
-#include "Dev.xcconfig"
-#include "../Pods/Target Support Files/Pods-iosApp/Pods-iosApp.dev debug.xcconfig"

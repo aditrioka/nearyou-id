@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Launch/window theme shown between process start and the first Compose frame. Day variant;
-     values-night supplies the dark counterpart so dark-mode users don't get a white flash
-     (2026-06-10 audit, 07-#17). Compose owns all in-app theming after the first frame. -->
-<resources>
-    <style name="Theme.NearYou.Launch" parent="android:Theme.Material.Light.NoActionBar" />
-</resources>

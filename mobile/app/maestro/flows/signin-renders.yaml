@@ -1,9 +1,0 @@
-# signin-renders — the UNAUTHENTICATED Sign-In screen renders. No backend or auth needed.
-# clearState forces a logged-out start. Run on dev or staging flavor.
-appId: ${APP_ID}
----
-- launchApp:
-    clearState: true
-- assertVisible:
-    text: "(?i).*(sign in|masuk|google).*"   # TODO: tighten to a testTag once SignInScreen exposes one (e.g. id: signInGoogleButton)
-- takeScreenshot: signin

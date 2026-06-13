@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Launcher icon background color — matches NearYouColorScheme.light.primary
-         (Decision 9). Referenced by mipmap-anydpi-v26/ic_launcher.xml's
-         <background android:drawable="@color/ic_launcher_background"> attribute. -->
-    <color name="ic_launcher_background">#1E4FD6</color>
-</resources>

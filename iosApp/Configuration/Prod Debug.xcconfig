@@ -1,4 +1,0 @@
-// Per-configuration xcconfig for the `Prod Debug` build configuration (mobile-ios-build-config-matrix).
-// env values (Production.xcconfig — .nearyou.app + cobalt AppIcon + placeholder API) + the debug Pods base.
-#include "Production.xcconfig"
-#include "../Pods/Target Support Files/Pods-iosApp/Pods-iosApp.prod debug.xcconfig"
