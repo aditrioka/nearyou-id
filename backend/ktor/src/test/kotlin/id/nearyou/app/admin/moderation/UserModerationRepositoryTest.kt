@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariDataSource
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminAuthTestSupport
+import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
@@ -41,7 +42,7 @@ class UserModerationRepositoryTest : StringSpec({
     afterSpec { dataSource.close() }
 
     val auditLogger = AdminAuditLogger(dataSource)
-    val repo = UserModerationRepository(dataSource, auditLogger)
+    val repo = UserModerationRepository(dataSource, auditLogger, DestructiveActionRateLimiter(dataSource))
 
     val seededUsers = mutableListOf<UUID>()
     val seededAdmins = mutableListOf<UUID>()

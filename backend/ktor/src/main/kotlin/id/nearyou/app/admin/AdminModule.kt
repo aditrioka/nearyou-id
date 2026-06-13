@@ -9,6 +9,7 @@ import id.nearyou.app.admin.auth.AdminUserRepository
 import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.auth.adminAuth
 import id.nearyou.app.admin.moderation.UserModerationRepository
+import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
 import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
@@ -20,6 +21,7 @@ import id.nearyou.app.admin.routes.adminRejectedIdentifiers
 import id.nearyou.app.admin.routes.adminReportQueue
 import id.nearyou.app.admin.routes.adminReportResolution
 import id.nearyou.app.admin.routes.adminUserModeration
+import id.nearyou.app.admin.usermanagement.UserProfileRepository
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.application.install
@@ -73,9 +75,17 @@ fun Application.admin(
     val actionsLogRepository = AdminActionsLogRepository(dataSource)
     val rejectedIdentifiersRepository = AdminRejectedIdentifiersRepository(dataSource)
     val reportQueueRepository = ReportQueueRepository(dataSource)
-    val userModerationRepository = UserModerationRepository(dataSource, auditLogger)
+    val destructiveActionRateLimiter = DestructiveActionRateLimiter(dataSource)
+    val userModerationRepository =
+        UserModerationRepository(dataSource, auditLogger, destructiveActionRateLimiter)
+    val userProfileRepository = UserProfileRepository(dataSource)
     val reportResolutionRepository =
-        ReportResolutionRepository(dataSource, auditLogger, userModerationRepository)
+        ReportResolutionRepository(
+            dataSource,
+            auditLogger,
+            userModerationRepository,
+            destructiveActionRateLimiter,
+        )
     val loginRoutes =
         AdminLoginRoutes(
             adminUserRepository = adminUserRepository,
@@ -158,7 +168,13 @@ fun Application.admin(
                     auditLogger,
                     layout,
                 )
-                adminUserModeration(userModerationRepository, auditLogger, layout)
+                adminUserModeration(
+                    userModerationRepository,
+                    userProfileRepository,
+                    destructiveActionRateLimiter,
+                    auditLogger,
+                    layout,
+                )
             }
         }
     }

@@ -5,6 +5,7 @@ import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminAuthTestSupport
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.moderation.UserModerationTestSupport
+import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
@@ -40,8 +41,9 @@ class ReportResolutionRepositoryTest : StringSpec({
     afterSpec { dataSource.close() }
 
     val auditLogger = AdminAuditLogger(dataSource)
-    val userModerationRepository = UserModerationRepository(dataSource, auditLogger)
-    val repo = ReportResolutionRepository(dataSource, auditLogger, userModerationRepository)
+    val rateLimiter = DestructiveActionRateLimiter(dataSource)
+    val userModerationRepository = UserModerationRepository(dataSource, auditLogger, rateLimiter)
+    val repo = ReportResolutionRepository(dataSource, auditLogger, userModerationRepository, rateLimiter)
 
     val seededIds = mutableListOf<UUID>()
     val seededAdmins = mutableListOf<UUID>()

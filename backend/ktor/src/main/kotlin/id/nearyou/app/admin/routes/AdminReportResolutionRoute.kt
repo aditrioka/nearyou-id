@@ -152,6 +152,9 @@ fun Route.adminReportResolution(
                 // The base role gate already 403s a non-write role; this tier
                 // rejection is an in-band "no change made" outcome.
                 call.respondReportsView(reportQueueRepo, layout, body, MSG_BAN_TIER)
+            QueueResolutionOutcome.RateLimited ->
+                // In-band "quota exceeded" — queue stays pending, nothing written.
+                call.respondReportsView(reportQueueRepo, layout, body, MSG_RATE_LIMITED)
         }
     }
 }
@@ -253,3 +256,5 @@ private const val MSG_AUTHOR_UNRESOLVABLE =
 private const val MSG_SUSPEND_GUARD =
     "Cannot suspend this author (deleted account, or already permanently banned). No change made."
 private const val MSG_BAN_TIER = "Issuing a permanent ban requires owner or admin role. No change made."
+private const val MSG_RATE_LIMITED =
+    "Destructive-action quota exceeded (20/hour). Try again later. No change made."

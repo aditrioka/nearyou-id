@@ -8,6 +8,12 @@ import id.nearyou.app.admin.moderation.SuspendOutcome
 import id.nearyou.app.admin.moderation.UnbanOutcome
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.moderation.UserModerationState
+import id.nearyou.app.admin.moderation.WarnOutcome
+import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
+import id.nearyou.app.admin.usermanagement.ProfileActionRow
+import id.nearyou.app.admin.usermanagement.UserProfile
+import id.nearyou.app.admin.usermanagement.UserProfileRepository
+import id.nearyou.app.admin.usermanagement.UsernameChangeRow
 import id.nearyou.app.common.clientIp
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -47,6 +53,8 @@ import java.util.UUID
  */
 fun Route.adminUserModeration(
     repo: UserModerationRepository,
+    profileRepo: UserProfileRepository,
+    rateLimiter: DestructiveActionRateLimiter,
     auditLogger: AdminAuditLogger,
     layout: AdminLayout,
 ) {
@@ -54,6 +62,32 @@ fun Route.adminUserModeration(
         val q = call.request.queryParameters["q"]?.trim()?.takeIf { it.isNotEmpty() }
         val user = q?.let { repo.lookup(it) }
         call.respondModeration(layout, q = q, user = user)
+    }
+
+    // GET /admin/users/{id} — the per-user profile + history page
+    // (admin-user-management). Read-only (no audit write, no mutation); any
+    // admin role may view. Malformed {id} → 400 inline (never 500); a well-formed
+    // UUID matching no user → inline empty-state (200, not 404).
+    get("/users/{id}") {
+        val targetId =
+            call.parseTargetId() ?: run {
+                call.respondProfile(layout, profile = null, status = HttpStatusCode.BadRequest, message = MSG_INVALID_ID)
+                return@get
+            }
+        val profile = profileRepo.loadProfile(targetId)
+        if (profile == null) {
+            call.respondProfile(layout, profile = null, message = MSG_USER_NOT_FOUND)
+            return@get
+        }
+        val principal = call.principal<AdminPrincipal>()
+        val quotaUsed = principal?.let { rateLimiter.countInTrailingHour(it.adminId) } ?: 0
+        call.respondProfile(
+            layout,
+            profile = profile,
+            actions = profileRepo.loadAdminActionHistory(targetId),
+            usernames = profileRepo.loadUsernameHistory(targetId),
+            quotaUsed = quotaUsed,
+        )
     }
 
     post("/users/{id}/suspend") {
@@ -101,7 +135,74 @@ fun Route.adminUserModeration(
                     user = repo.lookup(targetId.toString()),
                     message = MSG_SUSPEND_REJECTED_PERMANENT_BAN,
                 )
+            SuspendOutcome.RateLimited ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = repo.lookup(targetId.toString()),
+                    message = MSG_RATE_LIMITED,
+                )
             SuspendOutcome.NotFound ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = null,
+                    message = MSG_USER_NOT_FOUND,
+                )
+        }
+    }
+
+    // POST /admin/users/{id}/warn — issue a recorded + notified warning
+    // (admin-user-moderation). CSRF → write-role → parse {id} (after the role
+    // gate) → repo.warn. One user_warned audit row + one sanitized
+    // account_action_applied notification; no users-state mutation; the free-text
+    // reason is audit-only. Enforces the destructive-action cap.
+    post("/users/{id}/warn") {
+        if (!AdminCsrfGate.validateCsrf(call, auditLogger)) return@post
+        if (!AdminRoleGate.requireWriteRole(call)) return@post
+        val targetId =
+            call.parseTargetId() ?: run {
+                call.respondModeration(
+                    layout,
+                    q = null,
+                    user = null,
+                    message = MSG_INVALID_ID,
+                    status = HttpStatusCode.BadRequest,
+                )
+                return@post
+            }
+        val reason = call.readReason()
+        val principal =
+            call.principal<AdminPrincipal>() ?: run {
+                call.respond(HttpStatusCode.Forbidden)
+                return@post
+            }
+
+        val outcome =
+            repo.warn(
+                targetId = targetId,
+                actingAdminId = principal.adminId,
+                reason = reason,
+                ip = call.clientIp,
+                userAgent = call.request.headers[HttpHeaders.UserAgent],
+            )
+        when (outcome) {
+            WarnOutcome.Applied -> call.respondActionRedirect(targetId)
+            WarnOutcome.TargetDeleted ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = repo.lookup(targetId.toString()),
+                    message = MSG_WARN_TARGET_DELETED,
+                )
+            WarnOutcome.RateLimited ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = repo.lookup(targetId.toString()),
+                    message = MSG_RATE_LIMITED,
+                )
+            WarnOutcome.NotFound ->
                 call.respondModeration(
                     layout,
                     q = targetId.toString(),
@@ -216,6 +317,40 @@ private suspend fun ApplicationCall.respondModeration(
     respond(status, PebbleContent(template, model))
 }
 
+/**
+ * Render the per-user profile + history page (`user-profile.peb`,
+ * `admin-user-management`). A null [profile] renders the inline empty-state /
+ * error message. The full page carries the authenticated layout shell (so the
+ * `csrfToken` populates the suspend/unban/warn `_csrf` hidden fields for the
+ * no-JS path) + the live destructive-quota chip ([quotaUsed]/[quotaCap]).
+ */
+private suspend fun ApplicationCall.respondProfile(
+    layout: AdminLayout,
+    profile: UserProfile?,
+    actions: List<ProfileActionRow> = emptyList(),
+    usernames: List<UsernameChangeRow> = emptyList(),
+    quotaUsed: Int = 0,
+    message: String? = null,
+    status: HttpStatusCode = HttpStatusCode.OK,
+) {
+    val model =
+        buildMap<String, Any> {
+            profile?.let { put("profile", it.toProfileViewMap()) }
+            put("actions", actions.map { it.toViewMap() })
+            put("usernames", usernames.map { it.toViewMap() })
+            put("quotaUsed", quotaUsed)
+            put("quotaCap", DestructiveActionRateLimiter.DESTRUCTIVE_ACTION_CAP)
+            message?.let { put("message", it) }
+            layout.putShellModel(
+                this@respondProfile,
+                this,
+                pageTitle = "User Profile",
+                activePath = "/admin/users",
+            )
+        }
+    respond(status, PebbleContent("user-profile.peb", model))
+}
+
 /** On a successful action, redirect back to the lookup view so the admin sees
  *  the updated state: `HX-Redirect` for HTMX, a 303 See Other otherwise. */
 private suspend fun ApplicationCall.respondActionRedirect(targetId: UUID) {
@@ -249,6 +384,50 @@ private fun UserModerationState.toViewMap(): Map<String, Any> {
     )
 }
 
+/** Pre-format the profile identity + moderation state for `user-profile.peb`
+ *  (NULL instants → em-dash). Every value is Pebble-autoescaped on output. */
+private fun UserProfile.toProfileViewMap(): Map<String, Any> {
+    val suspendedUntilDisplay = suspendedUntil?.let { ISO_INSTANT.format(it) } ?: EM_DASH
+    val statusLabel =
+        when {
+            !isBanned -> "Active"
+            suspendedUntil != null -> "Suspended until $suspendedUntilDisplay"
+            else -> "Permanently banned"
+        }
+    return mapOf(
+        "id" to id.toString(),
+        "username" to username,
+        "displayName" to displayName,
+        "isPremium" to isPremium,
+        "subscriptionStatus" to subscriptionStatus,
+        "createdAt" to (createdAt?.let { ISO_INSTANT.format(it) } ?: EM_DASH),
+        "privateProfileOptIn" to privateProfileOptIn,
+        "isBanned" to isBanned,
+        "suspendedUntil" to suspendedUntilDisplay,
+        "isShadowBanned" to isShadowBanned,
+        "statusLabel" to statusLabel,
+    )
+}
+
+/** One admin-action history row for the template (NULL reason/state → em-dash). */
+private fun ProfileActionRow.toViewMap(): Map<String, Any> =
+    mapOf(
+        "createdAt" to ISO_INSTANT.format(createdAt),
+        "adminDisplayName" to adminDisplayName,
+        "actionType" to actionType,
+        "reason" to (reason ?: EM_DASH),
+        "beforeState" to (beforeState ?: EM_DASH),
+        "afterState" to (afterState ?: EM_DASH),
+    )
+
+/** One username-change history row for the template. */
+private fun UsernameChangeRow.toViewMap(): Map<String, Any> =
+    mapOf(
+        "oldUsername" to oldUsername,
+        "newUsername" to newUsername,
+        "changedAt" to ISO_INSTANT.format(changedAt),
+    )
+
 private const val REASON_FIELD = "reason"
 private const val EM_DASH = "—"
 private val ISO_INSTANT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
@@ -263,3 +442,6 @@ private const val MSG_SUSPEND_REJECTED_PERMANENT_BAN =
 private const val MSG_UNBAN_NOOP_NOT_BANNED = "User is not banned. No change made."
 private const val MSG_UNBAN_FORBIDDEN_PERMANENT_BAN =
     "Lifting a permanent ban requires owner or admin role."
+private const val MSG_WARN_TARGET_DELETED = "Cannot warn a deleted account."
+private const val MSG_RATE_LIMITED =
+    "Destructive-action quota exceeded (20/hour). Try again later. No change made."
