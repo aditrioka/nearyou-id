@@ -20,7 +20,7 @@
 
 - [ ] 4.1 androidMain `SentryCrashReporter` binding the Sentry Android SDK.
 - [ ] 4.2 iosMain `SentryCrashReporter` binding the Sentry Cocoa SDK (mind K/N ObjC category imports — `import platform.<Fw>.<symbol>`; run `linkDebugFrameworkIosSimulatorArm64` locally).
-- [ ] 4.3 Implement the `beforeSend` scrubbing hook (strip coordinates / tokens / free-text bodies), composing with the `CoordinateMaskingLogger` discipline.
+- [ ] 4.3 Init with `sendDefaultPii = false` (no client-IP `{{auto}}` inference, no `server_name`/device-name); implement the `beforeSend` scrubbing hook (strip coordinates / tokens / free-text bodies), mirroring the coordinate-free discipline (`CoordinateMaskingLogger` is `private` to `:mobile:app` — reuse the pattern, do not import it across the module fence).
 
 ## 5. Mobile app wiring (`:mobile:app`)
 
@@ -28,7 +28,7 @@
 - [ ] 5.2 Bind `CrashReporter` in `di/MobileModule.kt`; provide platform actuals via androidMain/iosMain `di/PlatformModule.kt`.
 - [ ] 5.3 Resolve flavor-aware DSN + `environment` + `release` from the `/config` seam + flavor source sets (`dev`/`staging`/`production`).
 - [ ] 5.4 Initialize at startup before app code can crash (Android `Application.onCreate` / iOS entry); `App.kt` triggers it via Koin.
-- [ ] 5.5 Consent gate (Decision 6): opt-out default ON; the consent settings toggle applies immediately (`close()` on decline, re-init on re-consent); cold-start honors last-known `crash` consent. Resolve Open Question 1 (local consent persistence seam) here.
+- [ ] 5.5 Consent gate (Decision 6): opt-out default ON; the consent settings toggle applies immediately (`close()` on decline, re-init on re-consent); cold-start reads last-known `crash` from the existing `ConsentSnapshotStore` (`data/consent`). Note the in-memory durability caveat — a decline survives process death only once #198 lands durable storage behind the same interface (consume that seam, do NOT fork a parallel store).
 - [ ] 5.6 `setUser(jwtSubject)` on the auth success path; `clearUser()` on logout. Never attach username/email/display-name.
 - [ ] 5.7 Swap the `DiagnosticSink` Koin binding to a Sentry breadcrumb sink, replacing `ConsoleDiagnosticSink`'s release drop-in (keep console output in debug). Do NOT fork a parallel diagnostics path.
 
@@ -41,12 +41,13 @@
 ## 7. Tests (docs/11 §2.7)
 
 - [ ] 7.1 commonTest (kotlin.test): consent gating — decline→`close()`, re-consent→re-init, cold-start-declined→no events — using a capturing fake `CrashReporter`.
-- [ ] 7.2 commonTest: `beforeSend` PII scrubbing strips a coordinate and a token from an event/breadcrumb payload.
+- [ ] 7.2 commonTest: `beforeSend` PII scrubbing strips a coordinate and a token from an event/breadcrumb payload; assert `sendDefaultPii = false` is set so the client IP / `server_name` are not attached.
 - [ ] 7.3 commonTest: `setUser(sub)` on auth and `clearUser()` on logout; assert no username/email is attached.
-- [ ] 7.4 commonTest: `DiagnosticSink` → breadcrumb wiring records a diagnostic via the real (non-no-op) binding.
+- [ ] 7.4 androidUnitTest (Koin-graph, mirroring the existing `di/DiagnosticSinkWiringTest`): `DiagnosticSink` → breadcrumb wiring records a diagnostic via the real (non-no-op) binding.
 - [ ] 7.5 Koin resolution test mirroring the existing `*KoinResolutionTest` files — `CrashReporter` resolves from the graph.
 - [ ] 7.6 iosTest smoke (kotlin.test, NOT Kotest on K/N) for the iosMain actual; run `:mobile:app:iosSimulatorArm64Test`.
-- [ ] 7.7 Vendor-SDK-leakage scan green (invariant #16): the Sentry SDK is absent from `:mobile:app`'s classpath.
+- [ ] 7.7 **Extend** `lint/detekt-rules/.../VendorSdkLeakageScanTest.kt` (today it scans only `core/domain`,`core/data`,`backend/ktor` for supabase/lettuce/firebase — `mobile/app/src` and `io.sentry.` are NOT covered, so the current scan is inert for this change). Add a **Sentry-prefix-scoped** check that walks `mobile/app/src` (plus core/backend) for `import io.sentry.`; do NOT retroactively apply the server-side prefixes to `mobile/app/src` (legitimate mobile client SDK imports differ). Assert green — `:mobile:app` reaches Sentry only via the `:infra:sentry` interface.
+- [ ] 7.8 commonTest: `captureException(throwable, context)` forwards the throwable + release/environment tags to the reporter (capturing fake from 7.1), covering the Android/iOS crash-capture spec scenarios at the wiring level. Note: the native auto-capture + OS crash layer itself is exercised by the verify-loop device bring-up (8.4), not unit-testable (docs/11 §5.1 — explicit residue, with operator buy-in via this note).
 
 ## 8. Verification & Definition of Done
 

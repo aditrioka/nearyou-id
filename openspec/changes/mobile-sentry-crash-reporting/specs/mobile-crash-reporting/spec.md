@@ -12,8 +12,8 @@ The mobile app SHALL report native crashes and unhandled exceptions on Android a
 - **THEN** the iOS `CrashReporter` actual (Sentry Cocoa under the SDK) captures and reports it on next launch
 
 #### Scenario: Vendor SDK is fenced inside :infra:sentry
-- **WHEN** `:mobile:app` is compiled
-- **THEN** the Sentry SDK is NOT on `:mobile:app`'s compile classpath, and `:mobile:app` references only the `CrashReporter` interface (verified by the vendor-SDK-leakage scan)
+- **WHEN** the vendor-SDK-leakage scan runs, extended with a Sentry-prefix-scoped check over `mobile/app/src`
+- **THEN** `:mobile:app` contains no direct `io.sentry.` import — the Sentry SDK is reached only through the `:infra:sentry` `CrashReporter` interface (the Sentry prefix is scoped to mobile/core/backend; the server-side prefixes are NOT retroactively applied to `mobile/app/src`)
 
 ### Requirement: Flavor-aware initialization with release and environment tags
 The app SHALL initialize crash reporting at startup before application code can crash, resolving `environment` from the build flavor (`dev` / `staging` / `production`) and `release` from the app version. A missing or blank DSN MUST safely no-op initialization rather than crash the app.
@@ -41,9 +41,13 @@ Crash reporting SHALL be gated on `users.analytics_consent.crash`, which default
 - **WHEN** the user turns the crash toggle back ON
 - **THEN** the app re-initializes the `CrashReporter` and crash events are sent again
 
-#### Scenario: Cold start honors last-known decline
-- **WHEN** the app cold-starts and the last-known `crash` consent is declined
+#### Scenario: A persisted decline is honored
+- **WHEN** the consent gate reads a `ConsentSnapshotStore` snapshot whose `crash` value is declined
 - **THEN** reporting initializes (opt-out default) and is closed on the first consent read, so no events are sent
+
+#### Scenario: Absent snapshot falls back to the opt-out default
+- **WHEN** no consent snapshot is present (e.g. a cold start after process death, before durable consent persistence lands via issue #198)
+- **THEN** the opt-out default (`crash` ON) applies and is corrected on the next consent interaction; durable cross-process decline is tracked by #198, consuming the same `ConsentSnapshotStore` seam
 
 ### Requirement: User correlation uses only an opaque identifier
 On authentication the app SHALL associate crash events with the signed-in user using only the opaque JWT `sub`; it MUST NOT send username, email, or display name. On logout the association MUST be cleared.
@@ -57,11 +61,15 @@ On authentication the app SHALL associate crash events with the signed-in user u
 - **THEN** `CrashReporter.clearUser` is called and subsequent events carry no user id
 
 ### Requirement: Crash payloads are scrubbed of PII
-A `beforeSend` hook SHALL strip or redact coordinates, auth tokens, and free-text post/chat bodies from outgoing event payloads (message, breadcrumbs, extras), composing with the existing coordinate-free / `CoordinateMaskingLogger` discipline rather than a parallel redactor.
+The reporter SHALL initialize with `sendDefaultPii = false` so the SDK does not infer or attach the client IP (`{{auto}}`) and MUST NOT attach `server_name` or device name — client IP is UU-PDP personal data and IP→coarse-location would undercut the coordinate-fuzzing posture. A `beforeSend` hook SHALL additionally strip or redact coordinates, auth tokens, and free-text post/chat bodies from outgoing event payloads (message, breadcrumbs, extras), mirroring the established coordinate-free discipline (the `CoordinateMaskingLogger` helper is `private` to `:mobile:app`, so this is pattern-reuse, not a cross-module import) rather than a parallel redactor.
 
 #### Scenario: An event carrying a coordinate is scrubbed
 - **WHEN** an event or breadcrumb payload contains a coordinate or a token
 - **THEN** `beforeSend` redacts it before the event leaves the device
+
+#### Scenario: Client IP and host identifiers are not attached
+- **WHEN** any event is sent
+- **THEN** `sendDefaultPii = false` keeps the client IP unattached (no `{{auto}}` inference) and no `server_name` / device name is included
 
 ### Requirement: Repository diagnostics surface as breadcrumbs through the existing sink
 The change SHALL route repository diagnostics into Sentry breadcrumbs through the existing `DiagnosticSink` Koin seam, replacing `ConsoleDiagnosticSink`'s release drop-in. It MUST NOT introduce a parallel diagnostics path. Breadcrumb content MUST remain coordinate-free per the sink's contract.
