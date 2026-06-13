@@ -57,6 +57,8 @@
         <a class="nitem{% if activePath == "/admin/users" %} active{% endif %}" href="/admin/users">{{ icon("group") }}Users</a>
         <span class="ngroup">Anti-abuse &amp; keamanan</span>
         <a class="nitem{% if activePath == "/admin/rejected-identifiers" %} active{% endif %}" href="/admin/rejected-identifiers">{{ icon("block") }}Rejected identifiers</a>
+        <span class="ngroup">Lifecycle</span>
+        <a class="nitem{% if activePath == "/admin/privacy-flips" %} active{% endif %}" href="/admin/privacy-flips">{{ icon("timer") }}Privacy flips</a>
         <span class="ngroup">Sistem</span>
         <a class="nitem{% if activePath == "/admin/actions-log" %} active{% endif %}" href="/admin/actions-log">{{ icon("receipt_long") }}Audit log</a>
         {# Identity box (design.md D5): role chip + display name + the
