@@ -9,12 +9,17 @@ The mobile app SHALL ship a commonMain `interface FcmTokenProvider` (file: `mobi
 - `suspend fun currentToken(): String?` — acquire the current device FCM registration token, or `null` when none is available (token not yet issued, or platform prerequisites unmet).
 - `val tokenRefreshes: Flow<String>` — a stream that emits the new token whenever the platform SDK rotates it.
 
-The Android actual (file under `mobile/app/src/androidMain/.../push/`) SHALL implement `currentToken()` via the `firebase-messaging` SDK and bridge `tokenRefreshes` from the SDK's `onNewToken` callback. The iOS actual (file under `mobile/app/src/iosMain/.../push/`) SHALL implement `currentToken()` via the `FirebaseMessaging` Pod (`Messaging.messaging().token`) and bridge `tokenRefreshes` from the messaging-delegate registration-token callback. The Firebase / platform SDK import SHALL appear ONLY in the platform source sets — never in commonMain (the "no vendor SDK import outside the platform / `:infra:*` boundary" invariant). Each actual SHALL be bound in its Koin platform module (the `LocationProvider` precedent).
+The Android actual (file under `mobile/app/src/androidMain/.../push/`) SHALL implement `currentToken()` via the `firebase-messaging` SDK and bridge `tokenRefreshes` from the SDK's `onNewToken` callback. The iOS actual (file under `mobile/app/src/iosMain/.../push/`) SHALL implement `currentToken()` via the `FirebaseMessaging` Pod (`Messaging.messaging().token`) and bridge `tokenRefreshes` from the messaging-delegate registration-token callback. The Firebase / platform SDK import SHALL appear ONLY in the platform source sets — never in commonMain (the "no vendor SDK import outside the platform / `:infra:*` boundary" invariant). Each actual SHALL be bound in its Koin platform module (the `LocationProvider` precedent). **Enforcement note:** the global `VendorSdkLeakageScanTest` (`:lint:detekt-rules`) scans only `core/domain`, `core/data`, and `backend/ktor` — NOT `mobile/app/src` — so it does NOT enforce this boundary for the mobile module. Mobile confinement SHALL therefore be test-enforced by a dedicated `androidUnitTest` source-guard (the shipped `LocationSourceGuardTest` / `PostCreationSourceGuardTest` idiom — walk the repo source tree, assert the forbidden token's absence in the disallowed source set), not by review alone.
 
 #### Scenario: The commonMain interface references no platform SDK type
 
 - **WHEN** inspecting `FcmTokenProvider.kt` in commonMain
 - **THEN** it declares `currentToken()` and `tokenRefreshes` AND contains no reference to `FirebaseMessaging`, `Messaging`, `UNUserNotificationCenter`, or `FirebaseMessagingService`
+
+#### Scenario: A source-guard test enforces Firebase confinement to the platform source sets
+
+- **WHEN** the dedicated `FcmPushSourceGuardTest` (`androidUnitTest`, the `LocationSourceGuardTest` idiom) runs
+- **THEN** it asserts that no `commonMain` push source file references `com.google.firebase` / `FirebaseMessaging` / `Messaging` / `UNUserNotificationCenter` AND that the Firebase SDK imports appear ONLY under `androidMain`/`iosMain` — failing if a future edit leaks the vendor SDK into common code
 
 #### Scenario: A fake provider can drive both acquisition and refresh in tests
 
@@ -23,7 +28,7 @@ The Android actual (file under `mobile/app/src/androidMain/.../push/`) SHALL imp
 
 ### Requirement: FcmTokenApiClient posts the canonical registration request with Bearer auth attached by the shipped Auth plugin
 
-The mobile app SHALL ship a `FcmTokenApiClient` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/data/push/FcmTokenApiClient.kt`) that issues `POST /api/v1/user/fcm-token` (the canonical endpoint; the path source of truth is the SHIPPED `backend/ktor/src/main/kotlin/id/nearyou/app/user/FcmTokenRoutes.kt`). The request body SHALL be JSON `{ "token": <string>, "platform": <string>, "app_version": <string|null> }` where:
+The mobile app SHALL ship a `FcmTokenApiClient` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/push/FcmTokenApiClient.kt`) that issues `POST /api/v1/user/fcm-token` (the canonical endpoint; the path source of truth is the SHIPPED `backend/ktor/src/main/kotlin/id/nearyou/app/user/FcmTokenRoutes.kt`). The request body SHALL be JSON `{ "token": <string>, "platform": <string>, "app_version": <string|null> }` where:
 
 - `token` is the value returned by `FcmTokenProvider`, trimmed, non-empty, and ≤ 4096 characters (the client SHALL guard these bounds before issuing the request — mirroring the backend `empty_token` / `token_too_long` validators — so a malformed value never round-trips into a 400 the silent registrar cannot surface).
 - `platform` is exactly `"android"` or `"ios"` (matching the backend `CHECK (platform IN ('android','ios'))`), sourced as a compile-time constant in each platform actor — NEVER runtime-detected in commonMain.
@@ -39,7 +44,22 @@ The Bearer `Authorization` header SHALL be attached by the SHIPPED `HttpClient` 
 #### Scenario: An over-length token is rejected client-side before any request
 
 - **WHEN** the client is asked to register a 4097-character token
-- **THEN** no HTTP request is issued AND the outcome is a client-side rejection (mapped to `Rejected(token_too_long)` or an equivalent guard) — the oversize value never reaches the wire
+- **THEN** no HTTP request is issued AND the outcome is exactly `Rejected(token_too_long)` — the oversize value never reaches the wire
+
+#### Scenario: An empty-after-trim token is rejected client-side before any request
+
+- **WHEN** the client is asked to register a non-null token that is empty or whitespace-only after trimming
+- **THEN** no HTTP request is issued AND the outcome is exactly `Rejected(empty_token)` — a blank token never round-trips into the backend `empty_token` 400
+
+#### Scenario: An over-length app_version is rejected client-side before any request
+
+- **WHEN** the client is asked to register with an `app_version` longer than 64 characters
+- **THEN** no HTTP request is issued AND the outcome is exactly `Rejected(app_version_too_long)`
+
+#### Scenario: A null app_version is sent as the canonical body with a null field
+
+- **WHEN** the client registers a valid token whose `app_version` resolves to `null` from the build-config seam
+- **THEN** the request body is the canonical shape with `app_version` serialized as JSON `null` (the backend accepts a nullable `app_version`) AND the request is issued
 
 ### Requirement: Registration responses map to a closed FcmRegistrationOutcome vocabulary
 
@@ -47,7 +67,7 @@ The Bearer `Authorization` header SHALL be attached by the SHIPPED `HttpClient` 
 
 - **HTTP 204** → `Registered`.
 - **HTTP 400** → `Rejected(code)` where `code` is the backend's closed error vocabulary parsed from the JSON `{"error": …}` body: `malformed_body` / `invalid_platform` / `empty_token` / `token_too_long` / `app_version_too_long`. An unrecognized 400 error string maps to a single explicit `Rejected(unknown)` — not a crash and not silently dropped.
-- **HTTP 401** → `Unauthorized` (the registrar treats this as "session not valid yet / refresh in flight" and does not retry-loop; the next session-active trigger re-attempts).
+- **HTTP 401** → `Unauthorized`. Because the shipped `HttpClient` `Auth` plugin already owns one refresh-and-retry on a 401 (and invalidates the session on refresh failure), a 401 surfacing to this client means the plugin's refresh has ALREADY failed (the session is being torn down) — so the client SHALL NOT itself retry-loop; the next session-active trigger re-attempts after re-authentication.
 - **Any transport/IO failure or other non-2xx** → `TransportError`.
 
 #### Scenario: 204 maps to Registered
@@ -60,19 +80,27 @@ The Bearer `Authorization` header SHALL be attached by the SHIPPED `HttpClient` 
 - **WHEN** the backend responds `400` with body `{"error":"invalid_platform"}` (and, in separate cases, each of `malformed_body` / `empty_token` / `token_too_long` / `app_version_too_long`)
 - **THEN** the outcome is `Rejected(invalid_platform)` (respectively the matching `Rejected(code)` for each) AND no other outcome is produced
 
+#### Scenario: An unrecognized 400 error code maps to Rejected(unknown)
+
+- **WHEN** the backend responds `400` with a body whose `error` value is not in the documented vocabulary (e.g. `{"error":"some_future_code"}`) or has no parseable `error` field
+- **THEN** the outcome is exactly `Rejected(unknown)` — no crash, no silent drop, no other variant
+
 #### Scenario: 401 maps to Unauthorized without a retry loop
 
-- **WHEN** the backend responds `401`
+- **WHEN** the backend responds `401` (the `Auth` plugin's refresh has already failed)
 - **THEN** the outcome is `Unauthorized` AND the client issues no immediate re-request (re-attempt is deferred to the next session-active trigger)
 
 ### Requirement: FcmTokenRegistrar acquires and registers the token on session-active transitions
 
 The mobile app SHALL ship a Compose-free `FcmTokenRegistrar` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/push/FcmTokenRegistrar.kt`), a stateless Koin singleton with `suspend fun registerCurrentToken(): FcmRegistrationOutcome` that: reads `FcmTokenProvider.currentToken()`; if non-null, registers it via `FcmTokenApiClient` and returns the outcome; if `null`, returns a `NoTokenAvailable` outcome without issuing a request. The registrar SHALL be invoked on every documented session-active transition (`docs/04-Architecture.md` § FCM Token Registration, "Client must re-register when: the app first opens after install; the FCM token-refresh SDK callback fires; the user logs out + re-logs in"):
 
-- **App first open after sign-in** — the cold-start path where a persisted `TokenPair` routes to `HomeRoute` (the `RootRouterScreen` / `AuthRepository.isAuthenticated()` seam).
-- **Fresh sign-in success** — the `AuthRepository` HTTP-200 sign-in path.
+- **App first open after sign-in** — the cold-start path where a persisted `TokenPair` routes to `HomeRoute` (the `RootRouterScreen` / `AuthRepository.isAuthenticated()` seam). This subsumes the doc's "first open after install" AND "app is reinstalled" triggers: a reinstall yields a fresh token that is registered on the first authenticated open (or via the refresh stream below).
+- **Fresh sign-in success** — the `AuthRepository` HTTP-200 sign-in path. This subsumes the doc's "logs out + re-logs in" trigger (a re-login is a fresh sign-in success).
+- **Token rotation** — the SDK token-refresh callback, handled by the separate token-rotation requirement below.
 
-The invocation SHALL be fire-and-forget on a non-blocking scope so registration NEVER delays navigation. A `TransportError` SHALL be swallowed (logged non-confidentially) and naturally retried on the next trigger — no bespoke backoff machinery.
+These two call sites realize all four doc triggers (`docs/04-Architecture.md` line 469: install / refresh / re-login / reinstall) — the mapping is intentional, not a coverage gap.
+
+The invocation SHALL be fire-and-forget on a non-blocking scope so registration NEVER delays navigation. A `TransportError` SHALL be swallowed (logged non-confidentially) and naturally retried on the next trigger — no bespoke backoff machinery. **Concurrency posture:** the registrar does NOT guard against concurrent/overlapping `registerCurrentToken()` invocations (e.g. a cold-start trigger overlapping a token-refresh emission). Concurrent or duplicate registrations of the same token are intentionally permitted and harmless — the backend upserts on `(user_id, platform, token)` (idempotent, just refreshes `last_seen_at`). This is a deliberate decision (relying on backend idempotency) rather than an unconsidered gap; no client-side mutex/dedup is introduced.
 
 #### Scenario: Acquire-then-register happy path
 
@@ -85,6 +113,18 @@ The invocation SHALL be fire-and-forget on a non-blocking scope so registration 
 - **GIVEN** a provider whose `currentToken()` returns `null`
 - **WHEN** `registerCurrentToken()` is invoked
 - **THEN** no registration request is issued AND the outcome is `NoTokenAvailable`
+
+#### Scenario: iOS denied-authorization yields the NoTokenAvailable outcome end-to-end
+
+- **GIVEN** a provider modelling iOS denied notification authorization (`currentToken()` returns `null` per the iOS-authorization requirement)
+- **WHEN** `registerCurrentToken()` is invoked
+- **THEN** the outcome is `NoTokenAvailable` AND no registration request is issued — tying the iOS denied-auth → null-token → `NoTokenAvailable` chain together at the registrar level (not only at the provider level)
+
+#### Scenario: Concurrent registrations of the same token are permitted (no client-side dedup)
+
+- **GIVEN** a provider returning `"tok-1"` and an api client recording each call
+- **WHEN** `registerCurrentToken()` is invoked while a prior `registerCurrentToken()` / token-refresh registration for the same token is still in flight
+- **THEN** both registrations are allowed to proceed (no exception, no client-side mutex) — duplicate POSTs are tolerated because the backend upsert is idempotent
 
 #### Scenario: TransportError is swallowed and re-attempted on the next trigger
 
@@ -104,13 +144,13 @@ The `FcmTokenRegistrar` SHALL collect `FcmTokenProvider.tokenRefreshes` for the 
 
 ### Requirement: No registration is attempted while unauthenticated
 
-The registrar SHALL NOT issue a registration request when there is no active session (no persisted `TokenPair`). The `/api/v1/user/fcm-token` endpoint is JWT-gated; without a session there is no Bearer token to attach and the call would 401. Session-active triggers are the ONLY registration entry points; the registrar SHALL NOT register from the unauthenticated `SignInScreen` state.
+The registrar SHALL NOT issue a registration request when there is no active session (no persisted `TokenPair`). The `/api/v1/user/fcm-token` endpoint is JWT-gated; without a session there is no Bearer token to attach and the call would 401. Session-active triggers are the ONLY registration entry points; the registrar SHALL NOT register from the unauthenticated `SignInScreen` state. **Mechanism:** the app-scope token-refresh collector (started once, lives across sign-out/sign-in cycles) SHALL check session presence (`AuthRepository.isAuthenticated()` / the persisted `TokenPair`) BEFORE issuing a registration POST on a refresh emission — it SHALL NOT issue an unauthenticated request and rely on the endpoint 401-ing it back (that would be a wasted, avoidable round-trip). The token-acquisition triggers are already session-gated by construction (they fire only at the post-auth seam).
 
 #### Scenario: A token refresh while signed out does not POST
 
-- **GIVEN** no active session (the app is on the unauthenticated surface)
+- **GIVEN** no active session (the app is on the unauthenticated surface) AND the app-scope refresh collector is active
 - **WHEN** the provider emits a token refresh
-- **THEN** no registration request is issued (the token is registered on the next session-active trigger instead)
+- **THEN** the registrar checks session presence, finds none, and issues NO registration request (not even an unauthenticated one that would 401) — the token is registered on the next session-active trigger instead
 
 ### Requirement: iOS requests only the minimal notification authorization that token acquisition structurally requires
 
@@ -132,12 +172,12 @@ On Android, FCM token issuance does NOT require the `POST_NOTIFICATIONS` runtime
 
 ### Requirement: The raw FCM token is never written to a log sink
 
-No code path in this capability SHALL log the raw FCM token value (or a substring/prefix/hash of it) — the token is a device-addressed credential (mirroring backend D11). Diagnostic logging SHALL use a token-free shape (e.g. `event=fcm_token_registered platform={} outcome={}`).
+No code path in this capability SHALL log the raw FCM token value (or a substring/prefix/hash of it) — the token is a device-addressed credential (mirroring backend D11). Diagnostic logging SHALL use a token-free shape (e.g. `event=fcm_token_registered platform={} outcome={}`). The guard SHALL cover the full log-sink set across ALL push source files — `FcmTokenRegistrar.kt`, `FcmTokenApiClient.kt`, and both platform actuals — for the sink vocabulary the shipped `LocationSourceGuardTest` already enumerates (`Log.`, `println`, `print(`, `NSLog`, `os_log`, `Napier`, `Timber`), NOT just the registrar. Additionally, the shared `HttpClient` `Logging` plugin level SHALL NOT be `LogLevel.BODY` / `LogLevel.ALL` on the path that carries the registration request (those levels would log the request body — hence the token — to the log sink); the guard SHALL assert this.
 
-#### Scenario: Registration logging omits the token
+#### Scenario: No push source file logs the token through any sink
 
-- **WHEN** `registerCurrentToken()` runs to completion (success or failure)
-- **THEN** no logging call site receives the token value as an argument (asserted by a source/behavior guard test) AND the emitted diagnostic line contains the platform and outcome but not the token
+- **WHEN** the no-token-in-logs guard runs across `FcmTokenRegistrar.kt`, `FcmTokenApiClient.kt`, and both platform actuals
+- **THEN** no enumerated log sink (`Log.` / `println` / `print(` / `NSLog` / `os_log` / `Napier` / `Timber`) receives the token value AND the `HttpClient` `Logging` level on the registration path is not `BODY`/`ALL` AND the emitted diagnostic line contains the platform + outcome but not the token
 
 ### Requirement: Koin resolves the FCM registration graph
 
@@ -177,9 +217,9 @@ The registrar, provider interface, api client, and their fakes SHALL build and p
 
 ### Requirement: Test coverage for the registration lifecycle
 
-The change SHALL include: a Compose-free `FcmTokenRegistrarTest` (acquire→register happy path; `NoTokenAvailable` on null token; token-refresh re-registration; `TransportError` swallowed + re-attempt; no-register-while-unauthenticated); a `FcmTokenApiClientTest` over Ktor `MockEngine` (canonical body shape incl. platform constant + app_version; the 204→`Registered`, each 400→`Rejected(code)`, 401→`Unauthorized`, transport→`TransportError` mappings; the over-length-token client-side guard); a Koin-resolution test for the new bindings; and the no-token-in-logs guard.
+The change SHALL include: a Compose-free `FcmTokenRegistrarTest` (acquire→register happy path; `NoTokenAvailable` on null token; the iOS-denied→`NoTokenAvailable` chain; token-refresh re-registration; `TransportError` swallowed + re-attempt; no-register-while-unauthenticated with the session-presence check; concurrent-registration tolerance); a `FcmTokenApiClientTest` over Ktor `MockEngine` (canonical body shape incl. platform constant + present/null `app_version`; the 204→`Registered`, each documented 400→`Rejected(code)`, unknown-400→`Rejected(unknown)`, 401→`Unauthorized`, transport→`TransportError` mappings; the client-side guards: over-length token→`Rejected(token_too_long)`, empty-after-trim→`Rejected(empty_token)`, over-length app_version→`Rejected(app_version_too_long)`, each issuing NO request); a Koin-resolution test for the new bindings; the `FcmPushSourceGuardTest` (commonMain Firebase-confinement); and the no-token-in-logs guard across all push files.
 
 #### Scenario: The registrar and api-client test suites cover the outcome matrix
 
 - **WHEN** the test suite runs
-- **THEN** every `FcmRegistrationOutcome` variant (`Registered`, each `Rejected(code)`, `Unauthorized`, `TransportError`, `NoTokenAvailable`) is asserted by at least one scenario AND the no-token-in-logs guard passes
+- **THEN** every `FcmRegistrationOutcome` variant (`Registered`, each `Rejected(code)` including `Rejected(unknown)`, `Unauthorized`, `TransportError`, `NoTokenAvailable`) is asserted by at least one scenario AND the `FcmPushSourceGuardTest` and the no-token-in-logs guard pass
