@@ -60,8 +60,8 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "data-icon=\"group\""
             body shouldContain "data-icon=\"block\""
             body shouldContain "data-icon=\"receipt_long\""
-            // EXACTLY five nav items, under their three group headings.
-            Regex("class=\"nitem").findAll(body).count() shouldBe 5
+            // EXACTLY six nav items, under their three group headings.
+            Regex("class=\"nitem").findAll(body).count() shouldBe 6
             body shouldContain "Moderasi"
             body shouldContain "Anti-abuse &amp; keamanan"
             body shouldContain "Sistem"

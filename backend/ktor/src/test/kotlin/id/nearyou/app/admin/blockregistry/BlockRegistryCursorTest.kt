@@ -39,14 +39,16 @@ class BlockRegistryCursorTest : StringSpec({
 
     "a base64url token with the wrong field count decodes to null" {
         // base64url("123|only-two") — 2 parts, not 3.
-        val twoParts = java.util.Base64.getUrlEncoder().withoutPadding()
-            .encodeToString("123|only-two".toByteArray())
+        val twoParts =
+            java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("123|only-two".toByteArray())
         BlockRegistryCursor.decode(twoParts).shouldBeNull()
     }
 
     "a base64url token whose UUID segment is not a UUID decodes to null" {
-        val badUuid = java.util.Base64.getUrlEncoder().withoutPadding()
-            .encodeToString("123|not-a-uuid|also-not".toByteArray())
+        val badUuid =
+            java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("123|not-a-uuid|also-not".toByteArray())
         BlockRegistryCursor.decode(badUuid).shouldBeNull()
     }
 })

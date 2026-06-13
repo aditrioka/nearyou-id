@@ -50,8 +50,7 @@ class AdminBlockRegistryRouteTest : StringSpec({
 
     fun cookie(token: String) = "${AdminAuthProvider.COOKIE_NAME}=$token"
 
-    fun user(username: String? = null): UUID =
-        BlockRegistryTestSupport.seedUser(dataSource, username).also { seededUsers.add(it) }
+    fun user(username: String? = null): UUID = BlockRegistryTestSupport.seedUser(dataSource, username).also { seededUsers.add(it) }
 
     fun block(
         blocker: UUID,

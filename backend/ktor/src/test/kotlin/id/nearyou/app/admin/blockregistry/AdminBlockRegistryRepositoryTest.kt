@@ -45,8 +45,7 @@ class AdminBlockRegistryRepositoryTest : StringSpec({
     val repo = AdminBlockRegistryRepository(dataSource)
     val base = Instant.parse("2026-05-20T00:00:00Z")
 
-    fun user(username: String? = null): UUID =
-        BlockRegistryTestSupport.seedUser(dataSource, username).also { seededUsers.add(it) }
+    fun user(username: String? = null): UUID = BlockRegistryTestSupport.seedUser(dataSource, username).also { seededUsers.add(it) }
 
     fun block(
         blocker: UUID,
@@ -89,8 +88,10 @@ class AdminBlockRegistryRepositoryTest : StringSpec({
         page2.rows.map { it.createdAt } shouldContainExactly listOf(base)
         page2.nextCursor.shouldBeNull()
         // no overlap between the two pages
-        (page1.rows.map { it.blockerId to it.blockedId } intersect
-            page2.rows.map { it.blockerId to it.blockedId }.toSet()) shouldBe emptySet()
+        (
+            page1.rows.map { it.blockerId to it.blockedId } intersect
+                page2.rows.map { it.blockerId to it.blockedId }.toSet()
+        ) shouldBe emptySet()
     }
 
     "7.3 — identical created_at rows paginate by the (blocker_id, blocked_id) PK tiebreaker, no loss/dup" {
@@ -107,9 +108,10 @@ class AdminBlockRegistryRepositoryTest : StringSpec({
         block(e, f, sameTs)
 
         val seen = mutableListOf<Pair<UUID, UUID>>()
-        var cursor = repo.query(BlockRegistryQuery(pageSize = 2)).also {
-            seen += it.rows.map { r -> r.blockerId to r.blockedId }
-        }.nextCursor
+        var cursor =
+            repo.query(BlockRegistryQuery(pageSize = 2)).also {
+                seen += it.rows.map { r -> r.blockerId to r.blockedId }
+            }.nextCursor
         while (cursor != null) {
             val page = repo.query(BlockRegistryQuery(pageSize = 2, cursor = cursor))
             seen += page.rows.map { r -> r.blockerId to r.blockedId }
