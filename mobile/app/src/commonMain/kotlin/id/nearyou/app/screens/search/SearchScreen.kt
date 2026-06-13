@@ -55,6 +55,7 @@ import id.nearyou.resources.generated.resources.search_icon_cd
 import id.nearyou.resources.generated.resources.search_idle_prompt
 import id.nearyou.resources.generated.resources.search_load_more
 import id.nearyou.resources.generated.resources.search_premium_gate_body
+import id.nearyou.resources.generated.resources.search_rate_limit_reset
 import id.nearyou.resources.generated.resources.search_rate_limited
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_loading
@@ -146,7 +147,7 @@ fun SearchScreen(
                 SearchUiState.Error -> ErrorState(onRetry = viewModel::retry)
                 SearchUiState.PremiumGate -> PremiumGateState()
                 is SearchUiState.RateLimited ->
-                    RateLimitedState(retryAfterSeconds = state.retryAfterSeconds, onElapsed = viewModel::retry)
+                    RateLimitedState(retryAfterSeconds = state.retryAfterSeconds, onRetry = viewModel::retry)
                 SearchUiState.Disabled -> CenteredMessage(stringResource(Res.string.search_disabled))
                 SearchUiState.SessionRedirect ->
                     CenteredMessage(stringResource(Res.string.timeline_session_redirect))
@@ -341,26 +342,48 @@ private fun PremiumGateState() {
  * The rate-limit surface (429): the `docs/03:245` copy with a live countdown derived from
  * [retryAfterSeconds] (floored to one minute via [capCountdownMinutes] — never a flash-clear), ticking
  * down per minute via monotonic [delay] (no wall-clock API). When the countdown reaches zero the cap has
- * reset → [onElapsed] re-issues the query (clearing the surface).
+ * reset: the countdown is replaced by a "Coba lagi" retry control so the user MAY re-issue the query
+ * ([onRetry]) — a deliberate user action, NOT an auto-fetch (which would silently re-consume the hourly
+ * quota and, on a same-value re-limit, could stall on the conflated `RateLimited` state).
  */
 @Composable
 private fun RateLimitedState(
     retryAfterSeconds: Long,
-    onElapsed: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     var remainingMinutes by remember(retryAfterSeconds) {
         mutableStateOf(capCountdownMinutes(retryAfterSeconds))
     }
     LaunchedEffect(retryAfterSeconds) {
-        while (true) {
+        while (remainingMinutes > 0) {
             delay(60_000)
-            if (remainingMinutes > 1) {
-                remainingMinutes -= 1
+            remainingMinutes -= 1
+        }
+    }
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (remainingMinutes > 0) {
+                Text(
+                    text = stringResource(Res.string.search_rate_limited, remainingMinutes),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
             } else {
-                onElapsed()
-                break
+                // The cap window has elapsed — the user may re-issue the query.
+                Text(
+                    text = stringResource(Res.string.search_rate_limit_reset),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp).testTag(SEARCH_RETRY_TAG)) {
+                    Text(text = stringResource(Res.string.cta_retry))
+                }
             }
         }
     }
-    CenteredMessage(stringResource(Res.string.search_rate_limited, remainingMinutes))
 }

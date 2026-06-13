@@ -244,7 +244,7 @@ While the search outcome is `PremiumGate` (the reactive `403 premium_required` g
 
 ### Requirement: The rate-limit state renders the docs/03 modal with a live countdown
 
-While the search outcome is `RateLimited(retryAfterSeconds)`, `SearchScreen` SHALL render the rate-limit surface with the `docs/03-UX-Design.md:245` copy via `stringResource(Res.string.search_rate_limited)` ("Kamu sudah mencapai batas pencarian. Reset dalam %1$s.") formatted with a live countdown derived from `retryAfterSeconds`. The countdown SHALL be formatted by a pure commonMain formatter (minutes rounded up; "X menit" treatment) decremented via monotonic coroutine `delay` (NO wall-clock platform API) — reusing the countdown approach established by `mobile-cap-upsell-dialog` where practical. A non-positive `retryAfterSeconds` SHALL be floored to one minute (the shipped floor precedent — never a flash-clear on entry). When the countdown reaches zero the rate-limit surface SHALL clear (the cap has reset; the user MAY retry the query).
+While the search outcome is `RateLimited(retryAfterSeconds)`, `SearchScreen` SHALL render the rate-limit surface with the `docs/03-UX-Design.md:245` copy via `stringResource(Res.string.search_rate_limited)` ("Kamu sudah mencapai batas pencarian. Reset dalam %1$d menit.") formatted with a live countdown derived from `retryAfterSeconds`. (The shipped resource takes the minute count as an integer `%1$d` with the "menit" unit in the resource — reusing the `mobile-cap-upsell-dialog` `capCountdownMinutes` formatter directly — rather than a pre-formatted `%1$s` countdown string; a cosmetically-equivalent simplification.) The minute count SHALL be computed by the pure commonMain `capCountdownMinutes` formatter (minutes rounded up) and decremented via monotonic coroutine `delay` (NO wall-clock platform API). A non-positive `retryAfterSeconds` SHALL be floored to one minute (the shipped floor precedent — never a flash-clear on entry). When the countdown reaches zero the cap has reset: the countdown SHALL be replaced by a retry control (`stringResource(Res.string.search_rate_limit_reset)` + a `stringResource(Res.string.cta_retry)` button) so the user MAY re-issue the query — a deliberate user action, NOT an auto-fetch (which would silently re-consume the hourly quota).
 
 #### Scenario: A 429 renders the rate-limit copy with the countdown
 
@@ -258,11 +258,11 @@ While the search outcome is `RateLimited(retryAfterSeconds)`, `SearchScreen` SHA
 - **WHEN** the rate-limit surface renders
 - **THEN** it shows the one-minute countdown ("1 menit") AND does NOT immediately clear on entry
 
-#### Scenario: The rate-limit surface auto-clears when the countdown reaches zero
+#### Scenario: The rate-limit surface shows a retry control when the countdown reaches zero
 
 - **GIVEN** the rate-limit surface shown with a small `retryAfterSeconds` and a test clock advancing the monotonic countdown
 - **WHEN** the countdown reaches zero
-- **THEN** the rate-limit surface clears (the cap has reset) AND the user MAY re-issue the query
+- **THEN** the countdown is replaced by a retry control (`search_rate_limit_reset` copy + a `cta_retry` button) AND activating it re-issues the query (the user MAY re-issue; it is NOT an auto-fetch)
 
 ### Requirement: SearchApiClient and SearchRepository are Koin singletons behind a testable seam
 

@@ -225,6 +225,7 @@
     <!-- The gate's primary CTA reuses cta_activate_premium ("Aktifkan Premium", declared for the
          cap-upsell dialog) — same copy, no duplicate-value key. -->
     <string name="search_rate_limited" formatted="true">Kamu sudah mencapai batas pencarian. Reset dalam %1$d menit.</string>
+    <string name="search_rate_limit_reset">Batas pencarian sudah direset. Coba cari lagi.</string>
     <string name="search_disabled">Pencarian sedang tidak tersedia. Coba lagi nanti.</string>
     <string name="search_load_more">Lihat lebih banyak</string>
     <string name="search_icon_cd">Cari</string>

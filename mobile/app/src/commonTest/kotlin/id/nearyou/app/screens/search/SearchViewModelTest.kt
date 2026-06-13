@@ -1,8 +1,10 @@
 package id.nearyou.app.screens.search
 
 import id.nearyou.app.search.FakeSearchFlow
+import id.nearyou.app.search.SearchFlow
 import id.nearyou.app.search.SearchOutcome
 import id.nearyou.app.search.fakeSearchHit
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestCoroutineScheduler
@@ -133,6 +135,43 @@ class SearchViewModelTest {
         assertTrue(outcome is SearchOutcome.Results)
         assertEquals(listOf("p1"), outcome.hits.map { it.postId }, "an empty page keeps the existing hits")
         assertEquals(null, outcome.nextOffset, "an empty page is terminal even if nextOffset != null")
+    }
+
+    @Test
+    fun newQuery_cancelsTheInFlightFetch_soStaleResultsDoNotWin() {
+        // A gated flow: the FIRST fetch (the older query) blocks on a gate and returns a distinguishable
+        // PremiumGate; the SECOND fetch (the newer query) returns Results immediately. Without the
+        // searchJob cancellation, the released stale fetch-1 would overwrite fetch-2's Results.
+        val gate = CompletableDeferred<Unit>()
+        var calls = 0
+        val flow =
+            object : SearchFlow {
+                override suspend fun search(
+                    query: String,
+                    offset: Int,
+                ): SearchOutcome {
+                    calls += 1
+                    return if (calls == 1) {
+                        gate.await()
+                        SearchOutcome.PremiumGate
+                    } else {
+                        SearchOutcome.Results(listOf(fakeSearchHit()), null)
+                    }
+                }
+            }
+        val vm = SearchViewModel(flow)
+
+        vm.onQueryChange("aa")
+        scheduler.advanceUntilIdle() // fetch-1 starts and blocks on the gate
+        vm.onQueryChange("bb")
+        scheduler.advanceUntilIdle() // cancels fetch-1, fetch-2 returns Results
+        gate.complete(Unit) // release the (already-cancelled) fetch-1
+        scheduler.advanceUntilIdle()
+
+        assertTrue(
+            vm.outcome.value is SearchOutcome.Results,
+            "the newer query's result wins; the cancelled stale fetch must NOT overwrite it (was ${vm.outcome.value})",
+        )
     }
 
     @Test

@@ -7,6 +7,7 @@ import id.nearyou.app.search.SearchOutcome
 import id.nearyou.app.search.SearchQueryGuard
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +24,12 @@ import kotlin.coroutines.cancellation.CancellationException
  * immediately on the keyboard submit action (via [onSubmit]) — but ONLY when the [SearchQueryGuard]
  * passes (below-2-char queries issue no request and keep the screen Idle). A "Lihat lebih banyak"
  * [loadMore] appends the next page to the retained results.
+ *
+ * **One in-flight fetch at a time.** [searchJob] holds the current debounce+fetch coroutine; every new
+ * keystroke / submit cancels it BEFORE launching the replacement, so a slow stale fetch (e.g. a fired
+ * debounce for "ab") can never land after — and overwrite — a newer query's result ("abc"). The result
+ * is committed only after [ensureActive] confirms the job was not superseded, so a cancelled fetch never
+ * mutates `_outcome` / `_isLoading`; the latest job (or the Idle branch) owns the final loading state.
  */
 class SearchViewModel(
     private val flow: SearchFlow,
@@ -39,46 +46,67 @@ class SearchViewModel(
     private val _isLoadingMore = MutableStateFlow(false)
     val isLoadingMore: StateFlow<Boolean> = _isLoadingMore.asStateFlow()
 
-    private var debounceJob: Job? = null
     private var searchJob: Job? = null
+    private var loadMoreJob: Job? = null
 
     /** The text field's change handler: caps the input at 100 code points, then either schedules a
      *  debounced fetch (eligible query) or returns the screen to Idle (below the guard's minimum). */
     fun onQueryChange(raw: String) {
         val capped = SearchQueryGuard.cap(raw)
         _query.value = capped
-        debounceJob?.cancel()
         if (!SearchQueryGuard.isEligible(capped)) {
-            // Below the threshold → Idle: cancel any in-flight fetch and clear prior results.
+            // Below the threshold → Idle: cancel any in-flight fetch / load-more and clear results.
             searchJob?.cancel()
+            loadMoreJob?.cancel()
             _isLoading.value = false
             _isLoadingMore.value = false
             _outcome.value = null
             return
         }
-        // Eligible: show Loading immediately (so typing a valid query doesn't flash the prior results),
-        // then fire after the debounce window.
-        _isLoading.value = true
-        _outcome.value = null
-        debounceJob =
-            viewModelScope.launch {
-                delay(DEBOUNCE_MILLIS)
-                runSearch(capped)
-            }
+        startSearch(capped, debounce = true)
     }
 
     /** Keyboard submit (ime action): cancel the pending debounce and fetch the current query now. */
     fun onSubmit() {
         val current = _query.value
         if (!SearchQueryGuard.isEligible(current)) return
-        debounceJob?.cancel()
-        _isLoading.value = true
-        _outcome.value = null
-        viewModelScope.launch { runSearch(current) }
+        startSearch(current, debounce = false)
     }
 
-    /** Error-retry: re-issue the current query's first page. */
+    /** Error-retry + the rate-limit "Coba lagi": re-issue the current query's first page now. */
     fun retry() = onSubmit()
+
+    /**
+     * Cancel the prior debounce+fetch (and any load-more), then launch a single new one. The cancel
+     * runs BEFORE the new job is assigned, so it can never cancel itself; the new job commits its
+     * outcome only after [ensureActive], so a superseded (cancelled) fetch never writes stale results.
+     */
+    private fun startSearch(
+        query: String,
+        debounce: Boolean,
+    ) {
+        searchJob?.cancel()
+        loadMoreJob?.cancel()
+        _isLoading.value = true
+        _isLoadingMore.value = false
+        _outcome.value = null
+        searchJob =
+            viewModelScope.launch {
+                if (debounce) delay(DEBOUNCE_MILLIS)
+                val result =
+                    try {
+                        flow.search(SearchQueryGuard.normalize(query), 0)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Throwable) {
+                        SearchOutcome.NetworkError
+                    }
+                // Commit only if this job is still the active search (a newer query did not supersede it).
+                ensureActive()
+                _outcome.value = result
+                _isLoading.value = false
+            }
+    }
 
     /** "Lihat lebih banyak": fetch the next page and APPEND it to the retained results. */
     fun loadMore() {
@@ -86,46 +114,32 @@ class SearchViewModel(
         val nextOffset = current.nextOffset ?: return
         if (_isLoadingMore.value) return
         _isLoadingMore.value = true
-        viewModelScope.launch {
-            try {
-                when (val next = flow.search(SearchQueryGuard.normalize(_query.value), nextOffset)) {
-                    is SearchOutcome.Results ->
-                        _outcome.value =
-                            if (next.hits.isEmpty()) {
-                                // An empty page is terminal even if nextOffset != null (the documented
-                                // FTS+OFFSET boundary) — keep the existing hits, hide the load-more.
-                                current.copy(nextOffset = null)
-                            } else {
-                                SearchOutcome.Results(
-                                    hits = current.hits + next.hits,
-                                    nextOffset = next.nextOffset,
-                                )
-                            }
-                    // A non-Results outcome on a load-more (e.g. a 429 on the next page) retains the
-                    // existing results and hides the load-more rather than clobbering the user's list (v1).
-                    else -> _outcome.value = current.copy(nextOffset = null)
+        loadMoreJob =
+            viewModelScope.launch {
+                val next =
+                    try {
+                        flow.search(SearchQueryGuard.normalize(_query.value), nextOffset)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Throwable) {
+                        null
+                    }
+                ensureActive()
+                // Only commit if the retained outcome is STILL `current` (the query didn't change under
+                // us between the request and the response); otherwise a newer Results would be clobbered.
+                if (_outcome.value === current) {
+                    _outcome.value =
+                        when {
+                            next is SearchOutcome.Results && next.hits.isNotEmpty() ->
+                                SearchOutcome.Results(current.hits + next.hits, next.nextOffset)
+                            // An empty page is terminal even if nextOffset != null (the documented
+                            // FTS+OFFSET boundary); a non-Results outcome (e.g. a 429 on the next page)
+                            // retains the existing hits and hides the load-more rather than clobbering.
+                            else -> current.copy(nextOffset = null)
+                        }
                 }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Throwable) {
-                _outcome.value = current.copy(nextOffset = null)
-            } finally {
                 _isLoadingMore.value = false
             }
-        }
-    }
-
-    private suspend fun runSearch(rawQuery: String) {
-        searchJob?.cancel()
-        try {
-            _outcome.value = flow.search(SearchQueryGuard.normalize(rawQuery), 0)
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (_: Throwable) {
-            _outcome.value = SearchOutcome.NetworkError
-        } finally {
-            _isLoading.value = false
-        }
     }
 
     private companion object {

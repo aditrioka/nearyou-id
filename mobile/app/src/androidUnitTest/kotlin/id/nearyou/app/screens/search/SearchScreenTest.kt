@@ -36,6 +36,8 @@ private const val GATE_BODY =
     "Pencarian hanya untuk pengguna Premium. Aktifkan Premium untuk mencari postingan dan pengguna di seluruh Indonesia."
 private const val GATE_CTA = "Aktifkan Premium"
 private const val RATE_LIMITED_29 = "Kamu sudah mencapai batas pencarian. Reset dalam 29 menit."
+private const val RATE_LIMITED_1 = "Kamu sudah mencapai batas pencarian. Reset dalam 1 menit."
+private const val RATE_LIMIT_RESET = "Batas pencarian sudah direset. Coba cari lagi."
 private const val DISABLED = "Pencarian sedang tidak tersedia. Coba lagi nanti."
 private const val SESSION_REDIRECT = "Mengalihkan ke halaman masuk…"
 private const val LOAD_MORE = "Lihat lebih banyak"
@@ -173,6 +175,48 @@ class SearchScreenTest {
     }
 
     @Test
+    fun rateLimited_atZero_showsRetryControl_thatReIssuesTheQuery() {
+        installKoin(SearchOutcome.RateLimited(retryAfterSeconds = 60)) // capCountdownMinutes(60) = 1 minute
+        runComposeUiTest {
+            mainClock.autoAdvance = false
+            setContent { KoinContext { NearYouTheme { SearchScreen(onBack = {}) } } }
+            onNodeWithTag(SEARCH_FIELD_TAG).performTextInput("jakarta")
+            onNodeWithTag(SEARCH_FIELD_TAG).performImeAction()
+            mainClock.advanceTimeByFrame()
+            onNodeWithText(RATE_LIMITED_1).assertExists()
+            val before = fake.invocationCount
+            // Advance the one floored minute → the countdown reaches zero → the retry control appears.
+            mainClock.advanceTimeBy(60_000)
+            mainClock.advanceTimeByFrame()
+            onNodeWithText(RATE_LIMIT_RESET).assertExists()
+            onNodeWithTag(SEARCH_RETRY_TAG).assertExists()
+            // Tapping it re-issues the query (a deliberate user action, not an auto-fetch).
+            onNodeWithTag(SEARCH_RETRY_TAG).performClick()
+            mainClock.advanceTimeByFrame()
+            assertEquals(before + 1, fake.invocationCount, "the retry control re-issues the query")
+        }
+    }
+
+    @Test
+    fun resultCard_rendersNoAuthorIdOrRank_andNoEngagementRow() {
+        // fakeSearchHit seeds the PII fields (authorId UUID + rank) that must NOT reach the rendered tree.
+        installKoin(SearchOutcome.Results(listOf(fakeSearchHit(content = "HALO_CARI")), null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { SearchScreen(onBack = {}) } } }
+            submitQuery()
+            onNodeWithText("HALO_CARI").assertExists()
+            // Display identity IS rendered…
+            onNodeWithText("Dewi Lestari", substring = true).assertExists()
+            // …but the author UUID and the FTS rank score are NEVER rendered (PII / internal-ranking).
+            onNodeWithText("11111111-1111-1111-1111-111111111111", substring = true).assertDoesNotExist()
+            onNodeWithText("0.83", substring = true).assertDoesNotExist()
+            // The search card carries no like/reply action row and no city/distance (the wire has none).
+            onNodeWithTag("postCardLikeAction").assertDoesNotExist()
+            onNodeWithTag("postCardReplyAction").assertDoesNotExist()
+        }
+    }
+
+    @Test
     fun disabled_showsKillSwitchCopy_notConnectivity() {
         installKoin(SearchOutcome.Disabled)
         runComposeUiTest {
@@ -214,16 +258,34 @@ class SearchScreenTest {
     }
 
     @Test
-    fun resultTap_invokesOnOpenPostWithTheHit() {
-        installKoin(SearchOutcome.Results(listOf(fakeSearchHit(postId = "p1", authorUsername = "dewi.kuliner")), null))
+    fun resultTap_invokesOnOpenPostWithTheFullHitPayload() {
+        installKoin(
+            SearchOutcome.Results(
+                listOf(
+                    fakeSearchHit(
+                        postId = "p1",
+                        authorUsername = "dewi.kuliner",
+                        authorDisplayName = "Dewi Lestari",
+                        content = "HALO_CARI",
+                        createdAt = "2026-05-31T10:00:00Z",
+                    ),
+                ),
+                null,
+            ),
+        )
         runComposeUiTest {
             var tapped: SearchHit? = null
             setContent { KoinContext { NearYouTheme { SearchScreen(onBack = {}, onOpenPost = { tapped = it }) } } }
             submitQuery()
             onNodeWithTag(SEARCH_RESULT_CARD_TAG).performClick()
             waitForIdle()
+            // The hit carries the non-PII display fields the appEntryProvider call site turns into a
+            // PostDetailRoute (with documented defaults for the wire-absent city/distance/like/reply).
             assertEquals("p1", tapped?.postId)
             assertEquals("dewi.kuliner", tapped?.authorUsername)
+            assertEquals("Dewi Lestari", tapped?.authorDisplayName)
+            assertEquals("HALO_CARI", tapped?.content)
+            assertEquals("2026-05-31T10:00:00Z", tapped?.createdAt)
         }
     }
 
