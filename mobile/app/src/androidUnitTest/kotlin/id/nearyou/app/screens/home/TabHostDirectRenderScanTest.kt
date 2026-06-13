@@ -13,7 +13,7 @@ private fun String.stripComments(): String {
 
 /**
  * `mobile-home-tab-host` § "No per-tab NavDisplay or tab-root NavKey is introduced" — source-scan guard
- * (mirroring `VoyagerAbsenceScanTest` / `FollowingTabNoFetchScanTest`) mechanizing design D1: `HomeScreen`
+ * (mirroring `VoyagerAbsenceScanTest`) mechanizing design D1: `HomeScreen`
  * renders the selected tab's screen **directly** (no nested per-tab navigation host), and `NavKeys`
  * declares **no** per-tab root key. Both needles are assembled from fragments AND the scanned files are
  * comment-stripped, so the explanatory KDoc in `HomeScreen` (which names the absent constructs) and this
