@@ -7,6 +7,10 @@
 # code needed). It then downloads the screenshots + video Robo captured into a
 # local folder so the agent can send them straight back to you.
 #
+# This script is invoked both locally / from the cloud sandbox AND by the CI
+# workflow .github/workflows/device-run.yml (which provides credentials via the
+# google-github-actions/auth step → GOOGLE_APPLICATION_CREDENTIALS).
+#
 # Usage:
 #   scripts/run_on_device.sh                 # Robo-crawl on the default device
 #   DEVICE='model=shiba,version=34' scripts/run_on_device.sh
