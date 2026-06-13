@@ -9,6 +9,7 @@ import id.nearyou.app.admin.auth.AdminUserRepository
 import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.auth.adminAuth
 import id.nearyou.app.admin.blockregistry.AdminBlockRegistryRepository
+import id.nearyou.app.admin.chatredaction.ChatRedactionRepository
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
@@ -19,6 +20,7 @@ import id.nearyou.app.admin.routes.AdminIndexStatsRepository
 import id.nearyou.app.admin.routes.AdminLayout
 import id.nearyou.app.admin.routes.adminActionsLog
 import id.nearyou.app.admin.routes.adminBlockRegistry
+import id.nearyou.app.admin.routes.adminChatRedaction
 import id.nearyou.app.admin.routes.adminIndex
 import id.nearyou.app.admin.routes.adminPrivacyFlips
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
@@ -98,6 +100,8 @@ fun Application.admin(
             userModerationRepository,
             destructiveActionRateLimiter,
         )
+    val chatRedactionRepository =
+        ChatRedactionRepository(dataSource, auditLogger, destructiveActionRateLimiter)
     val loginRoutes =
         AdminLoginRoutes(
             adminUserRepository = adminUserRepository,
@@ -189,6 +193,7 @@ fun Application.admin(
                     auditLogger,
                     layout,
                 )
+                adminChatRedaction(chatRedactionRepository, auditLogger, layout)
             }
         }
     }

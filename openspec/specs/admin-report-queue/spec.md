@@ -3,7 +3,6 @@
 ## Purpose
 
 The read-only admin Report Queue (`GET /admin/reports`) — the moderator triage surface that surfaces the `reports` / `moderation_queue` backlog and closes the moderation loop: a report comes in, the auto-hide-at-3-reporters trigger enqueues `moderation_queue`, the moderator opens the queue, and clicks through to the already-shipped `/admin/users` suspend/unban controls. It renders a session-gated (any valid admin session, not role-restricted), keyset-paginated, newest-first table over `reports` with optional `moderation_queue` context (a single representative row via `LEFT JOIN LATERAL`), composable parameterized filters (`status` / `target_type` / `reason_category` / `trigger` / `from`–`to` date range, lenient on malformed input), full HTML-escaping, and HTMX partial-swap with a plain-`GET` fallback — deep-linking each reported target's offending user to the user-moderation action surface. The `GET /admin/reports` listing remains read-only (writes no `admin_actions_log` row, mutates no table); state mutations are confined to the dedicated `/{id}/resolve` POST sub-routes. The in-queue resolution write-back now ships (capability `admin-report-queue-resolution-actions`): `POST /admin/reports/{id}/resolve` transitions a report's bookkeeping status (`actioned`/`dismissed`), and `POST /admin/moderation-queue/{id}/resolve` performs the named enforcement atomically — content un-hide/hide (`is_auto_hidden` on `post`/`reply`), 7-day suspend (reusing the shipped suspend path), permanent ban (owner/admin tier only), and shadow-ban (`is_shadow_banned`, with no user-facing notification as the stealth invariant) — CSRF + write-role-gated, idempotent, each writing exactly one immutable `admin_actions_log` row whose `after_state` records the enforcement effect. Only the "post has edit history" prioritization filter remains deferred (`admin-report-queue-has-edit-history-filter`). It is the moderation loop's read surface plus its in-panel write-back, mirroring how `admin-actions-log-viewer` (read) preceded `admin-user-moderation` (write).
-
 ## Requirements
 ### Requirement: Authenticated GET /admin/reports renders the report-queue table
 
@@ -415,8 +414,6 @@ The report-queue table SHALL render in-row resolution controls — a per-row for
 - **WHEN** the resolution succeeds
 - **THEN** the response SHALL be a 303 redirect back to `/admin/reports` (preserving any active filters)
 
-
-
 ### Requirement: Destructive moderation-queue resolutions enforce the per-admin destructive-action cap
 
 The destructive moderation-queue resolutions served by `POST /admin/moderation-queue/{id}/resolve` — `suspend_author_7d`, `ban_author`, and `shadow_ban_author` — SHALL enforce `admin-destructive-action-rate-limit` before performing enforcement: when the acting admin is at or over the cap (20 destructive actions in the trailing hour), the resolution SHALL be rejected with an inline "quota exceeded" state, leaving the `moderation_queue` row in `status = 'pending'`, performing NO author enforcement (no `users` mutation), and writing NO `admin_actions_log` row for the rejected attempt. The non-destructive resolutions (`keep`, `hide`) and the report-status bookkeeping (`POST /admin/reports/{id}/resolve` with `decision` in `{actioned, dismissed}`) are NOT in the destructive set and SHALL NOT be gated by the cap.
@@ -444,3 +441,18 @@ The destructive moderation-queue resolutions served by `POST /admin/moderation-q
 - **GIVEN** an authenticated `admin` with 19 destructive-action rows in the trailing hour AND a `pending` `moderation_queue` row whose author is active
 - **WHEN** the client sends `POST /admin/moderation-queue/{id}/resolve` with `resolution = suspend_author_7d`
 - **THEN** the suspend enforcement SHALL apply AND the queue row SHALL become `status = 'resolved'` AND exactly one new `admin_actions_log` row SHALL be written
+
+### Requirement: chat_message report rows deep-link to the redaction surface
+
+For a report row whose `target_type = 'chat_message'`, the system SHALL render — in addition to the existing offending-user (message sender) deep-link to `/admin/users?q=<sender>` — a "Redact message" deep-link to `GET /admin/chat-messages/<target_id>` (the `admin-chat-message-redaction` surface). This is additive: it does not change the offending-user deep-link behavior already specified for `chat_message` rows. The redaction deep-link SHALL render for `chat_message` rows regardless of the viewing admin's role (the link is just navigation; the owner/admin tier gate is enforced by the redaction surface itself on GET). Rows whose `target_type ∈ {post, reply, user}` SHALL NOT render a redaction deep-link.
+
+#### Scenario: A chat_message report row links to the redaction surface
+- **GIVEN** an authenticated admin session AND a report with `target_type = chat_message` and `target_id = <M>`
+- **WHEN** `GET /admin/reports` is served
+- **THEN** the report's row contains a link to `/admin/chat-messages/<M>` ("Redact message") in addition to the existing message-sender link
+
+#### Scenario: Non-chat targets render no redaction link
+- **GIVEN** an authenticated admin session AND a report with `target_type = post`
+- **WHEN** `GET /admin/reports` is served
+- **THEN** the report's row contains NO `/admin/chat-messages/...` link
+

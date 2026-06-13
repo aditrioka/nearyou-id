@@ -732,3 +732,29 @@ body.bare > main {
 .tbl tr.flip-overdue td a { color: var(--on-error-container); }
 .flip-stuck-note { font-weight: 600; }
 .flip-handle { color: var(--on-surface-variant); margin-left: 6px; font-size: 12px; }
+
+/* chat-message redaction (frame 9): the ±2 limited-disclosure context window
+   renders as chat bubbles; the reported message is error-tinted so it jumps out.
+   No inline styles in the template (docs/11 § 3.6) — the look is vendored here. */
+.chat-ctx { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.chat-bubble {
+  background: var(--sc);
+  color: var(--on-surface);
+  border-radius: 10px;
+  padding: 8px 12px;
+  max-width: 85%;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.chat-bubble.reported {
+  background: var(--error-container);
+  color: var(--on-error-container);
+  border: 1px solid var(--error);
+}
+.chat-bubble .meta { display: block; margin-top: 4px; font-size: 10.5px; color: inherit; opacity: .8; }
+.chat-bubble .embed-tag { font-style: italic; opacity: .85; }
+.chat-bubble.redacted { font-style: italic; color: var(--on-surface-variant); }
+
+/* warn banner — the owner/admin + atomic-write notice on the redaction panel.
+   Mirrors .banner.info shape with the error-container tint frame 9 uses. */
+.banner.warn { margin-top: 12px; background: var(--error-container); color: var(--on-error-container); }

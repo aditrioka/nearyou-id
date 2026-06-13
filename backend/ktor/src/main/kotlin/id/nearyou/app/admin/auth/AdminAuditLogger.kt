@@ -317,6 +317,43 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for an admin-initiated CHAT MESSAGE REDACTION
+     * (`admin-chat-message-redaction` capability): `POST /admin/chat-messages/
+     * {id}/redact` setting the redaction flags on a `chat_messages` row. Joins
+     * the caller's [conn] so this audit INSERT commits atomically with the
+     * `chat_messages` UPDATE + the participant `chat_message_redacted`
+     * notifications in ONE transaction (mirrors [logModerationQueueResolved]).
+     * `targetType = 'chat_message'`, `targetId` = the redacted message id; the
+     * free-text [reason] is stored here (audit-only) and is NEVER serialized on
+     * the chat data plane. `beforeState` captures the original row (content or
+     * embedded-post snapshot); `afterState` records the redacted result.
+     * `adminId` is the acting human admin, never the `system` sentinel.
+     */
+    fun logChatRedaction(
+        conn: Connection,
+        adminId: UUID,
+        messageId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "admin_chat_redaction",
+            adminId = adminId,
+            targetType = "chat_message",
+            targetId = messageId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Own-connection audit write for the standalone login / logout / CSRF
      * events — opens, writes, and (via `use`) closes its own connection.
      * There is nothing to be atomic against on those paths, so each is a
