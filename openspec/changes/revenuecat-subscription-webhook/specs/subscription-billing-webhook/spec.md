@@ -4,7 +4,9 @@
 
 The backend SHALL expose `POST /internal/revenuecat-webhook`, authenticated by its own vendor credentials and NOT by the OIDC `InternalEndpointAuth` plugin (it is a vendor-webhook opt-out per the `internal-endpoint-auth` capability). Every request MUST present an `Authorization: Bearer <token>` header whose value equals the `revenuecat-webhook-secret`, compared with a constant-time comparison. When an `X-RevenueCat-Signature` header is present, its HMAC-SHA256 over the raw request body MUST verify against the `revenuecat-webhook-hmac-secret`. Both secrets MUST be read through the `secretKey(env, name)` helper.
 
-A request failing any auth check MUST be rejected with HTTP `401 Unauthorized` before any handler logic runs. The `401` response body MUST NOT echo the offending token, the configured secret, the computed/received signature, or any verifier exception detail. Each auth failure MUST be logged at WARN as a security event so the operator's "RevenueCat webhook signature fail rate" anomaly alert can observe it. A valid OIDC bearer token alone MUST NOT admit the request.
+Both secret **slot names** MUST be resolved through the `secretKey(env, name)` env-namespacing helper and their **values** fetched via the secret resolver — a direct secret-name read is forbidden (secrets invariant).
+
+A request failing any auth check MUST be rejected with HTTP `401 Unauthorized` before any handler logic runs. The `401` response body MUST NOT echo the offending token, the configured secret, the computed/received signature, or any verifier exception detail. Each auth failure MUST be logged at WARN as a security event so the operator's webhook-auth-failure anomaly signal can observe it (a missing/bad **Bearer** and a bad **HMAC signature** are logged distinguishably, so the "signature fail rate" alert keys on genuine signature failures rather than ordinary unauthenticated internet scans). A valid OIDC bearer token alone MUST NOT admit the request.
 
 #### Scenario: Missing Authorization header is rejected
 - **WHEN** a request to `POST /internal/revenuecat-webhook` is sent with no `Authorization` header
@@ -26,6 +28,14 @@ A request failing any auth check MUST be rejected with HTTP `401 Unauthorized` b
 - **WHEN** a request presents the correct `revenuecat-webhook-secret` bearer token AND (when signature checking is enabled) a valid `X-RevenueCat-Signature`
 - **THEN** the request is admitted to the handler AND processed per the event-type requirements below
 
+### Requirement: Mandatory production webhook signing is deferred
+
+In this change, HMAC signature verification is conditional — it applies only when the `X-RevenueCat-Signature` header is present — so a request with a valid bearer token and no signature header is admitted (Bearer is the always-on gate; HMAC is defense-in-depth that activates once the operator enables signing in the RevenueCat dashboard). This change SHALL NOT reject a missing-signature request, including in production. Making signing mandatory in production (rejecting any unsigned request when the environment is production) is deferred to a future hardening change, gated on the operator confirming dashboard signing is enabled — enforcing it prematurely would reject every live billing webhook. Replay of a captured `(body, signature)` pair is bounded by the `revenuecat_event_id` idempotency below (a replayed event is a no-op duplicate), not by an auth-layer freshness check; the future hardening change will MODIFY this requirement to add the production-mandatory-signing rejection.
+
+#### Scenario: An unsigned request is accepted on a valid Bearer token alone
+- **WHEN** a request presents the correct bearer token AND no `X-RevenueCat-Signature` header
+- **THEN** the request is admitted (this change does not require a signature; mandatory production signing is deferred to a hardening change)
+
 ### Requirement: Webhook event ingestion is idempotent and recorded at event level
 
 For every authenticated, well-formed event, the backend SHALL record exactly one `subscription_events` row carrying the mapped `event_type` (one of `initial_purchase`, `renewal`, `grant`, `cancellation`, `billing_issue`, `expiration`), `source` (`paid` for billing-originated events), the `revenuecat_event_id`, and the available entitlement/amount/platform fields. The `revenuecat_event_id` column is `UNIQUE`. A re-delivered event carrying a `revenuecat_event_id` already present MUST NOT create a second row and MUST NOT re-apply its `subscription_status` transition; the handler returns HTTP `200` signalling a duplicate. The event-row write, the `subscription_status` update, and any notification write for a single event MUST occur within one database transaction. A malformed body MUST be rejected `400` without partial writes.
@@ -39,6 +49,10 @@ Event-level recording exists because revenue analytics MUST reconstruct transiti
 #### Scenario: Re-delivered event is a no-op duplicate
 - **WHEN** an event whose `revenuecat_event_id` already exists in `subscription_events` is delivered again
 - **THEN** the response status is `200` indicating a duplicate AND the `subscription_events` table still holds exactly one row for that `revenuecat_event_id` AND the user's `subscription_status` is not re-applied
+
+#### Scenario: Concurrent duplicate deliveries apply the transition at most once
+- **WHEN** two requests carrying the same previously-unseen `revenuecat_event_id` are processed concurrently
+- **THEN** exactly one `subscription_events` row exists for that `revenuecat_event_id` AND the status transition is applied at most once (the `UNIQUE` constraint with `ON CONFLICT DO NOTHING` serializes the race; the losing writer is treated as a duplicate and does not re-apply the transition)
 
 #### Scenario: Malformed body is rejected without writes
 - **WHEN** an authenticated request carries a body that cannot be parsed into a RevenueCat event envelope
@@ -68,6 +82,10 @@ The backend SHALL set `users.subscription_status = 'premium_active'` when it pro
 - **WHEN** an authenticated `RENEWAL` event is processed for a `premium_active` user
 - **THEN** that user's `subscription_status` remains `premium_active` AND a `subscription_events` row with `event_type = 'renewal'`, `source = 'paid'` is recorded
 
+#### Scenario: Renewal after a billing issue heals the user back to active
+- **WHEN** an authenticated `RENEWAL` event is processed for a user currently in `premium_billing_retry` (a prior billing issue that has since cleared)
+- **THEN** that user's `subscription_status` becomes `premium_active` (the renewal transition is unconditional — it does not require the user to already be `premium_active`) AND a `subscription_events` row with `event_type = 'renewal'`, `source = 'paid'` is recorded
+
 ### Requirement: Billing-issue events enter the grace state without revoking access
 
 The backend SHALL set `users.subscription_status = 'premium_billing_retry'` when it processes a `BILLING_ISSUE` event. Premium access MUST remain effective in this state (`premium_billing_retry` is an effective-Premium state alongside `premium_active`). The handler SHALL write a `subscription_billing_issue` notification for the user whose `body_data` carries the grace-window end timestamp (`grace_end_at`, 7 days from the event), and record a `billing_issue` event.
@@ -78,7 +96,7 @@ The backend SHALL set `users.subscription_status = 'premium_billing_retry'` when
 
 ### Requirement: Expiration events downgrade the user to Free
 
-The backend SHALL set `users.subscription_status = 'free'` when it processes an `EXPIRATION` event indicating the entitlement has lapsed (the `EXPIRATION` event is the authoritative terminal billing signal). The handler SHALL write a `subscription_expired` notification for the user and record an `expiration` event.
+The backend SHALL set `users.subscription_status = 'free'` when it processes an `EXPIRATION` event — the `EXPIRATION` event is the authoritative terminal billing signal. Any `EXPIRATION` event is terminal **regardless of its `expiration_reason`** (per `docs/01` § Payment Stack: "only EXPIRATION flips to free" — a `BILLING_ERROR` lapse and a voluntary lapse alike); the reason value is recorded on the `subscription_events` row for analytics but MUST NOT gate the downgrade. The handler SHALL write a `subscription_expired` notification for the user and record an `expiration` event.
 
 #### Scenario: Expiration downgrades to Free and notifies
 - **WHEN** an authenticated `EXPIRATION` event is processed for a `premium_billing_retry` user
