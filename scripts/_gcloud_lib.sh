@@ -70,9 +70,14 @@ pull_testlab_artifacts() {
     return 0
   fi
   mkdir -p "$dest"
-  echo "[gcloud] downloading artifacts from $gcs ..."
-  gcloud storage cp -r "${gcs%/}/*" "$dest/" >/dev/null 2>&1 \
-    || gsutil -m cp -r "${gcs%/}/*" "$dest/" >/dev/null 2>&1 \
-    || { echo "[gcloud] artifact download failed (non-fatal); browse: $gcs" >&2; return 0; }
-  echo "[gcloud] artifacts saved under: $dest"
+  echo "[gcloud] downloading artifacts from ${gcs%/} ..."
+  # Surface stderr (not silent) so a permission/path issue is diagnosable in the
+  # CI log. Recurse the whole results dir — Robo stores video.mp4 + screenshots
+  # in per-device subfolders, so copy the directory, not just a top-level glob.
+  if gcloud storage cp --recursive "${gcs%/}" "$dest/" 2>&1; then
+    echo "[gcloud] artifacts saved under: $dest"
+  else
+    echo "[gcloud] artifact download failed (non-fatal) — browse results at: $gcs" >&2
+  fi
+  return 0
 }

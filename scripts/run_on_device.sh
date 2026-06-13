@@ -58,15 +58,25 @@ gcloud firebase test android run \
 rc=${PIPESTATUS[0]}
 set -e
 
-# 4. Pull screenshots + video locally so the agent can surface them.
+# 4. Decide the verdict from the Test Lab OUTCOME table, NOT gcloud's exit code:
+#    `gcloud firebase test` can exit non-zero even when the Robo run PASSED
+#    (observed on a clean Passed run). Trust the printed OUTCOME row instead.
+outcome="Unknown"
+if grep -qw "Passed" "$LOG"; then
+  outcome="Passed"; rc=0
+elif grep -qwE "Failed|Inconclusive|Skipped|Error" "$LOG"; then
+  outcome="$(grep -owE "Failed|Inconclusive|Skipped|Error" "$LOG" | head -1)"; rc=1
+fi
+
+# 5. Pull screenshots + video locally so the agent can surface them.
 pull_testlab_artifacts "$LOG" "$OUT_DIR"
 
 echo
-echo "[device] exit=$rc · artifacts: $OUT_DIR"
-if compgen -G "$OUT_DIR/**/*.png" >/dev/null 2>&1 || compgen -G "$OUT_DIR/*.png" >/dev/null 2>&1; then
-  echo "[device] screenshots:"
-  find "$OUT_DIR" -name '*.png' | sed 's/^/    /'
-fi
-[[ $rc -eq 0 ]] && echo "[device] RESULT: app launched + crawled OK on a real device." \
-               || echo "[device] RESULT: run reported issues (exit $rc) — check $LOG / the console link above."
+echo "[device] outcome=$outcome (gcloud raw exit overridden by OUTCOME table) · artifacts: $OUT_DIR"
+shopt -s globstar nullglob 2>/dev/null || true
+pngs=("$OUT_DIR"/**/*.png "$OUT_DIR"/*.png); vids=("$OUT_DIR"/**/*.mp4 "$OUT_DIR"/*.mp4)
+[[ ${#pngs[@]} -gt 0 ]] && { echo "[device] screenshots:"; printf '    %s\n' "${pngs[@]}"; }
+[[ ${#vids[@]} -gt 0 ]] && { echo "[device] video:";       printf '    %s\n' "${vids[@]}"; }
+[[ $rc -eq 0 ]] && echo "[device] RESULT: app launched + crawled OK on a real device (OUTCOME: $outcome)." \
+               || echo "[device] RESULT: run reported issues (OUTCOME: $outcome) — check $LOG / the console link above."
 exit $rc
