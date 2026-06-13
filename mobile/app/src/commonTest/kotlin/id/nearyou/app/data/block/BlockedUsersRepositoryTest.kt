@@ -79,7 +79,7 @@ class BlockedUsersRepositoryTest {
             val outcome = repo { respond(BLOCKS_BODY, HttpStatusCode.OK, JSON_HEADERS) }.fetchBlocks()
 
             assertTrue(outcome is BlockedUsersOutcome.Loaded)
-            val loaded = outcome as BlockedUsersOutcome.Loaded
+            val loaded = outcome
             assertEquals("tok", loaded.nextCursor)
             assertEquals(1, loaded.blocks.size)
             val user = loaded.blocks.single()
