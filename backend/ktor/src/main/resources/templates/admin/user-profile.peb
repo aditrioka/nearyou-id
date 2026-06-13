@@ -75,42 +75,34 @@
         </div>
     </section>
 
-    {# Action history (admin_actions_log targeting this user) — frame-7 styling. #}
+    {# Merged history timeline — admin_actions_log + username_history combined,
+       newest-first across BOTH sources (spec: the history view MERGES the two).
+       Each entry branches on `kind` (action | username). Frame-7 styling. #}
     <section class="user-history">
-        <h3>Action history</h3>
-        {% if actions is empty %}
-            <p class="empty-state">No admin actions recorded for this user.</p>
+        <h3>History</h3>
+        {% if history is empty %}
+            <p class="empty-state">No admin actions or username changes recorded for this user.</p>
         {% else %}
-        <table class="tbl history-actions">
-            <thead><tr><th>Time (UTC)</th><th>Admin</th><th>Action</th><th>Reason</th><th>State</th></tr></thead>
+        <table class="tbl history-merged">
+            <thead><tr><th>Time (UTC)</th><th>Event</th><th>Detail</th></tr></thead>
             <tbody>
-            {% for a in actions %}
-                <tr>
-                    <td>{{ a.createdAt }}</td>
-                    <td>{{ a.adminDisplayName }}</td>
-                    <td><span class="st info">{{ a.actionType }}</span></td>
-                    <td>{{ a.reason }}</td>
-                    <td><details class="state"><summary>view</summary>
-                        <div class="statebox">before: {{ a.beforeState }}
-after:  {{ a.afterState }}</div></details></td>
+            {% for h in history %}
+                {% if h.kind == "action" %}
+                <tr class="hist-action">
+                    <td>{{ h.at }}</td>
+                    <td><span class="st info">{{ h.actionType }}</span> <span class="note">by {{ h.adminDisplayName }}</span></td>
+                    <td>reason: {{ h.reason }}
+                        <details class="state"><summary>state</summary>
+                        <div class="statebox">before: {{ h.beforeState }}
+after:  {{ h.afterState }}</div></details></td>
                 </tr>
-            {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
-    </section>
-
-    {# Username-change history (username_history). #}
-    <section class="user-username-history">
-        <h3>Username history</h3>
-        {% if usernames is empty %}
-            <p class="empty-state">No username changes recorded.</p>
-        {% else %}
-        <table class="tbl history-usernames">
-            <thead><tr><th>Changed (UTC)</th><th>Old</th><th>New</th></tr></thead>
-            <tbody>
-            {% for u in usernames %}
-                <tr><td>{{ u.changedAt }}</td><td>{{ u.oldUsername }}</td><td>{{ u.newUsername }}</td></tr>
+                {% else %}
+                <tr class="hist-username">
+                    <td>{{ h.at }}</td>
+                    <td><span class="st">username change</span></td>
+                    <td>{{ h.oldUsername }} → {{ h.newUsername }}</td>
+                </tr>
+                {% endif %}
             {% endfor %}
             </tbody>
         </table>

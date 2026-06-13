@@ -84,8 +84,11 @@ fun Route.adminUserModeration(
         call.respondProfile(
             layout,
             profile = profile,
-            actions = profileRepo.loadAdminActionHistory(targetId),
-            usernames = profileRepo.loadUsernameHistory(targetId),
+            history =
+                buildHistory(
+                    profileRepo.loadAdminActionHistory(targetId),
+                    profileRepo.loadUsernameHistory(targetId),
+                ),
             quotaUsed = quotaUsed,
         )
     }
@@ -327,8 +330,7 @@ private suspend fun ApplicationCall.respondModeration(
 private suspend fun ApplicationCall.respondProfile(
     layout: AdminLayout,
     profile: UserProfile?,
-    actions: List<ProfileActionRow> = emptyList(),
-    usernames: List<UsernameChangeRow> = emptyList(),
+    history: List<Map<String, Any>> = emptyList(),
     quotaUsed: Int = 0,
     message: String? = null,
     status: HttpStatusCode = HttpStatusCode.OK,
@@ -336,8 +338,7 @@ private suspend fun ApplicationCall.respondProfile(
     val model =
         buildMap<String, Any> {
             profile?.let { put("profile", it.toProfileViewMap()) }
-            put("actions", actions.map { it.toViewMap() })
-            put("usernames", usernames.map { it.toViewMap() })
+            put("history", history)
             put("quotaUsed", quotaUsed)
             put("quotaCap", DestructiveActionRateLimiter.DESTRUCTIVE_ACTION_CAP)
             message?.let { put("message", it) }
@@ -409,24 +410,45 @@ private fun UserProfile.toProfileViewMap(): Map<String, Any> {
     )
 }
 
-/** One admin-action history row for the template (NULL reason/state → em-dash). */
-private fun ProfileActionRow.toViewMap(): Map<String, Any> =
-    mapOf(
-        "createdAt" to ISO_INSTANT.format(createdAt),
-        "adminDisplayName" to adminDisplayName,
-        "actionType" to actionType,
-        "reason" to (reason ?: EM_DASH),
-        "beforeState" to (beforeState ?: EM_DASH),
-        "afterState" to (afterState ?: EM_DASH),
-    )
-
-/** One username-change history row for the template. */
-private fun UsernameChangeRow.toViewMap(): Map<String, Any> =
-    mapOf(
-        "oldUsername" to oldUsername,
-        "newUsername" to newUsername,
-        "changedAt" to ISO_INSTANT.format(changedAt),
-    )
+/**
+ * Merge the admin-action rows and the username-change rows into ONE
+ * chronological timeline, newest-first across BOTH sources (spec: "The action-
+ * history view merges admin_actions_log and username_history, newest-first" —
+ * a combined order, not merely newest-first within one source). Each entry
+ * carries a `kind` discriminator (`action` | `username`) the template branches
+ * on; NULL reason/state → em-dash. Every value is Pebble-autoescaped on output.
+ */
+private fun buildHistory(
+    actions: List<ProfileActionRow>,
+    usernames: List<UsernameChangeRow>,
+): List<Map<String, Any>> {
+    val actionEntries =
+        actions.map { a ->
+            a.createdAt to
+                mapOf<String, Any>(
+                    "kind" to "action",
+                    "at" to ISO_INSTANT.format(a.createdAt),
+                    "adminDisplayName" to a.adminDisplayName,
+                    "actionType" to a.actionType,
+                    "reason" to (a.reason ?: EM_DASH),
+                    "beforeState" to (a.beforeState ?: EM_DASH),
+                    "afterState" to (a.afterState ?: EM_DASH),
+                )
+        }
+    val usernameEntries =
+        usernames.map { u ->
+            u.changedAt to
+                mapOf<String, Any>(
+                    "kind" to "username",
+                    "at" to ISO_INSTANT.format(u.changedAt),
+                    "oldUsername" to u.oldUsername,
+                    "newUsername" to u.newUsername,
+                )
+        }
+    return (actionEntries + usernameEntries)
+        .sortedByDescending { it.first }
+        .map { it.second }
+}
 
 private const val REASON_FIELD = "reason"
 private const val EM_DASH = "—"

@@ -426,7 +426,70 @@ class ReportResolutionRepositoryTest : StringSpec({
         ReportResolutionTestSupport.loadReport(dataSource, report).status shouldBe "actioned"
         reportAudit(report) shouldHaveSize 1 // only the first decision wrote an audit row
     }
+
+    // ============ 7.13 destructive-action cap on queue resolutions =============
+
+    "7.13 at the cap a destructive resolution (ban_author) is rejected — queue stays pending, author unchanged, no audit" {
+        val admin = seedAdmin(role = "admin") // admin tier so a moderator-ban-tier reject can't mask the cap
+        val author = seedUser(isBanned = false)
+        val post = seedPost(author)
+        val queue = seedQueue("post", post)
+        seedDestructive(dataSource, admin, 20)
+
+        resolveQueue(queue, QueueResolution.BAN_AUTHOR, admin, role = "admin") shouldBe QueueResolutionOutcome.RateLimited
+
+        ReportResolutionTestSupport.loadQueue(dataSource, queue).status shouldBe "pending"
+        ReportResolutionTestSupport.loadUserModeration(dataSource, author).isBanned shouldBe false
+        queueAudit(queue) shouldHaveSize 0
+    }
+
+    "7.13 at the cap a non-destructive resolution (hide) and a report decision (dismissed) still apply" {
+        val admin = seedAdmin()
+        val author = seedUser()
+        val post = seedPost(author)
+        val queue = seedQueue("post", post)
+        val reporter = seedUser()
+        val report = seedReport(reporter, "user", seedUser())
+        seedDestructive(dataSource, admin, 20)
+
+        resolveQueue(queue, QueueResolution.HIDE, admin) shouldBe QueueResolutionOutcome.Applied
+        repo.resolveReport(report, ReportDecision.DISMISSED, admin, ip, ua) shouldBe ReportDecisionOutcome.Applied
+    }
+
+    "7.13 at 19 a destructive resolution (suspend_author_7d) applies and writes one audit row" {
+        val admin = seedAdmin()
+        val author = seedUser(isBanned = false)
+        val post = seedPost(author)
+        val queue = seedQueue("post", post)
+        seedDestructive(dataSource, admin, 19)
+
+        resolveQueue(queue, QueueResolution.SUSPEND_AUTHOR_7D, admin) shouldBe QueueResolutionOutcome.Applied
+
+        ReportResolutionTestSupport.loadUserModeration(dataSource, author).isBanned shouldBe true
+        queueAudit(queue) shouldHaveSize 1
+    }
 })
+
+/** Seed [n] in-window destructive `user_warned` audit rows for [adminId]. */
+private fun seedDestructive(
+    dataSource: javax.sql.DataSource,
+    adminId: UUID,
+    n: Int,
+) {
+    dataSource.connection.use { conn ->
+        conn.prepareStatement(
+            "INSERT INTO admin_actions_log (admin_id, action_type, target_type, target_id, created_at) " +
+                "VALUES (?, 'user_warned', 'user', ?, NOW())",
+        ).use { ps ->
+            repeat(n) {
+                ps.setObject(1, adminId)
+                ps.setString(2, UUID.randomUUID().toString())
+                ps.addBatch()
+            }
+            ps.executeBatch()
+        }
+    }
+}
 
 private val BASE: Instant = Instant.parse("2091-01-01T00:00:00Z")
 
