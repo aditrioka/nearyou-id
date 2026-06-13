@@ -108,6 +108,16 @@ When running as a code reviewer (via `anthropics/claude-code-action` on a pull-r
 
 Infra / tooling / CI / docs-only changes go through regular PRs. OpenSpec is for spec-driven product changes — capability + behavior + WHEN/THEN scenarios. Detekt rules, CI config, `build-logic/`, ops docs, READMEs: regular PR, regular commit prefix.
 
+## Android build & test (cloud sandbox)
+
+The Claude Code web/cloud sandbox is a headless Linux VM (no KVM/GPU), so it builds the mobile APK and dispatches instrumented tests to a **device farm** — it never runs a local emulator. Toolchain provisioning + dispatch live in [`scripts/`](scripts/) (all idempotent; full runbook + UI-only steps in [`ENVIRONMENT_SETUP_CHECKLIST.md`](ENVIRONMENT_SETUP_CHECKLIST.md)):
+
+- **One-time / per-cache setup**: `scripts/setup_android.sh` — installs JDK 17, Android cmdline-tools, `platform-tools`, `platforms;android-35|36`, `build-tools;35.0.0|36.0.0` (36 = the repo's `compileSdk`), accepts licenses, and persists `JAVA_HOME` / `ANDROID_HOME` / `PATH` to `$CLAUDE_ENV_FILE`. Deliberately installs **no** `emulator` / `system-images` (useless headless). Gradle's compile toolchain stays `jvmToolchain(21)`, auto-detected from the pre-installed JDK 21.
+- **Health check**: `scripts/verify_env.sh` — asserts `java`, `sdkmanager`, `adb`, `gradlew` + required SDK components; non-zero on any miss. Wired as a **`SessionStart` hook** in `.claude/settings.json`, so every session reports env health up front.
+- **Build an APK locally**: `./gradlew :mobile:app:assembleStagingDebug` (device-farm flavor = **`staging`**: real `api-staging.nearyou.id`, side-by-side install, real staging OAuth client). Instrumented-test APK: `…:assembleStagingDebugAndroidTest`.
+- **Run instrumented tests on a device farm**: `scripts/test_firebase.sh` (Firebase Test Lab; needs `GOOGLE_APPLICATION_CREDENTIALS` or `GCP_SA_KEY_JSON` + `FIREBASE_PROJECT_ID`) or `scripts/test_browserstack.sh` (BrowserStack App Automate Espresso; needs `BROWSERSTACK_USERNAME` + `BROWSERSTACK_ACCESS_KEY`). Both build the two APKs first, then dispatch and summarise the pass/fail exit code. Credentials are env-var-only — never hard-coded.
+- **Non-UI / Robolectric unit tests** still run on the JVM with no farm: `./gradlew :mobile:app:testStagingDebugUnitTest`.
+
 ## Environments (summary)
 
 - `dev` — local, Supabase CLI + Docker Compose (Ktor + Redis).
