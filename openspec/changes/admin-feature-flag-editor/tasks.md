@@ -19,8 +19,8 @@
 - [ ] 3.3 Write route `POST /admin/feature-flags/{key}` (HTMX): parse new value + mandatory reason + the rendered version; orchestrate the gate chain (3.4–3.8) then publish + audit.
 - [ ] 3.4 Reason validation: reject blank/whitespace reason — no publish, no audit (spec R3).
 - [ ] 3.5 No-op guard: reject when the submitted value equals the current value — no publish, no audit (spec R3).
-- [ ] 3.6 Per-parameter value validation: `attestation_mode` ∈ {enforce,warn,off} (D7); `moderation_match_threshold` integer ∈ [1,10000] (spec R7); booleans parsed strictly — reject inline otherwise.
-- [ ] 3.7 On success, publish via the seam (handle `StaleVersion` → reload-and-retry prompt; `WriteUnavailable`/`Failed` → safe error, no audit, no 500) (spec R8/R9).
+- [ ] 3.6 Per-parameter value validation: `attestation_mode` ∈ {enforce,warn,off} + booleans parsed strictly (spec R8, D7); `moderation_match_threshold` integer ∈ [1,10000] (spec R7) — reject inline otherwise.
+- [ ] 3.7 On success, publish via the seam (handle `StaleVersion` → reload-and-retry prompt; `WriteUnavailable`/`Failed` → safe error, no audit, no 500) (spec R9/R10).
 - [ ] 3.8 On a successful publish, write exactly one `admin_actions_log` row through `AdminAuditLogger.featureFlagToggled(...)` (`action_type='feature_flag_toggled'`, `before_state`/`after_state`, reason) (spec R3).
 
 ## 4. Gates (CSRF, role, rate-limit)
@@ -33,7 +33,7 @@
 
 - [ ] 5.1 Pebble template for frame 20: flag table (typed controls per 3.1), moderation-params card (threshold editable; the two lists read-only count+version, disabled "edit" affordance per D8), env chip, audit/rate-limit banner; all values HTML-escaped (spec R2).
 - [ ] 5.2 Per-write `hx-confirm` + reason input; HTMX partial swap on success/validation-error; plain-`GET` fallback render (match shipped admin viewers).
-- [ ] 5.3 Read-only degraded render when the seam reports `WriteUnavailable` — disabled controls + inline notice (spec R9).
+- [ ] 5.3 Read-only degraded render when the seam reports `WriteUnavailable` — disabled controls + inline notice (spec R10).
 - [ ] 5.4 Add the Feature Flags entry to the admin nav/landing (frame 20 breadcrumb `Konfigurasi › Feature Flags`).
 
 ## 6. Tests
@@ -42,8 +42,8 @@
 - [ ] 6.2 Write happy-path test — publish + single `feature_flag_toggled` audit row with before/after/reason (R3).
 - [ ] 6.3 Gate tests — blank-reason reject, no-op reject (R3); CSRF missing vs mismatch (mismatch writes `admin_csrf_violation`, the one rejection that audits) (R4); moderator reject + owner/admin allow (R5); rate-limit boundary: 5th write passes + 6th rejected + bucket independence from the destructive cap (R6).
 - [ ] 6.4 Validation tests — threshold inclusive bounds: 1/10000/50 accept, 0/10001/non-integer reject (R7); `attestation_mode` each of `enforce`/`warn`/`off` accept + unknown value reject; non-boolean value for a boolean flag reject (value-validation requirement).
-- [ ] 6.5 Concurrency + degradation tests — stale-version publish rejected without clobber/audit (R8); write-unconfigured renders read-only and a write fails safely with no audit/no 500 (R9).
-- [ ] 6.6 Deferred-guard test — no endpoint/control mutates `moderation_profanity_list`/`moderation_uu_ite_list` content; both render read-only (R10).
+- [ ] 6.5 Concurrency + degradation tests — stale-version publish rejected without clobber/audit (R9); write-unconfigured renders read-only and a write fails safely with no audit/no 500 (R10).
+- [ ] 6.6 Deferred-guard test — no endpoint/control mutates `moderation_profanity_list`/`moderation_uu_ite_list` content; both render read-only (R11).
 - [ ] 6.7 `:infra:remote-config` seam unit tests (from 2.5) green; ensure new DB-tagged route tests autoClose their HikariPool (CI connection budget).
 
 ## 7. Definition of Done (docs/11 §5)
