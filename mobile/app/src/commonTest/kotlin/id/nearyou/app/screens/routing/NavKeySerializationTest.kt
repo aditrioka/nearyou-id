@@ -35,6 +35,10 @@ class NavKeySerializationTest {
                 samplePostDetailRoute(distanceM = 1234.5),
                 samplePostDetailRoute(distanceM = null),
                 samplePostDetailRoute(distanceM = null, focusReplyComposer = true),
+                // mobile-settings — the three parameterless settings routes (no identity payload).
+                SettingsRoute,
+                BlockedUsersRoute,
+                ConsentSettingsRoute,
             )
         for (route in routes) {
             val encoded = json.encodeToString(navKeySerializer, route)

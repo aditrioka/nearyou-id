@@ -212,4 +212,40 @@
     <string name="cta_activate_premium">Aktifkan Premium</string>
     <string name="cap_countdown_hours_minutes" formatted="true">%1$d j %2$d mnt</string>
     <string name="cap_countdown_minutes" formatted="true">%1$d mnt</string>
+
+    <!-- mobile-settings-screen (mockup frame 16 "Pengaturan"). Grouped settings list: AKUN /
+         PREMIUM / PRIVASI / LAINNYA. The "Privasi & data" row + the consent sub-screen REUSE
+         consent_title + the consent_*_label/desc toggle strings (mobile-analytics-consent); the
+         block-list error/loading REUSE signin_error_network + cta_retry + timeline_loading; the
+         @-handle REUSES post_card_handle; the logout-confirm REUSES settings_row_logout. The
+         Premium/DESIGN rows are rendered but DEFERRED (no backend yet) — activation shows
+         settings_coming_soon. Copy consistent with the Mobile #3-#8 register — FLAGGED FOR UX REVIEW. -->
+    <string name="settings_title">Pengaturan</string>
+    <string name="settings_back_description">Kembali</string>
+    <string name="settings_section_account">AKUN</string>
+    <string name="settings_section_premium">PREMIUM</string>
+    <string name="settings_section_privacy">PRIVASI</string>
+    <string name="settings_section_other">LAINNYA</string>
+    <string name="settings_row_edit_profile">Edit profil</string>
+    <string name="settings_row_change_username">Ganti username</string>
+    <string name="settings_row_change_username_sub">1× per 30 hari</string>
+    <string name="settings_row_premium_journey">Perjalanan Premium</string>
+    <string name="settings_row_premium_journey_sub">Lihat tier &amp; masa keanggotaan kamu</string>
+    <string name="settings_row_manage_subscription">Kelola langganan</string>
+    <string name="settings_row_manage_subscription_sub">Kelola lewat Google Play</string>
+    <string name="settings_row_private_profile">Profil privat</string>
+    <string name="settings_row_private_profile_sub">Jadi publik 72 jam setelah Premium berakhir</string>
+    <string name="settings_row_hide_distance">Sembunyikan jarak</string>
+    <string name="settings_row_hide_distance_sub">Angka jarak saja; nama kota tetap tampil</string>
+    <string name="settings_row_privacy_data_sub">Analitik, laporan crash, personalisasi iklan</string>
+    <string name="settings_row_legal">Ketentuan &amp; kebijakan privasi</string>
+    <string name="settings_row_logout">Keluar</string>
+    <string name="settings_coming_soon">Segera hadir</string>
+    <string name="settings_save">Simpan</string>
+    <string name="settings_logout_title">Keluar dari akun?</string>
+    <string name="settings_logout_body">Kamu perlu masuk lagi dengan Google untuk memakai NearYouID.</string>
+    <string name="settings_logout_cancel">Batal</string>
+    <string name="blocked_users_title">Pengguna diblokir</string>
+    <string name="blocked_users_empty">Belum ada pengguna yang diblokir.</string>
+    <string name="blocked_users_unblock">Buka blokir</string>
 </resources>
