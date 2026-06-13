@@ -400,8 +400,6 @@ private fun BlockConfirmDialog(
     )
 }
 
-private const val REPORT_NOTE_MAX_CODE_POINTS = 200
-
 @Composable
 private fun ReportReasonDialog(
     onSubmit: (ReportReasonCategory, String?) -> Unit,
@@ -409,8 +407,8 @@ private fun ReportReasonDialog(
 ) {
     var selected by remember { mutableStateOf(ReportReasonCategory.SPAM) }
     var note by remember { mutableStateOf("") }
-    val noteCodePoints = note.codePointCountCompat()
-    val noteWithinLimit = noteCodePoints <= REPORT_NOTE_MAX_CODE_POINTS
+    // The submit is gated by the pure, unit-tested ≤200-code-point check (matches the server bound).
+    val noteWithinLimit = isReportNoteWithinLimit(note)
     AlertDialog(
         modifier = Modifier.testTag(PROFILE_REPORT_DIALOG_TAG),
         onDismissRequest = onDismiss,
@@ -475,18 +473,6 @@ private fun ErrorRetry(onRetry: () -> Unit) {
             Text(text = stringResource(Res.string.cta_retry))
         }
     }
-}
-
-/** Counts Unicode code points (NOT UTF-16 units), so a surrogate-pair emoji counts as one. */
-private fun String.codePointCountCompat(): Int {
-    var count = 0
-    var i = 0
-    while (i < length) {
-        val c = this[i]
-        i += if (c.isHighSurrogate() && i + 1 < length && this[i + 1].isLowSurrogate()) 2 else 1
-        count++
-    }
-    return count
 }
 
 private fun ReportReasonCategory.label(): StringResource =

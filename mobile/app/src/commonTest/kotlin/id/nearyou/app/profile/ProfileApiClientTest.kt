@@ -228,5 +228,8 @@ class ProfileApiClientTest {
             val api = ProfileApiClient(client { throw CancellationException("cancelled") })
             assertFailsWith<CancellationException> { api.getProfile("u1") }
             assertFailsWith<CancellationException> { api.follow("u1") }
+            assertFailsWith<CancellationException> { api.unfollow("u1") }
+            assertFailsWith<CancellationException> { api.block("u1") }
+            assertFailsWith<CancellationException> { api.report("u1", "spam", null) }
         }
 }
