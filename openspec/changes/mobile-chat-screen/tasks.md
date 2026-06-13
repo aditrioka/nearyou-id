@@ -72,7 +72,7 @@
 
 ## 14. Follow-up issues (deferred scope — NOT silent cuts)
 
-- [ ] 14.1 File `follow-up` issues (`gh`/MCP `issue_write`, label `follow-up` + `mobile`): (a) `chat-embedded-posts` (embedded-post context card + edit-history nav, blocked on `post-edit-history`); (b) profile "Kirim pesan" entry wiring (after PR #245 merges); (c) per-conversation unread badge + `last_read_at` write (needs a backend endpoint first — design D8); (d) any spec-vs-code wire casing drift found in 1.2.
+- [x] 14.1 File `follow-up` issues (label `follow-up` + `mobile`): (a) `chat-embedded-posts` → **#270**; (b) profile "Kirim pesan" entry wiring after #245 → **#271**; (c) per-conversation unread badge + `last_read_at` write (needs a backend endpoint — D8) → **#272**; (d) spec-vs-code wire casing drift from 1.2 → **none found** (the shipped wire matches the DTOs field-for-field; no issue needed). Plus (e) the operator-provisioning follow-up surfaced by this change: staging Supabase URL + anon key for mobile Realtime → **#273**.
 
 ## 15. Manual verification (docs/11 §5 DoD)
 
