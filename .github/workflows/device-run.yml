@@ -64,7 +64,9 @@ jobs:
       # Reuses the existing deploy credential by default. For least-privilege,
       # set a dedicated GCP_TESTLAB_SA_KEY secret (the test-lab-runner key minted
       # by dev/scripts/provision-test-lab-sa.sh); whichever SA is used needs
-      # roles/cloudtestservice.admin + roles/storage.objectViewer. The auth
+      # roles/cloudtestservice.admin + roles/storage.admin (storage.admin — not
+      # objectViewer — is required so Test Lab can fetch its default results
+      # bucket; objectViewer lacks storage.buckets.get). The auth
       # action exports GOOGLE_APPLICATION_CREDENTIALS, which scripts/_gcloud_lib.sh
       # picks up automatically.
       - name: Auth to GCP
