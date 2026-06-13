@@ -84,17 +84,18 @@ The system SHALL reject a candidate that collides (case-insensitively) with a `r
 
 ### Requirement: Profanity and UU ITE moderation on the candidate
 
-The system SHALL run the candidate handle through the existing text-moderation pipeline (profanity blocklist + UU ITE keyword match). On a hit the change SHALL be REJECTED upfront, AND the system SHALL insert a `moderation_queue` row with `trigger = 'username_flagged'` for admin awareness. (Authoritative per `docs/06` § Premium Username Moderation; supersedes `docs/02`'s looser "soft-flags" wording.)
+The system SHALL run the candidate handle through the existing text-moderation pipeline (profanity blocklist + UU ITE keyword match). On a hit the change SHALL be REJECTED upfront, AND the system SHALL insert a `moderation_queue` row with `target_type = 'user'`, `target_id =` the caller's user id, and `trigger = 'username_flagged'` for admin awareness. Because `moderation_queue` carries `UNIQUE (target_type, target_id, trigger)` (V9), the insert SHALL use `ON CONFLICT DO NOTHING` — one standing username-flag per user, not one row per attempt. (Authoritative per `docs/06` § Premium Username Moderation; supersedes `docs/02`'s looser "soft-flags" wording.)
 
 #### Scenario: Flagged candidate is rejected and queued
 - **WHEN** the candidate matches the profanity or UU ITE keyword lists
 - **THEN** the system SHALL respond `422` with a `username_rejected` error advising the user to pick another handle
-- **AND** SHALL insert a `moderation_queue` row with `trigger = 'username_flagged'`
+- **AND** SHALL insert (or no-op, if one is already standing) a `moderation_queue` row with `target_type = 'user'`, `target_id = <caller's user id>`, `trigger = 'username_flagged'`
 - **AND** SHALL NOT change the username
 
-#### Scenario: Repeated flagged attempts raise anomaly score
+#### Scenario: Repeated flagged attempts are throttled and signalled
 - **WHEN** the same user produces more than 3 moderation-flagged candidates within 24 hours
-- **THEN** the system SHALL raise that user's anomaly score
+- **THEN** the excess attempts SHALL be governed by the 10-failed-attempts-per-hour limit (a flagged attempt is a failed attempt) and a standing `username_flagged` queue row SHALL exist for the user
+- **AND** the numeric anomaly-score increment described in `docs/06` SHALL be deferred to the anomaly-detection capability (see the deferred-scope requirement), since no `anomaly_score` substrate exists yet
 
 ### Requirement: Race-safe release-hold transaction
 
@@ -158,12 +159,17 @@ When a Premium user downgrades to Free, the system SHALL keep their custom usern
 - **WHEN** a user re-subscribes and their last change was less than 30 days ago
 - **THEN** the change endpoint SHALL be re-enabled but the cooldown SHALL still block a change until 30 days from that last change have elapsed
 
-### Requirement: Backend-only scope (mobile UI and admin oversight deferred)
+### Requirement: Backend-only scope (mobile UI, admin oversight, and anomaly-score effect deferred)
 
-This capability SHALL expose only the two backend endpoints. The mobile Settings UI (Premium entry, paywall, live probe, cooldown countdown, downgrade banner) and the admin username-change oversight (`username_history` viewer, borderline-candidate override, manual handle release) are explicitly OUT OF SCOPE and tracked as separate follow-on changes.
+This capability SHALL expose only the two backend endpoints. The mobile Settings UI (Premium entry, paywall, live probe, cooldown countdown, downgrade banner), the admin username-change oversight (`username_history` viewer, borderline-candidate override, manual handle release), and the **numeric anomaly-score increment** on repeated flagged attempts are explicitly OUT OF SCOPE and tracked as separate follow-on changes. This change SHALL NOT add an `anomaly_score` column or any anomaly-scoring path (it is migration-free); the standing `username_flagged` queue row is the in-scope admin signal.
 
 #### Scenario: No mobile or admin surface is added in this change
 - **WHEN** this capability is implemented
 - **THEN** no `:mobile:app` screen and no `/admin/*` route SHALL be added
 - **AND** the mobile Premium-username UI SHALL be deferred to a follow-on mobile change
 - **AND** the admin username-history viewer / override SHALL be deferred to a Phase 3.5 admin change
+
+#### Scenario: Anomaly-score effect is deferred to the anomaly-detection capability
+- **WHEN** a user accumulates more than 3 moderation-flagged username attempts in 24 hours
+- **THEN** this change SHALL NOT raise a numeric anomaly score and SHALL NOT introduce an `anomaly_score` substrate
+- **AND** the numeric-score effect described in `docs/06` SHALL be implemented by the future anomaly-detection capability (docs/08 Phase 4 #17), for which this requirement is the tracking marker
