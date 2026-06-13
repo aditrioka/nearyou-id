@@ -29,14 +29,19 @@ import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.NotificationsRepository
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.screens.timeline.FOLLOWING_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.timeline.FakeFollowingTimelineFlow
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
+import id.nearyou.app.timeline.FollowingTimelineFlow
+import id.nearyou.app.timeline.FollowingTimelineOutcome
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
+import id.nearyou.app.timeline.fakeFollowingPost
 import id.nearyou.app.timeline.fakeGlobalPost
 import id.nearyou.app.timeline.fakeNearbyPost
 import io.ktor.client.engine.mock.MockEngine
@@ -62,7 +67,6 @@ private const val SECTION_HOME = "Beranda" // section_home
 private const val SECTION_NOTIFICATIONS = "Notifikasi" // section_notifications
 private const val SECTION_PROFILE = "Profil" // section_profile
 private const val TAB_FOLLOWING = "Mengikuti" // tab_following
-private const val FOLLOWING_PLACEHOLDER = "Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu."
 private const val PROFILE_PLACEHOLDER = "Profil segera hadir." // profile_placeholder
 private const val FAB_POST = "Posting" // cta_post — the Home-section icon-only composer FAB contentDescription
 private const val NOTIF_COPY = "Seseorang menyukai postingan kamu" // notif_post_liked — proves the screen rendered
@@ -112,12 +116,15 @@ private fun wcagContrast(
 @OptIn(ExperimentalTestApi::class)
 class AppShellScreenTest {
     private lateinit var nearbyFake: FakeNearbyTimelineFlow
+    private lateinit var followingFake: FakeFollowingTimelineFlow
     private lateinit var globalFake: FakeGlobalTimelineFlow
     private lateinit var notifFake: FakeNotificationsFlow
 
     private fun installKoin(
         nearbyOutcome: NearbyTimelineOutcome =
             NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "NEARBY_POST")), null, null),
+        followingOutcome: FollowingTimelineOutcome =
+            FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "FOLLOWING_POST")), null, null),
         globalOutcome: GlobalTimelineOutcome =
             GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "GLOBAL_POST")), null, null),
         notifOutcome: NotificationsOutcome = NotificationsOutcome.Loaded(listOf(fakeNotification(type = "post_liked")), null),
@@ -125,12 +132,14 @@ class AppShellScreenTest {
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         nearbyFake = FakeNearbyTimelineFlow(nearbyOutcome)
+        followingFake = FakeFollowingTimelineFlow(followingOutcome)
         globalFake = FakeGlobalTimelineFlow(globalOutcome)
         notifFake = FakeNotificationsFlow(outcome = notifOutcome, unreadCountValue = unreadCount)
         startKoin {
             modules(
                 module {
                     single<NearbyTimelineFlow> { nearbyFake }
+                    single<FollowingTimelineFlow> { followingFake }
                     single<GlobalTimelineFlow> { globalFake }
                     single<LikeFlow> { FakeLikeFlow() }
                     single<NotificationsFlow> { notifFake }
@@ -205,15 +214,19 @@ class AppShellScreenTest {
         }
     }
 
+    // mobile-following-timeline-screen — the Home section's Following tab now renders the LIVE feed
+    // (was a deferred placeholder) under the shell.
     @Test
-    fun homeSection_followingTab_showsDeferredPlaceholder() {
+    fun homeSection_followingTab_showsLiveFeed() {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(TAB_FOLLOWING).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(FOLLOWING_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(FOLLOWING_PLACEHOLDER).assertExists()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(FOLLOWING_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(FOLLOWING_TIMELINE_LIST_TAG).assertExists()
+            onNodeWithText("FOLLOWING_POST").assertExists()
+            assertEquals(1, followingFake.loadInvocationCount, "the live Following feed fetches once on first show")
         }
     }
 

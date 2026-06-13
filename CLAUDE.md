@@ -123,6 +123,14 @@ The Claude Code web/cloud sandbox is a headless Linux VM (no KVM/GPU), so it bui
 - **Firebase Test Lab is the recommended device farm** (free tier for iteration, pay-per-use, same GCP/IAM as the rest of the stack — project `nearyou-staging`); BrowserStack is the optional fallback. One-time operator setup is a single command: `dev/scripts/provision-test-lab-sa.sh`. Full setup + cost: [`dev/docs/device-farm.md`](dev/docs/device-farm.md).
 - **CI device runs**: `.github/workflows/device-run.yml` auto-builds + Robo-runs every `mobile/**` / `shared/**` PR on a real device and posts the screenshots/console link as a PR comment (opt out with the `skip-device-run` label). Needs the `GCP_TESTLAB_SA_KEY` repo secret (falls back to `GCP_SA_KEY`).
 
+## OpenSpec CLI (cloud sandbox)
+
+The OpenSpec CLI that the `/next-change`, `/opsx:apply`, and `/opsx:archive` skills drive (`openspec new|validate|archive|list|status|instructions …`) is **auto-provisioned** in the cloud sandbox — you do NOT need to scaffold/validate/archive by hand. The canonical package is **`@fission-ai/openspec`** (pinned in [`scripts/setup_openspec.sh`](scripts/setup_openspec.sh)); the public `openspec` npm name is a dead v0.0.0 squat (that squat is why a bare `npx openspec` fails with "could not determine executable to run").
+
+- **Provisioning**: the `SessionStart` hook in [`.claude/settings.json`](.claude/settings.json) runs `scripts/setup_openspec.sh` every session. The container is ephemeral (global npm installs don't survive a reclaim) and the install is small + idempotent (~4 s, no-ops when the pinned version is already present), so it self-heals each session. Run it by hand any time with `bash scripts/setup_openspec.sh`.
+- **Verify / use**: `openspec --version`; `openspec validate <name> --strict` (changes) / `openspec validate <spec> --type spec --strict`; `openspec list [--specs]`. Telemetry is opted out (`OPENSPEC_TELEMETRY=0`, persisted to `$CLAUDE_ENV_FILE`).
+- The repo's `openspec/` layout (specs/ + changes/ + `.openspec.yaml` `schema: spec-driven`) works with the CLI **as-is** — no `openspec init` is needed.
+
 ## Environments (summary)
 
 - `dev` — local, Supabase CLI + Docker Compose (Ktor + Redis).

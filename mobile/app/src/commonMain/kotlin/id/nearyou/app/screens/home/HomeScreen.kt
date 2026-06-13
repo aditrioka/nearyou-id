@@ -21,7 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import id.nearyou.app.screens.timeline.FollowingPlaceholderScreen
+import id.nearyou.app.screens.timeline.FollowingTimelinePost
+import id.nearyou.app.screens.timeline.FollowingTimelineScreen
 import id.nearyou.app.screens.timeline.GlobalTimelinePost
 import id.nearyou.app.screens.timeline.GlobalTimelineScreen
 import id.nearyou.app.screens.timeline.NearbyTimelinePost
@@ -45,7 +46,7 @@ const val HOME_FEED_PAGER_TAG: String = "homeFeedPager"
  * hosted by the app section shell ([AppShellScreen][id.nearyou.app.screens.shell.AppShellScreen]) as the
  * Home section. The body is a Material 3 `PrimaryTabRow` of the three **text-only** feed tabs over a
  * **swipeable [HorizontalPager]** of the three feed pages (design D2/D10): Nearby → [NearbyTimelineScreen],
- * Following → [FollowingPlaceholderScreen], Global → [GlobalTimelineScreen]. The tabs carry NO icon and NO
+ * Following → [FollowingTimelineScreen], Global → [GlobalTimelineScreen]. The tabs carry NO icon and NO
  * brand dot — just the `stringResource` label under the M3 underline indicator (matching the operator's
  * X / Niche-style text-tab references); the selected/unselected label colors are the `Tab` defaults
  * (selected = primary, unselected = `onSurfaceVariant`), always visible (D5).
@@ -73,10 +74,11 @@ const val HOME_FEED_PAGER_TAG: String = "homeFeedPager"
  * - [onOpenPostReply] — the cards' reply-shortcut callback (`mobile-inline-post-actions`): same payload,
  *   wired by the call site to `add(PostDetailRoute(..., focusReplyComposer = true))` so the detail entry
  *   autofocuses the reply composer.
- *   The Following page (a deferred placeholder with no cards) wires neither card callback.
+ *   As of `mobile-following-timeline-screen` the Following page is a LIVE feed ([FollowingTimelineScreen])
+ *   and wires both card callbacks identically to Nearby + Global (Following cards carry `distanceM = null`).
  *
- * The Nearby page's empty-state "lihat Global" CTA animates the pager to the Global page (host-level
- * state, not a back-stack reference — `NearbyTimelineScreen` stays navigation-free).
+ * The Nearby AND Following pages' empty-state "lihat Global" CTAs animate the pager to the Global page
+ * (host-level state, not a back-stack reference — those screens stay navigation-free).
  */
 @Composable
 fun HomeScreen(
@@ -121,8 +123,8 @@ fun HomeScreen(
                 // Each feed page composes DIRECTLY under the shell's HomeRoute NavEntry (no per-tab
                 // NavDisplay), so each feed's viewModel { } resolves to the HomeRoute store (design D1/D2)
                 // — swiping/tapping between feeds OR switching bottom-nav sections and returning does not
-                // re-fetch. The Nearby + Global cards hoist onOpenPost (mapped card → PostDetailTarget);
-                // Following (a placeholder with no cards) wires none.
+                // re-fetch. All three feed cards hoist onOpenPost/onOpenPostReply (mapped card →
+                // PostDetailTarget); Nearby + Following additionally hoist onSeeGlobal (empty-state CTA).
                 when (Tab.entries[page]) {
                     Tab.Nearby ->
                         NearbyTimelineScreen(
@@ -130,7 +132,12 @@ fun HomeScreen(
                             onOpenPost = { post -> onOpenPost(post.toTarget()) },
                             onOpenPostReply = { post -> onOpenPostReply(post.toTarget()) },
                         )
-                    Tab.Following -> FollowingPlaceholderScreen()
+                    Tab.Following ->
+                        FollowingTimelineScreen(
+                            onSeeGlobal = { scope.launch { pagerState.animateScrollToPage(Tab.Global.ordinal) } },
+                            onOpenPost = { post -> onOpenPost(post.toTarget()) },
+                            onOpenPostReply = { post -> onOpenPostReply(post.toTarget()) },
+                        )
                     Tab.Global ->
                         GlobalTimelineScreen(
                             onOpenPost = { post -> onOpenPost(post.toTarget()) },
@@ -215,6 +222,20 @@ private fun GlobalTimelinePost.toTarget(): PostDetailTarget =
         content = content,
         cityName = cityName,
         // Global has no spatial filter → no distance on the detail header.
+        distanceM = null,
+        createdAtIso = createdAt,
+        likedByViewer = likedByViewer,
+        replyCount = replyCount,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
+    )
+
+private fun FollowingTimelinePost.toTarget(): PostDetailTarget =
+    PostDetailTarget(
+        postId = id,
+        content = content,
+        cityName = cityName,
+        // Following has no spatial filter → no distance on the detail header.
         distanceM = null,
         createdAtIso = createdAt,
         likedByViewer = likedByViewer,
