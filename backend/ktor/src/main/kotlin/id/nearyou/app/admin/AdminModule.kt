@@ -10,6 +10,8 @@ import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.auth.adminAuth
 import id.nearyou.app.admin.blockregistry.AdminBlockRegistryRepository
 import id.nearyou.app.admin.chatredaction.ChatRedactionRepository
+import id.nearyou.app.admin.featureflags.FeatureFlagService
+import id.nearyou.app.admin.featureflags.FeatureFlagToggleRateLimiter
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
@@ -21,6 +23,7 @@ import id.nearyou.app.admin.routes.AdminLayout
 import id.nearyou.app.admin.routes.adminActionsLog
 import id.nearyou.app.admin.routes.adminBlockRegistry
 import id.nearyou.app.admin.routes.adminChatRedaction
+import id.nearyou.app.admin.routes.adminFeatureFlags
 import id.nearyou.app.admin.routes.adminIndex
 import id.nearyou.app.admin.routes.adminPrivacyFlips
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
@@ -28,6 +31,8 @@ import id.nearyou.app.admin.routes.adminReportQueue
 import id.nearyou.app.admin.routes.adminReportResolution
 import id.nearyou.app.admin.routes.adminUserModeration
 import id.nearyou.app.admin.usermanagement.UserProfileRepository
+import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
+import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.application.install
@@ -75,6 +80,11 @@ fun Application.admin(
     aesKeyProvider: () -> ByteArray,
     csrfHmacKeyProvider: () -> ByteArray,
     environmentName: String,
+    // Write seam for the Feature Flag Admin panel (admin-feature-flags). Production
+    // binds the REST-backed publisher over the firebase-admin-sa credentials; test +
+    // unconfigured deploys bind NoOpRemoteConfigPublisher (panel renders read-only) —
+    // also the default, so existing admin wiring/tests that omit it stay read-only.
+    remoteConfigPublisher: RemoteConfigPublisher = NoOpRemoteConfigPublisher,
     // Request-time evaluation clock for the privacy-flip monitor's IN_WINDOW /
     // OVERDUE classification (admin-privacy-flip-monitor design D3). Production
     // uses the system clock; tests inject a fixed instant for a deterministic
@@ -117,6 +127,14 @@ fun Application.admin(
     val sessionIdleTimeout = AdminAuthProvider.DEFAULT_IDLE_TIMEOUT
     val layout = AdminLayout(csrfHmacKeyProvider, environmentName, sessionIdleTimeout)
     val indexStatsRepository = AdminIndexStatsRepository(dataSource)
+    val featureFlagRateLimiter = FeatureFlagToggleRateLimiter(dataSource)
+    val featureFlagService =
+        FeatureFlagService(
+            publisher = remoteConfigPublisher,
+            rateLimiter = featureFlagRateLimiter,
+            auditLogger = auditLogger,
+            dataSource = dataSource,
+        )
 
     install(Pebble) {
         loader(
@@ -194,6 +212,7 @@ fun Application.admin(
                     layout,
                 )
                 adminChatRedaction(chatRedactionRepository, auditLogger, layout)
+                adminFeatureFlags(featureFlagService, auditLogger, layout)
             }
         }
     }

@@ -61,19 +61,23 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "data-icon=\"block\""
             body shouldContain "data-icon=\"timer\""
             body shouldContain "data-icon=\"receipt_long\""
-            // EXACTLY seven nav items, under their four group headings (the
-            // Lifecycle group + Privacy flips item shipped with
-            // admin-privacy-flip-monitor; the Block registry item under
-            // Anti-abuse shipped with admin-block-registry).
-            Regex("class=\"nitem").findAll(body).count() shouldBe 7
+            body shouldContain "data-icon=\"toggle_on\""
+            // EXACTLY eight nav items, under their five group headings (the
+            // Konfigurasi group + Feature flags item shipped with
+            // admin-feature-flag-editor; the Lifecycle group + Privacy flips item
+            // shipped with admin-privacy-flip-monitor; the Block registry item
+            // under Anti-abuse shipped with admin-block-registry).
+            Regex("class=\"nitem").findAll(body).count() shouldBe 8
             body shouldContain "Moderasi"
             body shouldContain "Anti-abuse &amp; keamanan"
             body shouldContain "Lifecycle"
+            body shouldContain "Konfigurasi"
             body shouldContain "Sistem"
-            // No Usulan menu items, no board-annotation status dots.
+            // Feature flags shipped (admin-feature-flag-editor); other Usulan
+            // items + board-annotation status dots are still absent.
+            body shouldContain "Feature flags"
             (body.contains("Post edit history")) shouldBe false
             (body.contains("Attestation review")) shouldBe false
-            (body.contains("Feature flags")) shouldBe false
             (body.contains("class=\"dot")) shouldBe false
             // No page footer — frame 2 has none (deliberate removal).
             (body.contains("<footer>")) shouldBe false

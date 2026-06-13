@@ -78,9 +78,12 @@ import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.redis.NoOpRedisStringCache
 import id.nearyou.app.infra.redis.RedisStringCache
 import id.nearyou.app.infra.redis.redisHandlesFromUrl
+import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigClient
 import id.nearyou.app.infra.remoteconfig.RemoteConfigInitException
+import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.firebaseRemoteConfigClient
+import id.nearyou.app.infra.remoteconfig.remoteConfigServerPublisher
 import id.nearyou.app.infra.repo.JdbcLayer3ModerationWriter
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
@@ -493,6 +496,17 @@ fun Application.module() {
                     throw e
                 }
             }
+        }
+    val remoteConfigPublisher: RemoteConfigPublisher =
+        when (ktorEnv) {
+            "test" -> NoOpRemoteConfigPublisher
+            else ->
+                // Same firebase-admin-sa credential as the read client above; the
+                // operator grants that SA the Remote Config write role (no new slot).
+                // remoteConfigServerPublisher returns NoOp (panel renders read-only)
+                // on a blank/unparseable secret rather than throwing — the read
+                // client already fail-fasted on a truly-missing secret above.
+                remoteConfigServerPublisher(secrets.resolve("firebase-admin-sa").orEmpty())
         }
     val moderationListLoader: ModerationListLoader =
         CachingModerationListLoader(
@@ -1049,6 +1063,7 @@ fun Application.module() {
             Base64.getDecoder().decode(base64)
         },
         environmentName = ktorEnv,
+        remoteConfigPublisher = remoteConfigPublisher,
     )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime

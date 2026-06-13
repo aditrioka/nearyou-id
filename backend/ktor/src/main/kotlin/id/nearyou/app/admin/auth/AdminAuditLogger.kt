@@ -354,6 +354,42 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a feature-flag publish (`admin-feature-flags` capability):
+     * exactly one immutable row per applied Server-template parameter write.
+     * Joins the caller's [conn] so the rate-limit COUNT and this INSERT read +
+     * append the same ledger snapshot on one connection (the count can't drift
+     * from the ledger it gates — design D3). `action_type='feature_flag_toggled'`,
+     * `target_type='feature_flag'`, `target_id`=the parameter name;
+     * [beforeState]/[afterState] record the value transition (e.g.
+     * `{"value":"false"}` → `{"value":"true"}`); [reason] is the mandatory
+     * operator-supplied free text. `adminId` is the acting human admin, never the
+     * `system` sentinel.
+     */
+    fun logFeatureFlagToggled(
+        conn: Connection,
+        adminId: UUID,
+        parameterName: String,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "feature_flag_toggled",
+            adminId = adminId,
+            targetType = "feature_flag",
+            targetId = parameterName,
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Own-connection audit write for the standalone login / logout / CSRF
      * events — opens, writes, and (via `use`) closes its own connection.
      * There is nothing to be atomic against on those paths, so each is a
