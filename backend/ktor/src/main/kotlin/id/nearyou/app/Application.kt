@@ -137,6 +137,9 @@ import id.nearyou.app.post.singlePostRoutes
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
 import id.nearyou.app.search.searchRoutes
+import id.nearyou.app.subscription.SubscriptionEventRepository
+import id.nearyou.app.subscription.SubscriptionService
+import id.nearyou.app.subscription.revenueCatWebhookRoutes
 import id.nearyou.app.timeline.FollowingTimelineService
 import id.nearyou.app.timeline.GlobalTimelineService
 import id.nearyou.app.timeline.NearbyTimelineService
@@ -740,6 +743,15 @@ fun Application.module() {
             remoteConfig = remoteConfig,
             dbDispatcher = dbDispatchers.db,
         )
+    val subscriptionEventRepository = SubscriptionEventRepository()
+    val subscriptionService =
+        SubscriptionService(
+            dataSource = dataSource,
+            repository = subscriptionEventRepository,
+            notifications = notificationEmitter,
+            dispatcher = notificationDispatcher,
+            dbDispatcher = dbDispatchers.db,
+        )
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
     val replyService =
         ReplyService(
@@ -905,6 +917,8 @@ fun Application.module() {
                 single { likeService }
                 single<PostReplyRepository> { postReplyRepository }
                 single { replyService }
+                single { subscriptionEventRepository }
+                single { subscriptionService }
                 single<PostsTimelineRepository> { postsTimelineRepository }
                 single { nearbyTimelineService }
                 single<PostsFollowingRepository> { postsFollowingRepository }
@@ -942,6 +956,7 @@ fun Application.module() {
     signupRoutes(signupService)
     realtimeRoutes(realtimeIssuer)
     appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())
+    revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)
     postRoutes(createPostService)
     singlePostRoutes(postReadService)
     blockRoutes(blockService)
