@@ -33,7 +33,7 @@ The system SHALL serve `GET /admin/privacy-flips` as an authenticated route, wir
 
 ### Requirement: Per-row IN_WINDOW / OVERDUE classification
 
-The system SHALL classify every rendered row against a single server-evaluated `NOW()`: a row whose `privacy_flip_scheduled_at > NOW()` SHALL be classified **IN_WINDOW** (mid-grace; the canonical 72h-downgrade-window population per `docs/07-Operations.md`), and a row whose `privacy_flip_scheduled_at <= NOW()` SHALL be classified **OVERDUE** (past its deadline but not yet cleared by the worker — a stuck-row / webhook-handler-bug signal). The OVERDUE bucket is INTENTIONALLY outside the canonical in-window predicate; the monitor surfaces it as the documented stuck-row extension. The classification SHALL be derived in the same query projection that the `status` filter predicates against, so the row's class and the filter agree within a page. An IN_WINDOW row SHALL render the time remaining until the flip; an OVERDUE row SHALL render how long it has been overdue.
+The system SHALL classify every rendered row against a **single request-scoped evaluation instant** (one consistent point in time computed once per request): a row whose `privacy_flip_scheduled_at` is strictly after the evaluation instant SHALL be classified **IN_WINDOW** (mid-grace; the canonical 72h-downgrade-window population per `docs/07-Operations.md`), and a row whose `privacy_flip_scheduled_at` is at-or-before the evaluation instant SHALL be classified **OVERDUE** (past its deadline but not yet cleared by the worker — a stuck-row / webhook-handler-bug signal). The boundary is **closed on the OVERDUE side**: a row whose `privacy_flip_scheduled_at` equals the evaluation instant exactly SHALL be OVERDUE (the IN_WINDOW test is strict `>`). The OVERDUE bucket is INTENTIONALLY outside the canonical in-window predicate; the monitor surfaces it as the documented stuck-row extension. The classification AND the `status` filter SHALL be evaluated against the SAME single evaluation instant within one request, so the row's rendered class and the `status`-filtered result set cannot disagree (no read-vs-filter skew, even at the boundary instant). An IN_WINDOW row SHALL render the time remaining until the flip; an OVERDUE row SHALL render how long it has been overdue.
 
 #### Scenario: A future-dated flip is classified IN_WINDOW
 
@@ -52,6 +52,18 @@ The system SHALL classify every rendered row against a single server-evaluated `
 - **GIVEN** an authenticated session AND at least one IN_WINDOW row AND at least one OVERDUE row
 - **WHEN** `GET /admin/privacy-flips` is served with no `status` filter
 - **THEN** the rendered table SHALL contain BOTH the IN_WINDOW row(s) AND the OVERDUE row(s), each carrying its respective classification
+
+#### Scenario: A flip scheduled exactly at the evaluation instant is classified OVERDUE (boundary fencepost)
+
+- **GIVEN** an authenticated session AND a deterministic evaluation instant (e.g. a fixed injected clock) AND a row whose `privacy_flip_scheduled_at` equals that evaluation instant exactly
+- **WHEN** `GET /admin/privacy-flips` is served
+- **THEN** that row SHALL be classified OVERDUE (the IN_WINDOW test is strict `>`; equality falls to the at-or-before OVERDUE branch)
+
+#### Scenario: The boundary row classifies and filters identically (no read-vs-filter skew)
+
+- **GIVEN** an authenticated session AND a deterministic evaluation instant AND a row whose `privacy_flip_scheduled_at` equals that instant exactly (classified OVERDUE per the boundary rule)
+- **WHEN** `GET /admin/privacy-flips?status=overdue` is served AND, separately, `GET /admin/privacy-flips?status=in_window` is served
+- **THEN** the boundary row SHALL appear under `status=overdue` AND SHALL NOT appear under `status=in_window` — the same evaluation instant drives both the rendered class and the `status` predicate, so a row can never be OVERDUE in the table yet excluded by `status=overdue` (or vice versa)
 
 ### Requirement: Ascending keyset pagination over (privacy_flip_scheduled_at, id)
 
@@ -144,6 +156,12 @@ The system SHALL accept the query parameters `status` and `q`, each filtering th
 - **WHEN** `GET /admin/privacy-flips?status=overdue&q=kang_santuy` is served
 - **THEN** no row SHALL be rendered (the user matches `q` but is IN_WINDOW, so the AND-composed `status=overdue` filter excludes it) — and the empty state SHALL render
 
+#### Scenario: An empty or blank q is ignored, not treated as an empty-username match
+
+- **GIVEN** an authenticated session AND at least one pending-flip row
+- **WHEN** `GET /admin/privacy-flips?q=` (empty) or `GET /admin/privacy-flips?q=%20%20` (whitespace-only) is served
+- **THEN** the response SHALL be the unfiltered list (the blank `q` is ignored, NOT applied as `LOWER(username) = ''` which would wrongly render the empty state)
+
 ### Requirement: Per-status count summary reflects the active filter scope
 
 The system SHALL render a count summary alongside the table that reports, for the **current filter scope** (with any active `q` applied), the number of matching rows broken down as IN_WINDOW vs OVERDUE. The summary exists to surface the stuck-row anomaly (a rising OVERDUE count signals a worker/webhook-handler bug or a mass-scheduling event) at a glance. The counts SHALL reflect the applied `q` filter but SHALL NOT be limited by pagination — they count the ENTIRE filtered result set (ignoring the keyset cursor and page size), not just the rows on the current page. When a `status` filter is active, the summary MAY scope to that bucket; the OVERDUE total SHALL always be derivable.
@@ -166,6 +184,12 @@ The system SHALL render a count summary alongside the table that reports, for th
 - **WHEN** `GET /admin/privacy-flips` is served
 - **THEN** the rendered summary SHALL report the OVERDUE count (so a moderator can spot a stuck-row spike without paging through the table)
 
+#### Scenario: Summary respects an active q scope
+
+- **GIVEN** an authenticated session AND a single OVERDUE pending-flip user `budi_kopi` AND other pending-flip users
+- **WHEN** `GET /admin/privacy-flips?q=budi_kopi` is served
+- **THEN** the rendered summary SHALL reflect only the `q`-scoped result set (OVERDUE = 1, IN_WINDOW = 0), NOT the whole-table totals — the summary counts the SAME filtered set the page query pages over
+
 ### Requirement: Malformed filter inputs are handled safely without error or injection
 
 The system SHALL tolerate malformed filter inputs without returning a 500 and without executing attacker-controlled SQL. An unrecognized `status` value (not `in_window` / `overdue`) or an over-long filter value SHALL cause that single filter to be ignored (lenient parse) while the remaining valid filters still apply. Because all values are bound as query parameters, a `q` value containing SQL metacharacters SHALL be treated as a literal filter value (matching no user), never as SQL.
@@ -187,6 +211,13 @@ The system SHALL tolerate malformed filter inputs without returning a 500 and wi
 
 - **WHEN** an authenticated client sends `GET /admin/privacy-flips?q=<a string far longer than the 60-char username column width>`
 - **THEN** the response status SHALL be 200 (the over-long value is length-bounded during lenient parse and, matching no user, renders the empty state — rather than causing a 400/500)
+
+#### Scenario: A maximum-width (60-char) username still matches; one char longer is bounded out
+
+- **GIVEN** an authenticated session AND a pending-flip user whose `username` is exactly 60 characters (the column maximum)
+- **WHEN** `GET /admin/privacy-flips?q=<that exact 60-char username>` is served
+- **THEN** that user's row SHALL be rendered (the length bound is `>= 60`, so a valid maximum-width username is NOT truncated and still matches exactly)
+- **AND** WHEN a 61-character `q` is served, the value SHALL be bounded out (matching no user → empty state), never 400/500 — the truncation guard never shortens a legitimate 60-char username into a non-matching prefix
 
 ### Requirement: HTMX partial swap with plain-GET progressive enhancement
 
@@ -217,6 +248,13 @@ The system SHALL render every monitor value HTML-escaped in the admin's browser.
 - **GIVEN** an authenticated session AND a pending-flip user whose `display_name` is the literal string `<script>alert(1)</script>`
 - **WHEN** `GET /admin/privacy-flips` is served and the row is rendered
 - **THEN** the response body SHALL contain the escaped form (e.g., `&lt;script&gt;`) and SHALL NOT contain a live, unescaped `<script>alert(1)</script>` tag
+
+#### Scenario: A username carrying markup is escaped in BOTH the text and the deep-link href
+
+- **GIVEN** an authenticated session AND a pending-flip user whose `username` contains HTML/URL-significant characters (e.g. an ampersand or angle bracket admitted by the username rules)
+- **WHEN** `GET /admin/privacy-flips` is served and the row is rendered
+- **THEN** the `username` SHALL be HTML-escaped where it is rendered as text
+- **AND** the `username` SHALL be safely encoded where it is interpolated into the `/admin/users?q=<username>` deep-link `href` (attribute/URL context), so a crafted username cannot break out of the attribute or inject script — the `href` value SHALL NOT contain a live unescaped markup sequence
 
 ### Requirement: Identity-only PII discipline — no location, deep-link to the shipped lookup
 
