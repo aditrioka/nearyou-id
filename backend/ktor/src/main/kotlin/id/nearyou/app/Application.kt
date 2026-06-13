@@ -96,6 +96,7 @@ import id.nearyou.app.infra.repo.JdbcRejectedIdentifierRepository
 import id.nearyou.app.infra.repo.JdbcReportRepository
 import id.nearyou.app.infra.repo.JdbcReservedUsernameRepository
 import id.nearyou.app.infra.repo.JdbcSearchRepository
+import id.nearyou.app.infra.repo.JdbcSinglePostRepository
 import id.nearyou.app.infra.repo.JdbcUserBlockRepository
 import id.nearyou.app.infra.repo.JdbcUserFollowsRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
@@ -106,6 +107,7 @@ import id.nearyou.app.infra.repo.PostsTimelineRepository
 import id.nearyou.app.infra.repo.RefreshTokenRepository
 import id.nearyou.app.infra.repo.RejectedIdentifierRepository
 import id.nearyou.app.infra.repo.ReservedUsernameRepository
+import id.nearyou.app.infra.repo.SinglePostRepository
 import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
@@ -129,10 +131,15 @@ import id.nearyou.app.notifications.NotificationService
 import id.nearyou.app.notifications.notificationRoutes
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.PostRateLimiter
+import id.nearyou.app.post.PostReadService
 import id.nearyou.app.post.postRoutes
+import id.nearyou.app.post.singlePostRoutes
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
 import id.nearyou.app.search.searchRoutes
+import id.nearyou.app.subscription.SubscriptionEventRepository
+import id.nearyou.app.subscription.SubscriptionService
+import id.nearyou.app.subscription.revenueCatWebhookRoutes
 import id.nearyou.app.timeline.FollowingTimelineService
 import id.nearyou.app.timeline.GlobalTimelineService
 import id.nearyou.app.timeline.NearbyTimelineService
@@ -736,6 +743,15 @@ fun Application.module() {
             remoteConfig = remoteConfig,
             dbDispatcher = dbDispatchers.db,
         )
+    val subscriptionEventRepository = SubscriptionEventRepository()
+    val subscriptionService =
+        SubscriptionService(
+            dataSource = dataSource,
+            repository = subscriptionEventRepository,
+            notifications = notificationEmitter,
+            dispatcher = notificationDispatcher,
+            dbDispatcher = dbDispatchers.db,
+        )
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
     val replyService =
         ReplyService(
@@ -814,6 +830,8 @@ fun Application.module() {
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
     val followingTimelineService = FollowingTimelineService(postsFollowingRepository, dbDispatchers.db)
     val postsGlobalRepository: PostsGlobalRepository = JdbcPostsGlobalRepository(dataSource)
+    val singlePostRepository: SinglePostRepository = JdbcSinglePostRepository(dataSource)
+    val postReadService = PostReadService(singlePostRepository, dbDispatchers.db)
     val globalTimelineService = GlobalTimelineService(postsGlobalRepository, dbDispatchers.db)
     // Per `timeline-read-rate-limit` capability: shared across all three timeline
     // routes. Stateless above the Redis seam, so a single Koin binding suffices.
@@ -899,6 +917,8 @@ fun Application.module() {
                 single { likeService }
                 single<PostReplyRepository> { postReplyRepository }
                 single { replyService }
+                single { subscriptionEventRepository }
+                single { subscriptionService }
                 single<PostsTimelineRepository> { postsTimelineRepository }
                 single { nearbyTimelineService }
                 single<PostsFollowingRepository> { postsFollowingRepository }
@@ -936,7 +956,9 @@ fun Application.module() {
     signupRoutes(signupService)
     realtimeRoutes(realtimeIssuer)
     appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())
+    revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)
     postRoutes(createPostService)
+    singlePostRoutes(postReadService)
     blockRoutes(blockService)
     followRoutes(followService)
     userSocialRoutes(followService)

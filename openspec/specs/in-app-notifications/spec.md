@@ -111,11 +111,11 @@ Future capability authors with a similar real-time + private-1:1 surface (e.g., 
 ### Requirement: GET /api/v1/notifications paginated list
 
 A Ktor route SHALL be registered at `GET /api/v1/notifications` requiring Bearer JWT. Query parameters:
-- `cursor` (optional, ISO8601 timestamp) — if absent, return newest rows; if present, return rows `WHERE created_at < :cursor`.
-- `limit` (optional int, 1..50, default 20) — out-of-range rejected with 400 `invalid_request`.
-- `unread_only` (optional bool, default false) — when true, additionally filter `read_at IS NULL`.
+- `cursor` (optional, opaque base64url token) — if absent, return newest rows; if present, decode to the composite `(created_at, id)` keyset position and return rows strictly older than it. The token is an implementation detail (base64url-encoded JSON `{"c":"<ISO8601>","i":"<uuid>"}`, no padding); clients MUST treat it as opaque and echo the `next_cursor` value back verbatim. A token that fails to decode is rejected with 400 `invalid_cursor`.
+- `limit` (optional int, default 20) — silently clamped to the inclusive range `[1, 50]` (a value below 1 clamps to 1, above 50 clamps to 50; a non-integer falls back to the default 20). Out-of-range values are NOT rejected.
+- `unread` (optional bool, default false) — when `unread=true` (case-insensitive), additionally filter `read_at IS NULL`.
 
-The handler MUST execute a single SELECT against `notifications` scoped `WHERE user_id = :caller [AND read_at IS NULL] [AND created_at < :cursor] ORDER BY created_at DESC LIMIT :limit`. The response body SHALL be `{items: NotificationDto[], next_cursor: string | null}` where `next_cursor` is the `created_at` of the oldest returned item if the page is full (length == limit), else `null`.
+The handler MUST execute a single SELECT against `notifications` scoped `WHERE user_id = :caller [AND read_at IS NULL] [AND (created_at, id) < (:cursorCreatedAt, :cursorId)] ORDER BY created_at DESC, id DESC LIMIT :limit` (composite `(created_at, id)` keyset so rows sharing a `created_at` are neither skipped nor duplicated across pages). The response body SHALL be `{items: NotificationDto[], next_cursor: string | null}` where `next_cursor` is the opaque token encoding the oldest returned item's `(created_at, id)` position if the page is full (length == limit), else `null`.
 
 `NotificationDto` fields: `id`, `type`, `actor_user_id` (nullable), `target_type` (nullable), `target_id` (nullable), `body_data` (JSON object, nullable), `created_at`, `read_at` (nullable). The response MUST NOT include rows belonging to other users (per-caller ownership filter is mandatory).
 
@@ -125,31 +125,31 @@ The handler MUST execute a single SELECT against `notifications` scoped `WHERE u
 
 #### Scenario: First page (no cursor) returns newest rows
 - **WHEN** Alice has 30 notifications AND `GET /api/v1/notifications?limit=20` is called
-- **THEN** the response contains 20 items ordered `created_at DESC` AND `next_cursor` equals the `created_at` of the 20th item
+- **THEN** the response contains 20 items ordered `created_at DESC, id DESC` AND `next_cursor` is the opaque token encoding the 20th (oldest returned) item's `(created_at, id)` position
 
 #### Scenario: Cursor pagination returns older rows
-- **WHEN** Alice passes the `next_cursor` from the first page back as `?cursor=<iso8601>`
+- **WHEN** Alice passes the `next_cursor` token from the first page back as `?cursor=<token>`
 - **THEN** the response contains the next older 10 items AND `next_cursor = null` (page not full)
 
-#### Scenario: unread_only filter uses partial index
-- **WHEN** Alice has 50 notifications of which 3 are unread AND `GET /api/v1/notifications?unread_only=true` is called
+#### Scenario: unread filter uses partial index
+- **WHEN** Alice has 50 notifications of which 3 are unread AND `GET /api/v1/notifications?unread=true` is called
 - **THEN** the response contains exactly 3 items AND the query plan (EXPLAIN) shows `notifications_user_unread_idx` in use
 
 #### Scenario: Per-caller ownership filter
 - **WHEN** Alice has 10 notifications AND Bob has 5 notifications AND Alice calls `GET /api/v1/notifications?limit=50`
 - **THEN** the response contains exactly Alice's 10 items AND none of Bob's
 
-#### Scenario: limit out of range
+#### Scenario: limit out of range is clamped (not rejected)
 - **WHEN** `?limit=51` is supplied
-- **THEN** the response is HTTP 400 with `error.code = "invalid_request"`
+- **THEN** the response is HTTP 200 AND at most 50 items are returned (the limit is silently clamped to 50; `?limit=0` clamps to 1, a non-integer falls back to the default 20)
 
 #### Scenario: malformed cursor
-- **WHEN** `?cursor=not-a-timestamp` is supplied
-- **THEN** the response is HTTP 400 with `error.code = "invalid_request"`
+- **WHEN** `?cursor=not-a-valid-token` is supplied (un-decodable base64url or bad payload)
+- **THEN** the response is HTTP 400 with `error.code = "invalid_cursor"`
 
 ### Requirement: GET /api/v1/notifications/unread-count
 
-A Ktor route SHALL be registered at `GET /api/v1/notifications/unread-count` requiring Bearer JWT. The handler SHALL execute `SELECT COUNT(*) FROM notifications WHERE user_id = :caller AND read_at IS NULL` and return `{unread_count: <int>}`. The query MUST be served by the `notifications_user_unread_idx` partial index (index-only scan).
+A Ktor route SHALL be registered at `GET /api/v1/notifications/unread-count` requiring Bearer JWT. The handler SHALL execute `SELECT COUNT(*) FROM notifications WHERE user_id = :caller AND read_at IS NULL` and return `{count: <int>}`. The query MUST be served by the `notifications_user_unread_idx` partial index (index-only scan).
 
 #### Scenario: Unauthenticated rejected
 - **WHEN** called without Authorization
@@ -157,11 +157,11 @@ A Ktor route SHALL be registered at `GET /api/v1/notifications/unread-count` req
 
 #### Scenario: Accurate unread count
 - **WHEN** Alice has 10 notifications of which exactly 3 have `read_at IS NULL`
-- **THEN** the response is `{unread_count: 3}`
+- **THEN** the response is `{count: 3}`
 
 #### Scenario: Zero unread returns 0 (not 404)
 - **WHEN** Alice has 10 notifications all with `read_at` set
-- **THEN** the response is `{unread_count: 0}` with HTTP 200
+- **THEN** the response is `{count: 0}` with HTTP 200
 
 #### Scenario: Query uses partial index
 - **WHEN** inspecting the query plan for the unread-count handler
@@ -169,7 +169,7 @@ A Ktor route SHALL be registered at `GET /api/v1/notifications/unread-count` req
 
 ### Requirement: PATCH /api/v1/notifications/:id/read marks a single notification read
 
-A Ktor route SHALL be registered at `PATCH /api/v1/notifications/:id/read` requiring Bearer JWT. The handler SHALL execute `UPDATE notifications SET read_at = NOW() WHERE id = :id AND user_id = :caller AND read_at IS NULL` and return HTTP 200 no body on exactly 1 row affected, HTTP 404 `notification_not_found` on 0 rows affected (not found, not owned, or already read — all three collapse to 404 to avoid leaking ownership).
+A Ktor route SHALL be registered at `PATCH /api/v1/notifications/:id/read` requiring Bearer JWT. A non-UUID `:id` is rejected with HTTP 400 `invalid_uuid` before any DB access. The handler SHALL execute `UPDATE notifications SET read_at = NOW() WHERE id = :id AND user_id = :caller AND read_at IS NULL` and return HTTP 204 No Content on exactly 1 row affected, HTTP 404 `not_found` on 0 rows affected (not found, not owned, or already read — all three collapse to 404 to avoid leaking ownership).
 
 #### Scenario: Unauthenticated rejected
 - **WHEN** called without Authorization
@@ -177,23 +177,27 @@ A Ktor route SHALL be registered at `PATCH /api/v1/notifications/:id/read` requi
 
 #### Scenario: Mark unread notification read
 - **WHEN** Alice owns notification `N` with `read_at IS NULL` AND calls `PATCH /notifications/N/read`
-- **THEN** HTTP 200 AND the row has `read_at` set to approximately NOW()
+- **THEN** HTTP 204 No Content AND the row has `read_at` set to approximately NOW()
 
 #### Scenario: Already-read notification returns 404
 - **WHEN** Alice owns notification `N` with `read_at` already set AND calls `PATCH /notifications/N/read`
-- **THEN** HTTP 404 `notification_not_found` (idempotent-looking; no state change)
+- **THEN** HTTP 404 `not_found` (idempotent-looking; no state change)
 
 #### Scenario: Other user's notification returns 404 (not 403)
 - **WHEN** Bob owns notification `N` AND Alice calls `PATCH /notifications/N/read`
-- **THEN** HTTP 404 `notification_not_found` (ownership not leaked via distinct status)
+- **THEN** HTTP 404 `not_found` (ownership not leaked via distinct status)
 
 #### Scenario: Non-existent id returns 404
 - **WHEN** no row has `id = :id` AND Alice calls the endpoint
-- **THEN** HTTP 404 `notification_not_found`
+- **THEN** HTTP 404 `not_found`
+
+#### Scenario: Non-UUID id returns 400
+- **WHEN** `:id` is not a valid UUID (e.g. `PATCH /notifications/not-a-uuid/read`)
+- **THEN** HTTP 400 `invalid_uuid` (rejected before any DB access; distinct from the 404 ownership-collapse)
 
 ### Requirement: PATCH /api/v1/notifications/read-all marks all caller notifications read
 
-A Ktor route SHALL be registered at `PATCH /api/v1/notifications/read-all` requiring Bearer JWT. The handler SHALL execute `UPDATE notifications SET read_at = NOW() WHERE user_id = :caller AND read_at IS NULL` and return `{marked: <int>}` with HTTP 200 (including `marked: 0` when already all-read).
+A Ktor route SHALL be registered at `PATCH /api/v1/notifications/read-all` requiring Bearer JWT. The handler SHALL execute `UPDATE notifications SET read_at = NOW() WHERE user_id = :caller AND read_at IS NULL` and return `{marked_read: <int>}` with HTTP 200 (including `marked_read: 0` when already all-read).
 
 #### Scenario: Unauthenticated rejected
 - **WHEN** called without Authorization
@@ -201,11 +205,11 @@ A Ktor route SHALL be registered at `PATCH /api/v1/notifications/read-all` requi
 
 #### Scenario: Marks all unread for caller
 - **WHEN** Alice has 5 unread AND 10 already-read notifications AND calls `PATCH /notifications/read-all`
-- **THEN** HTTP 200 with `{marked: 5}` AND all 15 rows now have `read_at` set
+- **THEN** HTTP 200 with `{marked_read: 5}` AND all 15 rows now have `read_at` set
 
 #### Scenario: Idempotent when already all-read
 - **WHEN** Alice has 0 unread notifications AND calls the endpoint
-- **THEN** HTTP 200 with `{marked: 0}`
+- **THEN** HTTP 200 with `{marked_read: 0}`
 
 #### Scenario: Does NOT touch other users' rows
 - **WHEN** Alice has 3 unread AND Bob has 2 unread AND Alice calls the endpoint
