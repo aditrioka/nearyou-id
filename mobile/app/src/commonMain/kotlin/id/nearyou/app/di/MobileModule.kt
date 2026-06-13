@@ -6,6 +6,8 @@ import id.nearyou.app.auth.AuthRepository
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenRefresher
 import id.nearyou.app.config.apiBaseUrl
+import id.nearyou.app.config.appVersionName
+import id.nearyou.app.config.devicePlatform
 import id.nearyou.app.config.httpClientEngine
 import id.nearyou.app.config.isDebugBuild
 import id.nearyou.app.consent.ConsentApiClient
@@ -27,6 +29,8 @@ import id.nearyou.app.post.PostCreationApiClient
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostDetailRepository
 import id.nearyou.app.post.ReplyApiClient
+import id.nearyou.app.push.FcmTokenApiClient
+import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.ProactiveTokenRefreshTrigger
@@ -227,6 +231,21 @@ val mobileModule =
         single { SearchApiClient(get()) }
         single { SearchRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<SearchFlow> { get<SearchRepository>() }
+
+        // mobile-fcm-token-registration — the push-token registration graph. Reuses the shared
+        // (bearer-authed) HttpClient (NO new client). The FcmTokenProvider platform actual is bound in
+        // each platformModule (AndroidFcmTokenProvider / IosFcmTokenProvider). The platform constant +
+        // app_version come from the config seam. diagnosticLog wired to the real coordinate-free sink —
+        // it receives ONLY platform + outcome, NEVER the token (a device-addressed credential; backend D11).
+        single { FcmTokenApiClient(get(), platform = devicePlatform, appVersion = appVersionName) }
+        single {
+            FcmTokenRegistrar(
+                provider = get(),
+                apiClient = get(),
+                platform = devicePlatform,
+                diagnosticLog = get<DiagnosticSink>()::log,
+            )
+        }
     }
 
 /**

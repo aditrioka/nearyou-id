@@ -60,6 +60,14 @@ kotlin {
         pod("GoogleSignIn") {
             version = libs.versions.googleSigninIos.get()
         }
+        // mobile-fcm-token-registration — Firebase iOS Messaging Pod (token acquisition + refresh on iOS).
+        // The iosApp Xcode project supplies GoogleService-Info.plist + the APNs entitlement (OPERATOR setup,
+        // tied to the separate staging Firebase project per docs/04 § 259); IosFcmTokenProvider returns null
+        // when no FirebaseApp is configured, so the app runs without it. The KMP cocoapods plugin links the
+        // Pod into the ComposeApp framework (the GoogleSignIn Pod precedent above).
+        pod("FirebaseMessaging") {
+            version = libs.versions.firebaseMessagingIos.get()
+        }
     }
 
     sourceSets {
@@ -74,6 +82,12 @@ kotlin {
             implementation(libs.google.tink)
             // mobile-location-permission-flow — Fused Location Provider (coarse device location).
             implementation(libs.google.playServicesLocation)
+            // mobile-fcm-token-registration — Firebase Cloud Messaging client (token acquisition + refresh).
+            // The BoM co-versions firebase-messaging. The google-services Gradle plugin + google-services.json
+            // are OPERATOR setup (NOT applied here — the plugin hard-fails CI without the config; design D8);
+            // AndroidFcmTokenProvider returns null when no FirebaseApp is configured, so the app runs without it.
+            implementation(project.dependencies.platform(libs.firebase.bom))
+            implementation(libs.firebase.messaging)
             implementation(libs.ktor.kmp.clientOkhttp)
             // koin-android gives `androidContext()` so the platform Koin module can supply a
             // Context to `SecureTokenStore` without a bespoke context-holder.

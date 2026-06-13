@@ -29,6 +29,7 @@ import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.NotificationsRepository
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.timeline.FOLLOWING_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
@@ -143,6 +144,7 @@ class AppShellScreenTest {
                     single<GlobalTimelineFlow> { globalFake }
                     single<LikeFlow> { FakeLikeFlow() }
                     single<NotificationsFlow> { notifFake }
+                    single { fakeFcmTokenRegistrar() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
@@ -430,6 +432,7 @@ class AppShellScreenTest {
                     // The shell's real notifications graph over the recording MockEngine (the badge's
                     // unread-count request is captured here).
                     single<NotificationsFlow> { NotificationsRepository(NotificationsApiClient(httpClient)) }
+                    single { fakeFcmTokenRegistrar() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }

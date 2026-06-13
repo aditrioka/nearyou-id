@@ -15,11 +15,22 @@ androidx-lifecycle = "2.10.0"
 androidx-testExt = "1.3.0"
 googleid = "1.1.1"
 googleSigninIos = "8.0.0"
+# mobile-fcm-token-registration — Firebase iOS SDK Messaging Pod version (consumed via the KMP cocoapods
+# plugin). Pinned at apply (2026-06-13); the dated pre-implementation re-check (tasks.md 1.1) confirms/bumps.
+firebaseMessagingIos = "11.6.0"
 googleTink = "1.16.0"
 playServicesLocation = "21.3.0"
 composeMultiplatform = "1.11.1"
 detekt = "1.23.8"
 firebase-admin = "9.8.0"
+# mobile-fcm-token-registration — Firebase Android BoM (co-versions firebase-messaging on the device).
+# Pinned at apply (2026-06-13); the dated pre-implementation library re-check (tasks.md 1.1) confirms /
+# bumps this. The BoM manages the firebase-messaging artifact version; no per-artifact pin.
+firebase-bom = "33.7.0"
+# mobile-fcm-token-registration — the Google Services Gradle plugin is declared in the catalog for the
+# OPERATOR to apply alongside google-services.json; it is deliberately NOT applied in build.gradle.kts
+# (it hard-fails the build without the config, which would break CI). See design.md D8 / Open Questions.
+googleServices = "4.4.2"
 flyway = "11.10.5"
 h2database = "2.4.240"
 hikaricp = "6.3.3"
@@ -227,6 +238,9 @@ password4j = { module = "com.password4j:password4j", version.ref = "password4j" 
 samstevens-totp = { module = "dev.samstevens.totp:totp", version.ref = "samstevens-totp" }
 
 firebase-admin = { module = "com.google.firebase:firebase-admin", version.ref = "firebase-admin" }
+# mobile-fcm-token-registration — Android FCM client SDK, version managed by the Firebase BoM (no version.ref).
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
 
 # Build-logic plugin coordinates (used by precompiled script plugins via raw module strings)
 gradlePlugin-kotlin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -247,6 +261,9 @@ composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMul
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 flyway = { id = "org.flywaydb.flyway", version.ref = "flyway" }
+# mobile-fcm-token-registration — declared for the OPERATOR to apply with google-services.json; NOT
+# applied in this change's build.gradle.kts (it hard-fails without the config). See design.md D8.
+googleServices = { id = "com.google.gms.google-services", version.ref = "googleServices" }
 kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinxSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
