@@ -1,6 +1,6 @@
 ## 1. Pre-implementation gates
 
-- [ ] 1.1 **Substrate re-check (MANDATORY before first feat commit).** Run a fresh date-anchored `WebSearch` on the Sentry Kotlin Multiplatform SDK (currency, stability, CMP crash/error support, latest version). Record `verified 2026-MM-DD: …` in the first feat commit body (project.md § pre-implementation library re-check). If a materially-better path surfaces, STOP and `AskUserQuestion` before pinning.
+- [x] 1.1 **Substrate re-check (MANDATORY before first feat commit).** Run a fresh date-anchored `WebSearch` on the Sentry Kotlin Multiplatform SDK (currency, stability, CMP crash/error support, latest version). Record `verified 2026-MM-DD: …` in the first feat commit body (project.md § pre-implementation library re-check). If a materially-better path surfaces, STOP and `AskUserQuestion` before pinning.
 - [ ] 1.2 Verify the Open Decision #17 contingency (dual-pipeline fallback behind the same `CrashReporter` interface) is reflected in `design.md` Decision 3 — already written; confirm it survives review.
 - [ ] 1.3 [operator input] Obtain per-flavor Sentry DSN values (`dev` / `staging` / `production`). Until provided, ship per-flavor placeholders; a blank DSN MUST no-op init. Never invent a DSN value.
 - [ ] 1.4 File a `follow-up` GitHub issue (labels `follow-up`,`backend`) capturing **backend Sentry-Java error capture** as deferred scope (satisfies the spec "Backend error capture is out of scope" tracking scenario). File before archive.
@@ -8,13 +8,13 @@
 ## 2. `:infra:sentry` module scaffold
 
 - [ ] 2.1 Create `infra/sentry/` KMP module + `build.gradle.kts` (targets: `androidTarget`, `iosArm64`, `iosX64`, `iosSimulatorArm64`; source sets commonMain/androidMain/iosMain/commonTest/iosTest). Pin the Sentry KMP SDK in `gradle/libs.versions.toml`; declare it `implementation`-scoped in this module only (invariant #16).
-- [ ] 2.2 Register `:infra:sentry` in `settings.gradle.kts`.
-- [ ] 2.3 Add a one-line description to `dev/module-descriptions.txt` and run `dev/scripts/sync-readme.sh --write` (README module list).
+- [x] 2.2 Register `:infra:sentry` in `settings.gradle.kts`.
+- [x] 2.3 Add a one-line description to `dev/module-descriptions.txt` and run `dev/scripts/sync-readme.sh --write` (README module list).
 
 ## 3. CrashReporter interface + models (commonMain)
 
-- [ ] 3.1 Define `CrashReporter` interface — `init(config)`, `captureException(t, context)`, `setUser(id)`, `clearUser()`, `addBreadcrumb(crumb)`, `close()` — vendor-free.
-- [ ] 3.2 Define vendor-free models: `CrashReporterConfig` (dsn, environment, release), `Breadcrumb`; a no-op fallback for blank-DSN / test paths.
+- [x] 3.1 Define `CrashReporter` interface — `init(config)`, `captureException(t, context)`, `setUser(id)`, `clearUser()`, `addBreadcrumb(crumb)`, `close()` — vendor-free.
+- [x] 3.2 Define vendor-free models: `CrashReporterConfig` (dsn, environment, release), `Breadcrumb`; a no-op fallback for blank-DSN / test paths.
 
 ## 4. Platform actuals (Sentry SDK, fenced)
 
