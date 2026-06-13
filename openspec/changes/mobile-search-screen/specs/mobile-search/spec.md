@@ -155,10 +155,15 @@ The shared `Json` already sets `ignoreUnknownKeys` + `explicitNulls = false`. Th
 - **WHEN** the outcome is `NetworkError`
 - **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.signin_error_network)` AND a clickable node whose text matches `stringResource(Res.string.cta_retry)`
 
-#### Scenario: Disabled renders the kill-switch copy with no retry
+#### Scenario: Disabled renders the kill-switch copy with no retry and not the connectivity error
 
 - **WHEN** the outcome is `Disabled`
-- **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.search_disabled)` AND renders no retry control
+- **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.search_disabled)` AND renders no retry control AND does NOT contain `stringResource(Res.string.signin_error_network)` (the kill-switch state is distinct from the connectivity error)
+
+#### Scenario: SessionExpired renders the neutral redirect, not the connectivity error
+
+- **WHEN** the outcome is `SessionExpired`
+- **THEN** the rendered tree contains the neutral redirect notice (`stringResource(Res.string.timeline_session_redirect)`) AND does NOT contain `stringResource(Res.string.signin_error_network)` AND does NOT contain a `stringResource(Res.string.cta_retry)` control (the connectivity-error state is reserved for `NetworkError` / `Error`)
 
 ### Requirement: A client-side query guard mirrors the backend 2..100 bound and debounces requests
 
@@ -198,7 +203,7 @@ When the current `Results` outcome carries a non-null `nextOffset`, `SearchScree
 
 ### Requirement: The search result card renders only API display fields and no PII
 
-`SearchScreen` result cards (a search-specific card composable; the shipped search wire carries NO city, distance, or like/reply state) SHALL render only: the author **display identity** (the letter avatar + `authorDisplayName` + the `@authorUsername` handle, reusing the `mobile-post-card` avatar/identity sub-treatments so they cannot drift), the post `content`, and the `created_at` date treatment (the existing `postDateLabel` ISO-date helper — true relative formatting stays deferred to the `mobile-timeline-relative-timestamp` follow-up). The card SHALL render NO engagement action row (no like/reply affordance — the wire returns no such state), NO city label, and NO distance. The `author_id` (a UUID) and the `rank` score MUST NOT be rendered in any UI node. Tokens, the `author_id`, the `rank`, and response bodies MUST NOT be logged (the shipped `HttpClientFactory` `LogLevel.HEADERS` already excludes bodies; this capability MUST NOT widen logging).
+`SearchScreen` result cards (a search-specific card composable; the shipped search wire carries NO city, distance, or like/reply state) SHALL render only: the author **display identity** (the letter avatar + `authorDisplayName` + the `@authorUsername` handle, reusing the `mobile-post-card` avatar/identity sub-treatments so they cannot drift), the post `content`, and the `created_at` date treatment (the existing `postDateLabel` ISO-date helper — true relative formatting stays deferred to the `mobile-timeline-relative-timestamp` follow-up). The card SHALL render NO engagement action row (no like/reply affordance — the wire returns no such state), NO city label, and NO distance. The `author_id` (a UUID) and the `rank` score MUST NOT be rendered in any UI node. Tokens, the `author_id`, the `rank`, and response bodies MUST NOT be logged: the shipped `HttpClientFactory` `LogLevel.HEADERS` already excludes response bodies, and this capability MUST NOT widen logging. (Precision note: `LogLevel.HEADERS` logs the request line, so the user-typed `q=<query>` term travels in the logged URL in debug builds — this is the documented `LogLevel.HEADERS` posture inherited from `mobile-global-timeline`, NOT a regression this change introduces; the query term is user-typed content, not a token/`author_id`/`rank`/coordinate, and the existing coordinate-masking is unaffected. No `q`-masking is added here.)
 
 #### Scenario: author_id and rank are not in the rendered tree while display identity is
 
@@ -253,6 +258,12 @@ While the search outcome is `RateLimited(retryAfterSeconds)`, `SearchScreen` SHA
 - **WHEN** the rate-limit surface renders
 - **THEN** it shows the one-minute countdown ("1 menit") AND does NOT immediately clear on entry
 
+#### Scenario: The rate-limit surface auto-clears when the countdown reaches zero
+
+- **GIVEN** the rate-limit surface shown with a small `retryAfterSeconds` and a test clock advancing the monotonic countdown
+- **WHEN** the countdown reaches zero
+- **THEN** the rate-limit surface clears (the cap has reset) AND the user MAY re-issue the query
+
 ### Requirement: SearchApiClient and SearchRepository are Koin singletons behind a testable seam
 
 `SearchApiClient` and `SearchRepository` SHALL be registered in the commonMain Koin `mobileModule`. `SearchRepository` SHALL be bound behind a `SearchFlow` interface (`single<SearchFlow> { get<SearchRepository>() }`) so a `FakeSearchFlow` can drive the screen + ViewModel tests, mirroring the timeline seams. The `SearchViewModel` SHALL be scoped to the `SearchRoute` NavEntry (resolved via `viewModel { … }` under the root `NavDisplay`'s `rememberViewModelStoreNavEntryDecorator()` for `SearchRoute`, the pushed-route precedent), holding the query, the in-flight flags, the retained outcome, and the retained `nextOffset`; it SHALL issue the search via the `SearchFlow` seam (debounced + on submit) and expose the `searchUiState(...)` projection inputs. The query/results state is owned by the ViewModel, NOT composition-scoped `remember`.
@@ -270,12 +281,17 @@ While the search outcome is `RateLimited(retryAfterSeconds)`, `SearchScreen` SHA
 
 ### Requirement: Test coverage for the screen, projection, query guard, networking, and route
 
-The change SHALL ship: (1) a Robolectric `SearchScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the search input + clear, each visual state (Idle / Loading / Results / EmptyResults / Error / PremiumGate / RateLimited / Disabled / SessionExpired) via a `FakeSearchFlow`, the "Lihat lebih banyak" append, and the result-tap `onOpenPost` payload — added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention); (2) a commonTest `SearchUiStateTest` for the pure outcome→state projection; (3) commonTest for the query guard (trim, 2/100 boundaries, below-2 no-fetch) and the `SearchRoute` serialized round-trip; (4) MockEngine-backed `SearchApiClient` / `SearchRepository` tests verifying the endpoint path + `q`/`offset` params, the shipped snake_case wire parse, the camelCase negative-guard, the `next_offset` parse, the `Retry-After` parse on 429 (including the absent→`RateLimited(0)` floor), and each status→outcome mapping.
+The change SHALL ship: (1) a Robolectric `SearchScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the search input + clear, each visual state (Idle / Loading / Results / EmptyResults / Error / PremiumGate / RateLimited / Disabled / SessionExpired) via a `FakeSearchFlow`, the "Lihat lebih banyak" append, and the result-tap `onOpenPost` payload — added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention); (2) a commonTest `SearchUiStateTest` for the pure outcome→state projection; (3) commonTest for the query guard (trim, 2/100 boundaries, below-2 no-fetch) and the `SearchRoute` serialized round-trip; (4) MockEngine-backed `SearchApiClient` / `SearchRepository` tests verifying the endpoint path + `q`/`offset` params, the shipped snake_case wire parse, the camelCase negative-guard, the `next_offset` parse, the `Retry-After` parse on 429 (including the absent→`RateLimited(0)` floor), and each status→outcome mapping; (5) an `iosTest` flow test (`SearchFlowIosTest`) mirroring `NearbyTimelineFlowIosTest` / `PostDetailFlowIosTest` — exercising the search flow on the iOS/Native target via a `FakeSearchFlow` so the new `SearchRoute` + data seam compile and run on Kotlin/Native (the universal per-screen `*FlowIosTest` convention).
 
 #### Scenario: Test classes exist and are discoverable
 
 - **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest`
 - **THEN** `SearchScreenTest`, `SearchUiStateTest`, the query-guard + `SearchRoute` round-trip tests, and the `SearchApiClient`/`SearchRepository` MockEngine tests are discovered AND each documented state / mapping corresponds to at least one `@Test`
+
+#### Scenario: The iOS flow test exists for the Native target
+
+- **WHEN** inspecting `mobile/app/src/iosTest/...`
+- **THEN** a `SearchFlowIosTest` exists (mirroring `NearbyTimelineFlowIosTest`) exercising the search flow over a `FakeSearchFlow` on the iOS/Native target
 
 #### Scenario: Screen test is excluded from the Release variant
 

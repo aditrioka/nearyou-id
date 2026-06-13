@@ -22,7 +22,7 @@
 
 ## 4. Rate-limit countdown formatter
 
-- [ ] 4.1 Reuse / extend the pure commonMain countdown formatter established by `mobile-cap-upsell-dialog` for the search rate-limit modal ("X menit" per `docs/03-UX-Design.md:245`; minutes rounded up; non-positive floored to 1 minute; monotonic `delay`, no wall-clock) — the search modal is a distinct copy string (`search_rate_limited`), not the like-cap body
+- [ ] 4.1 Reuse the **minutes-only** pure commonMain countdown formatter established by `mobile-cap-upsell-dialog` (`capCountdownMinutes` — NOT the hours+minutes `capCountdown` "14 j 19 mnt" split; search shows "X menit" only per `docs/03-UX-Design.md:245`) for the search rate-limit modal (minutes rounded up; non-positive floored to 1 minute; monotonic `delay`, no wall-clock) — the search modal is a distinct copy string (`search_rate_limited`), not the like-cap body
 - [ ] 4.2 commonTest for the formatter as applied to the search modal (e.g. 1740 → "29 menit"; 0 → "1 menit" floor; ticks down per minute)
 
 ## 5. SearchScreen + result card
@@ -51,8 +51,9 @@
 
 ## 9. Screen test + build wiring
 
-- [ ] 9.1 Robolectric `SearchScreenTest` (via `FakeSearchFlow`): search input + clear; each visual state (Idle / Loading / Results / EmptyResults / Error+retry / PremiumGate / RateLimited / Disabled / SessionExpired); the "Lihat lebih banyak" append; the result-tap `onOpenPost` payload (hit fields + defaults, no PII); no-hardcoded-strings source guard
+- [ ] 9.1 Robolectric `SearchScreenTest` (via `FakeSearchFlow`): search input + clear; each visual state (Idle / Loading / Results / EmptyResults / Error+retry / PremiumGate / RateLimited / Disabled / SessionExpired); the "Lihat lebih banyak" append; the result-tap `onOpenPost` payload (hit fields + defaults, no PII); no-hardcoded-strings source guard. Include the negative/clear assertions: SessionExpired shows the neutral redirect AND not `signin_error_network`/`cta_retry`; Disabled shows the kill-switch copy AND not `signin_error_network`; RateLimited auto-clears when the countdown reaches zero (test clock)
 - [ ] 9.2 Add `**/SearchScreenTest*` to the `mobile/app/build.gradle.kts` Release-variant `*ScreenTest` exclude block; verify `:mobile:app:testDevReleaseUnitTest` passes
+- [ ] 9.3 Add `iosTest` `SearchFlowIosTest` (mirroring `NearbyTimelineFlowIosTest` / `PostDetailFlowIosTest`): exercise the search flow over a `FakeSearchFlow` on the iOS/Native target so the new `SearchRoute` + data seam compile + run on Kotlin/Native (the universal per-screen `*FlowIosTest` convention)
 
 ## 10. Deferrals (file as `follow-up` GitHub issues — NOT silent)
 
