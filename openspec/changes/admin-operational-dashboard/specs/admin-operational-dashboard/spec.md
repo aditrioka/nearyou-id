@@ -25,7 +25,7 @@ The `/admin/` index page SHALL render the Operational Dashboard per admin mockup
 
 ### Requirement: Posts-volume widget counts all posts including moderated ones
 
-The dashboard SHALL render a posts-volume widget showing the count of posts created in the last 24 hours (with a per-hour breakdown for the trend display). The count SHALL be taken over the raw `posts` table and SHALL INCLUDE shadow-banned and auto-hidden posts — an operator monitoring true platform volume needs the full total, not the member-facing `visible_posts` subset. The SQL-holding member SHALL carry an annotated `@AllowRawPostsRead` exception with a justification comment stating this operational rationale.
+The dashboard SHALL render a posts-volume widget showing the count of posts created in the last 24 hours (with a per-hour breakdown for the trend display). The count SHALL be taken over the raw `posts` table and SHALL INCLUDE posts by shadow-banned authors and auto-hidden posts — an operator monitoring true platform volume needs the full total, not the member-facing `visible_posts` subset. The read lives in the admin module, which is path-exempt from `RawFromPostsRule`, so no lint annotation is required; the SQL SHALL carry a justification comment stating this operational rationale (so the deliberate raw read is greppable).
 
 #### Scenario: Posts-volume reflects live data
 
@@ -37,7 +37,7 @@ The dashboard SHALL render a posts-volume widget showing the count of posts crea
 #### Scenario: Shadow-banned and auto-hidden posts are included in the count
 
 - **GIVEN** an authenticated session
-- **AND** the last 24 hours contain 8 posts, of which 2 are shadow-banned and 1 is auto-hidden
+- **AND** the last 24 hours contain 8 posts, of which 2 are by shadow-banned authors and 1 is auto-hidden
 - **WHEN** `GET /admin/` is served
 - **THEN** the posts-volume widget SHALL show a 24-hour count of 8 (the moderated posts are counted, distinguishing the raw operator metric from a `visible_posts` read)
 
@@ -49,7 +49,7 @@ The dashboard SHALL render a posts-volume widget showing the count of posts crea
 
 ### Requirement: Signups-and-age-gate widget
 
-The dashboard SHALL render a signups widget showing the count of `users` rows created in the last 24 hours (by `created_at`, with a per-hour breakdown), alongside the count of `rejected_identifiers` rows with reason `age_under_18` over the same window (the age-gate rejection signal). The `users` read SHALL carry an annotated `@AllowMissingBlockJoin` exception with a justification comment stating that an operator volume count is deliberately not a viewer-block-scoped read.
+The dashboard SHALL render a signups widget showing the count of `users` rows created in the last 24 hours (by `created_at`, with a per-hour breakdown), alongside the count of `rejected_identifiers` rows (by `rejected_at`) with reason `age_under_18` over the same window (the age-gate rejection signal). The `users` read lives in the admin module, which is path-exempt from `BlockExclusionJoinRule`, so no lint annotation is required; the SQL SHALL carry a justification comment stating that an operator volume count is deliberately not a viewer-block-scoped read.
 
 #### Scenario: Signups and age-gate rejections reflect live data
 
@@ -83,7 +83,7 @@ The dashboard SHALL render a reports-volume widget showing the count of `reports
 
 ### Requirement: Top-active-cities widget
 
-The dashboard SHALL render a top-active-cities widget listing the 10 cities with the most posts over a recent window, ordered by post count descending with a deterministic tie-break (count descending, then city name ascending). Cities SHALL be grouped by the denormalized `posts.city_name` column (populated at write time by the `posts_set_city_tg` trigger), counting raw `posts`; rows with a NULL `city_name` SHALL be excluded. The widget SHALL NOT perform any read-time `admin_regions` join or `ST_Contains` spatial work (matching the `global-timeline` canonical pattern). When fewer than 10 cities have posts, the widget SHALL render only the populated rows. Because `admin_regions` is currently unseeded, `city_name` is NULL platform-wide, so the widget renders its empty-state until the polygon seed lands; the query is correct and auto-populates with no code change.
+The dashboard SHALL render a top-active-cities widget listing the 10 cities with the most posts over a recent window, ordered by post count descending with a deterministic tie-break (count descending, then city name ascending). Cities SHALL be grouped by the denormalized `posts.city_name` column (populated at write time by the `posts_set_city_tg` trigger), counting raw `posts`; rows with a NULL `city_name` SHALL be excluded. The widget SHALL NOT perform any read-time `admin_regions` join or `ST_Contains` spatial work (matching the `global-timeline` canonical pattern). When fewer than 10 cities have posts, the widget SHALL render only the populated rows. The V12 region-polygon seed is shipped, so in-polygon posts carry a populated `city_name`; posts whose location matches no seeded polygon have NULL `city_name` and are excluded.
 
 #### Scenario: Cities are ranked by post count
 
@@ -101,7 +101,7 @@ The dashboard SHALL render a top-active-cities widget listing the 10 cities with
 
 #### Scenario: Zero-state renders an empty list
 
-- **GIVEN** an authenticated session against a database with no posts carrying a non-NULL `city_name` in the window (e.g. before the `admin_regions` polygon seed lands)
+- **GIVEN** an authenticated session against a database with no posts carrying a non-NULL `city_name` in the window (no region-matched posts yet)
 - **WHEN** `GET /admin/` is served
 - **THEN** the top-active-cities widget SHALL render an empty-state (no rows) rather than an error or an omitted widget
 
@@ -114,6 +114,13 @@ The dashboard SHALL render a database-size widget showing the current size of th
 - **GIVEN** an authenticated session
 - **WHEN** `GET /admin/` is served
 - **THEN** the database-size widget SHALL show the current database size as a human-readable value
+
+#### Scenario: Database-size widget is omitted when unavailable
+
+- **GIVEN** an authenticated session
+- **AND** the size query is unavailable (e.g. the `admin_app` role cannot execute `pg_database_size`)
+- **WHEN** `GET /admin/` is served
+- **THEN** the response status SHALL be 200 with the database-size widget omitted, and the page SHALL NOT error
 
 ### Requirement: Operational widgets whose data source does not yet exist are deferred
 
