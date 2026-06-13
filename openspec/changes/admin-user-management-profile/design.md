@@ -27,7 +27,7 @@ The shipped `admin-user-moderation` Purpose names `admin-user-management` for th
 
 ### D2 — Rate-limit substrate: COUNT over `admin_actions_log`, not Redis
 
-Frame 6 poses "Redis vs COUNT `admin_actions_log`" as a design decision. **Chosen: COUNT over `admin_actions_log`.** Rationale: (a) the immutable audit trail already records every destructive action with `admin_id` + `created_at` + the action identity — it IS the natural rate-limit ledger, so no second source of truth can drift from it; (b) no new infra coupling — the admin panel does not currently depend on Redis, and adding it for a solo-to-few-admin ±20/hr soft cap is unjustified; (c) no migration — `admin_actions_type_idx (action_type, created_at DESC)` (V16/V17) already narrows the scan, and admin-action volumes are tiny. The guard query:
+Frame 6 poses "Redis vs COUNT `admin_actions_log`" as a design decision. **Chosen: COUNT over `admin_actions_log`.** Rationale: (a) the immutable audit trail already records every destructive action with `admin_id` + `created_at` + the action identity — it IS the natural rate-limit ledger, so no second source of truth can drift from it; (b) no new infra coupling — the admin panel does not currently depend on Redis, and adding it for a solo-to-few-admin ±20/hr soft cap is unjustified; (c) no migration — the COUNT's leading predicate is `admin_id = ? AND created_at > …`, served by the existing `admin_actions_admin_idx (admin_id, created_at DESC)` (V16), so the scan is bounded to one admin-hour of rows before the `after_state ->>` filter runs, and admin-action volumes are tiny. The guard query:
 
 ```sql
 SELECT COUNT(*) FROM admin_actions_log
@@ -40,7 +40,7 @@ WHERE admin_id = ?
   );
 ```
 
-Destructive report-queue resolutions all log as `moderation_queue_resolved` (shared with `keep`/`hide`), so they are isolated by the `after_state ->> 'resolution'` predicate — a small JSONB read, acceptable at admin volume. `≥ 20` → reject. **Rejected alternative (Redis sliding window):** cleaner counting but adds a runtime dependency the admin panel otherwise avoids, and risks ledger/Redis divergence.
+Destructive report-queue resolutions all log as `moderation_queue_resolved` (shared with `keep`/`hide`, which are excluded by the resolution predicate), so they are isolated by the `after_state ->> 'resolution'` predicate — a small JSONB read, acceptable at admin volume. Report-status bookkeeping logs a separate `report_resolved` action_type (not counted). The two predicate arms are disjoint — a single suspend logs exactly one of `user_suspended` (user-page) or `moderation_queue_resolved`+`resolution=suspend_author_7d` (report-queue), never both — so no action is double-counted. `≥ 20` → reject. **Rejected alternative (Redis sliding window):** cleaner counting but adds a runtime dependency the admin panel otherwise avoids, and risks ledger/Redis divergence.
 
 ### D3 — Destructive set = user-punitive actions only
 

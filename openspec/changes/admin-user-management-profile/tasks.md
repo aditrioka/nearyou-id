@@ -8,7 +8,7 @@
 
 - [ ] 2.1 Add `backend/ktor/.../admin/ratelimit/DestructiveActionRateLimiter.kt` with `countInTrailingHour(adminId, conn): Int` — the parameterized COUNT over `admin_actions_log` (design D2): `admin_id = ?` AND `created_at > NOW() - INTERVAL '1 hour'` AND (`action_type IN ('user_warned','user_suspended')` OR (`action_type = 'moderation_queue_resolved'` AND `after_state ->> 'resolution' IN ('suspend_author_7d','ban_author','shadow_ban_author')`)). Read-only; no mutation.
 - [ ] 2.2 Add `isAtOrOverCap(adminId, conn): Boolean` = `countInTrailingHour(...) >= 20`. Expose the cap constant `DESTRUCTIVE_ACTION_CAP = 20`.
-- [ ] 2.3 The check runs inside the same JDBC connection/transaction as the destructive action so it reads a consistent ledger; document the accepted ±1 concurrency tolerance (design D4) — no `FOR UPDATE` serialization added for the cap.
+- [ ] 2.3 The check runs inside the same JDBC connection/transaction as the destructive action so it reads a consistent ledger snapshot — this gives read-consistency but NOT serialization (no `FOR UPDATE` on the ledger), so the accepted ±1 concurrency tolerance (design D4) stands. Do NOT over-claim atomicity in code comments: the cap is an abuse-prevention soft limit, not a hard authz boundary.
 
 ## 3. Profile read seam (`admin-user-management`)
 
@@ -41,16 +41,16 @@
 ## 7. Tests (Kotest — one per spec scenario; do NOT skip any)
 
 - [ ] 7.1 Profile GET: existing user → 200 with identity + moderation state; serving writes no audit row and mutates nothing; unauth → 302 `/admin/login`; `display_name` markup HTML-escaped.
-- [ ] 7.2 History merge: a prior `user_suspended` row appears; a `username_history` change appears (`old`→`new`); no-history user → empty-state 200; newest-first ordering.
-- [ ] 7.3 Action controls + chip render: suspend/unban/warn controls each with `_csrf`; quota chip shows the acting admin's count against 20.
+- [ ] 7.2 History merge: a prior `user_suspended` row appears; a `username_history` change appears (`old`→`new`); no-history user → empty-state 200; newest-first ordering INCLUDING an interleaved case (rows from BOTH `admin_actions_log` and `username_history` with interleaved timestamps render in correct combined newest-first order, not merely newest-first within one source).
+- [ ] 7.3 Action controls + chip render: suspend/unban/warn controls each with `_csrf`; quota chip shows the acting admin's count against 20 — assert the chip value equals a SEEDED destructive-action count (e.g. seed 14 rows → chip reads "14/20"), AND that rendering the chip writes no `admin_actions_log` row / mutates nothing (the read-only half of the `admin-destructive-action-rate-limit` count-exposure scenario).
 - [ ] 7.4 Profile GET robustness: non-UUID `{id}` → 4xx not 500, no mutation; SQL-metacharacter id → not 500, `users` table intact; unknown well-formed UUID → empty-state 200 (not 404).
 - [ ] 7.5 Lookup deep-link: `GET /admin/users?q=<uuid>` result fragment contains a link to `/admin/users/<uuid>`.
 - [ ] 7.6 Warning happy path: writes exactly one `user_warned` audit row + exactly one `account_action_applied` notification (`body_data.action_type='warning'`); `is_banned`/`suspended_until`/`is_shadow_banned`/`token_version` unchanged; audit `admin_id` = acting admin (not the `system` sentinel).
 - [ ] 7.7 Warning atomicity: injected notification-insert failure → full rollback (no `user_warned` row, no notification).
 - [ ] 7.8 Warning reason discipline: distinctive `reason` text appears in `admin_actions_log.reason` but NOT anywhere in the notification `body_data`.
-- [ ] 7.9 Warning gating: unauth → 302 no write; missing/invalid CSRF → 403 + `admin_csrf_violation` no write; CSRF-before-role (read_only + bad CSRF → CSRF rejection); read_only + valid CSRF → role-rejected no write; malformed `{id}` → 4xx no write.
+- [ ] 7.9 Warning gating: unauth → 302 no write; missing/invalid CSRF → 403 with a POSITIVE assertion that an `admin_csrf_violation` row IS written AND no `user_warned` row is written; CSRF-before-role (read_only + bad CSRF → CSRF rejection, not role rejection); read_only + valid CSRF → role-rejected no write; malformed `{id}` → 4xx no write (and `parseTargetId` stays AFTER the role gate, so a read_only admin POSTing a malformed id gets the role rejection, not a parse 400).
 - [ ] 7.10 Rate-limit count (`admin-destructive-action-rate-limit`): a mix of 3 `user_suspended` + 2 `user_warned` + 1 `ban_author` (in window) → count 6; unban + hide + report_resolved + 5 out-of-window suspends → count 0.
-- [ ] 7.11 Rate-limit reject: at 20, a 21st `warn` and a 21st `suspend` → "quota exceeded" (not 5xx), no mutation, no new audit row, count stays 20; at 19, a destructive action applies and count → 20.
+- [ ] 7.11 Rate-limit reject: at 20, a 21st `warn` and a 21st `suspend` → "quota exceeded" (not 5xx), no new audit row, count stays 20 — assert the SPECIFIC target columns are unchanged (`is_banned`/`suspended_until` for the suspend attempt; `is_banned`/`suspended_until`/`is_shadow_banned`/`token_version` for the warn attempt), not just a generic "no mutation"; at 19, a destructive action applies and count → 20.
 - [ ] 7.12 Rate-limit scope: admin A at 20 does not block admin B (0); a non-destructive action (`unban`, `keep`/`hide`) applies even at the cap.
 - [ ] 7.13 Report-queue cap enforcement: at 20, `resolution=ban_author` → "quota exceeded", queue stays `pending`, author `is_banned` unchanged, no audit row; at the cap `resolution=hide` and `decision=dismissed` still apply; at 19, `resolution=suspend_author_7d` applies + one audit row.
 
