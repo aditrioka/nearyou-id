@@ -225,7 +225,7 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 22. **Subscription grace period monitor** (daily check for expiry, manual expedite capability)
 23. **Chat message redaction capability** for admin (severe violations only)
 24. **Premium Username Change Oversight (admin)**: read-only `username_history` viewer, surface `moderation_queue` entries with `trigger = 'username_flagged'`, admin override action for borderline candidates (rate-limited 10/hour), manual release of old handle from 30-day hold (rate-limited 5/hour), all audit-logged
-25. **Feature flag admin UI** (toggle Remote Config including `premium_username_customization_enabled`, audit logged, rate-limited)
+25. **Feature flag admin UI** — **SHIPPED** (`admin-feature-flag-editor`): `GET /admin/feature-flags` toggle surface (6 flags + `moderation_match_threshold`) via Server-template REST publish, owner/admin + CSRF + 5/hour rate limit + one `feature_flag_toggled` audit row; wordlist-content editing deferred ([#305](https://github.com/aditrioka/nearyou-id/issues/305))
 26. **Reserved usernames editor** (paginated view + filter by `source`, add single + CSV bulk add, edit reason, remove with `source = 'seed_system'` protection at UI + DB trigger, audit log via `admin_actions_log` with `reserved_username_added` / `reserved_username_edited` / `reserved_username_removed` action types)
 27. **Rejected identifiers viewer** (read-only, anti-abuse audit + support manual clear path for legitimate adult re-verification)
 

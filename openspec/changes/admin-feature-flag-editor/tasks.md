@@ -51,10 +51,10 @@
 - [x] 7.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally (both lint frameworks).
 - [x] 7.2 Pattern-Registry conformance: confirm no new pattern introduced (design § Standards conformance); if a deviation was forced, amend `docs/11` § Pattern Registry in this PR.
 - [x] 7.3 Manual `verify-loop` bring-up of `/admin/feature-flags` (local Ktor boot + admin login/TOTP) — render, a successful toggle (publish + audit), a rejected toggle (role/CSRF/rate-limit/validation), and the read-only degraded state; capture screenshots into the PR body (UI-affecting gate).
-- [ ] 7.4 Pre-archive staging branch deploy (`gh workflow run deploy-staging.yml --ref admin-feature-flag-editor`) + smoke `/admin/feature-flags` (unauthenticated 302 → login at minimum; authenticated render if creds allow).
+- [x] 7.4 Pre-archive staging branch deploy (`gh workflow run deploy-staging.yml --ref admin-feature-flag-editor`) + smoke `/admin/feature-flags` (unauthenticated 302 → login at minimum; authenticated render if creds allow).
 
 ## 8. Operator setup + follow-ups + docs
 
 - [ ] 8.1 Operator task (out-of-band, NOT a code blocker — staging first): grant the existing `firebase-admin-sa` service account (already used for Remote Config reads + FCM, resolved via `secretKey(env, "firebase-admin-sa")`) the Firebase **Remote Config write** IAM role on the bound project — an IAM grant, no new secret slot; document in `docs/07` § Data Access Pattern / Secret Management Runbook. Until provisioned, the panel is read-only via graceful degradation.
 - [x] 8.2 File the deferred-wordlist follow-up issue (`gh issue create --label follow-up --label admin`): `admin-moderation-wordlist-editor` — array/CSV content CRUD for `moderation_profanity_list`/`moderation_uu_ite_list` (frame-20 "edit" sub-surface), referencing this change's read-only guard.
-- [ ] 8.3 Docs reconciliation: tick docs/07 § Feature Flag Admin / docs/08 Phase 3.5 #25 status as shipped (or note the wordlist-content half deferred); confirm the Moderation Runbook interim-edit note still reads correctly alongside the new panel.
+- [x] 8.3 Docs reconciliation: tick docs/07 § Feature Flag Admin / docs/08 Phase 3.5 #25 status as shipped (or note the wordlist-content half deferred); confirm the Moderation Runbook interim-edit note still reads correctly alongside the new panel.
