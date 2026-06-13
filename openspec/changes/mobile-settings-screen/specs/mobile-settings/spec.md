@@ -64,7 +64,7 @@ Per the operator's mockup-faithful-shell scope decision, `SettingsScreen` SHALL 
 
 ### Requirement: Block-list management lists the viewer's blocked users and unblocks them
 
-`BlockedUsersScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/settings/BlockedUsersScreen.kt`) SHALL list the authenticated viewer's outbound blocks by issuing `GET /api/v1/blocks` (via the existing `Auth { bearer }`-interceptor `HttpClient`) and SHALL allow unblocking a listed user by issuing `DELETE /api/v1/blocks/{user_id}`. Each list row SHALL render the blocked user's **display name** and **@username handle** (handle via a `stringResource` format) and an unblock affordance; the row SHALL NOT render the blocked user's UUID or any raw coordinate (PII discipline — the `userId` is held only as the `DELETE` path parameter, never displayed or logged). A successful unblock SHALL remove the row from the list; unblocking is reversible by re-blocking from the user's profile (no undo control is shipped). The screen SHALL render the loading / empty / error states per the `mobile-design-system` loading-refresh + empty-error state contract — the empty state SHALL show `stringResource(Res.string.blocked_users_empty)` ("Belum ada pengguna yang diblokir"). A terminal `401` on either call SHALL route to the sign-in surface (token-invalid), consistent with the other authenticated screens.
+`BlockedUsersScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/settings/BlockedUsersScreen.kt`) SHALL list the authenticated viewer's outbound blocks by issuing `GET /api/v1/blocks` (via the existing `Auth { bearer }`-interceptor `HttpClient`) and SHALL allow unblocking a listed user by issuing `DELETE /api/v1/blocks/{user_id}`. Each list row SHALL render the blocked user's **display name** and **@username handle** (handle via a `stringResource` format) and an unblock affordance; the row SHALL NOT render the blocked user's UUID or any raw coordinate (PII discipline — the `userId` is held only as the `DELETE` path parameter, never displayed or logged). A successful unblock SHALL remove the row from the list; unblocking is reversible by re-blocking from the user's profile (no undo control is shipped). If the unblock `DELETE` fails (5xx / network), the row SHALL remain in — or be restored to — the list and a non-trapping error SHALL surface: the list SHALL NOT optimistically drop a row whose unblock did not succeed. The screen SHALL render the loading / empty / error states per the `mobile-design-system` loading-refresh + empty-error state contract — the empty state SHALL show `stringResource(Res.string.blocked_users_empty)` ("Belum ada pengguna yang diblokir"). A terminal `401` on either call SHALL route to the sign-in surface (token-invalid), consistent with the other authenticated screens. The blocked user's `userId` (UUID) SHALL never be logged anywhere in the block package.
 
 #### Scenario: Block list renders the viewer's blocks without UUIDs
 
@@ -77,6 +77,17 @@ Per the operator's mockup-faithful-shell scope decision, `SettingsScreen` SHALL 
 - **GIVEN** a rendered block list with one blocked user `raka.jkt` (`userId = 1111…`) and a MockEngine recording requests
 - **WHEN** the unblock affordance on that row is activated and the server responds success
 - **THEN** exactly one `DELETE /api/v1/blocks/11111111-1111-1111-1111-111111111111` request was recorded AND the row is removed from the rendered list
+
+#### Scenario: A failed unblock keeps the row and surfaces an error
+
+- **GIVEN** a rendered block list with one blocked user (`userId = 1111…`) and a MockEngine returning `DELETE /api/v1/blocks/{userId}` → `500`
+- **WHEN** the unblock affordance on that row is activated
+- **THEN** the row remains present in the rendered list AND a non-trapping error is surfaced (no silent optimistic removal, no crash, no sign-in redirect)
+
+#### Scenario: The block package logs no blocked-user identifier
+
+- **WHEN** the block data-seam (`BlockedUsersApiClient`/`Repository`) and `BlockedUsersScreen` sources are scanned
+- **THEN** no logging call site passes a blocked user's `userId` (UUID), `username`, or `displayName` as a logged argument
 
 #### Scenario: Empty block list shows the empty-state copy and no error
 
@@ -121,6 +132,12 @@ The PRIVASI > "Privasi & data" sub-screen `ConsentSettingsScreen` (file: `mobile
 - **WHEN** the save affordance is tapped twice in rapid succession
 - **THEN** exactly one `PATCH /api/v1/user/consent` request was recorded
 
+#### Scenario: A 401 on consent submit routes to sign-in
+
+- **GIVEN** `ConsentSettingsScreen` with a MockEngine returning `PATCH /api/v1/user/consent` → `401`
+- **WHEN** the save affordance is activated
+- **THEN** a navigation event routing to the sign-in surface is emitted (terminal token-invalid) AND no in-screen retryable error is shown
+
 #### Scenario: Consent sources contain no token/sub/body log argument
 
 - **WHEN** the `screens/settings/**` consent sources and the reused `consent/**` package are scanned
@@ -128,7 +145,7 @@ The PRIVASI > "Privasi & data" sub-screen `ConsentSettingsScreen` (file: `mobile
 
 ### Requirement: Consent settings initialize from the last-submitted snapshot, falling back to the V2 safe defaults
 
-Because there is NO server consent-read endpoint (the `analytics-consent-update` capability ships `PATCH` only; the `mobile-analytics-consent` onboarding screen issues no GET), `ConsentSettingsScreen` SHALL initialize its toggles from the **last-submitted consent snapshot** persisted on the device on each successful `PATCH`, falling back to the V2 column defaults — **analytics OFF, crash ON, ads OFF** — when no snapshot exists (e.g. a returning user who consented only at onboarding, before any settings submit). The initial state SHALL be injectable for testability (a default-values parameter / initial `ConsentUiState`), not read from wall-clock or platform state. The true-server-state read gap (so settings can reflect the authoritative server value rather than a best-effort local mirror) SHALL be recorded as a follow-up GitHub issue (label `follow-up`), related to the deferred reliable-persist hardening tracked by issue [#198](https://github.com/aditrioka/nearyou-id/issues/198).
+Because there is NO server consent-read endpoint (the `analytics-consent-update` capability ships `PATCH` only; the `mobile-analytics-consent` onboarding screen issues no GET), `ConsentSettingsScreen` SHALL initialize its toggles from the **last-submitted consent snapshot** persisted on the device on each successful `PATCH`, falling back to the V2 column defaults — **analytics OFF, crash ON, ads OFF** — when no snapshot exists (e.g. a returning user who consented only at onboarding, before any settings submit). The persisted snapshot value SHALL be the triple the server **echoes in the `PATCH` `200` body** (`ConsentResponse` — the server's authoritative acknowledgement of the write), not a client-side guess, so the mirror cannot drift from the last server-acknowledged state on this single-device PATCH-only flow. The initial state SHALL be injectable for testability (a default-values parameter / initial `ConsentUiState`), not read from wall-clock or platform state. A true server-side consent-read endpoint (so settings could reflect a value changed on another device) and durable cross-session persistence hardening remain OUT of scope and SHALL be recorded as a follow-up GitHub issue (label `follow-up`), related to the deferred reliable-persist hardening tracked by issue [#198](https://github.com/aditrioka/nearyou-id/issues/198); the follow-up note SHALL record that the `PATCH` `200` already round-trips the authoritative triple, so a dedicated GET is a robustness nicety, not a correctness gap for the single-device case.
 
 #### Scenario: No prior submit → toggles default to analytics OFF, crash ON, ads OFF
 
@@ -144,9 +161,15 @@ Because there is NO server consent-read endpoint (the `analytics-consent-update`
 
 #### Scenario: A successful submit updates the persisted snapshot
 
-- **GIVEN** `ConsentSettingsScreen` with the user toggling Analytics ON and submitting, the server responding `200`
+- **GIVEN** `ConsentSettingsScreen` with the user toggling Analytics ON and submitting, the server responding `200` with the echoed triple
 - **WHEN** the persisted snapshot is read back
-- **THEN** the snapshot reflects the just-submitted triple (so a later settings re-entry initializes to it)
+- **THEN** the snapshot reflects the server-echoed triple from the `200` body (so a later settings re-entry initializes to it)
+
+#### Scenario: A snapshot written by one instance seeds a freshly reconstructed instance
+
+- **GIVEN** a shared on-device snapshot store and a first consent state-holder that submits `{analytics = true, crash = true, ads_personalization = false}` and receives `200`
+- **WHEN** a SECOND consent state-holder is constructed from the SAME store (simulating a later app entry / process restart — NOT the same in-memory instance)
+- **THEN** the second instance initializes its toggles to `{analytics = true, crash = true, ads_personalization = false}` (read back from the store, not the V2 default)
 
 ### Requirement: Logout clears the token store and routes to sign-in
 
@@ -191,6 +214,16 @@ The change SHALL ship: (1) Robolectric `*ScreenTest`s for `SettingsScreen` and `
 
 - **WHEN** inspecting the mobile test sources and `mobile/app/build.gradle.kts`
 - **THEN** `SettingsScreenTest` and `BlockedUsersScreenTest` exist under `androidUnitTest` AND both are named in the Release-variant test-exclude list
+
+#### Scenario: commonTest covers the projections, snapshot init, and Koin resolution
+
+- **WHEN** inspecting the `commonTest` sources
+- **THEN** tests exist for the block-list DTO parse, the block-list / consent UI-state projections, the consent snapshot init (no-snapshot → V2 default; snapshot → snapshot; reconstruct → seed), and the settings Koin resolution
+
+#### Scenario: An iOS flow test exercises the settings surface
+
+- **WHEN** inspecting `mobile/app/src/iosTest/...`
+- **THEN** a settings flow test exists (open settings → block list → consent → back) with Kotlin/Native-legal test function names
 
 ### Requirement: Account deletion, data export, suspension countdown, and notification chat-preview are explicitly out of scope
 
