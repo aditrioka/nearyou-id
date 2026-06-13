@@ -15,9 +15,11 @@ import id.nearyou.app.admin.featureflags.FeatureFlagToggleRateLimiter
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
+import id.nearyou.app.admin.ratelimit.ReservedUsernameActionRateLimiter
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
 import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
+import id.nearyou.app.admin.reservedusernames.ReservedUsernamesRepository
 import id.nearyou.app.admin.routes.AdminIndexStatsRepository
 import id.nearyou.app.admin.routes.AdminLayout
 import id.nearyou.app.admin.routes.adminActionsLog
@@ -29,6 +31,7 @@ import id.nearyou.app.admin.routes.adminPrivacyFlips
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
 import id.nearyou.app.admin.routes.adminReportQueue
 import id.nearyou.app.admin.routes.adminReportResolution
+import id.nearyou.app.admin.routes.adminReservedUsernames
 import id.nearyou.app.admin.routes.adminUserModeration
 import id.nearyou.app.admin.usermanagement.UserProfileRepository
 import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
@@ -100,6 +103,9 @@ fun Application.admin(
     val privacyFlipsRepository = AdminPrivacyFlipsRepository(dataSource)
     val reportQueueRepository = ReportQueueRepository(dataSource)
     val destructiveActionRateLimiter = DestructiveActionRateLimiter(dataSource)
+    val reservedUsernameActionRateLimiter = ReservedUsernameActionRateLimiter(dataSource)
+    val reservedUsernamesRepository =
+        ReservedUsernamesRepository(dataSource, auditLogger, reservedUsernameActionRateLimiter)
     val userModerationRepository =
         UserModerationRepository(dataSource, auditLogger, destructiveActionRateLimiter)
     val userProfileRepository = UserProfileRepository(dataSource)
@@ -213,6 +219,12 @@ fun Application.admin(
                 )
                 adminChatRedaction(chatRedactionRepository, auditLogger, layout)
                 adminFeatureFlags(featureFlagService, auditLogger, layout)
+                adminReservedUsernames(
+                    reservedUsernamesRepository,
+                    reservedUsernameActionRateLimiter,
+                    auditLogger,
+                    layout,
+                )
             }
         }
     }

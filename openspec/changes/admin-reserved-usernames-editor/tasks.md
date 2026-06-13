@@ -1,35 +1,35 @@
 ## 1. Pre-implementation checks
 
-- [ ] 1.1 Re-confirm zero-migration preconditions: `reserved_usernames` table + `reserved_usernames_protect_seed` + `reserved_usernames_set_updated_at` triggers exist (V3); `admin_app` has `SELECT/INSERT/UPDATE/DELETE` on `reserved_usernames` (provision-admin-app-staging.sh); `admin_actions_log.action_type` is a free `VARCHAR(64)` (no CHECK); latest migration on the branch base is V20 (this change adds none).
-- [ ] 1.2 Confirm signup's reserved-username check normalization (lowercase + exact match) so D9 add-normalization matches; if signup normalizes differently, align D9 before coding (design § Open Questions).
+- [x] 1.1 Re-confirm zero-migration preconditions: `reserved_usernames` table + `reserved_usernames_protect_seed` + `reserved_usernames_set_updated_at` triggers exist (V3); `admin_app` has `SELECT/INSERT/UPDATE/DELETE` on `reserved_usernames` (provision-admin-app-staging.sh); `admin_actions_log.action_type` is a free `VARCHAR(64)` (no CHECK); latest migration on the branch base is V20 (this change adds none).
+- [x] 1.2 Confirm signup's reserved-username check normalization (lowercase + exact match) so D9 add-normalization matches; if signup normalizes differently, align D9 before coding (design § Open Questions).
 - [ ] 1.3 Render mockup **frame 21** (headless Chrome per the render rule) + generate the measurement annex (`dev/scripts/mockup-measure.sh nearyou-admin-mockup 21`) for spacing / typography / token mapping (docs/11 §3.6).
-- [ ] 1.4 Confirm no new library pin / no `libs.versions.toml` change → propose-time/pre-impl library re-check is N/A (skip).
+- [x] 1.4 Confirm no new library pin / no `libs.versions.toml` change → propose-time/pre-impl library re-check is N/A (skip).
 
 ## 2. Data layer (repository + rate limiter)
 
-- [ ] 2.1 `ReservedUsernameActionRateLimiter` in `admin/ratelimit/`, mirroring `DestructiveActionRateLimiter`: `countInTrailingHour(conn, adminId)` = COUNT over `admin_actions_log` for `admin_id`, `created_at > NOW() - INTERVAL '1 hour'`, `action_type IN ('reserved_username_added','reserved_username_edited','reserved_username_removed')`; `isAtOrOverCap(conn, adminId)` ≥ `RESERVED_USERNAME_ACTION_CAP = 100`; own-connection overload for the quota chip (D1).
-- [ ] 2.2 `ReservedUsernamesRepository` list query: keyset `(created_at DESC, username)` + `source` filter + case-insensitive substring `username` search; runs on the shared bounded JDBC dispatcher against the admin-app dataSource (D5, docs/11 §3.2).
-- [ ] 2.3 `addSingle` (one transaction): rate-limit pre-check → `INSERT ... ON CONFLICT (username) DO NOTHING` with `source='admin_added'`; map to sealed outcome `Added` / `AlreadyReserved`; on `Added` write the `reserved_username_added` audit row in the SAME transaction (D7).
-- [ ] 2.4 `bulkAdd` (one transaction): parse rows into `added` / `skipped_duplicate` / `skipped_invalid` buckets; if `count + |added| > 100` → roll back, return `RateLimited` (whole-bulk reject, D2); else INSERT the added rows + one `reserved_username_added` audit row each + COMMIT; return the three-bucket report.
-- [ ] 2.5 `editReason` (one transaction): rate-limit pre-check → load row (missing → `NotFound`); `seed_system` → `SeedProtected` (no mutation/audit); else `UPDATE reason` + `reserved_username_edited` audit row with `before_state.reason`/`after_state.reason` (D4, D7).
-- [ ] 2.6 `remove` (one transaction): rate-limit pre-check → load row (missing → `NotFound`); `seed_system` → `SeedProtected`; else `DELETE` + `reserved_username_removed` audit row with `before_state`; defensively catch the `reserved_usernames_protect_seed` trigger exception → `SeedProtected` (never a 5xx) (D4, D7).
-- [ ] 2.7 Sealed outcome types per op (`Added`/`AlreadyReserved`/`NotFound`/`SeedProtected`/`RateLimited` + bulk report); audit INSERT shares the op's `Connection` (atomic).
-- [ ] 2.8 Koin wiring in `AdminModule` (repository + rate limiter); reuse the existing admin-app dataSource + bounded dispatcher bindings.
+- [x] 2.1 `ReservedUsernameActionRateLimiter` in `admin/ratelimit/`, mirroring `DestructiveActionRateLimiter`: `countInTrailingHour(conn, adminId)` = COUNT over `admin_actions_log` for `admin_id`, `created_at > NOW() - INTERVAL '1 hour'`, `action_type IN ('reserved_username_added','reserved_username_edited','reserved_username_removed')`; `isAtOrOverCap(conn, adminId)` ≥ `RESERVED_USERNAME_ACTION_CAP = 100`; own-connection overload for the quota chip (D1).
+- [x] 2.2 `ReservedUsernamesRepository` list query: keyset `(created_at DESC, username)` + `source` filter + case-insensitive substring `username` search; runs on the shared bounded JDBC dispatcher against the admin-app dataSource (D5, docs/11 §3.2).
+- [x] 2.3 `addSingle` (one transaction): rate-limit pre-check → `INSERT ... ON CONFLICT (username) DO NOTHING` with `source='admin_added'`; map to sealed outcome `Added` / `AlreadyReserved`; on `Added` write the `reserved_username_added` audit row in the SAME transaction (D7).
+- [x] 2.4 `bulkAdd` (one transaction): parse rows into `added` / `skipped_duplicate` / `skipped_invalid` buckets; if `count + |added| > 100` → roll back, return `RateLimited` (whole-bulk reject, D2); else INSERT the added rows + one `reserved_username_added` audit row each + COMMIT; return the three-bucket report.
+- [x] 2.5 `editReason` (one transaction): rate-limit pre-check → load row (missing → `NotFound`); `seed_system` → `SeedProtected` (no mutation/audit); else `UPDATE reason` + `reserved_username_edited` audit row with `before_state.reason`/`after_state.reason` (D4, D7).
+- [x] 2.6 `remove` (one transaction): rate-limit pre-check → load row (missing → `NotFound`); `seed_system` → `SeedProtected`; else `DELETE` + `reserved_username_removed` audit row with `before_state`; defensively catch the `reserved_usernames_protect_seed` trigger exception → `SeedProtected` (never a 5xx) (D4, D7).
+- [x] 2.7 Sealed outcome types per op (`Added`/`AlreadyReserved`/`NotFound`/`SeedProtected`/`RateLimited` + bulk report); audit INSERT shares the op's `Connection` (atomic).
+- [x] 2.8 Koin wiring in `AdminModule` (repository + rate limiter); reuse the existing admin-app dataSource + bounded dispatcher bindings.
 
 ## 3. Routes (`admin/routes/AdminReservedUsernamesRoute.kt`)
 
-- [ ] 3.1 `GET /admin/reserved-usernames` — any authenticated admin role; parse `source` / `q` / cursor; render `reserved-usernames.peb` (page) or `reserved-usernames-table.peb` (HX fragment).
-- [ ] 3.2 `POST /admin/reserved-usernames` (add single) — gate order: `AdminCsrfGate.validateCsrf` → `AdminRoleGate.requireWriteRole` → read body once via `formParametersAfterValidation` → validate/normalize `username` (lowercase + charset, 1..30) + `reason` (non-blank, **≤64 — matches the `reserved_usernames.reason VARCHAR(64)` column, so over-length is a 400 not a 22001 overflow 5xx**) → `addSingle`; map outcome to dual-mode response (D6, D9, D10).
-- [ ] 3.3 `POST /admin/reserved-usernames/bulk` — the CSV arrives as a **text/textarea form field** (read via the CSRF-gated `formParametersAfterValidation` path; **not** a `multipart/form-data` file upload — D8); gate order; enforce ≤1000 rows / ≤256 KB → 400 before parse; empty/header-only → empty report; `bulkAdd`; render the three-bucket report.
-- [ ] 3.4 `POST /admin/reserved-usernames/{username}/edit-reason` — gate order; parse `{username}` + `reason`; `editReason`; map outcome.
-- [ ] 3.5 `POST /admin/reserved-usernames/{username}/remove` — gate order; parse `{username}`; `remove`; map outcome.
-- [ ] 3.6 Mount the routes inside `authenticate(ADMIN_AUTH_NAME)` in `AdminModule`; English-only in-band message constants ("already reserved", "seed entry cannot be edited/removed", "not found", "quota exceeded (100/hour)", "would exceed your 100/hour quota").
+- [x] 3.1 `GET /admin/reserved-usernames` — any authenticated admin role; parse `source` / `q` / cursor; render `reserved-usernames.peb` (page) or `reserved-usernames-table.peb` (HX fragment).
+- [x] 3.2 `POST /admin/reserved-usernames` (add single) — gate order: `AdminCsrfGate.validateCsrf` → `AdminRoleGate.requireWriteRole` → read body once via `formParametersAfterValidation` → validate/normalize `username` (lowercase + charset, 1..30) + `reason` (non-blank, **≤64 — matches the `reserved_usernames.reason VARCHAR(64)` column, so over-length is a 400 not a 22001 overflow 5xx**) → `addSingle`; map outcome to dual-mode response (D6, D9, D10).
+- [x] 3.3 `POST /admin/reserved-usernames/bulk` — the CSV arrives as a **text/textarea form field** (read via the CSRF-gated `formParametersAfterValidation` path; **not** a `multipart/form-data` file upload — D8); gate order; enforce ≤1000 rows / ≤256 KB → 400 before parse; empty/header-only → empty report; `bulkAdd`; render the three-bucket report.
+- [x] 3.4 `POST /admin/reserved-usernames/{username}/edit-reason` — gate order; parse `{username}` + `reason`; `editReason`; map outcome.
+- [x] 3.5 `POST /admin/reserved-usernames/{username}/remove` — gate order; parse `{username}`; `remove`; map outcome.
+- [x] 3.6 Mount the routes inside `authenticate(ADMIN_AUTH_NAME)` in `AdminModule`; English-only in-band message constants ("already reserved", "seed entry cannot be edited/removed", "not found", "quota exceeded (100/hour)", "would exceed your 100/hour quota").
 
 ## 4. UI (Pebble templates + nav, frame 21)
 
-- [ ] 4.1 `reserved-usernames.peb` (filter bar: `source` select + search; add-single form; CSV bulk-add **textarea** — paste `username,reason` lines, a text field not a file picker, D8; table) + `reserved-usernames-table.peb` (fragment) — vendored vanilla CSS tokens copied from the frame-21 `.frame` block; **HTML-escape** every `username`/`reason`; no-JS fallback forms carry the `_csrf` hidden field; responsive contract (frame 4b).
-- [ ] 4.2 Sidebar nav entry "Reserved usernames" in `AdminLayout` (frame 21 grouping) + `activePath = "/admin/reserved-usernames"`.
-- [ ] 4.3 Read-only "N/100 this hour" quota chip on the page (parity with the user-management destructive chip; drop if it complicates the fragment — design § Open Questions).
+- [x] 4.1 `reserved-usernames.peb` (filter bar: `source` select + search; add-single form; CSV bulk-add **textarea** — paste `username,reason` lines, a text field not a file picker, D8; table) + `reserved-usernames-table.peb` (fragment) — vendored vanilla CSS tokens copied from the frame-21 `.frame` block; **HTML-escape** every `username`/`reason`; no-JS fallback forms carry the `_csrf` hidden field; responsive contract (frame 4b).
+- [x] 4.2 Sidebar nav entry "Reserved usernames" in `AdminLayout` (frame 21 grouping) + `activePath = "/admin/reserved-usernames"`.
+- [x] 4.3 Read-only "N/100 this hour" quota chip on the page (parity with the user-management destructive chip; drop if it complicates the fragment — design § Open Questions).
 - [ ] 4.4 Apply the frame-21 measurement annex (spacing/type/token mapping) to the templates.
 
 ## 5. Tests (kotest; `@Tags("database")` for route/repository integration; new `*RoutesTest` `autoClose(hikari())` + size 2 per the CI connection budget)

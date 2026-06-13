@@ -45,6 +45,8 @@
 <svg class="ic" data-icon="storage" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm2 3h2V5H4v2zm-2 7h20v-4H2v4zm2-3h2v2H4v-2z"/></svg>
 {%- elseif name == "toggle_on" -%}
 <svg class="ic" data-icon="toggle_on" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17 7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h10c2.76 0 5-2.24 5-5s-2.24-5-5-5zm0 8c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
+{%- elseif name == "badge" -%}
+<svg class="ic" data-icon="badge" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 7h-4V5l-2-2h-4L8 5v2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zM10 5h4v2h-4V5zm10 15H4V9h16v11z"/><path d="M12 12c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm4 4.43c0-.81-.48-1.53-1.22-1.85C13.93 14.21 12.99 14 12 14s-1.93.21-2.78.58C8.48 14.9 8 15.62 8 16.43V17h8v-.57z"/></svg>
 {%- else -%}
 {# Unknown icon name → visible sentinel instead of silent empty output, so a
    typo'd call fails loudly in any render/test that looks at data-icon. #}

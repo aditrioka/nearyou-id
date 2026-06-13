@@ -1,0 +1,88 @@
+{# Swappable reserved-usernames fragment. Rendered standalone for HTMX requests
+   (HX-Request: true) and {% include %}d by reserved-usernames.peb for full-page
+   navigation. The #reserved-usernames-table id is the hx-target swapped in place.
+
+   Every value is Pebble-autoescaped on output — NO `raw` filter is used on any
+   value. Escaping is LOAD-BEARING: `username` + `reason` are admin-supplied free
+   text, so markup is entity-encoded, never executed.
+
+   Per-row edit/remove forms render ONLY for `admin_added` rows; `seed_system`
+   rows show "protected" (the app-layer guard; the V3 trigger is the DB backstop).
+   CSRF: the full-page (no-JS) render carries `csrfToken` so the in-row `_csrf`
+   hidden fields populate; the HTMX-fragment render omits it (the layout's
+   htmx:configRequest hook adds the X-CSRF-Token header from the meta tag). #}
+<div id="reserved-usernames-table">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+{% if report is not null %}
+    <div class="banner info">
+        Bulk result: <b>{{ report.addedCount }}</b> added,
+        <b>{{ report.skippedDuplicateCount }}</b> skipped (duplicate),
+        <b>{{ report.skippedInvalidCount }}</b> skipped (invalid).
+        {% if report.skippedInvalidCount > 0 %}
+        <ul class="bulk-invalid">
+        {% for inv in report.skippedInvalid %}<li>line {{ inv.line }}: {{ inv.problem }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+{% endif %}
+<p class="quota-chip">Reserved-username actions this hour: {{ quotaUsed }}/{{ quotaCap }}</p>
+{% if hasRows %}
+    <div class="tbl-wrap">
+    <table class="tbl">
+        <thead>
+            <tr><th>Username</th><th>Reason</th><th>Source</th><th>Updated (UTC)</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td><span class="code">{{ row.username }}</span></td>
+                <td>{{ row.reason }}</td>
+                <td>{% if row.isSeed %}<span class="st neut">seed</span>{% else %}<span class="st info">admin</span>{% endif %}</td>
+                <td>{{ row.updatedAt }}</td>
+                <td>
+                {% if row.isSeed %}
+                    <span class="muted">protected</span>
+                {% else %}
+                    <form class="edit-reason"
+                          action="{{ row.editAction }}"
+                          method="POST"
+                          hx-post="{{ row.editAction }}"
+                          hx-target="#reserved-usernames-table"
+                          hx-swap="outerHTML">
+                        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                        <input type="text" name="reason" maxlength="64" value="{{ row.reason }}" aria-label="New reason">
+                        <button type="submit" class="btn tonal sm">Save reason</button>
+                    </form>
+                    <form class="remove-reserved"
+                          action="{{ row.removeAction }}"
+                          method="POST"
+                          hx-post="{{ row.removeAction }}"
+                          hx-target="#reserved-usernames-table"
+                          hx-swap="outerHTML"
+                          hx-confirm="Remove the reserved username '{{ row.username }}'? This cannot be undone.">
+                        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                        <button type="submit" class="btn danger sm">Remove</button>
+                    </form>
+                {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if olderUrl is not null %}
+    <div class="pager">
+        <a class="pagination-older"
+           href="{{ olderUrl }}"
+           hx-get="{{ olderUrl }}"
+           hx-target="#reserved-usernames-table"
+           hx-swap="outerHTML"
+           hx-push-url="true">Load older</a>
+    </div>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No reserved usernames match the current filters.</p>
+{% endif %}
+</div>
