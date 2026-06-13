@@ -253,10 +253,13 @@ class RevenueCatWebhookRoutesTest : StringSpec({
         }
     }
 
-    "5.1 a valid-OIDC-shaped bearer (not the shared secret) → 401 (route does NOT inherit OIDC)" {
+    "5.1 a non-secret (OIDC-shaped) bearer → 401 (only the shared secret admits)" {
         withApp {
-            // A Google-OIDC-looking JWT is just a non-matching bearer here — the route
-            // has no OIDC plugin, so only the shared secret admits.
+            // A Google-OIDC-looking JWT is just a non-matching bearer here — this test
+            // app mounts only the vendor route (no OIDC plugin), so it proves "non-secret
+            // bearer → 401". The genuine "does NOT inherit the /internal OIDC gate"
+            // isolation proof (route co-mounted WITH the gate) lives in
+            // InternalRoutingIsolationTest.
             val jwtish = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJzY2hlZHVsZXIifQ.sig"
             val resp =
                 createClient { install(ClientCN) { json() } }.post("/internal/revenuecat-webhook") {
@@ -437,6 +440,15 @@ class RevenueCatWebhookRoutesTest : StringSpec({
         } finally {
             cleanup(u)
         }
+    }
+
+    "5.2 CANCELLATION for an unknown user → UnknownUser, no writes (self-assign existence path)" {
+        val orphan = UUID.randomUUID()
+        // Exercises the newStatus=null (cancellation) self-assign UPDATE on a
+        // non-existent user — 0 rows ⇒ orphan ⇒ no event recorded.
+        service.process(incoming("CANCELLATION", "rc_cancel_orphan_$orphan", orphan)) shouldBe
+            SubscriptionService.Result.UnknownUser
+        countEvents("rc_cancel_orphan_$orphan") shouldBe 0
     }
 
     // ---------- 5.3 State machine ----------

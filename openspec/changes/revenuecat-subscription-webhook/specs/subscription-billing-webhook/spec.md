@@ -96,7 +96,7 @@ The backend SHALL set `users.subscription_status = 'premium_billing_retry'` when
 
 ### Requirement: Expiration events downgrade the user to Free
 
-The backend SHALL set `users.subscription_status = 'free'` when it processes an `EXPIRATION` event — the `EXPIRATION` event is the authoritative terminal billing signal. Any `EXPIRATION` event is terminal **regardless of its `expiration_reason`** (per `docs/01` § Payment Stack: "only EXPIRATION flips to free" — a `BILLING_ERROR` lapse and a voluntary lapse alike); the reason value is recorded on the `subscription_events` row for analytics but MUST NOT gate the downgrade. The handler SHALL write a `subscription_expired` notification for the user and record an `expiration` event.
+The backend SHALL set `users.subscription_status = 'free'` when it processes an `EXPIRATION` event — the `EXPIRATION` event is the authoritative terminal billing signal. Any `EXPIRATION` event is terminal **regardless of its `expiration_reason`** (per `docs/01` § Payment Stack: "only EXPIRATION flips to free" — a `BILLING_ERROR` lapse and a voluntary lapse alike); the reason MUST NOT gate the downgrade and is NOT persisted in this change (`subscription_events` carries no reason column per `docs/05`). The handler SHALL write a `subscription_expired` notification for the user and record an `expiration` event.
 
 #### Scenario: Expiration downgrades to Free and notifies
 - **WHEN** an authenticated `EXPIRATION` event is processed for a `premium_billing_retry` user

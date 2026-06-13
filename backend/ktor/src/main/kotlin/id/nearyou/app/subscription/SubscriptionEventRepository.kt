@@ -25,7 +25,10 @@ class SubscriptionEventRepository {
      * (a `CANCELLATION`, which does not change status) the statement is a
      * no-op self-assignment whose sole purpose is the existence check; it
      * rolls back cleanly with the surrounding transaction if the event turns
-     * out to be a duplicate.
+     * out to be a duplicate. This relies on `users` having no row-touch
+     * BEFORE-UPDATE trigger (no `updated_at`-style side effect) — if one is
+     * ever added, swap this for an explicit existence read carrying
+     * `@AllowMissingBlockJoin` so a cancellation doesn't silently bump a row.
      */
     fun applyStatusReturningExists(
         conn: Connection,

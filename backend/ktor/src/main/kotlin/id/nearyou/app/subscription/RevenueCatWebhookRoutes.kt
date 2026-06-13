@@ -67,9 +67,9 @@ fun Application.revenueCatWebhookRoutes(
                 }
             }
 
-            val rawBody = call.receiveText()
-
-            // --- Vendor auth: mandatory Bearer, conditional HMAC ---
+            // --- Vendor auth: mandatory Bearer FIRST, before reading the body, so an
+            //     unauthenticated (especially chunked) caller cannot stream an unbounded
+            //     body past the Content-Length guard above. ---
             val bearer = extractBearer(call.request.header(HttpHeaders.Authorization))
             if (bearer == null) {
                 logAuthFailure("missing_bearer")
@@ -86,6 +86,10 @@ fun Application.revenueCatWebhookRoutes(
                 return@post call.respond(HttpStatusCode.Unauthorized, error("unauthorized"))
             }
 
+            // Read the raw body only AFTER the Bearer is validated (HMAC needs it raw).
+            val rawBody = call.receiveText()
+
+            // --- Conditional HMAC over the raw body ---
             val signature = call.request.header(SIGNATURE_HEADER)
             if (signature != null) {
                 val hmacSecret = secrets.resolve(SECRET_HMAC)
@@ -217,10 +221,12 @@ private data class RevenueCatEvent(
     val type: String? = null,
     val id: String? = null,
     @SerialName("app_user_id") val appUserId: String? = null,
-    @SerialName("expiration_reason") val expirationReason: String? = null,
     @SerialName("purchased_at_ms") val purchasedAtMs: Long? = null,
     @SerialName("expiration_at_ms") val expirationAtMs: Long? = null,
     val store: String? = null,
     @SerialName("price_in_purchased_currency") val price: Double? = null,
-    val currency: String? = null,
+    // Other envelope fields (expiration_reason, currency, …) are intentionally not
+    // deserialized: the reason does not gate the EXPIRATION downgrade and is not
+    // persisted (no `subscription_events` column per docs/05); the app is IDR-only
+    // so `amount_rupiah` is currency-implicit. AppJson `ignoreUnknownKeys` drops them.
 )
