@@ -21,7 +21,7 @@ No Flyway migration; no backend change (the subscription contract is owned by [#
 
 ### Modified Capabilities
 - `mobile-cap-upsell-dialog`: § "Premium CTA navigation is deferred" changes from a dismiss-only placeholder to host-driven navigation that pushes `PaywallRoute` (entry-context = like cap). The dialog component stays navigation-free. Closes [#235](https://github.com/aditrioka/nearyou-id/issues/235)'s hook.
-- `mobile-search`: the Premium-gate (`403`) "Aktifkan Premium" CTA navigates to `PaywallRoute` (entry-context = search gate) instead of being a no-op ([#254](https://github.com/aditrioka/nearyou-id/issues/254)); a new explicit requirement records the proactive-on-open upsell ([#253](https://github.com/aditrioka/nearyou-id/issues/253)) as deferred, with the reactive 403 gate retained. The `429` rate-limit state is unchanged (Premium-tier limit; no paywall CTA).
+- `mobile-search`: the Premium-gate (`403`) "Aktifkan Premium" CTA navigates to `PaywallRoute` (entry-context = search gate) instead of being a no-op ([#254](https://github.com/aditrioka/nearyou-id/issues/254)); the existing "Autocomplete, proactive upsell, and paywall navigation are explicitly deferred" requirement is renamed/narrowed (paywall-navigation clause removed — it's now implemented) to keep the proactive-on-open upsell ([#253](https://github.com/aditrioka/nearyou-id/issues/253)) deferred, with the reactive 403 gate retained. The `429` rate-limit state is unchanged (Premium-tier limit; no paywall CTA).
 
 ## Impact
 
