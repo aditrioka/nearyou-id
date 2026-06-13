@@ -203,22 +203,25 @@ android {
                 "GOOGLE_SERVER_CLIENT_ID",
                 "\"27815942904-egrmb6ou96poualok9gooi63mjo2a0om.apps.googleusercontent.com\"",
             )
-            // mobile-chat-screen — staging Supabase project URL + anon (publishable) key for the
-            // Realtime subscribe. PLACEHOLDERS until the operator provisions them (the
-            // GOOGLE_SERVER_CLIENT_ID precedent; non-secret once real — anon key is publishable by
-            // Supabase's design). Inject without committing via
-            // -PstagingSupabaseUrl=… -PstagingSupabaseAnonKey=…. Until then the REST chat loop works
-            // fully and realtime simply never connects (degrades to REST-only — design D4).
-            buildConfigField(
-                "String",
-                "SUPABASE_URL",
-                "\"${(project.findProperty("stagingSupabaseUrl") as String?) ?: "https://REPLACE_WITH_STAGING_SUPABASE_REF.supabase.co"}\"",
-            )
-            buildConfigField(
-                "String",
-                "SUPABASE_ANON_KEY",
-                "\"${(project.findProperty("stagingSupabaseAnonKey") as String?) ?: "REPLACE_WITH_STAGING_SUPABASE_ANON_KEY"}\"",
-            )
+            // mobile-chat-screen — staging Supabase project URL + anon (publishable-class) key for the
+            // Realtime subscribe. Provisioned 2026-06-13 (#273) from the nearyou-staging dashboard; the
+            // anon JWT is role=anon, RLS-gated, "safe to share publicly" per Supabase — committed
+            // verbatim like GOOGLE_SERVER_CLIENT_ID. The service_role key is NEVER here (backend-only,
+            // GCP Secret Manager). Overridable via -PstagingSupabaseUrl=… / -PstagingSupabaseAnonKey=….
+            val stagingSupabaseUrl =
+                (project.findProperty("stagingSupabaseUrl") as String?)
+                    ?: "https://hvlbfbuuorhackrlbouo.supabase.co"
+            // Split across literals only to stay under the 140-col lint cap — it is one anon JWT.
+            val stagingSupabaseAnonKey =
+                (project.findProperty("stagingSupabaseAnonKey") as String?)
+                    ?: (
+                        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
+                            "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh2bGJmYnV1b3JoYWNrcmxib3VvIiwi" +
+                            "cm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NDU5MDMsImV4cCI6MjA5MjQyMTkwM30." +
+                            "mpR8wHtXLP38lw4WvCBzZNdaZO8W2X8ZEBpn-VIZBAQ"
+                    )
+            buildConfigField("String", "SUPABASE_URL", "\"$stagingSupabaseUrl\"")
+            buildConfigField("String", "SUPABASE_ANON_KEY", "\"$stagingSupabaseAnonKey\"")
         }
         create("production") {
             dimension = "env"
