@@ -56,6 +56,7 @@ import id.nearyou.resources.generated.resources.cta_block
 import id.nearyou.resources.generated.resources.cta_cancel
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_retry
+import id.nearyou.resources.generated.resources.ic_action_settings
 import id.nearyou.resources.generated.resources.ic_more_vert
 import id.nearyou.resources.generated.resources.ic_premium_star
 import id.nearyou.resources.generated.resources.post_card_handle
@@ -81,6 +82,7 @@ import id.nearyou.resources.generated.resources.profile_report_rate_limited
 import id.nearyou.resources.generated.resources.profile_report_reason_title
 import id.nearyou.resources.generated.resources.profile_report_submit
 import id.nearyou.resources.generated.resources.profile_report_success_toast
+import id.nearyou.resources.generated.resources.profile_settings_action
 import id.nearyou.resources.generated.resources.profile_unfollow
 import id.nearyou.resources.generated.resources.report_reason_adult_content
 import id.nearyou.resources.generated.resources.report_reason_harassment
@@ -105,6 +107,9 @@ const val PROFILE_FOLLOWING_TAG: String = "profileFollowing"
 const val PROFILE_NOT_FOUND_TAG: String = "profileNotFound"
 const val PROFILE_BACK_TAG: String = "profileBack"
 
+/** Test tag on the self-profile settings gear (`ProfileScreenTest` + `AppShellScreenTest`). */
+const val PROFILE_SETTINGS_TAG: String = "profileSettings"
+
 /**
  * The profile surface (`mobile-profile`). Renders a user from `GET /api/v1/users/{id}` via a
  * `viewModel { }`-scoped [ProfileViewModel]. Two modes (design D1):
@@ -112,11 +117,14 @@ const val PROFILE_BACK_TAG: String = "profileBack"
  *    `Scaffold` + back `TopAppBar` + `SnackbarHost`; shows the follow toggle + the Blokir/Laporkan kebab
  *    when the loaded profile's `isSelf` is false.
  *  - **self section** ([onBack] null, [targetUserId] null) — rendered inset-free in the shell's Profil
- *    section (no own `Scaffold`/`TopAppBar`); the loaded `isSelf = true` profile shows no actions.
+ *    section (no own `Scaffold`/`TopAppBar`); the loaded `isSelf = true` profile shows no follow/block/
+ *    report actions, but DOES carry an in-body header (the `NotificationsScreen` idiom) with a trailing
+ *    settings gear that invokes [onSettings] — the Settings surface's entry point (mockup frame 3; #288).
  *
  * One-shot events: [ProfileUiState.message] → a snackbar (overlay only — the self read raises none);
  * [ProfileUiState.navigateBack] (block success) → [onBack] then cleared. The target `userId` is the
- * route resource key, never rendered.
+ * route resource key, never rendered. [onSettings] is self-section-only (defaulted no-op so the
+ * other-user route need not pass it).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -124,6 +132,7 @@ fun ProfileScreen(
     targetUserId: String?,
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    onSettings: () -> Unit = {},
 ) {
     val flow = koinInject<ProfileFlow>()
     val selfUserIdProvider = koinInject<SelfUserIdProvider>()
@@ -176,15 +185,48 @@ fun ProfileScreen(
     } else {
         // Self section: inset-free body under the shell's Scaffold, which already applies + consumes the
         // window insets (mobile-design-system single-Scaffold contract) — so NO own Scaffold/TopAppBar
-        // and NO statusBarsPadding here (that would double-pad below the status bar).
-        ProfileBody(
-            uiState = uiState,
-            onToggleFollow = viewModel::onToggleFollow,
-            onBlockConfirmed = viewModel::onBlockConfirmed,
-            onReportSubmitted = viewModel::onReportSubmitted,
-            onRetry = viewModel::retry,
-            modifier = modifier.fillMaxSize(),
+        // and NO statusBarsPadding here (that would double-pad below the status bar). The section's chrome
+        // is an in-body header row (the NotificationsScreen idiom): the "Profil" title + the settings gear
+        // (mockup frame 3; #288). The body fills the remaining height (weight) so its inner scroll works.
+        Column(modifier = modifier.fillMaxSize()) {
+            SelfProfileHeader(onSettings = onSettings)
+            ProfileBody(
+                uiState = uiState,
+                onToggleFollow = viewModel::onToggleFollow,
+                onBlockConfirmed = viewModel::onBlockConfirmed,
+                onReportSubmitted = viewModel::onReportSubmitted,
+                onRetry = viewModel::retry,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            )
+        }
+    }
+}
+
+/**
+ * The self-profile section's in-body header (mockup frame 3 "Profil — profil sendiri"): the section title
+ * + a trailing settings gear. The self section declares NO own `Scaffold`/`TopAppBar` (the shell owns the
+ * single Scaffold — mobile-design-system § single Scaffold), so this is a plain header `Row`, mirroring
+ * `NotificationsScreen`'s in-body header. The gear is the Settings surface's only entry point (#288):
+ * tapping it invokes [onSettings], which `AppShellScreen` wires to a `SettingsRoute` push.
+ */
+@Composable
+private fun SelfProfileHeader(onSettings: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(Res.string.section_profile),
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
         )
+        IconButton(onClick = onSettings, modifier = Modifier.testTag(PROFILE_SETTINGS_TAG)) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_action_settings),
+                contentDescription = stringResource(Res.string.profile_settings_action),
+            )
+        }
     }
 }
 

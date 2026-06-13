@@ -86,6 +86,8 @@ class ProfileScreenTest {
             onNodeWithText("@raka.jkt").assertExists()
             onNodeWithTag(PROFILE_FOLLOW_TOGGLE_TAG).assertExists()
             onNodeWithTag(PROFILE_ACTIONS_MENU_TAG).assertExists()
+            // The settings gear is self-section-only — it must NOT appear on the other-user overlay.
+            onNodeWithTag(PROFILE_SETTINGS_TAG).assertDoesNotExist()
         }
 
     @Test
@@ -99,6 +101,29 @@ class ProfileScreenTest {
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOWERS_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(PROFILE_FOLLOW_TOGGLE_TAG).assertDoesNotExist()
             onNodeWithTag(PROFILE_ACTIONS_MENU_TAG).assertDoesNotExist()
+        }
+
+    @Test
+    fun selfProfile_showsSettingsGear_thatInvokesOnSettings() =
+        runComposeUiTest {
+            var settingsOpened = 0
+            installKoin(
+                ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("self-1", isSelf = true)),
+                selfId = "self-1",
+            )
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        ProfileScreen(targetUserId = null, onBack = null, onSettings = { settingsOpened++ })
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_SETTINGS_TAG).fetchSemanticsNodes().isNotEmpty() }
+            // The self section carries the settings gear (the Settings surface's entry point, #288); tapping
+            // it invokes onSettings (the shell wires this to a SettingsRoute push).
+            onNodeWithTag(PROFILE_SETTINGS_TAG).assertExists()
+            onNodeWithTag(PROFILE_SETTINGS_TAG).performClick()
+            assertEquals(1, settingsOpened, "tapping the self-profile gear invokes onSettings")
         }
 
     @Test
