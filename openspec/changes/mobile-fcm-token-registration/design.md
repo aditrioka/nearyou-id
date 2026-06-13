@@ -1,0 +1,59 @@
+# Design: mobile-fcm-token-registration
+
+## Context
+
+The backend registration seam is shipped and stable: `POST /api/v1/user/fcm-token` (`backend/ktor/.../user/FcmTokenRoutes.kt`) takes `{ token, platform, app_version }`, validates (`platform` ∈ `{android,ios}`, non-empty token ≤ 4096 chars, `app_version` ≤ 64 chars), upserts on `(user_id, platform, token)` refreshing `last_seen_at = NOW()`, and returns **204 No Content**. Closed 400 error vocabulary: `malformed_body` / `invalid_platform` / `empty_token` / `token_too_long` / `app_version_too_long`. The raw token is never logged server-side (backend D11) — a credential-confidentiality posture this change mirrors client-side.
+
+`:mobile:app` already carries every seam this change reuses: the expect/actual provider idiom (`LocationProvider` = commonMain `interface` + `AndroidLocationProvider`/`IosLocationProvider` bound in Koin platform modules; `GoogleSignInGateway` testability idiom), the shipped Ktor `HttpClient` with the `Auth` plugin handling Bearer attachment + once-per-request 401 refresh (`mobile-auth-signin`), the post-auth boundary (`RootRouterScreen` cold-start token-presence gate + `AuthRepository` sign-in orchestration), and the KMP cocoapods plugin already consuming an iOS SDK Pod (`GoogleSignIn`, `mobile/app/build.gradle.kts`). This change adds the first Firebase **client** SDK to the mobile app.
+
+Constraints that shape the design:
+
+- **iOS couples token retrieval to APNs**: `Messaging.messaging().token` resolves only after the app registers for remote notifications with APNs, which on iOS requires the app to have requested notification authorization (`UNUserNotificationCenter.requestAuthorization`) and called `registerForRemoteNotifications()`. Android has no such coupling — `FirebaseMessaging.getToken()` returns a token without `POST_NOTIFICATIONS` granted (the permission gates *display*, not token issuance). This asymmetry is the central design tension (D5).
+- **The Firebase client config is operator setup, absent from the repo** — the code must build, unit-test, and not crash without `google-services.json` / `GoogleService-Info.plist`.
+- **docs/11 § 2 contracts**: prefer `interface` + Koin actuals over `expect class` (still Beta); one-shot signals are state/Flow, not Channels; new files go in target-shape packages; vendor SDKs live only at the platform boundary.
+
+## Standards conformance (docs/11 Pattern Registry)
+
+This change builds **only on already-registered patterns** — it introduces no new Pattern-Registry entry and declares no deviation, so it requires **no docs/11 amendment**:
+
+- **§ 2.5 expect/actual & platform code** — `FcmTokenProvider` is a commonMain `interface` with Android/iOS actuals bound in the Koin platform modules (the `LocationProvider` precedent), NOT an `expect class`. The Firebase SDK import lives only in `androidMain`/`iosMain`, satisfying the "no vendor SDK import outside the platform/`:infra:*` boundary" invariant.
+- **§ 2.6 Data layer (mobile)** — `FcmTokenApiClient` is a thin, stateless API client over the shipped `HttpClient`; `FcmTokenRegistrar` is the Compose-free orchestrator (the repository/use-case role). No new networking substrate; Bearer attachment stays the `Auth` plugin's job.
+- **No state holder / navigation pattern touched** — this is invisible infra: no screen, no `ViewModel`, no `NavKey`. The registrar is invoked imperatively from the existing post-auth seam.
+- **§ 2.2 one-shot-as-state** — the registrar exposes no event Channel; registration is fire-and-forget with idempotent retry on the next trigger.
+
+## Goals / Non-Goals
+
+**Goals:**
+
+- Acquire the device FCM token and register it with the backend on every documented trigger (first authenticated open, sign-in, re-login, token refresh).
+- One platform-free seam; the Firebase SDK confined to the platform source sets and faked in tests.
+- Never log the raw token; never attempt registration unauthenticated.
+- Build + unit-test green without the operator Firebase config.
+
+**Non-Goals:**
+
+- Push **display/handling** (Android local render + preference check; iOS NSE body rewrite) — follow-up `mobile-push-message-handling`.
+- The contextual notification-permission **prompt UX / "on first send" timing** — owned by the consuming chat screen (in-flight `mobile-chat-screen`, PR #247). This change requests only the minimal iOS authorization that token acquisition structurally requires (D5).
+- The weekly stale-token cleanup worker (already deferred backend-side).
+- Any backend change; any new user-facing string or screen.
+
+## Decisions
+
+**D1 — Native per-platform Firebase SDKs behind one `interface`, NOT a third-party KMP wrapper.** `FcmTokenProvider` is a commonMain `interface`; Android binds an actual over Google's official `firebase-messaging` SDK, iOS over the `FirebaseMessaging` Pod. *Verified 2026-06-13 (dated WebSearch): the expect/actual + native-SDK pattern remains the canonical KMP approach for FCM per Firebase's own token-management guidance + the 2026 KMP push-notification guides.* *Alternatives rejected*: **KMPNotifier** (mirzemehdi) / **GitLive firebase-kotlin-sdk** / **KFire** — unified KMP Firebase wrappers exist and are maturing, but adopting one contradicts the project's deliberate **"pure DIY native wrapper"** precedent (the scaffold menu's Mobile #3 shipped a "Pure DIY Google Sign-In wrapper (expect/actual)" rather than a community wrapper) and would add an unvetted transitive dependency surface for a single endpoint's worth of glue. If a future change needs Firestore/Remote-Config/Crashlytics breadth, re-evaluate a unified wrapper then — out of scope here.
+
+**D2 — `FcmTokenProvider` exposes `currentToken()` + a `tokenRefreshes` Flow.** Token rotation is event-shaped (the SDK pushes a new token via `onNewToken`/`MessagingDelegate`), so the provider surfaces it as a `Flow<String>` the registrar collects for its app-lifetime; one-shot acquisition is the suspend `currentToken()`. This keeps the registrar platform-free and lets a `FakeFcmTokenProvider` drive both the cold-acquire and the refresh paths in commonTest. *Alternative rejected*: a callback/listener registration API — would leak platform lifecycle concerns into commonMain and resist deterministic testing.
+
+**D3 — `FcmTokenRegistrar` is the single orchestration point; triggers call it, it does not poll.** The registrar is a stateless Koin singleton with `suspend fun registerCurrentToken()` (acquire + POST once) and a `fun observeTokenRefreshes(scope)` that collects `tokenRefreshes` and re-POSTs. The post-auth seam invokes `registerCurrentToken()` on session-active transitions; `observeTokenRefreshes` is started once at app scope. Registration is **idempotent and best-effort**: the backend upsert dedups `(user_id, platform, token)`, so re-registering the same token is a cheap `last_seen_at` refresh (aligns with the Firebase "save token + timestamp on every change, refresh monthly" guidance). A `TransportError` is swallowed (logged non-confidentially) and naturally retried on the next trigger — no bespoke retry/backoff machinery. *Alternative rejected*: a WorkManager/periodic scheduler — over-engineered for an upsert that piggybacks on existing auth-lifecycle events; revisit only if delivery-rate monitoring shows token staleness.
+
+**D4 — Trigger wiring is an additive side-effect at the existing post-auth seam; no `mobile-auth-signin` MODIFIED delta.** The registrar is invoked (a) from the `RootRouterScreen`/`AuthRepository.isAuthenticated()` cold-start path when a persisted `TokenPair` routes to `HomeRoute`, and (b) from the `AuthRepository` sign-in HTTP-200 success path. These are additive calls: they do not change the documented routing/refresh behavior of `mobile-auth-signin` (the router still gates on token presence; the Auth plugin still owns refresh), so the trigger is specified as a requirement of THIS capability rather than a delta to the auth capability. The call is fire-and-forget on a non-blocking scope so registration never delays navigation. *Alternative rejected*: a `SessionState` observer bus — no such shared bus exists; introducing one for this is scope creep and would itself need a Pattern-Registry entry.
+
+**D5 — iOS requests the minimal notification authorization token acquisition structurally requires; the user-facing prompt UX stays deferred.** Because `Messaging.messaging().token` resolves only after APNs registration (which needs notification authorization), the iOS actual MUST call `UNUserNotificationCenter.requestAuthorization` + `registerForRemoteNotifications()` to obtain a token at all. This is the *platform-mandated minimum*, not the product's contextual permission ceremony. The design draws the line precisely: **this change owns the token-acquisition authorization call on iOS** (without it there is literally no token to register); the **chat screen owns the contextual "before we notify you about messages" rationale + the Android `POST_NOTIFICATIONS` runtime prompt timing** (in-flight `mobile-chat-screen`). On **Android**, token acquisition needs NO permission, so this change requests **no** Android notification permission — it acquires + registers the token silently and leaves `POST_NOTIFICATIONS` entirely to the consumer. The spec encodes this asymmetry explicitly (iOS: minimal-authorization-for-token requirement; Android: no-permission-requested requirement) so the chat change has a clean, non-overlapping MODIFY hook. *Alternative rejected*: deferring ALL authorization to chat — structurally impossible on iOS (no authorization ⇒ no token ⇒ nothing to register, defeating the change's entire purpose).
+
+**D6 — Token confidentiality: the raw token never reaches a log sink.** Mirrors backend D11. Log lines use `event=fcm_token_registered platform={} outcome={}` shape — never the token value, never a substring/prefix. A source/behavior guard test asserts no logging call site receives the token. *Alternative rejected*: logging a hashed/truncated token for debugging — still a credential-derived value; the backend-side `event=fcm_token_registered user_id=… platform=…` lines plus delivery monitoring are sufficient for ops.
+
+**D7 — `app_version` sourced from the existing build-config seam; `platform` is a compile-time platform constant.** `app_version` reuses the environment/build-config mechanism `mobile-auth-signin` established (the same place the API base URL resolves); `platform` is `"android"`/`"ios"` set in each actual (not runtime-detected in commonMain). Both are validated client-side before POST (length guards mirroring the backend) so a malformed value never round-trips into a 400 the user can't see. *Alternative rejected*: sending `app_version = null` to skip the concern — loses the freshness/version signal the backend column exists to capture.
+
+## Open Questions
+
+- **iOS APNs entitlement + `.p8` provisioning** is operator/Apple-Developer setup (the sandbox APNs endpoint per `docs/04-Architecture.md` § 259). The code path (request authorization → register for remote notifications → read token) is in scope; the entitlement wiring in the Xcode project + the APNs auth key in GCP Secret Manager is operator setup verified at the same Phase-1 gate as the client config files. Confirm at `/opsx:apply` whether the staging Firebase iOS app + APNs key already exist or are part of this change's operator-setup task.
+- **`google-services` plugin vs. manual `FirebaseOptions`**: the standard Android path applies the `com.google.gms.google-services` plugin which reads `google-services.json` at build time. If per-flavor config files are not yet placeable, the apply phase MAY fall back to a manual `FirebaseOptions.Builder()` init from build-config values to keep CI green — decided at implementation against what the operator provides. Flagged here so the reviewer expects either shape.
