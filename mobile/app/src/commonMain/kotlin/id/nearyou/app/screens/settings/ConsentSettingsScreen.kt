@@ -24,6 +24,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentOutcome
 import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.diagnostics.CrashReportingController
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.consent_ads_desc
 import id.nearyou.resources.generated.resources.consent_ads_label
@@ -55,7 +56,11 @@ fun ConsentSettingsScreen(
 ) {
     val flow = koinInject<ConsentFlow>()
     val snapshotStore = koinInject<ConsentSnapshotStore>()
-    val viewModel = viewModel { ConsentSettingsViewModel(flow, snapshotStore) }
+    val crashController = koinInject<CrashReportingController>()
+    val viewModel =
+        viewModel {
+            ConsentSettingsViewModel(flow, snapshotStore, onCrashConsentChanged = crashController::applyConsent)
+        }
 
     val analytics by viewModel.analytics.collectAsStateWithLifecycle()
     val crash by viewModel.crash.collectAsStateWithLifecycle()

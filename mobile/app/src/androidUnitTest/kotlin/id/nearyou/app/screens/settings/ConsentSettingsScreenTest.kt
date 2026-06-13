@@ -15,6 +15,9 @@ import id.nearyou.app.consent.FakeConsentFlow
 import id.nearyou.app.data.consent.ConsentSnapshot
 import id.nearyou.app.data.consent.ConsentSnapshotStore
 import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
+import id.nearyou.app.diagnostics.CrashReportingController
+import id.nearyou.app.diagnostics.FakeCrashReporter
+import id.nearyou.app.infra.sentry.CrashReporterConfig
 import id.nearyou.app.theme.NearYouTheme
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
@@ -54,6 +57,12 @@ class ConsentSettingsScreenTest {
                 module {
                     single<ConsentFlow> { fake }
                     single { store }
+                    single {
+                        CrashReportingController(
+                            FakeCrashReporter(),
+                            CrashReporterConfig(dsn = "", environment = "test", release = "test"),
+                        )
+                    }
                 },
             )
         }

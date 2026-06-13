@@ -21,6 +21,7 @@ import id.nearyou.app.config.appVersionName
 import id.nearyou.app.config.devicePlatform
 import id.nearyou.app.config.httpClientEngine
 import id.nearyou.app.config.isDebugBuild
+import id.nearyou.app.config.sentryConfig
 import id.nearyou.app.config.supabaseConfig
 import id.nearyou.app.consent.ConsentApiClient
 import id.nearyou.app.consent.ConsentFlow
@@ -33,9 +34,11 @@ import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.diagnostics.CompositeDiagnosticSink
 import id.nearyou.app.diagnostics.ConsoleDiagnosticSink
+import id.nearyou.app.diagnostics.CrashReportingController
 import id.nearyou.app.diagnostics.DiagnosticSink
 import id.nearyou.app.diagnostics.SentryBreadcrumbDiagnosticSink
 import id.nearyou.app.infra.sentry.CrashReporter
+import id.nearyou.app.infra.sentry.CrashReporterConfig
 import id.nearyou.app.infra.sentry.SentryCrashReporter
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import id.nearyou.app.infra.supabaserealtime.RealtimeTokenProvider
@@ -94,6 +97,19 @@ val mobileModule =
         // SDK is fenced inside :infra:sentry). Init runs at process startup in initKoin#startCrashReporting
         // (opt-out default ON, consent-gated, blank-DSN no-op).
         single<CrashReporter> { SentryCrashReporter() }
+        // mobile-crash-reporting — the start/stop lifecycle, shared by startup init (initKoin) and the
+        // runtime consent toggle (ConsentSettingsViewModel). Config resolved from the flavor seam.
+        single {
+            CrashReportingController(
+                crashReporter = get(),
+                config =
+                    CrashReporterConfig(
+                        dsn = sentryConfig.dsn,
+                        environment = sentryConfig.environment,
+                        release = appVersionName ?: "unknown",
+                    ),
+            )
+        }
         single { SessionInvalidator(get(), crashReporter = get()) }
         // mobile-session-expiry-and-proactive-refresh (D6) — the real coordinate-free diagnostic sink the
         // timeline repositories wire (replacing their no-op default), so nearby/global network + 400
