@@ -8,10 +8,10 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -124,10 +124,16 @@ class FcmTokenRegistrarTest {
     fun `token refresh re-registers the new token`() =
         runTest {
             val provider = FakeFcmTokenProvider(token = "tok-1")
-            val registered = mutableListOf<String>()
+            // The registration runs through the real Ktor MockEngine client, whose internals are NOT on the
+            // test scheduler — so we await the request landing deterministically via a CompletableDeferred
+            // rather than advanceUntilIdle (which returns before the off-scheduler request completes — the
+            // flake that failed only in the production variant).
+            val registeredBody = CompletableDeferred<String>()
             val reg =
                 registrar(provider) { request ->
-                    registered.add((request.body as io.ktor.http.content.OutgoingContent.ByteArrayContent).bytes().decodeToString())
+                    registeredBody.complete(
+                        (request.body as io.ktor.http.content.OutgoingContent.ByteArrayContent).bytes().decodeToString(),
+                    )
                     respond("", HttpStatusCode.NoContent)
                 }
 
@@ -135,10 +141,10 @@ class FcmTokenRegistrarTest {
             // SharedFlow subscription), so it is subscribed BEFORE the emit — no subscription race.
             val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { reg.observeTokenRefreshes() }
             provider.emitRefresh("tok-2")
-            advanceUntilIdle()
+            val body = registeredBody.await()
             job.cancel()
 
-            assertTrue(registered.any { it.contains("tok-2") }, "a rotated token must be re-registered; got $registered")
+            assertTrue(body.contains("tok-2"), "a rotated token must be re-registered; got $body")
         }
 
     @Test
