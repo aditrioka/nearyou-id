@@ -269,6 +269,7 @@ tasks.withType<Test>().configureEach {
             "**/HomeScreenFabTest*",
             "**/ConsentScreenTest*",
             "**/GlobalTimelineScreenTest*",
+            "**/FollowingTimelineScreenTest*",
             "**/HomeTabHostScreenTest*",
             "**/NotificationsScreenTest*",
             "**/AppShellScreenTest*",
