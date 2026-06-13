@@ -42,7 +42,7 @@
 
 ## 8. Follow-up issues (GitHub, label `follow-up`)
 
-- [ ] 8.1 Open `follow-up`-labelled GitHub issues (via the GitHub MCP `issue_write` tool — `gh` is unavailable in this sandbox) for the explicit deferrals: (a) `mobile-profile-edit` (edit bio/display-name/username — pending a backend write endpoint); (b) `mobile-profile-follower-following-lists` (tappable counts → paginated member lists via `GET /users/{id}/followers|following` + `social-list-profile-summaries`); (c) `mobile-post-detail-author-profile-tap` (post-detail identity → profile — blocked by the `PostDetailRoute` no-author-UUID serialization discipline); (d) `mobile-profile-suspension-countdown` (surface the suspension countdown once the auth-boundary surface carries it). Add an area label `mobile` to each. (Mark this task done once the issues are opened; record their numbers in the apply/archive commit body.)
+- [x] 8.1 Open `follow-up`-labelled GitHub issues (via the GitHub MCP `issue_write` tool — `gh` is unavailable in this sandbox) for the explicit deferrals: (a) `mobile-profile-edit` (edit bio/display-name/username — pending a backend write endpoint); (b) `mobile-profile-follower-following-lists` (tappable counts → paginated member lists via `GET /users/{id}/followers|following` + `social-list-profile-summaries`); (c) `mobile-post-detail-author-profile-tap` (post-detail identity → profile — blocked by the `PostDetailRoute` no-author-UUID serialization discipline); (d) `mobile-profile-suspension-countdown` (surface the suspension countdown once the auth-boundary surface carries it). Add an area label `mobile` to each. (Mark this task done once the issues are opened; record their numbers in the apply/archive commit body.)
 
 ## 9. Tests
 
