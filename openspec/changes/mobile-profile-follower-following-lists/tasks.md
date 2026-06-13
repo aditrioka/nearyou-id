@@ -47,10 +47,10 @@
 
 ## 10. Tests — commonTest
 
-- [ ] 10.1 `FollowListUiState` projection tests (initial-load/loading, loaded-with-rows + load-more gating, empty per tab, not-found, error).
-- [ ] 10.2 Pagination tests (cursor advance, append next page, stop on null `nextCursor`, no duplicate in-flight) via a `FakeFollowListFlow`.
+- [ ] 10.1 `FollowListUiState` projection tests (initial-load/loading, loaded-with-rows + load-more gating, empty per tab, not-found, full-screen error, **load-more-failure-retains-rows**, **refresh-from-non-content no-skeleton**, **mid-refresh `isRefreshing` transition** via a suspend-from-call fake, and the **rendered-row-count-independent-of-profile-count** guard (D3)).
+- [ ] 10.2 Pagination tests (cursor advance, append next page, stop on null `nextCursor`, **single-page-no-load-more**, no duplicate in-flight) via a `FakeFollowListFlow`.
 - [ ] 10.3 Page-DTO parse: shipped camelCase fixture (incl. omitted `nextCursor` → null) + the **snake_case negative guard** (casing-drift trap).
-- [ ] 10.4 Outcome mapping: constant-404 → single `NotFound` (no generic fallthrough), `400 invalid_cursor` → `NetworkError`, `CancellationException` rethrow.
+- [ ] 10.4 Outcome mapping: constant-404 → single `NotFound` (no generic fallthrough, incl. **both-tabs-`NotFound` consistency**), `400 invalid_cursor` → `NetworkError`, `CancellationException` rethrow.
 - [ ] 10.5 `FollowListRoute` polymorphic serialized round-trip + `initialTab` deep-link tab selection + row → `ProfileRoute` navigation intent.
 
 ## 11. Tests — Robolectric

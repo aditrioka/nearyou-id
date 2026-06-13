@@ -61,4 +61,4 @@ Not applicable — no schema, no data migration, no API change. Ships as a singl
 
 ## Open Questions
 
-- Whether to add a dedicated follower/following list **mockup frame** to the screens board (vs. leaving the row as the reused idiom). Non-blocking — proceeding with the reuse decision (D5); operator can request a frame later. Captured as a follow-up note, not a gate.
+None blocking. One **resolved-pending-operator** item (not a gate): a dedicated follower/following list mockup frame is deliberately NOT added in this change — the row reuses the established identity-row idiom (D5). This is a settled decision; the operator MAY later request a board frame, tracked as a non-blocking note, but it is not a prerequisite for `/opsx:apply` or merge.

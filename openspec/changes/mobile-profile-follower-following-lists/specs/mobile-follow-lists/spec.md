@@ -74,6 +74,12 @@ The change SHALL introduce a `FollowListRoute` `NavKey` (in `screens/routing/Nav
 - **WHEN** the read returns `503`, again when the transport throws an `IOException`, and again when it returns `400 invalid_cursor`
 - **THEN** all three map to `FollowListOutcome.NetworkError` AND a thrown `CancellationException` is rethrown, NOT mapped to `NetworkError`
 
+#### Scenario: Both tabs map to NotFound when the shared target is gone
+
+- **GIVEN** the profile target became unresolvable (blocked / soft-deleted / shadow-banned) after the screen opened, so both endpoints answer the constant `404 user_not_found`
+- **WHEN** the initial tab loads and then the other tab is revealed
+- **THEN** both tabs map to the single `NotFound` state (the constant 404 is target-consistent across tabs; no per-tab and no per-cause divergence)
+
 ### Requirement: Each tab paginates by keyset cursor with load-more on scroll-to-end
 
 Each tab SHALL request its first page on first display (no `cursor`), then append subsequent pages by passing the prior page's `nextCursor` as the `cursor` query param when the list is scrolled near its end, stopping when `nextCursor` is `null` (the last page). The per-page cap is the backend's 30; the client MUST NOT assume a different size. A load-more request MUST NOT be issued while one is already in flight for that tab, and MUST NOT be re-issued once `nextCursor` is `null`. Each tab fetches independently (the initial tab fetches immediately; the other tab fetches on first reveal) and retains its own loaded pages across tab switches / pager swipes for the lifetime of the screen.
@@ -90,9 +96,15 @@ Each tab SHALL request its first page on first display (no `cursor`), then appen
 - **WHEN** another scroll-to-end occurs before it resolves
 - **THEN** no second concurrent request for the same cursor is issued
 
+#### Scenario: Single-page list offers no load-more
+
+- **GIVEN** a tab whose first page returns fewer than 30 rows and a `null` `nextCursor`
+- **WHEN** the list is scrolled to its end
+- **THEN** the load-more affordance is never offered AND no second page request is issued
+
 ### Requirement: A pure Compose-free FollowListUiState projection
 
-The mobile app SHALL model each tab's state as a Compose-free `FollowListUiState` (a `data class` or sealed type) produced by a **pure** projection function mapping the `FollowListOutcome` (+ an `isInitialLoad` flag, an `isRefreshing` flag, the accumulated rows, and the current `nextCursor`) to the rendered state — mirroring `NearbyTimelineUiState` / `ProfileUiState` — so the mapping is deterministically unit-testable in commonTest without composing UI. Initial-load vs refresh SHALL be **separate fields** (per `mobile-design-system`): `isInitialLoad = true` with no rows maps to a loading/skeleton state; a `Loaded` with zero rows maps to an empty state; a `Loaded` with rows maps to a content state carrying the rows + a load-more affordance gated on a non-null `nextCursor`; a `NotFound` maps to a not-found state; a `NetworkError` with no prior rows maps to an error state with a retry control. The projection MUST carry no PII beyond the display fields rendered (no raw coordinates; the row `userId` is carried only as the navigation key, never as rendered text).
+The mobile app SHALL model each tab's state as a Compose-free `FollowListUiState` (a `data class` or sealed type) produced by a **pure** projection function mapping the `FollowListOutcome` (+ an `isInitialLoad` flag, an `isRefreshing` flag, the accumulated rows, and the current `nextCursor`) to the rendered state — mirroring `NearbyTimelineUiState` / `ProfileUiState` — so the mapping is deterministically unit-testable in commonTest without composing UI. Initial-load vs refresh SHALL be **separate fields** (per `mobile-design-system`): `isInitialLoad = true` with no rows maps to a loading/skeleton state; a `Loaded` with zero rows maps to an empty state; a `Loaded` with rows maps to a content state carrying the rows + a load-more affordance gated on a non-null `nextCursor`; a `NotFound` maps to a not-found state; a `NetworkError` **with no prior rows** maps to a full-screen error state with a retry control; a `NetworkError` that occurs **during load-more (prior rows already present)** MUST retain the content state with its loaded rows and surface a **non-blocking, retryable load-more-failed affordance** (e.g. a footer), and MUST NOT discard the loaded rows to a full-screen error. The projection MUST carry no PII beyond the display fields rendered (no raw coordinates; the row `userId` is carried only as the navigation key, never as rendered text).
 
 #### Scenario: Initial load maps to loading; empty Loaded maps to empty; NotFound maps to not-found
 
@@ -103,6 +115,12 @@ The mobile app SHALL model each tab's state as a Compose-free `FollowListUiState
 
 - **WHEN** the projection runs with a `Loaded` of 30 rows and a non-null `nextCursor`, and again with a `null` `nextCursor`
 - **THEN** both yield a content state listing the rows AND the load-more affordance is enabled only when `nextCursor` is non-null
+
+#### Scenario: Load-more failure retains the already-loaded rows
+
+- **GIVEN** a tab showing a loaded page of rows (prior rows present)
+- **WHEN** the load-more request for the next page fails with a `NetworkError`
+- **THEN** the projection yields a content state still listing the already-loaded rows AND a non-blocking, retryable load-more-failed affordance — NOT a full-screen error that discards the loaded rows
 
 ### Requirement: FollowList tabs honor the canonical list loading and refresh pattern
 
@@ -123,6 +141,12 @@ Each tab SHALL follow the canonical list loading/refresh contract (`mobile-desig
 
 - **WHEN** the followers tab loads zero rows, and the following tab loads zero rows
 - **THEN** the followers empty state renders the "no followers yet" copy AND the following empty state renders the "not following anyone yet" copy (each via `stringResource`)
+
+#### Scenario: Refresh from a non-content state does not flip to the skeleton
+
+- **GIVEN** a tab in its empty state (and separately, in its error state)
+- **WHEN** a pull-to-refresh is triggered from that state
+- **THEN** the state's scrollable container stays mounted and the initial-load skeleton is NOT shown (the refresh drives `isRefreshing`, never `isInitialLoad`), and the state is retained until the refresh resolves
 
 ### Requirement: FollowList rows render the embedded profile summary and tap through to ProfileRoute
 
@@ -148,7 +172,9 @@ Each list row SHALL render the embedded profile summary using the identity treat
 
 ### Requirement: Hidden members are excluded by the backend, never placeheld in the list
 
-The follower/following lists SHALL render **only the rows the endpoints return**. Because `/followers` and `/following` source rows via INNER JOIN `visible_users` (`follow-system` / `social-list-profile-summaries`), shadow-banned / soft-deleted members and viewer-blocked members (either direction) are excluded server-side and never reach the client. The list rendering therefore SHALL NOT implement any `akun_dihapus` / "Akun Dihapus" placeholder or COALESCE-style masking for these lists (that masking is a `GET /blocks`-only behavior, not present on these endpoints), and SHALL NOT special-case null `username` / `displayName` (both are NOT NULL on the wire). A row's identity fields are rendered verbatim from the embedded summary.
+The follower/following lists SHALL render **only the rows the endpoints return**. Because `/followers` and `/following` source rows via INNER JOIN `visible_users` (`follow-system` / the archived `social-list-profile-summaries`, now folded into `follow-system`), shadow-banned / soft-deleted members and viewer-blocked members (either direction) are excluded server-side and never reach the client. The list rendering therefore SHALL NOT implement any `akun_dihapus` / "Akun Dihapus" placeholder or COALESCE-style masking for these lists (that masking is a `GET /blocks`-only behavior, not present on these endpoints), and SHALL NOT special-case null `username` / `displayName` (both are NOT NULL on the wire). A row's identity fields are rendered verbatim from the embedded summary.
+
+The rendered row count is **independent of** the profile's `followerCount` / `followingCount` (which are raw public aggregates per `user-profile-read` § "Follower and following counts are raw totals" — NOT viewer-block-filtered and NOT visibility-filtered). A profile showing e.g. `followerCount = 12` MAY legitimately render fewer than 12 rows when some followers are viewer-hidden; the client MUST NOT pad the list to the count, reconcile the count to the list length, or recompute either (per design D3 — the asymmetry is deliberate and prevents block-state leakage via count deltas; the count lives on `ProfileScreen` and is unaffected by this surface).
 
 #### Scenario: No placeholder row logic is present
 
@@ -160,6 +186,12 @@ The follower/following lists SHALL render **only the rows the endpoints return**
 - **GIVEN** a `200` page whose rows carry non-null `username` and `displayName`
 - **WHEN** the list is rendered
 - **THEN** each row shows its own `displayName` and `@username` exactly as received (no substitution)
+
+#### Scenario: Rendered row count is independent of the profile count
+
+- **GIVEN** a profile whose `followerCount` is 12 but whose `/followers` page returns 10 visible rows (2 followers are viewer-hidden server-side)
+- **WHEN** the followers tab is rendered
+- **THEN** the tab renders exactly the 10 returned rows AND the client neither pads to 12 nor reconciles/recomputes the count (the count is unaffected — it lives on `ProfileScreen`)
 
 ### Requirement: Inline follow/unfollow on rows is deferred
 
@@ -205,7 +237,7 @@ Every user-facing string on the follow-list surface (the two tab labels Pengikut
 
 ### Requirement: Follow-list test trio
 
-The change SHALL ship: (1) **commonTest** covering the `FollowListUiState` projection (initial-load/loading, loaded-with-rows + load-more gating, empty per tab, not-found, error), the keyset pagination (cursor advance, append next page, stop on null `nextCursor`, no duplicate in-flight), the row → `ProfileRoute` navigation intent, the page-DTO parse against the shipped camelCase wire (incl. omitted-`nextCursor`) + the snake_case negative guard, the constant-404 → single `NotFound` mapping with no generic fallthrough, the `400 invalid_cursor` → `NetworkError`, the `CancellationException`-rethrow, the `FollowListRoute` polymorphic serialized round-trip, and the `initialTab` deep-link tab selection — via a `FakeFollowListFlow` + MockEngine + `runTest`; (2) a **Robolectric** `FollowListScreenTest` (`mobile/app/src/androidUnitTest/...`, added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list per the `*ScreenTest` convention) covering both tabs present, tab switch / pager sync, a row tap firing navigation, the two empty states, and the no-UUID-in-tree assertion; (3) an **iosTest** flow test (`mobile/app/src/iosTest/...`, mirroring `NearbyTimelineFlowIosTest`, Kotlin/Native-legal function names) exercising the follow-list surface on the simulator.
+The change SHALL ship: (1) **commonTest** covering the `FollowListUiState` projection (initial-load/loading, loaded-with-rows + load-more gating, empty per tab, not-found, full-screen error, the load-more-failure-retains-rows case, the refresh-from-non-content no-skeleton case, and the mid-refresh `isRefreshing = true` transition via a suspend-from-call fake mirroring the `mobile-profile` precedent), the keyset pagination (cursor advance, append next page, stop on null `nextCursor`, single-page-no-load-more, no duplicate in-flight), the row → `ProfileRoute` navigation intent, the rendered-row-count-independent-of-profile-count guard (design D3), the page-DTO parse against the shipped camelCase wire (incl. omitted-`nextCursor`) + the snake_case negative guard, the constant-404 → single `NotFound` mapping with no generic fallthrough (incl. both-tabs-`NotFound` consistency), the `400 invalid_cursor` → `NetworkError`, the `CancellationException`-rethrow, the `FollowListRoute` polymorphic serialized round-trip, and the `initialTab` deep-link tab selection — via a `FakeFollowListFlow` + MockEngine + `runTest`; (2) a **Robolectric** `FollowListScreenTest` (`mobile/app/src/androidUnitTest/...`, added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list per the `*ScreenTest` convention) covering both tabs present, tab switch / pager sync, a row tap firing navigation, the two empty states, and the no-UUID-in-tree assertion; (3) an **iosTest** flow test (`mobile/app/src/iosTest/...`, mirroring `NearbyTimelineFlowIosTest`, Kotlin/Native-legal function names) exercising the follow-list surface on the simulator.
 
 #### Scenario: The three test layers exist and pass
 
