@@ -22,6 +22,11 @@ kotlin {
     iosSimulatorArm64()
 
     sourceSets {
+        commonMain.dependencies {
+            // The ONLY permitted Sentry vendor import (invariant #16). `implementation`-scoped so the
+            // vendor transitive dep never reaches :mobile:app's compile classpath (docs/11 §2.6).
+            implementation(libs.sentry.kotlinMultiplatform)
+        }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }

@@ -7,7 +7,7 @@
 
 ## 2. `:infra:sentry` module scaffold
 
-- [ ] 2.1 Create `infra/sentry/` KMP module + `build.gradle.kts` (targets: `androidTarget`, `iosArm64`, `iosX64`, `iosSimulatorArm64`; source sets commonMain/androidMain/iosMain/commonTest/iosTest). Pin the Sentry KMP SDK in `gradle/libs.versions.toml`; declare it `implementation`-scoped in this module only (invariant #16).
+- [x] 2.1 Create `infra/sentry/` KMP module + `build.gradle.kts` (targets: `androidTarget`, `iosArm64`, `iosX64`, `iosSimulatorArm64`; source sets commonMain/androidMain/iosMain/commonTest/iosTest). Pin the Sentry KMP SDK in `gradle/libs.versions.toml`; declare it `implementation`-scoped in this module only (invariant #16).
 - [x] 2.2 Register `:infra:sentry` in `settings.gradle.kts`.
 - [x] 2.3 Add a one-line description to `dev/module-descriptions.txt` and run `dev/scripts/sync-readme.sh --write` (README module list).
 
@@ -18,9 +18,9 @@
 
 ## 4. Platform actuals (Sentry SDK, fenced)
 
-- [ ] 4.1 androidMain `SentryCrashReporter` binding the Sentry Android SDK.
-- [ ] 4.2 iosMain `SentryCrashReporter` binding the Sentry Cocoa SDK (mind K/N ObjC category imports — `import platform.<Fw>.<symbol>`; run `linkDebugFrameworkIosSimulatorArm64` locally).
-- [ ] 4.3 Init with `sendDefaultPii = false` (no client-IP `{{auto}}` inference, no `server_name`/device-name); implement the `beforeSend` scrubbing hook (strip coordinates / tokens / free-text bodies), mirroring the coordinate-free discipline (`CoordinateMaskingLogger` is `private` to `:mobile:app` — reuse the pattern, do not import it across the module fence).
+- [x] 4.1 androidMain `SentryCrashReporter` binding the Sentry Android SDK.
+- [x] 4.2 iosMain `SentryCrashReporter` binding the Sentry Cocoa SDK (mind K/N ObjC category imports — `import platform.<Fw>.<symbol>`; run `linkDebugFrameworkIosSimulatorArm64` locally).
+- [x] 4.3 Init with `sendDefaultPii = false` (no client-IP `{{auto}}` inference, no `server_name`/device-name); implement the `beforeSend` scrubbing hook (strip coordinates / tokens / free-text bodies), mirroring the coordinate-free discipline (`CoordinateMaskingLogger` is `private` to `:mobile:app` — reuse the pattern, do not import it across the module fence).
 
 ## 5. Mobile app wiring (`:mobile:app`)
 
