@@ -9,26 +9,26 @@
 
 ## 2. Repository layer (JDBC)
 
-- [ ] 2.1 `JdbcUsernameRepository` (or extend the existing user repo): read-only candidate validation reads — reserved-list `LOWER` match (incl. `source = 'admin_added'`), release-hold `LOWER(old_username)` with `released_at > NOW()`, current-username `LOWER` match — on the shared pool-sized `limitedParallelism` JDBC dispatcher (docs/11 § 3.2).
-- [ ] 2.2 Transactional change operation: `SELECT … FOR UPDATE` on the user row, under-lock re-validation, `UPDATE users SET username = ?, username_last_changed_at = NOW()` (carrying the `// @allow-username-write: customization` annotation), `INSERT INTO username_history (…, released_at = changed_at + INTERVAL '30 days')`, and the `username_release_scheduled` notification via `NotificationEmitter.emit(conn, …)` (D6) — all on one `Connection`/transaction.
-- [ ] 2.3 `moderation_queue` insert for a flagged candidate: `target_type = 'user'`, `target_id = <user id>`, `trigger = 'username_flagged'`, with `ON CONFLICT (target_type, target_id, trigger) DO NOTHING` (V9 UNIQUE → idempotent, one standing flag per user). Reuse the existing moderation-queue write path if one exists.
+- [x] 2.1 `JdbcUsernameRepository` (or extend the existing user repo): read-only candidate validation reads — reserved-list `LOWER` match (incl. `source = 'admin_added'`), release-hold `LOWER(old_username)` with `released_at > NOW()`, current-username `LOWER` match — on the shared pool-sized `limitedParallelism` JDBC dispatcher (docs/11 § 3.2).
+- [x] 2.2 Transactional change operation: `SELECT … FOR UPDATE` on the user row, under-lock re-validation, `UPDATE users SET username = ?, username_last_changed_at = NOW()` (carrying the `// @allow-username-write: customization` annotation), `INSERT INTO username_history (…, released_at = changed_at + INTERVAL '30 days')`, and the `username_release_scheduled` notification via `NotificationEmitter.emit(conn, …)` (D6) — all on one `Connection`/transaction.
+- [x] 2.3 `moderation_queue` insert for a flagged candidate: `target_type = 'user'`, `target_id = <user id>`, `trigger = 'username_flagged'`, with `ON CONFLICT (target_type, target_id, trigger) DO NOTHING` (V9 UNIQUE → idempotent, one standing flag per user). Reuse the existing moderation-queue write path if one exists.
 
 ## 3. Service layer
 
-- [ ] 3.1 `UsernameChangeService` gate ordering: feature-flag → Premium (principal claim) → 30-day cooldown (`username_last_changed_at`) → format validation → collision → moderation → commit (design D2). Returns a typed `Result` per outcome (mirror `SearchService.Result`).
-- [ ] 3.2 Candidate format validator: length 3–30, charset regex `^[a-z0-9][a-z0-9_.]*[a-z0-9_]$`, application-layer `!candidate.contains("..")` no-consecutive-dots guard.
-- [ ] 3.3 Moderation step: run the candidate through the existing text-moderation pipeline; on hit → reject (422 `username_rejected`) + idempotent `username_flagged` queue row (task 2.3). The >3/24h case is governed by the failed-attempt throttle (task 4.1); the numeric anomaly-score effect is DEFERRED to anomaly-detection (docs/08 Phase 4 #17) — do NOT add an `anomaly_score` column (design D8; migration-free).
-- [ ] 3.4 Cooldown check against `username_last_changed_at` (DB-authoritative; design D3).
-- [ ] 3.5 Availability-probe service path: read-only validation, explicitly non-authoritative (design D4).
+- [x] 3.1 `UsernameChangeService` gate ordering: feature-flag → Premium (principal claim) → 30-day cooldown (`username_last_changed_at`) → format validation → collision → moderation → commit (design D2). Returns a typed `Result` per outcome (mirror `SearchService.Result`).
+- [x] 3.2 Candidate format validator: length 3–30, charset regex `^[a-z0-9][a-z0-9_.]*[a-z0-9_]$`, application-layer `!candidate.contains("..")` no-consecutive-dots guard.
+- [x] 3.3 Moderation step: run the candidate through the existing text-moderation pipeline; on hit → reject (422 `username_rejected`) + idempotent `username_flagged` queue row (task 2.3). The >3/24h case is governed by the failed-attempt throttle (task 4.1); the numeric anomaly-score effect is DEFERRED to anomaly-detection (docs/08 Phase 4 #17) — do NOT add an `anomaly_score` column (design D8; migration-free).
+- [x] 3.4 Cooldown check against `username_last_changed_at` (DB-authoritative; design D3).
+- [x] 3.5 Availability-probe service path: read-only validation, explicitly non-authoritative (design D4).
 
 ## 4. Rate limiting
 
-- [ ] 4.1 `UsernameRateLimiter` (mirror `SearchRateLimiter`/`FollowRateLimiter`): 10 FAILED change attempts / hour + 3 availability probes / day, via `computeTTLToNextReset` + `{scope:<value>}` hash-tag keys (rate-limit invariants; no hardcoded midnight math). The 1-change/30-day cooldown is NOT a Redis key (it's DB-authoritative, task 3.4).
+- [x] 4.1 `UsernameRateLimiter` (mirror `SearchRateLimiter`/`FollowRateLimiter`): 10 FAILED change attempts / hour + 3 availability probes / day, via `computeTTLToNextReset` + `{scope:<value>}` hash-tag keys (rate-limit invariants; no hardcoded midnight math). The 1-change/30-day cooldown is NOT a Redis key (it's DB-authoritative, task 3.4).
 
 ## 5. Routes + wiring
 
-- [ ] 5.1 `UserUsernameRoutes` — thin `PATCH /api/v1/user/username` (`{ new_username }`) + `GET /api/v1/username/check?candidate=` under the authenticated `/api/v1` tree; map each service `Result` to its status/body (403 `premium_required` envelope, 503 flag-off, 429 cooldown/rate, 422 `invalid_username`/`username_rejected`, 409 `username_unavailable`, 200 success). Routes never touch SQL (docs/11 § 3.1).
-- [ ] 5.2 Koin DI wiring (repository, service, rate limiter) + mount the routes in `Application.kt`.
+- [x] 5.1 `UserUsernameRoutes` — thin `PATCH /api/v1/user/username` (`{ new_username }`) + `GET /api/v1/username/check?candidate=` under the authenticated `/api/v1` tree; map each service `Result` to its status/body (403 `premium_required` envelope, 503 flag-off, 429 cooldown/rate, 422 `invalid_username`/`username_rejected`, 409 `username_unavailable`, 200 success). Routes never touch SQL (docs/11 § 3.1).
+- [x] 5.2 Koin DI wiring (repository, service, rate limiter) + mount the routes in `Application.kt`.
 
 ## 6. Tests (the docs/08 Pre-Launch Premium-username matrix — all scenarios, none dropped)
 
