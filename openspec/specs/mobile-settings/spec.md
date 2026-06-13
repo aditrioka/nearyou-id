@@ -1,7 +1,9 @@
-# mobile-settings — Delta Specification
+# mobile-settings Specification
 
-## ADDED Requirements
+## Purpose
+The `mobile-settings` capability is the `:mobile:app` **Settings** surface (mockup frame 16 "Pengaturan") — the last screen of the mobile critical-path live menu. It ships the grouped settings list (AKUN / PREMIUM / PRIVASI / LAINNYA) with three backed actions: **blocked-users management** (list + unblock over `GET` / `DELETE /api/v1/blocks`), the post-onboarding **analytics-consent toggle** (reusing the existing `ConsentFlow` `PATCH /api/v1/user/consent` seam), and **logout** (token wipe → sign-in). The Premium/DESIGN rows render mockup chrome with no backend write. It owns the `SettingsRoute` root-stack contract + push semantics; the profile-screen entry gear that triggers the push is deferred to [#288](https://github.com/aditrioka/nearyou-id/issues/288). Mobile-only — no Flyway migration, no backend code.
 
+## Requirements
 ### Requirement: SettingsRoute and its sub-routes are serializable parameterless NavKeys pushed onto the root back stack
 
 The mobile app SHALL add three `@Serializable data object` NavKeys to `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/NavKeys.kt` — `SettingsRoute`, `BlockedUsersRoute`, and `ConsentSettingsRoute` — each registered in the `AppNavSerialization` polymorphic `SerializersModule` (required for iOS back-stack saveability, where Nav3 reflection-based serialization is unavailable, per `mobile-app-scaffold` "Back stack uses serializable NavKey routes"). All three SHALL carry NO identity payload (the user identity lives in the persisted token, never in the serialized back stack). The settings surfaces SHALL be appended onto the **root** back stack (above the section shell), so they overlay the section `NavigationBar` exactly as `PostDetailRoute` / `PostCreationRoute` do — they SHALL NOT introduce a per-tab `NavDisplay` back stack (still deferred per GitHub issue [#189](https://github.com/aditrioka/nearyou-id/issues/189) `mobile-home-tab-host-per-tab-backstacks`).
@@ -17,15 +19,15 @@ The mobile app SHALL add three `@Serializable data object` NavKeys to `mobile/ap
 - **WHEN** the settings entry is invoked
 - **THEN** `SettingsRoute` is appended onto the root back stack (the surface overlays the bottom `NavigationBar`) AND no per-tab `NavDisplay` back stack is created
 
-### Requirement: Settings is reachable via a profile-screen gear
+### Requirement: mobile-settings owns the SettingsRoute contract and push semantics
 
-`SettingsScreen` SHALL be reachable from a settings affordance (a Material `settings` gear icon, per `mobile-design-system` § "Material 3 icons are the canonical navigation and action affordance") rendered on the authenticated **profile** surface (the Profil section's self-profile screen introduced by the `mobile-profile` capability, PR [#245](https://github.com/aditrioka/nearyou-id/pull/245)). The gear's tap SHALL push `SettingsRoute` onto the **root** back stack. The `mobile-settings` capability OWNS the `SettingsRoute` contract and the push semantics; the gear control is wired on the profile surface as an integration step sequenced **after** `mobile-profile` (PR #245) merges (see `design.md` Decision D7). The gear's `contentDescription` SHALL be sourced via `stringResource` (no hardcoded literal).
+The `mobile-settings` capability SHALL own the `SettingsRoute` contract and its push semantics: `SettingsScreen` is a **root**-stack overlay reached by appending `SettingsRoute` onto the root back stack (above `HomeRoute`, overlaying the bottom `NavigationBar`), with the `entry<SettingsRoute>` → `SettingsScreen` mapping owned in `AppEntryProvider`. `SettingsRoute` SHALL be `@Serializable` and registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (the iOS-saveable back stack requirement). The **entry affordance** that triggers this push — a settings gear on the profile self-surface (`mobile-profile`, PR [#245](https://github.com/aditrioka/nearyou-id/pull/245)) — is NOT shipped in this change; it is deferred to follow-up [#288](https://github.com/aditrioka/nearyou-id/issues/288). Until #288 wires the gear, `SettingsRoute` is a defined, serialization-tested route with no in-app trigger (the screen + sub-surfaces are otherwise fully shipped).
 
-#### Scenario: The profile-screen gear pushes SettingsRoute onto the root stack
+#### Scenario: SettingsRoute is a serializable root-stack route mapped to SettingsScreen
 
-- **GIVEN** the self-profile surface composed with a recording navigation callback (or over a test root back stack)
-- **WHEN** the settings gear is tapped
-- **THEN** `SettingsRoute` is appended onto the root back stack exactly once AND the gear exposes a non-empty `stringResource`-sourced `contentDescription`
+- **GIVEN** the app navigation graph
+- **WHEN** `SettingsRoute` is appended onto the root back stack
+- **THEN** `AppEntryProvider` maps it to `SettingsScreen` as a root-stack overlay AND `SettingsRoute` round-trips through the polymorphic `SerializersModule` (iOS-saveable)
 
 ### Requirement: SettingsScreen renders the frame-16 grouped list with its own Scaffold and app bar
 
@@ -233,3 +235,4 @@ This change SHALL NOT implement account deletion ("Hapus Akun"), data export ("U
 
 - **WHEN** `SettingsScreen` is rendered and its tree inspected
 - **THEN** it contains no "Hapus Akun", "Unduh Data Saya", suspension-countdown, or notification chat-preview control (these surfaces are deferred, not shipped as dead rows)
+

@@ -41,8 +41,8 @@
 
 ## 6. Entry gear on the profile surface (sequenced after PR #245)
 
-- [ ] 6.1 **BLOCKED on PR #245** (profile surface not merged) — after `mobile-profile` (PR #245) merges, add a settings `gear` icon to the self-profile surface whose tap pushes `SettingsRoute` onto the root back stack (wired at the `AppEntryProvider` / profile call-site, consistent with the existing root-stack push wiring); `contentDescription` via `stringResource`
-- [ ] 6.2 **BLOCKED on PR #245** — test the gear → `SettingsRoute` push (recording callback or test root back stack); assert the `contentDescription` is a non-empty `stringResource`
+- [x] 6.1 **DESCOPED → [#288](https://github.com/aditrioka/nearyou-id/issues/288)** (operator decision 2026-06-13: merge `mobile-settings` without the gear). The gear affordance on the profile self-surface is NOT shipped in this change; the spec requirement was rewritten to own only the `SettingsRoute` contract + push semantics (the gear moved to #288). `SettingsRoute` + `entry<SettingsRoute>` → `SettingsScreen` + serialization are shipped + tested.
+- [x] 6.2 **DESCOPED → [#288](https://github.com/aditrioka/nearyou-id/issues/288)** — the gear-push test lands with the gear in #288.
 
 ## 7. DI + iOS + verification gates
 
@@ -50,10 +50,10 @@
 - [x] 7.2 iOS flow test under `mobile/app/src/iosTest/...` (mirroring `NearbyTimelineFlowIosTest`) exercising the settings surface (open settings → block list → consent → back) with Kotlin/Native-legal test function names
 - [x] 7.3 Mobile gate: `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` GREEN locally (new `*ScreenTest`s in the Release exclude). `:mobile:app:iosSimulatorArm64Test` runs in CI/macOS — not buildable on the Linux cloud sandbox (the iOS flow test compiles there)
 - [x] 7.4 Lint gate: `ktlintCheck` + `detekt` GREEN locally (no `@allow-privacy-write` annotation needed — this change performs no privacy-flag write). `:lint:detekt-rules:test` + `:backend:ktor:test` N/A — no backend/rule change
-- [ ] 7.5 **BLOCKED on PR #245** (settings is unreachable until the profile gear lands) — manual verification per docs/11 §5 DoD #3 (`verify-loop`): Android emulator AND iOS simulator — screenshot the Settings list (light + dark) against mockup frame 16, the block-list list+unblock round-trip, the consent submit, and the logout flow; attach evidence to the PR body; `mobile-ui-foundation` checklist pass
+- [x] 7.5 **DESCOPED → [#288](https://github.com/aditrioka/nearyou-id/issues/288)** — manual emulator/iOS DoD verification is gated on the gear (settings is unreachable in-app until #288 wires it), so it moves to #288 alongside the gear. Screen-level correctness is covered by the shipped Robolectric `*ScreenTest`s + commonTest projections + the iOS flow test (CI/macOS).
 - [x] 7.6 Confirm no Flyway migration, no backend file, and no `gradle/libs.versions.toml` change landed (mobile-only invariant for this change)
 
 ## 8. Archive-time docs reconciliation
 
-- [ ] 8.1 Trim `openspec/project.md` § Mobile-First to Full-Demo Priority live-menu **row #5** to the shipped settings scope: drop "account-deletion entry, suspension-countdown UI" (deferred as `follow-up` issues, not in this screen — design D8) so the live menu reflects what `mobile-settings` actually delivers
-- [ ] 8.2 Mark the mobile critical-path menu as complete (all of #1–#5 shipped) and re-evaluate the flip trigger out of mobile-first priority per project.md § "Trigger to flip out of mobile-first priority" (settings is the last row; surface to the operator whether the authenticated core loop is now demoable end-to-end)
+- [x] 8.1 Trimmed `openspec/project.md` § Mobile-First to Full-Demo Priority live-menu **row #5** to the shipped settings scope (block-list unblock, consent toggle, logout, legal link); dropped account-deletion entry + suspension-countdown UI (deferred follow-ups, design D8); noted the entry gear is deferred to #288.
+- [x] 8.2 **Flip trigger NOT met — surfaced to operator.** Live-menu screens #1–#5 are all shipped, BUT the settings entry gear is deferred to #288, so Settings is not yet reachable in-app → the authenticated core loop is **not fully demoable end-to-end** until #288 lands. Mobile-first priority **stays** (status quo, no project.md flip); re-evaluate once #288 wires the gear.
