@@ -65,7 +65,7 @@ outcome="Unknown"
 if grep -qw "Passed" "$LOG"; then
   outcome="Passed"; rc=0
 elif grep -qwE "Failed|Inconclusive|Skipped|Error" "$LOG"; then
-  outcome="$(grep -owE "Failed|Inconclusive|Skipped|Error" "$LOG" | head -1)"; rc=1
+  outcome="$(grep -owE "Failed|Inconclusive|Skipped|Error" "$LOG" | head -1 || true)"; rc=1
 fi
 
 # 5. Pull screenshots + video locally so the agent can surface them.

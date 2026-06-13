@@ -61,9 +61,13 @@ gcloud_cleanup_key() {
 pull_testlab_artifacts() {
   local logf="$1" dest="$2" gcs
   # The CLI prints either a gs:// URL or a console storage-browser URL.
-  gcs="$(grep -oE 'gs://[A-Za-z0-9._/-]+' "$logf" 2>/dev/null | head -1)"
+  # NOTE the trailing `|| true`: under `set -euo pipefail` a command-substitution
+  # assignment whose pipeline exits non-zero (grep finds no match → 1, amplified
+  # by pipefail) ABORTS the whole script. That bug previously killed run_on_device.sh
+  # right here — before the verdict/pull ran — so a Passed Robo run still showed ⚠️.
+  gcs="$(grep -oE 'gs://[A-Za-z0-9._/-]+' "$logf" 2>/dev/null | head -1 || true)"
   if [[ -z "$gcs" ]]; then
-    gcs="$(grep -oE 'storage/browser/[A-Za-z0-9._/-]+' "$logf" 2>/dev/null | head -1 | sed 's#storage/browser/#gs://#')"
+    gcs="$(grep -oE 'storage/browser/[A-Za-z0-9._/-]+' "$logf" 2>/dev/null | head -1 | sed 's#storage/browser/#gs://#' || true)"
   fi
   if [[ -z "$gcs" ]]; then
     echo "[gcloud] could not locate the GCS results path in output — see the Firebase console link above." >&2
