@@ -29,9 +29,12 @@ class NavKeySerializationTest {
                 PostCreationRoute,
                 ConsentRoute,
                 // The first payload-carrying route — a Nearby-origin instance (distanceM non-null) and a
-                // Global-origin instance (distanceM null) both exercise the polymorphic serializer.
+                // Global-origin instance (distanceM null) both exercise the polymorphic serializer; the
+                // reply-shortcut variant (focusReplyComposer = true, mobile-inline-post-actions) pins the
+                // non-default boolean through the round-trip.
                 samplePostDetailRoute(distanceM = 1234.5),
                 samplePostDetailRoute(distanceM = null),
+                samplePostDetailRoute(distanceM = null, focusReplyComposer = true),
             )
         for (route in routes) {
             val encoded = json.encodeToString(navKeySerializer, route)
@@ -76,7 +79,37 @@ class NavKeySerializationTest {
         assertEquals("p1", decoded.postId)
     }
 
-    private fun samplePostDetailRoute(distanceM: Double?): PostDetailRoute =
+    /** mobile-post-detail § "A payload predating focusReplyComposer still decodes" — a back stack
+     *  serialized BEFORE mobile-inline-post-actions lacks the field; the default (false) keeps
+     *  process-death restore decoding instead of throwing, and a whole-card open stays autofocus-free. */
+    @Test
+    fun postDetailRoute_payloadWithoutFocusReplyComposer_decodesToFalse() {
+        // The default-valued field is not encoded (encodeDefaults = false), so this serialized form IS
+        // the pre-change payload shape; strip defensively anyway in case encoding defaults ever flips.
+        val withoutFlag =
+            json
+                .encodeToString(navKeySerializer, samplePostDetailRoute(distanceM = 1234.5))
+                .replace(Regex(""","focusReplyComposer":(true|false)"""), "")
+        val decoded = json.decodeFromString(navKeySerializer, withoutFlag) as PostDetailRoute
+        assertEquals(false, decoded.focusReplyComposer, "a pre-change payload decodes with the false default")
+        assertEquals("p1", decoded.postId)
+    }
+
+    /** The reply-shortcut variant survives the round-trip with the flag intact. */
+    @Test
+    fun postDetailRoute_replyShortcutVariant_roundTripsWithTheFlag() {
+        val original = samplePostDetailRoute(distanceM = null, focusReplyComposer = true)
+        val decoded =
+            json.decodeFromString(navKeySerializer, json.encodeToString(navKeySerializer, original))
+                as PostDetailRoute
+        assertEquals(true, decoded.focusReplyComposer)
+        assertEquals(original, decoded)
+    }
+
+    private fun samplePostDetailRoute(
+        distanceM: Double?,
+        focusReplyComposer: Boolean = false,
+    ): PostDetailRoute =
         PostDetailRoute(
             postId = "p1",
             content = "halo",
@@ -87,5 +120,6 @@ class NavKeySerializationTest {
             replyCount = 3,
             authorUsername = "raka.jkt",
             authorDisplayName = "Raka Pratama",
+            focusReplyComposer = focusReplyComposer,
         )
 }

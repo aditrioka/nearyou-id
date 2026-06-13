@@ -2,6 +2,7 @@ package id.nearyou.app.screens.shell
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -158,6 +159,40 @@ class ShellAndTimelineSourceGuardTest {
         assertFalse(
             home.contains(unselectedColorNeedle),
             "HomeScreen feed Tabs must NOT set a custom unselectedContentColor (use the default — D5)",
+        )
+    }
+
+    // mobile-inline-post-actions (tasks 5.6): both feed ViewModels delegate the inline-like
+    // lifecycle to the ONE shared controller class (ui/timeline/InlineLikeController), and the Koin
+    // module registers NO second like ApiClient — pinning the "one shared implementation, one like
+    // seam" inspection scenarios in the nearby/global deltas.
+    private val likeControllerNeedle = "InlineLike" + "Controller("
+    private val likeFlowBindingNeedle = "single<Like" + "Flow> { get<PostDetail" + "Repository>() }"
+
+    @Test
+    fun bothFeedViewModels_delegateToTheSharedInlineLikeController_andOneLikeSeamExists() {
+        val nearbyVm = read("timeline/NearbyTimelineViewModel.kt")
+        val globalVm = read("timeline/GlobalTimelineViewModel.kt")
+        assertTrue(
+            nearbyVm.contains(likeControllerNeedle),
+            "NearbyTimelineViewModel must delegate to the shared InlineLikeController (no per-feed lifecycle copy)",
+        )
+        assertTrue(
+            globalVm.contains(likeControllerNeedle),
+            "GlobalTimelineViewModel must delegate to the shared InlineLikeController (no per-feed lifecycle copy)",
+        )
+        val module =
+            File(findRepoRoot(), "mobile/app/src/commonMain/kotlin/id/nearyou/app/di/MobileModule.kt")
+                .readText()
+                .stripComments()
+        assertEquals(
+            1,
+            Regex(Regex.escape("LikeApiClient(")).findAll(module).count(),
+            "exactly ONE LikeApiClient registration exists (post-detail's) — no second like client",
+        )
+        assertTrue(
+            module.contains(likeFlowBindingNeedle),
+            "LikeFlow must bind to the SAME PostDetailRepository singleton (the extracted seam, design D1)",
         )
     }
 

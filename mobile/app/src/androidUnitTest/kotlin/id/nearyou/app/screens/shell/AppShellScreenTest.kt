@@ -17,6 +17,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.data.like.FakeLikeFlow
+import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -130,6 +132,7 @@ class AppShellScreenTest {
                 module {
                     single<NearbyTimelineFlow> { nearbyFake }
                     single<GlobalTimelineFlow> { globalFake }
+                    single<LikeFlow> { FakeLikeFlow() }
                     single<NotificationsFlow> { notifFake }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
@@ -392,6 +395,7 @@ class AppShellScreenTest {
                 module {
                     single<NearbyTimelineFlow> { nearbyFake }
                     single<GlobalTimelineFlow> { globalFake }
+                    single<LikeFlow> { FakeLikeFlow() }
                     // The shell's real notifications graph over the recording MockEngine (the badge's
                     // unread-count request is captured here).
                     single<NotificationsFlow> { NotificationsRepository(NotificationsApiClient(httpClient)) }

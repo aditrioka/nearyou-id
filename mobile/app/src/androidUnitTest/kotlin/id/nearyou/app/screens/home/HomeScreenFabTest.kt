@@ -10,6 +10,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.data.like.FakeLikeFlow
+import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -65,6 +67,7 @@ class HomeScreenFabTest {
                 module {
                     // HomeScreen hosts NearbyTimelineScreen (needs the Nearby flow + a GRANTED gate)…
                     single<NearbyTimelineFlow> { nearbyFake }
+                    single<LikeFlow> { FakeLikeFlow() }
                     single<LocationPermissionController> { FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED) }
                     // …and the FAB appends PostCreationRoute, whose screen injects the CreatePostFlow seam.
                     single<CreatePostFlow> { FakeCreatePostFlow() }

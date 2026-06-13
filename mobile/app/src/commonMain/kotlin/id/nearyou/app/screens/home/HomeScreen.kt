@@ -66,11 +66,14 @@ const val HOME_FEED_PAGER_TAG: String = "homeFeedPager"
  * round-trip with no re-fetch (design D1/D2/D3). Per-tab back stacks are deferred (follow-up issue
  * #189, `mobile-home-tab-host-per-tab-backstacks`).
  *
- * Two callbacks are hoisted (both wired by the shell + `appEntryProvider` call site to root-stack pushes):
+ * Three callbacks are hoisted (all wired by the shell + `appEntryProvider` call site to root-stack pushes):
  * - [onOpenComposer] — the single composer FAB shared across all three feed pages → `add(PostCreationRoute)`.
  * - [onOpenPost] — the feed card-tap callback (`mobile-post-detail-screen`, #159): the Nearby + Global pages
  *   invoke it with the tapped card's PII-free fields (as a [PostDetailTarget]) → `add(PostDetailRoute(...))`.
- *   The Following page (a deferred placeholder with no cards) wires no `onOpenPost`.
+ * - [onOpenPostReply] — the cards' reply-shortcut callback (`mobile-inline-post-actions`): same payload,
+ *   wired by the call site to `add(PostDetailRoute(..., focusReplyComposer = true))` so the detail entry
+ *   autofocuses the reply composer.
+ *   The Following page (a deferred placeholder with no cards) wires neither card callback.
  *
  * The Nearby page's empty-state "lihat Global" CTA animates the pager to the Global page (host-level
  * state, not a back-stack reference — `NearbyTimelineScreen` stays navigation-free).
@@ -79,6 +82,7 @@ const val HOME_FEED_PAGER_TAG: String = "homeFeedPager"
 fun HomeScreen(
     onOpenComposer: () -> Unit,
     onOpenPost: (PostDetailTarget) -> Unit = {},
+    onOpenPostReply: (PostDetailTarget) -> Unit = {},
 ) {
     // The durable selection (iOS-safe @Serializable enum) — kept in sync with the settled pager page.
     var selectedTab by rememberSaveable { mutableStateOf(Tab.Nearby) }
@@ -124,9 +128,14 @@ fun HomeScreen(
                         NearbyTimelineScreen(
                             onSeeGlobal = { scope.launch { pagerState.animateScrollToPage(Tab.Global.ordinal) } },
                             onOpenPost = { post -> onOpenPost(post.toTarget()) },
+                            onOpenPostReply = { post -> onOpenPostReply(post.toTarget()) },
                         )
                     Tab.Following -> FollowingPlaceholderScreen()
-                    Tab.Global -> GlobalTimelineScreen(onOpenPost = { post -> onOpenPost(post.toTarget()) })
+                    Tab.Global ->
+                        GlobalTimelineScreen(
+                            onOpenPost = { post -> onOpenPost(post.toTarget()) },
+                            onOpenPostReply = { post -> onOpenPostReply(post.toTarget()) },
+                        )
                 }
             }
         }

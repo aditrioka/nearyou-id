@@ -2,8 +2,10 @@ package id.nearyou.app.screens.timeline
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
+import id.nearyou.app.ui.timeline.InlineLikeController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +39,7 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 class NearbyTimelineViewModel(
     private val flow: NearbyTimelineFlow,
+    likeFlow: LikeFlow,
 ) : ViewModel() {
     private val _outcome = MutableStateFlow<NearbyTimelineOutcome?>(null)
     val outcome: StateFlow<NearbyTimelineOutcome?> = _outcome.asStateFlow()
@@ -47,9 +50,39 @@ class NearbyTimelineViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    // mobile-inline-post-actions: the per-surface instance of the ONE shared inline-like lifecycle
+    // (ui/timeline/InlineLikeController) over the extracted LikeFlow seam — the same
+    // PostDetailRepository singleton post-detail uses. The optimistic flip mutates the tapped post
+    // inside the retained Loaded outcome; PostGone self-heals via reload().
+    private val likeController =
+        InlineLikeController(
+            likeFlow = likeFlow,
+            scope = viewModelScope,
+            idOf = { it.id },
+            setLiked = { post, liked -> post.copy(likedByViewer = liked) },
+            readPosts = { (_outcome.value as? NearbyTimelineOutcome.Loaded)?.posts },
+            writePosts = { posts ->
+                val current = _outcome.value
+                if (current is NearbyTimelineOutcome.Loaded) _outcome.value = current.copy(posts = posts)
+            },
+            onPostGone = ::reload,
+        )
+
+    /** Non-null while the Free like-cap dialog should be shown (one-shot state, docs/11 § 2.2). */
+    val likeCapRetryAfterSeconds: StateFlow<Long?> = likeController.capRetryAfterSeconds
+
     init {
         load(initial = true)
     }
+
+    /** Inline like tap: [currentlyLiked] is the tapped card's CURRENT state (both directions valid). */
+    fun toggleLike(
+        postId: String,
+        currentlyLiked: Boolean,
+    ) = likeController.toggle(postId, currentlyLiked)
+
+    /** Clears the one-shot cap-dialog state (the dialog's dismiss + v1 Premium-CTA wiring). */
+    fun onLikeCapDialogDismissed() = likeController.onCapDialogDismissed()
 
     /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
     fun reload() {

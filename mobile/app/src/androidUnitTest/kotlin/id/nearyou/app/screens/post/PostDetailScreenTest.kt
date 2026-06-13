@@ -1,7 +1,23 @@
 package id.nearyou.app.screens.post
 
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.LocalSaveableStateRegistry
+import androidx.compose.runtime.saveable.SaveableStateRegistry
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -10,6 +26,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.unit.dp
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.network.HttpClientFactory
@@ -105,6 +122,7 @@ class PostDetailScreenTest {
         replyCount: Int = 2,
         authorUsername: String = "raka.jkt",
         authorDisplayName: String = "Raka Pratama",
+        focusReplyComposer: Boolean = false,
     ): PostDetailRoute =
         PostDetailRoute(
             postId = "p1",
@@ -116,6 +134,7 @@ class PostDetailScreenTest {
             replyCount = replyCount,
             authorUsername = authorUsername,
             authorDisplayName = authorDisplayName,
+            focusReplyComposer = focusReplyComposer,
         )
 
     // ---- header ----
@@ -452,6 +471,98 @@ class PostDetailScreenTest {
                 },
                 "only sub-resource paths; captured=$captured",
             )
+        }
+    }
+
+    // ---- mobile-inline-post-actions: the reply-shortcut composer autofocus ----
+
+    // mobile-post-detail § "Reply composer autofocuses on reply-shortcut entry": a route carrying
+    // focusReplyComposer = true focuses the composer (IME up) once on first composition.
+    @Test
+    fun replyShortcutEntry_focusesTheComposer() {
+        installKoin(FakePostDetailFlow())
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme { PostDetailScreen(route = route(focusReplyComposer = true), onBack = {}) }
+                }
+            }
+            waitForIdle()
+            onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).assertIsFocused()
+        }
+    }
+
+    // The whole-card open (focusReplyComposer = false, the default) keeps today's behavior: no autofocus.
+    @Test
+    fun wholeCardEntry_doesNotFocusTheComposer() {
+        installKoin(FakePostDetailFlow())
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } }
+            }
+            waitForIdle()
+            onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).assertIsNotFocused()
+        }
+    }
+
+    // mobile-post-detail § autofocus scenario "A restored entry does not re-fire a consumed autofocus":
+    // the consume-once marker is SAVEABLE, so a config-change/process-death restore must not re-focus.
+    // The restore is simulated the way StateRestorationTester does internally (that junit4 harness is
+    // not on this project's classpath): generation 0 composes with a fresh SaveableStateRegistry and
+    // autofocuses; its state is performSave()d and generation 1 recomposes from the captured values —
+    // the restored consumed=true marker suppresses the re-fire, so the field comes up NOT focused.
+    @Test
+    fun restoredEntry_doesNotReFireAConsumedAutofocus() {
+        installKoin(FakePostDetailFlow())
+        runComposeUiTest {
+            var savedState: Map<String, List<Any?>>? = null
+            var registry: SaveableStateRegistry? = null
+            var generation by mutableStateOf(0)
+            // A 1dp focus "parking" node OUTSIDE the key(generation) scope: focus is moved here before
+            // the recreate so the restored generation starts from an unfocused field — the assertion
+            // then discriminates exactly "did the autofocus re-fire?" (in-window recreation otherwise
+            // lets the old generation's focus bleed into the new field).
+            val parkRequester = FocusRequester()
+            setContent {
+                Column {
+                    Box(Modifier.size(1.dp).focusRequester(parkRequester).focusable())
+                    // The screen is recreated by leaving and re-entering the SAME if-branch slot (NOT
+                    // key(generation): a changed key() value alters the composite key hash, so the
+                    // rememberSaveable auto-keys would differ between generations and the restore map
+                    // would never match — the exact false-negative this harness must avoid).
+                    if (generation != -1) {
+                        val current =
+                            remember(generation) {
+                                SaveableStateRegistry(restoredValues = savedState, canBeSaved = { true })
+                            }
+                        registry = current
+                        CompositionLocalProvider(LocalSaveableStateRegistry provides current) {
+                            KoinContext {
+                                NearYouTheme {
+                                    PostDetailScreen(route = route(focusReplyComposer = true), onBack = {})
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            waitForIdle()
+            // Generation 0: the reply-shortcut entry consumed its autofocus.
+            onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).assertIsFocused()
+            // Park focus away from the field, then save + dispose + restore (the config-change/
+            // process-death path): save while alive, drop the branch, re-enter it with the captured map.
+            runOnIdle { parkRequester.requestFocus() }
+            waitForIdle()
+            onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).assertIsNotFocused()
+            runOnIdle { savedState = registry!!.performSave() }
+            runOnIdle { generation = -1 }
+            waitForIdle()
+            runOnIdle { generation = 1 }
+            waitForIdle()
+            // The restored entry decodes consumed=true → the autofocus does NOT re-fire. (If the
+            // consume-once marker were NOT saveable, generation 1 would re-run the autofocus and
+            // steal focus back from the park node — failing this assertion.)
+            onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).assertIsNotFocused()
         }
     }
 }

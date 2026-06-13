@@ -68,6 +68,12 @@ data object ConsentRoute : NavKey
  * DISPLAY identity to the header — display data, NOT the banned author UUID. Defaulted to `""` so a
  * back stack serialized BEFORE this change still decodes on process-death restore; an empty value
  * renders the header without the identity row (graceful, spec'd).
+ *
+ * [focusReplyComposer] (added by `mobile-inline-post-actions`) carries the feed cards' reply-shortcut
+ * intent: `true` autofocuses the reply composer (IME up) once on the detail entry's first composition;
+ * the whole-card open pushes the default `false` (today's behavior). Defaulted so payloads serialized
+ * BEFORE this change still decode — the same compatibility precedent as the identity fields. A boolean
+ * intent flag, no PII.
  */
 @Serializable
 data class PostDetailRoute(
@@ -80,4 +86,5 @@ data class PostDetailRoute(
     val replyCount: Int,
     val authorUsername: String = "",
     val authorDisplayName: String = "",
+    val focusReplyComposer: Boolean = false,
 ) : NavKey

@@ -1,9 +1,16 @@
 package id.nearyou.app.ui.components
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -20,10 +27,13 @@ import kotlin.test.assertEquals
  * Render coverage of the shared `ui/components` post card (`mobile-post-card` capability) — the
  * ONE card implementation Nearby + Global consume (audit 05-#11 post-card half). Covers: the
  * identity header (display name + @handle + time-as-TEXT), the structural no-PII guarantee, the
- * liked-state icon variants, the single-tap contract (the whole card is the only click target;
- * the avatar region is NOT a separate target — no profile screen yet, issue #196), the
- * Nearby-vs-Global distance split via the shared `DistanceRenderer`, the empty-meta-row omission,
- * the maximal-length (V2 50/60) single-line ellipsis treatment, and light+dark token rendering.
+ * liked-state icon variants + the accessible toggled state, the interactive ACTION ROW contract
+ * (`mobile-inline-post-actions`: exactly three click targets — the card + the like + the reply
+ * affordances; the affordances route to their own callbacks WITHOUT firing the whole-card open;
+ * no send affordance, no numeric like count; the avatar region is still NOT a separate target —
+ * no profile screen yet, issue #196), the Nearby-vs-Global distance split via the shared
+ * `DistanceRenderer`, the empty-meta-row omission, the maximal-length (V2 50/60) single-line
+ * ellipsis treatment, and light+dark token rendering.
  *
  * `@Suppress("DEPRECATION")`: the suite keeps the v1 `runComposeUiTest` API the sibling screen
  * tests use — migrating to v2 is the tracked follow-up per docs/11 § 2.7, not drive-by churn.
@@ -54,10 +64,29 @@ class PostCardTest {
         replyCount = replyCount,
     )
 
+    /** Composes the card under [NearYouTheme] with recording-or-no-op callbacks. */
+    @Composable
+    private fun Card(
+        model: PostCardModel,
+        onOpen: () -> Unit = {},
+        onToggleLike: () -> Unit = {},
+        onReplyShortcut: () -> Unit = {},
+        darkTheme: Boolean = false,
+    ) {
+        NearYouTheme(darkTheme = darkTheme) {
+            PostCard(
+                model = model,
+                onOpen = onOpen,
+                onToggleLike = onToggleLike,
+                onReplyShortcut = onReplyShortcut,
+            )
+        }
+    }
+
     @Test
     fun identityHeaderRendersDisplayNameHandleAndTimeAsText() =
         runComposeUiTest {
-            setContent { NearYouTheme(darkTheme = false) { PostCard(model = model(), onOpen = {}) } }
+            setContent { Card(model = model()) }
             onNodeWithText("Raka Pratama").assertIsDisplayed()
             onNodeWithText("@raka.jkt").assertIsDisplayed()
             // The time label is plain text in the header (the clock glyph is gone — the
@@ -70,7 +99,7 @@ class PostCardTest {
     fun noAuthorUuidOrRawCoordinateAppearsInTheTree() =
         runComposeUiTest {
             // PostCardModel structurally carries no UUID/coordinates; this pins the rendered tree.
-            setContent { NearYouTheme(darkTheme = false) { PostCard(model = model(), onOpen = {}) } }
+            setContent { Card(model = model()) }
             onAllNodesWithText("11111111", substring = true).assertCountEquals(0)
             onAllNodesWithText("-6.21", substring = true).assertCountEquals(0)
             onAllNodesWithText("106.85", substring = true).assertCountEquals(0)
@@ -79,53 +108,93 @@ class PostCardTest {
     @Test
     fun likedStateSwitchesTheLikeIconVariant() =
         runComposeUiTest {
-            setContent {
-                NearYouTheme(darkTheme = false) {
-                    PostCard(model = model(likedByViewer = true), onOpen = {})
-                }
-            }
+            setContent { Card(model = model(likedByViewer = true)) }
             onNodeWithTag(POST_CARD_LIKE_FILLED_TAG, useUnmergedTree = true).assertExists()
-            onAllNodes(hasClickAction()).assertCountEquals(1)
         }
 
     @Test
     fun unlikedStateRendersTheOutlinedVariant() =
         runComposeUiTest {
-            setContent {
-                NearYouTheme(darkTheme = false) {
-                    PostCard(model = model(likedByViewer = false), onOpen = {})
-                }
-            }
+            setContent { Card(model = model(likedByViewer = false)) }
             onNodeWithTag(POST_CARD_LIKE_OUTLINED_TAG, useUnmergedTree = true).assertExists()
         }
 
     @Test
-    fun theOnlyClickableNodeIsTheCard_andAvatarTapFiresTheWholeCardOpenOnce() =
+    fun exactlyThreeClickTargets_andAvatarTapFiresTheWholeCardOpenOnce() =
         runComposeUiTest {
             var opened = 0
-            setContent {
-                NearYouTheme(darkTheme = false) {
-                    PostCard(model = model(), onOpen = { opened++ })
-                }
-            }
-            // Exactly ONE click target in the whole tree — the card itself. The counts row and
-            // the identity region expose no click action (no dead controls; inline actions are
-            // the deferred #201 change).
-            onAllNodes(hasClickAction()).assertCountEquals(1)
+            setContent { Card(model = model(), onOpen = { opened++ }) }
+            // Exactly THREE click targets in the whole tree — the card itself plus the action
+            // row's like + reply affordances (mobile-post-card § "Action row renders interactive
+            // reply and like affordances"). The identity region exposes no click action and there
+            // is NO send affordance / third action slot (the deferred chat hook, issue #238).
+            onAllNodes(hasClickAction()).assertCountEquals(3)
             // Tapping over the avatar region dispatches to the card's clickable — same action.
             onNodeWithTag(POST_CARD_AVATAR_TAG, useUnmergedTree = true).performClick()
             assertEquals(1, opened)
         }
 
     @Test
+    fun actionAffordancesRouteToTheirCallbacks_withoutFiringTheWholeCardOpen() =
+        runComposeUiTest {
+            var opened = 0
+            var liked = 0
+            var replied = 0
+            setContent {
+                Card(
+                    model = model(),
+                    onOpen = { opened++ },
+                    onToggleLike = { liked++ },
+                    onReplyShortcut = { replied++ },
+                )
+            }
+            onNodeWithTag(POST_CARD_LIKE_ACTION_TAG).performClick()
+            assertEquals(1, liked, "the like affordance fires onToggleLike exactly once")
+            assertEquals(0, opened, "the like tap does NOT fire the whole-card onOpen")
+            onNodeWithTag(POST_CARD_REPLY_ACTION_TAG).performClick()
+            assertEquals(1, replied, "the reply affordance fires onReplyShortcut exactly once")
+            assertEquals(0, opened, "the reply tap does NOT fire the whole-card onOpen")
+            assertEquals(1, liked, "the reply tap does not re-fire the like callback")
+        }
+
+    @Test
+    fun replyAffordanceShowsTheCount_andNoNumericLikeCountIsRendered() =
+        runComposeUiTest {
+            setContent { Card(model = model(replyCount = 7)) }
+            // "7" appears exactly once in the whole tree — the reply affordance's count. No other
+            // numeric count exists: the timeline wire carries NO like count (the known frame-1
+            // divergence, spec-declared).
+            onAllNodesWithText("7").assertCountEquals(1)
+            onNodeWithTag(POST_CARD_REPLY_ACTION_TAG).assertExists()
+        }
+
+    @Test
+    fun affordancesCarryContentDescriptions_andTheLikeStateIsAnnounced() =
+        runComposeUiTest {
+            setContent {
+                Column {
+                    Card(model = model(likedByViewer = true))
+                    Card(model = model(content = "kedua", likedByViewer = false))
+                }
+            }
+            // Both affordances are labeled via stringResource (post_card_action_*), and the like
+            // affordance announces its toggled state via stateDescription (post_card_like_state_*)
+            // — the liked state is never visual-only. The reply description folds in the count
+            // (model() default replyCount = 4) so TalkBack announces it, not just "Balas".
+            onAllNodes(hasTestTag(POST_CARD_REPLY_ACTION_TAG))[0].assertContentDescriptionEquals("Balas, 4 balasan")
+            val likeNodes = onAllNodes(hasTestTag(POST_CARD_LIKE_ACTION_TAG))
+            likeNodes[0].assertContentDescriptionEquals("Suka")
+            likeNodes[0].assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Disukai"))
+            likeNodes[1].assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Belum disukai"))
+        }
+
+    @Test
     fun nearbyVariantRendersSharedRendererDistance_globalVariantRendersNone() =
         runComposeUiTest {
             setContent {
-                NearYouTheme(darkTheme = false) {
-                    androidx.compose.foundation.layout.Column {
-                        PostCard(model = model(distanceM = 1234.5), onOpen = {})
-                        PostCard(model = model(content = "kedua", distanceM = null), onOpen = {})
-                    }
+                Column {
+                    Card(model = model(distanceM = 1234.5))
+                    Card(model = model(content = "kedua", distanceM = null))
                 }
             }
             // DistanceRenderer.render(1234.5) == "5km" (the ≥5km floor) — asserted at the
@@ -139,11 +208,7 @@ class PostCardTest {
     @Test
     fun emptyCityAndNullDistanceHideTheLocationMetaRow() =
         runComposeUiTest {
-            setContent {
-                NearYouTheme(darkTheme = false) {
-                    PostCard(model = model(cityName = "", distanceM = null), onOpen = {})
-                }
-            }
+            setContent { Card(model = model(cityName = "", distanceM = null)) }
             onNodeWithTag(POST_CARD_PIN_TAG, useUnmergedTree = true).assertDoesNotExist()
             onAllNodesWithText("\"\"").assertCountEquals(0)
         }
@@ -154,14 +219,7 @@ class PostCardTest {
             // V2 maxima: display_name VARCHAR(50), username VARCHAR(60).
             val longName = "N".repeat(50)
             val longHandle = "u".repeat(60)
-            setContent {
-                NearYouTheme(darkTheme = false) {
-                    PostCard(
-                        model = model(authorDisplayName = longName, authorUsername = longHandle),
-                        onOpen = {},
-                    )
-                }
-            }
+            setContent { Card(model = model(authorDisplayName = longName, authorUsername = longHandle)) }
             onNodeWithText(longName).assertIsDisplayed()
             // The handle ellipsizes (weight(fill = false)) instead of pushing the time label out.
             onNodeWithText("2026-05-31").assertIsDisplayed()
@@ -170,7 +228,7 @@ class PostCardTest {
     @Test
     fun rendersUnderTheDarkScheme() =
         runComposeUiTest {
-            setContent { NearYouTheme(darkTheme = true) { PostCard(model = model(), onOpen = {}) } }
+            setContent { Card(model = model(), darkTheme = true) }
             onNodeWithText("Raka Pratama").assertIsDisplayed()
             onNodeWithText("@raka.jkt").assertIsDisplayed()
         }

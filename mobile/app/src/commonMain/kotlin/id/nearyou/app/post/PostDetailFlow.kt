@@ -1,10 +1,17 @@
 package id.nearyou.app.post
 
+import id.nearyou.app.data.like.LikeFlow
+
 /**
  * The post-detail orchestration contract consumed by `PostDetailScreen`. The production binding is
  * [PostDetailRepository] (a stateless Koin singleton); commonTest substitutes a `FakePostDetailFlow` so
  * the screen tests can drive specific outcomes without a backend — mirroring `mobile-nearby-timeline`'s
  * `NearbyTimelineFlow` seam and `mobile-post-creation`'s `CreatePostFlow` seam (design D6).
+ *
+ * As of `mobile-inline-post-actions` the like half of the seam lives in the [LikeFlow] super-interface
+ * (`data/like/LikeFlow.kt`) — `toggleLike` is inherited, not re-declared — so the feed cards' inline
+ * like shares the SAME `PostDetailRepository` singleton (`single<LikeFlow> { get<PostDetailRepository>() }`)
+ * without depending on the detail-screen surface.
  *
  * Every method takes the [postId] explicitly (the repository is a singleton — it cannot hold a
  * per-screen post id), and maps each HTTP status + transport-failure to EXACTLY one member of its
@@ -12,17 +19,10 @@ package id.nearyou.app.post
  * `Auth` plugin (terminal 401 → `SessionInvalidator` → `SignInScreen`) and is NEVER mapped here;
  * `CancellationException` is rethrown by the ApiClient layer (never mapped to `NetworkError`).
  */
-interface PostDetailFlow {
+interface PostDetailFlow : LikeFlow {
     /** `GET /api/v1/posts/{postId}/replies` (first page). `next_cursor` is retained on [RepliesOutcome.Loaded]
      *  but cursor load-more is NOT wired in this change (deferred). */
     suspend fun loadReplies(postId: String): RepliesOutcome
-
-    /** `POST` (when [currentlyLiked] = false) or `DELETE` (when true) `/api/v1/posts/{postId}/like`.
-     *  The caller flips optimistically and reverts on a non-`Liked`/`Unliked` outcome. */
-    suspend fun toggleLike(
-        postId: String,
-        currentlyLiked: Boolean,
-    ): LikeOutcome
 
     /** `POST /api/v1/posts/{postId}/replies` with `{ "content": <content> }`. On [ReplyPostOutcome.Success]
      *  the caller appends the returned reply locally + bumps the count — the repo does NOT re-fetch. */

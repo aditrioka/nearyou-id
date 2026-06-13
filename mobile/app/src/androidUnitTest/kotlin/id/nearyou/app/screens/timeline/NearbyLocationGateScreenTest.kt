@@ -10,6 +10,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import id.nearyou.app.data.like.FakeLikeFlow
+import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -83,6 +85,7 @@ class NearbyLocationGateScreenTest {
             modules(
                 module {
                     single<NearbyTimelineFlow> { fakeFlow }
+                    single<LikeFlow> { FakeLikeFlow() }
                     single<LocationPermissionController> { fakeController }
                 },
             )
