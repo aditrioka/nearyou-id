@@ -2,7 +2,7 @@
 
 - [x] 1.1 Re-confirm zero-migration preconditions: `reserved_usernames` table + `reserved_usernames_protect_seed` + `reserved_usernames_set_updated_at` triggers exist (V3); `admin_app` has `SELECT/INSERT/UPDATE/DELETE` on `reserved_usernames` (provision-admin-app-staging.sh); `admin_actions_log.action_type` is a free `VARCHAR(64)` (no CHECK); latest migration on the branch base is V20 (this change adds none).
 - [x] 1.2 Confirm signup's reserved-username check normalization (lowercase + exact match) so D9 add-normalization matches; if signup normalizes differently, align D9 before coding (design § Open Questions).
-- [ ] 1.3 Render mockup **frame 21** (headless Chrome per the render rule) + generate the measurement annex (`dev/scripts/mockup-measure.sh nearyou-admin-mockup 21`) for spacing / typography / token mapping (docs/11 §3.6).
+- [x] 1.3 Render mockup **frame 21** (headless Chrome per the render rule) + generate the measurement annex (`dev/scripts/mockup-measure.sh nearyou-admin-mockup 21`) for spacing / typography / token mapping (docs/11 §3.6).
 - [x] 1.4 Confirm no new library pin / no `libs.versions.toml` change → propose-time/pre-impl library re-check is N/A (skip).
 
 ## 2. Data layer (repository + rate limiter)
@@ -30,7 +30,7 @@
 - [x] 4.1 `reserved-usernames.peb` (filter bar: `source` select + search; add-single form; CSV bulk-add **textarea** — paste `username,reason` lines, a text field not a file picker, D8; table) + `reserved-usernames-table.peb` (fragment) — vendored vanilla CSS tokens copied from the frame-21 `.frame` block; **HTML-escape** every `username`/`reason`; no-JS fallback forms carry the `_csrf` hidden field; responsive contract (frame 4b).
 - [x] 4.2 Sidebar nav entry "Reserved usernames" in `AdminLayout` (frame 21 grouping) + `activePath = "/admin/reserved-usernames"`.
 - [x] 4.3 Read-only "N/100 this hour" quota chip on the page (parity with the user-management destructive chip; drop if it complicates the fragment — design § Open Questions).
-- [ ] 4.4 Apply the frame-21 measurement annex (spacing/type/token mapping) to the templates.
+- [x] 4.4 Apply the frame-21 measurement annex (spacing/type/token mapping) to the templates.
 
 ## 5. Tests (kotest; `@Tags("database")` for route/repository integration; new `*RoutesTest` `autoClose(hikari())` + size 2 per the CI connection budget)
 
@@ -73,7 +73,7 @@
 ## 6. Verification & Definition of Done
 
 - [x] 6.1 Local gates green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (no `:mobile:app` touched → no mobile test lanes).
-- [ ] 6.2 Admin-UI bring-up via `verify-loop` (admin surface = local Ktor boot on :8080 + admin bootstrap + TOTP): exercise add → list → edit → remove → seed-remove-blocked → over-cap; **screenshot the frame-21-conformant `/admin/reserved-usernames` page into the PR body** before archive (docs/11 §5 DoD #3 — UI-affecting change).
+- [x] 6.2 Admin-UI bring-up via `verify-loop` (admin surface = local Ktor boot on :8080 + admin bootstrap + TOTP): exercise add → list → edit → remove → seed-remove-blocked → over-cap; **screenshot the frame-21-conformant `/admin/reserved-usernames` page into the PR body** before archive (docs/11 §5 DoD #3 — UI-affecting change).
 - [ ] 6.3 Pre-archive staging branch deploy (`gh workflow run deploy-staging.yml --ref admin-reserved-usernames-editor`) + smoke `dev/scripts/smoke-admin-reserved-usernames-editor.sh` (unauthenticated `GET /admin/reserved-usernames` → 302 `/admin/login` baseline; authenticated add/list/edit/remove/seed-block if creds available); confirm `admin_app` write grants live on the smoke target (project.md § Staging deploy timing).
 
 ## 7. PR & docs hygiene
