@@ -58,6 +58,7 @@ import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.profile_not_found
 import id.nearyou.resources.generated.resources.profile_premium_badge_icon_description
 import id.nearyou.resources.generated.resources.signin_error_network
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -205,6 +206,7 @@ private fun FollowListRows(
     // request the next page. The VM guards against a duplicate in-flight fetch.
     LaunchedEffect(listState, content.canLoadMore, content.loadMoreFailed, content.users.size) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .distinctUntilChanged()
             .collect { lastVisible ->
                 if (content.canLoadMore && !content.loadMoreFailed && lastVisible >= content.users.size - LOAD_MORE_THRESHOLD) {
                     onLoadMore()

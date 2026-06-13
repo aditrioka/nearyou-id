@@ -2,6 +2,7 @@ package id.nearyou.app.screens.followlist
 
 import id.nearyou.app.followlist.FakeFollowListFlow
 import id.nearyou.app.followlist.FollowListOutcome
+import id.nearyou.app.followlist.FollowListPage
 import id.nearyou.app.followlist.FollowListTab
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -237,6 +238,38 @@ class FollowListViewModelTest {
             assertEquals(FollowListTabUiState.Error, viewModel.uiState.value.followers)
             fail = false
             viewModel.onRetry(FollowListTab.Followers)
+            advanceUntilIdle()
+            assertIs<FollowListTabUiState.Content>(viewModel.uiState.value.followers)
+        }
+
+    @Test
+    fun `refresh from a non-content state never flips to the loading skeleton`() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            var refreshing = false
+            val flow =
+                FakeFollowListFlow().apply {
+                    responder = { _, _ ->
+                        if (refreshing) {
+                            gate.await()
+                            FakeFollowListFlow.page(listOf("a"), null)
+                        } else {
+                            FollowListOutcome.Loaded(FollowListPage(emptyList(), null))
+                        }
+                    }
+                }
+            val viewModel = vm(flow)
+            advanceUntilIdle()
+            // Initial load resolved to Empty (zero rows), NOT the Loading skeleton.
+            assertEquals(FollowListTabUiState.Empty, viewModel.uiState.value.followers)
+            refreshing = true
+            viewModel.onRefresh(FollowListTab.Followers)
+            advanceUntilIdle()
+            // Mid-refresh: the spinner is on, but the state stays Empty — it does NOT flip to Loading
+            // (refresh drives isRefreshing, never isInitialLoad; the canonical no-skeleton-on-refresh rule).
+            assertTrue(viewModel.uiState.value.followersRefreshing)
+            assertEquals(FollowListTabUiState.Empty, viewModel.uiState.value.followers)
+            gate.complete(Unit)
             advanceUntilIdle()
             assertIs<FollowListTabUiState.Content>(viewModel.uiState.value.followers)
         }

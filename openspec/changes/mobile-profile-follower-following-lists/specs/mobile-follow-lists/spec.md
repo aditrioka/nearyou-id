@@ -150,13 +150,13 @@ Each tab SHALL follow the canonical list loading/refresh contract (`mobile-desig
 
 ### Requirement: FollowList rows render the embedded profile summary and tap through to ProfileRoute
 
-Each list row SHALL render the embedded profile summary using the identity treatment **reused** from `mobile-post-card` / `mobile-profile` (so it cannot drift): the **letter avatar + deterministic-color mapping**, the **display name**, the **`@username` handle** via the shared `stringResource` handle format, and an actively-**Premium badge** when `isPremium = true` (an M3 icon + a `stringResource` label — never a color-only signal). Tapping a row SHALL push `ProfileRoute(rowUserId)` onto the **root** back stack (the established other-user-profile entry). The row's `userId` (a UUID) MUST NOT be rendered in any UI node — it is carried only as the navigation key.
+Each list row SHALL render the embedded profile summary using the identity treatment **reused** from `mobile-post-card` / `mobile-profile` (so it cannot drift): the **letter avatar + deterministic-color mapping**, the **display name**, the **`@username` handle** via the shared `stringResource` handle format, and an actively-**Premium badge** when `isPremium = true` (an M3 icon carrying a `stringResource` **content description** — the badge is conveyed by the icon shape + its accessible label, never by color alone; a compact list row omits the visible "Premium" text label the larger profile header shows). Tapping a row SHALL push `ProfileRoute(rowUserId)` onto the **root** back stack (the established other-user-profile entry). The row's `userId` (a UUID) MUST NOT be rendered in any UI node — it is carried only as the navigation key.
 
 #### Scenario: Row renders identity and Premium badge
 
 - **GIVEN** a row with `username = "sari.bdg"`, `displayName = "Sari Lestari"`, `isPremium = true`
 - **WHEN** the row is rendered
-- **THEN** the tree contains the letter avatar, "Sari Lestari", the handle format applied to "sari.bdg" (rendering "@sari.bdg"), and the Premium badge (M3 icon + `stringResource` label, carried by more than color alone)
+- **THEN** the tree contains the letter avatar, "Sari Lestari", the handle format applied to "sari.bdg" (rendering "@sari.bdg"), and the Premium badge — an M3 icon whose `stringResource` content description is present (carried by more than color alone)
 
 #### Scenario: Tapping a row navigates to that user's profile
 
@@ -228,7 +228,7 @@ Every user-facing string on the follow-list surface (the two tab labels Pengikut
 
 ### Requirement: Follow-list Koin wiring reuses the shared client
 
-`FollowListApiClient` and `FollowListRepository` SHALL be registered as Koin singletons in `di/MobileModule.kt`, with `single<FollowListFlow> { get<FollowListRepository>() }`, reusing the shared `HttpClient` (no new client, no `X-Session-Id`). `FollowListViewModel` SHALL be obtained via `koinViewModel()` scoped to the Nav3 entry and SHALL talk to `FollowListFlow`, never to the ApiClient directly (the `UI → ViewModel → Repository → ApiClient` dependency direction).
+`FollowListApiClient` and `FollowListRepository` SHALL be registered as Koin singletons in `di/MobileModule.kt`, with `single<FollowListFlow> { get<FollowListRepository>() }`, reusing the shared `HttpClient` (no new client, no `X-Session-Id`). `FollowListViewModel` SHALL be obtained via androidx `viewModel { }` scoped to the Nav3 entry (resolving `FollowListFlow` through `koinInject`, the shipped screen pattern — `ProfileScreen` / the timeline screens) and SHALL talk to `FollowListFlow`, never to the ApiClient directly (the `UI → ViewModel → Repository → ApiClient` dependency direction).
 
 #### Scenario: ViewModel depends on the repository seam, not the ApiClient
 

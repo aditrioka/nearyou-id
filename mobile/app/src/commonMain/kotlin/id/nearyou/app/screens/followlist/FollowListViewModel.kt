@@ -86,7 +86,12 @@ class FollowListViewModel(
      *  (drives `isRefreshing`, not `isInitialLoad`). On success the rows + cursor are replaced; on failure
      *  the prior rows are retained (the refresh simply ends). */
     fun onRefresh(tab: FollowListTab) {
-        if (tabState(tab).isRefreshing) return
+        val t = tabState(tab)
+        // Guard `isInitialLoad` too (mirrors `NearbyTimelineViewModel.onRefresh`): a pull-to-refresh
+        // fired from the still-loading skeleton would otherwise launch a second concurrent first-page
+        // fetch whose `withRefresh` clears `isRefreshing` but NOT `isInitialLoad`, flashing the skeleton
+        // over already-loaded rows until the original first-page load resolves.
+        if (t.isRefreshing || t.isInitialLoad) return
         updateTab(tab) { it.copy(isRefreshing = true, loadMoreFailed = false) }
         viewModelScope.launch {
             val outcome = flow.load(userId, tab, null)

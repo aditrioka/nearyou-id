@@ -71,4 +71,18 @@ class FollowListUiStateTest {
     fun `no rows and a null outcome falls back to Loading`() {
         assertEquals(FollowListTabUiState.Loading, followListTabUiState(false, emptyList(), null, null, false))
     }
+
+    @Test
+    fun `content renders exactly the returned rows - no padding or reconciliation to a count - D3`() {
+        // The rendered row count is independent of the profile's follower/following count (a raw public
+        // aggregate that lives on ProfileScreen, not on this surface). A page of N visible rows projects
+        // to EXACTLY N rows — the client never pads to, nor reconciles against, any count (design D3).
+        val tenRows = (1..10).map { FollowListUser("u$it", "user$it", "User $it", isPremium = false) }
+        val content =
+            assertIs<FollowListTabUiState.Content>(
+                followListTabUiState(false, tenRows, null, FollowListOutcome.Loaded(FollowListPage(tenRows, null)), loadMoreFailed = false),
+            )
+        assertEquals(10, content.users.size)
+        assertEquals(tenRows, content.users)
+    }
 }

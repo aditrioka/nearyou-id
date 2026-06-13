@@ -23,7 +23,7 @@
 ## 5. State holder — UiState projection + ViewModel
 
 - [x] 5.1 Add the Compose-free `FollowListUiState` + a **pure** projection function (separate `isInitialLoad` / `isRefreshing`; loading / content+load-more-gate / empty / not-found / error), mirroring `NearbyTimelineUiState` / `ProfileUiState`; carry no PII beyond display fields.
-- [x] 5.2 Add `FollowListViewModel` (obtained via `koinViewModel()`, scoped to the Nav3 entry) talking to `FollowListFlow` (never the ApiClient), holding per-tab state.
+- [x] 5.2 Add `FollowListViewModel` (obtained via androidx `viewModel { }`, scoped to the Nav3 entry; `FollowListFlow` resolved via `koinInject`) talking to `FollowListFlow` (never the ApiClient), holding per-tab state.
 
 ## 6. Navigation
 

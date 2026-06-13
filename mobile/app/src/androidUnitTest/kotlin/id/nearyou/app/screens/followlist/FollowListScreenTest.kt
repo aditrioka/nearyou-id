@@ -2,6 +2,7 @@ package id.nearyou.app.screens.followlist
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -165,5 +166,60 @@ class FollowListScreenTest {
             onAllNodesWithText("11111111", substring = true).fetchSemanticsNodes().let {
                 assertEquals(0, it.size, "the row userId UUID must not be rendered")
             }
+        }
+
+    @Test
+    fun premiumRow_showsTheBadgeContentDescription() =
+        runComposeUiTest {
+            installKoin(
+                FakeFollowListFlow().apply {
+                    responder = { _, _ ->
+                        FollowListOutcome.Loaded(
+                            FollowListPage(listOf(FollowListUser("u-p", "sari.bdg", "Sari Lestari", isPremium = true)), null),
+                        )
+                    }
+                },
+            )
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        FollowListScreen(userId = "p1", initialTab = FollowListTab.Followers, onBack = {}, onOpenProfile = {})
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Sari Lestari").fetchSemanticsNodes().isNotEmpty() }
+            // The Premium badge is an M3 icon carrying the "Akun Premium" content description (not color-only).
+            onNodeWithContentDescription("Akun Premium").assertExists()
+        }
+
+    @Test
+    fun tappingMengikutiTab_switchesToTheFollowingContent() =
+        runComposeUiTest {
+            // Followers empty; Following has a distinct row — tapping the Mengikuti tab reveals it (the
+            // tab → pager sync), confirming the tab tap drives the pager.
+            installKoin(
+                FakeFollowListFlow().apply {
+                    responder = { tab, _ ->
+                        if (tab == FollowListTab.Following) {
+                            FollowListOutcome.Loaded(
+                                FollowListPage(listOf(FollowListUser("u-f", "sari.bdg", "Sari Following", isPremium = false)), null),
+                            )
+                        } else {
+                            FollowListOutcome.Loaded(FollowListPage(emptyList(), null))
+                        }
+                    }
+                },
+            )
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        FollowListScreen(userId = "p1", initialTab = FollowListTab.Followers, onBack = {}, onOpenProfile = {})
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Belum ada pengikut").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Mengikuti").performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Sari Following").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Sari Following").assertExists()
         }
 }
