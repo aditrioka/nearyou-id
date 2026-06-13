@@ -85,7 +85,7 @@ data class SinglePostResponse(
     @SerialName("reply_count") val replyCount: Int,
 )
 
-private val POST_NOT_FOUND_BODY = """{"error":{"code":"post_not_found"}}"""
+private const val POST_NOT_FOUND_BODY = """{"error":{"code":"post_not_found"}}"""
 
 private fun parsePostId(raw: String?): UUID? = raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
