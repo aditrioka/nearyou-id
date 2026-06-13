@@ -31,7 +31,7 @@
 
 ## 6. Reconciliation, gates & DoD
 
-- [x] 6.1 File a `follow-up` GitHub issue: `docs/05:1179` mis-attributes `subscription_events` to "(V9)"; this change is its actual first creator. Do NOT rewrite the doc in this change. — **Done during proposal B.3: [#295](https://github.com/aditrioka/nearyou-id/issues/295).**
+- [x] 6.1 File a `follow-up` GitHub issue: `docs/05` § Referral System mis-attributes `subscription_events` to "(V9)"; this change is its actual first creator. Do NOT rewrite the doc in this change. — **Done during proposal B.3: [#295](https://github.com/aditrioka/nearyou-id/issues/295).**
 - [ ] 6.2 Full local gate green before push: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (fresh DB containers per the full-gate pattern).
 - [ ] 6.3 Pre-archive staging branch deploy + smoke (runtime-impacting backend, DoD item 4): unauthenticated `POST /internal/revenuecat-webhook` → `401` (route mounted + vendor-gated + migration applied). Record the evidence in the PR body.
 - [ ] 6.4 PR title/body refreshed at the implementation boundary (`feat(backend): …`); spec + change archived via `/opsx:archive` after CI green.

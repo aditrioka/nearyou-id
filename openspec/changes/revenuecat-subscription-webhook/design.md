@@ -62,7 +62,7 @@ The inbound webhook deserializes the JSON envelope directly with `AppJson` — n
 - **HMAC is conditional on the header being present** → a misconfigured dashboard (signing off) leaves only Bearer. Mitigation: Bearer is mandatory and high-entropy; the operator runbook (Phase 4 deploy) MUST enable RevenueCat signing in production; the signature-fail alert surfaces tampering attempts.
 - **Orphan `app_user_id` events are dropped (acked, not stored)** → if app-user-id wiring regresses, billing events could silently no-op. Mitigation: the orphan path logs WARN; the orphan rate is observable; app_user_id wiring is covered by the future mobile SDK change's tests.
 - **`subscription_events` grows unbounded** → it is an append-only financial ledger; no purge in this change (unlike notifications' 90-day purge). Acceptable — event volume is low (one row per billing transition per user) and analytics need full history.
-- **Doc divergence (`docs/05:1179` "(V9)")** → corrected out-of-band via a `follow-up` issue, not in this change (avoids scope creep into docs).
+- **Doc divergence (`docs/05` § Referral System "(V9)")** → corrected out-of-band via `follow-up` [#295](https://github.com/aditrioka/nearyou-id/issues/295), not in this change (avoids scope creep into docs).
 
 ## Migration Plan
 
