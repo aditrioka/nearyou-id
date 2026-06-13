@@ -25,7 +25,7 @@ This change lands a Sentry-backed `CrashReporter` into those seams. It is delibe
 - A vendor-neutral `CrashReporter` interface (`:infra:sentry`) with Android + iOS Sentry actuals, consumed by `:mobile:app` via Koin.
 - Automatic native crash + unhandled-exception capture on both platforms, tagged with release + environment, with the signed-in user correlated.
 - Consent-gated to `users.analytics_consent.crash` (opt-out default ON) honoring the docs/06 enforcement contract.
-- PII-scrubbed payloads (no coordinates, tokens, post bodies) via a `beforeSend` hook composing with `CoordinateMaskingLogger`.
+- PII-scrubbed payloads (no IP, coordinates, tokens, post bodies) via `sendDefaultPii = false` + a `beforeSend` hook mirroring the coordinate-free discipline (`CoordinateMaskingLogger` is private — pattern-reuse, not an import).
 - Repository diagnostics surfaced as Sentry breadcrumbs through the **existing** `DiagnosticSink` seam.
 
 **Non-Goals:**
