@@ -75,6 +75,25 @@ A single Robo run is a few minutes, so day-to-day iteration typically sits insid
 the free quota. Verify current numbers at
 <https://firebase.google.com/docs/test-lab/usage-quotas-pricing>.
 
+## CI: auto-run every mobile PR on a real device
+
+`.github/workflows/device-run.yml` builds the staging-debug APK and does a Robo
+run on a real device for every PR that touches `mobile/**` / `shared/**`, then
+posts a comment with the result, screenshot count, a link to the live Firebase
+console results (screenshots + video), and uploads the captured artifacts to the
+workflow run. Manual runs via **workflow_dispatch** (pick device + flavor); opt a
+PR out with the `skip-device-run` label.
+
+Credentials: the workflow uses `secrets.GCP_TESTLAB_SA_KEY` if set (the
+least-privilege `test-lab-runner` key from `provision-test-lab-sa.sh`), else falls
+back to the existing `secrets.GCP_SA_KEY`. Whichever service account is used must
+hold `roles/cloudtestservice.admin` + `roles/storage.objectViewer` — the deploy
+SA behind `GCP_SA_KEY` does **not** have these by default, so either set
+`GCP_TESTLAB_SA_KEY` (recommended) or grant the deploy SA those two roles.
+
+It's quota-aware: superseded runs are cancelled and only mobile-code pushes
+trigger it, keeping within the 5-physical-runs/day free tier.
+
 ## Choosing a device
 
 `--device` specs use Test Lab model ids. List them with:

@@ -68,9 +68,16 @@ Done. Now add these to the Claude Code environment (Settings -> environment secr
   FIREBASE_PROJECT_ID=$PROJECT_ID
   GCP_SA_KEY_JSON=<paste the entire contents of $KEY_OUT>
 
+For the GitHub Actions device-run workflow (.github/workflows/device-run.yml),
+also add the same key as a repo secret named GCP_TESTLAB_SA_KEY (least-privilege;
+the workflow falls back to the broader GCP_SA_KEY if it's unset):
+
+  gh secret set GCP_TESTLAB_SA_KEY < $KEY_OUT
+
 Then delete the local key file so it never lingers:
 
   rm -f $KEY_OUT
 
-After that, from your phone you can ask the agent to "run my change on a device".
+After that, from your phone you can ask the agent to "run my change on a device",
+and every mobile PR auto-posts a real-device screenshot run.
 EOF

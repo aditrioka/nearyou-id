@@ -58,7 +58,12 @@ Update each box as a step lands so a dropped session can resume without redoing 
 - [x] 16. `.gitignore` += `dev/device-runs/`; CLAUDE.md "Android build & test" section updated.
 - [x] 17. Found the real GCP project from source: **`nearyou-staging`** (project number `27815942904`, already Firebase-enabled). Set as the scripts' default `FIREBASE_PROJECT_ID`.
 - [x] 18. `dev/scripts/provision-test-lab-sa.sh` — one-command operator provisioning (enable APIs, create least-privilege `test-lab-runner` SA with `cloudtestservice.admin` + `storage.objectViewer`, mint key). Doc updated with real project + exact gcloud roles.
-- [ ] 19. **Operator (one-time, authenticated gcloud):** run `PROJECT_ID=nearyou-staging dev/scripts/provision-test-lab-sa.sh`, then paste `GCP_SA_KEY_JSON` (+ `FIREBASE_PROJECT_ID=nearyou-staging` if not defaulting) into the Claude Code environment secrets. This is the only step needing GCP credentials — the agent can't mint a service-account key. After it, device runs work hands-off.
+- [x] 19. `.github/workflows/device-run.yml` — CI Robo-run on a real device for every mobile PR + screenshot/video artifact + PR comment with the Firebase console link. Reuses `scripts/run_on_device.sh`; quota-aware (mobile-paths filter + cancel-in-progress + `skip-device-run` opt-out label).
+- [ ] 20. **Operator (one-time, authenticated gcloud):** run `PROJECT_ID=nearyou-staging dev/scripts/provision-test-lab-sa.sh`, then:
+  - For the **cloud sandbox**: paste `GCP_SA_KEY_JSON` (+ `FIREBASE_PROJECT_ID=nearyou-staging` if not defaulting) into the Claude Code environment secrets.
+  - For the **CI workflow**: `gh secret set GCP_TESTLAB_SA_KEY < test-lab-runner-key.json` (else it falls back to `GCP_SA_KEY`, which needs `cloudtestservice.admin` + `storage.objectViewer` granted).
+  - `rm -f` the local key file.
+  This is the only step needing GCP credentials — the agent can't mint a service-account key. After it, both the phone loop and CI device runs work hands-off.
 
 ## Network allowlist required (add in Create-environment UI)
 
