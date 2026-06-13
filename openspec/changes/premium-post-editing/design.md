@@ -21,6 +21,7 @@ Current-state anchors this change mirrors:
 - **No location editing** — edits are content-only; the `location_snapshot` records the (unchanged) location for a complete temporal row, but the `UPDATE` never changes `posts` location.
 - **No edit of replies** — `post_replies` editing is out of scope (not in the freemium contract).
 - **No chat context-card edit navigation** (Phase 4 item 14) — separate change.
+- **No history pagination** — for MVP the `GET …/edits` response returns the full history; it is naturally bounded by the 30-minute edit window plus the per-user edit rate limit (D8), so cursor pagination is deferred to a follow-up only if real cardinality warrants it.
 
 ## Decisions
 

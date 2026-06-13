@@ -45,6 +45,7 @@
 - [ ] 5.16 Per-user edit rate limit exceeded → 429 + `Retry-After`; post unchanged.
 - [ ] 5.17 Layer-3 async dispatch on the edit path — call-site test mirroring `Layer3DispatchCallSiteTest` (static assertion that `PostEditService` dispatches `layer3DispatcherScope.dispatch(...)` AFTER the `UPDATE`/commit, carrying `coroutineContext`); AND a Reject-verdict case asserts NO dispatch occurs (no committed row).
 - [ ] 5.18 History read excludes raw location — the `GET …/edits` response contains content snapshot + version label + `edited_at` and NO `location_snapshot`/`actual_location` field (spatial-fuzzing invariant #3).
+- [ ] 5.19 Window-boundary: an edit just inside the window (e.g. created 29 min ago) succeeds; just outside (created 30+ min ago) → 409 `edit_window_expired` — pins the strict `created_at > NOW() - INTERVAL '30 minutes'` inequality.
 
 ## 6. Docs reconciliation + standards
 
