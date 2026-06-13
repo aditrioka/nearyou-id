@@ -34,6 +34,9 @@ import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.ProactiveTokenRefreshTrigger
+import id.nearyou.app.timeline.FollowingTimelineApiClient
+import id.nearyou.app.timeline.FollowingTimelineFlow
+import id.nearyou.app.timeline.FollowingTimelineRepository
 import id.nearyou.app.timeline.GlobalTimelineApiClient
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineRepository
@@ -141,6 +144,17 @@ val mobileModule =
         // diagnosticLog wired to the real coordinate-free DiagnosticSink (D6), mirroring Nearby.
         single { GlobalTimelineRepository(get(), get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<GlobalTimelineFlow> { get<GlobalTimelineRepository>() }
+
+        // mobile-following-timeline-screen — the Following feed graph (mobile-home-tab-host Following
+        // tab). Mirrors the Global seam EXACTLY (no LocationProvider — Following has no spatial filter).
+        // REUSES the existing SessionIdProvider single above (the X-Session-Id soft-cap bucket is shared
+        // across feeds — do NOT register a second). FollowingTimelineFlow is bound to the concrete
+        // repository so a FakeFollowingTimelineFlow can drive the screen tests. diagnosticLog wired to
+        // the real coordinate-free DiagnosticSink (status/type-only strings — Following coords live in
+        // the response body, so the sink must never echo a body field).
+        single { FollowingTimelineApiClient(get()) }
+        single { FollowingTimelineRepository(get(), get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<FollowingTimelineFlow> { get<FollowingTimelineRepository>() }
 
         // mobile-bottom-nav-sections-and-notifications — the notifications graph (the Notifikasi section's
         // NotificationsScreen + the shell's unread badge). Mirrors the Global seam: ApiClient → Repository

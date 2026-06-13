@@ -29,17 +29,22 @@ import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.PostCreationRoute
 import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.screens.routing.TestNavHost
+import id.nearyou.app.screens.timeline.FOLLOWING_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.GLOBAL_POST_CARD_TAG
 import id.nearyou.app.screens.timeline.GLOBAL_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.NEARBY_POST_CARD_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.timeline.FakeFollowingTimelineFlow
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
+import id.nearyou.app.timeline.FollowingTimelineFlow
+import id.nearyou.app.timeline.FollowingTimelineOutcome
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
+import id.nearyou.app.timeline.fakeFollowingPost
 import id.nearyou.app.timeline.fakeGlobalPost
 import id.nearyou.app.timeline.fakeNearbyPost
 import id.nearyou.app.ui.components.POST_CARD_REPLY_ACTION_TAG
@@ -71,8 +76,9 @@ private const val COMPOSER_TITLE = "Buat postingan" // post_create_title
  * labelled tabs, default-tab = Nearby, tapping a tab animating the swipeable `HorizontalPager`, swiping
  * the pager changing the selected feed, the **icon-only** home-level FAB (asserted via its
  * `contentDescription`) present on every page + pushing `PostCreationRoute` onto the ROOT back stack, the
- * Following deferred placeholder, the Nearby empty-state "lihat Global" CTA animating to the Global page,
- * and the no-re-fetch invariant (tab-tap AND swipe) via the feed fakes' load counters. "Which feed is on
+ * live Following feed (+ its directive-empty "Lihat Global" CTA), the Nearby empty-state "lihat Global"
+ * CTA animating to the Global page, and the no-re-fetch invariant (tab-tap AND swipe) across all three
+ * feeds via the fakes' load counters. "Which feed is on
  * screen" is asserted via the feed list **test tags** ([NEARBY_TIMELINE_LIST_TAG] /
  * [GLOBAL_TIMELINE_LIST_TAG]) — the redundant headers are removed. In the Release-variant `*ScreenTest`
  * exclude (the `ui-test-manifest` host activity is debug-only).
@@ -86,21 +92,26 @@ private const val COMPOSER_TITLE = "Buat postingan" // post_create_title
 @OptIn(ExperimentalTestApi::class)
 class HomeTabHostScreenTest {
     private lateinit var nearbyFake: FakeNearbyTimelineFlow
+    private lateinit var followingFake: FakeFollowingTimelineFlow
     private lateinit var globalFake: FakeGlobalTimelineFlow
 
     private fun installKoin(
         nearbyOutcome: NearbyTimelineOutcome =
             NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "NEARBY_POST")), null, null),
+        followingOutcome: FollowingTimelineOutcome =
+            FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "FOLLOWING_POST")), null, null),
         globalOutcome: GlobalTimelineOutcome =
             GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "GLOBAL_POST")), null, null),
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         nearbyFake = FakeNearbyTimelineFlow(nearbyOutcome)
+        followingFake = FakeFollowingTimelineFlow(followingOutcome)
         globalFake = FakeGlobalTimelineFlow(globalOutcome)
         startKoin {
             modules(
                 module {
                     single<NearbyTimelineFlow> { nearbyFake }
+                    single<FollowingTimelineFlow> { followingFake }
                     single<GlobalTimelineFlow> { globalFake }
                     single<LikeFlow> { FakeLikeFlow() }
                     single<LocationPermissionController> {
@@ -166,26 +177,48 @@ class HomeTabHostScreenTest {
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { HomeScreen(onOpenComposer = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
-            // Swipe-left advances Nearby (page 0) → Following (page 1): the Following placeholder shows.
+            // Swipe-left advances Nearby (page 0) → Following (page 1): the live Following feed shows.
             onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeLeft() }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(FOLLOWING_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(FOLLOWING_PLACEHOLDER).assertExists()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(FOLLOWING_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(FOLLOWING_TIMELINE_LIST_TAG).assertExists()
             // Swipe-right returns to Nearby (page 0).
             onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeRight() }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(FOLLOWING_PLACEHOLDER).assertDoesNotExist()
+            onNodeWithTag(FOLLOWING_TIMELINE_LIST_TAG).assertDoesNotExist()
         }
     }
 
+    // mobile-following-timeline-screen — the Following tab now renders the LIVE feed (was a deferred
+    // placeholder): selecting it shows the Following feed list and fires its fetch exactly once.
     @Test
-    fun followingTab_showsDeferredPlaceholder() {
+    fun followingTab_showsLiveFeed_andFetchesOnce() {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { HomeScreen(onOpenComposer = {}) } } }
             waitForIdle()
             onNodeWithText(TAB_FOLLOWING).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(FOLLOWING_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(FOLLOWING_TIMELINE_LIST_TAG).assertExists()
+            onNodeWithText("FOLLOWING_POST").assertExists()
+            assertEquals(1, followingFake.loadInvocationCount, "the live Following feed fetches once on first show")
+        }
+    }
+
+    // mobile-following-timeline § "The empty-state CTA switches the Home pager to the Global tab" — the
+    // Following directive empty state's "Lihat Global" CTA animates the pager to the Global page.
+    @Test
+    fun followingEmptyState_seeGlobalCta_switchesToGlobalTab() {
+        installKoin(followingOutcome = FollowingTimelineOutcome.Loaded(emptyList(), null, null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { HomeScreen(onOpenComposer = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(TAB_FOLLOWING).performClick()
+            // The Following directive empty shows the placeholder copy + the "Lihat Global" CTA…
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(FOLLOWING_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithText(FOLLOWING_PLACEHOLDER).assertExists()
+            onNodeWithText(SEE_GLOBAL).performClick()
+            // …which animates the pager to the Global page (the body renders the Global surface).
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(GLOBAL_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(GLOBAL_TIMELINE_LIST_TAG).assertExists()
         }
     }
 
@@ -232,20 +265,30 @@ class HomeTabHostScreenTest {
     // NavDisplay — design D1/D2), so each feed's viewModel { } binds to the host's persistent
     // ViewModelStore and survives the pager swapping the page away and back. The fakes' load counts stay 1.
     @Test
-    fun switchingTabsAndReturning_doesNotReFetchEitherFeed() {
+    fun switchingTabsAndReturning_doesNotReFetchAnyFeed() {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { HomeScreen(onOpenComposer = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, nearbyFake.loadInvocationCount, "Nearby loads once on first show")
 
+            // Nearby → Following (live feed): the Following VM loads once.
+            onNodeWithText(TAB_FOLLOWING).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(FOLLOWING_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(1, followingFake.loadInvocationCount, "Following loads once on first show")
+
             onNodeWithText(TAB_GLOBAL).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(GLOBAL_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, globalFake.loadInvocationCount, "Global loads once on first show")
 
+            // Return to each tab in turn — none re-fetches (the HomeRoute-scoped VMs are retained).
             onNodeWithText(TAB_NEARBY).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, nearbyFake.loadInvocationCount, "returning to Nearby must not re-fetch (VM retained)")
+
+            onNodeWithText(TAB_FOLLOWING).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(FOLLOWING_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(1, followingFake.loadInvocationCount, "returning to Following must not re-fetch (VM retained)")
 
             onNodeWithText(TAB_GLOBAL).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(GLOBAL_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
@@ -262,18 +305,20 @@ class HomeTabHostScreenTest {
             setContent { KoinContext { NearYouTheme { HomeScreen(onOpenComposer = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, nearbyFake.loadInvocationCount)
-            // Nearby → Following → Global (two swipe-lefts): Global loads once.
+            // Nearby → Following (live feed) → Global (two swipe-lefts): Following + Global load once each.
             onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeLeft() }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(FOLLOWING_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(FOLLOWING_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(1, followingFake.loadInvocationCount, "Following loads once on first show")
             onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeLeft() }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(GLOBAL_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, globalFake.loadInvocationCount, "Global loads once on first show")
-            // Global → Following → Nearby (two swipe-rights): Nearby is NOT re-fetched.
+            // Global → Following → Nearby (two swipe-rights): nothing is re-fetched.
             onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeRight() }
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(FOLLOWING_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(FOLLOWING_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeRight() }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             assertEquals(1, nearbyFake.loadInvocationCount, "swiping back to Nearby must not re-fetch (VM retained)")
+            assertEquals(1, followingFake.loadInvocationCount, "the Following VM survived the swipe too (no re-fetch)")
             assertEquals(1, globalFake.loadInvocationCount, "the Global VM survived the swipe too (no re-fetch)")
         }
     }
