@@ -74,7 +74,7 @@ class BlockedUsersRepositoryTest {
         }
 
     @Test
-    fun `200 parses the shipped camelCase wire, tolerates unknown keys, and maps to BlockedUser`() =
+    fun `200 parses the shipped camelCase wire with unknown-key tolerance and maps to BlockedUser`() =
         runTest {
             val outcome = repo { respond(BLOCKS_BODY, HttpStatusCode.OK, JSON_HEADERS) }.fetchBlocks()
 
@@ -130,7 +130,7 @@ class BlockedUsersRepositoryTest {
         }
 
     @Test
-    fun `unblock 500 maps to RetryableError (row stays)`() =
+    fun `unblock 500 maps to RetryableError so the row stays`() =
         runTest {
             val outcome = repo { respond("", HttpStatusCode.InternalServerError) }.unblock("u-1")
             assertEquals(UnblockOutcome.RetryableError, outcome)

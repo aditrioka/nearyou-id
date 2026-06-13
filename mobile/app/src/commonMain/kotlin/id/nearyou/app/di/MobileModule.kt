@@ -11,6 +11,11 @@ import id.nearyou.app.config.isDebugBuild
 import id.nearyou.app.consent.ConsentApiClient
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentRepository
+import id.nearyou.app.data.block.BlockedUsersApiClient
+import id.nearyou.app.data.block.BlockedUsersFlow
+import id.nearyou.app.data.block.BlockedUsersRepository
+import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.diagnostics.ConsoleDiagnosticSink
 import id.nearyou.app.diagnostics.DiagnosticSink
@@ -178,6 +183,17 @@ val mobileModule =
         // diagnosticLog wired to the real sink (2026-06-10 audit, 06 medium: sink-wiring drift).
         single { ConsentRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<ConsentFlow> { get<ConsentRepository>() }
+
+        // mobile-settings-screen — the settings graph. The block-list seam (ApiClient → Repository bound
+        // behind BlockedUsersFlow so a FakeBlockedUsersFlow drives the screen tests) reuses the shared
+        // (bearer-authed) HttpClient; no new client, no X-Session-Id (the block endpoints carry no
+        // per-session soft-cap accounting). The consent settings sub-screen REUSES the ConsentFlow above
+        // (no second consent path). The consent snapshot store is in-memory for now (durable on-disk
+        // persistence deferred to #198, design D5).
+        single { BlockedUsersApiClient(get()) }
+        single { BlockedUsersRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<BlockedUsersFlow> { get<BlockedUsersRepository>() }
+        single<ConsentSnapshotStore> { InMemoryConsentSnapshotStore() }
 
         // mobile-post-detail-screen — the post-detail graph (like toggle + replies + reply composer).
         // Reuses the shared HttpClient (NO new client, NO X-Session-Id — the like/reply endpoints are not

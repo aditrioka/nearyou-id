@@ -9,6 +9,9 @@ import id.nearyou.app.screens.auth.SignInScreen
 import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
+import id.nearyou.app.screens.settings.BlockedUsersScreen
+import id.nearyou.app.screens.settings.ConsentSettingsScreen
+import id.nearyou.app.screens.settings.SettingsScreen
 import id.nearyou.app.screens.shell.AppShellScreen
 import org.koin.compose.koinInject
 
@@ -126,5 +129,29 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // `removeLastOrNull()` is size-safe: PostDetailRoute is only ever appended ATOP HomeRoute
             // (the feed card tap), so popping it leaves HomeRoute — never an empty stack.
             PostDetailScreen(route = route, onBack = { backStack.removeLastOrNull() })
+        }
+        // mobile-settings — the Settings surface + its two sub-surfaces, pushed onto the root stack above
+        // the shell. SettingsRoute is reached from a gear on the profile surface (mobile-profile, PR #245),
+        // wired there once it lands (design D7); the route→screen mappings are owned here regardless. A
+        // terminal 401 on a sub-surface routes to sign-in (replaceAll — the auth-boundary transition).
+        entry<SettingsRoute> {
+            SettingsScreen(
+                onBack = { backStack.removeLastOrNull() },
+                onOpenBlocked = { backStack.add(BlockedUsersRoute) },
+                onOpenConsent = { backStack.add(ConsentSettingsRoute) },
+                onLoggedOut = { backStack.replaceAll(SignInRoute) },
+            )
+        }
+        entry<BlockedUsersRoute> {
+            BlockedUsersScreen(
+                onBack = { backStack.removeLastOrNull() },
+                onTokenInvalid = { backStack.replaceAll(SignInRoute) },
+            )
+        }
+        entry<ConsentSettingsRoute> {
+            ConsentSettingsScreen(
+                onBack = { backStack.removeLastOrNull() },
+                onTokenInvalid = { backStack.replaceAll(SignInRoute) },
+            )
         }
     }
