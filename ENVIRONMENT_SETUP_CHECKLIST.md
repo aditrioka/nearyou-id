@@ -40,7 +40,13 @@ Update each box as a step lands so a dropped session can resume without redoing 
 - [x] 7. CLAUDE.md — "Android build & test (cloud sandbox)" section.
 - [x] 8. This checklist file.
 - [x] 9. Ran `setup_android.sh` end-to-end in the live sandbox — JDK 17 installed, cmdline-tools + all SDK packages installed, env persisted; `verify_env.sh` reports **Environment OK** and `java -version` resolves to 17.
-- [ ] 10. Commit + push to `claude/android-dev-env-nearbyid-379enc`.
+- [x] 10. Committed + pushed to `claude/android-dev-env-nearbyid-379enc`.
+
+> Bonus validation: `./gradlew :mobile:app:tasks` ran **BUILD SUCCESSFUL** with the JDK 17
+> daemon + auto-detected JDK 21 compile toolchain — confirming AGP configures the `staging`
+> flavor (so `assembleStagingDebug` / `assembleStagingDebugAndroidTest` exist) with no network
+> toolchain download. A full `assembleStagingDebug` APK build additionally needs the maven/google
+> repos in the network allowlist.
 
 ## Network allowlist required (add in Create-environment UI)
 
