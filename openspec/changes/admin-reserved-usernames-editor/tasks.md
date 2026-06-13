@@ -19,15 +19,15 @@
 ## 3. Routes (`admin/routes/AdminReservedUsernamesRoute.kt`)
 
 - [ ] 3.1 `GET /admin/reserved-usernames` — any authenticated admin role; parse `source` / `q` / cursor; render `reserved-usernames.peb` (page) or `reserved-usernames-table.peb` (HX fragment).
-- [ ] 3.2 `POST /admin/reserved-usernames` (add single) — gate order: `AdminCsrfGate.validateCsrf` → `AdminRoleGate.requireWriteRole` → read body once via `formParametersAfterValidation` → validate/normalize `username` (lowercase + charset) + `reason` (non-blank, ≤200) → `addSingle`; map outcome to dual-mode response (D6, D9, D10).
-- [ ] 3.3 `POST /admin/reserved-usernames/bulk` (CSV) — gate order; enforce ≤1000 rows / ≤256 KB → 400 before parse; `bulkAdd`; render the three-bucket report (D8).
+- [ ] 3.2 `POST /admin/reserved-usernames` (add single) — gate order: `AdminCsrfGate.validateCsrf` → `AdminRoleGate.requireWriteRole` → read body once via `formParametersAfterValidation` → validate/normalize `username` (lowercase + charset, 1..30) + `reason` (non-blank, **≤64 — matches the `reserved_usernames.reason VARCHAR(64)` column, so over-length is a 400 not a 22001 overflow 5xx**) → `addSingle`; map outcome to dual-mode response (D6, D9, D10).
+- [ ] 3.3 `POST /admin/reserved-usernames/bulk` — the CSV arrives as a **text/textarea form field** (read via the CSRF-gated `formParametersAfterValidation` path; **not** a `multipart/form-data` file upload — D8); gate order; enforce ≤1000 rows / ≤256 KB → 400 before parse; empty/header-only → empty report; `bulkAdd`; render the three-bucket report.
 - [ ] 3.4 `POST /admin/reserved-usernames/{username}/edit-reason` — gate order; parse `{username}` + `reason`; `editReason`; map outcome.
 - [ ] 3.5 `POST /admin/reserved-usernames/{username}/remove` — gate order; parse `{username}`; `remove`; map outcome.
 - [ ] 3.6 Mount the routes inside `authenticate(ADMIN_AUTH_NAME)` in `AdminModule`; English-only in-band message constants ("already reserved", "seed entry cannot be edited/removed", "not found", "quota exceeded (100/hour)", "would exceed your 100/hour quota").
 
 ## 4. UI (Pebble templates + nav, frame 21)
 
-- [ ] 4.1 `reserved-usernames.peb` (filter bar: `source` select + search; add-single form; CSV upload form; table) + `reserved-usernames-table.peb` (fragment) — vendored vanilla CSS tokens copied from the frame-21 `.frame` block; **HTML-escape** every `username`/`reason`; no-JS fallback forms carry the `_csrf` hidden field; responsive contract (frame 4b).
+- [ ] 4.1 `reserved-usernames.peb` (filter bar: `source` select + search; add-single form; CSV bulk-add **textarea** — paste `username,reason` lines, a text field not a file picker, D8; table) + `reserved-usernames-table.peb` (fragment) — vendored vanilla CSS tokens copied from the frame-21 `.frame` block; **HTML-escape** every `username`/`reason`; no-JS fallback forms carry the `_csrf` hidden field; responsive contract (frame 4b).
 - [ ] 4.2 Sidebar nav entry "Reserved usernames" in `AdminLayout` (frame 21 grouping) + `activePath = "/admin/reserved-usernames"`.
 - [ ] 4.3 Read-only "N/100 this hour" quota chip on the page (parity with the user-management destructive chip; drop if it complicates the fragment — design § Open Questions).
 - [ ] 4.4 Apply the frame-21 measurement annex (spacing/type/token mapping) to the templates.
@@ -63,6 +63,12 @@
 - [ ] 5.27 CSRF: write without a valid token → 403 + `admin_csrf_violation` audit row, no mutation.
 - [ ] 5.28 Role: read-only-role admin on a write route → 403, no mutation.
 - [ ] 5.29 Gate order: CSRF-missing + malformed target → rejected at the CSRF gate before parsing/role/mutation.
+- [ ] 5.30 Add: case-variant of an existing username (`Admin` when `admin` exists) → normalized → in-band "already reserved", no mutation, no audit row.
+- [ ] 5.31 `reason` length boundary: 64-char reason accepted; 65-char reason → 400 (single) / `skipped_invalid` (CSV), no DB-overflow 5xx.
+- [ ] 5.32 Bulk: a `username` repeated within one upload → inserted once + exactly one `reserved_username_added` audit row + the 2nd occurrence reported skipped-duplicate (no phantom audit row).
+- [ ] 5.33 Bulk: empty / header-only submission → empty (0/0/0) report, no 400/5xx, no insert.
+- [ ] 5.34 Edit: a successful reason edit refreshes `updated_at` (V3 `reserved_usernames_set_updated_at` trigger) — the third clause of the docs/08 Pre-Launch "reserved_usernames trigger test".
+- [ ] 5.35 Bulk route gating: `POST /admin/reserved-usernames/bulk` without a valid CSRF token → 403 + `admin_csrf_violation`; read-only role → 403 (the gate order is exercised on the bulk route, not only single-add).
 
 ## 6. Verification & Definition of Done
 

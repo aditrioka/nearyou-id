@@ -28,7 +28,7 @@ The system SHALL serve `GET /admin/reserved-usernames` to any authenticated admi
 
 ### Requirement: Admins can add a single reserved username
 
-The system SHALL accept `POST /admin/reserved-usernames` to insert one reserved username with `source = 'admin_added'`. The request SHALL require a valid CSRF token and a write role. `username` SHALL be trimmed, lowercased, and validated against the canonical username charset (`[a-z0-9._]`, length 1..30) — charset-only, deliberately not the full signup shape rules, so short/edge handles (matching the V3 seed short-handles) remain reservable; `reason` SHALL be trimmed and non-blank. A blank or charset-invalid `username`, or a blank `reason`, SHALL return 400 with no mutation. A successful add SHALL write exactly one `admin_actions_log` row with `action_type = 'reserved_username_added'`. Attempting to add a username that already exists SHALL be an in-band "already reserved" outcome with no mutation and no audit row (never a 5xx).
+The system SHALL accept `POST /admin/reserved-usernames` to insert one reserved username with `source = 'admin_added'`. The request SHALL require a valid CSRF token and a write role. `username` SHALL be trimmed, lowercased, and validated against the canonical username charset (`[a-z0-9._]`, length 1..30) — charset-only, deliberately not the full signup shape rules, so short/edge handles (matching the V3 seed short-handles) remain reservable; `reason` SHALL be trimmed, non-blank, and at most 64 characters (the `reserved_usernames.reason VARCHAR(64)` column width). A blank or charset-invalid `username`, or a blank or over-64-character `reason`, SHALL return 400 with no mutation (never a DB-overflow 5xx). A successful add SHALL write exactly one `admin_actions_log` row with `action_type = 'reserved_username_added'`. Attempting to add a username that already exists (including a case-variant that normalizes to an existing entry) SHALL be an in-band "already reserved" outcome with no mutation and no audit row (never a 5xx).
 
 #### Scenario: Valid add inserts an admin_added row and one audit row
 - **GIVEN** an admin with a valid CSRF token and write role
@@ -48,9 +48,18 @@ The system SHALL accept `POST /admin/reserved-usernames` to insert one reserved 
 - **WHEN** an admin submits `username = "  Brand_X "` with a valid reason
 - **THEN** the system SHALL normalize it to `brand_x` before insert; AND a `username` containing characters outside the canonical username charset SHALL return 400 with no mutation
 
+#### Scenario: A case-variant of an existing username is a normalized no-op
+- **GIVEN** a reserved row `username = "admin"` already exists
+- **WHEN** an admin attempts to add `username = "Admin"`
+- **THEN** the system SHALL normalize it to `admin`, surface the in-band "already reserved" outcome, AND make no mutation and write no audit row
+
+#### Scenario: A reason longer than the column width is rejected with no write
+- **WHEN** an admin submits a valid `username` with a `reason` of 65 characters
+- **THEN** the response SHALL be 400 AND no `reserved_usernames` row SHALL be inserted AND no DB-overflow 5xx SHALL occur (a 64-character `reason` SHALL be accepted)
+
 ### Requirement: Admins can bulk-add reserved usernames from a CSV
 
-The system SHALL accept `POST /admin/reserved-usernames/bulk` with a CSV (`username,reason` columns, optional header) and process it in a single transaction, classifying each data row as **added** (new + valid), **skipped (duplicate)**, or **skipped (invalid)**, and returning a per-row report of the three buckets. Each newly-inserted row SHALL be `source = 'admin_added'` and SHALL write one `reserved_username_added` audit row. The request SHALL require a valid CSRF token and a write role. An upload exceeding the guardrails (more than 1000 data rows or 256 KB) SHALL return 400 before parsing.
+The system SHALL accept `POST /admin/reserved-usernames/bulk` with the CSV submitted as a **text form field** (`username,reason` rows, optional header) — not a `multipart/form-data` file upload, so it is read through the standard CSRF-gated form-parameters path — and process it in a single transaction, classifying each data row as **added** (new + valid), **skipped (duplicate)** (already in the table, or a username already accepted earlier in the same upload), or **skipped (invalid)** (wrong arity, blank/charset-failing username, blank `reason`, or `reason` over 64 characters), and returning a per-row report of the three buckets. Each newly-inserted row SHALL be `source = 'admin_added'` and SHALL write one `reserved_username_added` audit row. The request SHALL require a valid CSRF token and a write role. An upload exceeding the guardrails (more than 1000 data rows or 256 KB) SHALL return 400 before parsing; an empty or header-only submission SHALL return an empty (0/0/0) report, not an error.
 
 #### Scenario: Bulk add inserts new rows and skips duplicates with a report
 - **GIVEN** `reserved_usernames` already contains `admin`
@@ -74,9 +83,17 @@ The system SHALL accept `POST /admin/reserved-usernames/bulk` with a CSV (`usern
 - **WHEN** they upload a CSV whose **added** bucket (new + valid, after duplicate/invalid exclusion) is 5 rows
 - **THEN** the entire upload SHALL be rejected in-band ("would exceed your 100/hour quota") AND no `reserved_usernames` row SHALL be inserted AND no `admin_actions_log` row SHALL be written (the count holds at 98)
 
+#### Scenario: A username repeated within one upload is added once
+- **WHEN** an admin uploads a CSV containing the same new `username` on two rows
+- **THEN** the username SHALL be inserted exactly once with exactly one `reserved_username_added` audit row AND the second occurrence SHALL be reported as a skipped duplicate (no phantom audit row)
+
+#### Scenario: An empty or header-only upload returns an empty report
+- **WHEN** an admin submits an empty CSV (or only the `username,reason` header row)
+- **THEN** the response SHALL be a successful empty report (0 added, 0 skipped-duplicate, 0 skipped-invalid) AND SHALL NOT be a 400 or 5xx AND no row SHALL be inserted
+
 ### Requirement: Admins can edit the reason of an admin_added reserved username
 
-The system SHALL accept `POST /admin/reserved-usernames/{username}/edit-reason` to update only the `reason` of an `admin_added` row. The request SHALL require a valid CSRF token and a write role; `reason` SHALL be trimmed and non-blank. Editing the reason of a `seed_system` row SHALL be refused at the application layer (no mutation, in-band message, no audit row) — the system SHALL NOT rely on the DB for this guard, since the V3 trigger does not block seed reason edits. A successful edit SHALL write one `reserved_username_edited` audit row whose `before_state`/`after_state` capture the old/new reason.
+The system SHALL accept `POST /admin/reserved-usernames/{username}/edit-reason` to update only the `reason` of an `admin_added` row. The request SHALL require a valid CSRF token and a write role; `reason` SHALL be trimmed, non-blank, and at most 64 characters (the column width — an over-64 reason is a 400, never an overflow 5xx). Editing the reason of a `seed_system` row SHALL be refused at the application layer (no mutation, in-band message, no audit row) — the system SHALL NOT rely on the DB for this guard, since the V3 trigger does not block seed reason edits. A successful edit SHALL write one `reserved_username_edited` audit row whose `before_state`/`after_state` capture the old/new reason, and (via the V3 `reserved_usernames_set_updated_at` trigger) SHALL refresh the row's `updated_at`.
 
 #### Scenario: Edit reason on an admin_added row succeeds with an audit row
 - **GIVEN** an `admin_added` row `username = "kopibrand"`, `reason = "old"`
@@ -91,6 +108,11 @@ The system SHALL accept `POST /admin/reserved-usernames/{username}/edit-reason` 
 #### Scenario: Editing a nonexistent username is a no-op
 - **WHEN** an admin attempts to edit the reason of a username not present in `reserved_usernames`
 - **THEN** the response SHALL surface an in-band "not found" message AND no mutation SHALL occur
+
+#### Scenario: A successful reason edit refreshes updated_at
+- **GIVEN** an `admin_added` row with a known `updated_at`
+- **WHEN** an admin successfully edits its `reason`
+- **THEN** the row's `updated_at` SHALL advance to the edit time (the V3 `reserved_usernames_set_updated_at` trigger fires on the UPDATE)
 
 ### Requirement: Admins can remove an admin_added reserved username
 
