@@ -65,6 +65,13 @@
             </span>
         </div>
         <div class="rc-actions">
+            {# chat_message target → deep-link to the message-redaction surface
+               (admin-chat-message-redaction). Additive to the offending-user
+               link in rc-head; rendered only for chat_message rows. The owner/
+               admin tier gate is enforced by the redaction page itself. #}
+            {% if row.targetType == 'chat_message' %}
+            <a class="btn outl sm" href="/admin/chat-messages/{{ row.targetId }}">Redact message</a>
+            {% endif %}
             {# Report bookkeeping decision — sets reports.status, performs
                NO user/content enforcement. #}
             <form class="resolve-report"

@@ -1,0 +1,10 @@
+{% extends "layout.peb" %}
+
+{% block title %}Chat Message Redaction — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Redact chat message</h2>
+<p class="pg-sub">Severe violations only (PII leak, doxxing) · reported message ±2 context · reachable from a chat_message report row</p>
+
+{% include "chat-redaction-panel.peb" %}
+{% endblock %}
