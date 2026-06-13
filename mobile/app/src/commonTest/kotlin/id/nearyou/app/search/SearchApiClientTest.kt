@@ -191,6 +191,35 @@ class SearchApiClientTest {
         }
 
     @Test
+    fun `the EXACT response from a real running backend decodes into the mobile DTO`() {
+        // Captured verbatim from a real local full-stack run (Ktor + Postgres+PostGIS FTS, 2026-06-13):
+        // GET /api/v1/search?q=jakarta&offset=0 as a premium_active viewer. This pins the mobile DTO
+        // against the ACTUAL server output, not a hand-written fixture — the wire-contract golden test.
+        val realBody =
+            """{"results":[{"post_id":"33333333-3333-3333-3333-333333333333",""" +
+                """"author_id":"22222222-2222-2222-2222-222222222222","author_username":"dewi.kuliner",""" +
+                """"author_display_name":"Dewi Lestari","content":"Halo dari Jakarta, kulinernya enak banget",""" +
+                """"created_at":"2026-06-13T12:45:00.246337Z","rank":0.06079271}]}"""
+        val json =
+            Json {
+                ignoreUnknownKeys = true
+                explicitNulls = false
+            }
+        val parsed = json.decodeFromString(SearchResponseDto.serializer(), realBody)
+
+        assertEquals(1, parsed.results.size)
+        val hit = parsed.results.first()
+        assertEquals("33333333-3333-3333-3333-333333333333", hit.postId)
+        assertEquals("22222222-2222-2222-2222-222222222222", hit.authorId)
+        assertEquals("dewi.kuliner", hit.authorUsername)
+        assertEquals("Dewi Lestari", hit.authorDisplayName)
+        assertEquals("Halo dari Jakarta, kulinernya enak banget", hit.content)
+        assertEquals("2026-06-13T12:45:00.246337Z", hit.createdAt)
+        assertEquals(0.06079271f, hit.rank)
+        assertNull(parsed.nextOffset, "a sub-page response omits next_offset → null")
+    }
+
+    @Test
     fun `transport failure maps to NetworkError`() =
         runTest {
             val api = SearchApiClient(client { throw RuntimeException("connection refused") })
