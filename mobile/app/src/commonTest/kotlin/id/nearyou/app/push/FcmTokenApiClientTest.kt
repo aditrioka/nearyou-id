@@ -129,10 +129,16 @@ class FcmTokenApiClientTest {
         }
 
     @Test
-    fun `401 maps to Unauthorized`() =
+    fun `401 maps to Unauthorized with no immediate re-request`() =
         runTest {
-            val api = apiClient { respond("", HttpStatusCode.Unauthorized) }
+            var requests = 0
+            val api =
+                apiClient {
+                    requests++
+                    respond("", HttpStatusCode.Unauthorized)
+                }
             assertEquals(FcmRegistrationOutcome.Unauthorized, api.register("tok"))
+            assertEquals(1, requests, "a 401 must not trigger a client-side retry-loop (re-attempt is deferred to the next trigger)")
         }
 
     @Test

@@ -10,7 +10,7 @@
 
 - [x] 2.1 Add the Android pins: `firebase-bom` (`com.google.firebase:firebase-bom`) + `firebase-messaging` (BoM-resolved, no per-artifact version) to `gradle/libs.versions.toml`; add the `com.google.gms.google-services` Gradle plugin alias to the catalog. Apply `firebase-messaging` (via the BoM platform) in `androidMain.dependencies`. **The `google-services` plugin is NOT applied in `build.gradle.kts`** (it hard-fails CI without `google-services.json`); it is declared for the OPERATOR to apply with the config (design D8). `AndroidFcmTokenProvider` returns `null` without a configured `FirebaseApp`, so the app builds + runs without it.
 - [x] 2.2 Add the iOS `FirebaseMessaging` Pod to the existing `cocoapods { … }` block in `mobile/app/build.gradle.kts` (alongside the `GoogleSignIn` Pod precedent).
-- [ ] 2.3 Add `docs/09-Versions.md` Decisions-Log rows for `firebase-bom` (+ the BoM-managed `firebase-messaging`), the `google-services` plugin (declared, operator-applied), and the iOS `FirebaseMessaging` Pod — each with the dated re-check rationale from task 1.1 and the native-SDK-over-wrapper justification (design D1).
+- [x] 2.3 Add `docs/09-Versions.md` Decisions-Log rows for `firebase-bom` (+ the BoM-managed `firebase-messaging`), the `google-services` plugin (declared, operator-applied), and the iOS `FirebaseMessaging` Pod — each with the dated re-check rationale from task 1.1 and the native-SDK-over-wrapper justification (design D1).
 
 ## 3. The FcmTokenProvider seam (commonMain interface + platform actuals)
 

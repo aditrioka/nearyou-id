@@ -56,10 +56,10 @@ The Bearer `Authorization` header SHALL be attached by the SHIPPED `HttpClient` 
 - **WHEN** the client is asked to register with an `app_version` longer than 64 characters
 - **THEN** no HTTP request is issued AND the outcome is exactly `Rejected(app_version_too_long)`
 
-#### Scenario: A null app_version is sent as the canonical body with a null field
+#### Scenario: A null app_version is omitted from the canonical body
 
 - **WHEN** the client registers a valid token whose `app_version` resolves to `null` from the build-config seam
-- **THEN** the request body is the canonical shape with `app_version` serialized as JSON `null` (the backend accepts a nullable `app_version`) AND the request is issued
+- **THEN** the request is issued with the canonical body, and `app_version` is **omitted** from the JSON (the shared `HttpClient` `Json` uses `explicitNulls = false`, so a null field is serialized as absent — the backend's nullable `app_version` column accepts the absence; behaviorally equivalent to a JSON `null`)
 
 ### Requirement: Registration responses map to a closed FcmRegistrationOutcome vocabulary
 

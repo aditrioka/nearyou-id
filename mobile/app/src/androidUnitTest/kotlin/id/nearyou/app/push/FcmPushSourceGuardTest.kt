@@ -75,6 +75,7 @@ class FcmPushSourceGuardTest {
         for ((name, src) in listOf(
             "FcmTokenRegistrar" to registrar,
             "FcmTokenApiClient" to apiClient,
+            "FcmRegistrationOutcome" to code("$commonBase/FcmRegistrationOutcome.kt"),
             "AndroidFcmTokenProvider" to androidProvider,
             "IosFcmTokenProvider" to iosProvider,
         )) {
@@ -88,6 +89,20 @@ class FcmPushSourceGuardTest {
             assertFalse(src.contains("LogLevel.BODY"), "$name must not widen logging to BODY (the token rides in the request body)")
             assertFalse(src.contains("LogLevel.ALL"), "$name must not widen logging to ALL")
         }
+    }
+
+    @Test
+    fun sharedHttpClientLoggingLevel_neverWidensToBodyOrAll() {
+        // The registration request's token rides in the request BODY over the SHARED HttpClient
+        // (FcmTokenApiClient does not build its own client). The spec's "the Logging level on the path that
+        // carries the registration request is not BODY/ALL" therefore constrains HttpClientFactory, not just
+        // the push files — assert it here so the credential-confidentiality claim is test-enforced end-to-end.
+        val factory = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/network/HttpClientFactory.kt")
+        assertFalse(
+            factory.contains("LogLevel.BODY"),
+            "the shared HttpClient must not log at LogLevel.BODY (the FCM token rides in the body)",
+        )
+        assertFalse(factory.contains("LogLevel.ALL"), "the shared HttpClient must not log at LogLevel.ALL")
     }
 
     private companion object {

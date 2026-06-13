@@ -25,9 +25,11 @@ class AndroidFcmTokenProvider : FcmTokenProvider {
     override suspend fun currentToken(): String? =
         try {
             suspendCancellableCoroutine { cont ->
+                // A Task completes as success XOR failure exactly once; the cont.isActive guards mirror the
+                // iOS actual and are belt-and-suspenders against a resume after cancellation.
                 FirebaseMessaging.getInstance().token
-                    .addOnSuccessListener { token -> cont.resume(token) }
-                    .addOnFailureListener { cont.resume(null) }
+                    .addOnSuccessListener { token -> if (cont.isActive) cont.resume(token) }
+                    .addOnFailureListener { if (cont.isActive) cont.resume(null) }
             }
         } catch (cause: CancellationException) {
             throw cause
