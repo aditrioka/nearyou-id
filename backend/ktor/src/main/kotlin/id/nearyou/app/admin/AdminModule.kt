@@ -8,6 +8,7 @@ import id.nearyou.app.admin.auth.AdminLogoutRoute
 import id.nearyou.app.admin.auth.AdminUserRepository
 import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.auth.adminAuth
+import id.nearyou.app.admin.blockregistry.AdminBlockRegistryRepository
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
@@ -15,6 +16,7 @@ import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
 import id.nearyou.app.admin.routes.AdminIndexStatsRepository
 import id.nearyou.app.admin.routes.AdminLayout
 import id.nearyou.app.admin.routes.adminActionsLog
+import id.nearyou.app.admin.routes.adminBlockRegistry
 import id.nearyou.app.admin.routes.adminIndex
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
 import id.nearyou.app.admin.routes.adminReportQueue
@@ -72,6 +74,7 @@ fun Application.admin(
     val auditLogger = AdminAuditLogger(dataSource)
     val actionsLogRepository = AdminActionsLogRepository(dataSource)
     val rejectedIdentifiersRepository = AdminRejectedIdentifiersRepository(dataSource)
+    val blockRegistryRepository = AdminBlockRegistryRepository(dataSource)
     val reportQueueRepository = ReportQueueRepository(dataSource)
     val userModerationRepository = UserModerationRepository(dataSource, auditLogger)
     val reportResolutionRepository =
@@ -151,6 +154,7 @@ fun Application.admin(
                 adminIndex(layout, indexStatsRepository)
                 adminActionsLog(actionsLogRepository, layout)
                 adminRejectedIdentifiers(rejectedIdentifiersRepository, layout)
+                adminBlockRegistry(blockRegistryRepository, layout)
                 adminReportQueue(reportQueueRepository, layout)
                 adminReportResolution(
                     reportResolutionRepository,
