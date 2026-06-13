@@ -104,6 +104,10 @@ kotlin {
             // mobile-nearby-timeline-screen — DistanceRenderer.render + LatLng (the jitter
             // algorithm ships transitively; JITTER_SECRET never does — backend-injected only).
             implementation(projects.shared.distance)
+            // mobile-chat-screen — the vendor-FREE ChatRealtimeSubscriber / ChatMessageInbound /
+            // RealtimeTokenProvider seam. The supabase-kt SDK is an `implementation`-scoped transitive
+            // dep of this module, so it NEVER reaches the app's compile classpath (invariant #16).
+            implementation(projects.infra.supabaseRealtime)
             // Mobile #3 — Ktor KMP client + serialization + datetime for token expiration.
             implementation(libs.ktor.kmp.clientCore)
             implementation(libs.ktor.kmp.clientContentNegotiation)
@@ -180,6 +184,15 @@ android {
             val devApiBaseUrl = (project.findProperty("devApiBaseUrl") as String?) ?: "http://10.0.2.2:8080"
             buildConfigField("String", "API_BASE_URL", "\"$devApiBaseUrl\"")
             buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"REPLACE_WITH_DEV_SERVER_CLIENT_ID.apps.googleusercontent.com\"")
+            // mobile-chat-screen — local Supabase (CLI default). Anon key is the CLI's well-known
+            // demo key; overridable via -PdevSupabaseUrl / -PdevSupabaseAnonKey.
+            val devSupabaseUrl = (project.findProperty("devSupabaseUrl") as String?) ?: "http://10.0.2.2:54321"
+            buildConfigField("String", "SUPABASE_URL", "\"$devSupabaseUrl\"")
+            buildConfigField(
+                "String",
+                "SUPABASE_ANON_KEY",
+                "\"${(project.findProperty("devSupabaseAnonKey") as String?) ?: "REPLACE_WITH_DEV_SUPABASE_ANON_KEY"}\"",
+            )
         }
         create("staging") {
             dimension = "env"
@@ -190,11 +203,29 @@ android {
                 "GOOGLE_SERVER_CLIENT_ID",
                 "\"27815942904-egrmb6ou96poualok9gooi63mjo2a0om.apps.googleusercontent.com\"",
             )
+            // mobile-chat-screen — staging Supabase project URL + anon (publishable) key for the
+            // Realtime subscribe. PLACEHOLDERS until the operator provisions them (the
+            // GOOGLE_SERVER_CLIENT_ID precedent; non-secret once real — anon key is publishable by
+            // Supabase's design). Inject without committing via
+            // -PstagingSupabaseUrl=… -PstagingSupabaseAnonKey=…. Until then the REST chat loop works
+            // fully and realtime simply never connects (degrades to REST-only — design D4).
+            buildConfigField(
+                "String",
+                "SUPABASE_URL",
+                "\"${(project.findProperty("stagingSupabaseUrl") as String?) ?: "https://REPLACE_WITH_STAGING_SUPABASE_REF.supabase.co"}\"",
+            )
+            buildConfigField(
+                "String",
+                "SUPABASE_ANON_KEY",
+                "\"${(project.findProperty("stagingSupabaseAnonKey") as String?) ?: "REPLACE_WITH_STAGING_SUPABASE_ANON_KEY"}\"",
+            )
         }
         create("production") {
             dimension = "env"
             buildConfigField("String", "API_BASE_URL", "\"https://api.nearyou.id.PLACEHOLDER\"")
             buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"REPLACE_WITH_PRODUCTION_SERVER_CLIENT_ID.apps.googleusercontent.com\"")
+            buildConfigField("String", "SUPABASE_URL", "\"https://REPLACE_WITH_PROD_SUPABASE_REF.supabase.co\"")
+            buildConfigField("String", "SUPABASE_ANON_KEY", "\"REPLACE_WITH_PRODUCTION_SUPABASE_ANON_KEY\"")
         }
     }
 
@@ -249,7 +280,8 @@ tasks.named("check") {
 // The Robolectric Compose UI tests (SignInScreenTest / RootRouterScreenTest / AgeGateScreenTest /
 // NearbyTimelineScreenTest / NearbyLocationGateScreenTest / NearYouThemeTest / PostCreationScreenTest /
 // HomeScreenFabTest / GlobalTimelineScreenTest / HomeTabHostScreenTest / NotificationsScreenTest /
-// AppShellScreenTest / PostDetailScreenTest / PostCardTest) need the debug-only
+// AppShellScreenTest / PostDetailScreenTest / PostCardTest / ConversationListScreenTest /
+// ChatThreadScreenTest) need the debug-only
 // `androidx.compose.ui:ui-test-manifest` ComponentActivity, which is NOT merged into release variants —
 // so `./gradlew test` (all variants) fails `testDevReleaseUnitTest` etc. with a host-activity
 // RuntimeException. Skip those classes in release unit-test tasks; they are build-type-agnostic (they
@@ -275,6 +307,8 @@ tasks.withType<Test>().configureEach {
             "**/PostDetailScreenTest*",
             "**/PostCardTest*",
             "**/DailyCapUpsellDialogTest*",
+            "**/ConversationListScreenTest*",
+            "**/ChatThreadScreenTest*",
         )
     }
 }

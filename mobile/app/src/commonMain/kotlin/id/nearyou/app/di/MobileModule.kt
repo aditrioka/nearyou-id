@@ -5,18 +5,32 @@ import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.AuthRepository
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenRefresher
+import id.nearyou.app.chat.ChatFlow
+import id.nearyou.app.chat.ChatMessagesApiClient
+import id.nearyou.app.chat.ChatRepository
+import id.nearyou.app.chat.ConversationsApiClient
+import id.nearyou.app.chat.ConversationsFlow
+import id.nearyou.app.chat.ConversationsRepository
+import id.nearyou.app.chat.RealtimeTokenApiClient
+import id.nearyou.app.chat.TokenViewerIdProvider
+import id.nearyou.app.chat.ViewerIdProvider
 import id.nearyou.app.config.apiBaseUrl
 import id.nearyou.app.config.httpClientEngine
 import id.nearyou.app.config.isDebugBuild
+import id.nearyou.app.config.supabaseConfig
 import id.nearyou.app.consent.ConsentApiClient
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentRepository
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.diagnostics.ConsoleDiagnosticSink
 import id.nearyou.app.diagnostics.DiagnosticSink
+import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
+import id.nearyou.app.infra.supabaserealtime.RealtimeTokenProvider
+import id.nearyou.app.infra.supabaserealtime.SupabaseChatRealtimeSubscriber
 import id.nearyou.app.location.CachingLocationProvider
 import id.nearyou.app.location.LocationTuning
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.notifications.NotificationsApiClient
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsRepository
@@ -201,6 +215,38 @@ val mobileModule =
         // inline like depends on exactly the like surface (no second like client/repository, no
         // duplicate status→LikeOutcome mapping).
         single<LikeFlow> { get<PostDetailRepository>() }
+
+        // mobile-chat-screen — the 1:1 chat graph (conversation list + thread + realtime).
+        //  - Three API clients over the shared (bearer-authed) HttpClient; NO X-Session-Id (chat
+        //    endpoints are not session-soft-capped).
+        //  - ConversationsRepository / ChatRepository bound behind ConversationsFlow / ChatFlow so the
+        //    screen + ViewModel tests substitute fakes (the concretes stay resolvable).
+        //  - RealtimeTokenApiClient doubles as the vendor-free RealtimeTokenProvider the infra
+        //    subscriber injects (so :infra:supabase-realtime need not depend on :mobile:app).
+        //  - SupabaseChatRealtimeSubscriber (the ONLY supabase-kt consumer) bound behind the vendor-free
+        //    ChatRealtimeSubscriber seam, fed the non-secret project URL + anon key from flavor config.
+        //  - TokenViewerIdProvider supplies the viewer's own id (JWT sub) for own-vs-other alignment.
+        //  - NotificationPromptOneShot gates the first-send permission rationale (per-process one-shot).
+        single { ConversationsApiClient(get()) }
+        single { ChatMessagesApiClient(get()) }
+        single { RealtimeTokenApiClient(get()) }
+        single<RealtimeTokenProvider> { get<RealtimeTokenApiClient>() }
+        single { ConversationsRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<ConversationsFlow> { get<ConversationsRepository>() }
+        single {
+            val sink = get<DiagnosticSink>()
+            ChatRepository(get(), get(), diagnosticLog = { status -> sink.log("chat_error: status=$status") })
+        }
+        single<ChatFlow> { get<ChatRepository>() }
+        single<ChatRealtimeSubscriber> {
+            SupabaseChatRealtimeSubscriber(
+                supabaseUrl = supabaseConfig.url,
+                supabaseKey = supabaseConfig.anonKey,
+                tokenProvider = get(),
+            )
+        }
+        single<ViewerIdProvider> { TokenViewerIdProvider(get()) }
+        single { NotificationPromptOneShot() }
     }
 
 /**

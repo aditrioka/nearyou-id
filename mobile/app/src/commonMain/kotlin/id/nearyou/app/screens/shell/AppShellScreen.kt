@@ -13,6 +13,7 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -41,6 +42,8 @@ import id.nearyou.app.screens.notifications.NotificationsScreen
 import id.nearyou.app.screens.profile.ProfilePlaceholderScreen
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.app_name
+import id.nearyou.resources.generated.resources.chat_open_action
+import id.nearyou.resources.generated.resources.ic_action_chat
 import id.nearyou.resources.generated.resources.ic_nav_home
 import id.nearyou.resources.generated.resources.ic_nav_home_filled
 import id.nearyou.resources.generated.resources.ic_nav_notifications
@@ -103,6 +106,7 @@ import org.koin.compose.koinInject
 @Composable
 fun AppShellScreen(
     onOpenComposer: () -> Unit,
+    onOpenChat: () -> Unit = {},
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
 ) {
@@ -121,7 +125,7 @@ fun AppShellScreen(
         // 1/19; Notifikasi/Profil keep their own in-body headers (no shell top bar).
         topBar = {
             if (selectedSection == Section.Home) {
-                HomeBrandTopBar()
+                HomeBrandTopBar(onOpenChat = onOpenChat)
             }
         },
         bottomBar = {
@@ -191,6 +195,9 @@ fun AppShellScreen(
 const val SHELL_LOGO_LIGHT_TAG: String = "shellLogoLight"
 const val SHELL_LOGO_DARK_TAG: String = "shellLogoDark"
 
+/** Test tag on the Home app-bar "Pesan" action (mobile-chat-screen task 10.1). */
+const val SHELL_CHAT_ACTION_TAG: String = "shellChatAction"
+
 /**
  * The Home section's pinned centered brand-logo app bar (mockup frames 1 + 19): the bundled
  * `logo_brand_light`/`logo_brand_dark` vector selected by [isSystemInDarkTheme] (the SignInScreen
@@ -201,7 +208,7 @@ const val SHELL_LOGO_DARK_TAG: String = "shellLogoDark"
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeBrandTopBar() {
+private fun HomeBrandTopBar(onOpenChat: () -> Unit) {
     val dark = isSystemInDarkTheme()
     val logo = if (dark) Res.drawable.logo_brand_dark else Res.drawable.logo_brand_light
     CenterAlignedTopAppBar(
@@ -216,6 +223,15 @@ private fun HomeBrandTopBar() {
                         if (dark) SHELL_LOGO_DARK_TAG else SHELL_LOGO_LIGHT_TAG,
                     ),
             )
+        },
+        // mobile-chat-screen (task 10.1): the trailing "Pesan" action → root-stack ConversationListRoute.
+        actions = {
+            IconButton(onClick = onOpenChat, modifier = Modifier.testTag(SHELL_CHAT_ACTION_TAG)) {
+                Icon(
+                    painter = painterResource(Res.drawable.ic_action_chat),
+                    contentDescription = stringResource(Res.string.chat_open_action),
+                )
+            }
         },
     )
 }

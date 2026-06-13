@@ -9,6 +9,13 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!--
+      mobile-chat-screen (task 9.4) — runtime notification permission (Android 13 / API 33+). The chat
+      first-send flow surfaces the rationale then this OS prompt. Independent of FCM token registration
+      + actual push delivery (deferred); declaring it now lets the prompt run for the demo.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
       allowBackup=false (2026-06-10 audit, finding 07-#1): auto-backup/D2D transfer
       restored the Tink-encrypted DataStore prefs WITHOUT the Android-Keystore
       master key (Keystore keys never leave the device), so the first token write
