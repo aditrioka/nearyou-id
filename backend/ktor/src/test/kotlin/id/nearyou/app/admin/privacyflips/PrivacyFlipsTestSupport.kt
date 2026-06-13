@@ -58,6 +58,23 @@ object PrivacyFlipsTestSupport {
         return id
     }
 
+    /**
+     * Wipe every user carrying a pending privacy flip. In the integration DB
+     * ONLY these privacy-flip tests set `privacy_flip_scheduled_at` (every other
+     * spec leaves it NULL and Kotest runs specs single-fork-sequentially), so
+     * this removes exactly the test fixtures — including any orphaned by a
+     * previous run that failed mid-test. Run from `beforeEach` so each test
+     * starts from a known-empty pending-flip set (the sibling viewer specs do a
+     * full-table `deleteAll`; `users` is shared, so we scope to the flip rows).
+     */
+    fun deleteAllPendingFlips(dataSource: DataSource) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "DELETE FROM users WHERE privacy_flip_scheduled_at IS NOT NULL",
+            ).use { ps -> ps.executeUpdate() }
+        }
+    }
+
     /** Remove a seeded user by id (per-test cleanup; the table is shared). */
     fun deleteUser(
         dataSource: DataSource,

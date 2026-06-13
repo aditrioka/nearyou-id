@@ -34,7 +34,7 @@
         {% for row in rows %}
             <tr{% if row.status == 'overdue' %} class="flip-overdue"{% endif %}>
                 <td>
-                    <a href="/admin/users?q={{ row.username }}">{{ row.username }}</a>
+                    <a href="{{ row.usersLink }}">{{ row.username }}</a>
                     <span class="flip-handle">{{ row.displayName }}</span>
                     {% if row.deleted %}<span class="st err">deleted</span>{% endif %}
                 </td>

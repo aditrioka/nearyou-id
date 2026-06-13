@@ -155,6 +155,12 @@ private fun PrivacyFlipRow.toViewMap(evalInstant: Instant): Map<String, Any> =
     mapOf(
         "id" to id.toString(),
         "username" to username,
+        // The deep-link target's `q` value is URL-encoded here (not left to the
+        // template's HTML-escaper) so the link stays correct even if a username
+        // ever carries a query-significant character (`&` / `#` / space) —
+        // robust independent of the signup-time username charset constraint, and
+        // consistent with the `nextUrl` encoding above.
+        "usersLink" to "/admin/users?q=${URLEncoder.encode(username, Charsets.UTF_8)}",
         "displayName" to displayName,
         "isPrivate" to privateProfileOptIn,
         "scheduledAt" to SCHEDULED_AT_FORMAT.format(scheduledAt),

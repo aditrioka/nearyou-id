@@ -40,6 +40,7 @@ class AdminPrivacyFlipsRouteTest : StringSpec({
     val eval = Instant.parse("2026-06-13T12:00:00Z")
     val seededUsers = mutableListOf<UUID>()
     val seededAdmins = mutableListOf<UUID>()
+    beforeEach { PrivacyFlipsTestSupport.deleteAllPendingFlips(dataSource) }
     afterEach {
         seededUsers.forEach { PrivacyFlipsTestSupport.deleteUser(dataSource, it) }
         seededUsers.clear()
@@ -280,6 +281,28 @@ class AdminPrivacyFlipsRouteTest : StringSpec({
                 }.bodyAsText()
             body shouldContain "/admin/users?q=budi_kopi"
             body shouldNotContain "/admin/users/" // not the in-flight {id} profile route
+            // PII negative: the seeded DOB year (1995) is never rendered.
+            body shouldNotContain "1995"
+        }
+    }
+
+    "6.12 — a query-significant username is URL-encoded in the href (and escaped in text)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        // username column has no charset CHECK; seed a query-significant value
+        // to exercise the href URL-encoding (signup normally restricts charset).
+        seedUser("a&b_user", eval.plusSeconds(3600))
+
+        AdminAuthTestSupport.withAdminApp(dataSource, clock = { eval }) { client ->
+            val body =
+                client.get("/admin/privacy-flips") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                }.bodyAsText()
+            // href: the `&` is URL-encoded (%26), so it stays a single q value
+            // rather than splitting into a stray query key.
+            body shouldContain "/admin/users?q=a%26b_user"
+            // text: the `&` is HTML-escaped, never a raw ampersand mid-markup.
+            body shouldContain "a&amp;b_user"
         }
     }
 

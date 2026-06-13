@@ -30,6 +30,7 @@ class AdminPrivacyFlipsRepositoryTest : StringSpec({
     afterSpec { dataSource.close() }
 
     val seeded = mutableListOf<UUID>()
+    beforeEach { PrivacyFlipsTestSupport.deleteAllPendingFlips(dataSource) }
     afterEach {
         seeded.forEach { PrivacyFlipsTestSupport.deleteUser(dataSource, it) }
         seeded.clear()
@@ -202,5 +203,56 @@ class AdminPrivacyFlipsRepositoryTest : StringSpec({
         scoped.overdue shouldBe 1
         scoped.inWindow shouldBe 0
         scoped.total shouldBe 1
+    }
+
+    "exact page-size boundary: N rows omit the cursor; N+1 rows expose it" {
+        // Only rows with a non-NULL privacy_flip_scheduled_at appear (every other
+        // spec leaves that column NULL), so the seeded fixtures are the full
+        // matching set — the same single-fork-sequential isolation the sibling
+        // viewer tests rely on.
+        seed("flip_fence_a", eval.plusSeconds(3600))
+        seed("flip_fence_b", eval.plusSeconds(7200))
+
+        // EXACTLY page-size (2) → full page, NO next cursor (fencepost holds).
+        query(pageSize = 2).let { page ->
+            page.rows.size shouldBe 2
+            page.nextCursor.shouldBeNull()
+        }
+
+        // One more row (page-size + 1 = 3) → the next cursor now appears.
+        seed("flip_fence_c", eval.plusSeconds(10800))
+        query(pageSize = 2).let { page ->
+            page.rows.size shouldBe 2
+            page.nextCursor.shouldNotBeNull()
+        }
+    }
+
+    "status filter composes with the keyset cursor across a page boundary" {
+        // Two overdue rows + one in-window row; page the overdue-filtered set.
+        val o1 = seed("flip_cf_o1", eval.minusSeconds(7200))
+        val o2 = seed("flip_cf_o2", eval.minusSeconds(3600))
+        seed("flip_cf_iw", eval.plusSeconds(3600))
+
+        val first = query(status = STATUS_OVERDUE, pageSize = 1)
+        first.rows.single().status shouldBe STATUS_OVERDUE
+        first.nextCursor.shouldNotBeNull()
+
+        val second = query(status = STATUS_OVERDUE, pageSize = 1, cursor = first.nextCursor)
+        // The filter is retained across the cursor: page 2 is still overdue-only,
+        // and the two overdue rows are exactly the ones seen (no in-window leak).
+        second.rows.all { it.status == STATUS_OVERDUE } shouldBe true
+        (first.rows + second.rows).map { it.id }.toSet() shouldBe setOf(o1, o2)
+    }
+
+    "summary counts beyond a single page (ignores the page limit)" {
+        seed("flip_big_1", eval.minusSeconds(3600))
+        seed("flip_big_2", eval.minusSeconds(7200))
+        seed("flip_big_3", eval.plusSeconds(3600))
+
+        // A page of size 2 displays only 2 rows…
+        query(pageSize = 2).rows.size shouldBe 2
+        // …but the summary counts the WHOLE set (≥3 here), proving it is not
+        // bounded by pagination.
+        (summary().total >= 3) shouldBe true
     }
 })
