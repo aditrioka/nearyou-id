@@ -462,7 +462,15 @@ class PostDetailScreenTest {
         startKoin { modules(module { single<PostDetailFlow> { repo } }) }
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
-            waitUntil(timeoutMillis = 5_000) { captured.size >= 2 } // loadReplies + likeCount fire on entry
+            // Await the captured-request list DIRECTLY (a plain list, not a rendered node): the two entry
+            // loads (loadReplies + likeCount) fire from a LaunchedEffect through real coroutines + MockEngine,
+            // which are async w.r.t. compose idle, so polling the list is the right mechanism. The ceiling is
+            // deliberately generous: under BATCH Robolectric load (the full module suite, many suites
+            // contending for the JVM) the prior 5s budget occasionally lapsed before the second request
+            // landed and threw ComposeTimeoutException — passing solo / on retry every time (#228). waitUntil
+            // returns the instant the condition holds, so the larger ceiling costs nothing on passing runs; it
+            // only widens the failure budget enough to absorb CPU contention.
+            waitUntil(timeoutMillis = 30_000) { captured.size >= 2 } // loadReplies + likeCount fire on entry
             // The header came from the route payload — NO bare single-post GET was issued.
             assertTrue(captured.none { it == "/api/v1/posts/p1" }, "no single-post by-id GET; captured=$captured")
             assertTrue(
