@@ -28,25 +28,43 @@ is needed for BrowserStack (REST via `curl`).
 The sandbox can't provision GCP for you — do this once, then drop two secrets in
 the environment config and everything works hands-off.
 
-1. **Pick / create a GCP project** for Test Lab (e.g. reuse the staging project).
-2. **Enable the APIs**: Cloud Testing API (`testing.googleapis.com`) and Cloud
-   Tool Results API (`toolresults.googleapis.com`).
-   `gcloud services enable testing.googleapis.com toolresults.googleapis.com`
-3. **Create a service account** (e.g. `test-lab-runner@<project>.iam.gserviceaccount.com`)
-   and grant it the **Firebase Test Lab Admin** role plus read/write on the
-   results GCS bucket (the auto-created `test-lab-*` bucket, or a dedicated one).
-   Download a JSON key.
-4. **Add these to the Claude Code environment** (env vars / secrets — never commit):
+**Project:** reuse the existing **`nearyou-staging`** GCP project (project number
+`27815942904`) — it's already Firebase-enabled, so Test Lab device runs share its
+free quota. (Override to a dedicated project with `FIREBASE_PROJECT_ID` if you'd
+rather isolate the quota.)
 
-   ```dotenv
-   GCP_SA_KEY_JSON={"type":"service_account",...}   # paste the whole key JSON, OR
-   GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json # if mounted as a file
-   FIREBASE_PROJECT_ID=<your-test-lab-project-id>
-   ```
+**The easy path — run the provisioning script** in Cloud Shell or any
+gcloud authenticated as Owner/Editor on the project:
+
+```bash
+PROJECT_ID=nearyou-staging dev/scripts/provision-test-lab-sa.sh
+```
+
+It idempotently: enables the Cloud Testing + Cloud Tool Results APIs, creates a
+least-privilege `test-lab-runner@nearyou-staging.iam.gserviceaccount.com` service
+account (roles `cloudtestservice.admin` + `storage.objectViewer`), mints a JSON
+key, and prints exactly what to paste.
+
+**Then add to the Claude Code environment** (Settings → environment secrets —
+never commit):
+
+```dotenv
+FIREBASE_PROJECT_ID=nearyou-staging
+GCP_SA_KEY_JSON={"type":"service_account",...}   # the whole key JSON, OR
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json # if mounted as a file
+```
+
+`FIREBASE_PROJECT_ID` already defaults to `nearyou-staging` in the scripts, so in
+practice you only need to supply the key.
 
 That's the entire human-only step. After it, from your phone you can ask the
-agent to "run my change on a device" and it will build, Robo-run on a real
-Pixel, and send the screenshots back.
+agent to "run my change on a device" and it will build, Robo-run on a real Pixel,
+and send the screenshots back.
+
+> Manual equivalent (if you'd rather not run the script): `gcloud services enable
+> testing.googleapis.com toolresults.googleapis.com`; create the service account;
+> grant `roles/cloudtestservice.admin` + `roles/storage.objectViewer` (or just
+> `roles/editor`); `gcloud iam service-accounts keys create`.
 
 ### Cost (as of 2026-06)
 

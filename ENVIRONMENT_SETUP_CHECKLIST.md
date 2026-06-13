@@ -56,7 +56,9 @@ Update each box as a step lands so a dropped session can resume without redoing 
 - [x] 14. Refactor `test_firebase.sh` onto the shared gcloud lib.
 - [x] 15. `dev/docs/device-farm.md` — device-farm runbook + one-time Firebase operator setup + cost.
 - [x] 16. `.gitignore` += `dev/device-runs/`; CLAUDE.md "Android build & test" section updated.
-- [ ] 17. **Operator (one-time, UI/GCP):** create/enable Firebase Test Lab project + service account, then add `GCP_SA_KEY_JSON` (or `GOOGLE_APPLICATION_CREDENTIALS`) + `FIREBASE_PROJECT_ID` as environment secrets. See `dev/docs/device-farm.md`. Until this lands, the farm scripts are ready but cannot dispatch (no live end-to-end run possible without credentials).
+- [x] 17. Found the real GCP project from source: **`nearyou-staging`** (project number `27815942904`, already Firebase-enabled). Set as the scripts' default `FIREBASE_PROJECT_ID`.
+- [x] 18. `dev/scripts/provision-test-lab-sa.sh` — one-command operator provisioning (enable APIs, create least-privilege `test-lab-runner` SA with `cloudtestservice.admin` + `storage.objectViewer`, mint key). Doc updated with real project + exact gcloud roles.
+- [ ] 19. **Operator (one-time, authenticated gcloud):** run `PROJECT_ID=nearyou-staging dev/scripts/provision-test-lab-sa.sh`, then paste `GCP_SA_KEY_JSON` (+ `FIREBASE_PROJECT_ID=nearyou-staging` if not defaulting) into the Claude Code environment secrets. This is the only step needing GCP credentials — the agent can't mint a service-account key. After it, device runs work hands-off.
 
 ## Network allowlist required (add in Create-environment UI)
 

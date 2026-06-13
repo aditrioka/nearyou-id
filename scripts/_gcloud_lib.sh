@@ -41,7 +41,10 @@ gcloud_auth() {
     echo "[gcloud] ERROR: set GOOGLE_APPLICATION_CREDENTIALS (path) or GCP_SA_KEY_JSON (raw JSON)." >&2
     return 1
   fi
-  : "${FIREBASE_PROJECT_ID:?[gcloud] ERROR: set FIREBASE_PROJECT_ID}"
+  # Default to the staging GCP project (project number 27815942904) — already
+  # Firebase-enabled; reused for Test Lab so device runs share its free quota.
+  # Override with FIREBASE_PROJECT_ID for a dedicated project.
+  : "${FIREBASE_PROJECT_ID:=nearyou-staging}"
   gcloud auth activate-service-account --key-file="$key" --quiet || return 1
   gcloud config set project "$FIREBASE_PROJECT_ID" --quiet || return 1
   echo "[gcloud] authenticated; project=$FIREBASE_PROJECT_ID"
