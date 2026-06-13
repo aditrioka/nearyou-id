@@ -104,7 +104,7 @@ On a successful change the system SHALL, within a single transaction holding `SE
 #### Scenario: Successful change writes history and notification atomically
 - **WHEN** a change commits, renaming `oldname` to `newname`
 - **THEN** a `username_history` row SHALL exist with `old_username = oldname`, `new_username = newname`, and `released_at = changed_at + 30 days`
-- **AND** a `notifications` row of type `username_release_scheduled` with `body_data {old_username, released_at}` SHALL be inserted in the same transaction (in-app only, raw in-transaction INSERT, no FCM)
+- **AND** a `notifications` row of type `username_release_scheduled` with `body_data {old_username, released_at}` SHALL be inserted in the same transaction via the transaction-aware `NotificationEmitter.emit(conn, …)` seam (in-app only, no FCM for this self-action type)
 
 #### Scenario: A failure mid-transaction leaves no partial write
 - **WHEN** any step of the change transaction fails (e.g. a unique-violation caught at the final write)
