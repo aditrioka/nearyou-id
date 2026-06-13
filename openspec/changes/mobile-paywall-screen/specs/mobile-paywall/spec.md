@@ -2,7 +2,7 @@
 
 ### Requirement: PaywallRoute is a payload-carrying serializable NavKey registered for the iOS-saveable back stack
 
-The change SHALL introduce a `PaywallRoute` `NavKey` (in `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/NavKeys.kt`) that is a `@Serializable data class` carrying a single non-PII `entry: PaywallEntry` property — an enum of the gated surfaces that can open the paywall (at minimum `LIKE_CAP` and `SEARCH_GATE`; `USERNAME` reserved for the in-flight `premium-username-customization`). The route MUST NOT carry any PII, token, coordinate, or user identifier. It SHALL be registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (`mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/AppNavSerialization.kt`) via an explicit `subclass(PaywallRoute::class, PaywallRoute.serializer())` entry so the back stack is saveable on Kotlin/Native (iOS), mirroring `PostDetailRoute`. `PaywallRoute` SHALL be appended to the **root** back stack (overlaying the section `NavigationBar`), the same mechanism `SearchRoute` / `PostDetailRoute` / the composer FAB use — deliberately NOT a per-tab back stack.
+The change SHALL introduce a `PaywallRoute` `NavKey` (in `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/NavKeys.kt`) that is a `@Serializable data class` carrying a single non-PII `entry: PaywallEntry` property — an enum of the gated surfaces that can open the paywall. This change WIRES `LIKE_CAP` (cap dialog) and `SEARCH_GATE` (search 403 gate) only; a `USERNAME` case MAY be added as a reserved-but-unwired forward-compat value for the in-flight `premium-username-customization` ([#301](https://github.com/aditrioka/nearyou-id/pull/301)), which wires it in its own change (this change adds no username entry point). The route MUST NOT carry any PII, token, coordinate, or user identifier. It SHALL be registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (`mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/AppNavSerialization.kt`) via an explicit `subclass(PaywallRoute::class, PaywallRoute.serializer())` entry so the back stack is saveable on Kotlin/Native (iOS), mirroring `PostDetailRoute`. `PaywallRoute` SHALL be appended to the **root** back stack (overlaying the section `NavigationBar`), the same mechanism `SearchRoute` / `PostDetailRoute` / the composer FAB use — deliberately NOT a per-tab back stack.
 
 #### Scenario: PaywallRoute survives a serialized back-stack round-trip
 
@@ -28,9 +28,14 @@ The mobile app SHALL ship a composable `PaywallScreen` (file: `mobile/app/src/co
 - **WHEN** inspecting `PaywallScreen.kt`
 - **THEN** every user-visible text resolves via `stringResource(Res.string.<name>)` AND the source contains no hex color literals (theme tokens only) AND the screen renders without crash under `NearYouTheme` light and dark
 
+#### Scenario: The hero headline is tailored to the entry-context
+
+- **GIVEN** `PaywallScreen` composed once for `PaywallRoute(entry = LIKE_CAP)` and once for `PaywallRoute(entry = SEARCH_GATE)`, both in the Content state
+- **THEN** the two renderings present a different hero headline (the entry-context tailoring) AND both still present the full benefit list and pricing cards (the contextual hero leads, it does not narrow the offering)
+
 ### Requirement: The paywall benefit set shows features available now per the disclosure rule
 
-The benefit list SHALL present the Month-1 Premium feature set per `docs/01-Business.md` § Freemium Tiers / `docs/02-Product.md`, each label via `stringResource` — covering: unlimited posts/replies/likes, the 10–100 km Nearby radius, hide-distance (city name stays visible), custom username (1× per 30 days), search + 30-minute post edit, and no-ads + the Premium tenure badge. It MUST NOT advertise image upload (a Month-6 feature, not yet shipped) — the `docs/03-UX-Design.md` § Paywall & Premium Disclosure rule that "the paywall shows features available NOW". Each benefit label is a CMP string resource (no hardcoded literal).
+The benefit list SHALL present the Month-1 Premium feature set per `docs/01-Business.md` § Freemium Tiers / `docs/02-Product.md`, each label via `stringResource` — covering: unlimited posts/replies/likes, the 10/20/50/100 km Nearby radius, hide-distance (city name stays visible), custom username (1× per 30 days), search + 30-minute post edit, and no-ads + the Premium tenure badge. It MUST NOT advertise image upload (a Month-6 feature, not yet shipped) — the `docs/03-UX-Design.md` § Paywall & Premium Disclosure rule that "the paywall shows features available NOW". Each benefit label is a CMP string resource (no hardcoded literal).
 
 #### Scenario: The benefit list shows now-available features and omits image upload
 

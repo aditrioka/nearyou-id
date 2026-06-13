@@ -1,3 +1,8 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: Autocomplete, proactive upsell, and paywall navigation are explicitly deferred`
+- TO: `### Requirement: Autocomplete and proactive upsell are explicitly deferred`
+
 ## MODIFIED Requirements
 
 ### Requirement: The Premium gate renders the Free-tier upsell panel reactively on 403
@@ -16,19 +21,17 @@ While the search outcome is `PremiumGate` (the reactive `403 premium_required` g
 - **WHEN** the "Aktifkan Premium" CTA is activated
 - **THEN** a `PaywallRoute(entry = PaywallEntry.SEARCH_GATE)` is appended to the root back stack AND `SearchScreen` holds no back-stack reference (navigation is delivered via the hoisted `onActivatePremium` callback)
 
-## ADDED Requirements
+### Requirement: Autocomplete and proactive upsell are explicitly deferred
 
-### Requirement: Proactive Free-tier upsell on search-open is deferred
+This change SHALL NOT implement: (a) username autocomplete / typeahead (`docs/03-UX-Design.md:241` — requires a NEW backend autocomplete endpoint that is not shipped); (b) a proactive "upsell on tap before typing" surface (`docs/03-UX-Design.md:240` — requires a global, app-wide client-held subscription/entitlement signal plus a loading/fallback design for the pre-load window; the reactive-on-`403` `PremiumGate` is the v1 surface). The entitlement seam that the proactive upsell needs (the `PurchaseController` / RevenueCat `CustomerInfo` entitlement) is delivered by the `mobile-paywall` capability in this change, but the proactive behavior itself is NOT built here. **Paywall navigation is NO LONGER deferred** — the Premium-gate CTA now routes to `PaywallRoute` per the § "The Premium gate renders the Free-tier upsell panel reactively on 403" requirement, so it is removed from this deferral list. Each remaining deferral SHALL be recorded as a `tasks.md` note AND a `follow-up` GitHub issue (NOT silently dropped); the proactive-upsell follow-up is GitHub issue [#253](https://github.com/aditrioka/nearyou-id/issues/253).
 
-The mobile Cari surface SHALL gate Free users REACTIVELY only — the upsell panel renders on the backend's `403 premium_required` (per the § "The Premium gate renders the Free-tier upsell panel reactively on 403" requirement). A PROACTIVE upsell — short-circuiting a Free viewer to the upsell panel the moment search opens, before the first query (`docs/03-UX-Design.md:240` frames the gate as "Free users see an upsell on tap") — is DEFERRED to a follow-up. The proactive behavior requires a global, app-wide client subscription/entitlement signal (a loaded RevenueCat `CustomerInfo`) plus a loading/fallback design for the pre-load window (fall back to the reactive gate while the entitlement is unknown), which is out of scope for this change. This change SHALL NOT short-circuit the search surface to the upsell proactively; the reactive `403` gate remains the only gating path. The entitlement seam the proactive behavior needs (`PurchaseController` / `CustomerInfo` entitlement) is delivered by the `mobile-paywall` capability; GitHub issue [#253](https://github.com/aditrioka/nearyou-id/issues/253) tracks the proactive behavior.
+#### Scenario: The remaining deferrals are tracked, not silent
 
-#### Scenario: Search opens to Idle for all viewers (no proactive gate)
+- **WHEN** inspecting `tasks.md` and the change's follow-up issues
+- **THEN** the autocomplete and proactive-upsell deferrals are each recorded with a `follow-up` GitHub issue reference (proactive upsell = [#253](https://github.com/aditrioka/nearyou-id/issues/253)) AND paywall navigation is NOT listed as a deferral (it is implemented) AND the v1 search surface functions (reactive gate, submit/debounce search, an upsell CTA that now routes to the paywall)
+
+#### Scenario: Search opens to Idle for all viewers (the proactive gate is not built)
 
 - **GIVEN** a Free viewer opening the Cari surface with no query yet
 - **WHEN** `SearchScreen` first renders
 - **THEN** it shows the Idle prompt (the § "Screen state mapping" Idle state) AND does NOT short-circuit to the `PremiumGate` upsell before a query is issued — the gate appears only reactively on a `403` response
-
-#### Scenario: The proactive-upsell deferral is tracked
-
-- **WHEN** inspecting the project's open GitHub issues
-- **THEN** GitHub issue [#253](https://github.com/aditrioka/nearyou-id/issues/253) tracks the proactive Free-tier upsell-on-open as the follow-up building on the delivered entitlement seam
