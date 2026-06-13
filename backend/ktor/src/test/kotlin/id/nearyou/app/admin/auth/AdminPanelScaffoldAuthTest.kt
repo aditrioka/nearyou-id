@@ -61,10 +61,11 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "data-icon=\"block\""
             body shouldContain "data-icon=\"timer\""
             body shouldContain "data-icon=\"receipt_long\""
-            // EXACTLY six nav items, under their four group headings (the
+            // EXACTLY seven nav items, under their four group headings (the
             // Lifecycle group + Privacy flips item shipped with
-            // admin-privacy-flip-monitor).
-            Regex("class=\"nitem").findAll(body).count() shouldBe 6
+            // admin-privacy-flip-monitor; the Block registry item under
+            // Anti-abuse shipped with admin-block-registry).
+            Regex("class=\"nitem").findAll(body).count() shouldBe 7
             body shouldContain "Moderasi"
             body shouldContain "Anti-abuse &amp; keamanan"
             body shouldContain "Lifecycle"
