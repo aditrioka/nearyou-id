@@ -205,6 +205,21 @@ jobs:
           DB_USER: postgres
           DB_PASSWORD: postgres
           REDIS_URL: redis://localhost:6379
+      # Flaky-test diagnostics (#287): when `test` fails, capture the Gradle test
+      # report + JUnit XML so the next 1/1403 `:backend:ktor:test` flake names
+      # itself (the failing test is only in the HTML report, not the console).
+      # `if: failure()` also fires on compile/infra failures (no report produced)
+      # → `if-no-files-found: ignore` keeps those runs noise-free.
+      - name: Upload backend test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-ktor-test-report
+          path: |
+            backend/ktor/build/reports/tests/test/**
+            backend/ktor/build/test-results/test/**
+          if-no-files-found: ignore
+          retention-days: 14
 
   # Runs Flyway against a Postgres instance configured to mirror a fresh
   # Supabase project — PostGIS installed-but-not-enabled, realtime/auth
