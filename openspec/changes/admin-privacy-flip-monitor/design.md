@@ -45,7 +45,7 @@ Clone the shipped viewer's structure — route placement inside `authenticate(AD
 **Deltas from the precedent (intentional):**
 - **Reads `users`, not a dedicated blocklist table.** Raw read of `users` is admin-module-exempt from `RawFromPostsRule` / `BlockExclusionJoinRule` (see D6); no `visible_*` view or block-exclusion join applies to an admin moderation surface.
 - **Ascending order, not newest-first** (D2).
-- **Per-row IN_WINDOW / OVERDUE classification** computed against `NOW()` (D3) — the monitor-specific behavior with no precedent in the prior viewers.
+- **Per-row IN_WINDOW / OVERDUE classification** computed against a single request-scoped `eval_instant` (D3) — the monitor-specific behavior with no precedent in the prior viewers.
 - **Free-text identity columns** make HTML-escaping load-bearing, not merely defense-in-depth (D7).
 
 ### D2: Ascending order `privacy_flip_scheduled_at ASC, id ASC` (keyset `(privacy_flip_scheduled_at, id) > (?, ?)`)
@@ -54,7 +54,7 @@ The three sibling viewers order **newest-first** (`DESC`) because their value is
 
 ### D3: Per-row IN_WINDOW / OVERDUE classification — the OVERDUE branch is deliberately OUTSIDE the canonical predicate
 
-`docs/07` defines the canonical population as `privacy_flip_scheduled_at IS NOT NULL AND NOW() < privacy_flip_scheduled_at` (the in-grace set). Frame 17 is explicit that the monitor query scans the **broader** `WHERE privacy_flip_scheduled_at IS NOT NULL` and **adds a stuck-row branch on top of the docs predicate**: a row whose `privacy_flip_scheduled_at <= NOW()` is past its deadline but the worker has not cleared it — an OVERDUE / stuck row that is the webhook-handler-bug signal the monitor exists to catch. So each rendered row is classified, against a single `NOW()` evaluated server-side:
+`docs/07` defines the canonical population as `privacy_flip_scheduled_at IS NOT NULL AND NOW() < privacy_flip_scheduled_at` (the in-grace set). Frame 17 is explicit that the monitor query scans the **broader** `WHERE privacy_flip_scheduled_at IS NOT NULL` and **adds a stuck-row branch on top of the docs predicate**: a row whose `privacy_flip_scheduled_at <= eval_instant` is past its deadline but the worker has not cleared it — an OVERDUE / stuck row that is the webhook-handler-bug signal the monitor exists to catch. So each rendered row is classified, against the single request-scoped `eval_instant` (see below):
 
 - **IN_WINDOW** — `eval_instant < privacy_flip_scheduled_at`. Mid-grace; render the time **remaining** until the flip.
 - **OVERDUE** — `privacy_flip_scheduled_at <= eval_instant`. Past deadline, not cleared; render how long it has been **overdue**. This is the anomaly. **The boundary is closed on the OVERDUE side**: a flip scheduled exactly at the evaluation instant (`privacy_flip_scheduled_at == eval_instant`) is OVERDUE (the `> ` test for IN_WINDOW is strict; equality falls to the `<=` branch).

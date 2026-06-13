@@ -123,20 +123,20 @@ The system SHALL paginate the list using a keyset cursor over `(privacy_flip_sch
 
 ### Requirement: Composable status and user-search filtering
 
-The system SHALL accept the query parameters `status` and `q`, each filtering the list and composing with logical AND. `status` SHALL match exactly one of the allowed values: `in_window` (filter to `privacy_flip_scheduled_at > NOW()`) or `overdue` (filter to `privacy_flip_scheduled_at <= NOW()`), reusing the SAME `NOW()`-based predicate as the row classification so the filtered set matches the rendered classes. `q` SHALL perform a single-user lookup: a value that parses as a UUID SHALL filter `id = ?`; any other value SHALL filter `LOWER(username) = LOWER(?)` (exact, case-insensitive — served by `users_username_lower_idx`, not a substring scan). All filter values SHALL be applied via parameterized query placeholders — never string-interpolated into SQL.
+The system SHALL accept the query parameters `status` and `q`, each filtering the list and composing with logical AND. `status` SHALL match exactly one of the allowed values: `in_window` (filter to `evaluation_instant < privacy_flip_scheduled_at`) or `overdue` (filter to `privacy_flip_scheduled_at <= evaluation_instant`), evaluated against the SAME single request-scoped evaluation instant as the row classification so the filtered set matches the rendered classes (no read-vs-filter skew, even at the boundary). `q` SHALL perform a single-user lookup: a value that parses as a UUID SHALL filter `id = ?`; any other value SHALL filter `LOWER(username) = LOWER(?)` (exact, case-insensitive — served by `users_username_lower_idx`, not a substring scan). All filter values SHALL be applied via parameterized query placeholders — never string-interpolated into SQL.
 
 #### Scenario: Filtering by status=overdue returns only overdue rows
 
 - **GIVEN** an authenticated session AND at least one IN_WINDOW row AND at least one OVERDUE row
 - **WHEN** `GET /admin/privacy-flips?status=overdue` is served
-- **THEN** every rendered row SHALL be classified OVERDUE (`privacy_flip_scheduled_at <= NOW()`)
+- **THEN** every rendered row SHALL be classified OVERDUE (`privacy_flip_scheduled_at <= evaluation_instant`)
 - **AND** no IN_WINDOW row SHALL be rendered
 
 #### Scenario: Filtering by status=in_window returns only in-window rows
 
 - **GIVEN** an authenticated session AND rows of both classes
 - **WHEN** `GET /admin/privacy-flips?status=in_window` is served
-- **THEN** every rendered row SHALL be classified IN_WINDOW (`privacy_flip_scheduled_at > NOW()`)
+- **THEN** every rendered row SHALL be classified IN_WINDOW (`evaluation_instant < privacy_flip_scheduled_at`)
 
 #### Scenario: Searching by username returns the single matching user
 
