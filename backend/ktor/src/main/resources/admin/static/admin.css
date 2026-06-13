@@ -706,3 +706,10 @@ body.bare > main {
   .rc-actions .btn { width: 100%; }
   .vdiv { display: none; }
 }
+
+/* privacy-flip monitor (frame 17): OVERDUE / stuck rows are error-tinted so a
+   row the worker failed to clear past its deadline jumps out as the anomaly. */
+.tbl tr.flip-overdue td { background: var(--error-container); color: var(--on-error-container); }
+.tbl tr.flip-overdue td a { color: var(--on-error-container); }
+.flip-stuck-note { font-weight: 600; }
+.flip-handle { color: var(--on-surface-variant); margin-left: 6px; font-size: 12px; }

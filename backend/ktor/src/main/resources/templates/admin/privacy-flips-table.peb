@@ -1,0 +1,69 @@
+{# Swappable privacy-flips fragment. Rendered standalone for HTMX requests
+   (HX-Request: true) and {% include %}d by privacy-flips.peb for full-page
+   navigation. The #privacy-flips-table id is the hx-target swapped in place —
+   the count summary lives INSIDE it so it stays in sync with the active
+   filters on every swap. Every value is Pebble-autoescaped on output — NO
+   `raw` filter on any value. Escaping is load-bearing here: `username` /
+   `displayName` are user-controlled free text, and `username` is also
+   interpolated into the /admin/users?q= deep-link href (attribute/URL context
+   — Pebble's default escaper is HTML-context so `< > & " '` are entity-encoded
+   in attribute position too). The .tbl-wrap wrapper provides the frame-4b
+   overflow-x scroll below ~900 px. #}
+<div id="privacy-flips-table">
+    {# In-window vs overdue count summary scoped to the active q filter. Counts
+       the WHOLE q-scoped set (not just this page) so a stuck-row spike (rising
+       OVERDUE) is visible at a glance. The OVERDUE chip is the anomaly signal. #}
+    <div class="summary">
+        <p class="summary-total">Total pending: {{ summary.total }}</p>
+        <span class="st ok">in_window: {{ summary.inWindow }}</span>
+        <span class="st err">overdue: {{ summary.overdue }}</span>
+    </div>
+{% if hasRows %}
+    <div class="tbl-wrap">
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Privacy</th>
+                <th>Scheduled flip (UTC)</th>
+                <th>Remaining</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr{% if row.status == 'overdue' %} class="flip-overdue"{% endif %}>
+                <td>
+                    <a href="{{ row.usersLink }}">{{ row.username }}</a>
+                    <span class="flip-handle">{{ row.displayName }}</span>
+                    {% if row.deleted %}<span class="st err">deleted</span>{% endif %}
+                </td>
+                <td>{% if row.isPrivate %}Private{% else %}Public{% endif %}</td>
+                <td>{{ row.scheduledAt }}</td>
+                <td>
+                    {% if row.status == 'overdue' %}<span class="flip-stuck-note">⚠ {{ row.relativeTime }} — stuck row, worker/webhook bug?</span>
+                    {% else %}{{ row.relativeTime }}{% endif %}
+                </td>
+                <td>
+                    {% if row.status == 'overdue' %}<span class="st err">OVERDUE</span>
+                    {% else %}<span class="st ok">IN_WINDOW</span>{% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if nextUrl is not null %}
+    <div class="pager">
+        <a class="pagination-next"
+           href="{{ nextUrl }}"
+           hx-get="{{ nextUrl }}"
+           hx-target="#privacy-flips-table"
+           hx-swap="outerHTML"
+           hx-push-url="true">Next</a>
+    </div>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No users match the current filters.</p>
+{% endif %}
+</div>

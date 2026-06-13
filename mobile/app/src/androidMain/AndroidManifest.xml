@@ -35,6 +35,20 @@
         </activity>
 
         <!--
+          mobile-fcm-token-registration — bridges the FCM token-rotation callback (onNewToken) into the
+          commonMain FcmTokenProvider.tokenRefreshes Flow. exported=false (the OS binds it directly). Without
+          a configured FirebaseApp (google-services.json + the google-services plugin = OPERATOR setup), the
+          SDK never dispatches to it — the service is inert, consistent with currentToken() returning null.
+        -->
+        <service
+            android:name=".push.NearYouFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!--
           Dormant alternate launcher icon (blue-on-white) per
           shared-resources-moko-bootstrap design.md Decision 7. Disabled by
           default; ready for a future user-selectable icon-theme feature that

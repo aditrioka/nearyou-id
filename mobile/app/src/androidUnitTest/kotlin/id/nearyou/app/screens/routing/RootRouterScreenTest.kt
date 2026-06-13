@@ -16,6 +16,7 @@ import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
 import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsFlow
+import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
@@ -82,6 +83,7 @@ class RootRouterScreenTest {
                     // injects a NotificationsFlow (empty/0 fake) and whose bottom-nav renders the
                     // HOME_MARKER ("Beranda") section label the route assertions key on.
                     single<NotificationsFlow> { FakeNotificationsFlow() }
+                    single { fakeFcmTokenRegistrar() }
                 },
             )
         }
