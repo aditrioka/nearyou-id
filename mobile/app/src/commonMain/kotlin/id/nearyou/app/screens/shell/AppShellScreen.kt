@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.notifications.NotificationsFlow
+import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.screens.home.HomeScreen
 import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.screens.notifications.NotificationsScreen
@@ -113,6 +114,19 @@ fun AppShellScreen(
     var unreadCount by remember { mutableStateOf(0L) }
     // One-shot unread-count fetch on shell composition (design D6). A failed/absent count → 0 (no badge).
     LaunchedEffect(Unit) { unreadCount = flow.unreadCount() ?: 0L }
+
+    // mobile-fcm-token-registration — the single session-active hook (design D4). The authenticated shell is
+    // where every authenticated path converges (cold-start, sign-in, signup), so registering here fires once
+    // per authenticated entry, never while unauthenticated (the shell is composed only behind the auth gate),
+    // and without coupling AuthRepository to push. Fire-and-forget on the shell's composition scope:
+    // registerCurrentToken() acquires+registers the current token (launched so it never blocks); the refresh
+    // collector then re-registers a rotated token for the shell's lifetime (cancelled on sign-out, when the
+    // shell leaves composition). registration NEVER delays navigation (the shell is already composed).
+    val fcmRegistrar = koinInject<FcmTokenRegistrar>()
+    LaunchedEffect(Unit) {
+        launch { fcmRegistrar.registerCurrentToken() }
+        fcmRegistrar.observeTokenRefreshes()
+    }
 
     Scaffold(
         // The shell Scaffold's topBar slot is the only top app bar on the shell-rendered section

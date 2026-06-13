@@ -94,11 +94,10 @@ The Bearer `Authorization` header SHALL be attached by the SHIPPED `HttpClient` 
 
 The mobile app SHALL ship a Compose-free `FcmTokenRegistrar` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/push/FcmTokenRegistrar.kt`), a stateless Koin singleton with `suspend fun registerCurrentToken(): FcmRegistrationOutcome` that: reads `FcmTokenProvider.currentToken()`; if non-null, registers it via `FcmTokenApiClient` and returns the outcome; if `null`, returns a `NoTokenAvailable` outcome without issuing a request. The registrar SHALL be invoked on every documented session-active transition (`docs/04-Architecture.md` § FCM Token Registration, "Client must re-register when: the app first opens after install; the FCM token-refresh SDK callback fires; the user logs out + re-logs in"):
 
-- **App first open after sign-in** — the cold-start path where a persisted `TokenPair` routes to `HomeRoute` (the `RootRouterScreen` / `AuthRepository.isAuthenticated()` seam). This subsumes the doc's "first open after install" AND "app is reinstalled" triggers: a reinstall yields a fresh token that is registered on the first authenticated open (or via the refresh stream below).
-- **Fresh sign-in success** — the `AuthRepository` HTTP-200 sign-in path. This subsumes the doc's "logs out + re-logs in" trigger (a re-login is a fresh sign-in success).
+- **Authenticated app-shell entry** — a single `LaunchedEffect` in the authenticated section shell (`AppShellScreen`, the `HomeRoute` entry) where every authenticated path converges: cold-start-with-token (`RootRoute` → `HomeRoute`), fresh sign-in (`SignInRoute` → `replaceAll(HomeRoute)`), and signup (`AgeGateRoute` → `HomeRoute`). One hook fires once per authenticated entry, covering the doc's "first open after install" / "logs out + re-logs in" / "app is reinstalled" triggers (a reinstall yields a fresh token registered on the first authenticated open, or via the refresh stream below).
 - **Token rotation** — the SDK token-refresh callback, handled by the separate token-rotation requirement below.
 
-These two call sites realize all four doc triggers (`docs/04-Architecture.md` line 469: install / refresh / re-login / reinstall) — the mapping is intentional, not a coverage gap.
+The single shell hook realizes all four doc triggers (`docs/04-Architecture.md` line 469: install / refresh / re-login / reinstall); the convergence is intentional, not a coverage gap. The registrar SHALL NOT be wired into `AuthRepository` / `RootRouterScreen` internals (no auth↔push coupling).
 
 The invocation SHALL be fire-and-forget on a non-blocking scope so registration NEVER delays navigation. A `TransportError` SHALL be swallowed (logged non-confidentially) and naturally retried on the next trigger — no bespoke backoff machinery. **Concurrency posture:** the registrar does NOT guard against concurrent/overlapping `registerCurrentToken()` invocations (e.g. a cold-start trigger overlapping a token-refresh emission). Concurrent or duplicate registrations of the same token are intentionally permitted and harmless — the backend upserts on `(user_id, platform, token)` (idempotent, just refreshes `last_seen_at`). This is a deliberate decision (relying on backend idempotency) rather than an unconsidered gap; no client-side mutex/dedup is introduced.
 
@@ -144,13 +143,13 @@ The `FcmTokenRegistrar` SHALL collect `FcmTokenProvider.tokenRefreshes` for the 
 
 ### Requirement: No registration is attempted while unauthenticated
 
-The registrar SHALL NOT issue a registration request when there is no active session (no persisted `TokenPair`). The `/api/v1/user/fcm-token` endpoint is JWT-gated; without a session there is no Bearer token to attach and the call would 401. Session-active triggers are the ONLY registration entry points; the registrar SHALL NOT register from the unauthenticated `SignInScreen` state. **Mechanism:** the app-scope token-refresh collector (started once, lives across sign-out/sign-in cycles) SHALL check session presence (`AuthRepository.isAuthenticated()` / the persisted `TokenPair`) BEFORE issuing a registration POST on a refresh emission — it SHALL NOT issue an unauthenticated request and rely on the endpoint 401-ing it back (that would be a wasted, avoidable round-trip). The token-acquisition triggers are already session-gated by construction (they fire only at the post-auth seam).
+The registrar SHALL NOT issue a registration request when there is no active session. The `/api/v1/user/fcm-token` endpoint is JWT-gated; without a session there is no Bearer token to attach and the call would 401. **Mechanism (structural):** both the acquisition trigger and the token-refresh collector run from the authenticated shell's composition scope (`AppShellScreen`'s `LaunchedEffect`), which is composed ONLY behind the auth gate — so while signed out there is no shell, hence no registration coroutine running at all (no explicit session-presence check is needed because no code path runs). On sign-out the shell leaves composition and the refresh collector is cancelled; on the next sign-in the shell re-composes and acquisition + the collector restart.
 
 #### Scenario: A token refresh while signed out does not POST
 
-- **GIVEN** no active session (the app is on the unauthenticated surface) AND the app-scope refresh collector is active
-- **WHEN** the provider emits a token refresh
-- **THEN** the registrar checks session presence, finds none, and issues NO registration request (not even an unauthenticated one that would 401) — the token is registered on the next session-active trigger instead
+- **GIVEN** no active session (the app is on the unauthenticated surface), so the authenticated shell — and therefore the refresh collector — is not composed
+- **WHEN** the provider rotates the token
+- **THEN** no registration request is issued (no collector is running to observe it) — the token is registered on the next authenticated shell entry instead
 
 ### Requirement: iOS requests only the minimal notification authorization that token acquisition structurally requires
 
@@ -195,7 +194,7 @@ This capability stops at token registration. Android data-only local notificatio
 #### Scenario: No push-display handler ships in this change
 
 - **WHEN** inspecting this change's diff
-- **THEN** there is no incoming-push-message display/handling code (no local-notification builder, no NSE) — only token acquisition, registration, and the token-refresh bridge — AND the deferral is tracked by a `mobile-push-message-handling` follow-up GitHub issue
+- **THEN** there is no incoming-push-message display/handling code (no local-notification builder, no NSE) — only token acquisition, registration, and the token-refresh bridge — AND the deferral is tracked by the `mobile-push-message-handling` follow-up GitHub issue ([#256](https://github.com/aditrioka/nearyou-id/issues/256))
 
 ### Requirement: The contextual notification-permission prompt UX is deferred to the consuming feature
 
@@ -204,7 +203,7 @@ The product-level notification-permission rationale + prompt timing (e.g. the ch
 #### Scenario: No contextual permission UX ships in this change
 
 - **WHEN** inspecting this change's diff
-- **THEN** no in-app notification-permission rationale screen and no Android `POST_NOTIFICATIONS` runtime-prompt flow are added AND the deferral is tracked by a `follow-up` GitHub issue referencing the chat surface
+- **THEN** no in-app notification-permission rationale screen and no Android `POST_NOTIFICATIONS` runtime-prompt flow are added AND the deferral is tracked by a `follow-up` GitHub issue referencing the chat surface ([#257](https://github.com/aditrioka/nearyou-id/issues/257))
 
 ### Requirement: Code builds and unit-tests without the operator Firebase client config; live verification is gated on it
 

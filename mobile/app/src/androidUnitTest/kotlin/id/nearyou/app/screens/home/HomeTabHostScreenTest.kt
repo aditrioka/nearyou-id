@@ -24,6 +24,7 @@ import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.FakeCreatePostFlow
 import id.nearyou.app.post.FakePostDetailFlow
 import id.nearyou.app.post.PostDetailFlow
+import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.PostCreationRoute
 import id.nearyou.app.screens.routing.PostDetailRoute
@@ -110,6 +111,7 @@ class HomeTabHostScreenTest {
                     // The TestNavHost(HomeRoute) cases compose the AppShellScreen section shell, whose unread
                     // badge injects a NotificationsFlow (empty/0 fake — the badge is exercised in AppShellScreenTest).
                     single<NotificationsFlow> { FakeNotificationsFlow() }
+                    single { fakeFcmTokenRegistrar() }
                     // A card tap appends PostDetailRoute, whose screen injects the PostDetailFlow seam.
                     single<PostDetailFlow> { FakePostDetailFlow() }
                 },
