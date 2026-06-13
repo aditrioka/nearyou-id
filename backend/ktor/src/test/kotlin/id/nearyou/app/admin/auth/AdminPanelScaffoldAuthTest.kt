@@ -50,7 +50,7 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             // Landing content block (greeting identifies the index page).
             body shouldContain "Welcome back, Test Admin"
 
-            // Grouped sidebar: exactly the five shipped nav items, each with
+            // Grouped sidebar: exactly the six shipped nav items, each with
             // its data-icon-identified inline SVG (spec scenario "Authenticated
             // page extends the base layout and renders all structural sections").
             body shouldContain "<header>"
@@ -59,11 +59,15 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "data-icon=\"flag\""
             body shouldContain "data-icon=\"group\""
             body shouldContain "data-icon=\"block\""
+            body shouldContain "data-icon=\"timer\""
             body shouldContain "data-icon=\"receipt_long\""
-            // EXACTLY five nav items, under their three group headings.
-            Regex("class=\"nitem").findAll(body).count() shouldBe 5
+            // EXACTLY six nav items, under their four group headings (the
+            // Lifecycle group + Privacy flips item shipped with
+            // admin-privacy-flip-monitor).
+            Regex("class=\"nitem").findAll(body).count() shouldBe 6
             body shouldContain "Moderasi"
             body shouldContain "Anti-abuse &amp; keamanan"
+            body shouldContain "Lifecycle"
             body shouldContain "Sistem"
             // No Usulan menu items, no board-annotation status dots.
             (body.contains("Post edit history")) shouldBe false

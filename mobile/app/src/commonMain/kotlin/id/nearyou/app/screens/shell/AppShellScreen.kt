@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.notifications.NotificationsFlow
+import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.screens.home.HomeScreen
 import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.screens.notifications.NotificationsScreen
@@ -44,6 +45,7 @@ import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.app_name
 import id.nearyou.resources.generated.resources.chat_open_action
 import id.nearyou.resources.generated.resources.ic_action_chat
+import id.nearyou.resources.generated.resources.ic_action_search
 import id.nearyou.resources.generated.resources.ic_nav_home
 import id.nearyou.resources.generated.resources.ic_nav_home_filled
 import id.nearyou.resources.generated.resources.ic_nav_notifications
@@ -53,6 +55,7 @@ import id.nearyou.resources.generated.resources.ic_nav_profile_filled
 import id.nearyou.resources.generated.resources.logo_brand_dark
 import id.nearyou.resources.generated.resources.logo_brand_light
 import id.nearyou.resources.generated.resources.notifications_badge
+import id.nearyou.resources.generated.resources.search_icon_cd
 import id.nearyou.resources.generated.resources.section_home
 import id.nearyou.resources.generated.resources.section_home_icon_description
 import id.nearyou.resources.generated.resources.section_notifications
@@ -109,6 +112,7 @@ fun AppShellScreen(
     onOpenChat: () -> Unit = {},
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
+    onOpenSearch: () -> Unit = {},
 ) {
     val flow = koinInject<NotificationsFlow>()
     var selectedSection by rememberSaveable { mutableStateOf(Section.Home) }
@@ -118,6 +122,19 @@ fun AppShellScreen(
     // One-shot unread-count fetch on shell composition (design D6). A failed/absent count → 0 (no badge).
     LaunchedEffect(Unit) { unreadCount = flow.unreadCount() ?: 0L }
 
+    // mobile-fcm-token-registration — the single session-active hook (design D4). The authenticated shell is
+    // where every authenticated path converges (cold-start, sign-in, signup), so registering here fires once
+    // per authenticated entry, never while unauthenticated (the shell is composed only behind the auth gate),
+    // and without coupling AuthRepository to push. Fire-and-forget on the shell's composition scope:
+    // registerCurrentToken() acquires+registers the current token (launched so it never blocks); the refresh
+    // collector then re-registers a rotated token for the shell's lifetime (cancelled on sign-out, when the
+    // shell leaves composition). registration NEVER delays navigation (the shell is already composed).
+    val fcmRegistrar = koinInject<FcmTokenRegistrar>()
+    LaunchedEffect(Unit) {
+        launch { fcmRegistrar.registerCurrentToken() }
+        fcmRegistrar.observeTokenRefreshes()
+    }
+
     Scaffold(
         // The shell Scaffold's topBar slot is the only top app bar on the shell-rendered section
         // surfaces (mobile-design-system § single-Scaffold; mobile-timeline-card-redesign D5):
@@ -125,7 +142,7 @@ fun AppShellScreen(
         // 1/19; Notifikasi/Profil keep their own in-body headers (no shell top bar).
         topBar = {
             if (selectedSection == Section.Home) {
-                HomeBrandTopBar(onOpenChat = onOpenChat)
+                HomeBrandTopBar(onOpenChat = onOpenChat, onOpenSearch = onOpenSearch)
             }
         },
         bottomBar = {
@@ -198,6 +215,9 @@ const val SHELL_LOGO_DARK_TAG: String = "shellLogoDark"
 /** Test tag on the Home app-bar "Pesan" action (mobile-chat-screen task 10.1). */
 const val SHELL_CHAT_ACTION_TAG: String = "shellChatAction"
 
+/** Test tag on the Home app-bar search action (mobile-search) — Home-section-only entry point. */
+const val SHELL_SEARCH_ACTION_TAG: String = "shellSearchAction"
+
 /**
  * The Home section's pinned centered brand-logo app bar (mockup frames 1 + 19): the bundled
  * `logo_brand_light`/`logo_brand_dark` vector selected by [isSystemInDarkTheme] (the SignInScreen
@@ -205,10 +225,18 @@ const val SHELL_CHAT_ACTION_TAG: String = "shellChatAction"
  * `stringResource`. Pinned — no scroll-collapse behavior (design D5: collapse would be new motion
  * surface with no spec backing). Lives in the shell Scaffold's `topBar` slot so window insets stay
  * applied exactly once.
+ *
+ * As of `mobile-search`, the `actions` slot carries a trailing **search action icon** (a Material
+ * search glyph, `contentDescription = search_icon_cd`) invoking the hoisted [onOpenSearch] — the
+ * `appEntryProvider` call site pushes `SearchRoute` onto the root stack. Home-section only (this app
+ * bar renders only on Home, mirroring the Home-only composer FAB).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeBrandTopBar(onOpenChat: () -> Unit) {
+private fun HomeBrandTopBar(
+    onOpenChat: () -> Unit,
+    onOpenSearch: () -> Unit,
+) {
     val dark = isSystemInDarkTheme()
     val logo = if (dark) Res.drawable.logo_brand_dark else Res.drawable.logo_brand_light
     CenterAlignedTopAppBar(
@@ -224,8 +252,15 @@ private fun HomeBrandTopBar(onOpenChat: () -> Unit) {
                     ),
             )
         },
-        // mobile-chat-screen (task 10.1): the trailing "Pesan" action → root-stack ConversationListRoute.
+        // Trailing actions: search (mobile-search) + "Pesan" (mobile-chat-screen task 10.1), each
+        // pushing its route onto the root stack via a hoisted callback. Home-section app bar only.
         actions = {
+            IconButton(onClick = onOpenSearch, modifier = Modifier.testTag(SHELL_SEARCH_ACTION_TAG)) {
+                Icon(
+                    painter = painterResource(Res.drawable.ic_action_search),
+                    contentDescription = stringResource(Res.string.search_icon_cd),
+                )
+            }
             IconButton(onClick = onOpenChat, modifier = Modifier.testTag(SHELL_CHAT_ACTION_TAG)) {
                 Icon(
                     painter = painterResource(Res.drawable.ic_action_chat),

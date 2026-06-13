@@ -15,6 +15,8 @@ import id.nearyou.app.chat.RealtimeTokenApiClient
 import id.nearyou.app.chat.TokenViewerIdProvider
 import id.nearyou.app.chat.ViewerIdProvider
 import id.nearyou.app.config.apiBaseUrl
+import id.nearyou.app.config.appVersionName
+import id.nearyou.app.config.devicePlatform
 import id.nearyou.app.config.httpClientEngine
 import id.nearyou.app.config.isDebugBuild
 import id.nearyou.app.config.supabaseConfig
@@ -41,9 +43,17 @@ import id.nearyou.app.post.PostCreationApiClient
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostDetailRepository
 import id.nearyou.app.post.ReplyApiClient
+import id.nearyou.app.push.FcmTokenApiClient
+import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.ProactiveTokenRefreshTrigger
+import id.nearyou.app.search.SearchApiClient
+import id.nearyou.app.search.SearchFlow
+import id.nearyou.app.search.SearchRepository
+import id.nearyou.app.timeline.FollowingTimelineApiClient
+import id.nearyou.app.timeline.FollowingTimelineFlow
+import id.nearyou.app.timeline.FollowingTimelineRepository
 import id.nearyou.app.timeline.GlobalTimelineApiClient
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineRepository
@@ -152,6 +162,17 @@ val mobileModule =
         single { GlobalTimelineRepository(get(), get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<GlobalTimelineFlow> { get<GlobalTimelineRepository>() }
 
+        // mobile-following-timeline-screen — the Following feed graph (mobile-home-tab-host Following
+        // tab). Mirrors the Global seam EXACTLY (no LocationProvider — Following has no spatial filter).
+        // REUSES the existing SessionIdProvider single above (the X-Session-Id soft-cap bucket is shared
+        // across feeds — do NOT register a second). FollowingTimelineFlow is bound to the concrete
+        // repository so a FakeFollowingTimelineFlow can drive the screen tests. diagnosticLog wired to
+        // the real coordinate-free DiagnosticSink (status/type-only strings — Following coords live in
+        // the response body, so the sink must never echo a body field).
+        single { FollowingTimelineApiClient(get()) }
+        single { FollowingTimelineRepository(get(), get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<FollowingTimelineFlow> { get<FollowingTimelineRepository>() }
+
         // mobile-bottom-nav-sections-and-notifications — the notifications graph (the Notifikasi section's
         // NotificationsScreen + the shell's unread badge). Mirrors the Global seam: ApiClient → Repository
         // bound behind the NotificationsFlow seam (so a FakeNotificationsFlow drives the screen/shell
@@ -247,6 +268,30 @@ val mobileModule =
         }
         single<ViewerIdProvider> { TokenViewerIdProvider(get()) }
         single { NotificationPromptOneShot() }
+
+        // mobile-search — the Premium-gated Cari graph (GET /api/v1/search). Reuses the shared HttpClient
+        // (Bearer attached by the Auth plugin; NO X-Session-Id — search is not session-soft-capped). The
+        // status→SearchOutcome mapping (403 gate / 429 rate-limit / 503 kill switch) lives in
+        // SearchRepository, bound behind the SearchFlow seam so a FakeSearchFlow drives the screen +
+        // ViewModel tests. diagnosticLog wired to the real coordinate-/query-safe sink (status/type only).
+        single { SearchApiClient(get()) }
+        single { SearchRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<SearchFlow> { get<SearchRepository>() }
+
+        // mobile-fcm-token-registration — the push-token registration graph. Reuses the shared
+        // (bearer-authed) HttpClient (NO new client). The FcmTokenProvider platform actual is bound in
+        // each platformModule (AndroidFcmTokenProvider / IosFcmTokenProvider). The platform constant +
+        // app_version come from the config seam. diagnosticLog wired to the real coordinate-free sink —
+        // it receives ONLY platform + outcome, NEVER the token (a device-addressed credential; backend D11).
+        single { FcmTokenApiClient(get(), platform = devicePlatform, appVersion = appVersionName) }
+        single {
+            FcmTokenRegistrar(
+                provider = get(),
+                apiClient = get(),
+                platform = devicePlatform,
+                diagnosticLog = get<DiagnosticSink>()::log,
+            )
+        }
     }
 
 /**

@@ -278,6 +278,7 @@ object AdminAuthTestSupport {
     suspend fun withAdminApp(
         dataSource: DataSource,
         aesKeyOverride: (() -> ByteArray)? = null,
+        clock: () -> Instant = Instant::now,
         block: suspend ApplicationTestBuilder.(client: HttpClient) -> Unit,
     ) {
         testApplication {
@@ -288,6 +289,7 @@ object AdminAuthTestSupport {
                     aesKeyProvider = aesKeyOverride ?: { FIXED_AES_KEY },
                     csrfHmacKeyProvider = { FIXED_CSRF_HMAC_KEY },
                     environmentName = TEST_ENVIRONMENT_NAME,
+                    privacyFlipsClock = clock,
                 )
             }
             val client = createClient { followRedirects = false }

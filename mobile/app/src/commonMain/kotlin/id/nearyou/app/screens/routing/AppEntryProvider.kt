@@ -11,6 +11,7 @@ import id.nearyou.app.screens.chat.ConversationListScreen
 import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
+import id.nearyou.app.screens.search.SearchScreen
 import id.nearyou.app.screens.shell.AppShellScreen
 import org.koin.compose.koinInject
 
@@ -105,6 +106,10 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                         ),
                     )
                 },
+                // The Home brand app bar's search action (mobile-search) → push the parameterless
+                // SearchRoute onto the root stack (above the shell, overlaying the section bar). Same
+                // call-site mechanism as onOpenComposer; the shell + app bar hold no back-stack reference.
+                onOpenSearch = { backStack.add(SearchRoute) },
             )
         }
         entry<AgeGateRoute> {
@@ -151,5 +156,31 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
         entry<ChatThreadRoute> { route ->
             // The thread overlays the list (appended ATOP ConversationListRoute); back pops to the list.
             ChatThreadScreen(route = route, onBack = { backStack.removeLastOrNull() })
+        }
+        entry<SearchRoute> {
+            // The Cari surface (mobile-search). `removeLastOrNull()` is size-safe: SearchRoute is only
+            // ever appended ATOP HomeRoute (the app-bar search action). A result tap pushes
+            // PostDetailRoute built from the hit's non-PII fields PLUS documented defaults — the search
+            // wire carries no cityName/distanceM/likedByViewer/replyCount, so those default
+            // ("", null, false, 0); the detail screen's /likes/count + /replies fetches are authoritative
+            // (mobile-search § "A result tap opens PostDetailRoute with documented default fields").
+            SearchScreen(
+                onBack = { backStack.removeLastOrNull() },
+                onOpenPost = { hit ->
+                    backStack.add(
+                        PostDetailRoute(
+                            postId = hit.postId,
+                            content = hit.content,
+                            cityName = "",
+                            distanceM = null,
+                            createdAtIso = hit.createdAt,
+                            likedByViewer = false,
+                            replyCount = 0,
+                            authorUsername = hit.authorUsername,
+                            authorDisplayName = hit.authorDisplayName,
+                        ),
+                    )
+                },
+            )
         }
     }
