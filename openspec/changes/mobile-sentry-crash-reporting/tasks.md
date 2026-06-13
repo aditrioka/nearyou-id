@@ -1,9 +1,9 @@
 ## 1. Pre-implementation gates
 
 - [x] 1.1 **Substrate re-check (MANDATORY before first feat commit).** Run a fresh date-anchored `WebSearch` on the Sentry Kotlin Multiplatform SDK (currency, stability, CMP crash/error support, latest version). Record `verified 2026-MM-DD: …` in the first feat commit body (project.md § pre-implementation library re-check). If a materially-better path surfaces, STOP and `AskUserQuestion` before pinning.
-- [ ] 1.2 Verify the Open Decision #17 contingency (dual-pipeline fallback behind the same `CrashReporter` interface) is reflected in `design.md` Decision 3 — already written; confirm it survives review.
-- [ ] 1.3 [operator input] Obtain per-flavor Sentry DSN values (`dev` / `staging` / `production`). Until provided, ship per-flavor placeholders; a blank DSN MUST no-op init. Never invent a DSN value.
-- [ ] 1.4 File a `follow-up` GitHub issue (labels `follow-up`,`backend`) capturing **backend Sentry-Java error capture** as deferred scope (satisfies the spec "Backend error capture is out of scope" tracking scenario). File before archive.
+- [x] 1.2 Verify the Open Decision #17 contingency (dual-pipeline fallback behind the same `CrashReporter` interface) is reflected in `design.md` Decision 3 — already written; confirm it survives review.
+- [x] 1.3 [operator input] Obtain per-flavor Sentry DSN values (`dev` / `staging` / `production`). Until provided, ship per-flavor placeholders; a blank DSN MUST no-op init. Never invent a DSN value.
+- [x] 1.4 File a `follow-up` GitHub issue (labels `follow-up`,`backend`) capturing **backend Sentry-Java error capture** as deferred scope (satisfies the spec "Backend error capture is out of scope" tracking scenario). File before archive.
 
 ## 2. `:infra:sentry` module scaffold
 
@@ -34,15 +34,15 @@
 
 ## 6. Symbolication
 
-- [ ] 6.1 Configure Android ProGuard/R8 mapping upload via the Sentry Gradle plugin.
-- [ ] 6.2 Configure the iOS dSYM upload build phase / `sentry-cli upload-dif`.
-- [ ] 6.3 [operator hand-off] The `.github/workflows/**` upload-step invocation + the `SENTRY_AUTH_TOKEN` repo secret are **agent-hook-blocked** — document the exact YAML + secret for the operator to apply. Reporting works (unsymbolicated) until this lands.
+- [x] 6.1 Configure Android ProGuard/R8 mapping upload via the Sentry Gradle plugin.
+- [x] 6.2 Configure the iOS dSYM upload build phase / `sentry-cli upload-dif`.
+- [x] 6.3 [operator hand-off] The `.github/workflows/**` upload-step invocation + the `SENTRY_AUTH_TOKEN` repo secret are **agent-hook-blocked** — document the exact YAML + secret for the operator to apply. Reporting works (unsymbolicated) until this lands.
 
 ## 7. Tests (docs/11 §2.7)
 
 - [x] 7.1 commonTest (kotlin.test): consent gating — decline→`close()`, re-consent→re-init, cold-start-declined→no events — using a capturing fake `CrashReporter`.
 - [x] 7.2 commonTest: `beforeSend` PII scrubbing strips a coordinate and a token from an event/breadcrumb payload; assert `sendDefaultPii = false` is set so the client IP / `server_name` are not attached.
-- [ ] 7.3 commonTest: `setUser(sub)` on auth and `clearUser()` on logout; assert no username/email is attached.
+- [x] 7.3 commonTest: `setUser(sub)` on auth and `clearUser()` on logout; assert no username/email is attached.
 - [x] 7.4 androidUnitTest (Koin-graph, mirroring the existing `di/DiagnosticSinkWiringTest`): `DiagnosticSink` → breadcrumb wiring records a diagnostic via the real (non-no-op) binding.
 - [x] 7.5 Koin resolution test mirroring the existing `*KoinResolutionTest` files — `CrashReporter` resolves from the graph.
 - [ ] 7.6 iosTest smoke (kotlin.test, NOT Kotest on K/N) for the iosMain actual; run `:mobile:app:iosSimulatorArm64Test`.
@@ -51,8 +51,8 @@
 
 ## 8. Verification & Definition of Done
 
-- [ ] 8.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally.
-- [ ] 8.2 `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` green.
+- [x] 8.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally.
+- [x] 8.2 `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` green.
 - [ ] 8.3 `:mobile:app:iosSimulatorArm64Test` (or at minimum `linkDebugFrameworkIosSimulatorArm64`) green locally.
 - [ ] 8.4 **verify-loop bring-up** — observe startup init on a device surface (context-routed: cloud → `scripts/run_on_device.sh` / `device-run.yml`; local → emulator + iOS simulator); attach screenshot/console evidence to the PR body (docs/11 §5 DoD).
 
