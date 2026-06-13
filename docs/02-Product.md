@@ -117,7 +117,7 @@ During the 72h window the user is **still effectively private** via app-layer sh
 
 ### Coordinate Storage Policy (Anti-Triangulation)
 
-Posts carry 2 geography columns: `display_location` (fuzzed, public rendering) and `actual_location` (precise — admin/moderation/reverse-geocoding). Fuzz is deterministic per `post_id`, non-reversible without the server secret, distributed 0-500m along bearing 0-2π uniform.
+Posts carry 2 geography columns: `display_location` (fuzzed, public rendering) and `actual_location` (precise — admin/moderation/reverse-geocoding). Fuzz is deterministic per `post_id`, non-reversible without the server secret, distributed 50-500m along bearing 0-2π uniform (the 50 m floor is load-bearing — it prevents near-zero offsets that would leak `actual_location`; canonical envelope in `openspec/specs/coordinate-jitter/spec.md`).
 
 > HMAC-based jitter algorithm, query rules, GIST index policy: `05-Implementation.md`.
 

@@ -13,7 +13,6 @@ import id.nearyou.resources.generated.resources.ic_post_like
 import id.nearyou.resources.generated.resources.ic_post_like_filled
 import id.nearyou.resources.generated.resources.ic_post_location
 import id.nearyou.resources.generated.resources.ic_post_reply
-import id.nearyou.resources.generated.resources.ic_post_time
 import id.nearyou.resources.generated.resources.ic_privacy_shield
 import org.jetbrains.compose.resources.DrawableResource
 import kotlin.test.Test
@@ -27,7 +26,7 @@ import kotlin.test.assertEquals
  * stronger guard than a runtime check) — exactly as `SharedStringsCatalogTest` guards the string
  * catalog. Covers the bottom-nav (Home / Notifications / Profile, outlined + filled), the composer
  * action (add), the composer privacy-note shield (verified_user, mobile-mockup-visual-conformance),
- * and the post-card affordances (location / like outlined + filled / reply / time).
+ * and the post-card affordances (location / like outlined + filled / reply).
  * NO feed-tab icon drawable is required — the feed tabs are text-only (D10).
  */
 class SharedDrawablesCatalogTest {
@@ -51,15 +50,15 @@ class SharedDrawablesCatalogTest {
             Res.drawable.ic_post_like,
             Res.drawable.ic_post_like_filled,
             Res.drawable.ic_post_reply,
-            Res.drawable.ic_post_time,
         )
 
     @Test
     fun `all Material icon drawables for nav action and card affordances are declared`() {
         // 6 bottom-nav (3 destinations x outlined/filled) + 1 composer add + 1 chat action
-        // + 1 privacy shield + 5 post-card affordances (location + like outlined/filled + reply
-        // + time) = 14. No feed-tab icon (tabs are text-only).
-        assertEquals(14, allDeclaredDrawables.size)
+        // + 1 privacy shield + 4 post-card affordances (location + like outlined/filled + reply)
+        // = 13. No feed-tab icon (tabs are text-only). The card-time clock glyph (ic_post_time) was
+        // dropped by mobile-timeline-card-redesign — card time renders as text in the identity header.
+        assertEquals(13, allDeclaredDrawables.size)
         assertEquals(allDeclaredDrawables.size, allDeclaredDrawables.distinct().size, "no duplicate accessors")
     }
 }
