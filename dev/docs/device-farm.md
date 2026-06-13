@@ -42,7 +42,8 @@ PROJECT_ID=nearyou-staging dev/scripts/provision-test-lab-sa.sh
 
 It idempotently: enables the Cloud Testing + Cloud Tool Results APIs, creates a
 least-privilege `test-lab-runner@nearyou-staging.iam.gserviceaccount.com` service
-account (roles `cloudtestservice.admin` + `storage.admin`), mints a JSON
+account (role `editor` — Firebase's documented requirement so the run can
+initialize the Test Lab default results bucket), mints a JSON
 key, and prints exactly what to paste.
 
 **Then add to the Claude Code environment** (Settings → environment secrets —
@@ -63,8 +64,7 @@ and send the screenshots back.
 
 > Manual equivalent (if you'd rather not run the script): `gcloud services enable
 > testing.googleapis.com toolresults.googleapis.com`; create the service account;
-> grant `roles/cloudtestservice.admin` + `roles/storage.admin` (or just
-> `roles/editor`); `gcloud iam service-accounts keys create`.
+> grant `roles/editor`; `gcloud iam service-accounts keys create`.
 
 ### Cost (as of 2026-06)
 
@@ -87,9 +87,9 @@ PR out with the `skip-device-run` label.
 Credentials: the workflow uses `secrets.GCP_TESTLAB_SA_KEY` if set (the
 least-privilege `test-lab-runner` key from `provision-test-lab-sa.sh`), else falls
 back to the existing `secrets.GCP_SA_KEY`. Whichever service account is used must
-hold `roles/cloudtestservice.admin` + `roles/storage.admin` — the deploy
-SA behind `GCP_SA_KEY` does **not** have these by default, so either set
-`GCP_TESTLAB_SA_KEY` (recommended) or grant the deploy SA those two roles.
+hold `roles/editor` (so Test Lab can initialize the default results bucket) — the
+deploy SA behind `GCP_SA_KEY` does **not** by default, so either set
+`GCP_TESTLAB_SA_KEY` (recommended) or grant the deploy SA `roles/editor`.
 
 It's quota-aware: superseded runs are cancelled and only mobile-code pushes
 trigger it, keeping within the 5-physical-runs/day free tier.

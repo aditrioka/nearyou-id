@@ -14,12 +14,14 @@
 # WHAT it does (idempotent):
 #   1. Enable the Cloud Testing API + Cloud Tool Results API.
 #   2. Create the `test-lab-runner` service account (skip if it exists).
-#   3. Grant least-privilege roles:
-#        - roles/cloudtestservice.admin   (create/monitor test matrices)
-#        - roles/storage.admin            (fetch/access the Test Lab default
-#          results bucket + read Robo screenshots/video — objectViewer alone is
-#          insufficient: the run needs storage.buckets.get on the default bucket)
-#      (Editor would also work but is intentionally broader; we stay scoped.)
+#   3. Grant roles/editor. This is Firebase's documented requirement for running
+#      Test Lab via a service account: dispatching a run fetches/initializes the
+#      project's *default results bucket* via the Cloud Tool Results settings API
+#      (cloudtoolresults.settings.get/create), which is NOT covered by the
+#      granular cloudtestservice.admin + storage.admin combo — both were tried and
+#      still hit "Permission denied while fetching the default results bucket
+#      (403)". Editor covers it. Acceptable for a staging-only test-runner SA;
+#      tighten post-launch if a narrower Tool-Results role becomes available.
 #   4. Mint a JSON key and print exactly what to paste into the Claude Code
 #      environment secrets.
 #
@@ -53,7 +55,7 @@ else
 fi
 
 echo "==> 3/4 Granting least-privilege roles..."
-for role in roles/cloudtestservice.admin roles/storage.admin; do
+for role in roles/editor; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:$SA_EMAIL" --role="$role" \
     --condition=None --quiet >/dev/null

@@ -61,12 +61,12 @@ jobs:
       - name: Install required SDK packages
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-      # Reuses the existing deploy credential by default. For least-privilege,
-      # set a dedicated GCP_TESTLAB_SA_KEY secret (the test-lab-runner key minted
-      # by dev/scripts/provision-test-lab-sa.sh); whichever SA is used needs
-      # roles/cloudtestservice.admin + roles/storage.admin (storage.admin — not
-      # objectViewer — is required so Test Lab can fetch its default results
-      # bucket; objectViewer lacks storage.buckets.get). The auth
+      # Set a dedicated GCP_TESTLAB_SA_KEY secret (the test-lab-runner key minted
+      # by dev/scripts/provision-test-lab-sa.sh); else it falls back to GCP_SA_KEY.
+      # Whichever SA is used needs roles/editor — Firebase's documented requirement
+      # so the run can initialize the project's default Test Lab results bucket via
+      # the Tool Results settings API (the granular cloudtestservice.admin +
+      # storage.admin combo is NOT enough — both were tried and 403'd). The auth
       # action exports GOOGLE_APPLICATION_CREDENTIALS, which scripts/_gcloud_lib.sh
       # picks up automatically.
       - name: Auth to GCP
