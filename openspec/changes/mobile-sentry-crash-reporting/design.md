@@ -63,7 +63,7 @@ Initialize with **`sendDefaultPii = false`** so the SDK never infers/attaches th
 Bind a `SentryDiagnosticSink` (or compose the existing sink with a Sentry breadcrumb call) into the existing Koin `DiagnosticSink` binding, replacing `ConsoleDiagnosticSink`'s release drop-in. Anti-patchwork: the default sink's own doc reserves this seam ("until a Sentry/OTel sink lands"). Debug builds may keep console output alongside breadcrumbs.
 
 ### Decision 9 — Symbol upload: Gradle config in-change, CI/workflow operator-side
-Android ProGuard/R8 mapping upload via the Sentry Gradle plugin; iOS dSYM via an Xcode build phase / `sentry-cli upload-dif`. The Gradle-side wiring ships in this change. The `.github/workflows/**` invocation + the `SENTRY_AUTH_TOKEN` secret are **agent-hook-blocked** (workflow edits are blocked for the agent) → handed to the operator as a documented task. Without symbol upload, crashes still report but stack traces are unsymbolicated (degraded, not broken).
+Android ProGuard/R8 mapping upload via the Sentry Android Gradle plugin; iOS dSYM via an Xcode build phase / `sentry-cli upload-dif`. **Apply-phase refinement:** the Sentry Gradle plugin is **documented for the operator to apply** (`dev/docs/sentry-symbol-upload.md`), NOT committed-and-applied — exactly like the `google-services` plugin, applying it without the org/project/`SENTRY_AUTH_TOKEN` would hard-fail token-less CI. The `.github/workflows/**` invocation + the `SENTRY_AUTH_TOKEN` secret are additionally **agent-hook-blocked** → operator task. Without symbol upload, crashes still report but stack traces are unsymbolicated (degraded, not broken).
 
 ## Risks / Trade-offs
 

@@ -13,10 +13,13 @@ import io.sentry.kotlin.multiplatform.protocol.Breadcrumb as SentryBreadcrumb
  * commonMain `SupabaseChatRealtimeSubscriber`). Every vendor symbol is fenced to this module
  * (invariant #16); the dependency is `implementation`-scoped so it never reaches `:mobile:app`.
  *
- * PII posture (mobile-crash-reporting spec): init sets `sendDefaultPii = false` so the SDK never
- * infers/attaches the client IP (`{{auto}}`); a `beforeSend` hook nulls any residual user IP and runs
- * the [PiiScrubber] backstop over the event message; breadcrumbs are additionally scrubbed at the
- * input boundary. User correlation uses the OPAQUE JWT `sub` only (never username/email).
+ * PII posture (mobile-crash-reporting spec): the PRIMARY crash-event defenses are `sendDefaultPii =
+ * false` (the SDK never infers/attaches the client IP `{{auto}}`), the OPAQUE-`sub`-only user
+ * correlation (never username/email), and the coordinate-free breadcrumb/tag contract (breadcrumbs are
+ * scrubbed at the input boundary, capture-context tag values are scrubbed below). The `beforeSend` hook
+ * is a backstop that nulls any residual user IP and scrubs `event.message` — note that is populated for
+ * `captureMessage` payloads, not for an unhandled-`Throwable` crash (whose `message` is null), so it is
+ * the upstream contract, not `beforeSend`, that protects the crash path.
  */
 class SentryCrashReporter : CrashReporter {
     override fun init(config: CrashReporterConfig) {
@@ -41,7 +44,11 @@ class SentryCrashReporter : CrashReporter {
         context: Map<String, String>,
     ) {
         if (context.isNotEmpty()) {
-            Sentry.configureScope { scope -> context.forEach { (key, value) -> scope.setTag(key, value) } }
+            // No production caller passes context yet (task 7.8). Values are PII-scrubbed here as the
+            // backstop. NOTE: when a real caller lands, move to an event-LOCAL scope
+            // (`captureException(t) { scope -> ... }` / `withScope`) — the global `configureScope` below
+            // would otherwise persist these tags onto every subsequent event.
+            Sentry.configureScope { scope -> context.forEach { (key, value) -> scope.setTag(key, PiiScrubber.scrub(value)) } }
         }
         Sentry.captureException(throwable)
     }

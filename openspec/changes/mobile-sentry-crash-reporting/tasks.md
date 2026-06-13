@@ -7,7 +7,7 @@
 
 ## 2. `:infra:sentry` module scaffold
 
-- [x] 2.1 Create `infra/sentry/` KMP module + `build.gradle.kts` (targets: `androidTarget`, `iosArm64`, `iosX64`, `iosSimulatorArm64`; source sets commonMain/androidMain/iosMain/commonTest/iosTest). Pin the Sentry KMP SDK in `gradle/libs.versions.toml`; declare it `implementation`-scoped in this module only (invariant #16).
+- [x] 2.1 Create `infra/sentry/` KMP module + `build.gradle.kts` (targets: `androidTarget`, `iosArm64`, `iosSimulatorArm64` — matching `:mobile:app`; the single-commonMain-impl refinement needs only commonMain/commonTest). Pin the Sentry KMP SDK in `gradle/libs.versions.toml`; declare it `implementation`-scoped in this module only (invariant #16).
 - [x] 2.2 Register `:infra:sentry` in `settings.gradle.kts`.
 - [x] 2.3 Add a one-line description to `dev/module-descriptions.txt` and run `dev/scripts/sync-readme.sh --write` (README module list).
 

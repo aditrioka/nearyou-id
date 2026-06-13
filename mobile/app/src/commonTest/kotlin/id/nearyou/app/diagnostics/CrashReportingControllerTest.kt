@@ -45,4 +45,32 @@ class CrashReportingControllerTest {
         assertEquals(1, fake.initCount)
         assertEquals(1, fake.closeCount)
     }
+
+    // ----- cold-start gate (initKoin#startCrashReporting delegates here) -----
+
+    @Test
+    fun startupConsentAbsentSnapshotStaysStarted() {
+        // No snapshot (cold start before #198 durable persistence) → opt-out default = init, no close.
+        val fake = FakeCrashReporter()
+        CrashReportingController(fake, config).applyStartupConsent(lastKnownCrash = null)
+        assertEquals(1, fake.initCount)
+        assertEquals(0, fake.closeCount)
+    }
+
+    @Test
+    fun startupConsentGrantedStaysStarted() {
+        val fake = FakeCrashReporter()
+        CrashReportingController(fake, config).applyStartupConsent(lastKnownCrash = true)
+        assertEquals(1, fake.initCount)
+        assertEquals(0, fake.closeCount)
+    }
+
+    @Test
+    fun startupConsentDeclinedInitsThenCloses() {
+        // "A persisted decline is honored": init (opt-out default ON) then close, so no events this session.
+        val fake = FakeCrashReporter()
+        CrashReportingController(fake, config).applyStartupConsent(lastKnownCrash = false)
+        assertEquals(1, fake.initCount)
+        assertEquals(1, fake.closeCount)
+    }
 }
