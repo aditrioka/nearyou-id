@@ -38,6 +38,10 @@ class NavKeySerializationTest {
                 samplePostDetailRoute(distanceM = 1234.5),
                 samplePostDetailRoute(distanceM = null),
                 samplePostDetailRoute(distanceM = null, focusReplyComposer = true),
+                // mobile-settings — the three parameterless settings routes (no identity payload).
+                SettingsRoute,
+                BlockedUsersRoute,
+                ConsentSettingsRoute,
                 // The second payload-carrying route (mobile-profile) — a missing subclass(...) registration
                 // for ProfileRoute would fail this round-trip.
                 ProfileRoute("11111111-1111-1111-1111-555555555555"),
