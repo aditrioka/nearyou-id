@@ -13,6 +13,7 @@
 - [ ] 2.4 In the SAME transaction (only on `Applied`): write exactly one `admin_actions_log` row (`action_type='admin_chat_redaction'`, `target_type='chat_message'` (the admin-action target vocabulary — distinct from the notification's `'message'`), `target_id`, `reason`, `before_state`=original row state (content, or the embed snapshot when content is NULL), `after_state`=redacted marker, `ip=call.clientIp`, `user_agent`).
 - [ ] 2.5 In-app feed only — **no FCM push** for `chat_message_redacted` (matches the shipped admin `account_action_applied`; no dispatcher wired into the admin path). FCM-push-on-redaction is an explicit out-of-scope follow-up (file a `follow-up` issue).
 - [ ] 2.6 One transaction per redaction op (open/commit/rollback in the helper, not scattered autocommit).
+- [ ] 2.7 Add `admin_chat_redaction` to the destructive set in `DestructiveActionRateLimiter.COUNT_SQL` (direct `action_type IN (...)` arm) so a redaction both gates on AND counts toward the shared 20/hr cap (the `admin-destructive-action-rate-limit` MODIFIED delta). Gate the POST via `rateLimiter.isAtOrOverCap(conn, adminId)` inside the redaction transaction (mirror `ReportResolutionRepository`).
 
 ## 3. Templates (admin mockup frame 9)
 

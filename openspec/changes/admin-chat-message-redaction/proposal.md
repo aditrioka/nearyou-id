@@ -21,6 +21,7 @@ A reported chat message carrying a severe violation (PII leak, doxxing) has **no
 ### Modified Capabilities
 - `in-app-notifications`: activate the `chat_message_redacted` emit site — move it from "reserved for future emit sites" to written, and define its shape (`target_type = 'message'`, `body_data = {conversation_id}`, system-originated, in-app only) per the canonical V10 catalog, alongside the existing § "body_data shape per emitted type".
 - `admin-report-queue`: a report row whose `target_type = 'chat_message'` additionally renders a "Redact message" deep-link to `GET /admin/chat-messages/{target_id}` (alongside the existing offending-user deep-link).
+- `admin-destructive-action-rate-limit`: add `admin_chat_redaction` to the destructive set so a redaction both is gated by AND counts toward the shared 20/hr per-admin cap (the `DestructiveActionRateLimiter` COUNT_SQL gains the direct `action_type = 'admin_chat_redaction'` arm).
 
 ## Impact
 
