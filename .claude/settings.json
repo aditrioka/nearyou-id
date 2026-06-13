@@ -10,6 +10,10 @@
           {
             "type": "command",
             "command": "bash scripts/_testing_context.sh --banner"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/verify_backend_db.sh || echo '[session-start] Backend test DB incomplete — run scripts/setup_backend_db.sh'"
           }
         ]
       }
