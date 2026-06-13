@@ -50,7 +50,7 @@ A state-changing write SHALL target a single parameter, carry the new value and 
 
 ### Requirement: Flag writes are CSRF-protected
 
-Every state-changing flag write SHALL require a valid `X-CSRF-Token` matching the session's `csrf_token_hash`. A missing or mismatched token SHALL return `403`, perform no publish, and (on mismatch) write an `admin_csrf_violation` audit row per the established admin CSRF contract.
+Every state-changing flag write SHALL require a valid `X-CSRF-Token` matching the session's `csrf_token_hash`. A missing or mismatched token SHALL return `403`, perform no publish, and (on mismatch) write an `admin_csrf_violation` audit row per the established admin CSRF contract. This `admin_csrf_violation` security-audit row is distinct from the `feature_flag_toggled` action audit and is the **one intended exception** to the "no audit row on rejection" rule the other write gates (role, rate-limit, validation, stale-version) follow — those write no row of any kind on rejection.
 
 #### Scenario: A write without a CSRF token is rejected
 - **WHEN** a flag write arrives without an `X-CSRF-Token` header
@@ -78,11 +78,15 @@ Flag writes (all parameters in the catalog, including the security-sensitive `at
 
 ### Requirement: Flag writes are capped at 5 per admin per trailing hour, distinct from the destructive-action cap
 
-A per-admin rate limit SHALL cap `feature_flag_toggled` writes at 5 within the trailing hour, counted from the `admin_actions_log` ledger. This is a bucket separate from the 20/hour destructive-action cap: feature-flag writes SHALL NOT be counted by the destructive-action limiter, and the destructive-action count SHALL NOT consume the feature-flag budget. A write at or over the cap SHALL be rejected with no Remote Config publish and no audit row (so the rejected attempt does not itself advance the count).
+A per-admin rate limit SHALL cap `feature_flag_toggled` writes at 5 within the trailing hour, counted from the `admin_actions_log` ledger. This is a bucket separate from the 20/hour destructive-action cap: feature-flag writes SHALL NOT be counted by the destructive-action limiter, and the destructive-action count SHALL NOT consume the feature-flag budget. A write at or over the cap SHALL be rejected with no Remote Config publish and no audit row (so the rejected attempt does not itself advance the count). The trailing-hour COUNT and the success-path audit INSERT SHALL execute on a single database connection (mirroring `DestructiveActionRateLimiter`'s caller-supplied-`Connection` contract) so the count cannot drift from the ledger it gates.
 
 #### Scenario: The sixth flag write within an hour is rejected
 - **WHEN** an admin has 5 `feature_flag_toggled` rows within the trailing hour and submits a sixth flag write
 - **THEN** the write is rejected AND no publish occurs AND no `admin_actions_log` row is written
+
+#### Scenario: The fifth flag write within an hour succeeds
+- **WHEN** an admin has 4 `feature_flag_toggled` rows within the trailing hour and submits a fifth valid flag write
+- **THEN** the write passes the rate-limit gate AND (the remaining gates passing) the value is published and one audit row is written
 
 #### Scenario: The feature-flag bucket is independent of the destructive-action cap
 - **WHEN** an admin has performed destructive actions counted by the 20/hour cap
@@ -103,6 +107,26 @@ A write to `moderation_match_threshold` SHALL accept only an integer within `[1,
 #### Scenario: An in-range threshold is accepted
 - **WHEN** an authorized admin submits `moderation_match_threshold = 50` with a reason and the gates pass
 - **THEN** the value is published to the Server template AND one `feature_flag_toggled` audit row is written
+
+#### Scenario: The inclusive range boundaries are honored
+- **WHEN** an admin submits `moderation_match_threshold = 1` or `= 10000` (the inclusive bounds) with a reason and the gates pass
+- **THEN** each is accepted and published AND a submission of `= 10001` is rejected as out-of-range with no publish and no audit row
+
+### Requirement: A flag write validates the submitted value against the parameter type
+
+A write SHALL validate the submitted value against the target parameter's type before any publish: `attestation_mode` accepts only `enforce` / `warn` / `off`; a boolean flag accepts only a boolean value. An invalid value SHALL be rejected inline with no publish and no `feature_flag_toggled` audit row.
+
+#### Scenario: Each attestation_mode value is accepted
+- **WHEN** an authorized admin submits `attestation_mode` = `enforce`, `warn`, or `off` (each in turn) with a reason and the gates pass
+- **THEN** the submitted value is published to the Server template AND audited once
+
+#### Scenario: An unknown attestation_mode value is rejected
+- **WHEN** an admin submits `attestation_mode` = a value outside {`enforce`, `warn`, `off`}
+- **THEN** the write is rejected inline with no publish AND no `feature_flag_toggled` audit row
+
+#### Scenario: A non-boolean value for a boolean flag is rejected
+- **WHEN** an admin submits a non-boolean value for a boolean flag (e.g. `search_enabled = maybe`)
+- **THEN** the write is rejected inline with no publish AND no `feature_flag_toggled` audit row
 
 ### Requirement: Publishes use optimistic concurrency to prevent silent clobbering
 
