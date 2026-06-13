@@ -123,7 +123,7 @@ class ChatRedactionRepositoryTest : StringSpec({
         ChatRedactionTestSupport.loadRedaction(dataSource, msg).redactedAt.shouldNotBeNull()
         val audit = chatRedactionAudit(msg).single()
         audit.beforeStateJson.shouldNotBeNull()
-        audit.beforeStateJson!! shouldContain "had_embed"
+        audit.beforeStateJson shouldContain "had_embed"
     }
 
     // ===================== 5.4 participant notifications =======================
@@ -244,7 +244,7 @@ class ChatRedactionRepositoryTest : StringSpec({
 
         val page = repo.loadRedactionPage(target)
         page.shouldNotBeNull()
-        page!!.context shouldHaveSize 5
+        page.context shouldHaveSize 5
         page.context.single { it.isTarget }.id shouldBe target
         page.context.map { it.id } shouldBe listOf(ids[1], ids[2], ids[3], ids[4], ids[5])
     }
@@ -264,7 +264,7 @@ class ChatRedactionRepositoryTest : StringSpec({
         val page = repo.loadRedactionPage(first)
         page.shouldNotBeNull()
         // target is first → 0 earlier + 1 later
-        page!!.context.map { it.id } shouldBe listOf(first, second)
+        page.context.map { it.id } shouldBe listOf(first, second)
         page.context.first { it.isTarget }.id shouldBe first
     }
 
