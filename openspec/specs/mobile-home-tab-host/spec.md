@@ -241,6 +241,27 @@ The Home section's three feeds SHALL be horizontally swipeable: the body below t
 
 > The serializable-`Tab` saved-state round-trip (the durable selection kept in sync with the settled pager page) is covered by § "Tab selection is serializable and survives process death".
 
+
+### Requirement: The Home brand app bar exposes a Pesan action that opens the conversation list
+
+The Home section's centered brand-logo app bar SHALL carry a single trailing action — a "Pesan" (messages) icon button (a Material icon, `contentDescription` via `stringResource(Res.string.chat_open_action)`) — whose tap pushes `ConversationListRoute` onto the ROOT back stack (overlaying the section shell, the same root-stack mechanism the composer FAB and `PostDetailRoute` use). The callback SHALL be hoisted by the tab host and wired at the `AppShellScreen` / host call site (mirroring the existing `onOpenPost` hoisting), so the host composable itself takes no navigation dependency. This requirement is **additive**: it does NOT alter the existing "Home section shows the centered brand-logo app bar" requirement (the logo + theme behavior is unchanged), the section shell (Home / Notifikasi / Profil), or any feed-tab requirement. The action SHALL be present only on the Home section's app bar (the Notifikasi and Profil sections render no shell top app bar, unchanged).
+
+#### Scenario: Pesan action is present on the Home app bar
+- **WHEN** the Home section renders its centered brand-logo app bar
+- **THEN** the app bar contains a trailing "Pesan" icon action whose `contentDescription` matches `stringResource(Res.string.chat_open_action)`
+
+#### Scenario: Tapping Pesan pushes the conversation-list route onto the root stack
+- **WHEN** the Pesan action is tapped
+- **THEN** the hoisted callback is invoked AND `ConversationListRoute` is pushed onto the root back stack (overlaying the bottom-nav section shell), not pushed inside a per-section back stack
+
+#### Scenario: Pesan action is absent on non-Home sections
+- **WHEN** the Notifikasi or Profil section is selected
+- **THEN** no shell top app bar (and therefore no Pesan action) is rendered for that section (unchanged from the existing non-Home no-app-bar behavior)
+
+#### Scenario: The logo app-bar requirement is untouched
+- **WHEN** comparing the Home app bar's brand-logo behavior before and after this change
+- **THEN** the centered brand-logo + active-scheme logo behavior is unchanged (this delta only ADDS the trailing Pesan action)
+
 ### Requirement: The tab host hoists onOpenSearch, wired at the call site to a root-stack SearchRoute push
 
 The shell SHALL hoist an `onOpenSearch` callback (no payload — `SearchRoute` is parameterless) invoked by the Home app-bar search action icon (per § "Bottom navigation is a top-level section shell"). Its actual **root** back-stack append SHALL be wired at the `appEntryProvider` call site as `onOpenSearch = { backStack.add(SearchRoute) }`, NOT inside `HomeScreen.kt` / `AppShellScreen.kt` (neither holds a back-stack reference) — exactly the call-site mechanism the existing `onOpenComposer` / `onOpenPost` wiring uses (per § "The tab host hoists onOpenPost, wired at the call site to a root-stack PostDetailRoute push"). `AppShellScreen` SHALL forward `onOpenSearch` to the Home app bar; the appended `SearchRoute` SHALL overlay the section `NavigationBar` (a root-stack entry above `HomeRoute`, mirroring `PostDetailRoute` / `PostCreationRoute`), and SHALL NOT introduce a per-tab `NavDisplay` back stack. This requirement is additive to (and does not modify) the existing `onOpenPost` / `onOpenPostReply` hoist requirement.

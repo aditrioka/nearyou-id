@@ -77,6 +77,13 @@ opentelemetry-instrumentation-bom = "2.28.1-alpha"
 password4j = "1.8.4"
 samstevens-totp = "1.7.1"
 slf4j = "2.0.16"
+# supabase-kt: the mobile (KMP) Realtime SUBSCRIBE client for 1:1 chat live-append
+# (mobile-chat-screen). Pinned via the supabase BOM; realtime-kt is consumed without an explicit
+# version. supabase-kt 3.x requires Ktor >= 3.0 (repo is on 3.4.3) and is a pure-KMP Gradle
+# dependency (Ktor-backed; NO cocoapod), so Android + iOS resolve via Gradle alone. Verified
+# 2026-06-13: realtime-kt 3.6.0 is current stable on Maven Central; the vendor import is fenced to
+# :infra:supabase-realtime (CLAUDE.md invariant — no vendor SDK import outside :infra:*).
+supabase = "3.6.0"
                           # M3 alpha line is deliberate (stable strips Expressive APIs); 1.11.0-alpha07
                           # is the CMP-1.11.x-aligned artifact (verified 2026-06-10, docs/11 §1).
 material3 = "1.11.0-alpha07"
@@ -200,6 +207,11 @@ kotest-runnerJunit5 = { module = "io.kotest:kotest-runner-junit5", version.ref =
 kotest-assertionsCore = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
 
 lettuce-core = { module = "io.lettuce:lettuce-core", version.ref = "lettuce" }
+
+# supabase-kt — mobile Realtime SUBSCRIBE client (mobile-chat-screen). BOM pins the module set;
+# realtime-kt is declared version-less against it. Consumed ONLY by :infra:supabase-realtime.
+supabase-bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "supabase" }
+supabase-realtime = { module = "io.github.jan-tennert.supabase:realtime-kt" }
 
 # OpenTelemetry: SDK + API + exporter come from `opentelemetry-bom` (stable);
 # per-library instrumentation (Ktor 3.0, JDBC, Lettuce 5.1) comes from

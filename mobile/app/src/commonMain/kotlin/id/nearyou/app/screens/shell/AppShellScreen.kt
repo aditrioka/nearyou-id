@@ -43,6 +43,8 @@ import id.nearyou.app.screens.notifications.NotificationsScreen
 import id.nearyou.app.screens.profile.ProfilePlaceholderScreen
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.app_name
+import id.nearyou.resources.generated.resources.chat_open_action
+import id.nearyou.resources.generated.resources.ic_action_chat
 import id.nearyou.resources.generated.resources.ic_action_search
 import id.nearyou.resources.generated.resources.ic_nav_home
 import id.nearyou.resources.generated.resources.ic_nav_home_filled
@@ -107,6 +109,7 @@ import org.koin.compose.koinInject
 @Composable
 fun AppShellScreen(
     onOpenComposer: () -> Unit,
+    onOpenChat: () -> Unit = {},
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
     onOpenSearch: () -> Unit = {},
@@ -139,7 +142,7 @@ fun AppShellScreen(
         // 1/19; Notifikasi/Profil keep their own in-body headers (no shell top bar).
         topBar = {
             if (selectedSection == Section.Home) {
-                HomeBrandTopBar(onOpenSearch = onOpenSearch)
+                HomeBrandTopBar(onOpenChat = onOpenChat, onOpenSearch = onOpenSearch)
             }
         },
         bottomBar = {
@@ -209,6 +212,9 @@ fun AppShellScreen(
 const val SHELL_LOGO_LIGHT_TAG: String = "shellLogoLight"
 const val SHELL_LOGO_DARK_TAG: String = "shellLogoDark"
 
+/** Test tag on the Home app-bar "Pesan" action (mobile-chat-screen task 10.1). */
+const val SHELL_CHAT_ACTION_TAG: String = "shellChatAction"
+
 /** Test tag on the Home app-bar search action (mobile-search) — Home-section-only entry point. */
 const val SHELL_SEARCH_ACTION_TAG: String = "shellSearchAction"
 
@@ -227,7 +233,10 @@ const val SHELL_SEARCH_ACTION_TAG: String = "shellSearchAction"
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeBrandTopBar(onOpenSearch: () -> Unit) {
+private fun HomeBrandTopBar(
+    onOpenChat: () -> Unit,
+    onOpenSearch: () -> Unit,
+) {
     val dark = isSystemInDarkTheme()
     val logo = if (dark) Res.drawable.logo_brand_dark else Res.drawable.logo_brand_light
     CenterAlignedTopAppBar(
@@ -243,11 +252,19 @@ private fun HomeBrandTopBar(onOpenSearch: () -> Unit) {
                     ),
             )
         },
+        // Trailing actions: search (mobile-search) + "Pesan" (mobile-chat-screen task 10.1), each
+        // pushing its route onto the root stack via a hoisted callback. Home-section app bar only.
         actions = {
             IconButton(onClick = onOpenSearch, modifier = Modifier.testTag(SHELL_SEARCH_ACTION_TAG)) {
                 Icon(
                     painter = painterResource(Res.drawable.ic_action_search),
                     contentDescription = stringResource(Res.string.search_icon_cd),
+                )
+            }
+            IconButton(onClick = onOpenChat, modifier = Modifier.testTag(SHELL_CHAT_ACTION_TAG)) {
+                Icon(
+                    painter = painterResource(Res.drawable.ic_action_chat),
+                    contentDescription = stringResource(Res.string.chat_open_action),
                 )
             }
         },

@@ -29,6 +29,8 @@ val navSavedStateConfiguration: SavedStateConfiguration =
                     subclass(PostCreationRoute::class, PostCreationRoute.serializer())
                     subclass(ConsentRoute::class, ConsentRoute.serializer())
                     subclass(PostDetailRoute::class, PostDetailRoute.serializer())
+                    subclass(ConversationListRoute::class, ConversationListRoute.serializer())
+                    subclass(ChatThreadRoute::class, ChatThreadRoute.serializer())
                     subclass(SearchRoute::class, SearchRoute.serializer())
                 }
             }

@@ -99,3 +99,31 @@ data class PostDetailRoute(
     val authorDisplayName: String = "",
     val focusReplyComposer: Boolean = false,
 ) : NavKey
+
+/**
+ * Conversation-list surface (`mobile-chat-screen`), opened from the Home brand app-bar "Pesan" action
+ * and pushed onto the ROOT back stack above [HomeRoute] (overlaying the section bar, like [PostDetailRoute]).
+ * A parameterless `data object`: the list is always fetched fresh (design D3).
+ */
+@Serializable
+data object ConversationListRoute : NavKey
+
+/**
+ * Chat-thread surface (`mobile-chat-screen`), reached from a [ConversationListRoute] row tap (and, after
+ * PR #245, the profile "Kirim pesan" create-or-return path). Pushed onto the ROOT back stack. A
+ * payload-carrying `@Serializable data class` (like [PostDetailRoute]), so it MUST be registered in the
+ * `navSavedStateConfiguration` polymorphic `SerializersModule` for the iOS-saveable back stack.
+ *
+ * It carries ONLY the [conversationId] (a conversation identifier — NOT user PII; required to fetch
+ * `GET /api/v1/chat/{id}/messages` + subscribe to the realtime channel) plus the partner's DISPLAY
+ * identity for the thread top bar. It MUST NOT carry the partner's user UUID, message content, or any
+ * coordinate — the back stack persists to disk on iOS (the same PII discipline [PostDetailRoute] /
+ * [AgeGateRoute] follow). The display fields default to `""` so a back stack serialized before this
+ * change still decodes on restore (an empty value renders the `chat_account_deleted` placeholder).
+ */
+@Serializable
+data class ChatThreadRoute(
+    val conversationId: String,
+    val partnerUsername: String = "",
+    val partnerDisplayName: String = "",
+) : NavKey

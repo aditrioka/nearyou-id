@@ -212,6 +212,20 @@
     <string name="cta_activate_premium">Aktifkan Premium</string>
     <string name="cap_countdown_hours_minutes" formatted="true">%1$d j %2$d mnt</string>
     <string name="cap_countdown_minutes" formatted="true">%1$d mnt</string>
+    <!-- mobile-chat-screen (mockup frames 2 + 5): 1:1 chat. chat_send_blocked is the docs-verbatim
+         block string (docs/02 §5 + chat-conversations spec); chat_account_deleted matches the backend
+         COALESCE placeholder ("Akun Dihapus"). The empty/redacted/permission copy is derived BI
+         consistent with the existing register (flagged for UX review in the PR). -->
+    <string name="chat_list_title">Pesan</string>
+    <string name="chat_list_empty">Belum ada percakapan. Mulai dari profil seseorang.</string>
+    <string name="chat_list_loading">Memuat percakapan…</string>
+    <string name="chat_thread_input_placeholder">Tulis pesan…</string>
+    <string name="chat_send">Kirim pesan</string>
+    <string name="chat_message_redacted">Pesan ini telah dihapus</string>
+    <string name="chat_send_blocked">Tidak dapat mengirim pesan ke user ini</string>
+    <string name="chat_open_action">Pesan</string>
+    <string name="chat_account_deleted">Akun Dihapus</string>
+    <string name="notif_permission_rationale">Aktifkan notifikasi agar kamu tahu saat ada pesan baru.</string>
     <!-- mobile-search: the Premium-gated Cari surface (docs/03-UX-Design.md § Search UX). The
          empty-results + rate-limit modal copy are verbatim docs/03:244 / :245. The error/session/loading
          states REUSE signin_error_network / cta_retry / timeline_loading / timeline_session_redirect
@@ -232,3 +246,4 @@
     <string name="search_clear_cd">Hapus pencarian</string>
     <string name="search_back_cd">Kembali</string>
 </resources>
+
