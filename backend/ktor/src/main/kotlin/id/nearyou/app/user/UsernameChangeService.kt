@@ -196,14 +196,18 @@ class UsernameChangeService(
         if (!flagEnabled(userId)) return CheckResult.FeatureDisabled
         if (subscriptionStatus !in PREMIUM_STATES) return CheckResult.PremiumRequired
 
+        // Format is checked BEFORE the probe limiter: a malformed candidate is a
+        // client error, reveals nothing, and must not burn the 3/day enumeration
+        // budget (which governs well-formed probes).
+        val candidate = rawCandidate.trim()
+        if (!isValidFormat(candidate)) return CheckResult.InvalidFormat
+
         val ttl = computeTTLToNextReset(userId, nowProvider())
         when (val rl = withContext(dbDispatcher) { rateLimiter.tryAcquireProbe(userId, ttl) }) {
             is UsernameRateLimiter.Outcome.RateLimited -> return CheckResult.RateLimited(rl.retryAfterSeconds)
             is UsernameRateLimiter.Outcome.Allowed -> Unit
         }
 
-        val candidate = rawCandidate.trim()
-        if (!isValidFormat(candidate)) return CheckResult.InvalidFormat
         val lc = candidate.lowercase()
         val taken = withContext(dbDispatcher) { dataSource.connection.use { collides(it, lc) } }
         return CheckResult.Probed(available = !taken)

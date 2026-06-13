@@ -39,6 +39,13 @@ private class ToggleHistory(
         conn: Connection,
         lowercaseUsername: String,
     ): Boolean = lowercaseUsername in holdSet
+
+    override fun insertReleaseHold(
+        conn: Connection,
+        userId: java.util.UUID,
+        oldUsername: String,
+        newUsername: String,
+    ): java.time.Instant = java.time.Instant.now()
 }
 
 private fun words(
