@@ -87,7 +87,7 @@ class FollowListRepositoryTest {
         }
 
     @Test
-    fun `400 invalid_cursor maps to NetworkError - unreachable from UI, non-actionable`() =
+    fun `400 invalid_cursor maps to NetworkError - unreachable from UI and non-actionable`() =
         runTest {
             val repo =
                 repository { respond("""{"error":{"code":"invalid_cursor"}}""", HttpStatusCode.BadRequest, JSON_HEADERS) }
