@@ -73,7 +73,7 @@ This is nearyou-id's **mobile UI/UX foundation** skill. Atomic per-screen change
 
 ## Verification
 
-Defer to the `verify-loop` skill for bring-up. Minimum: run on the Android emulator AND the iOS simulator, screenshot, and eyeball the checklist (status-bar flush, content fills, single indicator on refresh, working pull-to-refresh, real icons, visible selected label, swipe between feeds, icon-only FAB, all-Indonesian labels, light + dark). Physical-device mobile testing uses the staging flavor; iOS pod-install via `dev/scripts/ios-pod-install.sh` (sync resources before pod install or fonts crash).
+Defer to the `verify-loop` skill for bring-up — it **context-routes the surface automatically**: a local session runs the Android emulator AND iOS simulator; the cloud sandbox (no emulator) runs the change on a real device via Firebase Test Lab (`scripts/run_on_device.sh` / the `device-run.yml` PR comment). Don't hand-pick — call `scripts/test_android.sh` / `scripts/run_on_device.sh`. Either way, screenshot and eyeball the checklist (status-bar flush, content fills, single indicator on refresh, working pull-to-refresh, real icons, visible selected label, swipe between feeds, icon-only FAB, all-Indonesian labels, light + dark). Physical-device + Test Lab use the staging flavor; iOS pod-install via `dev/scripts/ios-pod-install.sh` (sync resources before pod install or fonts crash).
 
 ## Anti-patterns (this project actually hit these — don't repeat)
 

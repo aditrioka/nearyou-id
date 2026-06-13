@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/verify_env.sh || echo '[session-start] Android env incomplete — run scripts/setup_android.sh'"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/_testing_context.sh --banner"
+          }
+        ]
+      }
+    ]
+  }
+}

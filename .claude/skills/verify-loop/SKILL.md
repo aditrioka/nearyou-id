@@ -18,11 +18,17 @@ When you hit a blocker that is **not already documented below**, fix it, then **
 | Diff touches | Verify on |
 |---|---|
 | `:backend:ktor` REST / admin / workers / Flyway SQL | **Backend + admin panel** (§A) — plus `:backend:ktor:test` |
-| `:mobile:app` screens / Compose UI / navigation | **Android emulator** (§B, fast) and, if platform actuals or fonts/resources changed, **iOS sim** (§C) |
+| `:mobile:app` screens / Compose UI / navigation | **Android** (§B) — emulator locally / **Firebase Test Lab in the cloud sandbox** (see the routing note below; via `scripts/test_android.sh` / `scripts/run_on_device.sh`) — and, if platform actuals or fonts/resources changed, **iOS sim** (§C, local-only) |
 | `:shared` / KMP logic with `platform`/`actual` impls | **Both** Android (§B) and iOS (§C) — JVM-only tests miss Kotlin/Native gaps |
 | Lint rule / Detekt / build-logic / CI / docs | **Gate only** (§D) — no app bring-up needed |
 
 Always also run the **gate** (§D) before declaring done.
+
+> **Local vs cloud — the mobile surface is context-routed (do NOT hand-pick).** §B/§C assume a **local** machine that can boot an Android emulator / iOS simulator. In the **Claude Code cloud sandbox** there is no emulator (headless, no KVM), so the mobile bring-up runs the change on a **real device via Firebase Test Lab** instead. Don't decide this yourself — let the wrappers route it:
+> - **Instrumented verification:** `scripts/test_android.sh` (local+device → `connectedAndroidTest`; cloud → Firebase Test Lab; local+no-device → it tells you to boot an emulator).
+> - **"See it run" + screenshots/video evidence:** `scripts/run_on_device.sh` (Robo run on a real device; pulls screenshots/video to `dev/device-runs/<ts>/`). In CI this is automatic per mobile PR via `.github/workflows/device-run.yml`, which posts the result + console link as a PR comment — that comment satisfies the §5 DoD evidence requirement for a cloud session.
+>
+> Routing logic lives in [`scripts/_testing_context.sh`](../../../scripts/_testing_context.sh) (capability-first; robust under `claude --remote-control`, which stays LOCAL). The `SessionStart` hook prints the active context. **iOS has no farm equivalent** — iOS-sim verification (§C) is local-only; in a cloud session, cover iOS via the unit/`linkDebugFrameworkIosSimulatorArm64` gate and note the sim bring-up as owed on the next local session.
 
 > **Worktree note:** if you're in a `.claude/worktrees/*` checkout, Gradle needs a `local.properties` with `sdk.dir=` (gitignored). Copy it from the main checkout first, or Android tasks fail to resolve the SDK.
 
@@ -63,6 +69,8 @@ Flyway runs at app startup, so migrations auto-apply.
 ---
 
 ## §B — Android (emulator first, device when needed)
+
+> **Cloud sandbox?** Skip the emulator recipe below — there's no emulator. Run `scripts/run_on_device.sh` (Robo + screenshots/video) and/or `scripts/test_android.sh` (instrumented) to verify on a real device via Firebase Test Lab, or rely on the `device-run.yml` PR comment. The rest of this section is the **local** emulator/device recipe.
 
 **Emulator = `dev` flavor.** `API_BASE_URL=http://10.0.2.2:8080` is the emulator-only host-loopback alias to your local backend. (On an emulator, local `http://` also needs a cleartext config.)
 

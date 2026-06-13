@@ -1,0 +1,145 @@
+name: Device run
+
+# Build the :mobile:app staging-debug APK and launch the change on a REAL device
+# in Firebase Test Lab (Robo crawl — no test code), then attach the captured
+# screenshots/video to the PR. This is the CI side of the "see my change on a
+# device" loop (the local/cloud-sandbox side is scripts/run_on_device.sh).
+#
+# Triggers: mobile-touching PRs + manual dispatch. Quota-aware — Firebase Test
+# Lab's free tier is 5 physical-device runs/day, so we cancel superseded runs and
+# only fire when mobile/shared code changes (docs/test-tick pushes are ignored by
+# the path filter). Opt out of a single PR by adding the `skip-device-run` label.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'shared/**'
+      - '.github/workflows/device-run.yml'
+      - 'scripts/**'
+  workflow_dispatch:
+    inputs:
+      device:
+        description: 'Test Lab device spec (gcloud firebase test android models list)'
+        default: 'model=shiba,version=34,locale=en_US,orientation=portrait'
+      flavor:
+        description: 'Product flavor to build'
+        default: 'staging'
+
+concurrency:
+  group: device-run-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  device-run:
+    # Skip when the PR carries the opt-out label.
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-device-run') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # post the result comment
+      id-token: write        # google-github-actions/auth
+    env:
+      FLAVOR: ${{ github.event.inputs.flavor || 'staging' }}
+      DEVICE: ${{ github.event.inputs.device || 'model=shiba,version=34,locale=en_US,orientation=portrait' }}
+      ROBO_TIMEOUT: 3m
+      OUT_DIR: ${{ github.workspace }}/dev/device-runs/ci
+      FIREBASE_PROJECT_ID: nearyou-staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install required SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      # Set a dedicated GCP_TESTLAB_SA_KEY secret (the test-lab-runner key minted
+      # by dev/scripts/provision-test-lab-sa.sh); else it falls back to GCP_SA_KEY.
+      # Whichever SA is used needs roles/editor — Firebase's documented requirement
+      # so the run can initialize the project's default Test Lab results bucket via
+      # the Tool Results settings API (the granular cloudtestservice.admin +
+      # storage.admin combo is NOT enough — both were tried and 403'd). The auth
+      # action exports GOOGLE_APPLICATION_CREDENTIALS, which scripts/_gcloud_lib.sh
+      # picks up automatically.
+      - name: Auth to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_TESTLAB_SA_KEY || secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: nearyou-staging
+
+      # Build APK + Robo run on a real device + pull screenshots/video into
+      # $OUT_DIR. continue-on-error so a crash/quota issue still attaches what we
+      # captured and posts the verdict instead of a bare red X.
+      - name: Build + Robo-run on a real device
+        id: run
+        continue-on-error: true
+        run: bash scripts/run_on_device.sh
+
+      - name: Upload device-run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-run-${{ github.event.pull_request.number || github.run_id }}
+          path: dev/device-runs/ci/**
+          if-no-files-found: warn
+
+      - name: Comment result on PR
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const outDir = process.env.OUT_DIR;
+            const ok = '${{ steps.run.outcome }}' === 'success';
+
+            // Pull the Firebase console results URL out of the gcloud log.
+            let consoleUrl = '';
+            try {
+              const log = fs.readFileSync(path.join(outDir, 'gcloud.log'), 'utf8');
+              const m = log.match(/https:\/\/console\.firebase\.google\.com\/[^\s\]]+/)
+                     || log.match(/https:\/\/console\.developers\.google\.com\/[^\s\]]+/);
+              if (m) consoleUrl = m[0];
+            } catch (e) {}
+
+            // Count downloaded screenshots.
+            let shots = 0;
+            const walk = (d) => { try { for (const e of fs.readdirSync(d, {withFileTypes:true})) {
+              const p = path.join(d, e.name);
+              if (e.isDirectory()) walk(p);
+              else if (e.name.toLowerCase().endsWith('.png')) shots++;
+            }} catch (e) {} };
+            walk(outDir);
+
+            const verdict = ok
+              ? '✅ App launched + crawled OK on a real device.'
+              : '⚠️ Robo run reported issues (crash, or quota/credentials) — see the artifact + console.';
+            const body = [
+              '### 📱 Device run (Firebase Test Lab Robo)',
+              '',
+              `- **Result:** ${verdict}`,
+              `- **Device:** \`${process.env.DEVICE}\` · **Flavor:** \`${process.env.FLAVOR}\``,
+              `- **Screenshots captured:** ${shots} (download the **device-run** workflow artifact above)`,
+              consoleUrl ? `- **Live results + video:** ${consoleUrl}` : '- _Console URL not found in log — check the workflow logs._',
+              '',
+              '<sub>Auto-posted by `.github/workflows/device-run.yml`. Add the `skip-device-run` label to opt a PR out.</sub>',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
