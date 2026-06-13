@@ -72,7 +72,7 @@ The `authorUsername` / `authorDisplayName` fields are required non-null `String`
 `FollowingTimelineRepository` SHALL map each fetch result to exactly one member of a sealed `FollowingTimelineOutcome`, keyed on the HTTP **status code** and transport-failure type (NOT on a parsed `error.code`), with no generic "load failed" fallthrough:
 - **HTTP 200** → `Loaded(posts, nextCursor, upsell)`. Because the rate-limit hard cap is also a 200 (empty `posts` + `upsell.hard = true`), the hard/soft presentation is derived from the parsed `upsell` flags, NOT from a distinct status.
 - **HTTP 401** (terminal — survived the shipped Ktor `Auth` `refreshTokens` because the refresh itself failed) → a dedicated `SessionExpired` outcome. It MUST NOT map to `NetworkError` or `Error`. The shipped `Auth` plugin still owns the refresh attempt, and `SessionInvalidator` still owns the re-route to `SignInScreen`; this mapping only guarantees the brief pre-re-route render is a neutral redirect placeholder, never the connectivity copy. The repository MUST NOT reimplement 401 refresh/retry.
-- **HTTP 400** (`invalid_cursor` — not expected on the always-valid first page) → a retryable `Error` outcome with a diagnostic emitted to logs (NOT a silent no-op, NOT a crash).
+- **HTTP 400** (`invalid_cursor` — not expected on the always-valid first page) → a retryable `Error` outcome with a diagnostic emitted to logs (NOT a silent no-op, NOT a crash). The diagnostic MUST log the **status + exception-type only** (e.g. `status=400` / `cause::class.simpleName`) and MUST NOT interpolate `cause.message`, any response-body field, or a coordinate. This is load-bearing on this surface specifically: Following's `latitude`/`longitude` arrive in the **response body** (not the URL), which the shipped `LogLevel.HEADERS` already excludes — so the diagnostic sink is the one remaining place a body value could leak. Mirror the coord-safe shipped `GlobalTimelineRepository` diagnostic.
 - **HTTP 5xx or network/IO failure** → `NetworkError` (retryable). A genuine transport failure (caught `IOException` / timeout / host-unreachable) keeps mapping here — distinct from the terminal-401 `SessionExpired`.
 - **Any other unenumerated non-2xx status** → the defined `NetworkError` fallback (retryable). Because the mapping is over an `Int` status, a defined fallback MUST remain — the "no generic fallthrough" rule bans a generic "load failed" *copy*, NOT a `when` `else`/fallback branch. The fix is to branch `401` explicitly to `SessionExpired` ahead of this fallback.
 
@@ -99,6 +99,12 @@ The `authorUsername` / `authorDisplayName` fields are required non-null `String`
 - **GIVEN** a MockEngine returning bare HTTP 500 (or throwing `IOException`)
 - **WHEN** the repository processes the result
 - **THEN** the outcome is `NetworkError` AND no crash occurs AND the outcome is NOT `SessionExpired`
+
+#### Scenario: 400 invalid_cursor maps to retryable Error with a coord-safe diagnostic
+
+- **GIVEN** a MockEngine returning HTTP 400 with `error.code = "invalid_cursor"`
+- **WHEN** the repository processes the result
+- **THEN** the outcome is the retryable `Error` AND a diagnostic is emitted AND the diagnostic contains the status and/or exception type only — it contains NO post-body field, NO `cause.message` interpolation, and NO coordinate value
 
 #### Scenario: Every fetch result maps to exactly one outcome
 
@@ -182,6 +188,12 @@ The screen state SHALL be modeled as a Compose-free `FollowingTimelineUiState` d
 - **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/di/MobileModule.kt`
 - **THEN** `mobileModule` declares singletons for `FollowingTimelineApiClient` and `FollowingTimelineRepository` AND binds `single<FollowingTimelineFlow> { get<FollowingTimelineRepository>() }` AND the Following client resolves the **existing** `SessionIdProvider` single (no second `SessionIdProvider` registration is added)
 
+#### Scenario: The Following graph resolves at runtime and shares the session provider
+
+- **GIVEN** a Koin test that loads `mobileModule`
+- **WHEN** `FollowingTimelineApiClient`, `FollowingTimelineRepository`, and `FollowingTimelineFlow` are resolved
+- **THEN** each resolves without error AND the `FollowingTimelineFlow` binding returns the same instance as `FollowingTimelineRepository` AND the `SessionIdProvider` resolved is the same singleton the Global graph resolves
+
 ### Requirement: Following feed load state is scoped to the HomeRoute NavEntry and survives tab switch and the composer round-trip
 
 The Following feed's first-page load state (the fetched outcome + the **initial-load flag** + the **refreshing flag** + the reload trigger) SHALL be held in a `HomeRoute`-scoped `FollowingTimelineViewModel` (resolved via `viewModel { … }` under the root `NavDisplay`'s `rememberViewModelStoreNavEntryDecorator()` for `HomeRoute` — `mobile-app-scaffold` § "NavDisplay scopes per-entry saveable state and ViewModels via entry decorators"), NOT in composition-scoped `remember` and NOT in a per-tab NavEntry store. The first page SHALL load exactly once on the ViewModel's construction (the first time the Following tab/page is shown). The ViewModel SHALL expose two distinct booleans — `isInitialLoad` (true only until the first outcome arrives) and `isRefreshing` (true during a reload while a prior outcome is retained). On `reload()` it SHALL keep the existing outcome and set `isRefreshing = true` (so the screen keeps rendering `Content`), then swap the outcome and clear `isRefreshing` on completion. Pull-to-refresh and the error-retry control SHALL re-fetch page 1 via the ViewModel. Because the ViewModel is scoped to `HomeRoute` (which survives both feed swipes/tab switches and the composer being pushed above it), switching/swiping away from the Following feed and back, or opening the composer and returning, SHALL NOT re-fetch the Following feed.
@@ -244,7 +256,7 @@ The Following post card (the shared `mobile-post-card` composable) SHALL be tapp
 
 - **GIVEN** the Following feed composed with a loaded post and recording `onOpenPost` + `onOpenPostReply` callbacks
 - **WHEN** the card's reply affordance is tapped
-- **THEN** `onOpenPostReply` fires exactly once carrying the same non-PII display fields with `distanceM = null` AND `onOpenPost` does NOT fire
+- **THEN** `onOpenPostReply` fires exactly once carrying the card's `postId`/`content`/`cityName`/`createdAtIso`/`likedByViewer`/`replyCount`/`authorUsername`/`authorDisplayName` with `distanceM = null` (and no `latitude`/`longitude`, no author UUID) AND `onOpenPost` does NOT fire
 
 #### Scenario: FollowingTimelineScreen remains navigation-free
 
@@ -308,12 +320,12 @@ While the Following inline-like cap state is set, the Following surface SHALL re
 
 ### Requirement: Test coverage for the screen, projection, and networking
 
-The change SHALL ship: (1) a Robolectric `FollowingTimelineScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the initial render plus each of the six visual states (including the directive empty state with the "*Lihat Global*" CTA) via a `FakeFollowingTimelineFlow`, added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention); (2) a commonTest `FollowingTimelineUiStateTest` for the pure outcome→state projection (including the Following-specific directive empty state); (3) MockEngine-backed `FollowingTimelineApiClient` / `FollowingTimelineRepository` tests verifying the endpoint path (no spatial params), mixed-case + distance-less wire parsing (fixtures use the shipped keys, plus the snake_case-only negative regression guard and a "no distanceM" assertion), the reused `X-Session-Id` header, `upsell` parsing, and the status→outcome mapping; (4) an iOS flow test under `mobile/app/src/iosTest/...` (mirroring `NearbyTimelineFlowIosTest` / the Global iOS flow test) exercising the Following feed on the simulator, with Kotlin/Native-legal test function names.
+The change SHALL ship: (1) a Robolectric `FollowingTimelineScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the initial render plus each of the six visual states (including the directive empty state with the "*Lihat Global*" CTA) via a `FakeFollowingTimelineFlow`, added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention); (2) a commonTest `FollowingTimelineUiStateTest` for the pure outcome→state projection (including the Following-specific directive empty state); (3) MockEngine-backed `FollowingTimelineApiClient` / `FollowingTimelineRepository` tests verifying the endpoint path (no spatial params), mixed-case + distance-less wire parsing (fixtures use the shipped keys, plus the snake_case-only negative regression guard and a "no distanceM" assertion), the reused `X-Session-Id` header, `upsell` parsing, and the status→outcome mapping; (4) an iOS flow test under `mobile/app/src/iosTest/...` (mirroring `NearbyTimelineFlowIosTest` / the Global iOS flow test) exercising the Following feed on the simulator, with Kotlin/Native-legal test function names; (5) a commonTest `FollowingTimelineViewModelTest` covering load-once-on-construction, `reload()` toggling `isRefreshing` (not `isInitialLoad`) while retaining the prior outcome, load-failure → `NetworkError`, and the shared-controller inline-like delegation (optimistic flip / `RateLimited` revert + cap state / `PostGone` revert + reload / `NetworkError` silent revert); (6) a `FollowingTimelineKoinResolutionTest` (parity with the shipped `GlobalTimelineKoinResolutionTest`) verifying the graph resolves at runtime and reuses the shared `SessionIdProvider`.
 
 #### Scenario: Test classes exist and are discoverable
 
 - **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest`
-- **THEN** `FollowingTimelineScreenTest`, `FollowingTimelineUiStateTest`, and the `FollowingTimelineApiClient`/`Repository` MockEngine tests are discovered AND each documented state / mapping corresponds to at least one `@Test`
+- **THEN** `FollowingTimelineScreenTest`, `FollowingTimelineUiStateTest`, `FollowingTimelineViewModelTest`, the `FollowingTimelineApiClient`/`Repository` MockEngine tests, and `FollowingTimelineKoinResolutionTest` are discovered AND each documented state / mapping corresponds to at least one `@Test`
 
 #### Scenario: Screen test is excluded from the Release variant
 
