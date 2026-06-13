@@ -239,3 +239,10 @@ The system SHALL render an explicit empty-state message when no `user_blocks` ro
 - **WHEN** `GET /admin/blocks?q=nobody_has_this_username` is served with header `HX-Request: true`
 - **THEN** the response status SHALL be 200
 - **AND** the returned `#block-registry-table` fragment SHALL contain the empty-state indicator (not a blank/empty fragment or an error)
+
+#### Scenario: An empty user_blocks table renders the empty state, not an error
+
+- **GIVEN** an authenticated session AND zero rows in `user_blocks`
+- **WHEN** `GET /admin/blocks` is served with no search filter
+- **THEN** the response status SHALL be 200
+- **AND** the rendered body SHALL contain the empty-state indicator (the unfiltered-empty-table case, distinct from the no-match-search case)

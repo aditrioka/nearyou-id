@@ -7,7 +7,7 @@
 ## 2. Read-only repository + keyset query
 
 - [ ] 2.1 Add a read-only repository `AdminBlockRegistryRepository` over `user_blocks` in a new `admin/blockregistry/` sub-package (mirroring `admin/rejectedidentifiers/`). Admin-module raw read of `user_blocks` + `users` is lint-exempt (no `visible_*` view / block-exclusion join needed — design D3).
-- [ ] 2.2 Implement the page query: INNER `JOIN users` twice (blocker + blocked) to resolve usernames; `ORDER BY created_at DESC, blocker_id DESC, blocked_id DESC` with the fixed page size (50); keyset predicate `(created_at, blocker_id, blocked_id) < (?, ?, ?)` for the cursor path; fetch `pageSize + 1` rows to detect "older exists". No SQL `OFFSET`. All filter values bound as parameterized placeholders.
+- [ ] 2.2 Implement the page query: INNER `JOIN users` twice (blocker + blocked) to resolve usernames; `ORDER BY created_at DESC, blocker_id DESC, blocked_id DESC` with the fixed page size (50 — confirm it matches the shipped `admin-rejected-identifiers-viewer` `PAGE_SIZE`); keyset predicate `(created_at, blocker_id, blocked_id) < (?, ?, ?)` for the cursor path; fetch `pageSize + 1` rows to detect "older exists". No SQL `OFFSET`. All filter values bound as parameterized placeholders. **Project only the columns rendered** — `blocker_id`, `blocked_id`, `created_at`, both usernames, and the bidirectional flag; do NOT `SELECT users.display_name` or other PII columns from the joins (keep the surface minimal — review Q2).
 - [ ] 2.3 Compute the per-row "Bidirectional?" flag via `EXISTS (SELECT 1 FROM user_blocks r WHERE r.blocker_id = ub.blocked_id AND r.blocked_id = ub.blocker_id)` as a projected boolean column (design D6 — not a row-multiplying self-join).
 - [ ] 2.4 Implement opaque-cursor encode/decode for `(created_at, blocker_id, blocked_id)` (base64url; epoch-micros + the two UUIDs); a malformed/absent cursor decodes to "first page" (never throws), per the keyset requirement.
 
@@ -35,15 +35,17 @@
 ## 7. Tests (mirror the AdminRejectedIdentifiers suite)
 
 - [ ] 7.1 Auth gate: unauthenticated `GET /admin/blocks` → 302 `Location: /admin/login`; authenticated → 200 rendering the table with both usernames + base-layout sections.
+- [ ] 7.1a Deep-link (review B1): assert the blocker + blocked usernames render as links whose `href` is `/admin/users?q=<username>` AND assert the NEGATIVE — the link does NOT target `/admin/users/{id}` (guards the design-D5 decoupling from the in-flight PR #251 profile page).
 - [ ] 7.2 Ordering: three rows with strictly increasing `created_at` render newest-first.
-- [ ] 7.3 Keyset pagination: page-size cap + older-control presence; following the cursor returns a strictly-older non-overlapping page; malformed cursor → first page (200); last page omits the older control; exact page-size-boundary fencepost (page-size → no control, page-size+1 → control); identical-`created_at` rows paginate by the `(blocker_id, blocked_id)` PK tiebreaker with no loss/duplication; the older-link carries the active `q`.
+- [ ] 7.2a UTC render (review B2): with a fixture row whose `created_at` is pinned at an EXPLICIT UTC offset near a day boundary (e.g. `...T23:30:00Z` — never CI-host-local time), assert the rendered "Since (UTC)" cell shows the UTC date/time, NOT a host-local (+07:00 WIB) interpretation. Mirrors the `admin-rejected-identifiers-viewer` / `admin-actions-log-viewer` UTC-fixture discipline.
+- [ ] 7.3 Keyset pagination: page-size cap + older-control presence; **follow the rendered older-link `href` over HTTP** (exercising the cursor encode→query-param→decode round-trip, not just inspecting the href) and assert it returns a strictly-older non-overlapping page; malformed cursor → first page (200); last page omits the older control; exact page-size-boundary fencepost (page-size → no control, page-size+1 → control); identical-`created_at` rows paginate by the `(blocker_id, blocked_id)` PK tiebreaker with no loss/duplication; the older-link carries the active `q`.
 - [ ] 7.4 Search: by username matches pairs on EITHER side; case-insensitive + exact (not substring); by UUID matches either id column on either side; absent `q` → unfiltered; a term matching no user → empty state (200); SQL-metacharacter `q` bound as literal (`user_blocks` still queryable afterward); over-long `q` → empty state, not 500.
 - [ ] 7.5 Bidirectional indicator: mutual pair `(A↔B)` → affirmative on the `(A→B)` row; one-directional `(A→B)` only → negative; the `EXISTS` flag does not duplicate the directed row.
 - [ ] 7.6 HTMX vs plain-GET: `HX-Request: true` → only the `#block-registry-table` fragment (no `<html>`/header/footer); no header → full page incl. the fragment + reflecting the filter.
 - [ ] 7.7 HTML-escaping: a fixture username containing `<script>alert(1)</script>` renders escaped (`&lt;script&gt;`), never a live tag.
 - [ ] 7.8 Read-only: `POST /admin/blocks` → 405; serving the viewer writes no `admin_actions_log` row and mutates no `user_blocks` row; viewing a pair writes no `notifications` row for either user.
 - [ ] 7.9 Role access: a `read_only` admin session → 200 with the table rendered (no role rejection).
-- [ ] 7.10 Empty state renders both as a full page and inside the HTMX fragment.
+- [ ] 7.10 Empty state renders both as a full page and inside the HTMX fragment — for BOTH the no-match-search case (`q` matches no user) AND the truly-empty `user_blocks` table (unfiltered, zero rows), per the empty-state requirement's "including the unfiltered case of an empty table" clause (review Q1).
 - [ ] 7.11 Run `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` — all green (pre-push gate).
 
 ## 8. Follow-ups & archive
