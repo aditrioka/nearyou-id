@@ -290,7 +290,7 @@ CREATE INDEX username_history_user_idx ON username_history(user_id, changed_at D
 
 ### Premium Customization Endpoint — DESIGN
 
-> **Status: DESIGN** (as of 2026-05-07). `PATCH /api/v1/user/username` is not mounted; `users.username_last_changed_at` + `username_history` are reserved. Future proposal will define validation pipeline (3-30 chars, charset regex, no-consecutive-dots, reserved/history collision, profanity/UU ITE check), transactional flow with FOR UPDATE row lock, `premium_username_customization_enabled` kill switch, rate limits (1 successful change / 30 days, 10 failed attempts / h, 3 availability probes / day).
+> **Status: SHIPPED** (`premium-username-customization`, 2026-06-14). `PATCH /api/v1/user/username` + `GET /api/v1/username/check` are mounted (`id.nearyou.app.user.UsernameChangeService` / `UserUsernameRoutes`): validation pipeline (3-30 chars, charset regex, application-layer no-consecutive-dots, reserved/release-hold/uniqueness collision, profanity/UU ITE → reject upfront + `username_flagged` queue row), `SELECT … FOR UPDATE` transaction writing the rename + 30-day `username_history` release hold + `username_release_scheduled` notification, the `premium_username_customization_enabled` Remote Config kill switch, and the rate limits (1 successful change / 30 days **DB-authoritative on `username_last_changed_at`**, 10 failed attempts / h, 3 availability probes / day). The numeric anomaly-score increment on repeated flagged attempts is deferred to the anomaly-detection capability (Phase 4 #17). Mobile Settings UI + admin oversight are separate follow-on changes.
 
 ---
 
