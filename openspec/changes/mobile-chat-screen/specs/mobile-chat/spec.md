@@ -126,13 +126,13 @@ When the send returns `403` with body `{ "error": "Tidak dapat mengirim pesan ke
 - **WHEN** create-or-return returns `403` / `400` / `404`
 - **THEN** the result maps to `Blocked` / `SelfConversation` / `RecipientNotFound` respectively (distinct, no generic fallthrough)
 
-### Requirement: ChatRealtimeSubscriber is a vendor-SDK-free domain seam
+### Requirement: ChatRealtimeSubscriber is a vendor-SDK-free seam
 
-`:core:domain` SHALL declare a `ChatRealtimeSubscriber` interface exposing `fun subscribe(conversationId: Uuid): Flow<ChatMessageInbound>` and a `ChatMessageInbound` data class (`id`, `conversationId`, `senderId`, `content: String?`, `createdAt: Instant`, `redactedAt: Instant?`). `:core:domain` SHALL NOT import any Supabase / vendor SDK symbol (CLAUDE.md critical invariant — vendor SDK imports only in `:infra:*`). The three `embedded_*` payload keys SHALL NOT appear on `ChatMessageInbound` (parsed-and-dropped at the infra boundary).
+The KMP module `:infra:supabase-realtime` commonMain SHALL declare a vendor-SDK-free `ChatRealtimeSubscriber` interface exposing `fun subscribe(conversationId: Uuid): Flow<ChatMessageInbound>`, a `ChatMessageInbound` data class (`id`, `conversationId`, `senderId`, `content: String?`, `createdAt: Instant`, `redactedAt: Instant?`), and a `RealtimeTokenProvider` fun-interface (`suspend fun fetchToken(): String`). The interface source file SHALL NOT import any Supabase / vendor SDK symbol — the supabase-kt import is confined to the `SupabaseChatRealtimeSubscriber` implementation in the same module (CLAUDE.md critical invariant — vendor SDK imports only in `:infra:*`). (Apply-phase correction: the proposal named `:core:domain`, but that module is JVM-only and a KMP `:mobile:app` cannot depend on it; the interface lives in the KMP `:infra:supabase-realtime` instead, and `:mobile:app` consumes it from there — see design D2.) The three `embedded_*` payload keys SHALL NOT appear on `ChatMessageInbound` (parsed-and-dropped at the infra boundary).
 
-#### Scenario: Domain module has no vendor import
-- **WHEN** a static scan runs over `:core:domain` for `io.github.jan.supabase.*` (or any vendor Supabase import)
-- **THEN** zero matches are found
+#### Scenario: Interface source file has no vendor import
+- **WHEN** a static scan runs over the `ChatRealtimeSubscriber` interface source file for `io.github.jan.supabase.*` (or any vendor Supabase import)
+- **THEN** zero matches are found (the import lives only in the `SupabaseChatRealtimeSubscriber` impl)
 
 #### Scenario: Inbound model omits embedded and redaction-reason fields
 - **WHEN** inspecting `ChatMessageInbound`

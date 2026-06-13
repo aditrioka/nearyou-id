@@ -53,9 +53,11 @@ The existing `:infra:supabase` is a **JVM-only backend** module holding the publ
 
 Per the auto-generated-README invariant: the new module is added to `settings.gradle.kts`, a one-line description to `dev/module-descriptions.txt`, and `dev/scripts/sync-readme.sh --write` is run (a `tasks.md` item).
 
-### D2 — `ChatRealtimeSubscriber` domain interface in `:core:domain`; supabase-kt fenced to the infra impl
+### D2 — `ChatRealtimeSubscriber` domain interface (apply-phase correction: lives in `:infra:supabase-realtime`, NOT `:core:domain`); supabase-kt fenced to the infra impl
 
-`:core:domain` gains a vendor-SDK-free interface plus the inbound model:
+**Apply-phase correction (2026-06-13):** the proposal placed this vendor-free interface in `:core:domain`, mirroring the backend's publish-side `ChatRealtimeClient`. But `:core:domain` is a **JVM-only** module (`src/main/kotlin`, backend-consumed) — a Kotlin Multiplatform `:mobile:app` cannot depend on it (the same target-attribute wall `:shared:distance` hit in `mobile-nearby-timeline`), and multiplatform-izing it would churn a shipped backend module for a far larger blast radius. So the consumer-side interface lives in the new KMP `:infra:supabase-realtime` module's commonMain — a vendor-free source file alongside the fenced supabase-kt impl. `:mobile:app` depends on `:infra:supabase-realtime` for the interface type; the supabase-kt transitive dep is `implementation`-scoped and never reaches the app's compile classpath, so invariant #16 holds (vendor import only inside `:infra:supabase-realtime`). This is the apply-phase design-revision the project's re-check mechanism anticipates; it does not change behavior.
+
+The module gains a vendor-SDK-free interface + inbound model + token seam (KMP types: `kotlin.uuid.Uuid` + a `kotlinx.datetime`/`kotlin.time` `Instant`, not the backend's `java.util.UUID`/`java.time.Instant`):
 
 ```kotlin
 interface ChatRealtimeSubscriber {
@@ -72,11 +74,15 @@ data class ChatMessageInbound(
     val createdAt: Instant,
     val redactedAt: Instant?,
 )
+
+/** Vendor-free seam for the HS256 token fetch, implemented in :mobile:app (which owns the Ktor
+ *  client) so :infra:supabase-realtime need not depend on the app. */
+fun interface RealtimeTokenProvider { suspend fun fetchToken(): String }
 ```
 
-The three `embedded_*` payload keys are intentionally **dropped** at the boundary (parsed-and-ignored; this change does not render embeds — D7); `redaction_reason` is never on the wire. `senderId` is carried so the ViewModel can apply own-vs-other alignment without a re-fetch (shadow-ban is server-authoritative — no client ban-gate, D6). The infra impl (D1) translates supabase-kt's `RealtimeChannel.broadcastFlow(...)` payloads into `ChatMessageInbound`, fetches the HS256 token via the injected `RealtimeTokenApiClient` before joining, and re-fetches a fresh token on reconnect / before expiry per the response's `expires_in` (D4).
+The three `embedded_*` payload keys are intentionally **dropped** at the boundary (parsed-and-ignored; this change does not render embeds — D7); `redaction_reason` is never on the wire. `senderId` is carried so the ViewModel can apply own-vs-other alignment without a re-fetch (shadow-ban is server-authoritative — no client ban-gate, D6). The infra impl (D1) translates supabase-kt's broadcast payloads into `ChatMessageInbound`, fetches the HS256 token via the injected `RealtimeTokenProvider` (implemented in `:mobile:app` by `RealtimeTokenApiClient`) before joining, and re-fetches a fresh token on reconnect / before expiry per the response's `expires_in` (D4).
 
-This **mirrors** the shipped backend `ChatRealtimeClient` publish interface (also in `:core:domain`, vendor-free) — the publish/subscribe split is symmetric and the post-swap `KtorWebSocket*` implementations replace both behind the same two interfaces.
+This still **mirrors** the shipped backend `ChatRealtimeClient` publish interface (vendor-free; just in a KMP module home because the backend's lives in JVM `:core:domain` which mobile can't consume) — the publish/subscribe split is symmetric and the post-swap `KtorWebSocket*` implementations replace both behind the same two interfaces.
 
 ### D3 — Two screens, two root-stack routes; the thread route carries display identity only (no PII)
 
