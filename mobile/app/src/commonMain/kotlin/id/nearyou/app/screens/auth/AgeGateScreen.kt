@@ -165,7 +165,7 @@ fun AgeGateScreen(
         Image(
             painter = painterResource(logo),
             contentDescription = stringResource(Res.string.app_name),
-            modifier = Modifier.size(120.dp),
+            modifier = Modifier.size(96.dp),
         )
         Text(
             text = stringResource(Res.string.age_gate_title),

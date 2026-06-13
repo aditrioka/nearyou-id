@@ -80,6 +80,13 @@
     <string name="post_create_location_unavailable">Aktifkan lokasi untuk membuat postingan.</string>
     <!-- 429 daily post cap (docs/05 Layer 2, 10/day free) — no retry control; resets at the daily window. -->
     <string name="post_create_error_rate_limited">Kuota posting harian kamu habis. Coba lagi setelah reset harian.</string>
+    <!-- mobile-mockup-visual-conformance (mockup frame 6): static chip label (NO live city — no
+         reverse-geocoding shipped; PII discipline forbids rendering the coordinate) + the UU-PDP
+         fuzzing-transparency note. "hingga ±5 km" is the canonical user-facing framing per the
+         distance-rendering 5 km display floor (operator decision: the board's softer onboarding
+         phrasing over frame 6's bare "(±5 km)"). -->
+    <string name="post_create_location_chip">Lokasi saat ini</string>
+    <string name="post_create_privacy_note">Lokasi kamu disamarkan hingga ±5 km sebelum tampil ke pengguna lain</string>
 
     <!-- mobile-analytics-consent-screen. The three `consent_*_desc` strings are BYTE-IDENTICAL to the
          data-summary bullets in docs/03-UX-Design.md § "Analytics & Tracking Consent Screen (UU PDP)"

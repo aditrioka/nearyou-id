@@ -1,51 +1,53 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  NearYouID brand logo — light variant (blue glyph on white background).
-  Converted from logo_brand_light.svg per CMP Resources Android constraint:
-  SVG drawables are not supported on Android; canonical cross-platform
-  format is Android XML vector drawable (works on iOS/desktop/web too
-  via VectorPainter). Per JetBrains issues #4715 / #4670 + CMP Resources
-  usage docs.
+  NearYouID brand logo — light variant (#1E4FD6 scheme-primary glyph,
+  transparent background). Conforms to the canonical mockup board's logo
+  rendering (dev/mockups/nearyou-screens-mockup.html: viewBox "31 31 46 46",
+  stroke=currentColor tinted var(- -primary)) per mobile-mockup-visual-conformance:
+  background plate removed, canvas cropped 108x108 -> 46x46 via the translate
+  group (vector drawables have no viewBox origin offset); glyph pathData
+  byte-preserved from the prior asset. Android XML vector drawable per the
+  CMP Resources Android constraint (no SVG; JetBrains #4715 / #4670).
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- White background -->
-    <path
-        android:pathData="M0,0 L108,0 L108,108 L0,108 Z"
-        android:fillColor="#FFFFFF" />
-    <!-- Top hexagon polyline (blue stroke #1E4FD6) -->
-    <path
-        android:pathData="M43.8,50.2 L54,56.1 L64.2,50.2 L64.2,38.5 L54,32.6 L43.8,38.5 L43.8,45.5"
-        android:strokeColor="#1E4FD6"
-        android:strokeWidth="3"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
-    <!-- Left hexagon polyline -->
-    <path
-        android:pathData="M54,56.1 L43.8,50.2 L33.7,56.1 L33.7,67.9 L43.8,73.7 L46.3,73.7"
-        android:strokeColor="#1E4FD6"
-        android:strokeWidth="3"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
-    <!-- Right hexagon polyline -->
-    <path
-        android:pathData="M64.2,73.7 L74.3,67.9 L74.3,56.1 L68.3,52.6"
-        android:strokeColor="#1E4FD6"
-        android:strokeWidth="3"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
-    <!-- Bottom connector line -->
-    <path
-        android:pathData="M64.2,73.7 L56.7,73.7"
-        android:strokeColor="#1E4FD6"
-        android:strokeWidth="3"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
-    <!-- Filled dot (circle at 51.5, 73.7, r=2) -->
-    <path
-        android:pathData="M49.5,73.7 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 Z"
-        android:fillColor="#1E4FD6" />
+    android:width="46dp"
+    android:height="46dp"
+    android:viewportWidth="46"
+    android:viewportHeight="46">
+    <group
+        android:translateX="-31"
+        android:translateY="-31">
+        <!-- Top hexagon polyline (blue stroke #1E4FD6) -->
+        <path
+            android:pathData="M43.8,50.2 L54,56.1 L64.2,50.2 L64.2,38.5 L54,32.6 L43.8,38.5 L43.8,45.5"
+            android:strokeColor="#1E4FD6"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <!-- Left hexagon polyline -->
+        <path
+            android:pathData="M54,56.1 L43.8,50.2 L33.7,56.1 L33.7,67.9 L43.8,73.7 L46.3,73.7"
+            android:strokeColor="#1E4FD6"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <!-- Right hexagon polyline -->
+        <path
+            android:pathData="M64.2,73.7 L74.3,67.9 L74.3,56.1 L68.3,52.6"
+            android:strokeColor="#1E4FD6"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <!-- Bottom connector line -->
+        <path
+            android:pathData="M64.2,73.7 L56.7,73.7"
+            android:strokeColor="#1E4FD6"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <!-- Filled dot (circle at 51.5, 73.7, r=2) -->
+        <path
+            android:pathData="M49.5,73.7 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 Z"
+            android:fillColor="#1E4FD6" />
+    </group>
 </vector>

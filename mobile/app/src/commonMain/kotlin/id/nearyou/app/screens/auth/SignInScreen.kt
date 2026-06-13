@@ -39,7 +39,6 @@ import id.nearyou.resources.generated.resources.signin_error_banned
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.signin_error_token_invalid
 import id.nearyou.resources.generated.resources.signin_loading
-import id.nearyou.resources.generated.resources.signin_screen_title
 import id.nearyou.resources.generated.resources.signin_session_expired
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
@@ -47,8 +46,9 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
 /**
- * Unauthenticated entry surface ([SignInRoute][id.nearyou.app.screens.routing.SignInRoute]): brand
- * logo + title + "Masuk dengan Google" CTA + the account-separation disclosure footnote. The CTA
+ * Unauthenticated entry surface ([SignInRoute][id.nearyou.app.screens.routing.SignInRoute]): large
+ * brand logo (sole header — no text title per mockup frame 13, mobile-mockup-visual-conformance)
+ * + "Masuk dengan Google" CTA + the account-separation disclosure footnote. The CTA
  * drives `AuthFlow.signInWithGoogle()`; the resulting [SignInOutcome] flows through [signInUiState]
  * to set the CTA label / enabled state / error banner per Decision 7.
  *
@@ -131,17 +131,12 @@ fun SignInScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        // Frame 13: the large brand logo is the screen's sole header — no text title
+        // (mobile-mockup-visual-conformance; signin_screen_title stays in the catalog).
         Image(
             painter = painterResource(logo),
             contentDescription = stringResource(Res.string.app_name),
-            modifier = Modifier.size(120.dp),
-        )
-        Text(
-            text = stringResource(Res.string.signin_screen_title),
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 24.dp),
+            modifier = Modifier.size(96.dp),
         )
         // Involuntary-logout notice (mobile-session-expiry-and-proactive-refresh, D5). Informational tone
         // (onSurfaceVariant, NOT the error color) and a DISTINCT string from signin_error_network — it is

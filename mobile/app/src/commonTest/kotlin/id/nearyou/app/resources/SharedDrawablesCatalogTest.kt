@@ -13,6 +13,7 @@ import id.nearyou.resources.generated.resources.ic_post_like_filled
 import id.nearyou.resources.generated.resources.ic_post_location
 import id.nearyou.resources.generated.resources.ic_post_reply
 import id.nearyou.resources.generated.resources.ic_post_time
+import id.nearyou.resources.generated.resources.ic_privacy_shield
 import org.jetbrains.compose.resources.DrawableResource
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -24,7 +25,8 @@ import kotlin.test.assertEquals
  * `composeResources/drawable/`, so a missing or renamed asset makes this file fail to COMPILE (a
  * stronger guard than a runtime check) — exactly as `SharedStringsCatalogTest` guards the string
  * catalog. Covers the bottom-nav (Home / Notifications / Profile, outlined + filled), the composer
- * action (add), and the post-card affordances (location / like outlined + filled / reply / time).
+ * action (add), the composer privacy-note shield (verified_user, mobile-mockup-visual-conformance),
+ * and the post-card affordances (location / like outlined + filled / reply / time).
  * NO feed-tab icon drawable is required — the feed tabs are text-only (D10).
  */
 class SharedDrawablesCatalogTest {
@@ -39,6 +41,8 @@ class SharedDrawablesCatalogTest {
             Res.drawable.ic_nav_profile_filled,
             // Composer action (icon-only FAB)
             Res.drawable.ic_action_compose,
+            // Composer privacy-note shield (verified_user)
+            Res.drawable.ic_privacy_shield,
             // Post-card affordances
             Res.drawable.ic_post_location,
             Res.drawable.ic_post_like,
@@ -49,9 +53,10 @@ class SharedDrawablesCatalogTest {
 
     @Test
     fun `all Material icon drawables for nav action and card affordances are declared`() {
-        // 6 bottom-nav (3 destinations x outlined/filled) + 1 composer add + 5 post-card affordances
-        // (location + like outlined/filled + reply + time) = 12. No feed-tab icon (tabs are text-only).
-        assertEquals(12, allDeclaredDrawables.size)
+        // 6 bottom-nav (3 destinations x outlined/filled) + 1 composer add + 1 privacy shield
+        // + 5 post-card affordances (location + like outlined/filled + reply + time) = 13.
+        // No feed-tab icon (tabs are text-only).
+        assertEquals(13, allDeclaredDrawables.size)
         assertEquals(allDeclaredDrawables.size, allDeclaredDrawables.distinct().size, "no duplicate accessors")
     }
 }
