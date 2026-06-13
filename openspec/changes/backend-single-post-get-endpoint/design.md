@@ -37,7 +37,7 @@ SELECT <projection> FROM posts p [JOIN users a ON a.id = p.author_id]           
  LIMIT 1
 ```
 
-`resolveVisiblePost` returns only the post id (it is a visibility *gate*); this endpoint needs the full projection, so it is a **new repository method** (`findVisiblePostById(postId, viewerId): SinglePostRow?`) shaped on the same two arms but selecting `content`, author identity, `created_at`, `liked_by_viewer`, `reply_count`. Author identity differs per arm: the `visible_posts` arm joins `visible_users` (the author is guaranteed non-shadow-banned, so present), while the own-content arm sources identity from raw `users` for the viewer's own row (a shadow-banned author is absent from `visible_users` — the own-content exception). `liked_by_viewer` (the timelines' PK-scoped `LEFT JOIN post_likes` viewer check — `(post_id, user_id)` is the PK, so ≤1 match) and `reply_count` reuse the shipped timeline projection's computations (so `reply_count` keeps the documented non-viewer-block-filtered counter behavior).
+`resolveVisiblePost` returns only the post id (it is a visibility *gate*); this endpoint needs the full projection, so it is a **new repository method** (`SinglePostRepository.findById(viewerId, postId): SinglePostRow?`) shaped on the same two arms but selecting `content`, author identity, `created_at`, `liked_by_viewer`, `reply_count`. Author identity differs per arm: the `visible_posts` arm joins `visible_users` (the author is guaranteed non-shadow-banned, so present), while the own-content arm sources identity from raw `users` for the viewer's own row (a shadow-banned author is absent from `visible_users` — the own-content exception). `liked_by_viewer` (the timelines' PK-scoped `LEFT JOIN post_likes` viewer check — `(post_id, user_id)` is the PK, so ≤1 match) and `reply_count` reuse the shipped timeline projection's computations (so `reply_count` keeps the documented non-viewer-block-filtered counter behavior).
 
 - **Alternative rejected — single `visible_posts` read:** would `404` a shadow-banned author on their own post, breaking the very deep-link case (opening *your own* post from a "someone replied to you" notification) and silently diverging from the like/reply visibility contract. The two-arm gate is mandatory, not optional.
 
@@ -60,11 +60,12 @@ Mirror `user-profile-read`: a single `PostNotFoundException` → `respondText(PO
 
 - **Alternative rejected — distinct codes per cause:** leaks block existence and direction, and post existence to a blocked party.
 
-### Decision 5 — New `PostReadService` + `PostReadRepository`, not overloading existing types
+### Decision 5 — New `PostReadService` + `SinglePostRepository` (co-located in `infra/supabase`), not overloading existing types
 
-Add a read-only `PostReadService` (`backend/ktor/.../post/`) + a `PostReadRepository` interface (`core/data`) with a `JdbcPostReadRepository` impl (`infra/supabase`). The route registers as a new `singlePostRoutes(service)` Application extension in the `post` package (mirroring `TimelineRoutes`' per-concern extension functions) and is wired in `Application.kt`.
+Add a read-only `PostReadService` (`backend/ktor/.../post/`) + a `SinglePostRepository` interface + `SinglePostRow` + `JdbcSinglePostRepository` impl **co-located in `infra/supabase/.../repo/`**, mirroring the post-read precedent (`PostsTimelineRepository`/`PostsGlobalRepository`, which co-locate interface + `TimelineRow` + JDBC impl there). The route registers as a new `singlePostRoutes(service)` Application extension in the `post` package (mirroring `TimelineRoutes`' per-concern extension functions) and is wired at the manual-construction site in `Application.kt`. The service mirrors `UserProfileService` (maps the row to the wire DTO; `null` → `PostNotFoundException`).
 
-- **Alternative rejected — extend `CreatePostService` / `PostLikeRepository`:** `CreatePostService` is write-only; `resolveVisiblePost` lives on the engagement repos as a *gate*, not a projection. A dedicated read service/repo keeps the layering clean and the projection query co-located with its concern.
+- **Alternative rejected — interface in `:core:data`** (the `PostLikeRepository` shape): that is the engagement-repo pattern; the three shipped post-**read** repos all co-locate interface + Row + impl in `:infra:supabase`, so following them is the closer precedent and avoids a split-placement second pattern for the same concern.
+- **Alternative rejected — extend `CreatePostService` / `PostLikeRepository`:** `CreatePostService` is write-only; `resolveVisiblePost` lives on the engagement repos as a *gate*, not a projection. A dedicated read service/repo keeps the layering clean and the projection query co-located with the post-read family.
 
 ### Decision 6 — No dedicated rate limiter in v1
 
@@ -74,7 +75,7 @@ The timeline reads have `TimelineReadRateLimiter` (freemium quota); the like/rep
 
 This change builds **only on existing Pattern-Registry patterns and introduces no new one**:
 
-- **Backend layering** — Route → Service → Repository (Route in `:backend:ktor`, Repository interface in `:core:data`, JDBC impl in `:infra:supabase`), per docs/11 § backend layering. Identical shape to `user-profile-read` and the timeline routes.
+- **Backend layering** — Route → Service → Repository (Route + Service in `:backend:ktor`; the `SinglePostRepository` interface + `SinglePostRow` + JDBC impl co-located in `:infra:supabase`, matching the shipped post-read repos `PostsTimelineRepository`/`PostsGlobalRepository`), per docs/11 § backend layering. The service shape mirrors `user-profile-read`.
 - **JDBC discipline** — `PreparedStatement` with bound params, `dataSource.connection.use { }` / `.use { }` on statements and result sets, no string interpolation of values, per docs/11 § JDBC. Identical to `JdbcPostLikeRepository.resolveVisiblePost`.
 - **Invariant conformance** — `visible_posts` for the other-viewer arm (shadow-ban); bidirectional `user_blocks` NOT-IN with the `blocker_id`/`blocked_id` token pair (block-exclusion, scenario-guarded since `visible_posts` does not trip `BlockExclusionJoinRule`); `@AllowRawPostsRead` on the own-content arm (same allowlist annotation + rationale shape as `resolveVisiblePost`); no coordinates on the wire (spatial fuzzing / no-PII); `/api/v1` versioning.
 

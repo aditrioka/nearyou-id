@@ -23,7 +23,7 @@ There is no `GET /api/v1/posts/{post_id}` single-post endpoint — only `POST /a
 ## Impact
 
 - **New API**: `GET /api/v1/posts/{post_id}` (additive; `/api/v1` versioned from day one).
-- **New code** (no new module): `singlePostRoutes` route registration (`backend/ktor/.../post/`), a `PostReadService` (visibility resolution + projection mapping), a `PostReadRepository` interface (`core/data`) + `JdbcPostReadRepository` impl (`infra/supabase`) reusing the `resolveVisiblePost` query shape, and wiring in `Application.kt`.
+- **New code** (no new module): `singlePostRoutes` route registration (`backend/ktor/.../post/`), a `PostReadService` (visibility resolution + projection mapping), and a `SinglePostRepository` interface + `SinglePostRow` + `JdbcSinglePostRepository` impl co-located in `infra/supabase/.../repo/` (matching the `PostsTimelineRepository`/`PostsGlobalRepository` post-read precedent) reusing the `resolveVisiblePost` two-arm query shape, plus wiring in `Application.kt`.
 - **No migration / no schema change.** Reuses `visible_posts`, the `posts` own-content arm (allowlisted via `@AllowRawPostsRead`), and the bidirectional `user_blocks` exclusion.
 - **Tests**: a new DB-tagged `SinglePostRoutesTest` (HikariPool `autoClose` + `maximumPoolSize = 2` per the CI connection-budget rule) plus repository/serialization coverage of every visibility, error, and wire-casing scenario.
 - **Unblocks**: the deferred `mobile-notifications-deep-link-targets` change. **Closes** issue [#202](https://github.com/aditrioka/nearyou-id/issues/202) at archive.
