@@ -8,6 +8,7 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -18,6 +19,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.formUrlEncode
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -111,6 +113,26 @@ class ChatRedactionRouteTest : StringSpec({
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             client.get("/admin/chat-messages/${UUID.randomUUID()}") { header(HttpHeaders.Cookie, cookie(token)) }
                 .status shouldBe HttpStatusCode.NotFound
+        }
+    }
+
+    "GET on an already-redacted target masks content + shows the indicator" {
+        val admin = seedAdmin("owner")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val msg = seedMessage(content = "alamat rahasia bocor")
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            // redact it first (no-JS path → 303)
+            client.post("/admin/chat-messages/$msg/redact") {
+                header(HttpHeaders.Cookie, cookie(token))
+                contentType(ContentType.Application.FormUrlEncoded)
+                setBody(formBody("_csrf" to AdminAuthTestSupport.csrfFor(token), "reason" to "doxxing"))
+            }.status shouldBe HttpStatusCode.SeeOther
+            // GET now shows the placeholder + the already-redacted indicator, NOT the original content
+            val res = client.get("/admin/chat-messages/$msg") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "Pesan ini telah dihapus oleh moderator."
+            res.bodyAsText() shouldContain "already redacted"
+            res.bodyAsText() shouldNotContain "alamat rahasia bocor"
         }
     }
 
@@ -245,6 +267,28 @@ class ChatRedactionRouteTest : StringSpec({
                 }
             res.status shouldBe HttpStatusCode.OK
             res.bodyAsText() shouldContain "already redacted"
+        }
+    }
+
+    // ===================== admin-report-queue deep-link (entry point) ==========
+
+    "a chat_message report row deep-links to the redaction surface; other targets do not" {
+        val admin = seedAdmin("owner")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val sender = ChatRedactionTestSupport.seedUser(dataSource).also { seededIds += it }
+        val reporter = ChatRedactionTestSupport.seedUser(dataSource).also { seededIds += it }
+        val author = ChatRedactionTestSupport.seedUser(dataSource).also { seededIds += it }
+        val chatMsg = ReportQueueTestSupport.seedChatMessage(dataSource, sender).also { seededIds += it }
+        val post = ReportQueueTestSupport.seedPost(dataSource, author).also { seededIds += it }
+        val base = Instant.parse("2026-06-11T08:00:00Z")
+        ReportQueueTestSupport.seedReport(dataSource, reporter, "chat_message", chatMsg, base)
+        ReportQueueTestSupport.seedReport(dataSource, reporter, "post", post, base.plusSeconds(60))
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/reports") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            // the chat_message row renders the redaction deep-link; the post row does not
+            res.bodyAsText() shouldContain "/admin/chat-messages/$chatMsg"
+            res.bodyAsText() shouldNotContain "/admin/chat-messages/$post"
         }
     }
 })

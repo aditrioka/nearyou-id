@@ -19,6 +19,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.concurrent.thread
 
 /**
  * Repository-level integration tests for `ChatRedactionRepository` — the
@@ -270,6 +272,44 @@ class ChatRedactionRepositoryTest : StringSpec({
 
     "loadRedactionPage of a non-existent message → null" {
         repo.loadRedactionPage(UUID.randomUUID()).shouldBeNull()
+    }
+
+    // ===================== concurrency + embedded-neighbor edge cases ==========
+
+    "concurrent double-redaction yields exactly one Applied + one AlreadyRedacted" {
+        val admin = seedAdmin()
+        val (msg, _, a, _) = seedConvWithMessage()
+        val outcomes = CopyOnWriteArrayList<RedactionOutcome>()
+        (1..2).map {
+            thread { outcomes.add(repo.redact(msg, admin, "race", ip, ua)) }
+        }.forEach { it.join() }
+
+        // the FOR UPDATE lock + WHERE redacted_at IS NULL guard serialize the race
+        outcomes.count { it == RedactionOutcome.Applied } shouldBe 1
+        outcomes.count { it == RedactionOutcome.AlreadyRedacted } shouldBe 1
+        // exactly one effect set: one audit row, one notification per active participant
+        chatRedactionAudit(msg) shouldHaveSize 1
+        redactedNotifs(a) shouldHaveSize 1
+    }
+
+    "loadRedactionPage renders an embedded-only neighbor (content NULL) without error" {
+        val a = seedUser()
+        val conv = ChatRedactionTestSupport.seedConversation(dataSource, a)
+        ChatRedactionTestSupport.addParticipant(dataSource, conv, a, 1)
+        val base = Instant.parse("2026-06-11T08:00:00Z")
+        val embed =
+            ChatRedactionTestSupport.seedMessage(dataSource, conv, a, embeddedOnly = true, createdAt = base).also { seededIds += it }
+        val target =
+            ChatRedactionTestSupport.seedMessage(dataSource, conv, a, content = "target text", createdAt = base.plusSeconds(60)).also {
+                seededIds += it
+            }
+
+        val page = repo.loadRedactionPage(target)
+        page.shouldNotBeNull()
+        val neighbor = page.context.first { it.id == embed }
+        neighbor.isTarget shouldBe false
+        neighbor.content.shouldBeNull()
+        neighbor.hasEmbed shouldBe true
     }
 })
 
