@@ -111,8 +111,7 @@ fun Route.adminChatRedaction(
 }
 
 /** Parse `{id}` as a UUID; null when malformed (→ 400, no write). */
-private fun ApplicationCall.parseMessageId(): UUID? =
-    parameters["id"]?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+private fun ApplicationCall.parseMessageId(): UUID? = parameters["id"]?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
 /**
  * Successful redaction: re-render the page fragment (re-queried, now showing the
