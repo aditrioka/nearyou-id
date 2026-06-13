@@ -3,6 +3,7 @@ package id.nearyou.app.admin.reportqueue
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.moderation.SuspendEnforcement
 import id.nearyou.app.admin.moderation.UserModerationRepository
+import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -50,6 +51,7 @@ class ReportResolutionRepository(
     private val dataSource: DataSource,
     private val auditLogger: AdminAuditLogger,
     private val userModerationRepository: UserModerationRepository,
+    private val rateLimiter: DestructiveActionRateLimiter,
 ) {
     /**
      * Transition a `reports` row `pending → actioned | dismissed` with
@@ -154,6 +156,15 @@ class ReportResolutionRepository(
                 if (queue.status != STATUS_PENDING) {
                     conn.rollback()
                     return QueueResolutionOutcome.NoOpAlreadyResolved
+                }
+
+                // Destructive-action cap (admin-destructive-action-rate-limit):
+                // the punitive author resolutions enforce the ±20/hr per-admin
+                // cap; content keep/hide are NOT gated. At/over the cap, reject
+                // with the queue left `pending`, no enforcement, no audit row.
+                if (resolution in DESTRUCTIVE_RESOLUTIONS && rateLimiter.isAtOrOverCap(conn, actingAdminId)) {
+                    conn.rollback()
+                    return QueueResolutionOutcome.RateLimited
                 }
 
                 // Perform the enforcement; `effect` carries the after_state fields
@@ -423,6 +434,15 @@ class ReportResolutionRepository(
          *  apply only to these — `user`/`chat_message` are not applicable). */
         private val CONTENT_TARGET_TYPES = setOf(TARGET_POST, TARGET_REPLY)
 
+        /** The punitive author resolutions gated by the destructive-action cap
+         *  (`admin-destructive-action-rate-limit`); content keep/hide are NOT. */
+        private val DESTRUCTIVE_RESOLUTIONS =
+            setOf(
+                QueueResolution.SUSPEND_AUTHOR_7D,
+                QueueResolution.BAN_AUTHOR,
+                QueueResolution.SHADOW_BAN_AUTHOR,
+            )
+
         /**
          * Sanitized, non-free-text code written to the ban notification's
          * `body_data.reason` — deliberately NOT a moderator note (mirrors
@@ -514,4 +534,8 @@ sealed interface QueueResolutionOutcome {
     /** `ban_author` attempted by a `moderator` (owner/admin tier only); no
      *  `users` write, queue stays `pending`, no audit. */
     data object ForbiddenBanTier : QueueResolutionOutcome
+
+    /** Acting admin is at/over the destructive-action cap; queue stays `pending`,
+     *  no enforcement, no audit row (`admin-destructive-action-rate-limit`). */
+    data object RateLimited : QueueResolutionOutcome
 }

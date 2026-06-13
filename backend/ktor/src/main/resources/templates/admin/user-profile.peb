@@ -1,0 +1,114 @@
+{% extends "layout.peb" %}
+
+{% block title %}User Profile — NearYouID{% endblock %}
+
+{% block content %}
+{# Per-user profile + action-history page (admin-user-management, board frame 6).
+   Read-only page; the action controls post to the admin-user-moderation routes.
+   Every value is Pebble-autoescaped — no `raw` filter is used on any value,
+   including the client-controlled username / display_name. #}
+<h2>User Profile</h2>
+<p class="pg-sub">Profile, history, and moderation actions · <a href="/admin/users">back to lookup</a></p>
+
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+
+{% if profile is not null %}
+    <section class="user-profile cardlet">
+        <div class="profile-head">
+            <h3 class="profile-name">{{ profile.displayName }} <span class="sub">@{{ profile.username }}</span></h3>
+            <span class="quota-chip" title="Your destructive actions this hour">
+                Destructive quota: <b>{{ quotaUsed }}/{{ quotaCap }}</b> this hour
+            </span>
+        </div>
+        <dl class="kv">
+            <dt>User ID</dt><dd class="user-id"><code class="code">{{ profile.id }}</code></dd>
+            <dt>Status</dt><dd class="user-status"><span class="st {% if profile.isBanned %}err{% else %}ok{% endif %}">{{ profile.statusLabel }}</span></dd>
+            <dt>Premium</dt><dd class="user-premium">{{ profile.isPremium }} <span class="note">({{ profile.subscriptionStatus }})</span></dd>
+            <dt>Account created</dt><dd class="user-created">{{ profile.createdAt }}</dd>
+            <dt>Private profile</dt><dd class="user-private">{{ profile.privateProfileOptIn }}</dd>
+            <dt>is_banned</dt><dd class="user-is-banned">{{ profile.isBanned }}</dd>
+            <dt>suspended_until</dt><dd class="user-suspended-until">{{ profile.suspendedUntil }}</dd>
+            <dt>is_shadow_banned</dt><dd class="user-shadow-banned">{{ profile.isShadowBanned }}</dd>
+        </dl>
+
+        {# State-changing controls. Each carries a _csrf hidden field for the
+           no-JS POST path; a successful action redirects back to the lookup. #}
+        <div class="three-col actions">
+            <form class="action-warn cardlet"
+                  action="/admin/users/{{ profile.id }}/warn"
+                  method="POST">
+                <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                <h4>Warn</h4>
+                <label class="field">
+                    <span>Reason (optional, audit-only)</span>
+                    <input type="text" name="reason" placeholder="e.g. first offense — replies">
+                </label>
+                <button type="submit" class="btn outl sm">Issue warning</button>
+            </form>
+
+            <form class="action-suspend cardlet"
+                  action="/admin/users/{{ profile.id }}/suspend"
+                  method="POST">
+                <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                <h4>Suspend 7 days</h4>
+                <label class="field">
+                    <span>Reason (optional, audit-only)</span>
+                    <input type="text" name="reason" placeholder="e.g. harassment in replies">
+                </label>
+                <button type="submit" class="btn dangert sm">Suspend 7 days</button>
+            </form>
+
+            <form class="action-unban cardlet"
+                  action="/admin/users/{{ profile.id }}/unban"
+                  method="POST">
+                <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                <h4>Unban</h4>
+                <label class="field">
+                    <span>Reason (optional, audit-only)</span>
+                    <input type="text" name="reason" placeholder="e.g. appeal accepted">
+                </label>
+                <button type="submit" class="btn outl sm">Unban</button>
+                <p class="hint">Lifting a permanent ban requires owner or admin role.</p>
+            </form>
+        </div>
+    </section>
+
+    {# Merged history timeline — admin_actions_log + username_history combined,
+       newest-first across BOTH sources (spec: the history view MERGES the two).
+       Each entry branches on `kind` (action | username). Frame-7 styling. #}
+    <section class="user-history">
+        <h3>History</h3>
+        {% if history is empty %}
+            <p class="empty-state">No admin actions or username changes recorded for this user.</p>
+        {% else %}
+        <table class="tbl history-merged">
+            <thead><tr><th>Time (UTC)</th><th>Event</th><th>Detail</th></tr></thead>
+            <tbody>
+            {% for h in history %}
+                {% if h.kind == "action" %}
+                <tr class="hist-action">
+                    <td>{{ h.at }}</td>
+                    <td><span class="st info">{{ h.actionType }}</span> <span class="note">by {{ h.adminDisplayName }}</span></td>
+                    <td>reason: {{ h.reason }}
+                        <details class="state"><summary>state</summary>
+                        <div class="statebox">before: {{ h.beforeState }}
+after:  {{ h.afterState }}</div></details></td>
+                </tr>
+                {% else %}
+                <tr class="hist-username">
+                    <td>{{ h.at }}</td>
+                    <td><span class="st">username change</span></td>
+                    <td>{{ h.oldUsername }} → {{ h.newUsername }}</td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </section>
+{% else %}
+    <p class="empty-state">No matching user.</p>
+{% endif %}
+{% endblock %}

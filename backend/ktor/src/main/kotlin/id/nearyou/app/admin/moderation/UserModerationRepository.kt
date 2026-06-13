@@ -1,6 +1,7 @@
 package id.nearyou.app.admin.moderation
 
 import id.nearyou.app.admin.auth.AdminAuditLogger
+import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -41,6 +42,7 @@ import javax.sql.DataSource
 class UserModerationRepository(
     private val dataSource: DataSource,
     private val auditLogger: AdminAuditLogger,
+    private val rateLimiter: DestructiveActionRateLimiter,
 ) {
     /**
      * Resolve [q] to a user: parse it as a UUID first (primary-key lookup);
@@ -95,6 +97,13 @@ class UserModerationRepository(
         dataSource.connection.use { conn ->
             conn.autoCommit = false
             try {
+                // Destructive-action cap (admin-destructive-action-rate-limit):
+                // at/over the cap, reject with no mutation + no audit row. Read on
+                // this transaction's connection for a consistent ledger snapshot.
+                if (rateLimiter.isAtOrOverCap(conn, actingAdminId)) {
+                    conn.rollback()
+                    return SuspendOutcome.RateLimited
+                }
                 val outcome =
                     when (val enforcement = applySuspendUserUpdate(conn, targetId)) {
                         SuspendEnforcement.NotFound -> SuspendOutcome.NotFound
@@ -129,6 +138,87 @@ class UserModerationRepository(
                 runCatching { conn.autoCommit = true }
             }
         }
+
+    /**
+     * Issue a WARNING to [targetId] (`admin-user-moderation` — the warning
+     * action): in ONE transaction write the `user_warned` audit row + the
+     * sanitized `account_action_applied` notification (`body_data.action_type =
+     * 'warning'`), mutating NO `users` moderation column. The free-text [reason]
+     * is recorded ONLY in the audit row, never echoed to the warned user (design
+     * D5, mirroring the suspend reason discipline).
+     *
+     * Outcomes (each writes nothing on rejection):
+     *  - no user resolves to [targetId] → [WarnOutcome.NotFound];
+     *  - target is soft-deleted (`deleted_at IS NOT NULL`) → [WarnOutcome.TargetDeleted];
+     *  - acting admin at/over the destructive-action cap → [WarnOutcome.RateLimited].
+     *
+     * An injected audit / notification failure rolls back and rethrows (atomicity).
+     */
+    fun warn(
+        targetId: UUID,
+        actingAdminId: UUID,
+        reason: String?,
+        ip: String,
+        userAgent: String?,
+    ): WarnOutcome =
+        dataSource.connection.use { conn ->
+            conn.autoCommit = false
+            try {
+                val current =
+                    lockUser(conn, targetId) ?: run {
+                        conn.rollback()
+                        return WarnOutcome.NotFound
+                    }
+                if (current.deletedAt != null) {
+                    conn.rollback()
+                    return WarnOutcome.TargetDeleted
+                }
+                if (rateLimiter.isAtOrOverCap(conn, actingAdminId)) {
+                    conn.rollback()
+                    return WarnOutcome.RateLimited
+                }
+
+                auditLogger.logUserWarned(
+                    conn = conn,
+                    adminId = actingAdminId,
+                    targetUserId = targetId,
+                    reason = reason,
+                    beforeState = buildJsonObject {},
+                    afterState = buildJsonObject { put("warning_issued", JsonPrimitive(true)) },
+                    ip = ip,
+                    userAgent = userAgent,
+                )
+                insertWarnNotification(conn, targetId)
+
+                conn.commit()
+                WarnOutcome.Applied
+            } catch (e: Throwable) {
+                runCatching { conn.rollback() }
+                throw e
+            } finally {
+                runCatching { conn.autoCommit = true }
+            }
+        }
+
+    /**
+     * Insert the warning-side `account_action_applied` notification on [conn]
+     * (joins the warn transaction). `body_data.action_type = 'warning'`; the
+     * admin's free-text reason is DELIBERATELY absent (audit-only, design D5).
+     * `actor_user_id` is left NULL (the actor is an admin, not a `users` row).
+     */
+    private fun insertWarnNotification(
+        conn: Connection,
+        targetId: UUID,
+    ) {
+        val bodyData = buildJsonObject { put("action_type", JsonPrimitive("warning")) }
+        conn.prepareStatement(
+            "INSERT INTO notifications (user_id, type, body_data) VALUES (?, 'account_action_applied', ?::jsonb)",
+        ).use { ps ->
+            ps.setObject(1, targetId)
+            ps.setString(2, json.encodeToString(bodyData))
+            ps.executeUpdate()
+        }
+    }
 
     /**
      * The shared 7-day-suspend USER-STATE enforcement on a caller-owned [conn]
@@ -358,8 +448,26 @@ sealed interface SuspendOutcome {
     /** Target is already permanently banned — suspend would downgrade it. */
     data object RejectedPermanentBan : SuspendOutcome
 
+    /** Acting admin is at/over the destructive-action cap — no mutation, no audit. */
+    data object RateLimited : SuspendOutcome
+
     /** No user resolves to the target id. */
     data object NotFound : SuspendOutcome
+}
+
+/** Typed result of [UserModerationRepository.warn]. */
+sealed interface WarnOutcome {
+    /** Warning issued: one `user_warned` audit row + one sanitized notification. */
+    data object Applied : WarnOutcome
+
+    /** Target is soft-deleted (`deleted_at IS NOT NULL`) — not warned. */
+    data object TargetDeleted : WarnOutcome
+
+    /** Acting admin is at/over the destructive-action cap — no audit, no notification. */
+    data object RateLimited : WarnOutcome
+
+    /** No user resolves to the target id. */
+    data object NotFound : WarnOutcome
 }
 
 /**

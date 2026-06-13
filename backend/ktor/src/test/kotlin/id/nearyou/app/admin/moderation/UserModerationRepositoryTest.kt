@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariDataSource
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminAuthTestSupport
+import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
@@ -41,7 +42,7 @@ class UserModerationRepositoryTest : StringSpec({
     afterSpec { dataSource.close() }
 
     val auditLogger = AdminAuditLogger(dataSource)
-    val repo = UserModerationRepository(dataSource, auditLogger)
+    val repo = UserModerationRepository(dataSource, auditLogger, DestructiveActionRateLimiter(dataSource))
 
     val seededUsers = mutableListOf<UUID>()
     val seededAdmins = mutableListOf<UUID>()
@@ -347,6 +348,115 @@ class UserModerationRepositoryTest : StringSpec({
         repo.lookup("BUDI_JAKARTA").shouldBeNull() // case-sensitive miss
         repo.lookup("does-not-exist").shouldBeNull()
     }
+
+    // ===================== 7.6/7.8 warn apply + reason discipline ==============
+
+    "7.6 warn writes exactly one user_warned audit row + one sanitized notification; no state mutation; admin_id = acting admin" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        val before = readModFlags(dataSource, uid)
+
+        repo.warn(uid, actingAdminId = admin, reason = "first offense", ip = ip, userAgent = ua) shouldBe WarnOutcome.Applied
+
+        val audit = UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_warned")
+        audit shouldHaveSize 1
+        audit.single().adminId shouldBe admin
+        val notifs = UserModerationTestSupport.notificationsForUser(dataSource, uid)
+        notifs shouldHaveSize 1
+        notifs.single().type shouldBe "account_action_applied"
+        parseJson.parseToJsonElement(notifs.single().bodyDataJson!!).jsonObject["action_type"]!!.jsonPrimitive.content shouldBe "warning"
+        // No users-state mutation by a warning.
+        val after = readModFlags(dataSource, uid)
+        after shouldBe before
+    }
+
+    "7.8 the free-text reason is recorded in the audit row but NEVER in the notification body" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        val distinctive = "zz-confidential-reason-7f3a"
+
+        repo.warn(uid, actingAdminId = admin, reason = distinctive, ip = ip, userAgent = ua) shouldBe WarnOutcome.Applied
+
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_warned").single().reason shouldBe distinctive
+        UserModerationTestSupport.notificationsForUser(dataSource, uid).single().bodyDataJson!!.shouldNotContain(distinctive)
+    }
+
+    "7.6 warning a soft-deleted user is rejected — no audit, no notification" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false, deletedAt = Instant.now().minus(1, ChronoUnit.DAYS))
+
+        repo.warn(uid, actingAdminId = admin, reason = "x", ip = ip, userAgent = ua) shouldBe WarnOutcome.TargetDeleted
+
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid) shouldHaveSize 0
+        UserModerationTestSupport.notificationsForUser(dataSource, uid) shouldHaveSize 0
+    }
+
+    // ===================== 7.7 warn atomicity ==================================
+
+    "7.7 a failing notification insert rolls back the whole warning (no audit row, no notification)" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        // Fail ONLY the warning notification insert (account_action_applied with
+        // body_data.action_type = 'warning'); the audit INSERT precedes it, so a
+        // rollback proves atomicity.
+        withFailingConstraint(
+            dataSource,
+            "notifications",
+            "zzz_fail_warn_notif",
+            "NOT (type = 'account_action_applied' AND body_data->>'action_type' = 'warning')",
+        ) {
+            shouldThrow<Exception> { repo.warn(uid, actingAdminId = admin, reason = null, ip = ip, userAgent = ua) }
+        }
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_warned") shouldHaveSize 0
+        UserModerationTestSupport.notificationsForUser(dataSource, uid) shouldHaveSize 0
+    }
+
+    // ===================== 7.11/7.12 destructive-action cap ====================
+
+    "7.11 at the cap a 21st warn is rejected (quota-exceeded), writes no audit row, mutates no target column" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        seedDestructiveActions(dataSource, admin, 20)
+        val before = readModFlags(dataSource, uid)
+
+        repo.warn(uid, actingAdminId = admin, reason = null, ip = ip, userAgent = ua) shouldBe WarnOutcome.RateLimited
+
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_warned") shouldHaveSize 0
+        readModFlags(dataSource, uid) shouldBe before
+        DestructiveActionRateLimiter(dataSource).countInTrailingHour(admin) shouldBe 20
+    }
+
+    "7.11 at the cap a 21st suspend is rejected (quota-exceeded), no audit, is_banned/suspended_until unchanged" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        seedDestructiveActions(dataSource, admin, 20)
+
+        repo.suspend(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe SuspendOutcome.RateLimited
+
+        val row = UserModerationTestSupport.loadUser(dataSource, uid)
+        row.isBanned shouldBe false
+        row.suspendedUntil.shouldBeNull()
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_suspended") shouldHaveSize 0
+    }
+
+    "7.11 at 19 a suspend still applies and pushes the count to 20" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        seedDestructiveActions(dataSource, admin, 19)
+
+        repo.suspend(uid, admin, reason = null, ip = ip, userAgent = ua).shouldBeInstanceOf<SuspendOutcome.Applied>()
+
+        DestructiveActionRateLimiter(dataSource).countInTrailingHour(admin) shouldBe 20
+    }
+
+    "7.12 a non-destructive action (unban) applies even when the admin is at the cap" {
+        val admin = seedAdmin()
+        val banned = seedUser(isBanned = true, suspendedUntil = Instant.now().plus(3, ChronoUnit.DAYS))
+        seedDestructiveActions(dataSource, admin, 20)
+
+        unbanOutcome(banned, "owner", admin) shouldBe UnbanOutcome.Applied
+        UserModerationTestSupport.loadUser(dataSource, banned).isBanned shouldBe false
+    }
 })
 
 private val parseJson = Json { ignoreUnknownKeys = true }
@@ -365,6 +475,59 @@ private fun parseSuspendedUntil(stateJson: String?): Instant? {
 private fun isRoughlySevenDaysOut(instant: Instant): Boolean {
     val now = Instant.now()
     return instant.isAfter(now.plus(6, ChronoUnit.DAYS)) && instant.isBefore(now.plus(8, ChronoUnit.DAYS))
+}
+
+/** The four target columns a warning/suspend must (or must not) touch, for the
+ *  cap "no mutation" assertions: is_banned / suspended_until / is_shadow_banned /
+ *  token_version. */
+private data class ModFlags(
+    val isBanned: Boolean,
+    val suspendedUntil: Instant?,
+    val isShadowBanned: Boolean,
+    val tokenVersion: Int,
+)
+
+private fun readModFlags(
+    dataSource: javax.sql.DataSource,
+    userId: UUID,
+): ModFlags =
+    dataSource.connection.use { conn ->
+        conn.prepareStatement(
+            "SELECT is_banned, suspended_until, is_shadow_banned, token_version FROM users WHERE id = ?",
+        ).use { ps ->
+            ps.setObject(1, userId)
+            ps.executeQuery().use { rs ->
+                rs.next()
+                ModFlags(
+                    isBanned = rs.getBoolean("is_banned"),
+                    suspendedUntil = rs.getTimestamp("suspended_until")?.toInstant(),
+                    isShadowBanned = rs.getBoolean("is_shadow_banned"),
+                    tokenVersion = rs.getInt("token_version"),
+                )
+            }
+        }
+    }
+
+/** Seed [n] in-window destructive `user_warned` audit rows for [adminId] so the
+ *  acting admin sits at a known point against the ±20/hr cap. */
+private fun seedDestructiveActions(
+    dataSource: javax.sql.DataSource,
+    adminId: UUID,
+    n: Int,
+) {
+    dataSource.connection.use { conn ->
+        conn.prepareStatement(
+            "INSERT INTO admin_actions_log (admin_id, action_type, target_type, target_id, created_at) " +
+                "VALUES (?, 'user_warned', 'user', ?, NOW())",
+        ).use { ps ->
+            repeat(n) {
+                ps.setObject(1, adminId)
+                ps.setString(2, UUID.randomUUID().toString())
+                ps.addBatch()
+            }
+            ps.executeBatch()
+        }
+    }
 }
 
 /**
