@@ -89,7 +89,7 @@ On a valid owner/admin request, the system SHALL execute, in one DB transaction,
 #### Scenario: Concurrent double-redaction yields exactly one applied
 - **GIVEN** a non-redacted message `<M>` AND two redaction requests submitted concurrently
 - **WHEN** both are processed
-- **THEN** exactly one resolves `Applied` (one flag write, one `admin_actions_log` row, one notification fan-out) AND the other resolves `AlreadyRedacted` with no second write (the `WHERE redacted_at IS NULL` guard serializes the race)
+- **THEN** exactly one resolves `Applied` (one flag write, one `admin_actions_log` row, one set of participant notifications) AND the other resolves `AlreadyRedacted` with no second write (the `WHERE redacted_at IS NULL` guard serializes the race)
 
 #### Scenario: Redaction reason is never exposed on the chat data plane
 - **GIVEN** a redacted message `<M>` with `redaction_reason` set
