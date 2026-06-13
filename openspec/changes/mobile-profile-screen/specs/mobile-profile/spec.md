@@ -97,7 +97,7 @@ The change SHALL introduce a `ProfileRoute` `NavKey` (in `screens/routing/NavKey
 
 ### Requirement: Follow toggle is optimistic, seeded by followedByViewer, status-driven
 
-The follow control's initial state SHALL be the profile read's `followedByViewer`. A tap SHALL flip the state optimistically and issue `POST /api/v1/follows/{user_id}` (follow) or `DELETE /api/v1/follows/{user_id}` (unfollow) — both return `204` idempotently (the DELETE is a no-op when no edge exists, never `404`). The repository SHALL map results to `FollowToggleOutcome` (`Followed` / `Unfollowed` / `RateLimited(retryAfterSeconds)` / `TargetGone` / `NetworkError`), preserving `Retry-After` for `429`. On a non-204 result the optimistic flip SHALL revert; a `429` SHALL revert AND surface the follow-churn rate-limit message (`stringResource`). The displayed `followerCount` SHALL NOT be mutated locally on toggle (it is a read snapshot of a raw public aggregate). The follow control is never shown on the self read.
+The follow control's initial state SHALL be the profile read's `followedByViewer`. A tap SHALL flip the state optimistically and issue `POST /api/v1/follows/{user_id}` (follow) or `DELETE /api/v1/follows/{user_id}` (unfollow). The `DELETE` returns `204` idempotently (a no-op when no edge exists, never `404`). The `POST` returns `204` on success OR — unlike the `DELETE` — a **constant `404 user_not_found`** when the target is unresolvable (unknown / soft-deleted / shadow-banned / blocked-either-direction; per `follow-system` § "Follow target user must exist", which resolves the target through the same visibility gate as the profile read and answers the byte-identical constant 404). The repository SHALL map results to `FollowToggleOutcome` (`Followed` / `Unfollowed` / `RateLimited(retryAfterSeconds)` / `TargetGone` (the follow-`POST` constant 404) / `NetworkError`), preserving `Retry-After` for `429`. On a non-204 result the optimistic flip SHALL revert; a `429` SHALL revert AND surface the follow-churn rate-limit message (`stringResource`); a `TargetGone` SHALL revert AND surface a neutral, direction-less "user unavailable" message (`stringResource`) — the constant 404 carries no cause, so the message MUST NOT hint at a block/shadow-ban/deletion — with NO forced navigation. The displayed `followerCount` SHALL NOT be mutated locally on toggle (it is a read snapshot of a raw public aggregate). The follow control is never shown on the self read.
 
 #### Scenario: Follow flips optimistically and persists on 204
 
@@ -115,6 +115,12 @@ The follow control's initial state SHALL be the profile read's `followedByViewer
 
 - **WHEN** the follow `POST` returns `429` with a `Retry-After`
 - **THEN** the optimistic flip reverts AND a follow-churn rate-limit message (sourced via `stringResource`) is surfaced
+
+#### Scenario: Follow POST on a now-unresolvable target maps to TargetGone and reverts
+
+- **GIVEN** an other-user profile with `followedByViewer = false`
+- **WHEN** the follow control is tapped and the `POST /api/v1/follows/{id}` returns the constant `404 user_not_found` (the target was shadow-banned / blocked / soft-deleted since the read)
+- **THEN** the outcome is `FollowToggleOutcome.TargetGone` AND the optimistic flip reverts AND a neutral "user unavailable" message (sourced via `stringResource`, with no block/shadow-ban/deletion hint) is surfaced AND the screen does NOT force-navigate
 
 ### Requirement: Block confirms, calls the block endpoint, then pops back
 
@@ -134,7 +140,7 @@ The other-user kebab SHALL expose "Blokir @{username}" which opens a confirmatio
 
 ### Requirement: Report opens a 6-category reason picker mapped to the wire enum
 
-The other-user kebab SHALL expose "Laporkan" which opens a reason picker showing the six `docs/03-UX-Design.md` § Report UX categories — Spam / Ujaran kebencian (SARA) / Pelecehan / Konten dewasa / Misinformasi / Lainnya (each a `:shared:resources` string) — plus an optional note field of ≤200 Unicode code points (the submit disabled past 200 cp, matching the server bound; the note is omitted from the body when blank). Submitting SHALL issue `POST /api/v1/reports` with body `{ "target_type": "user", "target_id": "<userId>", "reason_category": "<mapped>", "reason_note"?: "<note>" }` (snake_case wire). A pure, exhaustively-tested commonMain mapping SHALL map each picker category to its wire `reason_category` value: Spam→`spam`, Ujaran kebencian (SARA)→`hate_speech_sara`, Pelecehan→`harassment`, Konten dewasa→`adult_content`, Misinformasi→`misinformation`, Lainnya→`other`. The wire values `self_harm` and `csam_suspected` are internal/automated classifications and MUST NOT appear in the picker. The repository maps results to `ReportOutcome` (`Submitted` (204) / `Duplicate` (409 `reports.duplicate`) / `RateLimited(retryAfterSeconds)` (429) / `NetworkError`). `Submitted` surfaces the success toast; `Duplicate` surfaces an "already reported" message; `429` surfaces the report rate-limit message.
+The other-user kebab SHALL expose "Laporkan" which opens a reason picker showing the six `docs/03-UX-Design.md` § Report UX categories — Spam / Ujaran kebencian (SARA) / Pelecehan / Konten dewasa / Misinformasi / Lainnya (each a `:shared:resources` string) — plus an optional note field of ≤200 Unicode code points (the submit disabled past 200 cp, matching the server bound; the note is omitted from the body when blank). Submitting SHALL issue `POST /api/v1/reports` with body `{ "target_type": "user", "target_id": "<userId>", "reason_category": "<mapped>", "reason_note"?: "<note>" }` (snake_case wire). A pure, exhaustively-tested commonMain mapping SHALL map each picker category to its wire `reason_category` value: Spam→`spam`, Ujaran kebencian (SARA)→`hate_speech_sara`, Pelecehan→`harassment`, Konten dewasa→`adult_content`, Misinformasi→`misinformation`, Lainnya→`other`. The wire values `self_harm` and `csam_suspected` are internal/automated classifications and MUST NOT appear in the picker. The repository maps results to `ReportOutcome` (`Submitted` (204) / `Duplicate` (409 `duplicate_report` — the shipped `ReportRoutes.kt` + `reports` spec requirement code; NOT the stale `reports.duplicate` in that spec's purpose line) / `RateLimited(retryAfterSeconds)` (429) / `NetworkError`). `Submitted` surfaces the success toast; `Duplicate` surfaces an "already reported" message; `429` surfaces the report rate-limit message.
 
 #### Scenario: Report submits with the mapped wire enum
 
@@ -149,8 +155,18 @@ The other-user kebab SHALL expose "Laporkan" which opens a reason picker showing
 
 #### Scenario: Duplicate report surfaces the already-reported message
 
-- **WHEN** the `POST /api/v1/reports` returns `409` with `{ "error": { "code": "reports.duplicate" } }`
+- **WHEN** the `POST /api/v1/reports` returns `409` with `{ "error": { "code": "duplicate_report" } }`
 - **THEN** the outcome is `ReportOutcome.Duplicate` AND an "already reported" message (sourced via `stringResource`) is surfaced (no crash, no generic error)
+
+#### Scenario: Report note is gated at 200 Unicode code points
+
+- **WHEN** the note field holds exactly 200 Unicode code points (including a surrogate-pair emoji), and again at 201
+- **THEN** submit is enabled at 200 and disabled at 201, AND the gate counts **Unicode code points** (NOT the UTF-16 `.length`, so a regression to `.length` would fail the test) — matching the server's ≤200 bound
+
+#### Scenario: Blank note is omitted from the request body
+
+- **WHEN** a report is submitted with an empty/blank note
+- **THEN** the `POST /api/v1/reports` body contains NO `reason_note` key (the field is omitted, not sent as `""` or `null`)
 
 ### Requirement: A pure Compose-free ProfileUiState projection
 
