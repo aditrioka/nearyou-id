@@ -3,14 +3,13 @@
 ## Purpose
 
 The in-app-notifications capability provides the DB-backed per-user notification feed: the `notifications` table (full 13-value `type` enum reserved at V10 for forward-compatibility, of which 4 are written today — `post_liked`, `post_replied`, `followed`, `post_auto_hidden`) plus the read endpoints under `/api/v1/notifications`. Emit happens inside the same transaction as the source write (like, reply, follow, auto-hide) and is suppressed at write-time when the recipient and actor are blocked in either direction or when the action is on the user's own content. The `NotificationDispatcher` seam is the hook point for FCM push delivery, which lands in the `fcm-push-dispatch` capability.
-
 ## Requirements
 ### Requirement: notifications table created via Flyway V10
 
 A migration `V10__notifications.sql` SHALL create the `notifications` table verbatim-aligned with `docs/05-Implementation.md` §820–844 with columns:
 - `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`
 - `user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`
-- `type VARCHAR(48) NOT NULL CHECK (type IN ('post_liked', 'post_replied', 'followed', 'chat_message', 'subscription_billing_issue', 'subscription_expired', 'post_auto_hidden', 'account_action_applied', 'data_export_ready', 'chat_message_redacted', 'privacy_flip_warning', 'username_release_scheduled', 'apple_relay_email_changed'))` — all 13 values per the canonical catalog. After `chat-message-notification` ships, the application code writes 5 of the 13 (`post_liked`, `post_replied`, `followed`, `post_auto_hidden`, `chat_message`); the remaining 8 are reserved for future emit sites (subscription, admin, deletion, privacy-flip, username-release, Apple-relay).
+- `type VARCHAR(48) NOT NULL CHECK (type IN ('post_liked', 'post_replied', 'followed', 'chat_message', 'subscription_billing_issue', 'subscription_expired', 'post_auto_hidden', 'account_action_applied', 'data_export_ready', 'chat_message_redacted', 'privacy_flip_warning', 'username_release_scheduled', 'apple_relay_email_changed'))` — all 13 values per the canonical catalog. After `chat-message-notification` + `admin-chat-message-redaction` shipped, the application code writes 6 of the 13 (`post_liked`, `post_replied`, `followed`, `post_auto_hidden`, `chat_message`, `chat_message_redacted`); the remaining 7 are reserved for future emit sites (subscription, deletion, privacy-flip, username-release, Apple-relay).
 - `actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL` (nullable)
 - `target_type VARCHAR(16)` (nullable)
 - `target_id UUID` (nullable)
@@ -273,7 +272,7 @@ The Koin DI module for `:backend:ktor` production startup SHALL bind `Notificati
 
 ### Requirement: body_data shape per emitted type
 
-For the **five types V10 writes after `chat-message-notification` lands**, `body_data` SHALL be a JSONB object with the following shapes:
+For the **five types written by `chat-message-notification`** (the sixth written type, `chat_message_redacted`, has its shape defined in its own requirement below), `body_data` SHALL be a JSONB object with the following shapes:
 - `post_liked`: `{"post_excerpt": <string, ≤ 80 code points>}`
 - `post_replied`: `{"reply_id": <UUID string>, "reply_excerpt": <string, ≤ 80 code points>}`
 - `followed`: `{}`
@@ -330,4 +329,37 @@ The V10 migration SHALL include a `COMMENT ON TABLE notifications IS 'Per-user n
 #### Scenario: Retention comment present after V10
 - **WHEN** querying `obj_description('public.notifications'::regclass, 'pg_class')`
 - **THEN** the returned comment contains both the phrases `90-day` AND `purge`
+
+### Requirement: chat_message_redacted emit site and body_data shape
+
+The `chat_message_redacted` notification type (already present in the V10 `type` CHECK catalog as a reserved emit site) SHALL be written by the `admin-chat-message-redaction` capability when an admin applies a chat-message redaction. Per the canonical V10 event-type catalog ([`docs/05-Implementation.md`](../../../../docs/05-Implementation.md) § Notifications Schema), each row SHALL have:
+
+- `type = 'chat_message_redacted'`
+- `actor_user_id = NULL` (system-originated; no user actor)
+- `target_type = 'message'`, `target_id = <redacted message id>` (the canonical `(target_type, target_id)` addressing pair — matching the shipped `chat_message` notification's `target_type = 'message'` convention)
+- `body_data = {"conversation_id": <UUID string>}` — **exactly one key**
+
+`body_data` SHALL NOT carry the message `content`, the `redaction_reason`, any actor/admin identity, or `message_id` (the redacted message is the row's `target_id`; per the catalog rule "Do NOT duplicate `target_id` inside `body_data`", `conversation_id` is the only thing the outer pair cannot supply — it lets the client route without a second fetch). One row SHALL be written per **active** conversation participant (`conversation_participants WHERE conversation_id = … AND left_at IS NULL`).
+
+The write SHALL use the **shipped admin notification pattern** — a raw in-transaction `INSERT INTO notifications (…)` mirroring `ReportResolutionRepository` / `UserModerationRepository` (which write `account_action_applied` the same way) — NOT the `NotificationEmitter` service path. Because it is a direct system INSERT (not a `NotificationEmitter` call site), no block-suppression or shadow-ban actor-masking applies, and the cross-capability shadow-ban rule (§ "NotificationEmitter write-path …") does not bind — both active participants are notified regardless of any block between them. Delivery is **in-app feed only** (no FCM push), consistent with the shipped admin `account_action_applied` notification (FCM push for admin-originated notifications is out of scope here).
+
+This adds the `chat_message_redacted` shape to the catalog (which until now defined shapes only for the five written types). With this change the catalog's descriptive counts became 6 written / 7 reserved (the § "notifications table" + § "body_data shape per emitted type" wording was reworded to match at archive time).
+
+#### Scenario: chat_message_redacted body_data shape
+- **WHEN** a `chat_message_redacted` notification is written for a redaction of message `<M>` in conversation `<C>`
+- **THEN** the row has `type = 'chat_message_redacted'`, `actor_user_id = NULL`, `target_type = 'message'`, `target_id = <M>` AND `body_data` is exactly `{"conversation_id": "<C>"}` (one key) — carrying no `content`, no `redaction_reason`, no `message_id`, no actor identity
+
+#### Scenario: System row reaches both participants despite a block
+- **GIVEN** two active participants with a `user_blocks` row between them
+- **WHEN** a redaction of a message in their conversation is applied
+- **THEN** a `chat_message_redacted` row is written for EACH active participant (the direct system INSERT applies no block-suppression)
+
+#### Scenario: One row per active participant (left participant excluded)
+- **GIVEN** a conversation with two active participants AND one whose `conversation_participants.left_at IS NOT NULL`
+- **WHEN** a redaction of a message in that conversation is applied
+- **THEN** `chat_message_redacted` rows are written only for the two active participants (none for the left participant)
+
+#### Scenario: Admin-originated redaction notification is not FCM-pushed
+- **WHEN** a `chat_message_redacted` notification is written
+- **THEN** it appears in the recipients' in-app `GET /api/v1/notifications` feed AND no FCM push is dispatched for it (matching the shipped admin `account_action_applied` behavior)
 

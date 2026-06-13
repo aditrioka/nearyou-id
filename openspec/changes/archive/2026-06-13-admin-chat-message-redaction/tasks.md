@@ -17,7 +17,7 @@
 
 ## 3. Templates (admin mockup frame 9)
 
-- [ ] 3.1 Render frame 9 (`dev/mockups/nearyou-admin-mockup.html` #f09) + generate its measurement annex (`dev/scripts/mockup-measure.sh nearyou-admin-mockup.html 9`) BEFORE building the template.
+- [x] 3.1 Render frame 9 (`dev/mockups/nearyou-admin-mockup.html` #f09) + generate its measurement annex (`dev/scripts/mockup-measure.sh nearyou-admin-mockup.html 9`) BEFORE building the template.
 - [x] 3.2 `templates/admin/chat-redaction.peb` (page) + HTMX fragment: ±2 context window (reported message highlighted), required reason input, Redact danger button, owner/admin warning banner; vendored vanilla CSS tokens lifted from the board `.frame` block; no-JS `<form method=post>` fallback; no client framework / CDN / inline styles; fluid per the frame-4b responsive contract.
 - [x] 3.3 `templates/admin/reports-table.peb`: render the "Redact message" deep-link (`/admin/chat-messages/{target_id}`) on `chat_message` report rows (additive to the existing sender link; no link on post/reply/user rows).
 
@@ -39,18 +39,18 @@
 
 ## 6. Verification + smoke (pre-archive — docs/11 §5 DoD)
 
-- [ ] 6.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally.
-- [ ] 6.2 `verify-loop` admin bring-up: load `GET /admin/chat-messages/{id}` and run a redaction round-trip (owner login + CSRF); attach screenshot evidence to the PR body.
-- [ ] 6.3 (SHOULD) staging branch deploy (`gh workflow run deploy-staging.yml --ref admin-chat-message-redaction`) + admin smoke of the redaction route before archive.
+- [x] 6.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally.
+- [x] 6.2 `verify-loop` admin bring-up: load `GET /admin/chat-messages/{id}` and run a redaction round-trip (owner login + CSRF); attach screenshot evidence to the PR body.
+- [~] 6.3 (SHOULD) staging branch deploy + admin smoke — **BLOCKED by pre-existing infra, not this change**: the staging Docker build fails for ALL branches incl. `main` (last 3 `main` deploys failed identically) because the Dockerfile's selective module-COPY list lacks `infra/supabase-realtime` (module added by #247, `settings.gradle.kts:56`) → gradle "projectDirectory does not exist" at config time. Fix in flight on branch `ci/dockerfile-settings-drift`. Runtime is instead covered by 6.2 (local verify-loop: live admin boot + redaction round-trip + DB confirmation) + full-suite CI; this change adds zero deploy config (no migration/secrets/env), so the smoke's deploy-config-drift purpose doesn't apply.
 
 ## 7. Mockup + docs reconciliation
 
 - [x] 7.1 Frame 9 caption: correct the path label `PATCH /admin/chat-messages/{id}/redact` → `POST …` (no-JS `<form>` fallback discipline); retag the frame toward shipped at archive.
-- [ ] 7.2 File a `follow-up` issue reconciling `docs/05-Implementation.md` § Direct Messaging redaction-UX wording ("recipient receives") with `docs/07` "affected conversation participants" (docs-stale, reconciliation bucket b — do NOT rewrite docs as part of this change).
+- [x] 7.2 File a `follow-up` issue reconciling `docs/05-Implementation.md` § Direct Messaging redaction-UX wording ("recipient receives") with `docs/07` "affected conversation participants" (docs-stale, reconciliation bucket b — do NOT rewrite docs as part of this change).
 - [ ] 7.3 At archive (spec-sync), reword the now-stale descriptive counts in `openspec/specs/in-app-notifications/spec.md` (§ "notifications table" + § "body_data shape per emitted type": "writes 5 of the 13 / 8 reserved" → "6 / 7", and add the `chat_message_redacted` shape to the catalog requirement) so the canonical spec doesn't self-contradict after this emit site activates.
 
 ## 8. OpenSpec lifecycle
 
 - [x] 8.1 `openspec validate admin-chat-message-redaction --strict` green.
-- [ ] 8.2 `/opsx:apply` lands feat commits on this branch; retitle PR `feat(admin): chat-message redaction` + refresh body.
+- [x] 8.2 `/opsx:apply` lands feat commits on this branch; retitle PR `feat(admin): chat-message redaction` + refresh body.
 - [ ] 8.3 `/opsx:archive` after 6.2 (+ 6.3) pass; sync specs; refresh PR body to merge-ready.
