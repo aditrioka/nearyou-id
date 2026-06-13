@@ -24,13 +24,13 @@
 
 ## 5. Mobile app wiring (`:mobile:app`)
 
-- [ ] 5.1 Add a `:infra:sentry` dependency to `:mobile:app` (API/interface only — confirm the SDK is not on the app's compile classpath).
-- [ ] 5.2 Bind `CrashReporter` in `di/MobileModule.kt`; provide platform actuals via androidMain/iosMain `di/PlatformModule.kt`.
-- [ ] 5.3 Resolve flavor-aware DSN + `environment` + `release` from the `/config` seam + flavor source sets (`dev`/`staging`/`production`).
-- [ ] 5.4 Initialize at startup before app code can crash (Android `Application.onCreate` / iOS entry); `App.kt` triggers it via Koin.
+- [x] 5.1 Add a `:infra:sentry` dependency to `:mobile:app` (API/interface only — confirm the SDK is not on the app's compile classpath).
+- [x] 5.2 Bind `CrashReporter` in `di/MobileModule.kt`; provide platform actuals via androidMain/iosMain `di/PlatformModule.kt`.
+- [x] 5.3 Resolve flavor-aware DSN + `environment` + `release` from the `/config` seam + flavor source sets (`dev`/`staging`/`production`).
+- [x] 5.4 Initialize at startup before app code can crash (Android `Application.onCreate` / iOS entry); `App.kt` triggers it via Koin.
 - [ ] 5.5 Consent gate (Decision 6): opt-out default ON; the consent settings toggle applies immediately (`close()` on decline, re-init on re-consent); cold-start reads last-known `crash` from the existing `ConsentSnapshotStore` (`data/consent`). Note the in-memory durability caveat — a decline survives process death only once #198 lands durable storage behind the same interface (consume that seam, do NOT fork a parallel store).
-- [ ] 5.6 `setUser(jwtSubject)` on the auth success path; `clearUser()` on logout. Never attach username/email/display-name.
-- [ ] 5.7 Swap the `DiagnosticSink` Koin binding to a Sentry breadcrumb sink, replacing `ConsoleDiagnosticSink`'s release drop-in (keep console output in debug). Do NOT fork a parallel diagnostics path.
+- [x] 5.6 `setUser(jwtSubject)` on the auth success path; `clearUser()` on logout. Never attach username/email/display-name.
+- [x] 5.7 Swap the `DiagnosticSink` Koin binding to a Sentry breadcrumb sink, replacing `ConsoleDiagnosticSink`'s release drop-in (keep console output in debug). Do NOT fork a parallel diagnostics path.
 
 ## 6. Symbolication
 

@@ -31,8 +31,12 @@ import id.nearyou.app.data.block.BlockedUsersRepository
 import id.nearyou.app.data.consent.ConsentSnapshotStore
 import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.diagnostics.CompositeDiagnosticSink
 import id.nearyou.app.diagnostics.ConsoleDiagnosticSink
 import id.nearyou.app.diagnostics.DiagnosticSink
+import id.nearyou.app.diagnostics.SentryBreadcrumbDiagnosticSink
+import id.nearyou.app.infra.sentry.CrashReporter
+import id.nearyou.app.infra.sentry.SentryCrashReporter
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import id.nearyou.app.infra.supabaserealtime.RealtimeTokenProvider
 import id.nearyou.app.infra.supabaserealtime.SupabaseChatRealtimeSubscriber
@@ -86,11 +90,24 @@ import kotlin.time.TimeSource
  */
 val mobileModule =
     module {
-        single { SessionInvalidator(get()) }
-        // mobile-session-expiry-and-proactive-refresh (D6) — the real coordinate-free diagnostic sink
-        // the timeline repositories wire (replacing their no-op default), so nearby/global network +
-        // 400 diagnostics are observable. Debug-only console output; no-op in release.
-        single<DiagnosticSink> { ConsoleDiagnosticSink(isDebugBuild) }
+        // mobile-crash-reporting — the Sentry-backed CrashReporter (single commonMain impl; the Sentry
+        // SDK is fenced inside :infra:sentry). Init runs at process startup in initKoin#startCrashReporting
+        // (opt-out default ON, consent-gated, blank-DSN no-op).
+        single<CrashReporter> { SentryCrashReporter() }
+        single { SessionInvalidator(get(), crashReporter = get()) }
+        // mobile-session-expiry-and-proactive-refresh (D6) — the real coordinate-free diagnostic sink the
+        // timeline repositories wire (replacing their no-op default), so nearby/global network + 400
+        // diagnostics are observable. mobile-crash-reporting lands the reserved "until a Sentry/OTel sink
+        // lands" seam: a composite fans each diagnostic to BOTH the debug console AND Sentry breadcrumbs —
+        // no parallel diagnostics path.
+        single<DiagnosticSink> {
+            CompositeDiagnosticSink(
+                listOf(
+                    ConsoleDiagnosticSink(isDebugBuild),
+                    SentryBreadcrumbDiagnosticSink(get()),
+                ),
+            )
+        }
         // mobile-session-expiry-and-proactive-refresh (D2) — the single-flight refresh round-trip,
         // shared by the bearer plugin's refreshTokens callback AND the proactive on-resume trigger.
         // Exactly ONE instance so an overlapping proactive + reactive refresh performs one POST.
@@ -112,6 +129,7 @@ val mobileModule =
                 authApiClient = get(),
                 tokenStore = get(),
                 sessionInvalidator = get(),
+                crashReporter = get(),
             )
         }
         // Bind the AuthFlow interface to the concrete AuthRepository so screens depend on the

@@ -1,5 +1,7 @@
 package id.nearyou.app.auth
 
+import id.nearyou.app.infra.sentry.CrashReporter
+import id.nearyou.app.infra.sentry.NoOpCrashReporter
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.datetime.LocalDate
 
@@ -47,6 +49,10 @@ class AuthRepository(
     // network cause). Wired to Sentry / OTel when that lands; no-op for now. MUST NOT carry
     // tokens (none are passed here).
     private val diagnosticLog: (String) -> Unit = {},
+    // mobile-crash-reporting — correlate crashes to the signed-in user (opaque JWT `sub` only) on a
+    // successful sign-in/signup. Defaults no-op so existing constructions/tests are unaffected;
+    // MobileModule binds the real reporter.
+    private val crashReporter: CrashReporter = NoOpCrashReporter,
 ) : AuthFlow {
     private val signInMutex = Mutex()
     private val signUpMutex = Mutex()
@@ -94,6 +100,7 @@ class AuthRepository(
         when (val api = authApiClient.signIn(idToken)) {
             is SignInApiResult.Success -> {
                 tokenStore.write(api.tokens)
+                decodeJwtSubject(api.tokens.accessToken)?.let(crashReporter::setUser)
                 SignInOutcome.Success
             }
             is SignInApiResult.NetworkError -> {
@@ -162,6 +169,7 @@ class AuthRepository(
         when (val api = authApiClient.signUp(idToken, dateOfBirth)) {
             is SignInApiResult.Success -> {
                 tokenStore.write(api.tokens)
+                decodeJwtSubject(api.tokens.accessToken)?.let(crashReporter::setUser)
                 SignUpOutcome.Success
             }
             is SignInApiResult.NetworkError -> {
