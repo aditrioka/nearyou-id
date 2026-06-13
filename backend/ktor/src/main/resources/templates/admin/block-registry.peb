@@ -1,0 +1,38 @@
+{% extends "layout.peb" %}
+
+{% block title %}Block Registry — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Block User Registry <span class="st neut">READ-ONLY</span></h2>
+<p class="pg-sub">Search block pairs in user_blocks — dispute resolution / support tickets only</p>
+
+{# Read-only registry over `user_blocks`. The admin never creates/removes a
+   block on behalf of a user — enforcement stays in the product path via the
+   bidirectional NOT-IN join (the BlockExclusionJoinRule invariant). There is
+   no action control of any kind on this surface. #}
+<div class="banner info">
+    Read-only — no create/remove block on behalf of a user. Block enforcement in the
+    product path stays via the bidirectional NOT-IN join (invariant BlockExclusionJoinRule).
+</div>
+
+{# Search form. hx-get swaps only the #block-registry-table fragment;
+   method=GET means it also works as plain navigation when JS is unavailable
+   (progressive enhancement). The single field matches by username OR user ID
+   on either side of the pair. All values are autoescaped. #}
+<div class="filterbar">
+    <form class="filters"
+          hx-get="/admin/blocks"
+          hx-target="#block-registry-table"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          method="GET">
+        <label class="field">
+            <span>Username or user ID (either side)</span>
+            <input type="search" name="q" value="{{ filters.q | default('') }}" placeholder="e.g. budi_kopi">
+        </label>
+        <button type="submit" class="btn filled">Search</button>
+    </form>
+</div>
+
+{% include "block-registry-table.peb" %}
+{% endblock %}

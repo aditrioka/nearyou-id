@@ -33,6 +33,7 @@ import id.nearyou.app.notifications.fakeNotification
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
+import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.profile.PROFILE_FOLLOWERS_TAG
 import id.nearyou.app.screens.timeline.FOLLOWING_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
@@ -161,6 +162,7 @@ class AppShellScreenTest {
                         FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(isSelf = true)))
                     }
                     single<SelfUserIdProvider> { FakeSelfUserId() }
+                    single { fakeFcmTokenRegistrar() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
@@ -456,6 +458,7 @@ class AppShellScreenTest {
                         FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(isSelf = true)))
                     }
                     single<SelfUserIdProvider> { FakeSelfUserId() }
+                    single { fakeFcmTokenRegistrar() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
