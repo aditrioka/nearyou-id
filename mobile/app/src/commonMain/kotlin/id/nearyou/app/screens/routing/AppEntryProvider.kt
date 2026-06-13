@@ -6,6 +6,8 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import id.nearyou.app.screens.auth.AgeGateScreen
 import id.nearyou.app.screens.auth.SignInScreen
+import id.nearyou.app.screens.chat.ChatThreadScreen
+import id.nearyou.app.screens.chat.ConversationListScreen
 import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
@@ -68,6 +70,9 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // onOpenPost to the Home section's HomeScreen.
             AppShellScreen(
                 onOpenComposer = { backStack.add(PostCreationRoute) },
+                // mobile-chat-screen (task 10.1): the Home brand app-bar "Pesan" action pushes the
+                // conversation list onto the root stack (overlaying the section bar, like PostDetailRoute).
+                onOpenChat = { backStack.add(ConversationListRoute) },
                 onOpenPost = { target ->
                     backStack.add(
                         PostDetailRoute(
@@ -142,6 +147,26 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // ProfileRoute is only ever appended ATOP HomeRoute (the card identity tap), so popping it
             // leaves HomeRoute. targetUserId = the route's resource key; onBack pops the overlay.
             ProfileScreen(targetUserId = route.userId, onBack = { backStack.removeLastOrNull() })
+        }
+        entry<ConversationListRoute> {
+            // The conversation list overlays the shell via the root stack (the Home app-bar "Pesan"
+            // action appended it ATOP HomeRoute). A row tap pushes the thread; back pops to the shell.
+            ConversationListScreen(
+                onBack = { backStack.removeLastOrNull() },
+                onOpenThread = { row ->
+                    backStack.add(
+                        ChatThreadRoute(
+                            conversationId = row.conversationId,
+                            partnerUsername = row.partnerUsername,
+                            partnerDisplayName = row.partnerDisplayName,
+                        ),
+                    )
+                },
+            )
+        }
+        entry<ChatThreadRoute> { route ->
+            // The thread overlays the list (appended ATOP ConversationListRoute); back pops to the list.
+            ChatThreadScreen(route = route, onBack = { backStack.removeLastOrNull() })
         }
         entry<SearchRoute> {
             // The Cari surface (mobile-search). `removeLastOrNull()` is size-safe: SearchRoute is only

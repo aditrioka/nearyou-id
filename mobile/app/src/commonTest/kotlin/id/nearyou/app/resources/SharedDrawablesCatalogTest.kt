@@ -1,6 +1,7 @@
 package id.nearyou.app.resources
 
 import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.ic_action_chat
 import id.nearyou.resources.generated.resources.ic_action_compose
 import id.nearyou.resources.generated.resources.ic_nav_home
 import id.nearyou.resources.generated.resources.ic_nav_home_filled
@@ -41,6 +42,8 @@ class SharedDrawablesCatalogTest {
             Res.drawable.ic_nav_profile_filled,
             // Composer action (icon-only FAB)
             Res.drawable.ic_action_compose,
+            // Home app-bar "Pesan" action (mobile-chat-screen)
+            Res.drawable.ic_action_chat,
             // Composer privacy-note shield (verified_user)
             Res.drawable.ic_privacy_shield,
             // Post-card affordances
@@ -53,10 +56,10 @@ class SharedDrawablesCatalogTest {
 
     @Test
     fun `all Material icon drawables for nav action and card affordances are declared`() {
-        // 6 bottom-nav (3 destinations x outlined/filled) + 1 composer add + 1 privacy shield
-        // + 5 post-card affordances (location + like outlined/filled + reply + time) = 13.
-        // No feed-tab icon (tabs are text-only).
-        assertEquals(13, allDeclaredDrawables.size)
+        // 6 bottom-nav (3 destinations x outlined/filled) + 1 composer add + 1 chat action
+        // + 1 privacy shield + 5 post-card affordances (location + like outlined/filled + reply
+        // + time) = 14. No feed-tab icon (tabs are text-only).
+        assertEquals(14, allDeclaredDrawables.size)
         assertEquals(allDeclaredDrawables.size, allDeclaredDrawables.distinct().size, "no duplicate accessors")
     }
 }
