@@ -1,0 +1,78 @@
+## 1. Pre-implementation re-check (substrate + wire)
+
+- [ ] 1.1 Fresh dated WebSearch (per `openspec/project.md` § Pre-implementation library re-check, PR #118): confirm the current stable **supabase-kt** version + its **Realtime** module artifact coordinates, and that it is compatible with the repo's Kotlin / coroutines / **Ktor 3.4.3** (supabase-kt 3.x requires Ktor ≥ 3.0; the okhttp + darwin engines on `:mobile:app` support WebSockets). Drop a one-line evidence note (`verified 2026-MM-DD: …`) in the first feat commit body. If the current build needs a Ktor bump, STOP and surface — do not silently bump a load-bearing dep.
+- [ ] 1.2 Verify the SHIPPED REST wire field-for-field against the deployed handlers (`ConversationRoutes.kt` / `ChatRoutes.kt` or equivalent + the realtime payload serializer): capture the exact JSON key casing for conversation rows (id, created_at, last_message_at, partner username/display_name/is_premium) and message rows (id, conversation_id, sender_id, content, created_at, redacted_at). DTOs are generated from THIS, not from spec JSON examples (design D9). Log any spec-vs-code casing drift as a backend `follow-up` issue (do not fix here).
+- [ ] 1.3 Render the canonical mockup frames + generate the measurement annex (`dev/scripts/mockup-measure.sh <board> 2` and `… 5`) for Frame 2 (conversation list) + Frame 5 (chat thread); translate spacing/typography/tokens to Compose per `docs/11` § 2.8 (consult before building UI — `mobile-ui-foundation`).
+
+## 2. `:core:domain` realtime-subscriber seam (vendor-free)
+
+- [ ] 2.1 Add `ChatRealtimeSubscriber` interface (`fun subscribe(conversationId: Uuid): Flow<ChatMessageInbound>`) + the `ChatMessageInbound` data class (id, conversationId, senderId, content: String?, createdAt: Instant, redactedAt: Instant?) to `:core:domain`. NO Supabase / vendor import (invariant #16 — verify the `VendorSdkLeakageScanRule` static scan finds zero `io.github.jan.supabase.*` in `:core:domain`).
+
+## 3. New `:infra:supabase-realtime` KMP module
+
+- [ ] 3.1 Create the module `infra/supabase-realtime/` with `androidTarget()` + `iosArm64()` + `iosSimulatorArm64()` (mirror `shared/resources/build.gradle.kts`'s target set + `android { namespace … }` block); depend on supabase-kt Realtime (pinned in 1.1) + the KMP Ktor client + `:core:domain`. NO `binaries.framework` (transitive dep of `:mobile:app`).
+- [ ] 3.2 Implement `SupabaseChatRealtimeSubscriber : ChatRealtimeSubscriber`: fetch the HS256 token via the injected realtime-token client, create the Supabase client with the (non-secret) project URL + publishable key from env/flavor config (NOT hard-coded literals — `secretKey`/flavor config), join channel `realtime:conversation:<lowercase-uuid>` (exact canonical form per `chat-realtime-broadcast` § Channel name format), map `broadcastFlow` payloads (9-key snake_case; parse-and-drop the three `embedded_*` keys + never read `redaction_reason`; `content: null` when redacted) → `ChatMessageInbound`; rejoin with a freshly-fetched token on transport drop; unsubscribe on flow cancellation. The vendor SDK import lives ONLY in this module.
+- [ ] 3.3 Register the module in `settings.gradle.kts`; add a one-line description to `dev/module-descriptions.txt`; run `dev/scripts/sync-readme.sh --write` (auto-generated-README invariant). Confirm `dev/scripts/sync-readme.sh --check` is clean.
+
+## 4. Bahasa Indonesia strings (`:shared:resources`)
+
+- [ ] 4.1 Add to `shared/resources/src/commonMain/composeResources/values/strings.xml` (additive; no earlier string altered): `chat_list_title` ("Pesan"), `chat_list_empty` (derived BI — no conversations yet), `chat_list_loading`, `chat_thread_input_placeholder` ("Tulis pesan…"), `chat_send` (content desc), `chat_message_redacted` ("Pesan ini telah dihapus"), `chat_send_blocked` = "Tidak dapat mengirim pesan ke user ini" (docs-verbatim), `chat_open_action` (the Home app-bar "Pesan" action contentDescription), `chat_account_deleted` ("Akun Dihapus" — matches the backend COALESCE placeholder), `notif_permission_rationale` (first-send prompt copy per docs/03 § Notification Permission). Flag derived copy for UX review in the PR body.
+- [ ] 4.2 Confirm the generated `Res.string.*` accessors compile for the new keys.
+
+## 5. Networking: DTOs + API clients
+
+- [ ] 5.1 `ConversationsApiClient`: `@Serializable` DTOs mirroring the SHIPPED `GET /api/v1/conversations` wire (per 1.2) — conversation row + partner profile fields + `nextCursor`/cursor token; `getConversations(cursor: String? = null)`. `createOrReturnConversation(recipientUserId: String)` → `POST /api/v1/conversations { recipient_user_id }`, returning a status-tagged result distinguishing 201/200/403/400/404 (NOT a thrown exception for non-2xx).
+- [ ] 5.2 `ChatMessagesApiClient`: `getMessages(conversationId, cursor: String? = null)` → `GET /api/v1/chat/{id}/messages` (DTOs mirror the shipped message wire incl. `content: String?`, `redacted_at: String?`; NO `redaction_reason` field); `sendMessage(conversationId, content)` → `POST /api/v1/chat/{id}/messages { content }` (body is `{ content }` ONLY — no `embedded_*`), status-tagged result distinguishing 201 (returns inserted row) / 400 (length/empty) / 403 (block) / 404 / 5xx.
+- [ ] 5.3 `RealtimeTokenApiClient`: `getRealtimeToken()` → `GET /api/v1/realtime/token` returning the HS256 token string. Bearer auth attached by the shipped `Auth` plugin (do not reimplement). The token is never logged, never written to disk.
+
+## 6. Repositories, outcomes, flows
+
+- [ ] 6.1 Sealed `ConversationListOutcome` (`Loaded(conversations, nextCursor)`, `NetworkError`, `Error`, `SessionExpired`) + `ConversationsFlow` interface; `ConversationsRepository : ConversationsFlow` status→outcome mapping (no generic fallthrough; 401 delegated to the `Auth` plugin → `SessionExpired`).
+- [ ] 6.2 Sealed `ChatThreadOutcome` (history `Loaded(messages, nextCursor)` / `NetworkError` / `Error` / `SessionExpired`) + sealed `SendOutcome` (`Sent(message)` / `Blocked` / `TooLong` / `NetworkError` / `Error` / `SessionExpired`) + `ChatFlow` interface; `ChatRepository : ChatFlow` mapping `GET`/`POST` statuses (403→`Blocked`, 400→`TooLong`/`Error`, etc.) + a `createOrReturn(recipientUserId)` returning the conversation id + status. No generic fallthrough.
+
+## 7. Pure UI state + projections (Compose-free)
+
+- [ ] 7.1 `ConversationListUiState` (Loading / Content(rows) / Empty / Error / SessionRedirect) + pure `conversationListUiState(outcome, isInitialLoad)` (mirror `globalTimelineUiState`). Rows carry ONLY display fields (partner username/displayName/isPremium + relative-time source) — no partner UUID PII.
+- [ ] 7.2 `ChatThreadUiState` + a pure message-merge function: given REST history + optimistic + realtime-inbound lists, produce one list deduplicated by message `id` (update-in-place so a later redaction flips `content` to null on the existing row), ordered by `(createdAt, id)`, projected to display rows (own-vs-other by `senderId == viewerId`; redacted rows → the redacted placeholder marker; consumer-side shadow-ban-self drop per D6). Carry NO PII beyond what renders (no raw coordinates; sender UUID used only for the own/other + filter decision, not rendered).
+- [ ] 7.3 Send-state projection: map `SendOutcome` → input-bar state (idle / sending / blocked-banner / too-long-inline / network-retry), client-side 1–2000-char + empty/whitespace guard BEFORE the request.
+
+## 8. ViewModels (route-scoped)
+
+- [ ] 8.1 `ConversationListViewModel` (`ConversationListRoute`-scoped): `isInitialLoad`/`isRefreshing` split (design-system pattern); first load on construct; `reload()` for pull-to-refresh + retry (reentrancy guard, mirror `GlobalTimelineViewModel`).
+- [ ] 8.2 `ChatThreadViewModel` (`ChatThreadRoute`-scoped): owns the merged message list (REST first page on construct; load-older cursor on scroll-up); collects `chatRealtimeSubscriber.subscribe(conversationId)` in `viewModelScope`, merging inbound by id (7.2); on (re)subscribe triggers a REST resync first-page merge (no-outbox recovery, D4); `send(content)` does optimistic append + `POST`, reconciling the server id, mapping `SendOutcome`; realtime/token failure degrades to REST-only (logged, no error chrome); subscription torn down on `onCleared`. A `startConversation(recipientUserId)` entry for the future profile caller (create-or-return → navigate to the thread).
+
+## 9. Screens + navigation + entry point
+
+- [ ] 9.1 `ConversationListScreen` (Frame 2): top bar `chat_list_title`; `LazyColumn` of conversation rows (partner identity + relative `last_message_at`) inside `PullToRefreshBox`; Loading skeleton / Empty (`chat_list_empty`) / Error (+ `cta_retry`) / SessionRedirect states, all inside a scrollable (design-system). Row tap → push `ChatThreadRoute` with the row's partner display fields. Every string via `stringResource`.
+- [ ] 9.2 `ChatThreadScreen` (Frame 5): top bar with partner display identity (from the route); message list (own-vs-other alignment; redacted → `chat_message_redacted` neutral bubble; load-older on scroll-up); a bottom input bar (`chat_thread_input_placeholder` + send action, 2000-char guard); send-blocked banner (`chat_send_blocked`) on `Blocked`; initial-load skeleton vs refresh per design-system. Realtime-appended messages animate in. Every string via `stringResource`.
+- [ ] 9.3 Add `ConversationListRoute` (`data object`) + `ChatThreadRoute` (`data class`, design D3) to `NavKeys.kt`; register both in the `navSavedStateConfiguration` polymorphic `SerializersModule`; wire `appEntryProvider` to map them to the screens (root-stack push, mirror `PostDetailRoute`). `ChatThreadRoute` carries NO partner UUID / coordinates.
+- [ ] 9.4 First-send notification-permission prompt: on the first successful `send` (per-install one-shot), show the `notif_permission_rationale` rationale then the platform permission request (expect/actual or the existing permission seam if one exists from `mobile-location-permission-flow`; reuse, don't duplicate). Independent of FCM token registration.
+
+## 10. Entry point — `mobile-home-tab-host` MODIFIED delta
+
+- [ ] 10.1 Add a "Pesan" trailing action (Material icon, `chat_open_action` contentDescription) to the Home brand app bar; tapping it pushes `ConversationListRoute` onto the root back stack (hoisted callback wired at the `AppShellScreen`/host call site, mirroring `onOpenPost`). Do NOT edit the Profil-section or Following-tab requirements (#245/#246 own those) — keep this delta to the app-bar action only. Note the three-way host coordination in the PR body.
+
+## 11. Koin wiring
+
+- [ ] 11.1 Register in `MobileModule.kt`: the three API clients; `ConversationsRepository` + `ChatRepository` bound behind `ConversationsFlow`/`ChatFlow`; `SupabaseChatRealtimeSubscriber` bound behind `ChatRealtimeSubscriber`; the two ViewModels via `viewModel { … }`. Confirm DI resolves on app start (no missing binding).
+
+## 12. Tests
+
+- [ ] 12.1 `ConversationListUiStateTest` + `ChatThreadUiState` merge/projection tests (commonTest): deterministic outcome→state; the message-merge dedupes by id (REST+optimistic+realtime same id ⇒ one row; later redaction flips content to null in place; ordering by (createdAt,id)); send-state projection (idle/sending/blocked/too-long/network); assert NO PII (no partner/sender UUID, no coordinates) in projected display rows.
+- [ ] 12.2 MockEngine `ConversationsApiClientTest` / `ChatMessagesApiClientTest` / `RealtimeTokenApiClientTest` (commonTest): request shapes (`/api/v1/conversations`, `/api/v1/chat/{id}/messages` GET+POST, `/api/v1/realtime/token`); send body is `{ content }` with NO `embedded_*` keys; parse against the SHIPPED wire (per 1.2) incl. `content: null` + `redacted_at` present + `redaction_reason` ABSENT; a regression case asserting a body carrying `redaction_reason` does NOT surface it; status→outcome mapping (201/200/403/400/404/5xx) with no fallthrough; cursor present + absent.
+- [ ] 12.3 A `FakeChatRealtimeSubscriber` (commonTest) emitting a scripted `Flow<ChatMessageInbound>`; a `ChatThreadViewModel` test asserting an inbound realtime message with a new id appends, one with an existing id collapses (dedupe), a redaction inbound flips an existing row, and `onCleared` cancels the subscription (collection stops). A token/realtime-failure test asserting the thread stays in REST-only usable state (send still maps via REST; no error chrome from the realtime failure).
+- [ ] 12.4 Robolectric screen tests (`androidUnitTest`, `runComposeUiTest` + `KoinContext` + fakes): `ConversationListScreenTest` (each state renders; row tap pushes the thread route; partner `Akun Dihapus` placeholder renders; no UUID in tree); `ChatThreadScreenTest` (history renders own/other alignment; redacted bubble renders `chat_message_redacted` not an empty/`null` literal; send-blocked banner on `Blocked`; 2000-char guard blocks send; initial-load vs refresh shows exactly one indicator). Add `**/ConversationListScreenTest*` + `**/ChatThreadScreenTest*` to the Release-variant exclude block; verify `:mobile:app:testDevReleaseUnitTest` passes.
+- [ ] 12.5 No-hardcoded-strings grep over the new chat source in commonMain/androidMain/iosMain (per `shared-resources` spec § negative-requirement grep): zero hardcoded UI string literals.
+- [ ] 12.6 Full local gate (CLAUDE.md pre-push): `./gradlew ktlintCheck detekt :mobile:app:testDebugUnitTest :mobile:app:testDevReleaseUnitTest :lint:detekt-rules:test` + the new module's compile (`:infra:supabase-realtime:compileKotlinIosSimulatorArm64` / `:…:testDebugUnitTest` as applicable) + confirm `:core:domain` vendor-leakage scan is clean + `:backend:ktor:test` still green (no backend touched, sanity).
+
+## 13. Docs / Pattern Registry
+
+- [ ] 13.1 Amend `docs/11-Engineering-Standards.md` § Pattern Registry: register the **mobile realtime-consumer seam** (`ChatRealtimeSubscriber` in `:core:domain` + `:infra:*` impl, consumed by a ViewModel merging a cold inbound `Flow` with id-dedupe + lifecycle-scoped subscribe/unsubscribe) as the canonical pattern for future realtime consumers (design § Standards conformance).
+
+## 14. Follow-up issues (deferred scope — NOT silent cuts)
+
+- [ ] 14.1 File `follow-up` issues (`gh`/MCP `issue_write`, label `follow-up` + `mobile`): (a) `chat-embedded-posts` (embedded-post context card + edit-history nav, blocked on `post-edit-history`); (b) profile "Kirim pesan" entry wiring (after PR #245 merges); (c) per-conversation unread badge + `last_read_at` write (needs a backend endpoint first — design D8); (d) any spec-vs-code wire casing drift found in 1.2.
+
+## 15. Manual verification (docs/11 §5 DoD)
+
+- [ ] 15.1 Staging build on a real device (`scripts/run_on_device.sh` / `scripts/test_android.sh`) — sign in → open Pesan → conversation list renders; open a thread → history renders; send a message → optimistic append + 201 reconcile. Two-device (or device + admin-seeded second account) smoke: send from A, observe it append LIVE on B without refresh (realtime), and observe a redaction flip. Capture screenshots/video into the PR body (UI-affecting change evidence).
