@@ -19,6 +19,7 @@ import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.FakeCreatePostFlow
+import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
@@ -74,6 +75,7 @@ class HomeScreenFabTest {
                     // HomeRoute now maps to the AppShellScreen section shell, whose unread badge injects a
                     // NotificationsFlow (empty/0 fake — these tests exercise the Home section, not the badge).
                     single<NotificationsFlow> { FakeNotificationsFlow() }
+                    single { fakeFcmTokenRegistrar() }
                 },
             )
         }

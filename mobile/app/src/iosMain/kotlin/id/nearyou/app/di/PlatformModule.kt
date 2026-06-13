@@ -7,6 +7,8 @@ import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.location.IosLocationPermissionController
 import id.nearyou.app.location.IosLocationProvider
 import id.nearyou.app.location.LocationPermissionController
+import id.nearyou.app.push.FcmTokenProvider
+import id.nearyou.app.push.IosFcmTokenProvider
 import id.nearyou.app.timeline.LocationProvider
 import org.koin.core.module.Module
 import org.koin.core.qualifier.named
@@ -22,4 +24,7 @@ actual val platformModule: Module =
         // consumers inject is the CachingLocationProvider decorator (mobileModule) wrapping this.
         single<LocationProvider>(named("deviceLocation")) { IosLocationProvider() }
         single<LocationPermissionController> { IosLocationPermissionController() }
+        // mobile-fcm-token-registration — the iOS FCM token provider (Firebase Messaging Pod). The
+        // vendor SDK import is confined to this actual (FcmPushSourceGuardTest enforces the boundary).
+        single<FcmTokenProvider> { IosFcmTokenProvider() }
     }
