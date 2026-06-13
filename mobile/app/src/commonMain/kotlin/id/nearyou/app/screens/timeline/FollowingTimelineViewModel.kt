@@ -75,6 +75,13 @@ class FollowingTimelineViewModel(
     /** Clears the one-shot cap-dialog state (the dialog's dismiss + v1 Premium-CTA wiring). */
     fun onLikeCapDialogDismissed() = likeController.onCapDialogDismissed()
 
+    /** Resolves the tapped card's author UUID from the RAW [FollowingTimelineOutcome] (the DTO carries
+     *  `author_user_id`, never rendered/serialized into the PII-free card model). Returns null when the
+     *  post is no longer in the loaded set. The host uses it to push `ProfileRoute(authorUserId)`
+     *  (`mobile-profile` — the card identity tap), keeping the screen navigation-free. */
+    fun authorUserIdForPost(postId: String): String? =
+        (_outcome.value as? FollowingTimelineOutcome.Loaded)?.posts?.firstOrNull { it.id == postId }?.authorUserId
+
     /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
     fun reload() {
         // Reentrancy guard (mirrors Global/Nearby): stacked PTR + retry taps would otherwise race

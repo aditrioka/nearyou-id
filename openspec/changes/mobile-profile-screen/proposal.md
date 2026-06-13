@@ -28,6 +28,7 @@ This change ships the **mobile Profil screen** — the keystone of the remaining
 - `mobile-post-card`: the identity header (avatar + display name + @handle) becomes a separate tap target invoking a hoisted `onOpenProfile` callback; the card model still carries **no author UUID** (the host binds the userId by closure), and the whole-card `onOpen` still fires for taps outside the identity region and the two action affordances.
 - `mobile-nearby-timeline`: the Nearby card's identity wires a hoisted `onOpenProfile` carrying the `authorUserId` the screen already parses (never rendered, never serialized into the card payload); the screen stays navigation-free.
 - `mobile-global-timeline`: the Global card's identity wires the same hoisted `onOpenProfile`.
+- `mobile-following-timeline`: the Following card's identity wires the same hoisted `onOpenProfile` (this capability merged via #246 after this proposal opened; integrated at rebase so profile is reachable from all three feeds, and to fix its now-stale `mobile-post-card` reference).
 
 ## Impact
 

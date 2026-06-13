@@ -139,6 +139,7 @@ fun HomeScreen(
                             onSeeGlobal = { scope.launch { pagerState.animateScrollToPage(Tab.Global.ordinal) } },
                             onOpenPost = { post -> onOpenPost(post.toTarget()) },
                             onOpenPostReply = { post -> onOpenPostReply(post.toTarget()) },
+                            onOpenProfile = onOpenProfile,
                         )
                     Tab.Global ->
                         GlobalTimelineScreen(

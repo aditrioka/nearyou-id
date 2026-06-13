@@ -72,6 +72,7 @@ private const val SECTION_HOME = "Beranda" // section_home
 private const val SECTION_NOTIFICATIONS = "Notifikasi" // section_notifications
 private const val SECTION_PROFILE = "Profil" // section_profile
 private const val TAB_FOLLOWING = "Mengikuti" // tab_following
+
 /** Fake self-id provider so the Profil section's live self [id.nearyou.app.screens.profile.ProfileScreen]
  *  resolves a target id without a real token (mobile-profile). */
 private class FakeSelfUserId(private val id: String? = "self-1") : SelfUserIdProvider {
