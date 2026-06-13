@@ -74,7 +74,7 @@ data class ChatMessageInbound(
 )
 ```
 
-The three `embedded_*` payload keys are intentionally **dropped** at the boundary (parsed-and-ignored; this change does not render embeds — D7); `redaction_reason` is never on the wire. `senderId` is carried so the ViewModel can apply own-vs-other alignment and the consumer-side shadow-ban filter (D6) without a re-fetch. The infra impl (D1) translates supabase-kt's `RealtimeChannel.broadcastFlow(...)` payloads into `ChatMessageInbound`, fetches the HS256 token via the injected `RealtimeTokenApiClient` before joining, and refreshes the token on the 1h-expiry reconnect (D4).
+The three `embedded_*` payload keys are intentionally **dropped** at the boundary (parsed-and-ignored; this change does not render embeds — D7); `redaction_reason` is never on the wire. `senderId` is carried so the ViewModel can apply own-vs-other alignment without a re-fetch (shadow-ban is server-authoritative — no client ban-gate, D6). The infra impl (D1) translates supabase-kt's `RealtimeChannel.broadcastFlow(...)` payloads into `ChatMessageInbound`, fetches the HS256 token via the injected `RealtimeTokenApiClient` before joining, and re-fetches a fresh token on reconnect / before expiry per the response's `expires_in` (D4).
 
 This **mirrors** the shipped backend `ChatRealtimeClient` publish interface (also in `:core:domain`, vendor-free) — the publish/subscribe split is symmetric and the post-swap `KtorWebSocket*` implementations replace both behind the same two interfaces.
 
