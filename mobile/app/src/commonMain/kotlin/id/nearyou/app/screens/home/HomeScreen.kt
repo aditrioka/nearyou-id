@@ -123,8 +123,8 @@ fun HomeScreen(
                 // Each feed page composes DIRECTLY under the shell's HomeRoute NavEntry (no per-tab
                 // NavDisplay), so each feed's viewModel { } resolves to the HomeRoute store (design D1/D2)
                 // — swiping/tapping between feeds OR switching bottom-nav sections and returning does not
-                // re-fetch. The Nearby + Global cards hoist onOpenPost (mapped card → PostDetailTarget);
-                // Following (a placeholder with no cards) wires none.
+                // re-fetch. All three feed cards hoist onOpenPost/onOpenPostReply (mapped card →
+                // PostDetailTarget); Nearby + Following additionally hoist onSeeGlobal (empty-state CTA).
                 when (Tab.entries[page]) {
                     Tab.Nearby ->
                         NearbyTimelineScreen(

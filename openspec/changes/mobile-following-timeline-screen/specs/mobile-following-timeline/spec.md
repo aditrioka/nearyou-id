@@ -116,7 +116,7 @@ The `authorUsername` / `authorDisplayName` fields are required non-null `String`
 The screen SHALL render one of six visual states, all copy via `stringResource`, following the canonical loading/refresh pattern (`mobile-design-system` § "Canonical list loading and refresh pattern" — never two simultaneous progress indicators):
 - **Loading** (initial load, no content yet) → a skeleton placeholder list AND a node with `stringResource(Res.string.timeline_loading)`, with at most one in-content indicator; the pull-to-refresh spinner is NOT shown during the initial load.
 - **Content** (`Loaded` with non-empty posts) → the post-card list. During a **refresh** of already-loaded content the screen SHALL continue rendering the `Content` state (the post list stays mounted) with the pull-to-refresh spinner shown over it — it MUST NOT revert to the `Loading` skeleton.
-- **Empty** (`Loaded`, empty posts, no `upsell`) → the **directive** empty state: a node with `stringResource(Res.string.timeline_following_placeholder)` ("*Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu.*") AND a control labelled `stringResource(Res.string.cta_see_global)` ("*Lihat Global*") that invokes the hoisted `onSwitchToGlobal` lambda (per § "The empty-state CTA switches the Home pager to the Global tab"). This is the deliberate divergence from Global-empty (which reuses the loading-skeleton copy): Following-empty is a real expected state that, per `docs/03-UX-Design.md` § Empty State, MUST direct the user to Nearby/Global. The empty state SHALL be rendered inside a scrollable so pull-to-refresh is recognized from it. NO new string key is added (both keys already exist in `:shared:resources`).
+- **Empty** (`Loaded`, empty posts, no `upsell`) → the **directive** empty state: a node with `stringResource(Res.string.timeline_following_placeholder)` ("*Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu.*") AND a control labelled `stringResource(Res.string.cta_see_global)` ("*Lihat Global*") that invokes the hoisted `onSeeGlobal` lambda (per § "The empty-state CTA switches the Home pager to the Global tab"). This is the deliberate divergence from Global-empty (which reuses the loading-skeleton copy): Following-empty is a real expected state that, per `docs/03-UX-Design.md` § Empty State, MUST direct the user to Nearby/Global. The empty state SHALL be rendered inside a scrollable so pull-to-refresh is recognized from it. NO new string key is added (both keys already exist in `:shared:resources`).
 - **Error** (`NetworkError` or retryable `Error`) → a node with `stringResource(Res.string.signin_error_network)` AND a retry control labelled `stringResource(Res.string.cta_retry)`.
 - **Rate-limit hard** (`Loaded`, empty posts, `upsell.hard = true`) → a node with `stringResource(Res.string.timeline_limit_hard)` (distinct from the empty copy).
 - **Rate-limit soft** (`Loaded`, non-empty posts, `upsell.soft = true`) → the post list AND a non-blocking banner with `stringResource(Res.string.timeline_limit_soft)`.
@@ -151,13 +151,13 @@ The screen state SHALL be modeled as a Compose-free `FollowingTimelineUiState` d
 
 ### Requirement: The empty-state CTA switches the Home pager to the Global tab
 
-`FollowingTimelineScreen` SHALL hoist an `onSwitchToGlobal: () -> Unit` lambda invoked by the empty-state "*Lihat Global*" (`cta_see_global`) control. The screen MUST NOT hold a reference to the pager or the back stack — the pager scroll is owned by the host (`mobile-home-tab-host` wires `onSwitchToGlobal` to `pagerState.animateScrollToPage(<Global page index>)`). When the feed is non-empty, no such control is rendered.
+`FollowingTimelineScreen` SHALL hoist an `onSeeGlobal: () -> Unit` lambda invoked by the empty-state "*Lihat Global*" (`cta_see_global`) control. The screen MUST NOT hold a reference to the pager or the back stack — the pager scroll is owned by the host (`mobile-home-tab-host` wires `onSeeGlobal` to `pagerState.animateScrollToPage(<Global page index>)`). When the feed is non-empty, no such control is rendered.
 
 #### Scenario: Tapping "Lihat Global" invokes the hoisted callback
 
-- **GIVEN** `FollowingTimelineScreen` composed in the `Empty` state with a recording `onSwitchToGlobal` callback
+- **GIVEN** `FollowingTimelineScreen` composed in the `Empty` state with a recording `onSeeGlobal` callback
 - **WHEN** the "*Lihat Global*" control is activated
-- **THEN** `onSwitchToGlobal` fires exactly once AND the screen issues no back-stack push of its own
+- **THEN** `onSeeGlobal` fires exactly once AND the screen issues no back-stack push of its own
 
 #### Scenario: The CTA is absent when the feed has content
 
