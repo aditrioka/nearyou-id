@@ -86,6 +86,7 @@ fun FollowingTimelineScreen(
     onSeeGlobal: () -> Unit = {},
     onOpenPost: (FollowingTimelinePost) -> Unit = {},
     onOpenPostReply: (FollowingTimelinePost) -> Unit = {},
+    onOpenProfile: (authorUserId: String) -> Unit = {},
 ) {
     val flow = koinInject<FollowingTimelineFlow>()
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
@@ -115,6 +116,9 @@ fun FollowingTimelineScreen(
         // which pushes PostDetailRoute(focusReplyComposer = true)).
         onToggleLike = { post -> viewModel.toggleLike(post.id, post.likedByViewer) },
         onReplyShortcut = onOpenPostReply,
+        // Identity tap → author profile: resolve the author UUID from the VM's raw DTO outcome (never on
+        // the PII-free card model) and hand it to the hoisted onOpenProfile (mobile-profile).
+        onOpenProfile = { post -> viewModel.authorUserIdForPost(post.id)?.let(onOpenProfile) },
     )
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18) — same one-shot wiring as Nearby/Global;
@@ -147,6 +151,7 @@ private fun FollowingTimelineContent(
     onOpenPost: (FollowingTimelinePost) -> Unit,
     onToggleLike: (FollowingTimelinePost) -> Unit,
     onReplyShortcut: (FollowingTimelinePost) -> Unit,
+    onOpenProfile: (FollowingTimelinePost) -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -170,6 +175,7 @@ private fun FollowingTimelineContent(
                     onOpenPost = onOpenPost,
                     onToggleLike = onToggleLike,
                     onReplyShortcut = onReplyShortcut,
+                    onOpenProfile = onOpenProfile,
                 )
             is FollowingTimelineUiState.SoftLimit ->
                 PostList(
@@ -177,6 +183,7 @@ private fun FollowingTimelineContent(
                     onOpenPost = onOpenPost,
                     onToggleLike = onToggleLike,
                     onReplyShortcut = onReplyShortcut,
+                    onOpenProfile = onOpenProfile,
                     banner = stringResource(Res.string.timeline_limit_soft),
                 )
         }
@@ -288,6 +295,7 @@ private fun PostList(
     onOpenPost: (FollowingTimelinePost) -> Unit,
     onToggleLike: (FollowingTimelinePost) -> Unit,
     onReplyShortcut: (FollowingTimelinePost) -> Unit,
+    onOpenProfile: (FollowingTimelinePost) -> Unit,
     banner: String? = null,
 ) {
     LazyColumn(
@@ -311,6 +319,7 @@ private fun PostList(
                 onOpen = { onOpenPost(post) },
                 onToggleLike = { onToggleLike(post) },
                 onReplyShortcut = { onReplyShortcut(post) },
+                onOpenProfile = { onOpenProfile(post) },
                 modifier = Modifier.testTag(FOLLOWING_POST_CARD_TAG),
             )
         }

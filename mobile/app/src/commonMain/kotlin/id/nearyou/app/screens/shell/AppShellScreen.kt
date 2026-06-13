@@ -40,7 +40,7 @@ import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.screens.home.HomeScreen
 import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.screens.notifications.NotificationsScreen
-import id.nearyou.app.screens.profile.ProfilePlaceholderScreen
+import id.nearyou.app.screens.profile.ProfileScreen
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.app_name
 import id.nearyou.resources.generated.resources.chat_open_action
@@ -73,7 +73,8 @@ import org.koin.compose.koinInject
  * section shell"). A Material 3 `Scaffold` whose `bottomBar` is a `NavigationBar` of three top-level
  * sections — **Home / Notifikasi / Profil** — over a body that renders the selected section's content via
  * `when(selectedSection)` (design D3): Home → [HomeScreen] (the feed tab host + composer FAB), Notifikasi
- * → [NotificationsScreen], Profil → [ProfilePlaceholderScreen].
+ * → [NotificationsScreen], Profil → the live self [ProfileScreen] (`mobile-profile`; `targetUserId = null`
+ * → the VM resolves the self id from the session).
  *
  * This shell `Scaffold` is the **single inset-owning `Scaffold`** for the authenticated surface
  * (mobile-design-system § "The app shell owns a single Scaffold and window insets" / design D1): the
@@ -112,6 +113,7 @@ fun AppShellScreen(
     onOpenChat: () -> Unit = {},
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
+    onOpenProfile: (authorUserId: String) -> Unit = {},
     onOpenSearch: () -> Unit = {},
 ) {
     val flow = koinInject<NotificationsFlow>()
@@ -192,6 +194,7 @@ fun AppShellScreen(
                         onOpenComposer = onOpenComposer,
                         onOpenPost = onOpenPost,
                         onOpenPostReply = onOpenPostReply,
+                        onOpenProfile = onOpenProfile,
                     )
                 Section.Notifikasi -> {
                     NotificationsScreen()
@@ -201,7 +204,9 @@ fun AppShellScreen(
                         onDispose { scope.launch { unreadCount = flow.unreadCount() ?: 0L } }
                     }
                 }
-                Section.Profil -> ProfilePlaceholderScreen()
+                // The live self profile (mobile-profile): targetUserId = null → the VM resolves the self
+                // id from the session; onBack = null → inset-free section body, no own Scaffold/back bar.
+                Section.Profil -> ProfileScreen(targetUserId = null, onBack = null)
             }
         }
     }

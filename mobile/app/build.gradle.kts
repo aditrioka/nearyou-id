@@ -297,7 +297,7 @@ tasks.named("check") {
 // The Robolectric Compose UI tests (SignInScreenTest / RootRouterScreenTest / AgeGateScreenTest /
 // NearbyTimelineScreenTest / NearbyLocationGateScreenTest / NearYouThemeTest / PostCreationScreenTest /
 // HomeScreenFabTest / GlobalTimelineScreenTest / FollowingTimelineScreenTest / HomeTabHostScreenTest /
-// NotificationsScreenTest / AppShellScreenTest / PostDetailScreenTest / PostCardTest /
+// NotificationsScreenTest / AppShellScreenTest / PostDetailScreenTest / PostCardTest / ProfileScreenTest /
 // ConversationListScreenTest / ChatThreadScreenTest / SearchScreenTest) need the debug-only
 // `androidx.compose.ui:ui-test-manifest` ComponentActivity, which is NOT merged into release variants —
 // so `./gradlew test` (all variants) fails `testDevReleaseUnitTest` etc. with a host-activity
@@ -325,6 +325,7 @@ tasks.withType<Test>().configureEach {
             "**/PostDetailScreenTest*",
             "**/PostCardTest*",
             "**/DailyCapUpsellDialogTest*",
+            "**/ProfileScreenTest*",
             "**/ConversationListScreenTest*",
             "**/ChatThreadScreenTest*",
             "**/SearchScreenTest*",

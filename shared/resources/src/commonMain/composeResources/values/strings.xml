@@ -212,6 +212,40 @@
     <string name="cta_activate_premium">Aktifkan Premium</string>
     <string name="cap_countdown_hours_minutes" formatted="true">%1$d j %2$d mnt</string>
     <string name="cap_countdown_minutes" formatted="true">%1$d mnt</string>
+    <!-- mobile-profile: the live Profil surface (view own + other users, follow/unfollow, block, report).
+         Counts are static (lists deferred). Report categories mirror docs/03-UX-Design.md § Report UX;
+         block copy mirrors docs/03 § Block User UX. The neutral follow-TargetGone / generic-failure copy
+         is direction-less (the constant 404 carries no cause). -->
+    <string name="profile_followers_count" formatted="true">%1$d Pengikut</string>
+    <string name="profile_following_count" formatted="true">%1$d Mengikuti</string>
+    <string name="profile_premium_badge">Premium</string>
+    <string name="profile_premium_badge_icon_description">Akun Premium</string>
+    <string name="profile_follow">Ikuti</string>
+    <string name="profile_unfollow">Mengikuti</string>
+    <string name="profile_actions_menu_description">Opsi lainnya</string>
+    <string name="profile_block_action" formatted="true">Blokir @%1$s</string>
+    <string name="profile_report_action">Laporkan</string>
+    <string name="profile_block_confirm_title" formatted="true">Blokir @%1$s?</string>
+    <string name="profile_block_confirm_body">Kalian berdua tidak akan saling melihat post, profil, atau bisa memulai percakapan baru.</string>
+    <string name="cta_block">Blokir</string>
+    <string name="profile_block_success_toast">Pengguna telah diblokir</string>
+    <string name="profile_report_reason_title">Laporkan pengguna ini</string>
+    <string name="report_reason_spam">Spam</string>
+    <string name="report_reason_hate_speech_sara">Ujaran kebencian (SARA)</string>
+    <string name="report_reason_harassment">Pelecehan</string>
+    <string name="report_reason_adult_content">Konten dewasa</string>
+    <string name="report_reason_misinformation">Misinformasi</string>
+    <string name="report_reason_other">Lainnya</string>
+    <string name="profile_report_note_placeholder">Jelaskan lebih detail jika perlu</string>
+    <string name="profile_report_submit">Kirim laporan</string>
+    <string name="profile_report_success_toast">Laporan terkirim. Tim moderasi akan meninjau.</string>
+    <string name="profile_report_duplicate">Kamu sudah melaporkan pengguna ini.</string>
+    <string name="profile_follow_rate_limited">Terlalu banyak aksi ikuti. Coba lagi nanti.</string>
+    <string name="profile_block_rate_limited">Terlalu banyak aksi blokir. Coba lagi nanti.</string>
+    <string name="profile_report_rate_limited">Terlalu banyak laporan. Coba lagi nanti.</string>
+    <string name="profile_not_found">Pengguna tidak ditemukan.</string>
+    <string name="profile_action_user_unavailable">Pengguna tidak tersedia.</string>
+    <string name="profile_action_failed">Gagal. Coba lagi.</string>
     <!-- mobile-chat-screen (mockup frames 2 + 5): 1:1 chat. chat_send_blocked is the docs-verbatim
          block string (docs/02 §5 + chat-conversations spec); chat_account_deleted matches the backend
          COALESCE placeholder ("Akun Dihapus"). The empty/redacted/permission copy is derived BI

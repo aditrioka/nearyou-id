@@ -3,8 +3,10 @@ package id.nearyou.app.di
 import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.AuthRepository
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenRefresher
+import id.nearyou.app.auth.TokenStoreSelfUserIdProvider
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.ChatMessagesApiClient
 import id.nearyou.app.chat.ChatRepository
@@ -43,6 +45,9 @@ import id.nearyou.app.post.PostCreationApiClient
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostDetailRepository
 import id.nearyou.app.post.ReplyApiClient
+import id.nearyou.app.profile.ProfileApiClient
+import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.profile.ProfileRepository
 import id.nearyou.app.push.FcmTokenApiClient
 import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.screens.routing.PendingReturnDestination
@@ -237,6 +242,21 @@ val mobileModule =
         // duplicate status→LikeOutcome mapping).
         single<LikeFlow> { get<PostDetailRepository>() }
 
+        // mobile-profile — the profile surface graph (read + follow/block/report). Reuses the shared
+        // HttpClient (Bearer via the Auth plugin; NO X-Session-Id — none of these endpoints are
+        // session-soft-capped). ProfileRepository is bound behind the ProfileFlow seam so a
+        // FakeProfileFlow drives the screen/VM tests (the concrete stays resolvable). SelfUserIdProvider
+        // decodes the access token's `sub` from the TokenStore so the Profil section resolves the self id.
+        single { ProfileApiClient(get()) }
+        single {
+            val sink = get<DiagnosticSink>()
+            ProfileRepository(
+                get(),
+                diagnosticLog = { status, errorCode -> sink.log("profile_error: status=$status code=$errorCode") },
+            )
+        }
+        single<ProfileFlow> { get<ProfileRepository>() }
+        single<SelfUserIdProvider> { TokenStoreSelfUserIdProvider(get()) }
         // mobile-chat-screen — the 1:1 chat graph (conversation list + thread + realtime).
         //  - Three API clients over the shared (bearer-authed) HttpClient; NO X-Session-Id (chat
         //    endpoints are not session-soft-capped).

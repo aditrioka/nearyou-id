@@ -11,6 +11,7 @@ import id.nearyou.app.screens.chat.ConversationListScreen
 import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
+import id.nearyou.app.screens.profile.ProfileScreen
 import id.nearyou.app.screens.search.SearchScreen
 import id.nearyou.app.screens.shell.AppShellScreen
 import org.koin.compose.koinInject
@@ -106,6 +107,10 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                         ),
                     )
                 },
+                // The card identity tap (mobile-profile): push the author's profile onto the root stack.
+                // The host receives the resolved authorUserId (the screens resolve it from the VM's raw
+                // DTO outcome — never on the PII-free card model); ProfileRoute carries only that id.
+                onOpenProfile = { authorUserId -> backStack.add(ProfileRoute(authorUserId)) },
                 // The Home brand app bar's search action (mobile-search) → push the parameterless
                 // SearchRoute onto the root stack (above the shell, overlaying the section bar). Same
                 // call-site mechanism as onOpenComposer; the shell + app bar hold no back-stack reference.
@@ -136,6 +141,12 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // `removeLastOrNull()` is size-safe: PostDetailRoute is only ever appended ATOP HomeRoute
             // (the feed card tap), so popping it leaves HomeRoute — never an empty stack.
             PostDetailScreen(route = route, onBack = { backStack.removeLastOrNull() })
+        }
+        entry<ProfileRoute> { route ->
+            // The other-user profile overlay (mobile-profile). `removeLastOrNull()` is size-safe:
+            // ProfileRoute is only ever appended ATOP HomeRoute (the card identity tap), so popping it
+            // leaves HomeRoute. targetUserId = the route's resource key; onBack pops the overlay.
+            ProfileScreen(targetUserId = route.userId, onBack = { backStack.removeLastOrNull() })
         }
         entry<ConversationListRoute> {
             // The conversation list overlays the shell via the root stack (the Home app-bar "Pesan"

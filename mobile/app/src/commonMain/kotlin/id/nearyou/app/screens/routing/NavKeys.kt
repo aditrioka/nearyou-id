@@ -101,6 +101,25 @@ data class PostDetailRoute(
 ) : NavKey
 
 /**
+ * Other-user profile surface ([id.nearyou.app.screens.profile.ProfileScreen]), opened by tapping a feed
+ * card's author identity (pushed onto the ROOT back stack above [HomeRoute], overlaying the tab bar —
+ * the same mechanism [PostDetailRoute] uses). The second **payload-carrying** route, so it MUST be
+ * `@Serializable` AND registered in the `navSavedStateConfiguration` polymorphic `SerializersModule`.
+ *
+ * Carries ONLY [userId] — the resource key the keyed read (`GET /api/v1/users/{userId}`) structurally
+ * requires (a profile route without it is impossible). The id is the target user's UUID, supplied by the
+ * host from the timeline DTO's `author_user_id` (parsed but never rendered); it is NEVER rendered as a UI
+ * string (only used as the API path param) and is distinct from coordinate-PII / token material — it is
+ * already transmitted on the timeline wire to every client (design D4). It MUST NOT carry any
+ * `latitude`/`longitude` or token. The SELF profile has no [ProfileRoute] — it is rendered in the shell's
+ * Profil section, resolving the self id from the session (design D1).
+ */
+@Serializable
+data class ProfileRoute(
+    val userId: String,
+) : NavKey
+
+/**
  * Conversation-list surface (`mobile-chat-screen`), opened from the Home brand app-bar "Pesan" action
  * and pushed onto the ROOT back stack above [HomeRoute] (overlaying the section bar, like [PostDetailRoute]).
  * A parameterless `data object`: the list is always fetched fresh (design D3).

@@ -8,6 +8,7 @@ import id.nearyou.resources.generated.resources.age_gate_explainer
 import id.nearyou.resources.generated.resources.age_gate_title
 import id.nearyou.resources.generated.resources.age_gate_under18_blocked
 import id.nearyou.resources.generated.resources.app_name
+import id.nearyou.resources.generated.resources.cta_block
 import id.nearyou.resources.generated.resources.cta_cancel
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_continue
@@ -59,7 +60,36 @@ import id.nearyou.resources.generated.resources.post_detail_reply_cap_upsell
 import id.nearyou.resources.generated.resources.post_detail_reply_counter
 import id.nearyou.resources.generated.resources.post_detail_reply_placeholder
 import id.nearyou.resources.generated.resources.post_detail_reset_hours
+import id.nearyou.resources.generated.resources.profile_action_failed
+import id.nearyou.resources.generated.resources.profile_action_user_unavailable
+import id.nearyou.resources.generated.resources.profile_actions_menu_description
+import id.nearyou.resources.generated.resources.profile_block_action
+import id.nearyou.resources.generated.resources.profile_block_confirm_body
+import id.nearyou.resources.generated.resources.profile_block_confirm_title
+import id.nearyou.resources.generated.resources.profile_block_rate_limited
+import id.nearyou.resources.generated.resources.profile_block_success_toast
+import id.nearyou.resources.generated.resources.profile_follow
+import id.nearyou.resources.generated.resources.profile_follow_rate_limited
+import id.nearyou.resources.generated.resources.profile_followers_count
+import id.nearyou.resources.generated.resources.profile_following_count
+import id.nearyou.resources.generated.resources.profile_not_found
 import id.nearyou.resources.generated.resources.profile_placeholder
+import id.nearyou.resources.generated.resources.profile_premium_badge
+import id.nearyou.resources.generated.resources.profile_premium_badge_icon_description
+import id.nearyou.resources.generated.resources.profile_report_action
+import id.nearyou.resources.generated.resources.profile_report_duplicate
+import id.nearyou.resources.generated.resources.profile_report_note_placeholder
+import id.nearyou.resources.generated.resources.profile_report_rate_limited
+import id.nearyou.resources.generated.resources.profile_report_reason_title
+import id.nearyou.resources.generated.resources.profile_report_submit
+import id.nearyou.resources.generated.resources.profile_report_success_toast
+import id.nearyou.resources.generated.resources.profile_unfollow
+import id.nearyou.resources.generated.resources.report_reason_adult_content
+import id.nearyou.resources.generated.resources.report_reason_harassment
+import id.nearyou.resources.generated.resources.report_reason_hate_speech_sara
+import id.nearyou.resources.generated.resources.report_reason_misinformation
+import id.nearyou.resources.generated.resources.report_reason_other
+import id.nearyou.resources.generated.resources.report_reason_spam
 import id.nearyou.resources.generated.resources.section_home
 import id.nearyou.resources.generated.resources.section_home_icon_description
 import id.nearyou.resources.generated.resources.section_notifications
@@ -215,6 +245,42 @@ class SharedStringsCatalogTest {
             Res.string.post_detail_reply_cap_upsell,
             Res.string.post_detail_post_gone,
             Res.string.cta_reply,
+            // mobile-profile (30 net-new): the live Profil surface — static counts, premium badge,
+            // follow/unfollow, the kebab + block-confirm dialog, the 6-category report picker + note,
+            // the per-outcome toasts/banners, the not-found + neutral target-unavailable + generic-failure
+            // copy. The loading/error states reuse timeline_loading / signin_error_network / cta_retry;
+            // the overlay back + title reuse cta_close / section_profile; the @handle reuses
+            // post_card_handle; cta_cancel is reused — none of those add new keys.
+            Res.string.profile_followers_count,
+            Res.string.profile_following_count,
+            Res.string.profile_premium_badge,
+            Res.string.profile_premium_badge_icon_description,
+            Res.string.profile_follow,
+            Res.string.profile_unfollow,
+            Res.string.profile_actions_menu_description,
+            Res.string.profile_block_action,
+            Res.string.profile_report_action,
+            Res.string.profile_block_confirm_title,
+            Res.string.profile_block_confirm_body,
+            Res.string.cta_block,
+            Res.string.profile_block_success_toast,
+            Res.string.profile_report_reason_title,
+            Res.string.report_reason_spam,
+            Res.string.report_reason_hate_speech_sara,
+            Res.string.report_reason_harassment,
+            Res.string.report_reason_adult_content,
+            Res.string.report_reason_misinformation,
+            Res.string.report_reason_other,
+            Res.string.profile_report_note_placeholder,
+            Res.string.profile_report_submit,
+            Res.string.profile_report_success_toast,
+            Res.string.profile_report_duplicate,
+            Res.string.profile_follow_rate_limited,
+            Res.string.profile_block_rate_limited,
+            Res.string.profile_report_rate_limited,
+            Res.string.profile_not_found,
+            Res.string.profile_action_user_unavailable,
+            Res.string.profile_action_failed,
         )
 
     @Test
@@ -231,7 +297,11 @@ class SharedStringsCatalogTest {
         // timeline_loading / signin_error_network / cta_retry) = 84.
         // + 2 (mobile-session-expiry-and-proactive-refresh: signin_session_expired + timeline_session_redirect) = 86.
         // + 2 (mobile-mockup-visual-conformance: post_create_location_chip + post_create_privacy_note) = 88.
-        assertEquals(88, allDeclaredStrings.size)
+        // + 30 (mobile-profile: 2 counts + premium badge label/icon-desc + follow/unfollow + kebab desc
+        // + block action/title/body + cta_block + block-success toast + report title + 6 reason labels
+        // + report note placeholder + report submit + report success/duplicate + 3 rate-limit messages
+        // + not-found + target-unavailable + action-failed) = 118.
+        assertEquals(118, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }
