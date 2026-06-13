@@ -163,6 +163,24 @@ class AppShellScreenTest {
     }
 
     @Test
+    fun homeAppBar_rendersSearchAction_invokesOnOpenSearch_andIsHomeOnly() {
+        installKoin()
+        runComposeUiTest {
+            var searches = 0
+            setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}, onOpenSearch = { searches++ }) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            // Home section (default): the brand app bar carries the search action; tapping fires onOpenSearch.
+            onNodeWithTag(SHELL_SEARCH_ACTION_TAG).assertExists()
+            onNodeWithTag(SHELL_SEARCH_ACTION_TAG).performClick()
+            assertEquals(1, searches, "the Home app-bar search action invokes onOpenSearch")
+            // Non-Home sections render no shell app bar → no search action.
+            onNodeWithText(SECTION_PROFILE).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(SHELL_SEARCH_ACTION_TAG).assertDoesNotExist()
+        }
+    }
+
+    @Test
     fun selectingNotifikasi_swapsBodyToNotificationsScreen() {
         installKoin()
         runComposeUiTest {
