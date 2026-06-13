@@ -47,6 +47,12 @@ import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.cta_signin_google
 import id.nearyou.resources.generated.resources.empty_state_generic
 import id.nearyou.resources.generated.resources.error_generic
+import id.nearyou.resources.generated.resources.follow_list_empty_followers
+import id.nearyou.resources.generated.resources.follow_list_empty_following
+import id.nearyou.resources.generated.resources.follow_list_load_more_failed
+import id.nearyou.resources.generated.resources.follow_list_tab_followers
+import id.nearyou.resources.generated.resources.follow_list_tab_following
+import id.nearyou.resources.generated.resources.follow_list_title
 import id.nearyou.resources.generated.resources.home_placeholder_title
 import id.nearyou.resources.generated.resources.home_placeholder_version
 import id.nearyou.resources.generated.resources.loading
@@ -106,7 +112,9 @@ import id.nearyou.resources.generated.resources.profile_block_success_toast
 import id.nearyou.resources.generated.resources.profile_follow
 import id.nearyou.resources.generated.resources.profile_follow_rate_limited
 import id.nearyou.resources.generated.resources.profile_followers_count
+import id.nearyou.resources.generated.resources.profile_followers_open_cd
 import id.nearyou.resources.generated.resources.profile_following_count
+import id.nearyou.resources.generated.resources.profile_following_open_cd
 import id.nearyou.resources.generated.resources.profile_not_found
 import id.nearyou.resources.generated.resources.profile_placeholder
 import id.nearyou.resources.generated.resources.profile_premium_badge
@@ -439,6 +447,16 @@ class SharedStringsCatalogTest {
             Res.string.search_icon_cd,
             Res.string.search_clear_cd,
             Res.string.search_back_cd,
+            // mobile-follow-lists (8 net-new: title + 2 tab labels + 2 empty states + load-more-failed
+            // + 2 tappable-count content descriptions; not-found/error/back REUSE existing keys).
+            Res.string.follow_list_title,
+            Res.string.follow_list_tab_followers,
+            Res.string.follow_list_tab_following,
+            Res.string.follow_list_empty_followers,
+            Res.string.follow_list_empty_following,
+            Res.string.follow_list_load_more_failed,
+            Res.string.profile_followers_open_cd,
+            Res.string.profile_following_open_cd,
         )
 
     @Test
@@ -450,7 +468,9 @@ class SharedStringsCatalogTest {
         // stay equal — a mismatch is exactly the catalog/guard drift this assertion exists to catch
         // (it had drifted to 118 tracked vs 190 declared before the #240 backfill). Per-capability
         // provenance lives in the strings.xml block comments, not duplicated here.
-        assertEquals(190, allDeclaredStrings.size)
+        // + 8 (mobile-follow-lists: title + 2 tab labels + 2 empty states + load-more-failed + 2
+        // tappable-count content descriptions; not-found/error/back reuse existing keys) = 198.
+        assertEquals(198, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }
