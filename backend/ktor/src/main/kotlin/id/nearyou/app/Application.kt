@@ -20,9 +20,9 @@ import id.nearyou.app.auth.routes.authRoutes
 import id.nearyou.app.auth.routes.realtimeRoutes
 import id.nearyou.app.auth.session.RefreshTokenService
 import id.nearyou.app.auth.signup.InviteCodePrefixDeriver
-import id.nearyou.app.auth.signup.NoopUsernameHistoryRepository
 import id.nearyou.app.auth.signup.SignupService
 import id.nearyou.app.auth.signup.UsernameGenerator
+import id.nearyou.app.auth.signup.UsernameHistoryRepository
 import id.nearyou.app.auth.signup.WordPairResource
 import id.nearyou.app.auth.signup.signupRoutes
 import id.nearyou.app.block.BlockRateLimiter
@@ -152,10 +152,14 @@ import id.nearyou.app.user.FcmTokenRepository
 import id.nearyou.app.user.JdbcActorUsernameLookup
 import id.nearyou.app.user.JdbcUserFcmTokenReader
 import id.nearyou.app.user.JdbcUserProfileReader
+import id.nearyou.app.user.JdbcUsernameHistoryRepository
 import id.nearyou.app.user.UserProfileService
+import id.nearyou.app.user.UsernameChangeService
+import id.nearyou.app.user.UsernameRateLimiter
 import id.nearyou.app.user.consentRoutes
 import id.nearyou.app.user.fcmTokenRoutes
 import id.nearyou.app.user.userProfileRoutes
+import id.nearyou.app.user.userUsernameRoutes
 import id.nearyou.data.repository.ActorUsernameLookup
 import id.nearyou.data.repository.Layer3ModerationWriter
 import id.nearyou.data.repository.ModerationQueueRepository
@@ -375,13 +379,16 @@ fun Application.module() {
     val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource)
 
     val reservedUsernames: ReservedUsernameRepository = JdbcReservedUsernameRepository(dataSource)
+    // Real username_history binding (premium-username-customization) — shared by
+    // the signup generator (release-hold collision check) and the change service.
+    val usernameHistoryRepository: UsernameHistoryRepository = JdbcUsernameHistoryRepository()
     val rejectedIdentifiers: RejectedIdentifierRepository = JdbcRejectedIdentifierRepository(dataSource)
     val wordPairs = WordPairResource.loadFromClasspath()
     val usernameGenerator =
         UsernameGenerator(
             words = wordPairs,
             reserved = reservedUsernames,
-            history = NoopUsernameHistoryRepository(),
+            history = usernameHistoryRepository,
             users = userRepository,
         )
     val inviteSecretBase64 =
@@ -853,6 +860,19 @@ fun Application.module() {
             remoteConfig = remoteConfig,
             dbDispatcher = dbDispatchers.db,
         )
+    val usernameChangeService =
+        UsernameChangeService(
+            dataSource = dataSource,
+            users = userRepository,
+            reserved = reservedUsernames,
+            history = usernameHistoryRepository,
+            moderationQueue = moderationQueueRepository,
+            textModerator = textModerator,
+            notificationEmitter = notificationEmitter,
+            remoteConfig = remoteConfig,
+            rateLimiter = UsernameRateLimiter(rateLimiter = rateLimiter),
+            dbDispatcher = dbDispatchers.db,
+        )
     val reportService =
         ReportService(
             dataSource = dataSource,
@@ -971,6 +991,7 @@ fun Application.module() {
     globalTimelineRoutes(globalTimelineService, timelineReadRateLimiter)
     reportRoutes(reportService)
     searchRoutes(searchService)
+    userUsernameRoutes(usernameChangeService)
     notificationRoutes(notificationService)
     fcmTokenRoutes(fcmTokenRepository)
     consentRoutes(consentRepository)

@@ -44,7 +44,7 @@ Losing the Google/Apple account means losing the NearYouID account — by design
 
 ### Premium Username Customization (Premium Only) — DESIGN
 
-> **Status: DESIGN.** No code today — `PATCH /api/v1/user/username` + `GET /api/v1/username/check` do NOT exist in `backend/ktor/`; intended behaviour for a future change. `users.username_last_changed_at` (V2/V3 schema) and `username_history` DO exist — data model partially ready.
+> **Status: SHIPPED** (`premium-username-customization`, 2026-06-14). `PATCH /api/v1/user/username` + `GET /api/v1/username/check` are live in `backend/ktor/` (backend capability; the mobile Settings UI + admin oversight are separate follow-on changes). Migration-free — `users.username_last_changed_at` + `username_history` pre-existed since V2/V3.
 
 Premium users may replace the auto-generated username with a custom handle via Settings.
 
@@ -56,7 +56,7 @@ Premium users may replace the auto-generated username with a custom handle via S
   - Charset regex `^[a-z0-9][a-z0-9_.]*[a-z0-9_]$` (dots middle-only)
   - No consecutive dots — application-layer `!candidate.contains("..")`; a single-pattern regex can't cleanly forbid it
   - Reserved-usernames check (incl. `source = 'admin_added'`)
-  - Profanity + UU ITE keyword check — hit soft-flags to `moderation_queue`, trigger `username_flagged`
+  - Profanity + UU ITE keyword check — on hit the change is **rejected upfront** and a `moderation_queue` row (`trigger = 'username_flagged'`, `target_type = 'user'`) is inserted for admin awareness (canonical behaviour: `06-Security-Privacy.md` § Premium Username Moderation)
   - No collision with a held username or one on 30-day release hold
 - **30-day release hold** (anti-impersonation): changing `oldname` to `newname` writes `oldname` to `username_history` with `released_at = changed_at + 30 days`; unclaimable until `released_at` passes.
 - **Availability probe**: `GET /api/v1/username/check?candidate=foo` — 3/day per user, non-authoritative (race-safe check at PATCH time).

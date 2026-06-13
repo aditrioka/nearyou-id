@@ -27,6 +27,12 @@ data class UserRow(
      * constraint" for why this MUST be on the auth principal.
      */
     val subscriptionStatus: String = "free",
+    /**
+     * V2 schema: nullable TIMESTAMPTZ. NULL until the user's first Premium
+     * username change; the `premium-username-customization` 30-day cooldown gate
+     * reads it. Defaulted so existing UserRow construction sites are unaffected.
+     */
+    val usernameLastChangedAt: Instant? = null,
 )
 
 /**
@@ -80,4 +86,37 @@ interface UserRepository {
         conn: Connection,
         row: NewUserRow,
     ): UUID
+
+    /**
+     * In-transaction `SELECT … FROM users WHERE id = ? FOR UPDATE` — locks the
+     * row so the username-change re-validation + write happen atomically against
+     * a concurrent change. Used by `premium-username-customization`.
+     */
+    fun findByIdForUpdate(
+        conn: Connection,
+        id: UUID,
+    ): UserRow?
+
+    /**
+     * In-transaction case-insensitive existence check against the current
+     * `users.username` (uses the `users_username_lower_idx` LOWER index). Caller
+     * passes the already-lowercased candidate. Used by the username-change
+     * collision re-check under the row lock.
+     */
+    fun usernameExists(
+        conn: Connection,
+        lowercaseCandidate: String,
+    ): Boolean
+
+    /**
+     * In-transaction username write: `UPDATE users SET username = ?,
+     * username_last_changed_at = NOW() WHERE id = ?`. The single Premium
+     * customization writer reserved by critical invariant #7 (the allowlist
+     * annotation lives on the impl). Caller owns the transaction boundary.
+     */
+    fun updateUsername(
+        conn: Connection,
+        id: UUID,
+        newUsername: String,
+    )
 }

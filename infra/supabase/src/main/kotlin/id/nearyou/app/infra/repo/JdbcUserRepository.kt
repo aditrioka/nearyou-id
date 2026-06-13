@@ -20,7 +20,8 @@ class JdbcUserRepository(
         SELECT id, username, display_name, email,
                google_id_hash, apple_id_hash, apple_relay_email,
                is_shadow_banned, is_banned, suspended_until,
-               token_version, deleted_at, subscription_status
+               token_version, deleted_at, subscription_status,
+               username_last_changed_at
           FROM users
         """.trimIndent()
 
@@ -114,6 +115,44 @@ class JdbcUserRepository(
         return row.id
     }
 
+    override fun findByIdForUpdate(
+        conn: Connection,
+        id: UUID,
+    ): UserRow? {
+        conn.prepareStatement("$baseSelect WHERE id = ? FOR UPDATE").use { ps ->
+            ps.setObject(1, id)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return rs.toUserRow()
+            }
+        }
+    }
+
+    override fun usernameExists(
+        conn: Connection,
+        lowercaseCandidate: String,
+    ): Boolean {
+        conn.prepareStatement("SELECT 1 FROM users WHERE LOWER(username) = ? LIMIT 1").use { ps ->
+            ps.setString(1, lowercaseCandidate)
+            ps.executeQuery().use { rs -> return rs.next() }
+        }
+    }
+
+    override fun updateUsername(
+        conn: Connection,
+        id: UUID,
+        newUsername: String,
+    ) {
+        // @allow-username-write: customization
+        conn.prepareStatement(
+            "UPDATE users SET username = ?, username_last_changed_at = NOW() WHERE id = ?",
+        ).use { ps ->
+            ps.setString(1, newUsername)
+            ps.setObject(2, id)
+            ps.executeUpdate()
+        }
+    }
+
     private fun single(
         sql: String,
         bind: (java.sql.PreparedStatement) -> Unit,
@@ -144,5 +183,6 @@ class JdbcUserRepository(
             tokenVersion = getInt("token_version"),
             deletedAt = getTimestamp("deleted_at")?.toInstant(),
             subscriptionStatus = getString("subscription_status") ?: "free",
+            usernameLastChangedAt = getTimestamp("username_last_changed_at")?.toInstant(),
         )
 }
