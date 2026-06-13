@@ -1,8 +1,8 @@
 ## ADDED Requirements
 
-### Requirement: GET /api/v1/posts/{id} returns a single post's no-PII projection
+### Requirement: GET /api/v1/posts/{post_id} returns a single post's no-PII projection
 
-A Ktor route SHALL be registered at `GET /api/v1/posts/{id}` requiring Bearer JWT auth via the `AUTH_PROVIDER_USER` provider. On a successful, viewer-visible read it MUST return `200 OK` with a JSON `SinglePostResponse` body projecting exactly these fields (and no others), so a consumer with no feed card can render a post header:
+A Ktor route SHALL be registered at `GET /api/v1/posts/{post_id}` requiring Bearer JWT auth via the `AUTH_PROVIDER_USER` provider. On a successful, viewer-visible read it MUST return `200 OK` with a JSON `SinglePostResponse` body projecting exactly these fields (and no others), so a consumer with no feed card can render a post header:
 
 - `id` — the post UUID as a String
 - `authorUsername` — the author's handle (display identity)
@@ -14,7 +14,7 @@ A Ktor route SHALL be registered at `GET /api/v1/posts/{id}` requiring Bearer JW
 - `replyCount` — the post's reply count, computed identically to the timeline DTOs' `reply_count` (NOT viewer-block-filtered — the documented `post-likes` / `post-replies` counter tradeoff)
 - `distanceM` — `Double?`, always `null` in v1 (no viewer-location context on a by-id read)
 
-The projection MUST NOT include the author UUID, any `latitude`/`longitude`, or any other field. `likedByViewer` MUST reflect the calling viewer (an `EXISTS` against `post_likes` for the viewer, the same computation the timelines use).
+The projection MUST NOT include the author UUID, any `latitude`/`longitude`, or any other field. `likedByViewer` MUST reflect the calling viewer (the same PK-scoped `LEFT JOIN post_likes` viewer check the timelines use — `(post_id, user_id)` is the PK, so the join yields ≤1 row).
 
 #### Scenario: Visible post returns the full projection
 
@@ -92,7 +92,7 @@ The resolution MUST include an own-content self arm — a raw `posts` read scope
 
 ### Requirement: The single-post read is bidirectional-block-aware and leak-safe
 
-The read MUST be filtered against `user_blocks` in BOTH directions on the `visible_posts` arm: if the calling viewer has blocked the post's author, OR the author has blocked the viewer, the endpoint MUST return `404 post_not_found` with a CONSTANT, byte-identical body and NO direction hint — indistinguishable from the unknown-post, soft-deleted, shadow-banned, and auto-hidden responses. The block predicate MUST be expressed as bidirectional `user_blocks` NOT-IN subqueries (the `blocker_id` / `blocked_id` token pair). Because the read goes through `visible_posts` (which does not trip `BlockExclusionJoinRule`), the linter does not enforce this and the both-direction scenarios below are the guardrail. The constant `404` body MUST be emitted via `respondText` (not the negotiated `respond`) so it stays byte-identical regardless of serializer settings.
+The read MUST be filtered against `user_blocks` in BOTH directions on the `visible_posts` arm: if the calling viewer has blocked the post's author, OR the author has blocked the viewer, the endpoint MUST return `404 post_not_found` with a CONSTANT, byte-identical body and NO direction hint — indistinguishable from the unknown-post, soft-deleted, shadow-banned, and auto-hidden responses. The block predicate MUST be expressed as bidirectional `user_blocks` NOT-IN subqueries (the `blocker_id` / `blocked_id` token pair). Because the read goes through `visible_posts` (which does not trip `BlockExclusionJoinRule`), the linter does not enforce this and the both-direction scenarios below are the guardrail. The constant `404` body MUST be emitted via `respondText` (not the negotiated `respond`) so it stays byte-identical regardless of serializer settings, AND it MUST be byte-identical to the shipped `LikeRoutes` / `ReplyRoutes` `POST_NOT_FOUND_BODY` constant — the established cross-route `post_not_found` contract (the same byte-equality guard `user-profile-read` shares with `FollowRoutes`).
 
 #### Scenario: Viewer has blocked the author
 
@@ -109,9 +109,14 @@ The read MUST be filtered against `user_blocks` in BOTH directions on the `visib
 - **WHEN** comparing the `404` response bodies for the unknown-post, soft-deleted, shadow-banned-author, auto-hidden, viewer-blocked-author, and author-blocked-viewer cases
 - **THEN** every body is byte-identical to `{"error":{"code":"post_not_found"}}` (one opaque code; no cause or direction leaks)
 
+#### Scenario: The 404 body is byte-identical to the shipped like/reply post_not_found body
+
+- **WHEN** comparing this endpoint's `404` body to the `POST_NOT_FOUND_BODY` constant emitted by the shipped `LikeRoutes` / `ReplyRoutes` (`{"error":{"code":"post_not_found"}}`)
+- **THEN** the bytes are identical (the cross-route `post_not_found` contract; mirrors the `user-profile-read` ↔ `FollowRoutes` byte-equality guard) — a fixture MUST assert this so a future divergent literal cannot slip in
+
 ### Requirement: The single-post read rejects malformed and unauthenticated requests
 
-A non-UUID `{id}` path segment MUST produce `400` with an `invalid_request` error code (distinct from the `404 post_not_found` resource result). A caller without a valid Bearer JWT MUST be rejected at the auth boundary with `401` before any resolution runs.
+A non-UUID `{post_id}` path segment MUST produce `400` with an `invalid_request` error code (distinct from the `404 post_not_found` resource result). A caller without a valid Bearer JWT MUST be rejected at the auth boundary with `401` before any resolution runs.
 
 #### Scenario: Malformed (non-UUID) post id
 

@@ -3,7 +3,7 @@
 - [ ] 1.1 Add a `PostReadRepository` interface in `core/data/src/main/kotlin/id/nearyou/data/repository/` with `findVisiblePostById(postId: UUID, viewerId: UUID): SinglePostRow?` and a `SinglePostRow` data class carrying `id`, `authorUsername`, `authorDisplayName`, `content`, `cityName`, `createdAt`, `likedByViewer`, `replyCount` (NO author UUID, NO coordinates — Decision 2).
 - [ ] 1.2 Implement `JdbcPostReadRepository` in `infra/supabase/src/main/kotlin/id/nearyou/app/infra/repo/` mirroring `JdbcPostLikeRepository.resolveVisiblePost`'s two-arm gate (Decision 1): a `visible_posts` arm with the bidirectional `user_blocks` NOT-IN subqueries (`blocker_id`/`blocked_id` token pair) `UNION ALL` an own-content raw-`posts` arm (`id = ? AND author_id = ? AND deleted_at IS NULL`), `LIMIT 1`. Select the full projection on each arm: join `visible_users` for author identity on the `visible_posts` arm, raw `users` for the viewer's own row on the own-content arm; compute `liked_by_viewer` (`EXISTS` against `post_likes` for the viewer) and `reply_count` reusing the timeline projection's computation verbatim.
 - [ ] 1.3 Annotate the own-content raw arm with `@AllowRawPostsRead("...")` (own-content self-arm rationale, same shape as `resolveVisiblePost`); confirm the `visible_posts` arm literal carries the `visible_posts`, `user_blocks`, `blocker_id =`, and `blocked_id =` tokens for `BlockExclusionJoinRule` compliance. Use `PreparedStatement` + `.use {}` discipline (docs/11 § JDBC).
-- [ ] 1.4 Bind the JDBC impl in DI / `Application.kt` wiring (the same place the other `Jdbc*Repository` instances are constructed).
+- [ ] 1.4 Bind the JDBC impl at the manual-construction site in `Application.kt` (this repo wires repositories by direct `Jdbc*Repository(...)` construction, not Koin — alongside the existing `JdbcPostLikeRepository` / profile-repo instances) and pass it into `PostReadService`.
 
 ## 2. Service — read + visibility-to-error mapping
 
@@ -11,22 +11,22 @@
 
 ## 3. Route + DTO + wiring
 
-- [ ] 3.1 Add the `SinglePostResponse` `@Serializable` DTO (in the `post` package) with the EXACT mixed-case wire from the spec: `@SerialName("city_name") cityName`, `@SerialName("liked_by_viewer") likedByViewer`, `@SerialName("reply_count") replyCount`; bare camelCase `id`, `authorUsername`, `authorDisplayName`, `content`, `createdAt`, and `distanceM: Double? = null`. NO `authorUserId`, NO `latitude`/`longitude`.
-- [ ] 3.2 Add `singlePostRoutes(service: PostReadService)` Application extension registering `GET /api/v1/posts/{id}` under `authenticate(AUTH_PROVIDER_USER)`, mirroring `UserProfileRoutes`: principal-null → `401`; non-UUID `{id}` → `400 invalid_request`; `PostNotFoundException` → `respondText(POST_NOT_FOUND_BODY, ContentType.Application.Json, NotFound)` with `POST_NOT_FOUND_BODY = """{"error":{"code":"post_not_found"}}"""`; success → `200` + `SinglePostResponse`. The body literal MUST stay byte-identical to the shipped `LikeRoutes.kt` / `ReplyRoutes.kt` `POST_NOT_FOUND_BODY` constant (the established like/reply 404 contract — add a cross-route byte-equality assertion in the route test, mirroring the `user-profile-read` ↔ `FollowRoutes` precedent).
+- [ ] 3.1 Add the `SinglePostResponse` `@Serializable` DTO (in the `post` package) with the EXACT mixed-case wire from the spec, pinning types to match the shipped timeline DTOs: `@SerialName("city_name") cityName: String`, `@SerialName("liked_by_viewer") likedByViewer: Boolean`, `@SerialName("reply_count") replyCount: Int`; bare camelCase `id: String`, `authorUsername: String`, `authorDisplayName: String`, `content: String`, `createdAt: String`, and `distanceM: Double? = null`. NO `authorUserId`, NO `latitude`/`longitude`.
+- [ ] 3.2 Add `singlePostRoutes(service: PostReadService)` Application extension registering `GET /api/v1/posts/{post_id}` under `authenticate(AUTH_PROVIDER_USER)`, mirroring `UserProfileRoutes`: principal-null → `401`; non-UUID `{post_id}` → `400 invalid_request`; `PostNotFoundException` → `respondText(POST_NOT_FOUND_BODY, ContentType.Application.Json, NotFound)` with `POST_NOT_FOUND_BODY = """{"error":{"code":"post_not_found"}}"""`; success → `200` + `SinglePostResponse`. The body literal MUST stay byte-identical to the shipped `LikeRoutes.kt` / `ReplyRoutes.kt` `POST_NOT_FOUND_BODY` constant (the established like/reply 404 contract — add a cross-route byte-equality assertion in the route test, mirroring the `user-profile-read` ↔ `FollowRoutes` precedent).
 - [ ] 3.3 Wire `singlePostRoutes(...)` into `Application.kt` route registration alongside `postRoutes` / `userProfileRoutes`.
 
 ## 4. Tests — repository (DB-tagged)
 
 - [ ] 4.1 Create a DB-tagged repository test for `findVisiblePostById` with `autoClose(hikari())` + `maximumPoolSize = 2` (CI connection-budget rule). Cover: visible post returns full projection; unknown id → null; soft-deleted post → null; other-author shadow-banned → null; auto-hidden post → null; viewer-blocked-author → null; author-blocked-viewer → null; shadow-banned author reads own (non-deleted) post → row; author's own soft-deleted post → null.
-- [ ] 4.2 Assert `liked_by_viewer` true/false per the viewer's like state and `reply_count` equals the timeline-consistent count (not viewer-block-filtered).
+- [ ] 4.2 Assert `liked_by_viewer` true/false per the viewer's like state and `reply_count` equals the timeline-consistent count. Include a sub-case pinning the non-viewer-block-filtered behavior: a reply authored by a user the viewer has blocked STILL contributes to `reply_count` (the documented counter tradeoff; mirrors the `post-likes` "Blocked likers still contribute to count" scenario).
 
 ## 5. Tests — route (HTTP, DB-tagged) mapping every spec scenario
 
-- [ ] 5.1 Create `SinglePostRoutesTest` (DB-tagged, `autoClose(hikari())` + pool size 2). Happy path: `200` with the full projection (`GET /api/v1/posts/{id}` → "Visible post returns the full projection", "likedByViewer reflects ...", "replyCount reflects ...", "Empty city_name is preserved").
+- [ ] 5.1 Create `SinglePostRoutesTest` (DB-tagged, `autoClose(hikari())` + pool size 2). Happy path: `200` with the full projection (`GET /api/v1/posts/{post_id}` → "Visible post returns the full projection", "likedByViewer reflects ...", "replyCount reflects ...", "Empty city_name is preserved").
 - [ ] 5.2 No-PII assertions: parse the `200` body and assert it has no `authorUserId`/author-UUID key, no `latitude`/`longitude` key, and no non-null `distanceM` ("Response body contains no author UUID and no coordinates", "distanceM is never a non-null value in v1").
 - [ ] 5.3 `404` cases each return byte-identical `{"error":{"code":"post_not_found"}}`: unknown UUID, soft-deleted post, other-author shadow-banned, auto-hidden, viewer-blocked-author, author-blocked-viewer; plus an explicit byte-equality assertion across all six bodies ("All 404 causes are byte-identical").
 - [ ] 5.4 Own-content: shadow-banned author reads their own live post → `200` with identity; author's own soft-deleted post → `404` ("A shadow-banned author reads their own post via the own-content arm").
-- [ ] 5.5 Malformed + auth: non-UUID `{id}` → `400 invalid_request` (not `404`); no Bearer JWT → `401` ("rejects malformed and unauthenticated requests").
+- [ ] 5.5 Malformed + auth: non-UUID `{post_id}` → `400 invalid_request` (not `404`); no Bearer JWT → `401` ("rejects malformed and unauthenticated requests").
 
 ## 6. Tests — serialization (commonTest / unit)
 
@@ -36,7 +36,7 @@
 ## 7. Verification + lint gate
 
 - [ ] 7.1 Run the local pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (both lint frameworks per CLAUDE.md; the new DB-tagged tests run under the backend test gate with fresh DB containers).
-- [ ] 7.2 Manual smoke: boot Ktor locally (`KTOR_ENV=test` per the local-boot env set) and `curl` `GET /api/v1/posts/{id}` for (a) a visible post → `200`, (b) an unknown UUID → `404 post_not_found`, (c) `not-a-uuid` → `400`, (d) no token → `401`; capture the outputs as DoD evidence in the PR body (docs/11 § 5).
+- [ ] 7.2 Manual smoke: boot Ktor locally (`KTOR_ENV=test` per the local-boot env set) and `curl` `GET /api/v1/posts/{post_id}` for (a) a visible post → `200`, (b) an unknown UUID → `404 post_not_found`, (c) `not-a-uuid` → `400`, (d) no token → `401`; capture the outputs as DoD evidence in the PR body (docs/11 § 5).
 
 ## 8. Housekeeping
 

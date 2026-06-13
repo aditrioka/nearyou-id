@@ -1,6 +1,6 @@
 ## Context
 
-The backend exposes no by-id post read. Posts reach the client only as feed rows (`GET /api/v1/timeline/{nearby,following,global}`) or as the `PostDetailRoute` nav payload captured at card-tap. The deferred `mobile-notifications-deep-link-targets` change needs to open a post from a notification, where there is no card to source the header — so it needs `GET /api/v1/posts/{id}`. Tracked by issue [#202](https://github.com/aditrioka/nearyou-id/issues/202); the `mobile-post-detail` spec § "By-id post fetch ... deferred" is the deferral record.
+The backend exposes no by-id post read. Posts reach the client only as feed rows (`GET /api/v1/timeline/{nearby,following,global}`) or as the `PostDetailRoute` nav payload captured at card-tap. The deferred `mobile-notifications-deep-link-targets` change needs to open a post from a notification, where there is no card to source the header — so it needs `GET /api/v1/posts/{post_id}`. Tracked by issue [#202](https://github.com/aditrioka/nearyou-id/issues/202); the `mobile-post-detail` spec § "By-id post fetch ... deferred" is the deferral record.
 
 The directly analogous shipped capability is `user-profile-read` (`GET /api/v1/users/{user_id}`): Bearer JWT, `visible_*`-view read, bidirectional `user_blocks` exclusion, one constant direction-less `404`, no-PII, malformed-UUID `400`, unauth `401`. This change is the post-side twin, with one important structural difference around shadow-ban self-visibility (Decision 1).
 
@@ -8,7 +8,7 @@ The directly analogous shipped capability is `user-profile-read` (`GET /api/v1/u
 
 **Goals:**
 
-- A Bearer-JWT-gated `GET /api/v1/posts/{id}` returning a single post's **no-PII display projection** for one viewer.
+- A Bearer-JWT-gated `GET /api/v1/posts/{post_id}` returning a single post's **no-PII display projection** for one viewer.
 - Shadow-ban-safe + bidirectional-block-aware + auto-hide-safe, with a shadow-banned author still able to read their own post.
 - One opaque, byte-identical `404 post_not_found` for every "you can't see this" cause; `400` for malformed id; `401` for unauth.
 - Wire shape that matches the shipped timeline post DTO casing so the mobile DTO derived from it parses.
@@ -37,7 +37,7 @@ SELECT <projection> FROM posts p [JOIN users a ON a.id = p.author_id]           
  LIMIT 1
 ```
 
-`resolveVisiblePost` returns only the post id (it is a visibility *gate*); this endpoint needs the full projection, so it is a **new repository method** (`findVisiblePostById(postId, viewerId): SinglePostRow?`) shaped on the same two arms but selecting `content`, author identity, `created_at`, `liked_by_viewer`, `reply_count`. Author identity differs per arm: the `visible_posts` arm joins `visible_users` (the author is guaranteed non-shadow-banned, so present), while the own-content arm sources identity from raw `users` for the viewer's own row (a shadow-banned author is absent from `visible_users` — the own-content exception). `liked_by_viewer` (an `EXISTS` against `post_likes` for the viewer) and `reply_count` reuse the timeline projection's computations verbatim (so `reply_count` keeps the documented non-viewer-block-filtered counter behavior).
+`resolveVisiblePost` returns only the post id (it is a visibility *gate*); this endpoint needs the full projection, so it is a **new repository method** (`findVisiblePostById(postId, viewerId): SinglePostRow?`) shaped on the same two arms but selecting `content`, author identity, `created_at`, `liked_by_viewer`, `reply_count`. Author identity differs per arm: the `visible_posts` arm joins `visible_users` (the author is guaranteed non-shadow-banned, so present), while the own-content arm sources identity from raw `users` for the viewer's own row (a shadow-banned author is absent from `visible_users` — the own-content exception). `liked_by_viewer` (the timelines' PK-scoped `LEFT JOIN post_likes` viewer check — `(post_id, user_id)` is the PK, so ≤1 match) and `reply_count` reuse the shipped timeline projection's computations (so `reply_count` keeps the documented non-viewer-block-filtered counter behavior).
 
 - **Alternative rejected — single `visible_posts` read:** would `404` a shadow-banned author on their own post, breaking the very deep-link case (opening *your own* post from a "someone replied to you" notification) and silently diverging from the like/reply visibility contract. The two-arm gate is mandatory, not optional.
 
