@@ -143,4 +143,34 @@ class GlobalTimelineViewModelTest {
         assertFalse(viewModel.likedOf("p1"), "the flip is reverted on PostGone")
         assertEquals(2, fake.loadInvocationCount, "PostGone triggers the existing reload (self-heal)")
     }
+
+    // mobile-global-timeline § "PostGone and NetworkError mirror the Nearby handling" names BOTH cases
+    // on the Global surface — assert NetworkError directly here (not only transitively via
+    // InlineLikeControllerTest) so the Global-named fixture honors the spec wording.
+    @Test
+    fun networkErrorLike_revertsSilently() {
+        val fake = FakeGlobalTimelineFlow(loadedWith(fakeGlobalPost(id = "p1", likedByViewer = false)))
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.NetworkError))
+
+        viewModel.toggleLike("p1", currentlyLiked = false)
+
+        assertFalse(viewModel.likedOf("p1"), "the flip is reverted on NetworkError")
+        assertNull(viewModel.likeCapRetryAfterSeconds.value, "no cap state — the declared silent v1 posture")
+        assertEquals(1, fake.loadInvocationCount, "no reload on NetworkError")
+    }
+
+    @Test
+    fun inFlightLikeReTaps_areIgnored() {
+        val likeFlow = FakeLikeFlow().apply { suspendForever = true }
+        val viewModel =
+            GlobalTimelineViewModel(
+                FakeGlobalTimelineFlow(loadedWith(fakeGlobalPost(id = "p1", likedByViewer = false))),
+                likeFlow,
+            )
+
+        viewModel.toggleLike("p1", currentlyLiked = false)
+        viewModel.toggleLike("p1", currentlyLiked = true)
+
+        assertEquals(1, likeFlow.invocationCount, "the per-post in-flight guard ignores the re-tap")
+    }
 }

@@ -10,7 +10,7 @@ The toggle lifecycle SHALL be implemented in ONE shared, Compose-free commonMain
 
 - `Liked` / `Unliked` → the optimistic state stands.
 - `RateLimited(retryAfterSeconds)` → revert the flip AND set the one-shot cap-dialog state (§ "A rate-limited inline like opens the Free like-cap dialog").
-- `PostGone` → revert the flip AND trigger the ViewModel's existing `reload()` (the post was deleted or became block-/shadow-hidden — the refreshed first page drops it; no error copy is shown).
+- `PostGone` → revert the flip AND trigger the ViewModel's existing `reload()` (the post was deleted or became block-/shadow-hidden — the refreshed first page drops it; no error copy is shown). The `reload()` is a **best-effort self-heal**: it is subject to the ViewModel's existing one-reload-at-a-time reentrancy guard, so a `PostGone` arriving WHILE a refresh is already in flight is a no-op against that in-flight refresh; the gone card is then dropped by the next refresh or user action (the convergence is eventual, not transactional — acceptable because the card is merely stale, not unsafe).
 - `NetworkError` → revert the flip with NO error surface in v1 — a deliberate, spec-recorded deferral (no transient-error substrate exists in the app), not an accidental omission.
 
 The cap-dialog one-shot signal SHALL be modeled as nullable state cleared via an `onLikeCapDialogDismissed()`-style callback (docs/11 § 2.2 one-shot-events-are-state) — NOT a `Channel`/`SharedFlow` event bus. `CancellationException` handling stays per the seam's existing contract (rethrown, never mapped).

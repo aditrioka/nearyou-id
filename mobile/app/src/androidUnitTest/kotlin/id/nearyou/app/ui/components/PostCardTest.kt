@@ -179,8 +179,9 @@ class PostCardTest {
             }
             // Both affordances are labeled via stringResource (post_card_action_*), and the like
             // affordance announces its toggled state via stateDescription (post_card_like_state_*)
-            // — the liked state is never visual-only.
-            onAllNodes(hasTestTag(POST_CARD_REPLY_ACTION_TAG))[0].assertContentDescriptionEquals("Balas")
+            // — the liked state is never visual-only. The reply description folds in the count
+            // (model() default replyCount = 4) so TalkBack announces it, not just "Balas".
+            onAllNodes(hasTestTag(POST_CARD_REPLY_ACTION_TAG))[0].assertContentDescriptionEquals("Balas, 4 balasan")
             val likeNodes = onAllNodes(hasTestTag(POST_CARD_LIKE_ACTION_TAG))
             likeNodes[0].assertContentDescriptionEquals("Suka")
             likeNodes[0].assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Disukai"))

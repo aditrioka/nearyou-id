@@ -187,8 +187,10 @@
     <string name="post_card_meta_separator">·</string>
     <!-- mobile-inline-post-actions: the card action row's interactive affordances (now real controls,
          so the prior decorative contentDescription=null posture no longer applies) + the liked-state
-         accessibility announcement (state must not be visual-only). -->
-    <string name="post_card_action_reply">Balas</string>
+         accessibility announcement (state must not be visual-only). The reply description folds in the
+         count so TalkBack announces it (an explicit contentDescription otherwise hides the merged child
+         count text from the spoken label). -->
+    <string name="post_card_action_reply" formatted="true">Balas, %1$d balasan</string>
     <string name="post_card_action_like">Suka</string>
     <string name="post_card_like_state_liked">Disukai</string>
     <string name="post_card_like_state_not_liked">Belum disukai</string>

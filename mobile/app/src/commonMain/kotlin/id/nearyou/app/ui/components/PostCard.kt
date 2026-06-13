@@ -219,16 +219,21 @@ fun PostCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val replyDescription = stringResource(Res.string.post_card_action_reply)
+                // The count is folded INTO the contentDescription ("Balas, N balasan") so TalkBack
+                // announces it — an explicit contentDescription on the clickable otherwise replaces the
+                // merged child count text in the spoken label (the visible count Text stays for sighted
+                // users). minimumInteractiveComponentSize sits AFTER clickable so the ripple fills the
+                // ≥48dp target, not just the 20dp glyph.
+                val replyDescription = stringResource(Res.string.post_card_action_reply, model.replyCount)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     modifier =
                         Modifier
                             .testTag(POST_CARD_REPLY_ACTION_TAG)
-                            .minimumInteractiveComponentSize()
                             .clip(MaterialTheme.shapes.small)
                             .clickable(onClick = onReplyShortcut)
+                            .minimumInteractiveComponentSize()
                             .semantics { contentDescription = replyDescription }
                             .padding(horizontal = 8.dp),
                 ) {
@@ -262,12 +267,13 @@ fun PostCard(
                     modifier =
                         Modifier
                             .testTag(POST_CARD_LIKE_ACTION_TAG)
-                            .minimumInteractiveComponentSize()
                             // shapes.small (not a circle clip): the design-system guard pins the
                             // no-CircleShape-dot rule on this file; the rounded ripple matches the
-                            // reply affordance's treatment anyway.
+                            // reply affordance's treatment anyway. minimumInteractiveComponentSize sits
+                            // AFTER clickable so the ripple fills the ≥48dp target, not just the glyph.
                             .clip(MaterialTheme.shapes.small)
                             .clickable(onClick = onToggleLike)
+                            .minimumInteractiveComponentSize()
                             .semantics {
                                 contentDescription = likeDescription
                                 stateDescription = likeState

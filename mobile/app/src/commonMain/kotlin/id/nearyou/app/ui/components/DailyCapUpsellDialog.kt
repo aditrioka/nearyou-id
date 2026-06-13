@@ -8,8 +8,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -55,7 +55,11 @@ fun DailyCapUpsellDialog(
     onDismiss: () -> Unit,
     onActivatePremium: () -> Unit,
 ) {
-    var remainingMinutes by remember(retryAfterSeconds) {
+    // rememberSaveable (keyed on retryAfterSeconds) so a config-change/process recreation while the
+    // dialog is up RESTORES the already-decremented minute rather than reverting to the original
+    // countdown; a NEW 429 (different retryAfterSeconds) re-seeds. No wall-clock — keeps the formatter
+    // pure (the in-minute tick boundary restarts on restore, which is imperceptible at minute scale).
+    var remainingMinutes by rememberSaveable(retryAfterSeconds) {
         mutableStateOf(capCountdownMinutes(retryAfterSeconds))
     }
     // The tick outlives recompositions that swap the lambda — read the CURRENT onDismiss at fire time.

@@ -18,7 +18,13 @@ data class CapCountdown(
  * flash-dismiss the dialog on entry (the shipped detail banner's 0→"1 jam" floor precedent). Pure +
  * deterministic — no wall clock.
  */
-fun capCountdownMinutes(retryAfterSeconds: Long): Int = if (retryAfterSeconds <= 0) 1 else ((retryAfterSeconds + 59) / 60).toInt()
+fun capCountdownMinutes(retryAfterSeconds: Long): Int {
+    if (retryAfterSeconds <= 0) return 1
+    // Divide BEFORE adding the round-up so a pathological near-Long.MAX_VALUE Retry-After can't overflow
+    // the `+ 59` (real values are ≤ ~86 400 s; this is a defensive clamp), then saturate into Int.
+    val minutes = retryAfterSeconds / 60 + if (retryAfterSeconds % 60 > 0) 1 else 0
+    return minutes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+}
 
 /** Remaining whole minutes → the hours+minutes split (floored to 1 minute). Pure + deterministic. */
 fun capCountdown(totalMinutes: Int): CapCountdown {
