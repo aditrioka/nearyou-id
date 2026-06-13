@@ -36,3 +36,7 @@ iosApp/*.xcworkspace/
 # Maestro E2E run artifacts (screenshots, mp4, logs, JUnit). Regenerated per run; never commit.
 mobile/app/maestro/artifacts/
 
+# Firebase Test Lab device-run artifacts pulled by scripts/run_on_device.sh
+# (Robo screenshots, video, logs). Regenerated per run; never commit.
+dev/device-runs/
+

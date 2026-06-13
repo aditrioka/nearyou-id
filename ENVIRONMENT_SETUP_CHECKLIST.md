@@ -43,10 +43,20 @@ Update each box as a step lands so a dropped session can resume without redoing 
 - [x] 10. Committed + pushed to `claude/android-dev-env-nearbyid-379enc`.
 
 > Bonus validation: `./gradlew :mobile:app:tasks` ran **BUILD SUCCESSFUL** with the JDK 17
-> daemon + auto-detected JDK 21 compile toolchain — confirming AGP configures the `staging`
-> flavor (so `assembleStagingDebug` / `assembleStagingDebugAndroidTest` exist) with no network
-> toolchain download. A full `assembleStagingDebug` APK build additionally needs the maven/google
-> repos in the network allowlist.
+> daemon + auto-detected JDK 21 compile toolchain. A full `assembleStagingDebug` +
+> `assembleStagingDebugAndroidTest` build then ran **BUILD SUCCESSFUL**, producing real APKs
+> (`app-staging-debug.apk` 19M, `app-staging-debug-androidTest.apk`). The network allowlist in
+> this environment is already fully open (build repos + Firebase + BrowserStack all reachable).
+
+## Device-farm / real-device run (added for vibe-code-from-phone)
+
+- [x] 11. `scripts/_gcloud_lib.sh` — shared idempotent gcloud install + service-account auth + artifact pull.
+- [x] 12. `scripts/run_on_device.sh` — build APK + Firebase Test Lab **Robo run** on a real device + download screenshots/video to `dev/device-runs/<ts>/`.
+- [x] 13. `scripts/test_android.sh` — parity wrapper (local adb `connectedAndroidTest` vs farm dispatch).
+- [x] 14. Refactor `test_firebase.sh` onto the shared gcloud lib.
+- [x] 15. `dev/docs/device-farm.md` — device-farm runbook + one-time Firebase operator setup + cost.
+- [x] 16. `.gitignore` += `dev/device-runs/`; CLAUDE.md "Android build & test" section updated.
+- [ ] 17. **Operator (one-time, UI/GCP):** create/enable Firebase Test Lab project + service account, then add `GCP_SA_KEY_JSON` (or `GOOGLE_APPLICATION_CREDENTIALS`) + `FIREBASE_PROJECT_ID` as environment secrets. See `dev/docs/device-farm.md`. Until this lands, the farm scripts are ready but cannot dispatch (no live end-to-end run possible without credentials).
 
 ## Network allowlist required (add in Create-environment UI)
 
