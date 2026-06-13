@@ -387,6 +387,25 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
 
 .hint { display: block; font-size: 10.5px; color: var(--on-surface-variant); margin-top: 6px; font-weight: 400; text-transform: none; letter-spacing: normal; }
 
+/* Operational-dashboard section heading + per-hour sparkline
+   (admin-operational-dashboard; frame 3). */
+.section-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--on-surface-variant);
+  margin: 22px 0 2px;
+}
+.spark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 28px;
+  margin-top: 10px;
+}
+.spark i { width: 4px; background: var(--primary); border-radius: 1px 1px 0 0; min-height: 1px; }
+
 /* informational banner (frame 2 CSRF note; mirrors the login error banner) */
 .banner {
   display: flex;
