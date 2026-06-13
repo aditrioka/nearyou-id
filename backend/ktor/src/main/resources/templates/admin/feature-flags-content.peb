@@ -1,0 +1,101 @@
+{# Swappable Feature Flag Admin content fragment (admin-feature-flags, frame 20).
+   Rendered standalone for HTMX requests (HX-Request: true) and {% include %}d by
+   feature-flags.peb for the full-page / no-JS path. #ff-content is the hx-target
+   swapped in place. Every value is Pebble-autoescaped on output — no `raw` filter.
+
+   CSRF: on the full-page render `csrfToken` is present so the per-flag `_csrf`
+   hidden fields populate for the no-JS POST path; on the HTMX-fragment render
+   `csrfToken` is omitted (the layout's htmx:configRequest hook adds the
+   X-CSRF-Token header from the meta tag instead). The `etag` hidden field is the
+   optimistic-concurrency token captured at render. #}
+<div id="ff-content">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+
+{% if not writeAvailable %}
+    <div class="banner warn ff-readonly-notice">
+        Writes unavailable — the Remote Config write role is not configured on this admin service.
+        Showing current state read-only; ask the operator to grant the Remote Config write role.
+    </div>
+{% endif %}
+
+<p class="pg-sub">Firebase Remote Config · Server template · audit-logged (<code>feature_flag_toggled</code>) · rate-limited {{ cap }}/hour/admin · template version {{ version }}</p>
+
+<div class="cardlet">
+    <table class="tbl">
+        <tbody>
+        {% for f in flags %}
+            <tr class="ff-row" data-flag="{{ f.key }}">
+                <td>
+                    <b>{{ f.key }}</b>
+                    <span class="sub">{{ f.description }}{% if f.securitySensitive %} · owner/admin only{% endif %}</span>
+                </td>
+                <td class="ff-value">
+                    {% if f.kind == "bool" %}
+                        <span class="st {% if f.on %}ok{% else %}neut{% endif %}">{% if f.on %}ON{% else %}OFF{% endif %}</span>
+                    {% elseif f.kind == "enum" %}
+                        <span class="st info">{{ f.displayValue }}</span>
+                    {% else %}
+                        <span class="st neut">{{ f.displayValue }}</span>
+                    {% endif %}
+                </td>
+                <td class="ff-control">
+                    {% if writeAvailable %}
+                        <form class="ff-form"
+                              action="/admin/feature-flags/{{ f.key }}"
+                              method="POST"
+                              hx-post="/admin/feature-flags/{{ f.key }}"
+                              hx-target="#ff-content"
+                              hx-swap="outerHTML"
+                              hx-confirm="Change {{ f.key }}? This publishes to Remote Config and is audit-logged.">
+                            <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                            <input type="hidden" name="etag" value="{{ etag | default('') }}">
+                            {% if f.kind == "bool" %}
+                                <input type="hidden" name="value" value="{{ f.toggleTo }}">
+                                <input type="text" name="reason" class="ff-reason" placeholder="reason (required)" required>
+                                <button type="submit" class="btn {% if f.on %}outl{% else %}filled{% endif %} sm">Turn {% if f.on %}off{% else %}on{% endif %}</button>
+                            {% elseif f.kind == "enum" %}
+                                <select name="value" class="ff-enum">
+                                    {% for v in f.enumValues %}<option value="{{ v }}"{% if v == f.value %} selected{% endif %}>{{ v }}</option>{% endfor %}
+                                </select>
+                                <input type="text" name="reason" class="ff-reason" placeholder="reason (required)" required>
+                                <button type="submit" class="btn filled sm">Set</button>
+                            {% else %}
+                                <input type="number" name="value" class="ff-int" value="{{ f.value }}" min="{{ f.min }}" max="{{ f.max }}">
+                                <input type="text" name="reason" class="ff-reason" placeholder="reason (required)" required>
+                                <button type="submit" class="btn filled sm">Set</button>
+                            {% endif %}
+                        </form>
+                    {% else %}
+                        <span class="note ff-disabled">read-only</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{# Moderation wordlist parameters — READ-ONLY here (count + version). Array-content
+   editing is deferred to admin-moderation-wordlist-editor (spec Req "Wordlist
+   array-content editing is out of scope and guarded read-only"); no mutation
+   control is rendered. #}
+<div class="cardlet ff-wordlists">
+    <h4>Moderation wordlist parameters <span class="st neut">READ-ONLY</span></h4>
+    <dl class="kv">
+        {% for l in lists %}
+            <dt>{{ l.key }}</dt>
+            <dd>
+                <span class="code">{{ l.summary }}</span>
+                <span class="note">{{ l.description }} · content editing deferred (admin-moderation-wordlist-editor)</span>
+            </dd>
+        {% endfor %}
+    </dl>
+</div>
+
+<div class="banner warn">
+    Each change: confirm + reason → audit log (<code>feature_flag_toggled</code>) + the {{ cap }}/hour rate limit.
+    Security-touching flags (e.g. <code>attestation_mode</code>) require owner/admin.
+</div>
+</div>

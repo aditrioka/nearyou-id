@@ -5,6 +5,8 @@ import com.zaxxer.hikari.HikariDataSource
 import dev.samstevens.totp.code.DefaultCodeGenerator
 import dev.samstevens.totp.code.HashingAlgorithm
 import id.nearyou.app.admin.admin
+import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
+import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import io.ktor.client.HttpClient
 import io.ktor.server.application.install
 import io.ktor.server.testing.ApplicationTestBuilder
@@ -279,6 +281,7 @@ object AdminAuthTestSupport {
         dataSource: DataSource,
         aesKeyOverride: (() -> ByteArray)? = null,
         clock: () -> Instant = Instant::now,
+        remoteConfigPublisher: RemoteConfigPublisher = NoOpRemoteConfigPublisher,
         block: suspend ApplicationTestBuilder.(client: HttpClient) -> Unit,
     ) {
         testApplication {
@@ -289,6 +292,7 @@ object AdminAuthTestSupport {
                     aesKeyProvider = aesKeyOverride ?: { FIXED_AES_KEY },
                     csrfHmacKeyProvider = { FIXED_CSRF_HMAC_KEY },
                     environmentName = TEST_ENVIRONMENT_NAME,
+                    remoteConfigPublisher = remoteConfigPublisher,
                     privacyFlipsClock = clock,
                 )
             }
