@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.InMemoryTokenStore
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
@@ -29,6 +30,10 @@ import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.NotificationsRepository
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.profile.ProfileOutcome
+import id.nearyou.app.screens.profile.PROFILE_FOLLOWERS_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
@@ -63,7 +68,13 @@ private const val SECTION_NOTIFICATIONS = "Notifikasi" // section_notifications
 private const val SECTION_PROFILE = "Profil" // section_profile
 private const val TAB_FOLLOWING = "Mengikuti" // tab_following
 private const val FOLLOWING_PLACEHOLDER = "Kamu belum mengikuti siapa pun. Lihat Nearby atau Global dulu."
-private const val PROFILE_PLACEHOLDER = "Profil segera hadir." // profile_placeholder
+
+/** Fake self-id provider so the Profil section's live self [id.nearyou.app.screens.profile.ProfileScreen]
+ *  resolves a target id without a real token (mobile-profile). */
+private class FakeSelfUserId(private val id: String? = "self-1") : SelfUserIdProvider {
+    override suspend fun selfUserId(): String? = id
+}
+
 private const val FAB_POST = "Posting" // cta_post — the Home-section icon-only composer FAB contentDescription
 private const val NOTIF_COPY = "Seseorang menyukai postingan kamu" // notif_post_liked — proves the screen rendered
 private const val BADGE_CD = "Notifikasi belum dibaca" // notifications_badge contentDescription
@@ -134,6 +145,13 @@ class AppShellScreenTest {
                     single<GlobalTimelineFlow> { globalFake }
                     single<LikeFlow> { FakeLikeFlow() }
                     single<NotificationsFlow> { notifFake }
+                    // mobile-profile: the Profil section renders the live self ProfileScreen, which
+                    // injects ProfileFlow + SelfUserIdProvider. Faked here so the section renders the
+                    // self profile (isSelf = true → no follow/block/report actions).
+                    single<ProfileFlow> {
+                        FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(isSelf = true)))
+                    }
+                    single<SelfUserIdProvider> { FakeSelfUserId() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
@@ -176,13 +194,15 @@ class AppShellScreenTest {
     }
 
     @Test
-    fun selectingProfil_swapsBodyToPlaceholder() {
+    fun selectingProfil_swapsBodyToSelfProfile() {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_PROFILE).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
+            // The live self profile renders (mobile-profile) — its follower count node appears; the Home
+            // feed is gone. (The old "Profil segera hadir." placeholder is removed.)
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOWERS_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertDoesNotExist()
         }
     }
@@ -213,7 +233,7 @@ class AppShellScreenTest {
             onNodeWithContentDescription(FAB_POST).assertDoesNotExist()
             // Profil section → FAB absent.
             onNodeWithText(SECTION_PROFILE).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOWERS_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithContentDescription(FAB_POST).assertDoesNotExist()
         }
     }
@@ -365,12 +385,12 @@ class AppShellScreenTest {
         }
     }
 
-    // mobile-home-tab-host § "The Profil section renders a deferred placeholder ... issues no fetch" — a
-    // recording MockEngine backs the shell's real NotificationsRepository (so its outbound requests are
-    // captured); selecting Profil renders the placeholder and captures NO new request. Nearby/Global stay
-    // fakes (their counters confirm no feed fetch fires for Profil either).
+    // mobile-profile: selecting Profil renders the live self profile via the ProfileFlow seam (faked
+    // here) — its profile read does NOT touch the shared notifications HttpClient. A recording MockEngine
+    // backs the shell's real NotificationsRepository; selecting Profil captures NO new request on it (the
+    // section does not trigger a notifications fetch). Nearby/Global stay fakes (no feed fetch for Profil).
     @Test
-    fun profilSection_issuesNoFetch() {
+    fun profilSection_issuesNoNotificationsFetch() {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         val recordedPaths = mutableListOf<String>()
         val jsonHeaders = headersOf("Content-Type", "application/json")
@@ -399,6 +419,12 @@ class AppShellScreenTest {
                     // The shell's real notifications graph over the recording MockEngine (the badge's
                     // unread-count request is captured here).
                     single<NotificationsFlow> { NotificationsRepository(NotificationsApiClient(httpClient)) }
+                    // The Profil section's profile read goes through this fake ProfileFlow (NOT the
+                    // recording HttpClient), so selecting Profil adds no path to recordedPaths.
+                    single<ProfileFlow> {
+                        FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(isSelf = true)))
+                    }
+                    single<SelfUserIdProvider> { FakeSelfUserId() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
@@ -412,12 +438,12 @@ class AppShellScreenTest {
             val pathsAfterCompose = recordedPaths.toList()
 
             onNodeWithText(SECTION_PROFILE).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOWERS_TAG).fetchSemanticsNodes().isNotEmpty() }
 
             assertEquals(
                 pathsAfterCompose,
                 recordedPaths.toList(),
-                "the Profil section captures NO new outbound request (the placeholder issues no fetch)",
+                "selecting Profil captures NO new request on the notifications HttpClient (its profile read uses the ProfileFlow seam)",
             )
         }
     }
@@ -464,7 +490,7 @@ class AppShellScreenTest {
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NOTIF_COPY, substring = true).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithContentDescription(APP_NAME).assertDoesNotExist()
             onNodeWithText(SECTION_PROFILE).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOWERS_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithContentDescription(APP_NAME).assertDoesNotExist()
         }
     }

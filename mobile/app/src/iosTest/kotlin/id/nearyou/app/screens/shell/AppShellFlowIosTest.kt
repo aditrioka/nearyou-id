@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -15,6 +16,10 @@ import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.profile.ProfileOutcome
+import id.nearyou.app.screens.profile.PROFILE_FOLLOWERS_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
@@ -38,9 +43,13 @@ import kotlin.test.assertEquals
 private const val SECTION_HOME = "Beranda"
 private const val SECTION_NOTIFICATIONS = "Notifikasi"
 private const val SECTION_PROFILE = "Profil"
-private const val PROFILE_PLACEHOLDER = "Profil segera hadir."
 private const val NOTIF_COPY = "Seseorang menyukai postingan kamu"
 private const val BADGE_CD = "Notifikasi belum dibaca"
+
+/** Fake self-id provider so the Profil section's live self profile resolves a target (mobile-profile). */
+private class FakeSelfUserId(private val id: String? = "self-1") : SelfUserIdProvider {
+    override suspend fun selfUserId(): String? = id
+}
 
 /**
  * iOS counterpart to the Robolectric `AppShellScreenTest` — the bottom-nav section shell run natively on
@@ -70,6 +79,10 @@ class AppShellFlowIosTest {
                             unreadCountValue = unreadCount,
                         )
                     }
+                    single<ProfileFlow> {
+                        FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(isSelf = true)))
+                    }
+                    single<SelfUserIdProvider> { FakeSelfUserId() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
@@ -108,13 +121,14 @@ class AppShellFlowIosTest {
     }
 
     @Test
-    fun selectingProfil_showsPlaceholder() {
+    fun selectingProfil_showsSelfProfile() {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(SECTION_PROFILE).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
+            // The live self profile renders (mobile-profile) — its follower count node appears.
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOWERS_TAG).fetchSemanticsNodes().isNotEmpty() }
         }
     }
 

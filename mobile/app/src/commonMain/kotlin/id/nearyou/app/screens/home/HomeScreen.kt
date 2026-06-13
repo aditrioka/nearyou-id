@@ -83,6 +83,7 @@ fun HomeScreen(
     onOpenComposer: () -> Unit,
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
+    onOpenProfile: (authorUserId: String) -> Unit = {},
 ) {
     // The durable selection (iOS-safe @Serializable enum) — kept in sync with the settled pager page.
     var selectedTab by rememberSaveable { mutableStateOf(Tab.Nearby) }
@@ -129,12 +130,14 @@ fun HomeScreen(
                             onSeeGlobal = { scope.launch { pagerState.animateScrollToPage(Tab.Global.ordinal) } },
                             onOpenPost = { post -> onOpenPost(post.toTarget()) },
                             onOpenPostReply = { post -> onOpenPostReply(post.toTarget()) },
+                            onOpenProfile = onOpenProfile,
                         )
                     Tab.Following -> FollowingPlaceholderScreen()
                     Tab.Global ->
                         GlobalTimelineScreen(
                             onOpenPost = { post -> onOpenPost(post.toTarget()) },
                             onOpenPostReply = { post -> onOpenPostReply(post.toTarget()) },
+                            onOpenProfile = onOpenProfile,
                         )
                 }
             }

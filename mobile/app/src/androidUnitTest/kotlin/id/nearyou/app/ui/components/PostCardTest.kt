@@ -28,10 +28,10 @@ import kotlin.test.assertEquals
  * ONE card implementation Nearby + Global consume (audit 05-#11 post-card half). Covers: the
  * identity header (display name + @handle + time-as-TEXT), the structural no-PII guarantee, the
  * liked-state icon variants + the accessible toggled state, the interactive ACTION ROW contract
- * (`mobile-inline-post-actions`: exactly three click targets — the card + the like + the reply
- * affordances; the affordances route to their own callbacks WITHOUT firing the whole-card open;
- * no send affordance, no numeric like count; the avatar region is still NOT a separate target —
- * no profile screen yet, issue #196), the Nearby-vs-Global distance split via the shared
+ * (`mobile-inline-post-actions` + `mobile-profile`: four click targets — the card + the identity
+ * header (→ author profile) + the like + the reply affordances; the affordances + identity route to
+ * their own callbacks WITHOUT firing the whole-card open; no send affordance, no numeric like count),
+ * the Nearby-vs-Global distance split via the shared
  * `DistanceRenderer`, the empty-meta-row omission, the maximal-length (V2 50/60) single-line
  * ellipsis treatment, and light+dark token rendering.
  *
@@ -71,6 +71,7 @@ class PostCardTest {
         onOpen: () -> Unit = {},
         onToggleLike: () -> Unit = {},
         onReplyShortcut: () -> Unit = {},
+        onOpenProfile: () -> Unit = {},
         darkTheme: Boolean = false,
     ) {
         NearYouTheme(darkTheme = darkTheme) {
@@ -79,6 +80,7 @@ class PostCardTest {
                 onOpen = onOpen,
                 onToggleLike = onToggleLike,
                 onReplyShortcut = onReplyShortcut,
+                onOpenProfile = onOpenProfile,
             )
         }
     }
@@ -120,18 +122,19 @@ class PostCardTest {
         }
 
     @Test
-    fun exactlyThreeClickTargets_andAvatarTapFiresTheWholeCardOpenOnce() =
+    fun fourClickTargets_andIdentityTapFiresOnOpenProfileNotTheWholeCardOpen() =
         runComposeUiTest {
             var opened = 0
-            setContent { Card(model = model(), onOpen = { opened++ }) }
-            // Exactly THREE click targets in the whole tree — the card itself plus the action
-            // row's like + reply affordances (mobile-post-card § "Action row renders interactive
-            // reply and like affordances"). The identity region exposes no click action and there
-            // is NO send affordance / third action slot (the deferred chat hook, issue #238).
-            onAllNodes(hasClickAction()).assertCountEquals(3)
-            // Tapping over the avatar region dispatches to the card's clickable — same action.
-            onNodeWithTag(POST_CARD_AVATAR_TAG, useUnmergedTree = true).performClick()
-            assertEquals(1, opened)
+            var profile = 0
+            setContent { Card(model = model(), onOpen = { opened++ }, onOpenProfile = { profile++ }) }
+            // FOUR click targets in the whole tree — the card itself, the identity header (→ author
+            // profile, mobile-profile), plus the action row's like + reply affordances. There is NO
+            // send affordance / extra action slot (the deferred chat hook, issue #238).
+            onAllNodes(hasClickAction()).assertCountEquals(4)
+            // Tapping the identity header (over the avatar) fires onOpenProfile, NOT the whole-card open.
+            onNodeWithTag(POST_CARD_IDENTITY_TAG, useUnmergedTree = true).performClick()
+            assertEquals(1, profile, "the identity tap fires onOpenProfile exactly once")
+            assertEquals(0, opened, "the identity tap does NOT fire the whole-card onOpen")
         }
 
     @Test
