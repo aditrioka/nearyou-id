@@ -246,4 +246,23 @@
     <string name="profile_not_found">Pengguna tidak ditemukan.</string>
     <string name="profile_action_user_unavailable">Pengguna tidak tersedia.</string>
     <string name="profile_action_failed">Gagal. Coba lagi.</string>
+    <!-- mobile-search: the Premium-gated Cari surface (docs/03-UX-Design.md § Search UX). The
+         empty-results + rate-limit modal copy are verbatim docs/03:244 / :245. The error/session/loading
+         states REUSE signin_error_network / cta_retry / timeline_loading / timeline_session_redirect
+         (declared above) — no new keys. The search-result card REUSES post_card_handle /
+         post_card_meta_separator. The Premium-gate CTA is a v1 informational placeholder (no paywall
+         destination — Phase 4 billing; follow-up issue). -->
+    <string name="search_hint">Cari postingan</string>
+    <string name="search_idle_prompt">Cari postingan atau pengguna.</string>
+    <string name="search_empty_results" formatted="true">Tidak ada hasil untuk '%1$s'. Coba kata kunci lain.</string>
+    <string name="search_premium_gate_body">Pencarian hanya untuk pengguna Premium. Aktifkan Premium untuk mencari postingan dan pengguna di seluruh Indonesia.</string>
+    <!-- The gate's primary CTA reuses cta_activate_premium ("Aktifkan Premium", declared for the
+         cap-upsell dialog) — same copy, no duplicate-value key. -->
+    <string name="search_rate_limited" formatted="true">Kamu sudah mencapai batas pencarian. Reset dalam %1$d menit.</string>
+    <string name="search_rate_limit_reset">Batas pencarian sudah direset. Coba cari lagi.</string>
+    <string name="search_disabled">Pencarian sedang tidak tersedia. Coba lagi nanti.</string>
+    <string name="search_load_more">Lihat lebih banyak</string>
+    <string name="search_icon_cd">Cari</string>
+    <string name="search_clear_cd">Hapus pencarian</string>
+    <string name="search_back_cd">Kembali</string>
 </resources>

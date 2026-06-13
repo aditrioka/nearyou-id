@@ -13,6 +13,7 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -41,6 +42,7 @@ import id.nearyou.app.screens.notifications.NotificationsScreen
 import id.nearyou.app.screens.profile.ProfileScreen
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.app_name
+import id.nearyou.resources.generated.resources.ic_action_search
 import id.nearyou.resources.generated.resources.ic_nav_home
 import id.nearyou.resources.generated.resources.ic_nav_home_filled
 import id.nearyou.resources.generated.resources.ic_nav_notifications
@@ -50,6 +52,7 @@ import id.nearyou.resources.generated.resources.ic_nav_profile_filled
 import id.nearyou.resources.generated.resources.logo_brand_dark
 import id.nearyou.resources.generated.resources.logo_brand_light
 import id.nearyou.resources.generated.resources.notifications_badge
+import id.nearyou.resources.generated.resources.search_icon_cd
 import id.nearyou.resources.generated.resources.section_home
 import id.nearyou.resources.generated.resources.section_home_icon_description
 import id.nearyou.resources.generated.resources.section_notifications
@@ -107,6 +110,7 @@ fun AppShellScreen(
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
+    onOpenSearch: () -> Unit = {},
 ) {
     val flow = koinInject<NotificationsFlow>()
     var selectedSection by rememberSaveable { mutableStateOf(Section.Home) }
@@ -123,7 +127,7 @@ fun AppShellScreen(
         // 1/19; Notifikasi/Profil keep their own in-body headers (no shell top bar).
         topBar = {
             if (selectedSection == Section.Home) {
-                HomeBrandTopBar()
+                HomeBrandTopBar(onOpenSearch = onOpenSearch)
             }
         },
         bottomBar = {
@@ -196,6 +200,9 @@ fun AppShellScreen(
 const val SHELL_LOGO_LIGHT_TAG: String = "shellLogoLight"
 const val SHELL_LOGO_DARK_TAG: String = "shellLogoDark"
 
+/** Test tag on the Home app-bar search action (mobile-search) — Home-section-only entry point. */
+const val SHELL_SEARCH_ACTION_TAG: String = "shellSearchAction"
+
 /**
  * The Home section's pinned centered brand-logo app bar (mockup frames 1 + 19): the bundled
  * `logo_brand_light`/`logo_brand_dark` vector selected by [isSystemInDarkTheme] (the SignInScreen
@@ -203,10 +210,15 @@ const val SHELL_LOGO_DARK_TAG: String = "shellLogoDark"
  * `stringResource`. Pinned — no scroll-collapse behavior (design D5: collapse would be new motion
  * surface with no spec backing). Lives in the shell Scaffold's `topBar` slot so window insets stay
  * applied exactly once.
+ *
+ * As of `mobile-search`, the `actions` slot carries a trailing **search action icon** (a Material
+ * search glyph, `contentDescription = search_icon_cd`) invoking the hoisted [onOpenSearch] — the
+ * `appEntryProvider` call site pushes `SearchRoute` onto the root stack. Home-section only (this app
+ * bar renders only on Home, mirroring the Home-only composer FAB).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeBrandTopBar() {
+private fun HomeBrandTopBar(onOpenSearch: () -> Unit) {
     val dark = isSystemInDarkTheme()
     val logo = if (dark) Res.drawable.logo_brand_dark else Res.drawable.logo_brand_light
     CenterAlignedTopAppBar(
@@ -221,6 +233,14 @@ private fun HomeBrandTopBar() {
                         if (dark) SHELL_LOGO_DARK_TAG else SHELL_LOGO_LIGHT_TAG,
                     ),
             )
+        },
+        actions = {
+            IconButton(onClick = onOpenSearch, modifier = Modifier.testTag(SHELL_SEARCH_ACTION_TAG)) {
+                Icon(
+                    painter = painterResource(Res.drawable.ic_action_search),
+                    contentDescription = stringResource(Res.string.search_icon_cd),
+                )
+            }
         },
     )
 }

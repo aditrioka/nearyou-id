@@ -30,6 +30,7 @@ val navSavedStateConfiguration: SavedStateConfiguration =
                     subclass(ConsentRoute::class, ConsentRoute.serializer())
                     subclass(PostDetailRoute::class, PostDetailRoute.serializer())
                     subclass(ProfileRoute::class, ProfileRoute.serializer())
+                    subclass(SearchRoute::class, SearchRoute.serializer())
                 }
             }
     }
