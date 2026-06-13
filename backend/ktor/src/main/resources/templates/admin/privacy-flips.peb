@@ -1,0 +1,45 @@
+{% extends "layout.peb" %}
+
+{% block title %}Privacy Flip Monitor — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Privacy Flip Monitor <span class="st neut">READ-ONLY</span></h2>
+<p class="pg-sub">Users with a pending private↔public flip (privacy_flip_scheduled_at) — IN_WINDOW (mid 72 h grace) + OVERDUE (stuck past deadline; worker/webhook-bug signal)</p>
+
+{# Read-only monitor over `users` rows with a scheduled privacy flip. No write
+   action — anomalies (stuck/overdue rows) are escalated to an out-of-band
+   worker fix (frame 17). Every value is autoescaped; username/display_name are
+   user-controlled free text, so escaping is load-bearing here. #}
+
+{# Filter form. hx-get swaps only the #privacy-flips-table fragment; method=GET
+   means it also works as plain navigation when JS is unavailable (progressive
+   enhancement). The .filters-toggle checkbox is the pure-CSS "Filters"
+   disclosure of the frame-4b responsive contract. #}
+<div class="filterbar">
+    <input type="checkbox" id="filters-toggle" class="filters-toggle" aria-label="Toggle filters">
+    <label for="filters-toggle" class="btn tonal sm filters-label">Filters</label>
+    <span class="filters-chips">{% for f in filters %}{% if f.value is not empty %}<span class="pill">{{ f.key }}: {{ f.value }}</span>{% endif %}{% endfor %}</span>
+    <form class="filters"
+          hx-get="/admin/privacy-flips"
+          hx-target="#privacy-flips-table"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          method="GET">
+        <label class="field">
+            <span>Status</span>
+            <select name="status">
+                <option value="">All</option>
+                <option value="in_window" {% if filters.status == 'in_window' %}selected{% endif %}>in_window</option>
+                <option value="overdue" {% if filters.status == 'overdue' %}selected{% endif %}>overdue</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>User (username or ID)</span>
+            <input type="text" name="q" value="{{ filters.q | default('') }}" placeholder="username or UUID">
+        </label>
+        <button type="submit" class="btn filled">Filter</button>
+    </form>
+</div>
+
+{% include "privacy-flips-table.peb" %}
+{% endblock %}
