@@ -1,3 +1,5 @@
+# mobile-chat — Delta Specification
+
 ## ADDED Requirements
 
 ### Requirement: ConversationListScreen renders the Pesan surface
@@ -61,6 +63,15 @@ The mobile app SHALL ship a Compose Multiplatform screen `ChatThreadScreen` reac
 - **WHEN** the thread loads its first page then loads older messages on scroll-up
 - **THEN** the first request is `GET /api/v1/chat/{conversation_id}/messages` with NO `cursor`, and the older-page request carries the `cursor` returned by the first page
 
+#### Scenario: Input bar renders and loading uses a single indicator
+- **WHEN** the thread renders loaded history, then a refresh is in flight
+- **THEN** the bottom input bar (`chat_thread_input_placeholder` + send action) is present in both cases AND exactly one progress indicator shows at a time (initial-load skeleton vs the `PullToRefreshBox` `isRefreshing` indicator over retained content), per `mobile-design-system` § "Canonical list loading and refresh pattern"
+
+#### Scenario: Shadow-banned/deleted partner top-bar is masked, not a stale real name
+- **GIVEN** the partner is shadow-banned or deleted (the conversation list masked them as `Akun Dihapus`)
+- **WHEN** the thread top bar renders the partner identity
+- **THEN** it shows the `Akun Dihapus` placeholder semantics rather than a stale real name carried on the route payload (the shadow-ban mask is not bypassed via `ChatThreadRoute`)
+
 ### Requirement: Redacted messages render a neutral placeholder
 
 A message whose `content` is `null` with `redacted_at` set (the shipped redaction wire — `redaction_reason` is never present) SHALL render the neutral `stringResource(Res.string.chat_message_redacted)` ("*Pesan ini telah dihapus*") placeholder, never an empty bubble, a literal `"null"`, or the original content. This SHALL hold whether the redaction arrives via REST history or via realtime.
@@ -85,6 +96,10 @@ The send path SHALL `POST /api/v1/chat/{conversation_id}/messages` with a body o
 #### Scenario: Over-length content blocked client-side
 - **WHEN** the user attempts to send content of 2001 characters
 - **THEN** no request is issued AND the input bar shows the too-long state
+
+#### Scenario: Empty or whitespace-only content is not sent
+- **WHEN** the user attempts to send `""` or a whitespace-only string (e.g. `"   "`)
+- **THEN** no request is issued AND the send action stays idle/disabled (no optimistic append)
 
 #### Scenario: Optimistic append reconciles to the server id
 - **GIVEN** an optimistic message appended on send
@@ -125,7 +140,7 @@ When the send returns `403` with body `{ "error": "Tidak dapat mengirim pesan ke
 
 ### Requirement: Realtime subscribe is token-authed against the canonical channel in an :infra module
 
-A new Gradle module `:infra:supabase-realtime` (Android + iOS targets) SHALL provide the only `ChatRealtimeSubscriber` implementation, using the supabase-kt Realtime client. Before joining, it SHALL fetch a fresh HS256 token via `GET /api/v1/realtime/token`. It SHALL join the channel named exactly `realtime:conversation:<conversation_id>` where `<conversation_id>` is the lowercase canonical UUID (per `chat-realtime-broadcast` § Channel name format). The vendor Supabase import SHALL appear ONLY in this module. The module SHALL be registered in `settings.gradle.kts` and `dev/module-descriptions.txt`, and `dev/scripts/sync-readme.sh --check` SHALL be clean.
+A new Gradle module `:infra:supabase-realtime` (Android + iOS targets) SHALL provide the only `ChatRealtimeSubscriber` implementation, using the supabase-kt Realtime client. Before joining, it SHALL fetch a fresh HS256 token via `GET /api/v1/realtime/token`. The token-endpoint client DTO SHALL mirror the SHIPPED `RealtimeTokenResponse` envelope `{ "token": "<jws>", "expires_in": <seconds> }` (snake_case `expires_in`) — NOT a bare string — and the subscriber's token-refresh cadence SHALL key off the returned `expires_in` rather than a hardcoded TTL literal. It SHALL join the channel named exactly `realtime:conversation:<conversation_id>` where `<conversation_id>` is the lowercase canonical UUID (per `chat-realtime-broadcast` § Channel name format). The vendor Supabase import SHALL appear ONLY in this module. The module SHALL be registered in `settings.gradle.kts` and `dev/module-descriptions.txt`, and `dev/scripts/sync-readme.sh --check` SHALL be clean.
 
 #### Scenario: Channel name uses the canonical lowercase form
 - **GIVEN** `conversationId` `11111111-2222-3333-4444-555555555555`
@@ -134,7 +149,17 @@ A new Gradle module `:infra:supabase-realtime` (Android + iOS targets) SHALL pro
 
 #### Scenario: Token fetched before join
 - **WHEN** a subscription begins
-- **THEN** `GET /api/v1/realtime/token` is invoked and its HS256 token is used to authenticate the channel join (the token is never persisted to disk and never logged)
+- **THEN** `GET /api/v1/realtime/token` is invoked and its HS256 token is used to authenticate the channel join (the token is never persisted to disk, never logged, and never captured into a `@Serializable` NavKey / saved-state holder)
+
+#### Scenario: Token endpoint envelope is parsed (not a bare string)
+- **GIVEN** the shipped response body `{ "token": "<jws>", "expires_in": 3600 }`
+- **WHEN** the realtime-token client parses it
+- **THEN** the DTO yields the token string AND `expiresIn = 3600` (the snake_case `expires_in` is mapped), AND a body shaped as a bare JSON string would NOT satisfy the DTO
+
+#### Scenario: Reconnect re-fetches a fresh token
+- **GIVEN** an active subscription whose transport drops
+- **WHEN** the subscriber rejoins the channel
+- **THEN** it invokes `GET /api/v1/realtime/token` again (a fresh token) rather than reusing the prior, possibly-near-expiry token
 
 #### Scenario: Vendor SDK confined to the infra module
 - **WHEN** a static scan runs over `:mobile:app` and `:core:domain` for the supabase-kt import
@@ -173,14 +198,18 @@ On every (re)subscribe the ViewModel SHALL trigger a REST first-page resync and 
 - **WHEN** the user sends a message and pulls to refresh
 - **THEN** the send still goes via REST and the refresh resyncs history; no realtime error banner is shown
 
-### Requirement: Consumer-side shadow-ban defense-in-depth
+### Requirement: Shadow-ban filtering is server-authoritative; the client does not gate on ban state
 
-The thread SHALL apply a consumer-side shadow-ban filter as defense-in-depth over the server contract: a realtime inbound whose `senderId` equals the viewer's own id while the viewer is shadow-banned SHALL be dropped (matching the server's publish-skip the client can momentarily race). This SHALL NOT re-implement server filtering for other senders (the server read/publish filters those).
+The client SHALL NOT re-implement shadow-ban filtering and SHALL NOT gate any merge/render decision on the viewer's own shadow-ban state (shadow-ban status is deliberately not surfaced to the banned user, so the client has no such signal). Shadow-ban correctness is the server's: the publish-side skip means a shadow-banned sender's messages are never broadcast, and the read-path filter excludes shadow-banned other senders. Any own-message echo that does arrive via realtime (the normal non-banned case, or an admin-flip mid-flight race) SHALL be reconciled by the id-keyed dedupe (per § "Realtime messages merge into the thread deduplicated by id") onto the already-present optimistic/REST row — not special-cased.
 
-#### Scenario: Self shadow-banned realtime echo dropped
-- **GIVEN** the viewer is shadow-banned
-- **WHEN** a realtime inbound arrives with `senderId == viewerId`
-- **THEN** it is not appended to the rendered list (defense-in-depth against the publish-skip race)
+#### Scenario: Own-message realtime echo collapses, not dropped
+- **GIVEN** the viewer has sent a message (present optimistically with server id X)
+- **WHEN** a realtime inbound arrives with `senderId == viewerId` and `id == X`
+- **THEN** it collapses onto the existing row by id-dedupe (exactly one row), with no shadow-ban-state gate applied
+
+#### Scenario: Client carries no viewer-shadow-ban signal
+- **WHEN** inspecting the chat merge/render code paths
+- **THEN** no branch reads a "viewer is shadow-banned" flag (the client has no such signal; filtering is server-side)
 
 ### Requirement: First-send notification-permission prompt
 
