@@ -61,10 +61,10 @@
 - [x] 7.1 Bind `AdminPrivacyFlipsRepository` in the admin Koin module and wire the route in `AdminModule.kt` inside the `authenticate(ADMIN_AUTH_NAME)` block.
 - [x] 7.2 Run the full local gate before push: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (CLAUDE.md pre-push — both lint frameworks).
 - [x] 7.3 UI-affecting DoD (docs/11 §5.3): brought the page up through the full route + Pebble + repository stack against migrated Postgres and captured the rendered HTML (no browser in the headless cloud sandbox; admin panels have no mobile device-farm path). Evidence shows 3 rows mirroring frame 17 (langit_biru/budi_kopi IN_WINDOW with "flips in 47h/26h", akun_macet OVERDUE with "overdue by 25h" + the `flip-overdue` error row), the summary chips (Total 3 / in_window 2 / overdue 1), the `/admin/users?q=` deep-links, the Private badges, the Lifecycle nav item (data-icon="timer"), and the empty-state render.
-- [ ] 7.4 Staging smoke (docs/11 §5.4) is N/A — read-only admin view, no runtime-config / secret / rate-limit surface; mark N/A at archive.
+- [x] 7.4 Staging smoke (docs/11 §5.4) is N/A — read-only admin view, no runtime-config / secret / rate-limit surface; mark N/A at archive.
 
 ## 8. Docs + follow-ups (at archive)
 
-- [ ] 8.1 `docs/07-Operations.md` § Core Features: flip "Privacy Flip Monitor" from DESIGN → SHIPPED (cite the route + capability).
-- [ ] 8.2 Retag admin mockup board frame 17 caption "Usulan" → "Sudah ada" in `dev/mockups/nearyou-admin-mockup.html` (the shipped-frame convention, docs/11 §3.6 / README step).
-- [ ] 8.3 File `follow-up` GitHub issues (label `follow-up` + `admin`): (a) an in-panel "expedite / clear stuck flip" write action (role-gated + CSRF-gated + audit-logged) so support can force-clear a stuck row instead of escalating to a worker fix; (b) a `(privacy_flip_scheduled_at, id)` composite partial index ONLY if the `id` tiebreaker shows as a cost at scale (design D5).
+- [x] 8.1 `docs/07-Operations.md` § Core Features: flip "Privacy Flip Monitor" from DESIGN → SHIPPED (cite the route + capability).
+- [x] 8.2 Retag admin mockup board frame 17 caption "Usulan" → "Sudah ada" in `dev/mockups/nearyou-admin-mockup.html` (the shipped-frame convention, docs/11 §3.6 / README step).
+- [x] 8.3 File `follow-up` GitHub issues (label `follow-up` + `admin`): (a) an in-panel "expedite / clear stuck flip" write action (role-gated + CSRF-gated + audit-logged) so support can force-clear a stuck row instead of escalating to a worker fix; (b) a `(privacy_flip_scheduled_at, id)` composite partial index ONLY if the `id` tiebreaker shows as a cost at scale (design D5).
