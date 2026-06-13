@@ -31,7 +31,7 @@
 - [x] 5.2 Add `screens/search/SearchScreen.kt`: a minimal top bar (back affordance → hoisted `onBack`; M3 search text field with `search_hint`; clear affordance) + the state surface below filling the remaining space. Render exactly one `SearchUiState` (Idle prompt / Loading / Results list + load-more / EmptyResults / Error+retry / PremiumGate panel / RateLimited modal / Disabled / SessionExpired redirect). Navigation-free (no back-stack reference); under `NearYouTheme`; zero hardcoded UI strings
 - [x] 5.3 "Lihat lebih banyak" load-more: shown while `nextOffset != null`; activating issues `offset = nextOffset`, **appends** the page to the retained list, updates `nextOffset`; empty returned page → terminal (control hidden); list stays mounted during the load-more (≤1 in-list indicator)
 - [x] 5.4 PremiumGate panel: `search_premium_gate_body` + `search_premium_gate_cta` ("Aktifkan Premium") — v1 CTA is an informational no-op (no paywall destination; negative-guard: no route appended)
-- [x] 5.5 RateLimited surface: `search_rate_limited` formatted with the live countdown (formatter from §4); non-positive floored to 1 minute (no flash-clear); auto-clears at zero
+- [x] 5.5 RateLimited surface: `search_rate_limited` formatted with the live countdown (formatter from §4); non-positive floored to 1 minute (no flash-clear); at zero the countdown is replaced by a "Coba lagi" retry control (`search_rate_limit_reset` + `cta_retry` → `retry()`) — a manual re-issue, NOT an auto-fetch
 
 ## 6. ViewModel + Koin wiring
 
@@ -51,7 +51,7 @@
 
 ## 9. Screen test + build wiring
 
-- [x] 9.1 Robolectric `SearchScreenTest` (via `FakeSearchFlow`): search input + clear; each visual state (Idle / Loading / Results / EmptyResults / Error+retry / PremiumGate / RateLimited / Disabled / SessionExpired); the "Lihat lebih banyak" append; the result-tap `onOpenPost` payload (hit fields + defaults, no PII); no-hardcoded-strings source guard. Include the negative/clear assertions: SessionExpired shows the neutral redirect AND not `signin_error_network`/`cta_retry`; Disabled shows the kill-switch copy AND not `signin_error_network`; RateLimited auto-clears when the countdown reaches zero (test clock)
+- [x] 9.1 Robolectric `SearchScreenTest` (via `FakeSearchFlow`): search input + clear; each visual state (Idle / Loading / Results / EmptyResults / Error+retry / PremiumGate / RateLimited / Disabled / SessionExpired); the "Lihat lebih banyak" append; the result-tap `onOpenPost` payload (hit fields + defaults, no PII); no-hardcoded-strings source guard. Include the negative/clear assertions: SessionExpired shows the neutral redirect AND not `signin_error_network`/`cta_retry`; Disabled shows the kill-switch copy AND not `signin_error_network`; RateLimited shows the "Coba lagi" retry control at zero and tapping it re-issues the query (test clock); the result-card PII-negative render (author UUID + rank absent, no engagement/city/distance row)
 - [x] 9.2 Add `**/SearchScreenTest*` to the `mobile/app/build.gradle.kts` Release-variant `*ScreenTest` exclude block; verify `:mobile:app:testDevReleaseUnitTest` passes
 - [x] 9.3 Add `iosTest` `SearchFlowIosTest` (mirroring `NearbyTimelineFlowIosTest` / `PostDetailFlowIosTest`): exercise the search flow over a `FakeSearchFlow` on the iOS/Native target so the new `SearchRoute` + data seam compile + run on Kotlin/Native (the universal per-screen `*FlowIosTest` convention)
 
