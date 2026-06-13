@@ -16,7 +16,9 @@
 #   2. Create the `test-lab-runner` service account (skip if it exists).
 #   3. Grant least-privilege roles:
 #        - roles/cloudtestservice.admin   (create/monitor test matrices)
-#        - roles/storage.objectViewer     (read Robo screenshots/video results)
+#        - roles/storage.admin            (fetch/access the Test Lab default
+#          results bucket + read Robo screenshots/video — objectViewer alone is
+#          insufficient: the run needs storage.buckets.get on the default bucket)
 #      (Editor would also work but is intentionally broader; we stay scoped.)
 #   4. Mint a JSON key and print exactly what to paste into the Claude Code
 #      environment secrets.
@@ -51,7 +53,7 @@ else
 fi
 
 echo "==> 3/4 Granting least-privilege roles..."
-for role in roles/cloudtestservice.admin roles/storage.objectViewer; do
+for role in roles/cloudtestservice.admin roles/storage.admin; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:$SA_EMAIL" --role="$role" \
     --condition=None --quiet >/dev/null
