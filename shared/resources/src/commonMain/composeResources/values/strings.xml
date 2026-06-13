@@ -249,4 +249,72 @@
     <string name="blocked_users_title">Pengguna diblokir</string>
     <string name="blocked_users_empty">Belum ada pengguna yang diblokir.</string>
     <string name="blocked_users_unblock">Buka blokir</string>
+    <!-- mobile-profile: the live Profil surface (view own + other users, follow/unfollow, block, report).
+         Counts are static (lists deferred). Report categories mirror docs/03-UX-Design.md § Report UX;
+         block copy mirrors docs/03 § Block User UX. The neutral follow-TargetGone / generic-failure copy
+         is direction-less (the constant 404 carries no cause). -->
+    <string name="profile_followers_count" formatted="true">%1$d Pengikut</string>
+    <string name="profile_following_count" formatted="true">%1$d Mengikuti</string>
+    <string name="profile_premium_badge">Premium</string>
+    <string name="profile_premium_badge_icon_description">Akun Premium</string>
+    <string name="profile_follow">Ikuti</string>
+    <string name="profile_unfollow">Mengikuti</string>
+    <string name="profile_actions_menu_description">Opsi lainnya</string>
+    <string name="profile_block_action" formatted="true">Blokir @%1$s</string>
+    <string name="profile_report_action">Laporkan</string>
+    <string name="profile_block_confirm_title" formatted="true">Blokir @%1$s?</string>
+    <string name="profile_block_confirm_body">Kalian berdua tidak akan saling melihat post, profil, atau bisa memulai percakapan baru.</string>
+    <string name="cta_block">Blokir</string>
+    <string name="profile_block_success_toast">Pengguna telah diblokir</string>
+    <string name="profile_report_reason_title">Laporkan pengguna ini</string>
+    <string name="report_reason_spam">Spam</string>
+    <string name="report_reason_hate_speech_sara">Ujaran kebencian (SARA)</string>
+    <string name="report_reason_harassment">Pelecehan</string>
+    <string name="report_reason_adult_content">Konten dewasa</string>
+    <string name="report_reason_misinformation">Misinformasi</string>
+    <string name="report_reason_other">Lainnya</string>
+    <string name="profile_report_note_placeholder">Jelaskan lebih detail jika perlu</string>
+    <string name="profile_report_submit">Kirim laporan</string>
+    <string name="profile_report_success_toast">Laporan terkirim. Tim moderasi akan meninjau.</string>
+    <string name="profile_report_duplicate">Kamu sudah melaporkan pengguna ini.</string>
+    <string name="profile_follow_rate_limited">Terlalu banyak aksi ikuti. Coba lagi nanti.</string>
+    <string name="profile_block_rate_limited">Terlalu banyak aksi blokir. Coba lagi nanti.</string>
+    <string name="profile_report_rate_limited">Terlalu banyak laporan. Coba lagi nanti.</string>
+    <string name="profile_not_found">Pengguna tidak ditemukan.</string>
+    <string name="profile_action_user_unavailable">Pengguna tidak tersedia.</string>
+    <string name="profile_action_failed">Gagal. Coba lagi.</string>
+    <!-- mobile-chat-screen (mockup frames 2 + 5): 1:1 chat. chat_send_blocked is the docs-verbatim
+         block string (docs/02 §5 + chat-conversations spec); chat_account_deleted matches the backend
+         COALESCE placeholder ("Akun Dihapus"). The empty/redacted/permission copy is derived BI
+         consistent with the existing register (flagged for UX review in the PR). -->
+    <string name="chat_list_title">Pesan</string>
+    <string name="chat_list_empty">Belum ada percakapan. Mulai dari profil seseorang.</string>
+    <string name="chat_list_loading">Memuat percakapan…</string>
+    <string name="chat_thread_input_placeholder">Tulis pesan…</string>
+    <string name="chat_send">Kirim pesan</string>
+    <string name="chat_message_redacted">Pesan ini telah dihapus</string>
+    <string name="chat_send_blocked">Tidak dapat mengirim pesan ke user ini</string>
+    <string name="chat_open_action">Pesan</string>
+    <string name="chat_account_deleted">Akun Dihapus</string>
+    <string name="notif_permission_rationale">Aktifkan notifikasi agar kamu tahu saat ada pesan baru.</string>
+    <!-- mobile-search: the Premium-gated Cari surface (docs/03-UX-Design.md § Search UX). The
+         empty-results + rate-limit modal copy are verbatim docs/03:244 / :245. The error/session/loading
+         states REUSE signin_error_network / cta_retry / timeline_loading / timeline_session_redirect
+         (declared above) — no new keys. The search-result card REUSES post_card_handle /
+         post_card_meta_separator. The Premium-gate CTA is a v1 informational placeholder (no paywall
+         destination — Phase 4 billing; follow-up issue). -->
+    <string name="search_hint">Cari postingan</string>
+    <string name="search_idle_prompt">Cari postingan atau pengguna.</string>
+    <string name="search_empty_results" formatted="true">Tidak ada hasil untuk '%1$s'. Coba kata kunci lain.</string>
+    <string name="search_premium_gate_body">Pencarian hanya untuk pengguna Premium. Aktifkan Premium untuk mencari postingan dan pengguna di seluruh Indonesia.</string>
+    <!-- The gate's primary CTA reuses cta_activate_premium ("Aktifkan Premium", declared for the
+         cap-upsell dialog) — same copy, no duplicate-value key. -->
+    <string name="search_rate_limited" formatted="true">Kamu sudah mencapai batas pencarian. Reset dalam %1$d menit.</string>
+    <string name="search_rate_limit_reset">Batas pencarian sudah direset. Coba cari lagi.</string>
+    <string name="search_disabled">Pencarian sedang tidak tersedia. Coba lagi nanti.</string>
+    <string name="search_load_more">Lihat lebih banyak</string>
+    <string name="search_icon_cd">Cari</string>
+    <string name="search_clear_cd">Hapus pencarian</string>
+    <string name="search_back_cd">Kembali</string>
 </resources>
+

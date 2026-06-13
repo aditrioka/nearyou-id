@@ -40,8 +40,12 @@ import id.nearyou.resources.theme.locationPin
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
-/** Test tag on the avatar region — lets tests verify the avatar tap is the whole-card tap. */
+/** Test tag on the avatar region. */
 const val POST_CARD_AVATAR_TAG: String = "postCardAvatar"
+
+/** Test tag on the identity header (avatar + name + handle) — the author-profile tap target
+ *  (`mobile-profile`). Tapping it fires `onOpenProfile`, NOT the whole-card `onOpen`. */
+const val POST_CARD_IDENTITY_TAG: String = "postCardIdentity"
 
 /** Test tag on the location pin — lets tests assert the meta row is omitted when empty. */
 const val POST_CARD_PIN_TAG: String = "postCardPin"
@@ -97,12 +101,12 @@ data class PostCardModel(
  *   none — the known frame-1 divergence) and NO send affordance (kirim pesan is the deferred chat
  *   hook — `mobile-post-card` § "Send-message card action is deferred", issue #238).
  *
- * The whole card opens the detail ([onOpen]); the two action-row affordances are the ONLY other tap
- * targets — activating them does NOT fire [onOpen]. The avatar/identity region is NOT a separate
- * target (no profile screen yet — issue #196; no dead controls). The card stays presentation-only:
- * both callbacks are hoisted; it holds no like state machine and no navigation reference. Hosts pass
- * their `testTag` via [modifier]. Built from `NearYouTheme` tokens only; renders identically under
- * light/dark.
+ * The whole card opens the detail ([onOpen]); the identity header (avatar + name + handle) opens the
+ * author's profile ([onOpenProfile], `mobile-profile`); the two action-row affordances are the other tap
+ * targets — activating any of these does NOT fire [onOpen]. The card stays presentation-only: all
+ * callbacks are hoisted; it holds no like state machine, no navigation reference, and no author UUID (the
+ * host binds the profile target id by closure). Hosts pass their `testTag` via [modifier]. Built from
+ * `NearYouTheme` tokens only; renders identically under light/dark.
  */
 @Composable
 fun PostCard(
@@ -110,6 +114,7 @@ fun PostCard(
     onOpen: () -> Unit,
     onToggleLike: () -> Unit,
     onReplyShortcut: () -> Unit,
+    onOpenProfile: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     OutlinedCard(
@@ -117,8 +122,18 @@ fun PostCard(
         modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            // The identity header (avatar + name + handle) is a separate tap target → the author's
+            // profile (mobile-profile). The inner clickable consumes the tap, so onOpenProfile fires
+            // and the whole-card onOpen does NOT. The card still holds no author UUID — the host binds
+            // the target id by closure.
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable(onClick = onOpenProfile)
+                        .testTag(POST_CARD_IDENTITY_TAG)
+                        .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

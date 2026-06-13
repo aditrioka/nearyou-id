@@ -3,11 +3,25 @@ package id.nearyou.app.di
 import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.AuthRepository
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenRefresher
+import id.nearyou.app.auth.TokenStoreSelfUserIdProvider
+import id.nearyou.app.chat.ChatFlow
+import id.nearyou.app.chat.ChatMessagesApiClient
+import id.nearyou.app.chat.ChatRepository
+import id.nearyou.app.chat.ConversationsApiClient
+import id.nearyou.app.chat.ConversationsFlow
+import id.nearyou.app.chat.ConversationsRepository
+import id.nearyou.app.chat.RealtimeTokenApiClient
+import id.nearyou.app.chat.TokenViewerIdProvider
+import id.nearyou.app.chat.ViewerIdProvider
 import id.nearyou.app.config.apiBaseUrl
+import id.nearyou.app.config.appVersionName
+import id.nearyou.app.config.devicePlatform
 import id.nearyou.app.config.httpClientEngine
 import id.nearyou.app.config.isDebugBuild
+import id.nearyou.app.config.supabaseConfig
 import id.nearyou.app.consent.ConsentApiClient
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentRepository
@@ -19,9 +33,13 @@ import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.diagnostics.ConsoleDiagnosticSink
 import id.nearyou.app.diagnostics.DiagnosticSink
+import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
+import id.nearyou.app.infra.supabaserealtime.RealtimeTokenProvider
+import id.nearyou.app.infra.supabaserealtime.SupabaseChatRealtimeSubscriber
 import id.nearyou.app.location.CachingLocationProvider
 import id.nearyou.app.location.LocationTuning
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.notifications.NotificationsApiClient
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsRepository
@@ -32,9 +50,20 @@ import id.nearyou.app.post.PostCreationApiClient
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostDetailRepository
 import id.nearyou.app.post.ReplyApiClient
+import id.nearyou.app.profile.ProfileApiClient
+import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.profile.ProfileRepository
+import id.nearyou.app.push.FcmTokenApiClient
+import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.ProactiveTokenRefreshTrigger
+import id.nearyou.app.search.SearchApiClient
+import id.nearyou.app.search.SearchFlow
+import id.nearyou.app.search.SearchRepository
+import id.nearyou.app.timeline.FollowingTimelineApiClient
+import id.nearyou.app.timeline.FollowingTimelineFlow
+import id.nearyou.app.timeline.FollowingTimelineRepository
 import id.nearyou.app.timeline.GlobalTimelineApiClient
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineRepository
@@ -143,6 +172,17 @@ val mobileModule =
         single { GlobalTimelineRepository(get(), get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<GlobalTimelineFlow> { get<GlobalTimelineRepository>() }
 
+        // mobile-following-timeline-screen — the Following feed graph (mobile-home-tab-host Following
+        // tab). Mirrors the Global seam EXACTLY (no LocationProvider — Following has no spatial filter).
+        // REUSES the existing SessionIdProvider single above (the X-Session-Id soft-cap bucket is shared
+        // across feeds — do NOT register a second). FollowingTimelineFlow is bound to the concrete
+        // repository so a FakeFollowingTimelineFlow can drive the screen tests. diagnosticLog wired to
+        // the real coordinate-free DiagnosticSink (status/type-only strings — Following coords live in
+        // the response body, so the sink must never echo a body field).
+        single { FollowingTimelineApiClient(get()) }
+        single { FollowingTimelineRepository(get(), get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<FollowingTimelineFlow> { get<FollowingTimelineRepository>() }
+
         // mobile-bottom-nav-sections-and-notifications — the notifications graph (the Notifikasi section's
         // NotificationsScreen + the shell's unread badge). Mirrors the Global seam: ApiClient → Repository
         // bound behind the NotificationsFlow seam (so a FakeNotificationsFlow drives the screen/shell
@@ -217,6 +257,77 @@ val mobileModule =
         // inline like depends on exactly the like surface (no second like client/repository, no
         // duplicate status→LikeOutcome mapping).
         single<LikeFlow> { get<PostDetailRepository>() }
+
+        // mobile-profile — the profile surface graph (read + follow/block/report). Reuses the shared
+        // HttpClient (Bearer via the Auth plugin; NO X-Session-Id — none of these endpoints are
+        // session-soft-capped). ProfileRepository is bound behind the ProfileFlow seam so a
+        // FakeProfileFlow drives the screen/VM tests (the concrete stays resolvable). SelfUserIdProvider
+        // decodes the access token's `sub` from the TokenStore so the Profil section resolves the self id.
+        single { ProfileApiClient(get()) }
+        single {
+            val sink = get<DiagnosticSink>()
+            ProfileRepository(
+                get(),
+                diagnosticLog = { status, errorCode -> sink.log("profile_error: status=$status code=$errorCode") },
+            )
+        }
+        single<ProfileFlow> { get<ProfileRepository>() }
+        single<SelfUserIdProvider> { TokenStoreSelfUserIdProvider(get()) }
+        // mobile-chat-screen — the 1:1 chat graph (conversation list + thread + realtime).
+        //  - Three API clients over the shared (bearer-authed) HttpClient; NO X-Session-Id (chat
+        //    endpoints are not session-soft-capped).
+        //  - ConversationsRepository / ChatRepository bound behind ConversationsFlow / ChatFlow so the
+        //    screen + ViewModel tests substitute fakes (the concretes stay resolvable).
+        //  - RealtimeTokenApiClient doubles as the vendor-free RealtimeTokenProvider the infra
+        //    subscriber injects (so :infra:supabase-realtime need not depend on :mobile:app).
+        //  - SupabaseChatRealtimeSubscriber (the ONLY supabase-kt consumer) bound behind the vendor-free
+        //    ChatRealtimeSubscriber seam, fed the non-secret project URL + anon key from flavor config.
+        //  - TokenViewerIdProvider supplies the viewer's own id (JWT sub) for own-vs-other alignment.
+        //  - NotificationPromptOneShot gates the first-send permission rationale (per-process one-shot).
+        single { ConversationsApiClient(get()) }
+        single { ChatMessagesApiClient(get()) }
+        single { RealtimeTokenApiClient(get()) }
+        single<RealtimeTokenProvider> { get<RealtimeTokenApiClient>() }
+        single { ConversationsRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<ConversationsFlow> { get<ConversationsRepository>() }
+        single {
+            val sink = get<DiagnosticSink>()
+            ChatRepository(get(), get(), diagnosticLog = { status -> sink.log("chat_error: status=$status") })
+        }
+        single<ChatFlow> { get<ChatRepository>() }
+        single<ChatRealtimeSubscriber> {
+            SupabaseChatRealtimeSubscriber(
+                supabaseUrl = supabaseConfig.url,
+                supabaseKey = supabaseConfig.anonKey,
+                tokenProvider = get(),
+            )
+        }
+        single<ViewerIdProvider> { TokenViewerIdProvider(get()) }
+        single { NotificationPromptOneShot() }
+
+        // mobile-search — the Premium-gated Cari graph (GET /api/v1/search). Reuses the shared HttpClient
+        // (Bearer attached by the Auth plugin; NO X-Session-Id — search is not session-soft-capped). The
+        // status→SearchOutcome mapping (403 gate / 429 rate-limit / 503 kill switch) lives in
+        // SearchRepository, bound behind the SearchFlow seam so a FakeSearchFlow drives the screen +
+        // ViewModel tests. diagnosticLog wired to the real coordinate-/query-safe sink (status/type only).
+        single { SearchApiClient(get()) }
+        single { SearchRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<SearchFlow> { get<SearchRepository>() }
+
+        // mobile-fcm-token-registration — the push-token registration graph. Reuses the shared
+        // (bearer-authed) HttpClient (NO new client). The FcmTokenProvider platform actual is bound in
+        // each platformModule (AndroidFcmTokenProvider / IosFcmTokenProvider). The platform constant +
+        // app_version come from the config seam. diagnosticLog wired to the real coordinate-free sink —
+        // it receives ONLY platform + outcome, NEVER the token (a device-addressed credential; backend D11).
+        single { FcmTokenApiClient(get(), platform = devicePlatform, appVersion = appVersionName) }
+        single {
+            FcmTokenRegistrar(
+                provider = get(),
+                apiClient = get(),
+                platform = devicePlatform,
+                diagnosticLog = get<DiagnosticSink>()::log,
+            )
+        }
     }
 
 /**

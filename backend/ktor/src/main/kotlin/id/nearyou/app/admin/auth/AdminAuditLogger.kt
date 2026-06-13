@@ -213,6 +213,40 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a successful admin-initiated user WARNING
+     * (`admin-user-moderation` capability — the warning action). Joins the
+     * caller's [conn] so the audit INSERT commits atomically with the sanitized
+     * `account_action_applied` notification in the `UserModerationRepository`
+     * warn transaction (design D5); the warning mutates no `users` moderation
+     * column. The free-text [reason] is stored here (audit-only) and is NEVER
+     * echoed to the warned user's notification. `adminId` is the acting human
+     * admin, never the `system` sentinel.
+     */
+    fun logUserWarned(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "user_warned",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a report-status resolution (`admin-report-queue-resolution-
      * actions` capability): `POST /admin/reports/{id}/resolve` transitioning a
      * `reports` row `pending → actioned | dismissed`. Joins the caller's [conn]

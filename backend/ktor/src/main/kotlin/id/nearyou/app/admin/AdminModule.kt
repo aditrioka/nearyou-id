@@ -8,18 +8,24 @@ import id.nearyou.app.admin.auth.AdminLogoutRoute
 import id.nearyou.app.admin.auth.AdminUserRepository
 import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.auth.adminAuth
+import id.nearyou.app.admin.blockregistry.AdminBlockRegistryRepository
 import id.nearyou.app.admin.moderation.UserModerationRepository
+import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
+import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
 import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
 import id.nearyou.app.admin.routes.AdminIndexStatsRepository
 import id.nearyou.app.admin.routes.AdminLayout
 import id.nearyou.app.admin.routes.adminActionsLog
+import id.nearyou.app.admin.routes.adminBlockRegistry
 import id.nearyou.app.admin.routes.adminIndex
+import id.nearyou.app.admin.routes.adminPrivacyFlips
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
 import id.nearyou.app.admin.routes.adminReportQueue
 import id.nearyou.app.admin.routes.adminReportResolution
 import id.nearyou.app.admin.routes.adminUserModeration
+import id.nearyou.app.admin.usermanagement.UserProfileRepository
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.application.install
@@ -32,6 +38,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.pebbletemplates.pebble.loader.ClasspathLoader
+import java.time.Instant
 import javax.sql.DataSource
 
 // ---------------------------------------------------------------------------
@@ -66,16 +73,31 @@ fun Application.admin(
     aesKeyProvider: () -> ByteArray,
     csrfHmacKeyProvider: () -> ByteArray,
     environmentName: String,
+    // Request-time evaluation clock for the privacy-flip monitor's IN_WINDOW /
+    // OVERDUE classification (admin-privacy-flip-monitor design D3). Production
+    // uses the system clock; tests inject a fixed instant for a deterministic
+    // classification boundary.
+    privacyFlipsClock: () -> Instant = Instant::now,
 ) {
     val adminUserRepository = AdminUserRepository(dataSource)
     val sessionRepository = SessionRepository(dataSource)
     val auditLogger = AdminAuditLogger(dataSource)
     val actionsLogRepository = AdminActionsLogRepository(dataSource)
     val rejectedIdentifiersRepository = AdminRejectedIdentifiersRepository(dataSource)
+    val blockRegistryRepository = AdminBlockRegistryRepository(dataSource)
+    val privacyFlipsRepository = AdminPrivacyFlipsRepository(dataSource)
     val reportQueueRepository = ReportQueueRepository(dataSource)
-    val userModerationRepository = UserModerationRepository(dataSource, auditLogger)
+    val destructiveActionRateLimiter = DestructiveActionRateLimiter(dataSource)
+    val userModerationRepository =
+        UserModerationRepository(dataSource, auditLogger, destructiveActionRateLimiter)
+    val userProfileRepository = UserProfileRepository(dataSource)
     val reportResolutionRepository =
-        ReportResolutionRepository(dataSource, auditLogger, userModerationRepository)
+        ReportResolutionRepository(
+            dataSource,
+            auditLogger,
+            userModerationRepository,
+            destructiveActionRateLimiter,
+        )
     val loginRoutes =
         AdminLoginRoutes(
             adminUserRepository = adminUserRepository,
@@ -151,6 +173,8 @@ fun Application.admin(
                 adminIndex(layout, indexStatsRepository)
                 adminActionsLog(actionsLogRepository, layout)
                 adminRejectedIdentifiers(rejectedIdentifiersRepository, layout)
+                adminBlockRegistry(blockRegistryRepository, layout)
+                adminPrivacyFlips(privacyFlipsRepository, layout, privacyFlipsClock)
                 adminReportQueue(reportQueueRepository, layout)
                 adminReportResolution(
                     reportResolutionRepository,
@@ -158,7 +182,13 @@ fun Application.admin(
                     auditLogger,
                     layout,
                 )
-                adminUserModeration(userModerationRepository, auditLogger, layout)
+                adminUserModeration(
+                    userModerationRepository,
+                    userProfileRepository,
+                    destructiveActionRateLimiter,
+                    auditLogger,
+                    layout,
+                )
             }
         }
     }

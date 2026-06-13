@@ -82,6 +82,7 @@ const val GLOBAL_POST_CARD_TAG: String = "globalPostCard"
 fun GlobalTimelineScreen(
     onOpenPost: (GlobalTimelinePost) -> Unit = {},
     onOpenPostReply: (GlobalTimelinePost) -> Unit = {},
+    onOpenProfile: (authorUserId: String) -> Unit = {},
 ) {
     val flow = koinInject<GlobalTimelineFlow>()
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
@@ -108,6 +109,9 @@ fun GlobalTimelineScreen(
         // which pushes PostDetailRoute(focusReplyComposer = true)).
         onToggleLike = { post -> viewModel.toggleLike(post.id, post.likedByViewer) },
         onReplyShortcut = onOpenPostReply,
+        // Identity tap → author profile: resolve the author UUID from the VM's raw DTO outcome (never on
+        // the PII-free card model) and hand it to the hoisted onOpenProfile (mobile-profile).
+        onOpenProfile = { post -> viewModel.authorUserIdForPost(post.id)?.let(onOpenProfile) },
     )
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18) — same one-shot wiring as Nearby;
@@ -139,6 +143,7 @@ private fun GlobalTimelineContent(
     onOpenPost: (GlobalTimelinePost) -> Unit,
     onToggleLike: (GlobalTimelinePost) -> Unit,
     onReplyShortcut: (GlobalTimelinePost) -> Unit,
+    onOpenProfile: (GlobalTimelinePost) -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -161,6 +166,7 @@ private fun GlobalTimelineContent(
                     onOpenPost = onOpenPost,
                     onToggleLike = onToggleLike,
                     onReplyShortcut = onReplyShortcut,
+                    onOpenProfile = onOpenProfile,
                 )
             is GlobalTimelineUiState.SoftLimit ->
                 PostList(
@@ -168,6 +174,7 @@ private fun GlobalTimelineContent(
                     onOpenPost = onOpenPost,
                     onToggleLike = onToggleLike,
                     onReplyShortcut = onReplyShortcut,
+                    onOpenProfile = onOpenProfile,
                     banner = stringResource(Res.string.timeline_limit_soft),
                 )
         }
@@ -252,6 +259,7 @@ private fun PostList(
     onOpenPost: (GlobalTimelinePost) -> Unit,
     onToggleLike: (GlobalTimelinePost) -> Unit,
     onReplyShortcut: (GlobalTimelinePost) -> Unit,
+    onOpenProfile: (GlobalTimelinePost) -> Unit,
     banner: String? = null,
 ) {
     LazyColumn(
@@ -276,6 +284,7 @@ private fun PostList(
                 onOpen = { onOpenPost(post) },
                 onToggleLike = { onToggleLike(post) },
                 onReplyShortcut = { onReplyShortcut(post) },
+                onOpenProfile = { onOpenProfile(post) },
                 modifier = Modifier.testTag(GLOBAL_POST_CARD_TAG),
             )
         }

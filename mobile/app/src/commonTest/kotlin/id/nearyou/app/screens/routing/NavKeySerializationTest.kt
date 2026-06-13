@@ -28,6 +28,9 @@ class NavKeySerializationTest {
                 AgeGateRoute,
                 PostCreationRoute,
                 ConsentRoute,
+                // The parameterless search route (mobile-search) — a missing subclass(...) registration
+                // in AppNavSerialization.kt would fail this round-trip.
+                SearchRoute,
                 // The first payload-carrying route — a Nearby-origin instance (distanceM non-null) and a
                 // Global-origin instance (distanceM null) both exercise the polymorphic serializer; the
                 // reply-shortcut variant (focusReplyComposer = true, mobile-inline-post-actions) pins the
@@ -39,6 +42,9 @@ class NavKeySerializationTest {
                 SettingsRoute,
                 BlockedUsersRoute,
                 ConsentSettingsRoute,
+                // The second payload-carrying route (mobile-profile) — a missing subclass(...) registration
+                // for ProfileRoute would fail this round-trip.
+                ProfileRoute("11111111-1111-1111-1111-555555555555"),
             )
         for (route in routes) {
             val encoded = json.encodeToString(navKeySerializer, route)

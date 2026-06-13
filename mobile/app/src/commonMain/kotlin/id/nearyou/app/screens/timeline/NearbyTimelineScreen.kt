@@ -103,6 +103,7 @@ fun NearbyTimelineScreen(
     onSeeGlobal: () -> Unit = {},
     onOpenPost: (NearbyTimelinePost) -> Unit = {},
     onOpenPostReply: (NearbyTimelinePost) -> Unit = {},
+    onOpenProfile: (authorUserId: String) -> Unit = {},
 ) {
     val controller = koinInject<LocationPermissionController>()
     val gate = remember { LocationGate(controller) }
@@ -131,7 +132,12 @@ fun NearbyTimelineScreen(
         }
         LocationGateUiState.Denied -> LocationDeniedState(onOpenSettings = { controller.openAppSettings() })
         LocationGateUiState.Granted ->
-            NearbyFeed(onSeeGlobal = onSeeGlobal, onOpenPost = onOpenPost, onOpenPostReply = onOpenPostReply)
+            NearbyFeed(
+                onSeeGlobal = onSeeGlobal,
+                onOpenPost = onOpenPost,
+                onOpenPostReply = onOpenPostReply,
+                onOpenProfile = onOpenProfile,
+            )
     }
 }
 
@@ -151,6 +157,7 @@ private fun NearbyFeed(
     onSeeGlobal: () -> Unit,
     onOpenPost: (NearbyTimelinePost) -> Unit,
     onOpenPostReply: (NearbyTimelinePost) -> Unit,
+    onOpenProfile: (authorUserId: String) -> Unit,
 ) {
     val flow = koinInject<NearbyTimelineFlow>()
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
@@ -183,6 +190,9 @@ private fun NearbyFeed(
         onToggleLike = { post -> viewModel.toggleLike(post.id, post.likedByViewer) },
         // Reply shortcut: hoisted to the tab host, which pushes PostDetailRoute(focusReplyComposer = true).
         onReplyShortcut = onOpenPostReply,
+        // Identity tap → author profile: resolve the author UUID from the VM's raw DTO outcome (never on
+        // the PII-free card model) and hand it to the hoisted onOpenProfile (mobile-profile).
+        onOpenProfile = { post -> viewModel.authorUserIdForPost(post.id)?.let(onOpenProfile) },
     )
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18): shown while the one-shot cap
@@ -250,6 +260,7 @@ private fun NearbyTimelineContent(
     onOpenPost: (NearbyTimelinePost) -> Unit,
     onToggleLike: (NearbyTimelinePost) -> Unit,
     onReplyShortcut: (NearbyTimelinePost) -> Unit,
+    onOpenProfile: (NearbyTimelinePost) -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -271,6 +282,7 @@ private fun NearbyTimelineContent(
                     onOpenPost = onOpenPost,
                     onToggleLike = onToggleLike,
                     onReplyShortcut = onReplyShortcut,
+                    onOpenProfile = onOpenProfile,
                 )
             is NearbyTimelineUiState.SoftLimit ->
                 PostList(
@@ -278,6 +290,7 @@ private fun NearbyTimelineContent(
                     onOpenPost = onOpenPost,
                     onToggleLike = onToggleLike,
                     onReplyShortcut = onReplyShortcut,
+                    onOpenProfile = onOpenProfile,
                     banner = stringResource(Res.string.timeline_limit_soft),
                 )
         }
@@ -389,6 +402,7 @@ private fun PostList(
     onOpenPost: (NearbyTimelinePost) -> Unit,
     onToggleLike: (NearbyTimelinePost) -> Unit,
     onReplyShortcut: (NearbyTimelinePost) -> Unit,
+    onOpenProfile: (NearbyTimelinePost) -> Unit,
     banner: String? = null,
 ) {
     LazyColumn(
@@ -413,6 +427,7 @@ private fun PostList(
                 onOpen = { onOpenPost(post) },
                 onToggleLike = { onToggleLike(post) },
                 onReplyShortcut = { onReplyShortcut(post) },
+                onOpenProfile = { onOpenProfile(post) },
                 modifier = Modifier.testTag(NEARBY_POST_CARD_TAG),
             )
         }

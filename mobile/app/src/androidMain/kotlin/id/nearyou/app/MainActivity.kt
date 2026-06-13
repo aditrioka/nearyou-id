@@ -10,6 +10,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import id.nearyou.app.auth.CurrentActivityHolder
 import id.nearyou.app.di.initKoin
 import id.nearyou.app.location.LocationPermissionRequestBridge
+import id.nearyou.app.notifications.NotificationPermissionRequestBridge
 import org.koin.android.ext.koin.androidContext
 import org.koin.mp.KoinPlatformTools
 
@@ -20,6 +21,9 @@ class MainActivity : ComponentActivity() {
     private val locationPermissionBridge: LocationPermissionRequestBridge
         get() = KoinPlatformTools.defaultContext().get().get()
 
+    private val notificationPermissionBridge: NotificationPermissionRequestBridge
+        get() = KoinPlatformTools.defaultContext().get().get()
+
     // Registered as a field initializer (before STARTED, as ActivityResultContracts requires); the
     // coarse-location grant result is routed back to the suspend request via the Koin-singleton bridge
     // (mobile-location-permission-flow). The bridge is resolved lazily inside the callback, so it is
@@ -27,6 +31,13 @@ class MainActivity : ComponentActivity() {
     private val locationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             locationPermissionBridge.onResult(granted)
+        }
+
+    // The POST_NOTIFICATIONS Activity-result launcher (mobile-chat-screen task 9.4) — same pattern as
+    // the location launcher; the chat first-send rationale flow drives it via the Koin-singleton bridge.
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            notificationPermissionBridge.onResult(granted)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,6 +53,8 @@ class MainActivity : ComponentActivity() {
         // Hand the registered launcher to the permission bridge (the Activity-result seam the
         // AndroidLocationPermissionController drives).
         locationPermissionBridge.launcher = locationPermissionLauncher
+        // Same for the notification-permission bridge (mobile-chat-screen task 9.4).
+        notificationPermissionBridge.launcher = notificationPermissionLauncher
 
         setContent {
             App()
@@ -68,6 +81,9 @@ class MainActivity : ComponentActivity() {
         // recreated Activity's fresher launcher is never clobbered by the old one's teardown.
         if (locationPermissionBridge.launcher === locationPermissionLauncher) {
             locationPermissionBridge.launcher = null
+        }
+        if (notificationPermissionBridge.launcher === notificationPermissionLauncher) {
+            notificationPermissionBridge.launcher = null
         }
         super.onDestroy()
     }

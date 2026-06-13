@@ -493,4 +493,337 @@ class AdminUserModerationRouteTest : StringSpec({
         }
         UserModerationTestSupport.loadUser(dataSource, uid).isBanned shouldBe true
     }
+
+    // ============ 7.1/7.3/7.4 profile GET (admin-user-management) ==============
+
+    "7.1 authenticated profile GET for an existing user → 200 with identity + state; serving writes no audit row" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false, username = "budi_profile")
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            val body = res.bodyAsText()
+            body shouldContain "budi_profile"
+            body shouldContain uid.toString()
+            body shouldContain "<header>" // full page extends the layout shell
+        }
+        // Read-only route: serving the page writes no admin_actions_log row.
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin.id) shouldHaveSize 0
+    }
+
+    "7.1 unauthenticated profile GET → 302 /admin/login" {
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/${UUID.randomUUID()}")
+            res.status shouldBe HttpStatusCode.Found
+            res.headers[HttpHeaders.Location] shouldBe "/admin/login"
+        }
+    }
+
+    "7.1 a display_name carrying HTML markup is escaped, not rendered as live tags" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUserWithDisplayName(dataSource, "<script>alert(1)</script>").also { seededUsers += it }
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            val body = res.bodyAsText()
+            body shouldNotContain "<script>alert(1)</script>"
+            body shouldContain "&lt;script&gt;"
+        }
+    }
+
+    "7.3 the profile renders suspend/unban/warn controls each with _csrf AND a quota chip = the acting admin's seeded count" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        seedWarns(dataSource, admin.id, 14)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            val body = res.bodyAsText()
+            body shouldContain "/admin/users/$uid/suspend"
+            body shouldContain "/admin/users/$uid/unban"
+            body shouldContain "/admin/users/$uid/warn"
+            body shouldContain "name=\"_csrf\""
+            body shouldContain "14/20"
+        }
+        // The chip read writes nothing — only the 14 seeded rows remain.
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin.id) shouldHaveSize 14
+    }
+
+    "7.4 non-UUID profile id → 4xx (not 500)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/not-a-uuid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldNotBe HttpStatusCode.InternalServerError
+            res.status shouldBe HttpStatusCode.BadRequest
+        }
+    }
+
+    "7.4 SQL-metacharacter profile id → not 500, users table survives" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val sentinel = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/%27%3B%20DROP%20TABLE%20users%3B--") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldNotBe HttpStatusCode.InternalServerError
+        }
+        UserModerationTestSupport.userExists(dataSource, sentinel) shouldBe true
+    }
+
+    "7.4 unknown well-formed UUID → empty-state 200 (not 404)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/${UUID.randomUUID()}") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "No matching user"
+        }
+    }
+
+    "7.5 a resolved lookup result deep-links to the profile page" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.get("/admin/users") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    parameter("q", uid.toString())
+                }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "href=\"/admin/users/$uid\""
+        }
+    }
+
+    // ============ 7.9 warn route gating (admin-user-moderation) ================
+
+    "7.9 warn happy path → 303 + one user_warned audit row" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/warn") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldBe HttpStatusCode.SeeOther
+        }
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_warned") shouldHaveSize 1
+    }
+
+    "7.9 warn unauthenticated → 302, no user_warned row" {
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.post("/admin/users/$uid/warn")
+            res.status shouldBe HttpStatusCode.Found
+        }
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_warned") shouldHaveSize 0
+    }
+
+    "7.9 warn missing CSRF → 403, an admin_csrf_violation row IS written, no user_warned row" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.post("/admin/users/$uid/warn") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin.id).any { it.actionType == "admin_csrf_violation" } shouldBe true
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_warned") shouldHaveSize 0
+    }
+
+    "7.9 CSRF is checked BEFORE role: read_only + bad CSRF → CSRF rejection (violation row written)" {
+        val admin = seedAdmin(role = "read_only")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/warn") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, "wrong-token")
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin.id).any { it.actionType == "admin_csrf_violation" } shouldBe true
+    }
+
+    "7.9 read_only + valid CSRF → role-rejected (403), no user_warned row, no CSRF violation" {
+        val admin = seedAdmin(role = "read_only")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/warn") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_warned") shouldHaveSize 0
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin.id).any { it.actionType == "admin_csrf_violation" } shouldBe false
+    }
+
+    "7.9 malformed id is parsed AFTER the role gate: read_only + valid CSRF + bad id → role rejection (403), not a 400" {
+        val admin = seedAdmin(role = "read_only")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/not-a-uuid/warn") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+    }
+
+    // ============ 7.2 merged history view (admin-user-management) ==============
+
+    "7.2 a prior suspend action appears in the history view" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        insertUserAudit(dataSource, admin.id, uid, "user_suspended", ageMinutes = 10)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "user_suspended"
+        }
+    }
+
+    "7.2 a username change appears in the history view" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        insertUsernameHistory(dataSource, uid, "budi", "budi_jakarta", ageMinutes = 10)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "budi → budi_jakarta"
+        }
+    }
+
+    "7.2 a user with no history renders the empty-state, not an error" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "No admin actions or username changes"
+        }
+    }
+
+    "7.2 the two sources are interleaved into ONE combined newest-first order" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        // oldest: a suspend; middle: a username change; newest: a warn — across
+        // BOTH sources, so a correct merge interleaves them (not source-grouped).
+        insertUserAudit(dataSource, admin.id, uid, "user_suspended", reason = "AAA-oldest", ageMinutes = 30)
+        insertUsernameHistory(dataSource, uid, "uX", "uY-MIDDLE", ageMinutes = 20)
+        insertUserAudit(dataSource, admin.id, uid, "user_warned", reason = "ZZZ-newest", ageMinutes = 10)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            val body = res.bodyAsText()
+            val newest = body.indexOf("ZZZ-newest")
+            val middle = body.indexOf("uY-MIDDLE")
+            val oldest = body.indexOf("AAA-oldest")
+            (newest in 1 until middle && middle < oldest) shouldBe true
+        }
+    }
 })
+
+/** Insert one `admin_actions_log` row targeting [targetUserId], aged [ageMinutes]. */
+private fun insertUserAudit(
+    dataSource: javax.sql.DataSource,
+    adminId: UUID,
+    targetUserId: UUID,
+    actionType: String,
+    reason: String? = null,
+    ageMinutes: Int = 1,
+) {
+    dataSource.connection.use { conn ->
+        conn.prepareStatement(
+            "INSERT INTO admin_actions_log (admin_id, action_type, target_type, target_id, reason, after_state, created_at) " +
+                "VALUES (?, ?, 'user', ?, ?, '{}'::jsonb, NOW() - (? * INTERVAL '1 minute'))",
+        ).use { ps ->
+            ps.setObject(1, adminId)
+            ps.setString(2, actionType)
+            ps.setString(3, targetUserId.toString())
+            ps.setString(4, reason)
+            ps.setInt(5, ageMinutes)
+            ps.executeUpdate()
+        }
+    }
+}
+
+/** Insert one `username_history` row for [userId], aged [ageMinutes]. */
+private fun insertUsernameHistory(
+    dataSource: javax.sql.DataSource,
+    userId: UUID,
+    old: String,
+    new: String,
+    ageMinutes: Int = 1,
+) {
+    dataSource.connection.use { conn ->
+        conn.prepareStatement(
+            "INSERT INTO username_history (user_id, old_username, new_username, changed_at, released_at) " +
+                "VALUES (?, ?, ?, NOW() - (? * INTERVAL '1 minute'), NOW())",
+        ).use { ps ->
+            ps.setObject(1, userId)
+            ps.setString(2, old)
+            ps.setString(3, new)
+            ps.setInt(4, ageMinutes)
+            ps.executeUpdate()
+        }
+    }
+}
+
+/** Seed [n] in-window destructive `user_warned` audit rows for [adminId]. */
+private fun seedWarns(
+    dataSource: javax.sql.DataSource,
+    adminId: UUID,
+    n: Int,
+) {
+    dataSource.connection.use { conn ->
+        conn.prepareStatement(
+            "INSERT INTO admin_actions_log (admin_id, action_type, target_type, target_id, created_at) " +
+                "VALUES (?, 'user_warned', 'user', ?, NOW())",
+        ).use { ps ->
+            repeat(n) {
+                ps.setObject(1, adminId)
+                ps.setString(2, UUID.randomUUID().toString())
+                ps.addBatch()
+            }
+            ps.executeBatch()
+        }
+    }
+}
+
+/** Seed a `users` row with a caller-chosen [displayName] (for the autoescape
+ *  assertion); other columns mirror `UserModerationTestSupport.seedUser`. */
+private fun seedUserWithDisplayName(
+    dataSource: javax.sql.DataSource,
+    displayName: String,
+): UUID {
+    val id = UUID.randomUUID()
+    val short = id.toString().replace("-", "").take(8)
+    dataSource.connection.use { conn ->
+        conn.prepareStatement(
+            "INSERT INTO users (id, username, display_name, date_of_birth, invite_code_prefix) " +
+                "VALUES (?, ?, ?, DATE '1990-01-01', ?)",
+        ).use { ps ->
+            ps.setObject(1, id)
+            ps.setString(2, "mod_$short")
+            ps.setString(3, displayName)
+            ps.setString(4, "m${short.take(7)}")
+            ps.executeUpdate()
+        }
+    }
+    return id
+}

@@ -43,6 +43,17 @@ data object AgeGateRoute : NavKey
 data object PostCreationRoute : NavKey
 
 /**
+ * The Premium-gated search ("Cari") surface (the `mobile-search` capability), opened by the Home brand
+ * app bar's search action icon and pushed onto the ROOT back stack (above [HomeRoute], overlaying the
+ * section bar — the same mechanism [PostCreationRoute] / [PostDetailRoute] use). A **parameterless**
+ * marker: unlike [PostDetailRoute] the search query is entered IN the screen, so the route carries NO
+ * payload. Registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` so the back
+ * stack is saveable on iOS.
+ */
+@Serializable
+data object SearchRoute : NavKey
+
+/**
  * Analytics & Tracking Consent surface (the `mobile-analytics-consent` capability), reached after
  * age-gate signup success. A parameterless marker — the user identity lives in the persisted token,
  * never in the serialized back stack. The signup-success transition REPLACES `AgeGateRoute` with
@@ -107,3 +118,50 @@ data object BlockedUsersRoute : NavKey
 /** Analytics & data consent sub-surface (Settings › Privasi › "Privasi & data"), pushed atop [SettingsRoute]. */
 @Serializable
 data object ConsentSettingsRoute : NavKey
+
+/**
+ * Other-user profile surface ([id.nearyou.app.screens.profile.ProfileScreen]), opened by tapping a feed
+ * card's author identity (pushed onto the ROOT back stack above [HomeRoute], overlaying the tab bar —
+ * the same mechanism [PostDetailRoute] uses). The second **payload-carrying** route, so it MUST be
+ * `@Serializable` AND registered in the `navSavedStateConfiguration` polymorphic `SerializersModule`.
+ *
+ * Carries ONLY [userId] — the resource key the keyed read (`GET /api/v1/users/{userId}`) structurally
+ * requires (a profile route without it is impossible). The id is the target user's UUID, supplied by the
+ * host from the timeline DTO's `author_user_id` (parsed but never rendered); it is NEVER rendered as a UI
+ * string (only used as the API path param) and is distinct from coordinate-PII / token material — it is
+ * already transmitted on the timeline wire to every client (design D4). It MUST NOT carry any
+ * `latitude`/`longitude` or token. The SELF profile has no [ProfileRoute] — it is rendered in the shell's
+ * Profil section, resolving the self id from the session (design D1).
+ */
+@Serializable
+data class ProfileRoute(
+    val userId: String,
+) : NavKey
+
+/**
+ * Conversation-list surface (`mobile-chat-screen`), opened from the Home brand app-bar "Pesan" action
+ * and pushed onto the ROOT back stack above [HomeRoute] (overlaying the section bar, like [PostDetailRoute]).
+ * A parameterless `data object`: the list is always fetched fresh (design D3).
+ */
+@Serializable
+data object ConversationListRoute : NavKey
+
+/**
+ * Chat-thread surface (`mobile-chat-screen`), reached from a [ConversationListRoute] row tap (and, after
+ * PR #245, the profile "Kirim pesan" create-or-return path). Pushed onto the ROOT back stack. A
+ * payload-carrying `@Serializable data class` (like [PostDetailRoute]), so it MUST be registered in the
+ * `navSavedStateConfiguration` polymorphic `SerializersModule` for the iOS-saveable back stack.
+ *
+ * It carries ONLY the [conversationId] (a conversation identifier — NOT user PII; required to fetch
+ * `GET /api/v1/chat/{id}/messages` + subscribe to the realtime channel) plus the partner's DISPLAY
+ * identity for the thread top bar. It MUST NOT carry the partner's user UUID, message content, or any
+ * coordinate — the back stack persists to disk on iOS (the same PII discipline [PostDetailRoute] /
+ * [AgeGateRoute] follow). The display fields default to `""` so a back stack serialized before this
+ * change still decodes on restore (an empty value renders the `chat_account_deleted` placeholder).
+ */
+@Serializable
+data class ChatThreadRoute(
+    val conversationId: String,
+    val partnerUsername: String = "",
+    val partnerDisplayName: String = "",
+) : NavKey
