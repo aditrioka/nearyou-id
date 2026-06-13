@@ -28,6 +28,16 @@ The system SHALL serve `GET /admin/chat-messages/{id}` as an authenticated route
 - **WHEN** `GET /admin/chat-messages/<M>` is served
 - **THEN** the page renders `<M>` as the redacted placeholder (NOT its original `content`) AND indicates the message is already redacted
 
+#### Scenario: Embedded-post-only target (content NULL) renders without error
+- **GIVEN** an owner/admin session AND a `chat_messages` row `<M>` with `content IS NULL` and a non-null `embedded_post_snapshot` (schema-permitted per the V15 empty-message CHECK)
+- **WHEN** `GET /admin/chat-messages/<M>` is served — whether `<M>` is the target or appears in the ±2 context window
+- **THEN** the response is HTTP 200 AND `<M>` renders via its embedded-post snapshot (no crash on the null `content`)
+
+#### Scenario: Context window clamps at conversation boundaries
+- **GIVEN** an owner/admin session AND a target message `<M>` that is the FIRST message of its conversation with only 1 later message
+- **WHEN** `GET /admin/chat-messages/<M>` is served
+- **THEN** the response is HTTP 200 AND renders `<M>` plus the 1 available later message and 0 earlier messages (the ±2 window clamps; no error)
+
 ### Requirement: POST /admin/chat-messages/{id}/redact is CSRF- and owner/admin-gated
 
 The system SHALL serve the state-changing redaction at `POST /admin/chat-messages/{id}/redact` (the verb is `POST`, not `PATCH` — the admin panel's no-JS `<form>` fallback supports only GET/POST). The handler SHALL apply, in order: (1) CSRF validation FIRST — a missing/mismatched token SHALL return HTTP 403 and write an `admin_csrf_violation` audit entry, with no redaction write; (2) the owner/admin tier gate — a `moderator` or `read_only` session SHALL return HTTP 403 with no write; (3) parse the `{id}` path segment as a UUID — a malformed id SHALL return HTTP 400 with no write; (4) read `redaction_reason` from the CSRF-consumed form body — a missing or blank reason SHALL return HTTP 400 with no write. The collection path `/admin/chat-messages` SHALL NOT expose a bare write route.
@@ -41,6 +51,16 @@ The system SHALL serve the state-changing redaction at `POST /admin/chat-message
 - **GIVEN** an authenticated session with role `moderator` AND a valid CSRF token
 - **WHEN** `POST /admin/chat-messages/<M>/redact` is served
 - **THEN** the response is HTTP 403 AND `<M>` is NOT redacted AND no `admin_actions_log` row is written
+
+#### Scenario: read_only is forbidden from redacting
+- **GIVEN** an authenticated session with role `read_only` AND a valid CSRF token
+- **WHEN** `POST /admin/chat-messages/<M>/redact` is served
+- **THEN** the response is HTTP 403 AND `<M>` is NOT redacted AND no `admin_actions_log` row is written
+
+#### Scenario: CSRF check fires before the role gate (audit is not lost)
+- **GIVEN** an authenticated session with role `moderator` (or `read_only`) AND a missing/invalid CSRF token
+- **WHEN** `POST /admin/chat-messages/<M>/redact` is served
+- **THEN** the response is HTTP 403 via the CSRF path AND an `admin_csrf_violation` audit entry IS written (the CSRF gate runs before the role gate, so the violation is recorded rather than masked by a silent role-403) AND `<M>` is NOT redacted
 
 #### Scenario: Blank reason is rejected
 - **GIVEN** an owner/admin session AND a valid CSRF token AND a body with empty `redaction_reason`
@@ -56,10 +76,20 @@ On a valid owner/admin request, the system SHALL execute, in one DB transaction,
 - **WHEN** the redaction POST is applied
 - **THEN** `<M>.redacted_at` is set, `<M>.redacted_by = <A>`, `<M>.redaction_reason = "doxxing — home address"`
 
-#### Scenario: Re-redaction is a no-op
-- **GIVEN** a message `<M>` already redacted by owner `<A1>` at time `<T1>`
-- **WHEN** owner `<A2>` POSTs a redaction for `<M>`
-- **THEN** zero rows are updated AND `<M>.redacted_by` remains `<A1>` AND `<M>.redacted_at` remains `<T1>` AND no new `admin_actions_log` row and no new notification are written
+#### Scenario: Re-redaction is a no-op that preserves the original trio
+- **GIVEN** a message `<M>` already redacted by owner `<A1>` at time `<T1>` with reason `<R1>`
+- **WHEN** owner `<A2>` POSTs a redaction for `<M>` with a DIFFERENT reason `<R2>`
+- **THEN** zero rows are updated AND `<M>.redacted_by` remains `<A1>` AND `<M>.redacted_at` remains `<T1>` AND `<M>.redaction_reason` remains `<R1>` (NOT `<R2>`) AND no new `admin_actions_log` row and no new notification are written
+
+#### Scenario: Embedded-post-only message (content NULL) is redactable
+- **GIVEN** an owner AND a non-redacted message `<M>` with `content IS NULL` and a non-null `embedded_post_snapshot`
+- **WHEN** the redaction POST is applied
+- **THEN** `<M>.redacted_at`/`redacted_by`/`redaction_reason` are set (the V15 atomicity CHECK is satisfied independent of `content`) AND the `admin_actions_log.before_state` captures the original row state (the embedded-post snapshot reference, with `content` recorded as null)
+
+#### Scenario: Concurrent double-redaction yields exactly one applied
+- **GIVEN** a non-redacted message `<M>` AND two redaction requests submitted concurrently
+- **WHEN** both are processed
+- **THEN** exactly one resolves `Applied` (one flag write, one `admin_actions_log` row, one notification fan-out) AND the other resolves `AlreadyRedacted` with no second write (the `WHERE redacted_at IS NULL` guard serializes the race)
 
 #### Scenario: Redaction reason is never exposed on the chat data plane
 - **GIVEN** a redacted message `<M>` with `redaction_reason` set
@@ -68,17 +98,17 @@ On a valid owner/admin request, the system SHALL execute, in one DB transaction,
 
 ### Requirement: Redaction notifies active conversation participants
 
-In the SAME transaction as the flag write, an applied redaction SHALL emit a `chat_message_redacted` notification to **every active participant** of the message's conversation (`conversation_participants WHERE conversation_id = <M.conversation_id> AND left_at IS NULL`), via the `in-app-notifications` `NotificationEmitter` with `actor_user_id = NULL` (system-originated). Because the actor is NULL, the emitter's bidirectional block-check is skipped and the rows are written unconditionally — a block between the two participants SHALL NOT suppress the redaction notice. The shadow-ban actor-masking cross-capability rule is not applicable (there is no user actor). FCM fan-out for the emitted notifications SHALL occur post-commit. The notification `body_data` shape is defined by the `in-app-notifications` capability and SHALL carry no content and no reason.
+In the SAME transaction as the flag write, an applied redaction SHALL write a `chat_message_redacted` notification row to **every active participant** of the message's conversation (`conversation_participants WHERE conversation_id = <M.conversation_id> AND left_at IS NULL`). The write SHALL use the shipped admin raw in-transaction `INSERT INTO notifications (…)` pattern (mirroring `ReportResolutionRepository` / `UserModerationRepository`), NOT the `NotificationEmitter` service path — so no block-suppression or shadow-ban masking applies and a block between the two participants SHALL NOT suppress the redaction notice. Each row SHALL be system-originated (`actor_user_id = NULL`), with `target_type = 'message'`, `target_id = <M>`, and `body_data` exactly `{"conversation_id": <conversation UUID>}` (the shape defined by the `in-app-notifications` capability — no content, no reason, no `message_id`, no actor identity). Delivery is in-app feed only — no FCM push (matching the shipped admin `account_action_applied`; FCM-push-on-redaction is out of scope).
 
 #### Scenario: Both active participants are notified
 - **GIVEN** a conversation with active participants `<U1>` (sender) and `<U2>` AND a redaction applied to `<U1>`'s message `<M>`
 - **WHEN** the redaction transaction commits
-- **THEN** exactly one `chat_message_redacted` notification row exists for `<U1>` AND one for `<U2>`, each with `actor_user_id = NULL`, `target_type = 'chat_message'`, `target_id = <M>`
+- **THEN** exactly one `chat_message_redacted` notification row exists for `<U1>` AND one for `<U2>`, each with `actor_user_id = NULL`, `target_type = 'message'`, `target_id = <M>`, AND `body_data = {"conversation_id": <M.conversation_id>}`
 
 #### Scenario: A block between participants does not suppress the notice
 - **GIVEN** active participants `<U1>` and `<U2>` with a `user_blocks` row between them AND a redaction applied to `<M>`
 - **WHEN** the redaction transaction commits
-- **THEN** both `<U1>` and `<U2>` still receive a `chat_message_redacted` notification (system-originated emit skips block-suppression)
+- **THEN** both `<U1>` and `<U2>` still receive a `chat_message_redacted` notification (the direct system INSERT applies no block-suppression)
 
 #### Scenario: A no-op redaction emits no notification
 - **GIVEN** an already-redacted message `<M>`
