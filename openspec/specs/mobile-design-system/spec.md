@@ -10,8 +10,8 @@ The authenticated `:mobile:app` surface SHALL apply window insets in exactly **o
 
 #### Scenario: Only the shell declares a Scaffold
 
-- **WHEN** inspecting `screens/shell/AppShellScreen.kt`, `screens/home/HomeScreen.kt`, `screens/timeline/NearbyTimelineScreen.kt`, and `screens/timeline/GlobalTimelineScreen.kt`
-- **THEN** exactly one `Scaffold` is declared among these files (in `AppShellScreen`) AND the only top app bar among them is the one in that Scaffold's `topBar` slot; `HomeScreen` and the timeline content composables declare no `Scaffold` and no `TopAppBar`
+- **WHEN** inspecting `screens/shell/AppShellScreen.kt`, `screens/home/HomeScreen.kt`, `screens/timeline/NearbyTimelineScreen.kt`, `screens/timeline/GlobalTimelineScreen.kt`, and `screens/notifications/NotificationsScreen.kt`
+- **THEN** exactly one `Scaffold` is declared among these files (in `AppShellScreen`) AND the only top app bar among them is the one in that Scaffold's `topBar` slot; `HomeScreen`, the timeline content composables, and the Notifikasi section content (`NotificationsScreen`) declare no `Scaffold` and no `TopAppBar`
 
 #### Scenario: The feed surface applies the system-bar inset exactly once under the shell app bar
 

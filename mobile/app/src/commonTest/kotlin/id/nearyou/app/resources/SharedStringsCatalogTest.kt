@@ -8,6 +8,33 @@ import id.nearyou.resources.generated.resources.age_gate_explainer
 import id.nearyou.resources.generated.resources.age_gate_title
 import id.nearyou.resources.generated.resources.age_gate_under18_blocked
 import id.nearyou.resources.generated.resources.app_name
+import id.nearyou.resources.generated.resources.blocked_users_empty
+import id.nearyou.resources.generated.resources.blocked_users_title
+import id.nearyou.resources.generated.resources.blocked_users_unblock
+import id.nearyou.resources.generated.resources.cap_countdown_hours_minutes
+import id.nearyou.resources.generated.resources.cap_countdown_minutes
+import id.nearyou.resources.generated.resources.cap_dialog_title
+import id.nearyou.resources.generated.resources.chat_account_deleted
+import id.nearyou.resources.generated.resources.chat_list_empty
+import id.nearyou.resources.generated.resources.chat_list_loading
+import id.nearyou.resources.generated.resources.chat_list_title
+import id.nearyou.resources.generated.resources.chat_message_redacted
+import id.nearyou.resources.generated.resources.chat_open_action
+import id.nearyou.resources.generated.resources.chat_send
+import id.nearyou.resources.generated.resources.chat_send_blocked
+import id.nearyou.resources.generated.resources.chat_thread_input_placeholder
+import id.nearyou.resources.generated.resources.consent_ads_desc
+import id.nearyou.resources.generated.resources.consent_ads_label
+import id.nearyou.resources.generated.resources.consent_analytics_desc
+import id.nearyou.resources.generated.resources.consent_analytics_label
+import id.nearyou.resources.generated.resources.consent_crash_desc
+import id.nearyou.resources.generated.resources.consent_crash_label
+import id.nearyou.resources.generated.resources.consent_cta_continue
+import id.nearyou.resources.generated.resources.consent_error_retryable
+import id.nearyou.resources.generated.resources.consent_explainer
+import id.nearyou.resources.generated.resources.consent_skip
+import id.nearyou.resources.generated.resources.consent_title
+import id.nearyou.resources.generated.resources.cta_activate_premium
 import id.nearyou.resources.generated.resources.cta_block
 import id.nearyou.resources.generated.resources.cta_cancel
 import id.nearyou.resources.generated.resources.cta_close
@@ -31,6 +58,7 @@ import id.nearyou.resources.generated.resources.nearby_location_denied
 import id.nearyou.resources.generated.resources.notif_chat_message
 import id.nearyou.resources.generated.resources.notif_followed
 import id.nearyou.resources.generated.resources.notif_generic
+import id.nearyou.resources.generated.resources.notif_permission_rationale
 import id.nearyou.resources.generated.resources.notif_post_auto_hidden
 import id.nearyou.resources.generated.resources.notif_post_liked
 import id.nearyou.resources.generated.resources.notif_post_replied
@@ -39,11 +67,18 @@ import id.nearyou.resources.generated.resources.notifications_empty
 import id.nearyou.resources.generated.resources.notifications_loading
 import id.nearyou.resources.generated.resources.notifications_mark_all_read
 import id.nearyou.resources.generated.resources.notifications_title
+import id.nearyou.resources.generated.resources.post_card_action_like
+import id.nearyou.resources.generated.resources.post_card_action_reply
+import id.nearyou.resources.generated.resources.post_card_handle
+import id.nearyou.resources.generated.resources.post_card_like_state_liked
+import id.nearyou.resources.generated.resources.post_card_like_state_not_liked
+import id.nearyou.resources.generated.resources.post_card_meta_separator
 import id.nearyou.resources.generated.resources.post_create_char_counter
 import id.nearyou.resources.generated.resources.post_create_content_placeholder
 import id.nearyou.resources.generated.resources.post_create_error_empty
 import id.nearyou.resources.generated.resources.post_create_error_location
 import id.nearyou.resources.generated.resources.post_create_error_moderated
+import id.nearyou.resources.generated.resources.post_create_error_rate_limited
 import id.nearyou.resources.generated.resources.post_create_error_too_long
 import id.nearyou.resources.generated.resources.post_create_loading
 import id.nearyou.resources.generated.resources.post_create_location_chip
@@ -90,12 +125,49 @@ import id.nearyou.resources.generated.resources.report_reason_hate_speech_sara
 import id.nearyou.resources.generated.resources.report_reason_misinformation
 import id.nearyou.resources.generated.resources.report_reason_other
 import id.nearyou.resources.generated.resources.report_reason_spam
+import id.nearyou.resources.generated.resources.search_back_cd
+import id.nearyou.resources.generated.resources.search_clear_cd
+import id.nearyou.resources.generated.resources.search_disabled
+import id.nearyou.resources.generated.resources.search_empty_results
+import id.nearyou.resources.generated.resources.search_hint
+import id.nearyou.resources.generated.resources.search_icon_cd
+import id.nearyou.resources.generated.resources.search_idle_prompt
+import id.nearyou.resources.generated.resources.search_load_more
+import id.nearyou.resources.generated.resources.search_premium_gate_body
+import id.nearyou.resources.generated.resources.search_rate_limit_reset
+import id.nearyou.resources.generated.resources.search_rate_limited
 import id.nearyou.resources.generated.resources.section_home
 import id.nearyou.resources.generated.resources.section_home_icon_description
 import id.nearyou.resources.generated.resources.section_notifications
 import id.nearyou.resources.generated.resources.section_notifications_icon_description
 import id.nearyou.resources.generated.resources.section_profile
 import id.nearyou.resources.generated.resources.section_profile_icon_description
+import id.nearyou.resources.generated.resources.settings_back_description
+import id.nearyou.resources.generated.resources.settings_coming_soon
+import id.nearyou.resources.generated.resources.settings_logout_body
+import id.nearyou.resources.generated.resources.settings_logout_cancel
+import id.nearyou.resources.generated.resources.settings_logout_confirm
+import id.nearyou.resources.generated.resources.settings_logout_title
+import id.nearyou.resources.generated.resources.settings_row_change_username
+import id.nearyou.resources.generated.resources.settings_row_change_username_sub
+import id.nearyou.resources.generated.resources.settings_row_edit_profile
+import id.nearyou.resources.generated.resources.settings_row_hide_distance
+import id.nearyou.resources.generated.resources.settings_row_hide_distance_sub
+import id.nearyou.resources.generated.resources.settings_row_legal
+import id.nearyou.resources.generated.resources.settings_row_logout
+import id.nearyou.resources.generated.resources.settings_row_manage_subscription
+import id.nearyou.resources.generated.resources.settings_row_manage_subscription_sub
+import id.nearyou.resources.generated.resources.settings_row_premium_journey
+import id.nearyou.resources.generated.resources.settings_row_premium_journey_sub
+import id.nearyou.resources.generated.resources.settings_row_privacy_data_sub
+import id.nearyou.resources.generated.resources.settings_row_private_profile
+import id.nearyou.resources.generated.resources.settings_row_private_profile_sub
+import id.nearyou.resources.generated.resources.settings_save
+import id.nearyou.resources.generated.resources.settings_section_account
+import id.nearyou.resources.generated.resources.settings_section_other
+import id.nearyou.resources.generated.resources.settings_section_premium
+import id.nearyou.resources.generated.resources.settings_section_privacy
+import id.nearyou.resources.generated.resources.settings_title
 import id.nearyou.resources.generated.resources.signin_error_banned
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.signin_error_no_account
@@ -124,10 +196,12 @@ import kotlin.test.assertEquals
 
 /**
  * Guards the `shared-resources` spec scenario "All Mobile #2 + #3 + #4 strings are declared"
- * (task 7.12). This list references every required `Res.string.*` accessor by name — the CMP
- * Resources codegen generates an accessor ONLY for a `<string>` present in
- * `composeResources/values/strings.xml`, so a missing or renamed key makes this file fail to
- * COMPILE (a stronger guard than a runtime check). The exact-text scenarios for the Mobile #4
+ * (task 7.12), broadened to mirror the ENTIRE `<string>` catalog 1:1: this list references every
+ * declared `Res.string.*` accessor by name — the CMP Resources codegen generates an accessor ONLY
+ * for a `<string>` present in `composeResources/values/strings.xml`, so a missing or renamed key
+ * makes this file fail to COMPILE (a stronger guard than a runtime check), and the size assertion
+ * pins the full catalog so a newly-declared-but-unreferenced key is caught as drift (the #240 gap:
+ * the list had fallen to 118 of 190 declared keys). The exact-text scenarios for the Mobile #4
  * additions are asserted in `AgeGateScreenTest.mobile4Strings_haveExactCanonicalText`.
  */
 class SharedStringsCatalogTest {
@@ -281,27 +355,102 @@ class SharedStringsCatalogTest {
             Res.string.profile_not_found,
             Res.string.profile_action_user_unavailable,
             Res.string.profile_action_failed,
+            // --- #240 catalog backfill (2026-06-13 triage reconciliation): the keys below
+            // were declared in strings.xml but untracked here, so the count had drifted away from
+            // the catalog size. Every declared <string> now has a tracked accessor; the assertion
+            // below pins the FULL catalog. Grouped by owning capability (full provenance lives in
+            // the strings.xml block comments).
+            // mobile-analytics-consent-screen
+            Res.string.consent_title,
+            Res.string.consent_explainer,
+            Res.string.consent_analytics_label,
+            Res.string.consent_analytics_desc,
+            Res.string.consent_crash_label,
+            Res.string.consent_crash_desc,
+            Res.string.consent_ads_label,
+            Res.string.consent_ads_desc,
+            Res.string.consent_cta_continue,
+            Res.string.consent_error_retryable,
+            Res.string.consent_skip,
+            // mobile-timeline-card-redesign + mobile-inline-post-actions (shared post card)
+            Res.string.post_card_handle,
+            Res.string.post_card_meta_separator,
+            Res.string.post_card_action_reply,
+            Res.string.post_card_action_like,
+            Res.string.post_card_like_state_liked,
+            Res.string.post_card_like_state_not_liked,
+            // mobile-post-creation (429 daily-cap banner; intentionally outside the composer-string set per mobile-post-creation/spec.md)
+            Res.string.post_create_error_rate_limited,
+            // mobile-cap-upsell-dialog (shared daily-cap dialog)
+            Res.string.cap_dialog_title,
+            Res.string.cta_activate_premium,
+            Res.string.cap_countdown_hours_minutes,
+            Res.string.cap_countdown_minutes,
+            // mobile-settings-screen (grouped list + block-list + logout-confirm)
+            Res.string.settings_title,
+            Res.string.settings_back_description,
+            Res.string.settings_section_account,
+            Res.string.settings_section_premium,
+            Res.string.settings_section_privacy,
+            Res.string.settings_section_other,
+            Res.string.settings_row_edit_profile,
+            Res.string.settings_row_change_username,
+            Res.string.settings_row_change_username_sub,
+            Res.string.settings_row_premium_journey,
+            Res.string.settings_row_premium_journey_sub,
+            Res.string.settings_row_manage_subscription,
+            Res.string.settings_row_manage_subscription_sub,
+            Res.string.settings_row_private_profile,
+            Res.string.settings_row_private_profile_sub,
+            Res.string.settings_row_hide_distance,
+            Res.string.settings_row_hide_distance_sub,
+            Res.string.settings_row_privacy_data_sub,
+            Res.string.settings_row_legal,
+            Res.string.settings_row_logout,
+            Res.string.settings_coming_soon,
+            Res.string.settings_save,
+            Res.string.settings_logout_title,
+            Res.string.settings_logout_body,
+            Res.string.settings_logout_confirm,
+            Res.string.settings_logout_cancel,
+            Res.string.blocked_users_title,
+            Res.string.blocked_users_empty,
+            Res.string.blocked_users_unblock,
+            // mobile-chat-screen (conversation list + thread + notif-permission rationale)
+            Res.string.chat_list_title,
+            Res.string.chat_list_empty,
+            Res.string.chat_list_loading,
+            Res.string.chat_thread_input_placeholder,
+            Res.string.chat_send,
+            Res.string.chat_message_redacted,
+            Res.string.chat_send_blocked,
+            Res.string.chat_open_action,
+            Res.string.chat_account_deleted,
+            Res.string.notif_permission_rationale,
+            // mobile-search (Premium-gated Cari surface)
+            Res.string.search_hint,
+            Res.string.search_idle_prompt,
+            Res.string.search_empty_results,
+            Res.string.search_premium_gate_body,
+            Res.string.search_rate_limited,
+            Res.string.search_rate_limit_reset,
+            Res.string.search_disabled,
+            Res.string.search_load_more,
+            Res.string.search_icon_cd,
+            Res.string.search_clear_cd,
+            Res.string.search_back_cd,
         )
 
     @Test
-    fun `all Mobile 2 3 4 and 5 plus location and post-creation string keys are declared`() {
-        // 10 (Mobile #2/#2.5) + 8 (Mobile #3) + 8 (Mobile #4) + 5 (Mobile #5 timeline)
-        // + 5 (mobile-location-permission-flow) + 10 (mobile-post-creation-screen)
-        // + 9 (mobile-home-tab-host: 3 tab labels + 3 tab icon descriptions + Global title
-        // + Following placeholder + lihat-Global CTA)
-        // + 18 (mobile-bottom-nav-sections-and-notifications: 3 section labels + 3 section icon
-        // descriptions + Profil placeholder + 5 notifications-screen keys + 6 type-keyed copy)
-        // + 11 (mobile-post-detail-screen: posted-from + no-city variant + like-count + reset-hours
-        // countdown fragment + like-cap upsell + replies-empty + reply-placeholder + reply-counter
-        // + reply-cap upsell + post-gone banner + Balas CTA; the loading/generic-error states reuse
-        // timeline_loading / signin_error_network / cta_retry) = 84.
-        // + 2 (mobile-session-expiry-and-proactive-refresh: signin_session_expired + timeline_session_redirect) = 86.
-        // + 2 (mobile-mockup-visual-conformance: post_create_location_chip + post_create_privacy_note) = 88.
-        // + 30 (mobile-profile: 2 counts + premium badge label/icon-desc + follow/unfollow + kebab desc
-        // + block action/title/body + cta_block + block-success toast + report title + 6 reason labels
-        // + report note placeholder + report submit + report success/duplicate + 3 rate-limit messages
-        // + not-found + target-unavailable + action-failed) = 118.
-        assertEquals(118, allDeclaredStrings.size)
+    fun `every declared strings xml key has a tracked Res string accessor`() {
+        // This list mirrors EVERY <string> in shared/resources/.../values/strings.xml 1:1 — each
+        // Res.string.* reference is a compile-time pin (the CMP codegen emits an accessor only for a
+        // declared key, so a removed/renamed key fails to COMPILE here). The literal below is the full
+        // catalog size; when you add a <string>, add its accessor above AND bump this count so the two
+        // stay equal — a mismatch is exactly the catalog/guard drift this assertion exists to catch
+        // (it had drifted to 118 tracked vs 190 declared before the #240 backfill). Per-capability
+        // provenance lives in the strings.xml block comments, not duplicated here.
+        assertEquals(190, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

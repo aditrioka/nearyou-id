@@ -16,14 +16,16 @@ private fun String.stripComments(): String {
 
 /**
  * `mobile-design-system` substrate source-scan guard (mobile-home-shell-redesign task 10.3b) mechanizing
- * the inset-ownership + Material-icon + label-visibility rules over the 4 Home-surface files the change
- * declares (per the `mobile-design-system` § "Only the shell declares a Scaffold" scenario, which inspects
- * exactly `AppShellScreen.kt`, `HomeScreen.kt`, `NearbyTimelineScreen.kt`, `GlobalTimelineScreen.kt`):
+ * the inset-ownership + Material-icon + label-visibility rules over the Home-surface files plus the
+ * Notifikasi section content (per the `mobile-design-system` § "Only the shell declares a Scaffold"
+ * scenario, which inspects `AppShellScreen.kt`, `HomeScreen.kt`, `NearbyTimelineScreen.kt`,
+ * `GlobalTimelineScreen.kt`, and `NotificationsScreen.kt`):
  *
  * - **Exactly one `Scaffold` in the authenticated Home tree** — only `AppShellScreen` declares one;
  *   `HomeScreen` + both timeline content composables declare NO `Scaffold` and NO `TopAppBar` (the
- *   nested-Scaffold fix, design D1). (The Notifikasi section's own `Scaffold` is tracked separately by
- *   follow-up issue #205 (`mobile-notifications-inset-free-substrate-migration`) — out of this change's file scope.)
+ *   nested-Scaffold fix, design D1). The Notifikasi section (`NotificationsScreen`) is now guarded here
+ *   too: it was migrated to be inset-free (audit finding 05-#1 — no `Scaffold`/`TopAppBar`), which
+ *   closes follow-up issue #205 (`mobile-notifications-inset-free-substrate-migration`).
  * - **Inset consumption** — `AppShellScreen` consumes the shell padding (`consumeWindowInsets`).
  * - **Material icon affordances, not dots** — the shell nav + the post cards use `painterResource(Res.drawable.*)`
  *   and declare NO `CircleShape` placeholder dot; `HomeScreen`'s text-only tabs declare no `CircleShape` either.
@@ -57,6 +59,7 @@ class ShellAndTimelineSourceGuardTest {
     private val home by lazy { read("home/HomeScreen.kt") }
     private val nearby by lazy { read("timeline/NearbyTimelineScreen.kt") }
     private val global by lazy { read("timeline/GlobalTimelineScreen.kt") }
+    private val notifications by lazy { read("notifications/NotificationsScreen.kt") }
 
     // The ONE shared card (ui/components — mobile-timeline-card-redesign absorbed the per-screen
     // copies); the icon-affordance assertions moved here with it.
@@ -68,6 +71,8 @@ class ShellAndTimelineSourceGuardTest {
         assertScaffoldAndTopBarAbsent("HomeScreen", home)
         assertScaffoldAndTopBarAbsent("NearbyTimelineScreen", nearby)
         assertScaffoldAndTopBarAbsent("GlobalTimelineScreen", global)
+        // The Notifikasi section content is shell-body content too — migrated inset-free (issue #205).
+        assertScaffoldAndTopBarAbsent("NotificationsScreen", notifications)
         // The shared card is shell-body content too — no Scaffold/TopAppBar of its own.
         assertScaffoldAndTopBarAbsent("PostCard", postCard)
     }
