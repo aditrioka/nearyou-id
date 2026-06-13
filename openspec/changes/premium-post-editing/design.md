@@ -31,7 +31,8 @@ The edited content re-runs the moderation pipeline, mirroring `CreatePostService
 **Alternative considered:** moderate-on-read or admin-only catch — rejected (lets toxic content reach the timeline between edit and the next moderation pass).
 
 ### D2 — Premium gate accepts `premium_active` AND `premium_billing_retry`
-Reuse the existing `PREMIUM_STATES` constant (don't redefine). `premium_billing_retry` is the active 7-day billing grace where Premium access REMAINS active (Phase 4 item 4) — matching the like/post daily-cap-skip precedent. Free / suspended-to-free → 403 `premium_required`.
+The gate uses the same premium-state value set as every other premium gate (`premium_active` + `premium_billing_retry`); `premium_billing_retry` is the active 7-day billing grace where Premium access REMAINS active (Phase 4 item 4) — matching the like/post daily-cap-skip precedent. Free / suspended-to-free → 403 `premium_required`, checked **before** any post lookup (a Free caller learns nothing about the target post).
+**Note (review finding):** there is currently **no shared `PREMIUM_STATES` constant** — the set is duplicated as a private companion constant across 6 services (`CreatePostService`, `ChatService`, `SearchService`, `LikeService`, `ReplyService`, `TimelineReadRateLimiter`). This change therefore adds a 7th local copy rather than "reusing" a shared one. A DRY refactor (extract a shared `PremiumStates`) is deliberately **out of scope** here — it would touch all 6 call-sites and collide with the in-flight billing/chat/search branches (rebase pain). Tracked as a separate cleanup candidate; not blocking.
 **Alternative:** `premium_active` only — rejected; would revoke a paid feature mid-grace, inconsistent with every other Premium gate in the codebase.
 
 ### D3 — Route shape `PATCH /api/v1/posts/{post_id}` + `GET …/edits`
@@ -47,15 +48,32 @@ Implement the `docs/05` §385 transaction verbatim in a new `PostEditService.edi
 ### D6 — Wire format follows the existing convention
 Response DTOs follow the live `TimelineRoutes`/`PostRoutes` convention (mixed casing; `explicitNulls = false` ContentNegotiation, manual `buildJsonObject` where a null must appear on the wire). Exact field casing is an apply-phase detail; the spec constrains semantics, not JSON keys.
 
+### D7 — Non-leaky failure codes: disambiguate the 0-row lock result (review finding)
+The `SELECT … FOR UPDATE` keyed on `id=:id AND author_id=:uid AND created_at > NOW()-30min AND deleted_at IS NULL` returns 0 rows for four distinct conditions (not-found / not-author / out-of-window / soft-deleted). To give the **author** a useful "window expired" message without **leaking post existence to a non-author**, on a 0-row result the service runs one author-scoped disambiguation read (`SELECT created_at, deleted_at FROM posts WHERE id=:id AND author_id=:uid` — author-scoped, so it can never reveal another user's post): a returned non-deleted row that is merely past the window → `409 edit_window_expired`; otherwise (no row → not-author/non-existent, or the author's own soft-deleted post) → uniform `404`. This makes non-author and non-existent indistinguishable.
+**Alternative:** uniform `404` on any 0-row result — rejected; gives the author no actionable feedback for the (common) window-expired case.
+
+### D8 — Per-user edit rate limit (review finding)
+The edit endpoint is rate-limited per user via the existing rate-limit infrastructure (a distinct limiter key from the daily-post-cap `PostRateLimiter`). Rationale: each edit triggers synchronous Redis/Remote-Config moderation I/O **plus** a fire-and-forget external Perspective (Layer-3) call; unbounded re-edits within the 30-minute window are an amplification/cost vector on a paid endpoint. The specific cap is ops-tunable (Remote-Config / config value), not a hard-coded literal. Exceed → `429` + `Retry-After`, no change.
+**Alternative:** no limiter (accept the risk) — considered and rejected by the operator at proposal review.
+
+### D9 — No-op edits are rejected (review finding)
+An edit whose normalized content equals the post's current content is rejected `400 no_changes` (checked against the content from the locked row, before moderation/snapshot), so the append-only `post_edits` table and the "Versi ke-N" sequence record only real changes.
+**Alternative:** record identical content as a version — rejected; produces junk versions.
+
+### D10 — History read returns no raw location (review finding — invariant #3)
+The `GET …/edits` response is content-only: content snapshot + "Versi ke-N" + `edited_at`. It MUST NOT project `post_edits.location_snapshot` or `posts.actual_location` (both raw, unfuzzed) — these stay admin/audit-only per the spatial-fuzzing invariant. The product surface ("Riwayat edit" modal, docs/02 §137) renders content versions only, so no location field exists on the wire. The history query reads through `visible_posts` (shadow-ban-safe) + a **real** bidirectional `user_blocks` exclusion predicate (the `=`-fragment `NOT EXISTS` form recognized by `BlockExclusionJoinRule`, which matches `FROM visible_posts`) — never an annotation bypass.
+
 ## Standards conformance
 
 Per [`docs/11-Engineering-Standards.md`](../../../docs/11-Engineering-Standards.md): this change builds on the **existing** Pattern-Registry patterns — **backend layering** (§3.1: route → service → repository; new `PostEditService` + `PostEditHistoryQuery` slot beside `CreatePostService`, new methods on `PostRepository`), **JDBC/connection discipline** (§3.2: one pooled connection per transaction on the bounded `dbDispatcher`, no connection held across suspension points), **transactional-service** (mirrors `CreatePostService`), and **moderation dispatch** (reuses `TextModerator` + `Layer3Moderator`). **No new pattern is introduced** — so no `docs/11` § Pattern Registry amendment is required. The two read-path invariants (`visible_posts`, bidirectional block join) are consumed unchanged. The only doc amendment is the D1 re-moderation reconciliation (`docs/05`/`docs/06`), tracked as a follow-up.
+
+**Detekt `ContentWriteRequiresModerationRule` (review finding):** the new `UPDATE posts SET content=…` is a new content-write sink the rule scans for a preceding `TextModerator.moderate(...)`. The D1 re-moderation requirement satisfies it naturally — the implementation MUST keep the `moderate()` call on the edit path (do **not** reach for an `@AllowContentWriteWithoutModeration`-style carve-out; there is no legitimate reason to bypass it here).
 
 ## Risks / Trade-offs
 
 - **[V22 migration-number race]** → `revenuecat-subscription-webhook` (#291) holds V21; this takes V22. If a third parallel change grabs V22 before merge, rebase-renumber to the next free V (Flyway files are checksum-immutable once applied, but pre-merge renaming is safe). Flagged to the user at pick time.
 - **[`clock_timestamp()` vs `now()` collision]** → two edits inside the same statement-microsecond would violate `post_edits_temporal_idx`; mitigated by `FOR UPDATE` serialization + the single app-level retry → 409 (canonical per `docs/05` §406).
-- **[Re-moderation latency on edit]** → the synchronous `TextModerator.moderate` adds cold-cache Redis/Remote-Config I/O to the edit path; runs on the bounded `dbDispatcher` like create, after the cheap length/window/author gates so a rejected edit burns no moderation budget.
+- **[Re-moderation latency + cost amplification on edit]** → the synchronous `TextModerator.moderate` adds cold-cache Redis/Remote-Config I/O to the edit path, and each successful edit fires an external Perspective (Layer-3) call; runs on the bounded `dbDispatcher` like create, after the cheap length/window/author gates so a rejected edit burns no moderation budget. The per-user edit rate-limit (D8) bounds the call volume so rapid re-edits can't amplify the I/O / external-API cost.
 - **[Edit-laundering window before Layer 3 returns]** → identical to the create path (Layer 3 is fire-and-forget post-commit); accepted, matches existing posture.
 - **[Reply counter / like state on edit]** → editing content does not touch likes/replies; no counter recompute needed. No risk.
 
@@ -66,4 +84,4 @@ Per [`docs/11-Engineering-Standards.md`](../../../docs/11-Engineering-Standards.
 
 ## Open Questions
 
-- **None blocking.** D1 (re-moderation) is decided as in-scope with a docs follow-up; if the user prefers to ship edit WITHOUT re-moderation and treat the laundering hole as a separate change, that is the one scope lever to pull before `/opsx:apply` — surfaced in the Phase D review digest.
+- **None.** Both scope levers were resolved at Phase D review (operator decision): D1 re-moderation is **kept in-scope** (with the docs/05+docs/06 amendment follow-up filed at apply), and the per-user edit rate-limit (D8) is **added**. No outstanding decisions before `/opsx:apply`.

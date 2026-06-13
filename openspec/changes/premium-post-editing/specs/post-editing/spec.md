@@ -19,46 +19,58 @@ The system SHALL expose `PATCH /api/v1/posts/{post_id}` allowing a Premium user 
 
 ### Requirement: Editing is restricted to the author within the creation window
 
-The system SHALL reject an edit when the requester is not the post's author, when more than 30 minutes have elapsed since the post's creation, or when the post is soft-deleted. The window SHALL be measured from `posts.created_at`, not from the last edit. The system SHALL NOT reveal whether a post exists to a non-author requester beyond the standard visibility rules.
+The system SHALL reject an edit when the requester is not the post's author, when more than 30 minutes have elapsed since the post's creation, or when the post is soft-deleted. The window SHALL be measured from `posts.created_at`, not from the last edit. To avoid leaking post existence: a non-author requester and a non-existent `post_id` SHALL receive the **same** non-confirming `404` response; the author's own post that exists but is merely outside the 30-minute window SHALL receive a distinct `409 edit_window_expired` (safe to reveal to the owner); the author's own soft-deleted post SHALL receive `404`.
 
 #### Scenario: Non-author cannot edit
 
 - **WHEN** a Premium user sends `PATCH /api/v1/posts/{post_id}` for a post authored by someone else
-- **THEN** the system rejects the edit and makes no change to the post or `post_edits`
+- **THEN** the system returns `404` and makes no change to the post or `post_edits`
+- **AND** the response does not confirm whether the post exists
 
-#### Scenario: Edit after the 30-minute window is rejected
+#### Scenario: Non-existent post is indistinguishable from a non-author rejection
 
-- **WHEN** the author sends `PATCH /api/v1/posts/{post_id}` for their post created 31 minutes ago
-- **THEN** the system rejects the edit with a window-expired error and makes no change
+- **WHEN** a Premium user sends `PATCH /api/v1/posts/{post_id}` for a `post_id` that does not exist
+- **THEN** the system returns the same `404` a non-author receives (no existence reveal)
 
-#### Scenario: Editing a soft-deleted post is rejected
+#### Scenario: Author's own post outside the window returns a distinct error
 
-- **WHEN** the author sends `PATCH /api/v1/posts/{post_id}` for a post whose `deleted_at` is set
-- **THEN** the system rejects the edit and makes no change
+- **WHEN** the author sends `PATCH /api/v1/posts/{post_id}` for their own post created 31 minutes ago
+- **THEN** the system returns `409 edit_window_expired` and makes no change
+
+#### Scenario: Author's own soft-deleted post is rejected as gone
+
+- **WHEN** the author sends `PATCH /api/v1/posts/{post_id}` for their own post whose `deleted_at` is set
+- **THEN** the system returns `404` and makes no change
 
 ### Requirement: Post editing requires a Premium subscription
 
-The system SHALL gate editing on the requester's `subscription_status` being one of `premium_active` or `premium_billing_retry`. A Free-tier requester SHALL receive a 403 `premium_required` response and the post SHALL be unchanged. The gate SHALL reuse the existing premium-state set (the same set that governs the daily-post-cap skip), not a redefined list.
+The system SHALL gate editing on the requester's `subscription_status` being one of `premium_active` or `premium_billing_retry`. The gate SHALL be checked before any post lookup (so a Free requester learns nothing about the target post). A Free-tier requester SHALL receive a `403 premium_required` response and the post SHALL be unchanged. The gate SHALL use the same premium-state value set that the other premium gates use (the set that governs the daily-post-cap skip: `premium_active` + `premium_billing_retry`).
 
 #### Scenario: Free user is paywalled
 
 - **WHEN** a user with `subscription_status = 'free'` sends `PATCH /api/v1/posts/{post_id}` for their own fresh post
-- **THEN** the system returns 403 `premium_required`
+- **THEN** the system returns `403 premium_required`
 - **AND** the post content and `post_edits` are unchanged
 
-### Requirement: Edited content is length-validated
+### Requirement: Edited content is validated
 
-The system SHALL enforce the existing post content guard (1–280 characters after normalization) on the edit payload, BEFORE consuming moderation or transaction resources. An over-length or empty edit SHALL be rejected with 400 and the post SHALL be unchanged.
+The system SHALL enforce the existing post content guard (1–280 characters after normalization) on the edit payload, BEFORE consuming moderation or transaction resources. An over-length or empty edit SHALL be rejected with `400` and the post SHALL be unchanged. The system SHALL also reject a no-op edit whose normalized content is identical to the post's current content with `400 no_changes` (no snapshot, no update), so the edit history records only real changes.
 
 #### Scenario: Over-length edit is rejected
 
 - **WHEN** the author submits a 281-character edit
-- **THEN** the system returns 400 and the post is unchanged
+- **THEN** the system returns `400` and the post is unchanged
 
 #### Scenario: Empty edit is rejected
 
 - **WHEN** the author submits an edit whose normalized content is empty
-- **THEN** the system returns 400 and the post is unchanged
+- **THEN** the system returns `400` and the post is unchanged
+
+#### Scenario: No-op identical-content edit is rejected
+
+- **WHEN** the author submits an edit whose normalized content equals the post's current content
+- **THEN** the system returns `400 no_changes`
+- **AND** no `post_edits` row is created and `posts.updated_at` is unchanged
 
 ### Requirement: Edited content is re-moderated before it is persisted
 
@@ -67,8 +79,13 @@ The system SHALL run the edited content through the same moderation pipeline as 
 #### Scenario: Edit to profane content is rejected
 
 - **WHEN** the author edits their post to content matching the profanity blocklist (reject verdict)
-- **THEN** the system returns 400 `content_moderated_profanity`
+- **THEN** the system returns `400 content_moderated_profanity`
 - **AND** the post content and `post_edits` are unchanged
+
+#### Scenario: Reject verdict does not dispatch Layer-3
+
+- **WHEN** an edit yields a reject verdict
+- **THEN** no asynchronous Layer-3 moderation is dispatched (there is no committed row to moderate)
 
 #### Scenario: Edit to flagged content is persisted with a moderation-queue entry
 
@@ -103,7 +120,7 @@ The system SHALL, within a single database transaction, capture the post's pre-e
 
 ### Requirement: Concurrent edits to the same post are race-safe
 
-The system SHALL serialize concurrent edits to the same post using a row lock (`SELECT … FOR UPDATE`) and SHALL guarantee temporal-key uniqueness via a unique index on `(post_id, edited_at)`. On the sub-microsecond `unique_violation` edge the system SHALL retry once and, if it still conflicts, return 409 with the message "Coba lagi sebentar."
+The system SHALL serialize concurrent edits to the same post using a row lock (`SELECT … FOR UPDATE`) and SHALL guarantee temporal-key uniqueness via a unique index on `(post_id, edited_at)`. On the sub-microsecond `unique_violation` edge the system SHALL retry once and, if it still conflicts, return `409` with the message "Coba lagi sebentar."
 
 #### Scenario: Two simultaneous edits do not lose an update
 
@@ -113,7 +130,17 @@ The system SHALL serialize concurrent edits to the same post using a row lock (`
 #### Scenario: Temporal collision yields a retryable conflict
 
 - **WHEN** an edit hits the `(post_id, edited_at)` unique constraint and the single retry still collides
-- **THEN** the system returns 409 with "Coba lagi sebentar."
+- **THEN** the system returns `409` with "Coba lagi sebentar."
+
+### Requirement: Post editing is rate-limited per user
+
+The system SHALL rate-limit the edit endpoint per user, reusing the existing rate-limit infrastructure, so that rapid repeated edits cannot amplify the synchronous moderation I/O and the external Perspective (Layer-3) calls each edit triggers. The specific cap SHALL be a configurable/ops-tunable value (not hard-coded to a literal in business logic). When the cap is exceeded the system SHALL return `429` with a `Retry-After` header and make no change to the post.
+
+#### Scenario: Edit rate limit is enforced
+
+- **WHEN** a user exceeds the configured per-user edit rate limit
+- **THEN** the system returns `429` with a `Retry-After` header
+- **AND** the post content and `post_edits` are unchanged
 
 ### Requirement: Post edit history is readable with chronological version labels
 
@@ -131,18 +158,28 @@ The system SHALL expose `GET /api/v1/posts/{post_id}/edits` returning the post's
 
 ### Requirement: Edit history read honours post visibility
 
-The system SHALL resolve the target post through the shadow-ban-safe visible-posts view and the bidirectional block exclusion before returning history. A viewer who cannot see the post (shadow-banned author they don't own, or a block in either direction) SHALL receive 404, without confirming the post's existence.
+The system SHALL resolve the target post through the shadow-ban-safe visible-posts view AND the bidirectional block exclusion (a real `user_blocks` exclusion predicate on the read query, never a lint annotation bypass) before returning history. A viewer who cannot see the post (shadow-banned author they don't own, or a block in either direction) SHALL receive `404`, without confirming the post's existence.
 
 #### Scenario: Blocked viewer cannot read history
 
 - **WHEN** a viewer who is blocked by (or has blocked) the author requests the post's edit history
-- **THEN** the system returns 404
+- **THEN** the system returns `404`
 
 #### Scenario: Shadow-banned author's post history is hidden from others
 
 - **WHEN** a viewer other than the author requests the edit history of a post by a shadow-banned author
-- **THEN** the system returns 404
+- **THEN** the system returns `404`
 - **AND** the author themselves can still read their own post's history
+
+### Requirement: Edit history read does not expose raw location
+
+The edit-history read SHALL return only content versions, their version labels, and their edit timestamps. It SHALL NOT return the raw, unfuzzed location stored in `post_edits.location_snapshot` (nor `posts.actual_location`); raw coordinates remain admin/audit-only per the spatial-fuzzing invariant. The history response carries no location field at all (the product surface — the "Riwayat edit" modal — renders content versions only).
+
+#### Scenario: History response omits raw location
+
+- **WHEN** a permitted viewer requests a post's edit history
+- **THEN** each returned version contains the content snapshot, its "Versi ke-N" label, and `edited_at`
+- **AND** the response contains no raw `location_snapshot` / `actual_location` value
 
 ### Requirement: This change delivers no mobile or admin client surface
 
