@@ -4,7 +4,6 @@
 
 The Nearby/Following/Global tab host in `:mobile:app`. `HomeScreen` is repurposed from a single-feed host into a Material 3 `NavigationBar` host whose body renders the selected tab's screen **directly under the `HomeRoute` scope** — selection is a `rememberSaveable` serializable `Tab` enum, NOT per-tab `NavDisplay` back stacks. Because each tab's feed screen composes directly under the `HomeRoute` NavEntry, its feed load-state ViewModel (resolved via `viewModel { }` inside the screen, exactly as the shipped Nearby feed already does) is `HomeRoute`-scoped and survives both tab switches and the composer round-trip with no re-fetch. Per-tab `NavDisplay` back stacks are **deferred** to the first intra-tab destination (post detail / profile) — there is no intra-tab navigation in this change, so building them now would be vestigial; the deferral is tracked by GitHub issue [#189](https://github.com/aditrioka/nearyou-id/issues/189) `mobile-home-tab-host-per-tab-backstacks` (label `follow-up`). The composer FAB stays at the home level (one affordance shared across all three tabs) and pushes `PostCreationRoute` onto the **root** back stack so the composer overlays the tab bar. The Nearby tab hosts the shipped `NearbyTimelineScreen`; the Global tab hosts `GlobalTimelineScreen` (`mobile-global-timeline`); the Following tab hosts the live `FollowingTimelineScreen` (`mobile-following-timeline`, as of `mobile-following-timeline-screen`). Every label/copy is sourced via `:shared:resources`; the authenticated default tab is Nearby. This closes the earlier follow-ups `mobile-home-tab-host` + `mobile-timeline-empty-global-cta`.
 ## Requirements
-
 ### Requirement: HomeScreen is the Nearby/Following/Global tab host
 
 `HomeScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/home/HomeScreen.kt`) SHALL render the **Home section's content**: the Nearby / Following / Global feeds as a **top tab row** (Material 3 `PrimaryTabRow`), NOT as the bottom `NavigationBar` (the bottom bar is the app section shell — see § "Bottom navigation is a top-level section shell"). `HomeScreen` SHALL render a `PrimaryTabRow` with exactly three feed tabs — Nearby, Following, Global — each labelled via `stringResource` (`Res.string.tab_nearby`, `Res.string.tab_following`, `Res.string.tab_global`) **in Bahasa Indonesia** (per `mobile-design-system` § "User-facing labels are single-language Bahasa Indonesia"). The tabs SHALL be **text-only** with the Material 3 `PrimaryTabRow` underline indicator — NO icon and NO brand-tinted dot (per `mobile-design-system` § "Material 3 icons are the canonical navigation, action, and card affordance"; matching the operator's X / Niche-style text-tab references, `design.md` D10). The body below the tab row SHALL render the selected feed tab's content via a **swipeable `HorizontalPager`** (per § "Feed tabs are swipeable via a HorizontalPager synced with the tab row"): Nearby → `NearbyTimelineScreen`; Following → `FollowingTimelineScreen` (per § "Following tab renders the live Following feed" / `mobile-following-timeline`); Global → `GlobalTimelineScreen`. `HomeScreen` SHALL be **inset-free**: it MUST NOT declare its own `Scaffold` — the app section shell owns the single inset-owning `Scaffold` (per `mobile-design-system` § "The app shell owns a single Scaffold and window insets"); `HomeScreen` renders the tab row + pager under the shell's `innerPadding`. No hardcoded UI string literals SHALL appear in `HomeScreen`. `HomeScreen` SHALL render under `NearYouTheme` (light/dark).
@@ -186,16 +185,6 @@ The Notifikasi bottom-nav item SHALL render an unread **badge** (Material 3 `Bad
 - **WHEN** inspecting the unread-count wiring on the shell
 - **THEN** the count is fetched on shell composition/resume + on leaving the Notifikasi section only AND no polling timer / push-driven live subscription is wired (live updates deferred)
 
-### Requirement: The Profil section renders a deferred placeholder
-
-The Profil section SHALL render a documented placeholder (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/profile/ProfilePlaceholderScreen.kt`) whose copy is sourced via `stringResource(Res.string.profile_placeholder)` ("*Profil segera hadir.*"), issuing NO network fetch. The real profile/settings surface is deferred to a separate future change (tracked by GitHub issue [#196](https://github.com/aditrioka/nearyou-id/issues/196) `mobile-profile-section-screen` (label `follow-up`)), which will MODIFY this requirement to introduce the live surface.
-
-#### Scenario: Profil section shows the placeholder copy and issues no fetch
-
-- **GIVEN** a Ktor MockEngine capturing all outbound requests, wired into the composed shell
-- **WHEN** the Profil section is selected and rendered
-- **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.profile_placeholder)` AND no network request is captured for the Profil section
-
 ### Requirement: The tab host hoists onOpenPost, wired at the call site to a root-stack PostDetailRoute push
 
 `HomeScreen` SHALL hoist an `onOpenPost(...)` callback (taking a card's non-PII display fields) and pass it into ALL THREE feed tabs — `NearbyTimelineScreen`, `FollowingTimelineScreen`, and `GlobalTimelineScreen` — exactly as it already hoists `onOpenComposer`. It SHALL additionally hoist an `onOpenPostReply(...)` callback (same non-PII display-field payload — the feed cards' reply shortcut) into all three feed tabs. The actual `PostDetailRoute` **root** back-stack appends SHALL be wired at the **shell** call site (in `screens/routing/AppEntryProvider.kt`, where `appEntryProvider` maps `HomeRoute` → `AppShellScreen(onOpenComposer = { backStack.add(PostCreationRoute) }, onOpenPost = { … backStack.add(PostDetailRoute(...)) }, onOpenPostReply = { … backStack.add(PostDetailRoute(..., focusReplyComposer = true)) })`; `AppShellScreen` forwards both to the Home section's `HomeScreen`), NOT inside `HomeScreen.kt` / `AppShellScreen.kt` (neither holds a back-stack reference, matching the existing composer-FAB wiring). The appended `PostDetailRoute` SHALL be constructed from exactly the card fields (`postId`, `content`, `cityName`, `distanceM`, `createdAtIso`, `likedByViewer`, `replyCount`, `authorUsername`, `authorDisplayName`; never `latitude`/`longitude`, never the author UUID) — with `focusReplyComposer = true` when constructed from `onOpenPostReply` and the default `false` when constructed from the whole-card `onOpenPost` — so the detail surface overlays the section `NavigationBar`, NOT introducing a per-tab `NavDisplay` back stack (still deferred per GitHub issue [#189](https://github.com/aditrioka/nearyou-id/issues/189) `mobile-home-tab-host-per-tab-backstacks` (label `follow-up`)). As of `mobile-following-timeline-screen` the **Following tab is a live feed** and therefore wires `onOpenPost` and `onOpenPostReply` identically to Nearby and Global (the prior "the Following tab is a deferred placeholder and wires no callbacks" clause is removed). The host additionally wires an `onSeeGlobal` lambda into the Following page (per § "Following tab renders the live Following feed"). The Following cards supply `distanceM = null` (Following has no spatial filter).
@@ -260,3 +249,35 @@ The shell SHALL hoist an `onOpenSearch` callback (no payload — `SearchRoute` i
 
 - **WHEN** comparing the live `mobile-home-tab-host` § "The tab host hoists onOpenPost, wired at the call site to a root-stack PostDetailRoute push" requirement before and after this change
 - **THEN** that requirement's header and its `onOpenPost` / `onOpenPostReply` scenarios are unmodified by `mobile-search-screen` (the search entry point is added as this separate `onOpenSearch` requirement, avoiding a renamed-header MODIFIED that would not match on archive and that would collide with concurrent feed-tab changes)
+
+### Requirement: The Profil section renders the live self profile
+
+The Profil bottom-nav section SHALL render the live self `ProfileScreen` (per `mobile-profile`) — replacing `ProfilePlaceholderScreen` — for the **authenticated self user**, whose `userId` is resolved from the session/auth layer (NOT a nav arg). The self profile SHALL be rendered **inset-free** in the shell body (it declares no own `Scaffold`/`TopAppBar`; the shell renders no top app bar on the Profil section per § "Bottom navigation is a top-level section shell"), and SHALL issue the profile read (`GET /api/v1/users/{self_id}`) so the section shows real identity / bio / counts. Because the read returns `isSelf = true`, the self profile shows no follow/block/report actions (per `mobile-profile` § "Self vs other-user rendering is driven by isSelf"). The Profil section continues to render NO composer FAB (per § "FAB is absent on the Notifikasi and Profil sections").
+
+#### Scenario: The Profil section renders the self profile, not the placeholder
+
+- **GIVEN** the shell composed with the Profil section selected and a MockEngine returning the self profile (`isSelf = true`)
+- **WHEN** the Profil section is rendered
+- **THEN** the live self `ProfileScreen` is shown (identity / bio / counts) AND the "Profil segera hadir." placeholder copy is NOT present AND no follow/block/report action is rendered
+
+#### Scenario: The Profil section still shows no composer FAB
+
+- **GIVEN** the shell composed with the Profil section selected
+- **WHEN** the section is rendered
+- **THEN** no composer `FloatingActionButton` is present (the FAB remains Home-section-only)
+
+### Requirement: The tab host hoists onOpenProfile, wired at the call site to a root-stack ProfileRoute push
+
+`HomeScreen` SHALL hoist an `onOpenProfile(authorUserId: String)` callback and pass it into BOTH the Nearby tab content (`NearbyTimelineScreen`) and the Global tab content (`GlobalTimelineScreen`) — exactly as it already hoists `onOpenPost` / `onOpenComposer`. The actual `ProfileRoute(authorUserId)` **root** back-stack append SHALL be wired at the `HomeScreen` call site (in `screens/routing/AppEntryProvider.kt`, where `appEntryProvider` maps `HomeRoute` → `HomeScreen(...)`), NOT inside `HomeScreen.kt` (which holds no back-stack reference, matching the existing `onOpenPost` wiring). The appended `ProfileRoute` SHALL carry only the `authorUserId` (the navigation resource key — never `latitude`/`longitude`, never a token) so the profile surface overlays the `NavigationBar`. `appEntryProvider` SHALL also map `ProfileRoute` → `ProfileScreen` (other-user mode). The Following tab (a deferred placeholder) and the Notifikasi / Profil sections wire no `onOpenProfile` for cards (they host no feed cards).
+
+#### Scenario: Invoking onOpenProfile in either feed tab pushes ProfileRoute onto the root stack
+
+- **GIVEN** the `HomeScreen` call site (`appEntryProvider`) composed over a test root back stack, or `HomeScreen` composed with a recording `onOpenProfile` callback, with the Nearby tab selected
+- **WHEN** a card's `onOpenProfile` is invoked with an `authorUserId` (and again with the Global tab selected)
+- **THEN** in both cases a `ProfileRoute` carrying that `authorUserId` (and no coordinate, no token) is appended to the **root** back stack, becoming the current entry over `HomeRoute`
+
+#### Scenario: HomeScreen hoists onOpenProfile; the append lives at the call site
+
+- **WHEN** inspecting `screens/home/HomeScreen.kt` and `screens/routing/AppEntryProvider.kt`
+- **THEN** `HomeScreen` takes `onOpenProfile` as a hoisted parameter and holds no back-stack reference, AND the `backStack.add(ProfileRoute(...))` append plus the `ProfileRoute` → `ProfileScreen` mapping live at the `appEntryProvider` call site (the same mechanism as `onOpenPost`)
+
