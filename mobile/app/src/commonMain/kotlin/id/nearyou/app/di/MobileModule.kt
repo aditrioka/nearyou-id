@@ -30,6 +30,9 @@ import id.nearyou.app.post.ReplyApiClient
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.ProactiveTokenRefreshTrigger
+import id.nearyou.app.search.SearchApiClient
+import id.nearyou.app.search.SearchFlow
+import id.nearyou.app.search.SearchRepository
 import id.nearyou.app.timeline.FollowingTimelineApiClient
 import id.nearyou.app.timeline.FollowingTimelineFlow
 import id.nearyou.app.timeline.FollowingTimelineRepository
@@ -215,6 +218,15 @@ val mobileModule =
         // inline like depends on exactly the like surface (no second like client/repository, no
         // duplicate status→LikeOutcome mapping).
         single<LikeFlow> { get<PostDetailRepository>() }
+
+        // mobile-search — the Premium-gated Cari graph (GET /api/v1/search). Reuses the shared HttpClient
+        // (Bearer attached by the Auth plugin; NO X-Session-Id — search is not session-soft-capped). The
+        // status→SearchOutcome mapping (403 gate / 429 rate-limit / 503 kill switch) lives in
+        // SearchRepository, bound behind the SearchFlow seam so a FakeSearchFlow drives the screen +
+        // ViewModel tests. diagnosticLog wired to the real coordinate-/query-safe sink (status/type only).
+        single { SearchApiClient(get()) }
+        single { SearchRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<SearchFlow> { get<SearchRepository>() }
     }
 
 /**

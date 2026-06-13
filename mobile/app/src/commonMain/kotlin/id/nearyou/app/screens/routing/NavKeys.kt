@@ -43,6 +43,17 @@ data object AgeGateRoute : NavKey
 data object PostCreationRoute : NavKey
 
 /**
+ * The Premium-gated search ("Cari") surface (the `mobile-search` capability), opened by the Home brand
+ * app bar's search action icon and pushed onto the ROOT back stack (above [HomeRoute], overlaying the
+ * section bar — the same mechanism [PostCreationRoute] / [PostDetailRoute] use). A **parameterless**
+ * marker: unlike [PostDetailRoute] the search query is entered IN the screen, so the route carries NO
+ * payload. Registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` so the back
+ * stack is saveable on iOS.
+ */
+@Serializable
+data object SearchRoute : NavKey
+
+/**
  * Analytics & Tracking Consent surface (the `mobile-analytics-consent` capability), reached after
  * age-gate signup success. A parameterless marker — the user identity lives in the persisted token,
  * never in the serialized back stack. The signup-success transition REPLACES `AgeGateRoute` with
