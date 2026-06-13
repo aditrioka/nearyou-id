@@ -29,17 +29,30 @@ dependencyResolutionManagement {
     }
 }
 
-// Mobile (Android + Compose Multiplatform) is conditionally excluded when building
-// backend-only artefacts from environments without an Android SDK — e.g. the
-// Cloud Run Docker builder image. Pass `-PincludeMobile=false` to skip the
-// `:mobile:app` project from settings evaluation; the Android plugin is then
-// never applied, so the JDK-only builder can run Gradle successfully. All other
-// builds (local dev, CI `assemble`, CI `test`) include mobile by default so the
-// KMP compile surface stays covered.
+// Mobile-only modules (Android + Compose Multiplatform / KMP) are conditionally
+// excluded when building backend-only artefacts from environments without an
+// Android SDK — e.g. the Cloud Run Docker builder image. Pass
+// `-PincludeMobile=false` to skip these projects from settings evaluation; the
+// Android plugin they apply is then never resolved, so the JDK-only builder can
+// run Gradle successfully. All other builds (local dev, CI `assemble`, CI `test`)
+// include mobile by default so the KMP compile surface stays covered.
+//
+// INVARIANT: every module gated here is also intentionally ABSENT from the
+// Dockerfile's hand-maintained COPY list, and vice-versa. A non-mobile-gated
+// module whose project directory is not COPY'd into the builder makes the Docker
+// build fail at settings evaluation ("Configuring project ... without an existing
+// directory"), breaking every staging/prod deploy while PR CI stays green
+// (PR #247 did exactly this). Guarded by dev/scripts/check-dockerfile-module-copies.sh.
 val includeMobile: String = (providers.gradleProperty("includeMobile").orNull ?: "true")
 if (includeMobile.toBoolean()) {
     include(":mobile:app")
     include(":shared:resources")
+    // KMP module (androidTarget + iOS only — no JVM target, applies the Android
+    // library plugin); consumed solely by :mobile:app (the client-side chat
+    // realtime *subscriber*). The backend publishes via :infra:supabase, so this
+    // is mobile-only and MUST stay gated — it cannot be configured in the
+    // JDK-only Docker builder.
+    include(":infra:supabase-realtime")
 }
 include(":backend:ktor")
 include(":shared:tmp")
@@ -53,5 +66,4 @@ include(":infra:otel")
 include(":infra:redis")
 include(":infra:remote-config")
 include(":infra:supabase")
-include(":infra:supabase-realtime")
 include(":lint:detekt-rules")
