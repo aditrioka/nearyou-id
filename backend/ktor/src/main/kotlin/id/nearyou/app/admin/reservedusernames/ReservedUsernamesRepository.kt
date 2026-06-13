@@ -131,6 +131,11 @@ class ReservedUsernamesRepository(
         dataSource.connection.use { conn ->
             conn.autoCommit = false
             try {
+                // Tentatively INSERT first so a duplicate (ON CONFLICT → 0 rows)
+                // returns AlreadyReserved BEFORE the rate-limit check — a no-op
+                // duplicate never consumes quota. The cap check then runs on the
+                // uncommitted tx; over-cap rolls the tentative insert back.
+                // (edit/remove lock-then-count instead — they have a row to lock.)
                 val inserted = insertRow(conn, username, reason)
                 if (!inserted) {
                     conn.rollback()

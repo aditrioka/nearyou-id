@@ -83,7 +83,10 @@ fun Route.adminReservedUsernames(
         val body = AdminCsrfGate.formParametersAfterValidation(call)
         val principal = call.principal<AdminPrincipal>() ?: return@post call.respond(HttpStatusCode.Forbidden)
         val csv = body[FIELD_CSV].orEmpty()
-        if (csv.toByteArray(Charsets.UTF_8).size > MAX_CSV_BYTES || csv.lineSequence().count() > MAX_CSV_ROWS) {
+        // Count non-blank lines so a textarea paste's trailing newline (which
+        // `lineSequence()` emits as one extra empty element) doesn't make a
+        // clean 1000-row paste read as 1001 and trip the guard.
+        if (csv.toByteArray(Charsets.UTF_8).size > MAX_CSV_BYTES || csv.lineSequence().count { it.isNotBlank() } > MAX_CSV_ROWS) {
             call.respond(HttpStatusCode.BadRequest, MSG_CSV_TOO_LARGE)
             return@post
         }
