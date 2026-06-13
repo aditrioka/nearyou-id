@@ -42,8 +42,9 @@ fun Route.adminIndex(
                 put("auditActionsToday", stats.auditActionsToday)
                 put("auditLastActionType", stats.auditLastActionType ?: EMPTY_SLOT)
                 // Operational widgets (admin-operational-dashboard). Sparkline
-                // bar heights are precomputed server-side (design D4: no
-                // template logic) as a % of the series max.
+                // bar heights are precomputed server-side (no template
+                // arithmetic; the template only binds each value) as a % of
+                // the series max.
                 put("postsLast24h", stats.postsLast24h)
                 put("postsSpark", spark(stats.postsByHour))
                 put("signupsLast24h", stats.signupsLast24h)
@@ -54,7 +55,7 @@ fun Route.adminIndex(
                 put("topCities", stats.topCities)
                 val dbSizeBytes = stats.dbSizeBytes
                 put("dbSizePresent", dbSizeBytes != null)
-                put("dbSize", dbSizeBytes?.let { humanBytes(it) } ?: EMPTY_SLOT)
+                if (dbSizeBytes != null) put("dbSize", humanBytes(dbSizeBytes))
             }
         call.respond(PebbleContent("index.peb", model = model))
     }
@@ -86,9 +87,9 @@ private const val SPARK_MIN_PCT = 8
 
 /**
  * Precompute sparkline bar heights (% of the box) from a per-hour series,
- * scaled to the series max. Server-side per design.md D4 (no template
- * arithmetic): the template just binds each height. All-zero series → all-zero
- * bars (empty sparkline).
+ * scaled to the series max. Server-side (no template arithmetic): the
+ * template just binds each height. All-zero series → all-zero bars (empty
+ * sparkline).
  */
 internal fun spark(series: List<Long>): List<Int> {
     val max = series.maxOrNull() ?: 0L
