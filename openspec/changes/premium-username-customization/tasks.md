@@ -54,7 +54,7 @@
 
 - [x] 7.1 Annotate the `UPDATE users SET username` write with `// @allow-username-write: customization` (invariant #7 — a comment-convention allowlist per `project.md:161`, NOT a Detekt-enforced rule; this is the first-ever username `UPDATE` writer, the slot the invariant reserves). Run `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` locally (CI runs both lint frameworks — pre-push gate).
 - [x] 7.2 Flip the DESIGN status notes to shipped: `docs/02` § Premium Username Customization, `docs/05` § Premium Customization Endpoint (line 293) — and reconcile `docs/02`'s "soft-flags" wording against the implemented REJECT-upfront behavior (align docs/02 to docs/06, OR file a `follow-up` issue if a wider doc rewrite is warranted; do not silently diverge).
-- [ ] 7.3 PR title/body kept current at each phase boundary (`feat(backend): premium username customization` at first feat commit); record any non-blocking review findings in the PR body.
+- [x] 7.3 PR title/body kept current at each phase boundary (`feat(backend): premium username customization` at first feat commit); record any non-blocking review findings in the PR body.
 
 ## 8. Apply-phase implementation map (codebase study notes — not checkbox work)
 
