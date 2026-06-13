@@ -4,6 +4,12 @@ import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentTooLongException
 import id.nearyou.app.post.ContentModeratedProfanityException
 import id.nearyou.app.post.LocationOutOfBoundsException
+import id.nearyou.app.post.PostEditConflictException
+import id.nearyou.app.post.PostEditNoChangesException
+import id.nearyou.app.post.PostEditNotFoundException
+import id.nearyou.app.post.PostEditPremiumRequiredException
+import id.nearyou.app.post.PostEditRateLimitedException
+import id.nearyou.app.post.PostEditWindowExpiredException
 import id.nearyou.app.post.PostRateLimitedException
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -91,6 +97,84 @@ internal fun Application.installAppStatusPages() {
                         mapOf(
                             "code" to "rate_limited",
                             "message" to "Too many posts today. Try again after the daily reset.",
+                        ),
+                ),
+            )
+        }
+        // --- premium-post-editing (PATCH /api/v1/posts/{post_id}) ---
+        // Non-Premium caller → 403. Checked BEFORE any post lookup (design D2), so it
+        // never reveals anything about the target post.
+        exception<PostEditPremiumRequiredException> { call, _ ->
+            call.respond(
+                HttpStatusCode.Forbidden,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "premium_required",
+                            "message" to "Fitur ini hanya untuk pengguna Premium.",
+                        ),
+                ),
+            )
+        }
+        // Per-user edit rate limit (design D8). Same 429 + Retry-After shape as the
+        // other limiters.
+        exception<PostEditRateLimitedException> { call, cause ->
+            call.response.header(HttpHeaders.RetryAfter, cause.retryAfterSeconds.toString())
+            call.respond(
+                HttpStatusCode.TooManyRequests,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "rate_limited",
+                            "message" to "Terlalu banyak perubahan. Coba lagi nanti.",
+                        ),
+                ),
+            )
+        }
+        // No-op edit — normalized new content == current (design D9).
+        exception<PostEditNoChangesException> { call, _ ->
+            call.respond(
+                HttpStatusCode.BadRequest,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "no_changes",
+                            "message" to "Tidak ada perubahan pada konten.",
+                        ),
+                ),
+            )
+        }
+        // Author's own post past the 30-minute window (design D7) — safe to reveal to
+        // the owner (distinct from the uniform 404 below).
+        exception<PostEditWindowExpiredException> { call, _ ->
+            call.respond(
+                HttpStatusCode.Conflict,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "edit_window_expired",
+                            "message" to "Waktu untuk mengedit postingan ini sudah habis.",
+                        ),
+                ),
+            )
+        }
+        // Uniform, non-leaky 404 for every other 0-row edit cause (non-author /
+        // non-existent / author's own soft-deleted) — does NOT confirm existence (D7).
+        exception<PostEditNotFoundException> { call, _ ->
+            call.respond(
+                HttpStatusCode.NotFound,
+                mapOf("error" to mapOf("code" to "post_not_found")),
+            )
+        }
+        // Persistent temporal collision after the single app-level retry (design D4).
+        exception<PostEditConflictException> { call, _ ->
+            call.respond(
+                HttpStatusCode.Conflict,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "edit_conflict",
+                            "message" to "Coba lagi sebentar.",
                         ),
                 ),
             )
