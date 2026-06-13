@@ -62,20 +62,24 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "data-icon=\"timer\""
             body shouldContain "data-icon=\"receipt_long\""
             body shouldContain "data-icon=\"toggle_on\""
-            // EXACTLY eight nav items, under their five group headings (the
-            // Konfigurasi group + Feature flags item shipped with
-            // admin-feature-flag-editor; the Lifecycle group + Privacy flips item
-            // shipped with admin-privacy-flip-monitor; the Block registry item
-            // under Anti-abuse shipped with admin-block-registry).
-            Regex("class=\"nitem").findAll(body).count() shouldBe 8
+            body shouldContain "data-icon=\"badge\""
+            // EXACTLY nine nav items, under their five group headings: the
+            // Konfigurasi group holds Feature flags (admin-feature-flag-editor)
+            // + Reserved usernames (admin-reserved-usernames-editor); the
+            // Lifecycle group + Privacy flips shipped with admin-privacy-flip-
+            // monitor; the Block registry item under Anti-abuse shipped with
+            // admin-block-registry.
+            Regex("class=\"nitem").findAll(body).count() shouldBe 9
             body shouldContain "Moderasi"
             body shouldContain "Anti-abuse &amp; keamanan"
             body shouldContain "Lifecycle"
             body shouldContain "Konfigurasi"
             body shouldContain "Sistem"
-            // Feature flags shipped (admin-feature-flag-editor); other Usulan
-            // items + board-annotation status dots are still absent.
+            // Feature flags (admin-feature-flag-editor) + Reserved usernames
+            // (admin-reserved-usernames-editor) shipped; other Usulan items +
+            // board-annotation status dots are still absent.
             body shouldContain "Feature flags"
+            body shouldContain "Reserved usernames"
             (body.contains("Post edit history")) shouldBe false
             (body.contains("Attestation review")) shouldBe false
             (body.contains("class=\"dot")) shouldBe false

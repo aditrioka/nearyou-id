@@ -34,50 +34,50 @@
 
 ## 5. Tests (kotest; `@Tags("database")` for route/repository integration; new `*RoutesTest` `autoClose(hikari())` + size 2 per the CI connection budget)
 
-- [ ] 5.1 List renders newest-first `(created_at DESC, username)` with the keyset cursor.
-- [ ] 5.2 `source=admin_added` filter excludes `seed_system` rows.
-- [ ] 5.3 Substring search matches `username` case-insensitively.
-- [ ] 5.4 Rendered `username`/`reason` are HTML-escaped (XSS payload in `reason` not executable).
-- [ ] 5.5 Unauthenticated `GET` → 302 `/admin/login`.
-- [ ] 5.6 Add valid → `admin_added` row + exactly one `reserved_username_added` audit row (`target_type='reserved_username'`, `target_id=username`).
-- [ ] 5.7 Add duplicate → in-band "already reserved", no mutation, no audit row.
-- [ ] 5.8 Add blank `reason` → 400, no write.
-- [ ] 5.9 Add normalizes to lowercase; out-of-charset `username` → 400, no write.
-- [ ] 5.10 Bulk add: new rows inserted + duplicate reported (2 added, 1 skipped-duplicate).
-- [ ] 5.11 Bulk add: malformed row reported as skipped-invalid (with line no.) + valid row still added; batch not aborted.
-- [ ] 5.12 Bulk add: 3 inserted usernames → exactly 3 `reserved_username_added` audit rows.
-- [ ] 5.13 Bulk add: >1000 data rows → 400, no insert.
-- [ ] 5.14 Bulk add: would-exceed-cap (count 98 + 5 added) → whole-bulk rejected, no rows written, no audit, count holds.
-- [ ] 5.15 Edit reason on `admin_added` → updated + `reserved_username_edited` audit (before/after reason).
-- [ ] 5.16 Edit reason on `seed_system` → app-layer blocked, no mutation, no audit row.
-- [ ] 5.17 Edit reason on nonexistent username → in-band "not found", no mutation.
-- [ ] 5.18 Edit blank `reason` → 400, no write.
-- [ ] 5.19 Remove `admin_added` → deleted + `reserved_username_removed` audit (before_state).
-- [ ] 5.20 Remove `seed_system` → app-layer blocked, no mutation, no audit row.
-- [ ] 5.21 DB trigger backstop: direct `DELETE` of a `seed_system` row raises (docs Pre-Launch "reserved_usernames trigger test").
-- [ ] 5.22 DB trigger backstop: direct `UPDATE ... SET source='admin_added'` on a `seed_system` row raises.
-- [ ] 5.23 Rate limit: 100th write in the trailing hour succeeds + advances the count.
-- [ ] 5.24 Rate limit: at-cap write → in-band "quota exceeded (100/hour)", no mutation, no audit row, count holds.
-- [ ] 5.25 Rate limit: count includes only the three reserved action types in-window (suspends + out-of-window rows excluded).
-- [ ] 5.26 Rate limit: per-admin (admin B unaffected by admin A at the cap).
-- [ ] 5.27 CSRF: write without a valid token → 403 + `admin_csrf_violation` audit row, no mutation.
-- [ ] 5.28 Role: read-only-role admin on a write route → 403, no mutation.
-- [ ] 5.29 Gate order: CSRF-missing + malformed target → rejected at the CSRF gate before parsing/role/mutation.
-- [ ] 5.30 Add: case-variant of an existing username (`Admin` when `admin` exists) → normalized → in-band "already reserved", no mutation, no audit row.
-- [ ] 5.31 `reason` length boundary: 64-char reason accepted; 65-char reason → 400 (single) / `skipped_invalid` (CSV), no DB-overflow 5xx.
-- [ ] 5.32 Bulk: a `username` repeated within one upload → inserted once + exactly one `reserved_username_added` audit row + the 2nd occurrence reported skipped-duplicate (no phantom audit row).
-- [ ] 5.33 Bulk: empty / header-only submission → empty (0/0/0) report, no 400/5xx, no insert.
-- [ ] 5.34 Edit: a successful reason edit refreshes `updated_at` (V3 `reserved_usernames_set_updated_at` trigger) — the third clause of the docs/08 Pre-Launch "reserved_usernames trigger test".
-- [ ] 5.35 Bulk route gating: `POST /admin/reserved-usernames/bulk` without a valid CSRF token → 403 + `admin_csrf_violation`; read-only role → 403 (the gate order is exercised on the bulk route, not only single-add).
+- [x] 5.1 List renders newest-first `(created_at DESC, username)` with the keyset cursor.
+- [x] 5.2 `source=admin_added` filter excludes `seed_system` rows.
+- [x] 5.3 Substring search matches `username` case-insensitively.
+- [x] 5.4 Rendered `username`/`reason` are HTML-escaped (XSS payload in `reason` not executable).
+- [x] 5.5 Unauthenticated `GET` → 302 `/admin/login`.
+- [x] 5.6 Add valid → `admin_added` row + exactly one `reserved_username_added` audit row (`target_type='reserved_username'`, `target_id=username`).
+- [x] 5.7 Add duplicate → in-band "already reserved", no mutation, no audit row.
+- [x] 5.8 Add blank `reason` → 400, no write.
+- [x] 5.9 Add normalizes to lowercase; out-of-charset `username` → 400, no write.
+- [x] 5.10 Bulk add: new rows inserted + duplicate reported (2 added, 1 skipped-duplicate).
+- [x] 5.11 Bulk add: malformed row reported as skipped-invalid (with line no.) + valid row still added; batch not aborted.
+- [x] 5.12 Bulk add: 3 inserted usernames → exactly 3 `reserved_username_added` audit rows.
+- [x] 5.13 Bulk add: >1000 data rows → 400, no insert.
+- [x] 5.14 Bulk add: would-exceed-cap (count 98 + 5 added) → whole-bulk rejected, no rows written, no audit, count holds.
+- [x] 5.15 Edit reason on `admin_added` → updated + `reserved_username_edited` audit (before/after reason).
+- [x] 5.16 Edit reason on `seed_system` → app-layer blocked, no mutation, no audit row.
+- [x] 5.17 Edit reason on nonexistent username → in-band "not found", no mutation.
+- [x] 5.18 Edit blank `reason` → 400, no write.
+- [x] 5.19 Remove `admin_added` → deleted + `reserved_username_removed` audit (before_state).
+- [x] 5.20 Remove `seed_system` → app-layer blocked, no mutation, no audit row.
+- [x] 5.21 DB trigger backstop: direct `DELETE` of a `seed_system` row raises (docs Pre-Launch "reserved_usernames trigger test").
+- [x] 5.22 DB trigger backstop: direct `UPDATE ... SET source='admin_added'` on a `seed_system` row raises.
+- [x] 5.23 Rate limit: 100th write in the trailing hour succeeds + advances the count.
+- [x] 5.24 Rate limit: at-cap write → in-band "quota exceeded (100/hour)", no mutation, no audit row, count holds.
+- [x] 5.25 Rate limit: count includes only the three reserved action types in-window (suspends + out-of-window rows excluded).
+- [x] 5.26 Rate limit: per-admin (admin B unaffected by admin A at the cap).
+- [x] 5.27 CSRF: write without a valid token → 403 + `admin_csrf_violation` audit row, no mutation.
+- [x] 5.28 Role: read-only-role admin on a write route → 403, no mutation.
+- [x] 5.29 Gate order: CSRF-missing + malformed target → rejected at the CSRF gate before parsing/role/mutation.
+- [x] 5.30 Add: case-variant of an existing username (`Admin` when `admin` exists) → normalized → in-band "already reserved", no mutation, no audit row.
+- [x] 5.31 `reason` length boundary: 64-char reason accepted; 65-char reason → 400 (single) / `skipped_invalid` (CSV), no DB-overflow 5xx.
+- [x] 5.32 Bulk: a `username` repeated within one upload → inserted once + exactly one `reserved_username_added` audit row + the 2nd occurrence reported skipped-duplicate (no phantom audit row).
+- [x] 5.33 Bulk: empty / header-only submission → empty (0/0/0) report, no 400/5xx, no insert.
+- [x] 5.34 Edit: a successful reason edit refreshes `updated_at` (V3 `reserved_usernames_set_updated_at` trigger) — the third clause of the docs/08 Pre-Launch "reserved_usernames trigger test".
+- [x] 5.35 Bulk route gating: `POST /admin/reserved-usernames/bulk` without a valid CSRF token → 403 + `admin_csrf_violation`; read-only role → 403 (the gate order is exercised on the bulk route, not only single-add).
 
 ## 6. Verification & Definition of Done
 
-- [ ] 6.1 Local gates green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (no `:mobile:app` touched → no mobile test lanes).
+- [x] 6.1 Local gates green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (no `:mobile:app` touched → no mobile test lanes).
 - [ ] 6.2 Admin-UI bring-up via `verify-loop` (admin surface = local Ktor boot on :8080 + admin bootstrap + TOTP): exercise add → list → edit → remove → seed-remove-blocked → over-cap; **screenshot the frame-21-conformant `/admin/reserved-usernames` page into the PR body** before archive (docs/11 §5 DoD #3 — UI-affecting change).
 - [ ] 6.3 Pre-archive staging branch deploy (`gh workflow run deploy-staging.yml --ref admin-reserved-usernames-editor`) + smoke `dev/scripts/smoke-admin-reserved-usernames-editor.sh` (unauthenticated `GET /admin/reserved-usernames` → 302 `/admin/login` baseline; authenticated add/list/edit/remove/seed-block if creds available); confirm `admin_app` write grants live on the smoke target (project.md § Staging deploy timing).
 
 ## 7. PR & docs hygiene
 
-- [ ] 7.1 At the first feat commit, retitle PR #294 `feat(admin): reserved-usernames editor …` + refresh the body to the in-progress shape (project.md hard rule).
-- [ ] 7.2 docs/11 § Pattern Registry: NO amendment expected (the rate limiter is a second instantiation of the registered audit-log-COUNT pattern, not a fork). If apply instead generalizes `DestructiveActionRateLimiter` into a shared parameterized component, amend docs/11 § Pattern Registry in the same PR.
-- [ ] 7.3 No README module-list change (no new module) and no docs/09 version entry (no library pin) — confirm both are untouched.
+- [x] 7.1 At the first feat commit, retitle PR #294 `feat(admin): reserved-usernames editor …` + refresh the body to the in-progress shape (project.md hard rule).
+- [x] 7.2 docs/11 § Pattern Registry: NO amendment expected (the rate limiter is a second instantiation of the registered audit-log-COUNT pattern, not a fork). If apply instead generalizes `DestructiveActionRateLimiter` into a shared parameterized component, amend docs/11 § Pattern Registry in the same PR.
+- [x] 7.3 No README module-list change (no new module) and no docs/09 version entry (no library pin) — confirm both are untouched.

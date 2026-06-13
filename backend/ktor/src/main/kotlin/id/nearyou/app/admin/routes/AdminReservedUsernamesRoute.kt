@@ -23,7 +23,6 @@ import io.ktor.server.application.call
 import io.ktor.server.auth.principal
 import io.ktor.server.pebble.PebbleContent
 import io.ktor.server.response.respond
-import io.ktor.server.response.respondRedirect
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -161,7 +160,10 @@ private suspend fun ApplicationCall.respondWriteSuccess(
     if (request.headers[HX_REQUEST] == "true") {
         respondList(repo, rateLimiter, layout, message = message)
     } else {
-        respondRedirect("/admin/reserved-usernames", permanent = false)
+        // PRG: 303 See Other → the browser GETs the list (mirrors
+        // adminReportResolution; a refresh then doesn't re-POST).
+        response.headers.append(HttpHeaders.Location, "/admin/reserved-usernames")
+        respond(HttpStatusCode.SeeOther)
     }
 }
 
