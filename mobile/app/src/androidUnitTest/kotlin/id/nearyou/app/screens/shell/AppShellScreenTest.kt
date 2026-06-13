@@ -202,7 +202,7 @@ class AppShellScreenTest {
             assertEquals(1, searches, "the Home app-bar search action invokes onOpenSearch")
             // Non-Home sections render no shell app bar → no search action.
             onNodeWithText(SECTION_PROFILE).performClick()
-            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PROFILE_PLACEHOLDER).fetchSemanticsNodes().isNotEmpty() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOWERS_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(SHELL_SEARCH_ACTION_TAG).assertDoesNotExist()
         }
     }

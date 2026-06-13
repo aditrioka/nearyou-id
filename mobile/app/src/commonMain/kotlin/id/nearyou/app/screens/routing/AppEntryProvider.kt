@@ -142,6 +142,7 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // ProfileRoute is only ever appended ATOP HomeRoute (the card identity tap), so popping it
             // leaves HomeRoute. targetUserId = the route's resource key; onBack pops the overlay.
             ProfileScreen(targetUserId = route.userId, onBack = { backStack.removeLastOrNull() })
+        }
         entry<SearchRoute> {
             // The Cari surface (mobile-search). `removeLastOrNull()` is size-safe: SearchRoute is only
             // ever appended ATOP HomeRoute (the app-bar search action). A result tap pushes
