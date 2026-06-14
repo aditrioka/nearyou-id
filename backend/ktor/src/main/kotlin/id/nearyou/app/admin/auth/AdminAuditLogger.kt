@@ -390,6 +390,96 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a reserved-username editor ADD (`admin-reserved-usernames-
+     * editor` capability): a single add or one inserted CSV bulk row. Joins the
+     * caller's [conn] so the audit INSERT commits atomically with the
+     * `reserved_usernames` INSERT in the repository transaction. `targetType =
+     * 'reserved_username'`, `targetId` = the username (the `target_id` TEXT
+     * column holds it directly); [afterState] records `{username, reason,
+     * source}`. The action carries no separate free-text justification, so
+     * `reason` is null (the reserved entry's own reason lives in [afterState]).
+     * `adminId` is the acting human admin, never the `system` sentinel.
+     */
+    fun logReservedUsernameAdded(
+        conn: Connection,
+        adminId: UUID,
+        username: String,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "reserved_username_added",
+            adminId = adminId,
+            targetType = "reserved_username",
+            targetId = username,
+            reason = null,
+            beforeState = null,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a reserved-username editor REASON EDIT (`admin-reserved-
+     * usernames-editor`). Joins the caller's [conn] so the audit INSERT commits
+     * atomically with the `reserved_usernames` UPDATE. [beforeState]/[afterState]
+     * record the old/new `{reason}`. `adminId` is the acting human admin.
+     */
+    fun logReservedUsernameEdited(
+        conn: Connection,
+        adminId: UUID,
+        username: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "reserved_username_edited",
+            adminId = adminId,
+            targetType = "reserved_username",
+            targetId = username,
+            reason = null,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a reserved-username editor REMOVE (`admin-reserved-usernames-
+     * editor`). Joins the caller's [conn] so the audit INSERT commits atomically
+     * with the `reserved_usernames` DELETE. [beforeState] records the removed
+     * `{username, reason, source}`. `adminId` is the acting human admin.
+     */
+    fun logReservedUsernameRemoved(
+        conn: Connection,
+        adminId: UUID,
+        username: String,
+        beforeState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "reserved_username_removed",
+            adminId = adminId,
+            targetType = "reserved_username",
+            targetId = username,
+            reason = null,
+            beforeState = beforeState,
+            afterState = null,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Own-connection audit write for the standalone login / logout / CSRF
      * events — opens, writes, and (via `use`) closes its own connection.
      * There is nothing to be atomic against on those paths, so each is a
