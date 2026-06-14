@@ -58,6 +58,6 @@
 
 ## 9. Docs, PR & lifecycle
 
-- [ ] 9.1 File a `follow-up` issue to refresh the docs/04 § Sentry KMP `expect object SentryProvider` snippet to the §2.5 interface form (non-behavioral reconciliation; not a gate on this PR).
-- [ ] 9.2 At the first feat commit, retitle the PR `feat(mobile): mobile crash reporting (Sentry KMP)` and refresh the body per the docs/11 phase-boundary rule.
-- [ ] 9.3 At archive: `openspec validate --specs mobile-crash-reporting --strict` green; move the change under `archive/`.
+- [x] 9.1 File a `follow-up` issue to refresh the docs/04 § Sentry KMP `expect object SentryProvider` snippet to the §2.5 interface form (non-behavioral reconciliation; not a gate on this PR).
+- [x] 9.2 At the first feat commit, retitle the PR `feat(mobile): mobile crash reporting (Sentry KMP)` and refresh the body per the docs/11 phase-boundary rule.
+- [x] 9.3 At archive: `openspec validate --specs mobile-crash-reporting --strict` green; move the change under `archive/`.
