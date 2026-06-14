@@ -107,6 +107,12 @@ navigation3 = "1.1.1"
 # target Crashlytics/Bugsnag and would contradict the locked Sentry-provider decision (docs/04
 # unified dashboard + docs/08 Open Decision #17). Vendor import fenced to :infra:sentry (invariant #16).
 sentry-kmp = "0.26.0"
+# mobile-sentry-crash-reporting — the sentry-cocoa Pod version REQUIRED by sentry-kotlin-multiplatform
+# 0.26.0 per the SDK's Cocoa SDK Version Compatibility table (verified 2026-06-14: 0.26.0 → 8.58.2).
+# Linked into the iOS ComposeApp framework via the :mobile:app cocoapods block (linkOnly=true — the KMP
+# SDK klib owns the bindings; the Pod provides only the framework binary at link time). A mismatch here
+# surfaces as an iOS `ld: framework 'Sentry' not found` / symbol error.
+sentryCocoaIos = "8.58.2"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }

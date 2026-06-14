@@ -68,6 +68,17 @@ kotlin {
         pod("FirebaseMessaging") {
             version = libs.versions.firebaseMessagingIos.get()
         }
+        // mobile-sentry-crash-reporting — the sentry-cocoa framework REQUIRED by the Sentry KMP SDK
+        // (the SDK is fenced in :infra:sentry, but its iOS klib links against sentry-cocoa, which the
+        // final ComposeApp framework must provide). linkOnly = true: the :infra:sentry klib owns the
+        // Kotlin bindings, so the Pod supplies ONLY the framework binary at link time (no duplicate
+        // cinterop). -fmodules is required by sentry-cocoa's modular headers. Version pinned to the SDK's
+        // Cocoa compatibility table (libs.versions.toml § sentryCocoaIos = 0.26.0 → 8.58.2).
+        pod("Sentry") {
+            version = libs.versions.sentryCocoaIos.get()
+            linkOnly = true
+            extraOpts += listOf("-compiler-option", "-fmodules")
+        }
     }
 
     sourceSets {
