@@ -45,7 +45,7 @@
 - [x] 7.3 commonTest: `setUser(sub)` on auth and `clearUser()` on logout; assert no username/email is attached.
 - [x] 7.4 androidUnitTest (Koin-graph, mirroring the existing `di/DiagnosticSinkWiringTest`): `DiagnosticSink` → breadcrumb wiring records a diagnostic via the real (non-no-op) binding.
 - [x] 7.5 Koin resolution test mirroring the existing `*KoinResolutionTest` files — `CrashReporter` resolves from the graph.
-- [ ] 7.6 **[BLOCKED by #311 — pre-existing FCM iOS compile break]** iosTest smoke (kotlin.test, NOT Kotest on K/N) for the iosMain actual; run `:mobile:app:iosSimulatorArm64Test`.
+- [x] 7.6 **[#311 fixed — iOS compile restored + sentry-cocoa pod linked]** iosTest smoke (kotlin.test, NOT Kotest on K/N) for the iosMain actual; run `:mobile:app:iosSimulatorArm64Test`.
 - [x] 7.7 **Extend** `lint/detekt-rules/.../VendorSdkLeakageScanTest.kt` (today it scans only `core/domain`,`core/data`,`backend/ktor` for supabase/lettuce/firebase — `mobile/app/src` and `io.sentry.` are NOT covered, so the current scan is inert for this change). Add a **Sentry-prefix-scoped** check that walks `mobile/app/src` (plus core/backend) for `import io.sentry.`; do NOT retroactively apply the server-side prefixes to `mobile/app/src` (legitimate mobile client SDK imports differ). Assert green — `:mobile:app` reaches Sentry only via the `:infra:sentry` interface.
 - [ ] 7.8 **[device/operator-verified — no explicit caller; native auto-capture needs a real DSN]** commonTest: `captureException(throwable, context)` forwards the throwable + release/environment tags to the reporter (capturing fake from 7.1), covering the Android/iOS crash-capture spec scenarios at the wiring level. Note: the native auto-capture + OS crash layer itself is exercised by the verify-loop device bring-up (8.4), not unit-testable (docs/11 §5.1 — explicit residue, with operator buy-in via this note).
 
@@ -53,7 +53,7 @@
 
 - [x] 8.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally.
 - [x] 8.2 `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` green.
-- [ ] 8.3 **[BLOCKED by #311]** `:mobile:app:iosSimulatorArm64Test` (or at minimum `linkDebugFrameworkIosSimulatorArm64`) green locally.
+- [x] 8.3 **[done — all Sentry tests PASS on the iOS simulator; 22 pre-existing unrelated screen-test failures → #318]** `:mobile:app:iosSimulatorArm64Test` (or at minimum `linkDebugFrameworkIosSimulatorArm64`) green locally.
 - [x] 8.4 **verify-loop bring-up** — observe startup init on a device surface (context-routed: cloud → `scripts/run_on_device.sh` / `device-run.yml`; local → emulator + iOS simulator); attach screenshot/console evidence to the PR body (docs/11 §5 DoD).
 
 ## 9. Docs, PR & lifecycle
