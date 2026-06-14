@@ -2,12 +2,12 @@
 
 - [ ] 1.1 Re-check the RevenueCat KMP SDK pin freshness at implementation kickoff (project.md § Pre-implementation library re-check): confirm the latest stable `purchases-kmp` (`com.revenuecat.purchases:purchases-kmp-core`) version on Maven Central; pin it in `gradle/libs.versions.toml` (version + library alias) per docs/11 §1.
 - [ ] 1.2 Create the `:infra:revenuecat` KMP module (`infra/revenuecat/build.gradle.kts`) with `commonMain` + `androidMain` + `iosMain` source sets, mirroring `:infra:supabase-realtime`'s module shape; declare the `purchases-kmp` dependency `implementation`-scoped (NOT `api`) so it never reaches the consumer's compile classpath.
-- [ ] 1.3 Register the module in `settings.gradle.kts` (`include(":infra:revenuecat")`).
+- [x] 1.3 Register the module in `settings.gradle.kts` (`include(":infra:revenuecat")`).
 - [ ] 1.4 Add the module's one-line description to `dev/module-descriptions.txt` and run `dev/scripts/sync-readme.sh --write`; verify the root README module list updated.
 
 ## 2. PurchaseController seam (vendor-SDK-free interface + RevenueCat binding)
 
-- [ ] 2.1 In `:infra:revenuecat` commonMain, define the vendor-SDK-free `PurchaseController` interface + plain-Kotlin domain models (`PaywallPackage` with period + store-localized price + raw amount/currency for derivation; `OfferingsResult` = Loaded(packages) / Unavailable; `PurchaseResult` = Success(entitlementActive) / Cancelled / Error; an entitlement check) — no RevenueCat SDK type in any signature.
+- [x] 2.1 In `:infra:revenuecat` commonMain, define the vendor-SDK-free `PurchaseController` interface + plain-Kotlin domain models (`PaywallPackage` with period + store-localized price + raw amount/currency for derivation; `OfferingsResult` = Loaded(packages) / Unavailable; `PurchaseResult` = Success(entitlementActive) / Cancelled / Error; an entitlement check) — no RevenueCat SDK type in any signature.
 - [ ] 2.2 Implement the RevenueCat-backed `PurchaseController` in `:infra:revenuecat` commonMain/androidMain/iosMain over `purchases-kmp-core` (configure, `getOfferings`, `purchase(package)`, `CustomerInfo` entitlement read), mapping vendor types → the domain models. Map "no offering / not configured / fetch failure" → `OfferingsResult.Unavailable` (the fail-soft seam, design D6).
 - [ ] 2.3 Provide platform SDK init via per-platform Koin modules (Android needs the `Application` context; iOS the configuration) — the §2.5 platform-binding pattern, NOT an `expect class`.
 - [ ] 2.4 Source the RevenueCat **publishable client key** per-flavor via Android `buildConfigField` / iOS xcconfig (mirroring `SUPABASE_ANON_KEY` / `GOOGLE_SERVER_CLIENT_ID`; a `REPLACE_WITH_*` placeholder until provisioned → maps to `Unavailable`), overridable via a `-PstagingRevenueCatPublicKey`-style project property. Do NOT use `secretKey()` / a `staging-revenuecat-*` GCP Secret Manager slot — that is backend-only and is #291's `revenuecat-webhook-secret`, a different secret. Configure RevenueCat `appUserID` = the authenticated `users.id` UUID so #291's webhook user-resolution matches the client purchase.
@@ -20,8 +20,8 @@
 
 ## 4. Route + navigation
 
-- [ ] 4.1 Add the `PaywallEntry` enum + the `@Serializable data class PaywallRoute(val entry: PaywallEntry)` to `screens/routing/NavKeys.kt` (no PII payload).
-- [ ] 4.2 Register `PaywallRoute` in `screens/routing/AppNavSerialization.kt`'s polymorphic `SerializersModule` via an explicit `subclass(PaywallRoute::class, PaywallRoute.serializer())` (iOS-saveable back stack; keep the load-bearing explicit form).
+- [x] 4.1 Add the `PaywallEntry` enum + the `@Serializable data class PaywallRoute(val entry: PaywallEntry)` to `screens/routing/NavKeys.kt` (no PII payload).
+- [x] 4.2 Register `PaywallRoute` in `screens/routing/AppNavSerialization.kt`'s polymorphic `SerializersModule` via an explicit `subclass(PaywallRoute::class, PaywallRoute.serializer())` (iOS-saveable back stack; keep the load-bearing explicit form).
 - [ ] 4.3 Map `PaywallRoute` → `PaywallScreen` in `screens/routing/AppEntryProvider.kt`, wiring `onClose` to pop and `onPurchaseComplete` to pop (natural return; `PendingReturnDestination` NOT reused).
 
 ## 5. ViewModel, UiState, price derivation

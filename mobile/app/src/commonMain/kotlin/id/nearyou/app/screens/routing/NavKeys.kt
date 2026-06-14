@@ -186,3 +186,34 @@ data class ChatThreadRoute(
     val partnerUsername: String = "",
     val partnerDisplayName: String = "",
 ) : NavKey
+
+/**
+ * The gated surface that opened the paywall — drives the contextual hero headline on the
+ * [id.nearyou.app.screens.paywall.PaywallScreen]. A non-PII enum carried by [PaywallRoute] (safe to
+ * serialize into the iOS-persisted back stack). This change wires [LIKE_CAP] (the daily-cap upsell
+ * dialog) and [SEARCH_GATE] (the search `403` Premium gate); [USERNAME] is a reserved-but-unwired
+ * forward-compat value for the in-flight premium-username-customization (#301), which adds its own
+ * entry point — this change does NOT navigate to the paywall from a username surface.
+ */
+@Serializable
+enum class PaywallEntry {
+    LIKE_CAP,
+    SEARCH_GATE,
+    USERNAME,
+}
+
+/**
+ * Premium paywall surface (the `mobile-paywall` capability, mockup frame 17), opened from the
+ * daily-cap upsell dialog and the search Premium gate. Pushed onto the ROOT back stack (overlaying the
+ * section bar — the same mechanism [PostDetailRoute] / [SearchRoute] use). A payload-carrying
+ * `@Serializable data class`, so it MUST be registered in the `navSavedStateConfiguration` polymorphic
+ * `SerializersModule` for the iOS-saveable back stack.
+ *
+ * Carries ONLY the non-PII [entry] enum (which gated surface opened it) — NEVER a token, user id, or
+ * coordinate (the back stack persists to disk on iOS; the same PII discipline [PostDetailRoute] /
+ * [AgeGateRoute] follow).
+ */
+@Serializable
+data class PaywallRoute(
+    val entry: PaywallEntry,
+) : NavKey
