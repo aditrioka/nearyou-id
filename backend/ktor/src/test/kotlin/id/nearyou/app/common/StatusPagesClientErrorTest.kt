@@ -1,5 +1,8 @@
 package id.nearyou.app.common
 
+import id.nearyou.app.post.PostEditConflictException
+import id.nearyou.app.post.PostEditNoChangesException
+import id.nearyou.app.post.PostEditRateLimitedException
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -9,6 +12,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
@@ -51,6 +55,12 @@ class StatusPagesClientErrorTest : StringSpec({
                 post("/probe/receive") {
                     call.respond(mapOf("value" to call.receive<ProbeDto>().value))
                 }
+                // premium-post-editing wire-mapping probes — the service-layer tests
+                // assert the exception types; these pin the HTTP envelope (code/status/
+                // Retry-After) for the new edit failure modes.
+                get("/probe/edit-conflict") { throw PostEditConflictException() }
+                get("/probe/edit-rate-limited") { throw PostEditRateLimitedException(60) }
+                get("/probe/edit-no-changes") { throw PostEditNoChangesException() }
             }
         }
     }
@@ -92,6 +102,36 @@ class StatusPagesClientErrorTest : StringSpec({
             body shouldContain "internal_error"
             // docs/11 §3.3 — the cause message must never reach the client.
             body shouldNotContain "synthetic server fault"
+        }
+    }
+
+    "PostEditConflictException maps to 409 edit_conflict" {
+        testApplication {
+            mountProbes()
+            val response = client.get("/probe/edit-conflict")
+            response.status shouldBe HttpStatusCode.Conflict
+            val body = response.bodyAsText()
+            body shouldContain "edit_conflict"
+            body shouldContain "Coba lagi sebentar."
+        }
+    }
+
+    "PostEditRateLimitedException maps to 429 with a Retry-After header" {
+        testApplication {
+            mountProbes()
+            val response = client.get("/probe/edit-rate-limited")
+            response.status shouldBe HttpStatusCode.TooManyRequests
+            response.headers[HttpHeaders.RetryAfter] shouldBe "60"
+            response.bodyAsText() shouldContain "rate_limited"
+        }
+    }
+
+    "PostEditNoChangesException maps to 400 no_changes" {
+        testApplication {
+            mountProbes()
+            val response = client.get("/probe/edit-no-changes")
+            response.status shouldBe HttpStatusCode.BadRequest
+            response.bodyAsText() shouldContain "no_changes"
         }
     }
 })

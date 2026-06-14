@@ -24,11 +24,12 @@ import kotlin.coroutines.coroutineContext
  * Premium post-editing orchestration (the `premium-post-editing` capability;
  * `docs/05` § Post Edit History + § Transactional Atomicity, verbatim).
  *
- * Mirrors [CreatePostService]: a single pooled connection on the bounded
- * [dbDispatcher] (`docs/11` §3.2), `autoCommit=false` / commit / rollback, the
- * `TextModerator.moderate` → `Verdict` gate (Reject → 400, Flag → in-tx
- * `moderation_queue` upsert) and the post-commit fire-and-forget [Layer3Moderator]
- * dispatch with OTel context propagation.
+ * Mirrors [CreatePostService]: the `TextModerator.moderate` → `Verdict` gate runs
+ * BEFORE the connection is opened (so a pooled connection / `FOR UPDATE` row lock is
+ * never held across the moderator's Redis/Remote-Config I/O — `docs/11` §3.2), then a
+ * single pooled connection on the bounded [dbDispatcher] does `autoCommit=false` /
+ * commit / rollback, and the post-commit fire-and-forget [Layer3Moderator] dispatch
+ * propagates OTel context.
  *
  * Gate order ([edit]; design D2 — all BEFORE any post lookup so a Free / over-limit
  * caller learns NOTHING about the target post):
@@ -36,15 +37,19 @@ import kotlin.coroutines.coroutineContext
  *  2. Per-user edit rate limit (design D8; distinct from the daily-post-cap limiter)
  *     → 429 + `Retry-After`.
  *  3. [ContentLengthGuard] (empty / over-length) → 400.
- *  4. The single-connection `FOR UPDATE` transaction.
+ *  4. Re-moderation of the new content (design D1) → Reject 400; Allow/Flag carry into
+ *     the transaction. Runs OUTSIDE any connection (mirrors [CreatePostService]).
+ *  5. The single-connection `FOR UPDATE` transaction.
  *
  * Inside the transaction (design D4 / D7 / D9 / D1):
  *  - select-for-edit `FOR UPDATE` (window + author + not-deleted).
  *  - 0 rows → author-scoped disambiguation (D7): author's own non-deleted row past
  *    the window → 409 `edit_window_expired`; else → uniform 404.
- *  - locked row: normalized new content == current → 400 `no_changes` (D9, before
- *    moderation, no snapshot/update); else moderate (D1): Reject → 400, Flag →
- *    in-tx queue row; insert the before-edit snapshot; update content; commit.
+ *  - locked row: normalized new content == current → 400 `no_changes` (D9; no
+ *    snapshot/update). Identical-to-live content is never a Reject verdict, so the
+ *    no-op path is reached for genuine re-saves even though moderation ran first.
+ *  - else: insert the before-edit snapshot; update content; on a Flag verdict, write
+ *    the in-tx `moderation_queue` row; commit.
  *  - single app-level retry on the `post_edits_temporal_idx` `unique_violation`
  *    (sub-µs collision); persistent collision → 409 "Coba lagi sebentar." (D4).
  */
@@ -71,8 +76,8 @@ class PostEditService(
      *  - [PostEditPremiumRequiredException] → 403 `premium_required`
      *  - [PostEditRateLimitedException] → 429 + `Retry-After`
      *  - [ContentEmptyException] / [ContentTooLongException] → 400
-     *  - [PostEditNoChangesException] → 400 `no_changes`
      *  - [ContentModeratedProfanityException] → 400 `content_moderated_profanity`
+     *  - [PostEditNoChangesException] → 400 `no_changes`
      *  - [PostEditWindowExpiredException] → 409 `edit_window_expired`
      *  - [PostEditNotFoundException] → 404 (uniform — non-leaky per D7)
      *  - [PostEditConflictException] → 409 "Coba lagi sebentar."
@@ -105,12 +110,23 @@ class PostEditService(
         //    the transaction so an empty/over-length edit consumes no DB/lock budget.
         val newContent = contentGuard.enforce(CONTENT_KEY, rawContent)
 
-        // 4. Race-safe transaction with a single app-level retry on the temporal
+        // 4. Re-moderate the edited content (D1) — BEFORE opening the connection, so a
+        //    pooled connection / FOR UPDATE row lock is NEVER held across the
+        //    moderator's Redis/Remote-Config I/O (docs/11 §3.2; mirrors
+        //    CreatePostService, which moderates outside its INSERT transaction). Reject
+        //    → 400; Allow/Flag carry into the transaction (Flag writes the in-tx
+        //    moderation_queue row). Runs on the bounded dispatcher (cold-cache I/O).
+        val verdict = withContext(dbDispatcher) { textModerator.moderate(newContent) }
+        if (verdict is Verdict.Reject) {
+            throw ContentModeratedProfanityException(verdict.matchedKeywords)
+        }
+
+        // 5. Race-safe transaction with a single app-level retry on the temporal
         //    unique_violation edge (D4).
         var attempt = 0
         while (true) {
             try {
-                return runEditTransaction(authorId, postId, newContent)
+                return runEditTransaction(authorId, postId, newContent, verdict)
             } catch (ex: SQLException) {
                 // post_edits_temporal_idx sub-µs collision (clock_timestamp() tie under
                 // FOR UPDATE serialization). Retry ONCE; persistent collision → 409.
@@ -132,20 +148,20 @@ class PostEditService(
     }
 
     /**
-     * One attempt of the edit transaction. Throws [PostEditNoChangesException] /
-     * [ContentModeratedProfanityException] / [PostEditWindowExpiredException] /
-     * [PostEditNotFoundException] for the terminal failure modes, or rethrows a
-     * temporal [SQLException] for the caller's single retry. On success, fires the
-     * post-commit Layer-3 dispatch and returns the edited post.
+     * One attempt of the edit transaction. The new content has already been moderated
+     * (see [edit] step 4) — [verdict] is Allow or Flag here (Reject short-circuits
+     * before the connection is opened). Throws [PostEditNoChangesException] /
+     * [PostEditWindowExpiredException] / [PostEditNotFoundException] for the terminal
+     * failure modes, or rethrows a temporal [SQLException] for the caller's single
+     * retry. On success, fires the post-commit Layer-3 dispatch and returns the edited
+     * post.
      */
     private suspend fun runEditTransaction(
         authorId: UUID,
         postId: UUID,
         newContent: String,
+        verdict: Verdict,
     ): EditedPost {
-        // Moderation verdict computed INSIDE the locked section (after the no-op check)
-        // but referenced after commit for the Layer-3 dispatch decision.
-        var moderationVerdict: Verdict = Verdict.Allow
         withContext(dbDispatcher) {
             dataSource.connection.use { conn ->
                 conn.autoCommit = false
@@ -164,22 +180,16 @@ class PostEditService(
                     }
 
                     // No-op edit (D9): normalized new == current (from the locked row).
-                    // Checked BEFORE moderation; no snapshot, no update.
+                    // No snapshot, no update. Moderation already ran before the
+                    // transaction (step 4); identical-to-live content is never Reject,
+                    // so this path is reached for genuine re-saves.
                     if (newContent == locked.content) {
                         throw PostEditNoChangesException()
                     }
 
-                    // Re-moderate the edited content (D1) — closes the create-clean-then-
-                    // edit-toxic laundering path. Reject → 400; Flag → in-tx queue row;
-                    // Allow → proceed. The UPDATE below keeps this preceding moderate()
-                    // call so ContentWriteRequiresModerationRule is satisfied.
-                    val verdict = textModerator.moderate(newContent)
-                    if (verdict is Verdict.Reject) {
-                        throw ContentModeratedProfanityException(verdict.matchedKeywords)
-                    }
-                    moderationVerdict = verdict
-
-                    // Snapshot the BEFORE-edit content + location, then update.
+                    // Snapshot the BEFORE-edit content + location, then update. The
+                    // edited content was moderated before the transaction (D1); a Flag
+                    // verdict records the in-tx moderation_queue row here.
                     posts.insertEditSnapshot(conn, postId = postId)
                     posts.updateContent(conn, postId = postId, newContent = newContent)
                     if (verdict is Verdict.Flag) {
@@ -201,9 +211,10 @@ class PostEditService(
 
         // Layer 3 (Perspective / OpenAI Moderation) async dispatch — fire-and-forget,
         // AFTER the UPDATE/commit, mirroring CreatePostService. Lives here so a
-        // rolled-back edit (including the Reject short-circuit, which throws before
-        // this point) never produces a Layer 3 moderation row. Passing
-        // `coroutineContext` propagates the OTel trace context (design D1 / 3.3).
+        // rolled-back edit (including the pre-transaction Reject short-circuit) never
+        // produces a Layer 3 moderation row. Runs for Allow AND Flag (the create-path
+        // posture). Passing `coroutineContext` propagates the OTel trace context
+        // (design D1 / 3.3).
         @Suppress("NAME_SHADOWING")
         val layer3DispatcherScope = layer3DispatcherScope
 
@@ -214,10 +225,6 @@ class PostEditService(
                 layer3Moderator.moderate(TargetType.POST, postId, newContent)
             }
         }
-        // moderationVerdict is recorded for parity with the create path's in-tx Flag
-        // handling; the post-commit dispatch is unconditional on a committed row
-        // (matches CreatePostService — Layer 3 runs for Allow AND Flag).
-        check(moderationVerdict !is Verdict.Reject) { "Reject must short-circuit before commit" }
 
         return EditedPost(id = postId, content = newContent, updatedAt = clock())
     }
@@ -226,7 +233,8 @@ class PostEditService(
      * Resolves the per-user edit cap (design D8) from Remote Config, mirroring
      * [id.nearyou.app.engagement.ReplyService] cap resolution: any failure mode
      * (unset / null / non-positive / oversized / SDK error) coerces to the
-     * [PostEditRateLimiter.DEFAULT_CAP] ops baseline.
+     * [PostEditRateLimiter.DEFAULT_CAP] ops baseline, with the same structured
+     * `remote_config_*` audit logs for ops parity.
      */
     private fun resolveEditCap(userId: UUID): Int {
         val raw =
@@ -242,8 +250,20 @@ class PostEditService(
                 return PostEditRateLimiter.DEFAULT_CAP
             }
         if (raw == null || raw <= 0L || raw > MAX_OVERRIDE_CAP) {
+            if (raw != null) {
+                log.warn(
+                    "event=remote_config_invalid key={} value={} fallback=default",
+                    POST_EDIT_CAP_OVERRIDE_KEY,
+                    raw,
+                )
+            }
             return PostEditRateLimiter.DEFAULT_CAP
         }
+        log.info(
+            "event=remote_config_override_applied key={} value={}",
+            POST_EDIT_CAP_OVERRIDE_KEY,
+            raw,
+        )
         return raw.toInt()
     }
 

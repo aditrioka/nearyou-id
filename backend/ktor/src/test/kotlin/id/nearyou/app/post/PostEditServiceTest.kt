@@ -239,7 +239,6 @@ class PostEditServiceTest : StringSpec({
             firstSnapshotContent(postId) shouldBe "before edit"
             val after = postState(postId)
             after.content shouldBe "after edit"
-            after.updatedAt shouldBe after.updatedAt // non-null assertion below
             (after.updatedAt != null) shouldBe true
             // Location is unchanged by the content edit.
             after.actualLocationWkt shouldBe before.actualLocationWkt

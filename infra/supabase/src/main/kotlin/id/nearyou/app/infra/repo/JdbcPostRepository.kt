@@ -157,7 +157,7 @@ class JdbcPostRepository : PostRepository {
     }
 
     // PostEditService runs TextModerator.moderate() before invoking this sink
-    // (PostEditModerationCallOrderTest pins the call order) — same service-layer
+    // (PostEditLayer3DispatchCallSiteTest pins the call order) — same service-layer
     // moderation contract as the create path.
     @AllowContentWriteWithoutModeration("service_layer_moderated")
     override fun updateContent(
