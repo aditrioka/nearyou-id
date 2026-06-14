@@ -74,7 +74,7 @@
 
 - [x] 6.1 Local gates green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (no `:mobile:app` touched → no mobile test lanes).
 - [x] 6.2 Admin-UI bring-up via `verify-loop` (admin surface = local Ktor boot on :8080 + admin bootstrap + TOTP): exercise add → list → edit → remove → seed-remove-blocked → over-cap; **screenshot the frame-21-conformant `/admin/reserved-usernames` page into the PR body** before archive (docs/11 §5 DoD #3 — UI-affecting change).
-- [ ] 6.3 Pre-archive staging branch deploy (`gh workflow run deploy-staging.yml --ref admin-reserved-usernames-editor`) + smoke `dev/scripts/smoke-admin-reserved-usernames-editor.sh` (unauthenticated `GET /admin/reserved-usernames` → 302 `/admin/login` baseline; authenticated add/list/edit/remove/seed-block if creds available); confirm `admin_app` write grants live on the smoke target (project.md § Staging deploy timing).
+- [x] 6.3 Pre-archive staging branch deploy (`gh workflow run deploy-staging.yml --ref admin-reserved-usernames-editor`) + smoke `dev/scripts/smoke-admin-reserved-usernames-editor.sh` (unauthenticated `GET /admin/reserved-usernames` → 302 `/admin/login` baseline; authenticated add/list/edit/remove/seed-block if creds available); confirm `admin_app` write grants live on the smoke target (project.md § Staging deploy timing).
 
 ## 7. PR & docs hygiene
 

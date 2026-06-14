@@ -21,7 +21,12 @@ HOST="${ADMIN_HOST:-https://api-staging.nearyou.id}"
 URL="$HOST/admin/reserved-usernames"
 
 echo "[smoke] GET $URL (expect 302 -> /admin/login)"
-read -r code redirect < <(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 20 "$URL")
+# Single curl emits "<code> <redirect_url>" with no trailing newline; capture via
+# parameter expansion (NOT `read`, which returns non-zero on a newline-less line
+# and would trip `set -e` before the assertion).
+out=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 20 "$URL")
+code=${out%% *}
+redirect=${out#* }
 echo "[smoke] status=$code redirect=$redirect"
 
 if [ "$code" = "302" ] && printf '%s' "$redirect" | grep -q '/admin/login'; then
