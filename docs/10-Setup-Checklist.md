@@ -163,21 +163,27 @@ End-to-end verified 2026-04-26: Secret Manager credential → OAuth token via SA
 
 ### 3.4 RevenueCat
 
-> **DEFERRED 2026-05-09 (E20 audit)** until Phase 4 IAP webhook backend implementation actively starts — no IAP code in flight, no subscription products to validate, no webhook to test; signing up now = idle account hygiene burden + premature optimization. **Trigger to revisit**: first OpenSpec change for the IAP/subscription module proposed. Items below preserved as future work.
+> **STAGING PROVISIONED 2026-06-15** (deferral lifted — trigger fired: #291 `subscription-billing-webhook` merged + #309 `mobile-paywall-screen` in flight). Account + project + **Test Store** product catalog built entirely via the **v2 REST API** (`curl`, not the dashboard UI; the quick-start wizard was skipped — it pushed a Lifetime product we don't sell). Production setup still pending (needs real App Store / Play Store apps → Apple/Google dev accounts).
 
-- [ ] Signup - https://www.revenuecat.com
-- [ ] Create project "NearYouID"
-- [ ] Add Google Play app (butuh Play Console setup dulu)
-- [ ] Add App Store app (butuh Apple Dev + App Store Connect dulu)
-- [ ] Setup sandbox environment (gratis, isolated dari production)
-- [ ] Generate webhook bearer secret (for production) + optional HMAC signing key
-- [ ] Note: products (weekly/monthly/yearly) di-configure nanti di Phase 4, setelah pricing verified
+- [x] Signup - https://www.revenuecat.com — done 2026-06-15 via Google OAuth (`nearyouid.founder@gmail.com`)
+- [x] Create project "NearYouID" — done; project id `9d323c42`
+- [ ] Add Google Play app (butuh Play Console setup dulu) — deferred to prod
+- [ ] Add App Store app (butuh Apple Dev + App Store Connect dulu) — deferred to prod
+- [x] Setup sandbox environment — **Test Store** auto-provisioned (app id `app89fcef0707`, type `test_store`); no Apple/Google account needed for dev/staging purchase testing
+- [x] Products + entitlement + offering (via v2 API):
+  - entitlement `premium` (id `entlcce792ba27`) — 3 products attached
+  - offering `default` (id `ofrngcfc30f15d2`, current) with packages `$rc_weekly` / `$rc_monthly` / `$rc_annual`
+  - 3 subscription products: `nearyou_premium_weekly` (P1W, `prod3298016d4e`) / `_monthly` (P1M, `prod6d6a34bb40`) / `_yearly` (P1Y, `prod89905b4ab5`)
+  - ⚠️ Test Store product **prices** NOT settable via v2 API (PATCH /products → 405; create has no price field) — dashboard-only or default. Non-blocking for test purchases; revisit when #309 SDK wiring is testable.
+- [x] Webhook bearer secret + dashboard registration — **DONE 2026-06-15**. `staging-revenuecat-webhook-secret` v1 stored + Cloud Run SA granted + wired `REVENUECAT_WEBHOOK_SECRET` into `deploy-staging.yml` (PR #320, merged). RevenueCat dashboard webhook `nearyou-staging` registered → `/internal/revenuecat-webhook` (Bearer auth). **Verified end-to-end**: correct Bearer → 400 (auth passed, empty body rejected), wrong Bearer → 401. HMAC slot not minted (optional). Prod equivalents pending.
+- [x] Note: products (weekly/monthly/yearly) configured 2026-06-15. Pricing comes from RevenueCat **Offerings at runtime**, not docs/01 (those remain "target, verify Pre-Phase 1").
 
 **Notes**:
-- RevenueCat account email: _________________
-- Public API key (Android): _________________
-- Public API key (iOS): _________________
-- Webhook bearer secret location: _________________
+- RevenueCat account email: `nearyouid.founder@gmail.com`
+- Project id: `9d323c42` · Test Store app id: `app89fcef0707`
+- Test Store SDK (public) key `test_…`: publishable (mobile-side, not a server secret). **Stored in Secret Manager `staging-revenuecat-test-api-key` v1 (2026-06-15; no Cloud Run grant — mobile-side, not backend-consumed).** Wire into mobile `:infra:revenuecat` when #309 lands.
+- Setup-time secret API key (v2) label `nearyou-config-setup` (Project configuration + Apps read/write): used once for API provisioning above. Delete/rotate after use; regenerate when prod config is needed.
+- Webhook (#291): backend route `POST /internal/revenuecat-webhook` — **wired end-to-end on staging 2026-06-15** (secret slot v1 + Cloud Run SA + deploy PR #320 merged + dashboard webhook `nearyou-staging` registered + verified). HMAC (`X-RevenueCat-Signature`) intentionally not wired (optional; Bearer-only accepted). Prod pending.
 
 ### 3.5 Cloudflare (additional services beyond DNS)
 
@@ -324,8 +330,9 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`. **Sing
 - [~] `staging-supabase-service-role-key` v1 — wired as `SUPABASE_SERVICE_ROLE_KEY`
 - [~] `staging-redis-url` v1 — Upstash Redis (`rediss://` scheme), wired as `REDIS_URL`; consumed by Lettuce in `:infra:redis`
 
-- [ ] `prod-revenuecat-webhook-bearer` dan `staging-revenuecat-webhook-bearer`
-- [ ] `prod-revenuecat-webhook-hmac` dan `staging-revenuecat-webhook-hmac` (opsional)
+- [~] `staging-revenuecat-webhook-secret` **v1 DONE 2026-06-15** (Secret Manager REST; Cloud Run SA granted `secretAccessor`; wired `REVENUECAT_WEBHOOK_SECRET` via PR #320 merged). `prod-revenuecat-webhook-secret` pending. Bearer shared-secret; **slot name per `RevenueCatWebhookRoutes.kt` (`secretKey(env, "revenuecat-webhook-secret")`)** — earlier `-bearer` label was wrong; handler logs `bearer_secret_unset` + 401s until set.
+- [ ] `prod-revenuecat-webhook-hmac-secret` dan `staging-revenuecat-webhook-hmac-secret` (opsional; HMAC-SHA256 `X-RevenueCat-Signature`, slot `revenuecat-webhook-hmac-secret`)
+- [x] `staging-revenuecat-test-api-key` v1 — Test Store SDK public key (`test_…`, mobile-side, publishable — not a server secret). Done 2026-06-15 via Secret Manager REST API; **no Cloud Run grant** (consumed by the mobile build, not backend). Prod uses real-store SDK keys instead.
 - [~] `prod-firebase-admin-sa` dan `staging-firebase-admin-sa` (JSON file) — staging done 2026-04-26 (v1, granted) + wired as `FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest` 2026-04-29 (PR #60 `fcm-push-dispatch`); consumers `:infra:fcm` + `:infra:remote-config` (latter 2026-05-07, PR #70 `content-moderation-keyword-lists`); prod pending
 - [~] `prod-openai-api-key` dan `staging-openai-api-key` — OpenAI Platform API key untuk OpenAI Moderation API (`omni-moderation-latest`, Layer 3 toxicity classifier; consumer `:infra:openai-moderation` `OpenAiModerationClient`). **Vendor pivot 2026-05-11**: spec originally targeted Google Perspective API, which announced sunset (end-of-2026, signups closed Feb 2026) mid-implementation → swapped to OpenAI Moderation. Staging done 2026-05-11: project-scoped key (sk-proj-…) minted on platform.openai.com under the `NearYouID` org; clipboard-pipe upload (`pbpaste | gcloud secrets create`), plaintext never touched disk; slot v1, replication=automatic, labels env=staging,purpose=layer3-moderation; granted; wired as `OPENAI_API_KEY=staging-openai-api-key:latest`. The Moderation endpoint is FREE (no per-call charge), but any platform.openai.com key requires a payment method + $5 minimum prepaid deposit (one-time, idle if only Moderation is used). Prod pending.
 - [ ] `prod-apns-p8-key` dan `staging-apns-p8-key` (file content)
