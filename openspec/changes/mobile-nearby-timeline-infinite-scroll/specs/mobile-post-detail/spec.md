@@ -45,6 +45,12 @@ This change SHALL NOT implement a `GET /api/v1/posts/{post_id}` by-id fetch for 
 - **WHEN** the reply card renders
 - **THEN** the rendered tree contains NO node whose text contains `"11111111-1111-1111-1111-111111111111"` (only `content` + the timestamp treatment appear)
 
+#### Scenario: Viewer's own auto-hidden reply is parsed but rendered normally (v1)
+
+- **GIVEN** a reply returned with `is_auto_hidden = true` (the only reachable case: it is the viewer's own reply, per the backend author-bypass)
+- **WHEN** the reply card renders
+- **THEN** parsing succeeds AND the card renders identically to a live reply (no "under review" badge, no dimming) — the flag is parsed but not surfaced in v1
+
 ## ADDED Requirements
 
 ### Requirement: Replies list wires cursor load-more via PostDetailViewModel
