@@ -10,6 +10,7 @@ import java.sql.Date
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 /**
@@ -108,7 +109,10 @@ class PrivacyFlipWorkerTest : StringSpec({
         }
 
     "3.5 elapsed private user is flipped + one system-attributed audit row with valued before/after" {
-        val deadline = Instant.now().minusSeconds(3600)
+        // Truncate to micros: Postgres timestamptz is micro-precision, but Linux JVM
+        // Instant.now() is nano-precision — comparing the round-tripped before_state to
+        // a nano deadline would false-fail (passes on micro-precision macOS, fails in CI).
+        val deadline = Instant.now().minusSeconds(3600).truncatedTo(ChronoUnit.MICROS)
         val u = seedUser(privateProfile = true, scheduledAt = deadline)
         try {
             val result = worker.execute()
