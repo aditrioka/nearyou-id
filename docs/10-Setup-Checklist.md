@@ -175,7 +175,7 @@ End-to-end verified 2026-04-26: Secret Manager credential → OAuth token via SA
   - offering `default` (id `ofrngcfc30f15d2`, current) with packages `$rc_weekly` / `$rc_monthly` / `$rc_annual`
   - 3 subscription products: `nearyou_premium_weekly` (P1W, `prod3298016d4e`) / `_monthly` (P1M, `prod6d6a34bb40`) / `_yearly` (P1Y, `prod89905b4ab5`)
   - ⚠️ Test Store product **prices** NOT settable via v2 API (PATCH /products → 405; create has no price field) — dashboard-only or default. Non-blocking for test purchases; revisit when #309 SDK wiring is testable.
-- [ ] Generate webhook secret + optional HMAC — pending (see §4.2; slot names corrected below)
+- [x] Webhook bearer secret + dashboard registration — **DONE 2026-06-15**. `staging-revenuecat-webhook-secret` v1 stored + Cloud Run SA granted + wired `REVENUECAT_WEBHOOK_SECRET` into `deploy-staging.yml` (PR #320, merged). RevenueCat dashboard webhook `nearyou-staging` registered → `/internal/revenuecat-webhook` (Bearer auth). **Verified end-to-end**: correct Bearer → 400 (auth passed, empty body rejected), wrong Bearer → 401. HMAC slot not minted (optional). Prod equivalents pending.
 - [x] Note: products (weekly/monthly/yearly) configured 2026-06-15. Pricing comes from RevenueCat **Offerings at runtime**, not docs/01 (those remain "target, verify Pre-Phase 1").
 
 **Notes**:
@@ -183,7 +183,7 @@ End-to-end verified 2026-04-26: Secret Manager credential → OAuth token via SA
 - Project id: `9d323c42` · Test Store app id: `app89fcef0707`
 - Test Store SDK (public) key `test_…`: publishable (mobile-side, not a server secret). **Stored in Secret Manager `staging-revenuecat-test-api-key` v1 (2026-06-15; no Cloud Run grant — mobile-side, not backend-consumed).** Wire into mobile `:infra:revenuecat` when #309 lands.
 - Setup-time secret API key (v2) label `nearyou-config-setup` (Project configuration + Apps read/write): used once for API provisioning above. Delete/rotate after use; regenerate when prod config is needed.
-- Webhook (#291): backend route `POST /internal/revenuecat-webhook`; dashboard config (Integrations → Webhooks) + secret slots pending (§4.2).
+- Webhook (#291): backend route `POST /internal/revenuecat-webhook` — **wired end-to-end on staging 2026-06-15** (secret slot v1 + Cloud Run SA + deploy PR #320 merged + dashboard webhook `nearyou-staging` registered + verified). HMAC (`X-RevenueCat-Signature`) intentionally not wired (optional; Bearer-only accepted). Prod pending.
 
 ### 3.5 Cloudflare (additional services beyond DNS)
 
@@ -330,7 +330,7 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`. **Sing
 - [~] `staging-supabase-service-role-key` v1 — wired as `SUPABASE_SERVICE_ROLE_KEY`
 - [~] `staging-redis-url` v1 — Upstash Redis (`rediss://` scheme), wired as `REDIS_URL`; consumed by Lettuce in `:infra:redis`
 
-- [ ] `prod-revenuecat-webhook-secret` dan `staging-revenuecat-webhook-secret` — Bearer shared-secret. **Slot name per `RevenueCatWebhookRoutes.kt` (`secretKey(env, "revenuecat-webhook-secret")`)** — earlier `-bearer` label was wrong; the handler logs `bearer_secret_unset` + 401s until this slot exists.
+- [~] `staging-revenuecat-webhook-secret` **v1 DONE 2026-06-15** (Secret Manager REST; Cloud Run SA granted `secretAccessor`; wired `REVENUECAT_WEBHOOK_SECRET` via PR #320 merged). `prod-revenuecat-webhook-secret` pending. Bearer shared-secret; **slot name per `RevenueCatWebhookRoutes.kt` (`secretKey(env, "revenuecat-webhook-secret")`)** — earlier `-bearer` label was wrong; handler logs `bearer_secret_unset` + 401s until set.
 - [ ] `prod-revenuecat-webhook-hmac-secret` dan `staging-revenuecat-webhook-hmac-secret` (opsional; HMAC-SHA256 `X-RevenueCat-Signature`, slot `revenuecat-webhook-hmac-secret`)
 - [x] `staging-revenuecat-test-api-key` v1 — Test Store SDK public key (`test_…`, mobile-side, publishable — not a server secret). Done 2026-06-15 via Secret Manager REST API; **no Cloud Run grant** (consumed by the mobile build, not backend). Prod uses real-store SDK keys instead.
 - [~] `prod-firebase-admin-sa` dan `staging-firebase-admin-sa` (JSON file) — staging done 2026-04-26 (v1, granted) + wired as `FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest` 2026-04-29 (PR #60 `fcm-push-dispatch`); consumers `:infra:fcm` + `:infra:remote-config` (latter 2026-05-07, PR #70 `content-moderation-keyword-lists`); prod pending
