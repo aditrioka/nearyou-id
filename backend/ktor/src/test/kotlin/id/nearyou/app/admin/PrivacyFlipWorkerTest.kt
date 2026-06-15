@@ -219,9 +219,12 @@ class PrivacyFlipWorkerTest : StringSpec({
         }
     }
 
-    "3.11 a deadline at the current instant is flipped (closed <= NOW() boundary)" {
+    "3.11 a deadline at/just-before NOW() is flipped (closed <= boundary)" {
         // Seeded at the DB's NOW(); by the time the worker runs, NOW() has advanced, so
         // the row sits at-or-before the worker's evaluation instant — the closed boundary.
+        // (The literal `=` knife-edge is unreachable without freezing NOW(); this pins
+        // that a deadline at the current instant is included, distinct from the read
+        // short-circuit's strict `> now()`.)
         val u =
             dataSource.connection.use { conn ->
                 val id = UUID.randomUUID()

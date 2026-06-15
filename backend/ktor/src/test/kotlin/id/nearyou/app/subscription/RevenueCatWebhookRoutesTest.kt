@@ -708,6 +708,23 @@ class RevenueCatWebhookRoutesTest : StringSpec({
         }
     }
 
+    "5.7 lapse → re-subscribe → lapse again re-schedules a fresh deadline (COALESCE over cleared column)" {
+        val u = seedUser(status = "premium_active", privateProfile = true)
+        try {
+            service.process(incoming("EXPIRATION", "rc_cyc_exp1_$u", u))
+            val first = privacyFlipAt(u)
+            first shouldNotBe null
+            service.process(incoming("RENEWAL", "rc_cyc_rn_$u", u)) // clears
+            privacyFlipIsNull(u) shouldBe true
+            service.process(incoming("EXPIRATION", "rc_cyc_exp2_$u", u)) // re-schedules over the now-NULL column
+            val second = privacyFlipAt(u)
+            second shouldNotBe null
+            (second!!.isBefore(first)) shouldBe false // a fresh deadline, not the stale earlier one
+        } finally {
+            cleanup(u)
+        }
+    }
+
     "5.7 CANCELLATION neither schedules nor clears a privacy flip" {
         val u = seedUser(status = "premium_active", privateProfile = true)
         try {
