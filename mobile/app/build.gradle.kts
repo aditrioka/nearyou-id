@@ -137,6 +137,10 @@ kotlin {
             // Sentry KMP SDK is an `implementation`-scoped transitive dep of :infra:sentry, so it NEVER
             // reaches the app's compile classpath (invariant #16).
             implementation(projects.infra.sentry)
+            // mobile-paywall-screen — the vendor-FREE PurchaseController seam + domain models. The
+            // RevenueCat purchases-kmp SDK is an `implementation`-scoped transitive dep of
+            // :infra:revenuecat, so it NEVER reaches the app's compile classpath (invariant #16).
+            implementation(projects.infra.revenuecat)
             // Mobile #3 — Ktor KMP client + serialization + datetime for token expiration.
             implementation(libs.ktor.kmp.clientCore)
             implementation(libs.ktor.kmp.clientContentNegotiation)

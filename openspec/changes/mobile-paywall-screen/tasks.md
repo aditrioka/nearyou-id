@@ -27,8 +27,8 @@
 ## 5. ViewModel, UiState, price derivation
 
 - [ ] 5.1 Render mockup frame 17 and generate the per-frame measurement annex (`dev/scripts/mockup-measure.sh nearyou-screens-mockup 17`) for exact spacing/typography/token mapping (docs/11 §2.8; on-demand, not committed).
-- [ ] 5.2 Implement `PaywallUiState` (Compose-free sealed/data type: LoadingOfferings / Content(packages, selectedPeriod) / PurchaseInProgress / Success / Error / Unconfigured) + a pure `paywallUiState(...)` projection.
-- [ ] 5.3 Implement the pure commonMain price-derivation helper: Monthly strike-anchor = 4× Weekly, Yearly strike-anchor = 12× Monthly, savings % from those anchors, Weekly per-day = Weekly ÷ 7, default-selected Monthly, "Paling hemat" on Yearly — all from package prices, no hardcoded values.
+- [x] 5.2 Implement `PaywallUiState` (Compose-free sealed/data type: LoadingOfferings / Content(packages, selectedPeriod) / PurchaseInProgress / Success / Error / Unconfigured) + a pure `paywallUiState(...)` projection.
+- [x] 5.3 Implement the pure commonMain price-derivation helper: Monthly strike-anchor = 4× Weekly, Yearly strike-anchor = 12× Monthly, savings % from those anchors, Weekly per-day = Weekly ÷ 7, default-selected Monthly, "Paling hemat" on Yearly — all from package prices, no hardcoded values.
 - [ ] 5.4 Implement `PaywallViewModel` (androidx ViewModel in commonMain, `koinViewModel()`, one `StateFlow<PaywallUiState>` via `stateIn(WhileSubscribed(5000))`, one-shot return signal as a nullable field cleared via `onReturnShown()`); load offerings on init via `PurchaseController`, drive `purchase(...)` on subscribe (in-progress → Success/Cancelled→Content/Error).
 
 ## 6. PaywallScreen (frame 17)
@@ -48,7 +48,7 @@
 ## 9. Tests
 
 - [ ] 9.1 commonTest `PaywallViewModelTest` / `PaywallUiStateTest` over `FakePurchaseController`: LoadingOfferings→Content, purchase success→return signal, user-cancel→Content, purchase-error→retryable error, empty-offerings→Unconfigured.
-- [ ] 9.2 commonTest for the pure price-derivation helper (anchors=4×weekly/12×monthly, savings %, per-day, default Monthly) — deterministic, no hardcoded values; include a degenerate-input guard (zero/absent package price → no NaN/crash, degrades toward Unconfigured rather than rendering a broken card).
+- [x] 9.2 commonTest for the pure price-derivation helper (anchors=4×weekly/12×monthly, savings %, per-day, default Monthly) — deterministic, no hardcoded values; include a degenerate-input guard (zero/absent package price → no NaN/crash, degrades toward Unconfigured rather than rendering a broken card).
 - [ ] 9.3 commonTest for the `PaywallRoute` serialized round-trip (the polymorphic registration decodes `entry` on K/N).
 - [ ] 9.4 Robolectric `PaywallScreenTest` (androidUnitTest, v2 ComposeUiTest API): frame-17 surface (hero, benefits-without-image-upload, 3 cards with localized prices, CTA, disclosure footer), close affordance, Unconfigured state, no-hardcoded-strings + token-only assertions, AND compose both `LIKE_CAP` and `SEARCH_GATE` entries asserting the hero headline differs (the entry-context tailoring). ADD to the `mobile/app/build.gradle.kts` Release-variant test-exclude list; verify `:mobile:app:testDevReleaseUnitTest` passes.
 - [ ] 9.5 `iosTest` paywall flow test over `FakePurchaseController` (the per-screen `*FlowIosTest` convention); run `:mobile:app:iosSimulatorArm64Test`.
