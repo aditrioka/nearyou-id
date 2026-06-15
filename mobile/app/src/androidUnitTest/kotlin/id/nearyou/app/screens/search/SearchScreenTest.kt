@@ -140,18 +140,27 @@ class SearchScreenTest {
     }
 
     @Test
-    fun premiumGate_showsPanelAndCta_ctaPerformsNoNavigation() {
+    fun premiumGate_showsPanelAndCta_ctaInvokesOnActivatePremium() {
         installKoin(SearchOutcome.PremiumGate)
         runComposeUiTest {
+            var activated = 0
             var opened = 0
-            setContent { KoinContext { NearYouTheme { SearchScreen(onBack = {}, onOpenPost = { opened++ }) } } }
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        SearchScreen(onBack = {}, onOpenPost = { opened++ }, onActivatePremium = { activated++ })
+                    }
+                }
+            }
             submitQuery()
             onNodeWithText(GATE_BODY).assertExists()
             onNodeWithText(GATE_CTA).assertExists()
             onNodeWithTag(SEARCH_PREMIUM_CTA_TAG).performClick()
             waitForIdle()
-            // The v1 CTA is a placeholder: it pushes no route (no onOpenPost) and the gate stays shown.
-            assertEquals(0, opened, "the v1 Premium CTA performs no navigation")
+            // mobile-paywall-screen (#254): the CTA invokes the hoisted onActivatePremium (the host pushes
+            // PaywallRoute(SEARCH_GATE)); the screen itself stays navigation-free (no onOpenPost / route).
+            assertEquals(1, activated, "the Premium-gate CTA invokes the hoisted onActivatePremium exactly once")
+            assertEquals(0, opened, "the gate CTA is not a result tap")
             onNodeWithText(GATE_BODY).assertExists()
         }
     }

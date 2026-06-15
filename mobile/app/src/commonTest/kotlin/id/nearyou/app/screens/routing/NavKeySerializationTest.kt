@@ -50,6 +50,10 @@ class NavKeySerializationTest {
                 // @Serializable FollowListTab payload; a missing subclass(...) registration fails here.
                 FollowListRoute("11111111-1111-1111-1111-666666666666", FollowListTab.Followers),
                 FollowListRoute("11111111-1111-1111-1111-666666666666", FollowListTab.Following),
+                // mobile-paywall-screen — the payload-carrying PaywallRoute; both entry-context variants
+                // exercise the @Serializable PaywallEntry enum payload (a missing subclass(...) fails here).
+                PaywallRoute(PaywallEntry.LIKE_CAP),
+                PaywallRoute(PaywallEntry.SEARCH_GATE),
             )
         for (route in routes) {
             val encoded = json.encodeToString(navKeySerializer, route)

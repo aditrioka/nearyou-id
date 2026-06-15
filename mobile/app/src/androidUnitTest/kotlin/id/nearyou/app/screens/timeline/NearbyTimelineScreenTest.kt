@@ -409,21 +409,23 @@ class NearbyTimelineScreenTest {
     }
 
     @Test
-    fun premiumCta_v1Wiring_dismissesTheDialogOnly() {
+    fun premiumCta_invokesOnActivatePremium_andDismissesTheDialog() {
         installKoin(
             NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(likedByViewer = false)), null, null),
             likeOutcome = LikeOutcome.RateLimited(retryAfterSeconds = 1_140),
         )
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            var activated = 0
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen(onActivatePremium = { activated++ }) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(POST_CARD_LIKE_ACTION_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
-            // "Aktifkan Premium" is the v1 dismiss-only placeholder (paywall deferred, issue #235):
-            // the dialog closes and the feed surface is unchanged — no navigation side-effect (this
-            // surface holds no back stack; the push-only wiring is pinned by HomeTabHostScreenTest).
+            // mobile-paywall-screen (#235): "Aktifkan Premium" now invokes the hoisted onActivatePremium AND
+            // dismisses the dialog. The screen stays navigation-free (holds no back stack); the host
+            // (entry<HomeRoute>, via HomeScreen/AppShellScreen) pushes PaywallRoute(LIKE_CAP).
             onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isEmpty() }
+            assertEquals(1, activated, "the cap-dialog Premium CTA invokes the hoisted onActivatePremium exactly once")
             onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists()
         }
     }
