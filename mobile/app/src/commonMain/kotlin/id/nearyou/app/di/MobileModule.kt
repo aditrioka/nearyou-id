@@ -33,6 +33,9 @@ import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.diagnostics.ConsoleDiagnosticSink
 import id.nearyou.app.diagnostics.DiagnosticSink
+import id.nearyou.app.followlist.FollowListApiClient
+import id.nearyou.app.followlist.FollowListFlow
+import id.nearyou.app.followlist.FollowListRepository
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import id.nearyou.app.infra.supabaserealtime.RealtimeTokenProvider
 import id.nearyou.app.infra.supabaserealtime.SupabaseChatRealtimeSubscriber
@@ -273,6 +276,20 @@ val mobileModule =
         }
         single<ProfileFlow> { get<ProfileRepository>() }
         single<SelfUserIdProvider> { TokenStoreSelfUserIdProvider(get()) }
+        // mobile-follow-lists — the follower/following list graph (the tappable profile counts → tabbed
+        // member lists). Reuses the shared HttpClient (Bearer via the Auth plugin; NO X-Session-Id — these
+        // list reads are not session-soft-capped). FollowListRepository is bound behind the FollowListFlow
+        // seam so a FakeFollowListFlow drives the screen/VM tests (the concrete stays resolvable). No new
+        // HttpClient; no Flyway/backend dependency (pure consumer of the shipped follow-system endpoints).
+        single { FollowListApiClient(get()) }
+        single {
+            val sink = get<DiagnosticSink>()
+            FollowListRepository(
+                get(),
+                diagnosticLog = { status -> sink.log("follow_list_error: status=$status") },
+            )
+        }
+        single<FollowListFlow> { get<FollowListRepository>() }
         // mobile-chat-screen — the 1:1 chat graph (conversation list + thread + realtime).
         //  - Three API clients over the shared (bearer-authed) HttpClient; NO X-Session-Id (chat
         //    endpoints are not session-soft-capped).

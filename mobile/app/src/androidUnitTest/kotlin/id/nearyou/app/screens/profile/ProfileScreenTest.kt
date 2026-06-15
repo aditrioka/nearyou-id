@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
@@ -38,7 +39,7 @@ private class FakeSelfUserId(private val id: String? = "self-1") : SelfUserIdPro
 /**
  * Robolectric render coverage of the profile surface (`mobile-profile`). Covers self-vs-other rendering
  * (the follow toggle + kebab appear only for an other-user read), the null-bio omission, the Premium
- * badge, the non-tappable counts, the block confirmation modal (Batal → no call; confirm → navigate
+ * badge, the tappable counts (→ follow-list navigation), the block confirmation modal (Batal → no call; confirm → navigate
  * back), the six-category report picker, the not-found state, and the no-UUID-in-tree guard. Uses the
  * commonTest [FakeProfileFlow]; Release-excluded (the `*ScreenTest` host-activity convention).
  *
@@ -122,14 +123,33 @@ class ProfileScreenTest {
         }
 
     @Test
-    fun counts_areNotTappable() =
+    fun counts_areTappable_navigateToFollowListAtTheMatchingTab() =
         runComposeUiTest {
-            val fake = installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1")))
-            setContent { OtherProfile() }
+            var navTarget: Pair<String, FollowListTab>? = null
+            installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1")))
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        ProfileScreen(
+                            targetUserId = "u1",
+                            onBack = {},
+                            onOpenFollowList = { id, tab -> navTarget = id to tab },
+                        )
+                    }
+                }
+            }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOWERS_TAG).fetchSemanticsNodes().isNotEmpty() }
-            // The follower/following counts have no click action (lists deferred — no dead controls).
-            onNodeWithTag(PROFILE_FOLLOWERS_TAG).assert(hasClickAction().not())
-            onNodeWithTag(PROFILE_FOLLOWING_TAG).assert(hasClickAction().not())
+            // Both counts are clickable nodes now (the lists are reachable — the inverted mobile-profile
+            // requirement), each carrying a content description.
+            onNodeWithTag(PROFILE_FOLLOWERS_TAG).assert(hasClickAction())
+            onNodeWithTag(PROFILE_FOLLOWING_TAG).assert(hasClickAction())
+            // The follower count → the Followers tab for this profile's id; the following count → Following.
+            onNodeWithTag(PROFILE_FOLLOWERS_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { navTarget != null }
+            assertEquals("u1" to FollowListTab.Followers, navTarget)
+            onNodeWithTag(PROFILE_FOLLOWING_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { navTarget == "u1" to FollowListTab.Following }
+            assertEquals("u1" to FollowListTab.Following, navTarget)
         }
 
     @Test

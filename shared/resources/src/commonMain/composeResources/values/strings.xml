@@ -316,5 +316,18 @@
     <string name="search_icon_cd">Cari</string>
     <string name="search_clear_cd">Hapus pencarian</string>
     <string name="search_back_cd">Kembali</string>
+    <!-- mobile-follow-lists: the tabbed follower/following member-list surface, reached by tapping the
+         profile's follower/following counts. The not-found state REUSES profile_not_found; the error +
+         retry states REUSE signin_error_network / cta_retry; the back affordance REUSES cta_close (the
+         ProfileScreen overlay precedent) — no new keys for those. profile_followers_open_cd /
+         profile_following_open_cd are the tappable-count content descriptions on ProfileScreen. -->
+    <string name="follow_list_title">Koneksi</string>
+    <string name="follow_list_tab_followers">Pengikut</string>
+    <string name="follow_list_tab_following">Mengikuti</string>
+    <string name="follow_list_empty_followers">Belum ada pengikut</string>
+    <string name="follow_list_empty_following">Belum mengikuti siapa pun</string>
+    <string name="follow_list_load_more_failed">Gagal memuat. Ketuk untuk coba lagi.</string>
+    <string name="profile_followers_open_cd">Lihat daftar pengikut</string>
+    <string name="profile_following_open_cd">Lihat daftar yang diikuti</string>
 </resources>
 
