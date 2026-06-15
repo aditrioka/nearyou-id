@@ -104,6 +104,7 @@ fun NearbyTimelineScreen(
     onOpenPost: (NearbyTimelinePost) -> Unit = {},
     onOpenPostReply: (NearbyTimelinePost) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
+    onActivatePremium: () -> Unit = {},
 ) {
     val controller = koinInject<LocationPermissionController>()
     val gate = remember { LocationGate(controller) }
@@ -137,6 +138,7 @@ fun NearbyTimelineScreen(
                 onOpenPost = onOpenPost,
                 onOpenPostReply = onOpenPostReply,
                 onOpenProfile = onOpenProfile,
+                onActivatePremium = onActivatePremium,
             )
     }
 }
@@ -158,6 +160,7 @@ private fun NearbyFeed(
     onOpenPost: (NearbyTimelinePost) -> Unit,
     onOpenPostReply: (NearbyTimelinePost) -> Unit,
     onOpenProfile: (authorUserId: String) -> Unit,
+    onActivatePremium: () -> Unit,
 ) {
     val flow = koinInject<NearbyTimelineFlow>()
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
@@ -204,7 +207,11 @@ private fun NearbyFeed(
             retryAfterSeconds = retryAfterSeconds,
             body = { countdown -> stringResource(Res.string.post_detail_likes_cap_upsell, countdown) },
             onDismiss = viewModel::onLikeCapDialogDismissed,
-            onActivatePremium = viewModel::onLikeCapDialogDismissed,
+            // mobile-paywall-screen (#235): dismiss the dialog AND push PaywallRoute(LIKE_CAP) via the host.
+            onActivatePremium = {
+                viewModel.onLikeCapDialogDismissed()
+                onActivatePremium()
+            },
         )
     }
 }

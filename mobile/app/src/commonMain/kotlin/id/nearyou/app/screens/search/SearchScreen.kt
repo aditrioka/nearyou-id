@@ -108,6 +108,7 @@ const val SEARCH_PREMIUM_CTA_TAG: String = "searchPremiumCta"
 fun SearchScreen(
     onBack: () -> Unit,
     onOpenPost: (SearchHit) -> Unit = {},
+    onActivatePremium: () -> Unit = {},
 ) {
     val flow = koinInject<SearchFlow>()
     val viewModel = viewModel { SearchViewModel(flow) }
@@ -145,7 +146,7 @@ fun SearchScreen(
                 is SearchUiState.EmptyResults ->
                     CenteredMessage(stringResource(Res.string.search_empty_results, state.query))
                 SearchUiState.Error -> ErrorState(onRetry = viewModel::retry)
-                SearchUiState.PremiumGate -> PremiumGateState()
+                SearchUiState.PremiumGate -> PremiumGateState(onActivatePremium = onActivatePremium)
                 is SearchUiState.RateLimited ->
                     RateLimitedState(retryAfterSeconds = state.retryAfterSeconds, onRetry = viewModel::retry)
                 SearchUiState.Disabled -> CenteredMessage(stringResource(Res.string.search_disabled))
@@ -315,7 +316,7 @@ private fun ErrorState(onRetry: () -> Unit) {
  * by a follow-up issue), so its click is a no-op (the panel just communicates the gate).
  */
 @Composable
-private fun PremiumGateState() {
+private fun PremiumGateState(onActivatePremium: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier.padding(24.dp),
@@ -328,8 +329,8 @@ private fun PremiumGateState() {
                 textAlign = TextAlign.Center,
             )
             Button(
-                // v1 placeholder: no paywall screen exists yet (Phase 4) — the CTA performs no navigation.
-                onClick = {},
+                // mobile-paywall-screen (#254): the CTA now pushes PaywallRoute(SEARCH_GATE) via the host.
+                onClick = onActivatePremium,
                 modifier = Modifier.padding(top = 16.dp).testTag(SEARCH_PREMIUM_CTA_TAG),
             ) {
                 Text(text = stringResource(Res.string.cta_activate_premium))

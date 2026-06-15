@@ -83,6 +83,7 @@ fun GlobalTimelineScreen(
     onOpenPost: (GlobalTimelinePost) -> Unit = {},
     onOpenPostReply: (GlobalTimelinePost) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
+    onActivatePremium: () -> Unit = {},
 ) {
     val flow = koinInject<GlobalTimelineFlow>()
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
@@ -121,7 +122,11 @@ fun GlobalTimelineScreen(
             retryAfterSeconds = retryAfterSeconds,
             body = { countdown -> stringResource(Res.string.post_detail_likes_cap_upsell, countdown) },
             onDismiss = viewModel::onLikeCapDialogDismissed,
-            onActivatePremium = viewModel::onLikeCapDialogDismissed,
+            // mobile-paywall-screen (#235): dismiss the dialog AND push PaywallRoute(LIKE_CAP) via the host.
+            onActivatePremium = {
+                viewModel.onLikeCapDialogDismissed()
+                onActivatePremium()
+            },
         )
     }
 }

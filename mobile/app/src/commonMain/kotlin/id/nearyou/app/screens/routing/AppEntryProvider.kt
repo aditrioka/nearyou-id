@@ -128,6 +128,9 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 // tabbed list onto the root stack at the tapped count's tab. The self ProfileScreen resolves
                 // its own userId from the session and supplies it here; the route carries only userId + tab.
                 onOpenFollowList = { followUserId, tab -> backStack.add(FollowListRoute(followUserId, tab)) },
+                // mobile-paywall-screen (#235): the like-cap upsell dialog's "Aktifkan Premium" CTA (threaded
+                // from the dialog → timeline screens → HomeScreen → here) pushes the paywall onto the root stack.
+                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.LIKE_CAP)) },
             )
         }
         entry<AgeGateRoute> {
@@ -231,6 +234,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // (mobile-search § "A result tap opens PostDetailRoute with documented default fields").
             SearchScreen(
                 onBack = { backStack.removeLastOrNull() },
+                // mobile-paywall-screen (#254): the 403 Premium-gate CTA pushes the paywall.
+                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.SEARCH_GATE)) },
                 onOpenPost = { hit ->
                     backStack.add(
                         PostDetailRoute(

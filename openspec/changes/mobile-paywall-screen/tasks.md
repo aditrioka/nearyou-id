@@ -38,8 +38,8 @@
 
 ## 7. Wire the dead-end CTAs
 
-- [ ] 7.1 Thread a hoisted `onActivatePremium` from `HomeTabHost` through the 3 timeline screens (Nearby/Following/Global — which today wire it to `viewModel::onLikeCapDialogDismissed`, dismiss-only and hold no back stack) so the cap-dialog host pushes `PaywallRoute(entry = PaywallEntry.LIKE_CAP)` + dismisses — `mobile-cap-upsell-dialog` RENAMED+MODIFIED requirement. Keep `DailyCapUpsellDialog` itself navigation-free (it only invokes the hoisted callback).
-- [ ] 7.2 Wire the `SearchScreen` PremiumGate host (`appEntryProvider` call site) so the "Aktifkan Premium" CTA pushes `PaywallRoute(entry = SEARCH_GATE)` — `mobile-search` MODIFIED requirement. Confirm the `429` rate-limit state is untouched.
+- [x] 7.1 Thread a hoisted `onActivatePremium` from `HomeTabHost` through the 3 timeline screens (Nearby/Following/Global — which today wire it to `viewModel::onLikeCapDialogDismissed`, dismiss-only and hold no back stack) so the cap-dialog host pushes `PaywallRoute(entry = PaywallEntry.LIKE_CAP)` + dismisses — `mobile-cap-upsell-dialog` RENAMED+MODIFIED requirement. Keep `DailyCapUpsellDialog` itself navigation-free (it only invokes the hoisted callback).
+- [x] 7.2 Wire the `SearchScreen` PremiumGate host (`appEntryProvider` call site) so the "Aktifkan Premium" CTA pushes `PaywallRoute(entry = SEARCH_GATE)` — `mobile-search` MODIFIED requirement. Confirm the `429` rate-limit state is untouched.
 
 ## 8. DI
 
