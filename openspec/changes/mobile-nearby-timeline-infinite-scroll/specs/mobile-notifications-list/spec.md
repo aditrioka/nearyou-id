@@ -33,6 +33,12 @@ The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equiv
 - **WHEN** the user scrolls near the end of the list
 - **THEN** exactly one follow-up `GET /api/v1/notifications` is issued carrying `cursor=c1`
 
+#### Scenario: Load-more preserves the first-page unread filter
+
+- **GIVEN** the notifications first page was fetched with a specific `unread` filter value (the default unfiltered request in the shipped UI)
+- **WHEN** load-more issues the follow-up `GET /api/v1/notifications`
+- **THEN** the follow-up carries the SAME `unread` filter value the first page used — a regression that drops or changes `unread` on a later page (silently mixing read rows into an unread-filtered list) is rejected by an explicit assertion
+
 #### Scenario: The second page appends below the first and advances the cursor
 
 - **GIVEN** a fake returning a second page of notification rows with `nextCursor = "c2"` for `cursor = "c1"`

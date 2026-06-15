@@ -62,6 +62,11 @@ The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equiv
 - **WHEN** inspecting the rendered tree and the diagnostic sink during load-more
 - **THEN** no node renders the anchor `latitude`/`longitude` AND no coordinate is passed to the diagnostic log (the anchor is VM-held request state only)
 
+#### Scenario: A load-more error logs exception type only, never the coordinate-bearing message
+
+- **GIVEN** a Nearby load-more request that fails with a timeout whose exception message embeds the request URL (which carries `?lat=&lng=`)
+- **THEN** the diagnostic sink logs the exception **type** / status only (e.g. `nearby_loadmore_error: <ExceptionClass>`) AND does NOT log `cause.message`, the response body, or any coordinate (mirroring the shipped first-page `NearbyTimelineRepository` discipline + its `DiagnosticSinkWiringTest` source-scan guard)
+
 #### Scenario: A load-more failure keeps the loaded posts and offers retry
 
 - **GIVEN** the Nearby feed with a loaded first page AND a load-more fetch that fails (network/5xx)

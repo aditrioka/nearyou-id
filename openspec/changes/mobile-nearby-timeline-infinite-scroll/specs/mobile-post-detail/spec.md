@@ -19,6 +19,32 @@ This change SHALL NOT implement a `GET /api/v1/posts/{post_id}` by-id fetch for 
 - **WHEN** inspecting the project's open GitHub issues (label `follow-up`) and this screen's replies paging
 - **THEN** GitHub issue [#202](https://github.com/aditrioka/nearyou-id/issues/202) tracks the by-id endpoint (shipped as `single-post-read`, unconsumed by this screen) AND the replies list now issues `cursor=`-bearing follow-up `GET /replies` requests (the replies half of issue [#188](https://github.com/aditrioka/nearyou-id/issues/188) is implemented, not deferred)
 
+### Requirement: Replies list mirrors the shipped snake_case wire with loading, empty, and error states
+
+`ReplyApiClient` SHALL issue `GET /api/v1/posts/{post_id}/replies` and parse `@Serializable` DTOs whose wire names match the SHIPPED backend serialization in `backend/ktor/.../engagement/ReplyRoutes.kt` (`ReplyDto` / `ReplyListResponse`) — **snake_case**, NOT the timelines' camelCase. Specifically: `ReplyDto` = `id` (bare String), `@SerialName("post_id") postId`, `@SerialName("author_id") authorId`, `content` (bare), `@SerialName("is_auto_hidden") isAutoHidden` (Boolean), `@SerialName("created_at") createdAt`, `@SerialName("updated_at") updatedAt: String?`, `@SerialName("deleted_at") deletedAt: String?`; `ReplyListResponse` = `replies: List<ReplyDto>` (bare), `@SerialName("next_cursor") nextCursor: String? = null`. The `next_cursor` key is snake_case and MUST differ from the timelines' camelCase `nextCursor`. The screen SHALL render reply cards showing `content` + the `created_at` treatment only — NO author identity (the wire carries only `author_id`, never rendered) — within one of: a loading state (`stringResource(Res.string.timeline_loading)`), an empty state (`stringResource(Res.string.post_detail_replies_empty)`), the reply-card list, or an error state (`stringResource(Res.string.signin_error_network)` + a `stringResource(Res.string.cta_retry)` control). `next_cursor` SHALL be parsed + retained AND SHALL drive replies cursor load-more per the § "Replies list wires cursor load-more via PostDetailViewModel" requirement (this supersedes the prior deferral). A returned reply MAY carry `is_auto_hidden = true` ONLY when it is the viewer's OWN reply (the backend's author-bypass `is_auto_hidden = FALSE OR author_id = :viewer` lives in the `PostReplyRepository.listByPost` query — impl in `core/data/.../repository/PostReplyRepository.kt`, surfaced via `engagement/ReplyService.list` — so no other reply with the flag set is ever returned); in v1 the `is_auto_hidden` flag SHALL be **parsed but NOT surfaced** (the viewer's own auto-hidden reply renders identically to a live reply, matching the backend's author-bypass intent) — no "under review" badge or dimming is added in this change. Similarly `deleted_at` is faithfully parsed (DTO mirrors the wire) but is effectively dead on this list path (the backend excludes `deleted_at IS NOT NULL` rows).
+
+#### Scenario: Replies parse against the shipped snake_case wire
+
+- **GIVEN** a `MockEngine` returning `200` with `{ "replies": [ { "id": "...", "post_id": "...", "author_id": "...", "content": "hi", "is_auto_hidden": false, "created_at": "2026-06-06T00:00:00Z", "updated_at": null, "deleted_at": null } ], "next_cursor": "tok" }`
+- **WHEN** the response is parsed
+- **THEN** parsing succeeds AND the reply exposes `content = "hi"` AND `nextCursor = "tok"`
+
+#### Scenario: camelCase next_cursor does NOT populate — negative guard against the timeline assumption
+
+- **GIVEN** a `MockEngine` returning `{ "replies": [], "nextCursor": "tok" }` (the timelines' camelCase key, NOT the shipped reply wire)
+- **THEN** `ReplyListResponse.nextCursor` is `null` (the camelCase key does not bind under the `@SerialName("next_cursor")` mapping) — a fixture MUST assert this so the casing regression cannot slip in
+
+#### Scenario: Empty replies show the empty-state copy
+
+- **WHEN** the replies outcome is `Loaded` with an empty list
+- **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.post_detail_replies_empty)`
+
+#### Scenario: Reply card renders no author identity
+
+- **GIVEN** a reply with `author_id = "11111111-1111-1111-1111-111111111111"`
+- **WHEN** the reply card renders
+- **THEN** the rendered tree contains NO node whose text contains `"11111111-1111-1111-1111-111111111111"` (only `content` + the timestamp treatment appear)
+
 ## ADDED Requirements
 
 ### Requirement: Replies list wires cursor load-more via PostDetailViewModel
