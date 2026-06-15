@@ -13,7 +13,7 @@ The backend `premium-username-customization` capability is shipped and frozen (P
 ## Goals / Non-Goals
 
 **Goals:**
-- Ship the complete docs/03 §107–134 Ganti Username screen — current handle, live-validated field, availability feedback, all wire-supported error/cooldown/gate/disabled/session states, the submit-confirmation modal, success toast + profile refresh — consuming the two shipped endpoints.
+- Ship the complete docs/03 §107–134 Ganti Username screen — current handle, live-validated field, availability feedback, all wire-supported error/cooldown/gate/disabled/session states, the submit-confirmation modal, success toast + pop to Settings — consuming the two shipped endpoints.
 - Wire the existing Settings "Ganti username" row: Premium → the screen; Free → the paywall.
 - Reuse the `mobile-search` data seam + the Pattern-Registry mobile patterns (no new pattern).
 
