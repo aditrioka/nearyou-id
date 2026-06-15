@@ -46,7 +46,7 @@ Always also run the **gate** (§D) before declaring done.
 set -a; . envfile; set +a
 KTOR_ENV=test ./gradlew --no-daemon :backend:ktor:run   # --no-daemon so the forked app inherits exported env; serves :8080
 ```
-Flyway runs at app startup, so migrations auto-apply.
+Flyway runs at app startup **only when `RUN_FLYWAY_ON_STARTUP=true` is in the env** — it is NOT in the always-required list above (gated at `Application.kt`: `if (System.getenv("RUN_FLYWAY_ON_STARTUP") == "true")`). When verifying a **migration** change, ADD `RUN_FLYWAY_ON_STARTUP=true` to your envfile, or the app boots against whatever schema already exists and your new `V<N>` SILENTLY never applies — endpoints then fail on the missing table/column (the falsest of false greens: server boots, an UNRELATED endpoint 200s off the old schema, the new feature is broken). Confirmed 2026-06-15 (premium-post-editing smoke: a boot without the flag left V22/`post_edits` unapplied while create-post still 201'd off V1–V21, masking it — caught only by a direct DB check). Always confirm the migration landed: `docker exec nearyouid-dev-postgres psql -U postgres -d nearyou_dev -tAc "SELECT to_regclass('public.<newtable>')"`.
 
 **Observe:** hit the endpoint (`curl localhost:8080/...`), grep the app log for the expected line, and/or check DB state directly. For the **admin panel** (the one genuinely web surface — drive it with a browser MCP: `browsermcp` or `Claude_Preview`):
 1. Admin-login secrets (lazy, needed at login not boot): `ADMIN_TOTP_SECRET_AES_KEY` + `ADMIN_CSRF_HMAC_KEY` (base64 of 32 bytes each). Secret-name→env mapping is `name.uppercase().replace('-','_')` (`config/Secrets.kt`).
