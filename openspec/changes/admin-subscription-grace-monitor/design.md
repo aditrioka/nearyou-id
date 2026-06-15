@@ -54,7 +54,7 @@ Critical-invariant conformance: the admin module is exempt from the `visible_*` 
 - **`retry-since` ambiguity with multiple `billing_issue` events** → D6 documents a pragmatic streak rule with a safe fallback; the spec requires only a sensible empty-state-tolerant timestamp, so implementation latitude does not break the contract.
 - **`subscription_events.platform` may be NULL/absent for some billing-retry users** → LEFT JOIN + empty-state rendering (the user still lists; the store cell is blank).
 - **Soft cap ±1 under concurrency** → accepted, identical to the destructive limiter's documented tolerance; expedite is non-destructive bookkeeping so a rare ±1 overshoot is harmless.
-- **Admin raw `users` read trips the block-exclusion / raw-read lint** → annotate the allowance per the established admin-monitor precedent (caught at lint, fixed by annotation, not a design change).
+- **Admin raw `users` / `subscription_events` read and the lint rules** → the block-exclusion / raw-`FROM posts` rules do not fire on these tables (the shipped admin monitors carry no such annotation — `AdminPrivacyFlipsRepository` precedent), so only a descriptive KDoc note of the admin exemption is needed; add a functional annotation only if a rule actually fires at build time (consistent with the Standards-conformance note above).
 
 ## Migration Plan
 
