@@ -100,4 +100,34 @@ class ConsentSettingsViewModelTest {
         vm.save()
         assertNull(store.read())
     }
+
+    @Test
+    fun `a successful submit applies the new crash consent immediately`() {
+        // mobile-crash-reporting — declining crash on a successful save must apply at once (the screen
+        // wires onCrashConsentChanged to CrashReportingController::applyConsent → close).
+        val applied = mutableListOf<Boolean>()
+        val vm =
+            ConsentSettingsViewModel(
+                FakeConsentFlow(outcome = ConsentOutcome.Success),
+                InMemoryConsentSnapshotStore(),
+                onCrashConsentChanged = { applied += it },
+            )
+        vm.setCrash(false)
+        vm.save()
+        assertEquals(listOf(false), applied)
+    }
+
+    @Test
+    fun `a failed submit does not apply the crash consent`() {
+        val applied = mutableListOf<Boolean>()
+        val vm =
+            ConsentSettingsViewModel(
+                FakeConsentFlow(outcome = ConsentOutcome.RetryableError),
+                InMemoryConsentSnapshotStore(),
+                onCrashConsentChanged = { applied += it },
+            )
+        vm.setCrash(false)
+        vm.save()
+        assertEquals(emptyList(), applied)
+    }
 }

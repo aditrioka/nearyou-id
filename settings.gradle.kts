@@ -47,6 +47,11 @@ val includeMobile: String = (providers.gradleProperty("includeMobile").orNull ?:
 if (includeMobile.toBoolean()) {
     include(":mobile:app")
     include(":shared:resources")
+    // mobile-sentry-crash-reporting — :infra:sentry is a mobile-only KMP module (Android + iOS),
+    // consumed solely by :mobile:app (NOT a :backend:ktor dependency). Mobile-gated like
+    // :infra:supabase-realtime below so the JDK-only backend Docker builder excludes it — a KMP/Android
+    // module can't be configured or COPY'd into the builder without the Android SDK.
+    include(":infra:sentry")
     // KMP module (androidTarget + iOS only — no JVM target, applies the Android
     // library plugin); consumed solely by :mobile:app (the client-side chat
     // realtime *subscriber*). The backend publishes via :infra:supabase, so this

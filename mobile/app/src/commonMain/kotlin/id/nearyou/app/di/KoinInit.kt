@@ -1,5 +1,7 @@
 package id.nearyou.app.di
 
+import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.diagnostics.CrashReportingController
 import org.koin.core.context.startKoin
 import org.koin.dsl.KoinAppDeclaration
 import org.koin.mp.KoinPlatformTools
@@ -40,7 +42,22 @@ fun initKoin(additionalConfig: KoinAppDeclaration? = null) {
             modules(mobileModule, platformModule)
             additionalConfig?.invoke(this)
         }
+        startCrashReporting()
     }
+}
+
+/**
+ * mobile-crash-reporting — initialize crash reporting once Koin is up (called from [initKoin] right
+ * after `startKoin`, so it runs at process startup before app code can crash). Opt-out default ON; a
+ * last-known crash DECLINE in the [ConsentSnapshotStore] closes the session (docs/06 § Enforcement). A
+ * blank DSN makes init a safe no-op. User correlation is set on the next sign-in (`AuthRepository`).
+ */
+private fun startCrashReporting() {
+    val koin = KoinPlatformTools.defaultContext().get()
+    val controller = koin.get<CrashReportingController>()
+    val snapshot = koin.get<ConsentSnapshotStore>().read()
+    // Opt-out default ON; close iff a last-known decline is present. Blank DSN no-ops init.
+    controller.applyStartupConsent(snapshot?.crash)
 }
 
 /**

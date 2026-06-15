@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import platform.UIKit.UIApplication
+import platform.UIKit.registerForRemoteNotifications
 import platform.UserNotifications.UNAuthorizationOptionAlert
 import platform.UserNotifications.UNAuthorizationOptionBadge
 import platform.UserNotifications.UNAuthorizationOptionSound

@@ -1,5 +1,7 @@
 package id.nearyou.app.auth
 
+import id.nearyou.app.infra.sentry.CrashReporter
+import id.nearyou.app.infra.sentry.NoOpCrashReporter
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -28,6 +30,9 @@ import kotlinx.coroutines.flow.receiveAsFlow
  */
 class SessionInvalidator(
     private val tokenStore: TokenStore,
+    // mobile-crash-reporting — clear Sentry user correlation on logout. Defaults no-op so existing
+    // constructions/tests are unaffected; MobileModule binds the real reporter.
+    private val crashReporter: CrashReporter = NoOpCrashReporter,
 ) {
     // CONFLATED: never suspends on send, buffers the latest signal for a not-yet-present collector,
     // and a second invalidate before consumption coalesces (one pending re-route, not a queue).
@@ -40,6 +45,7 @@ class SessionInvalidator(
         // Clear the store FIRST (so a re-route observer that reacts immediately reads no token),
         // THEN offer the re-route signal. trySend never fails on a CONFLATED channel.
         tokenStore.clear()
+        crashReporter.clearUser()
         signal.trySend(Unit)
     }
 }

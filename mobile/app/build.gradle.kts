@@ -68,6 +68,17 @@ kotlin {
         pod("FirebaseMessaging") {
             version = libs.versions.firebaseMessagingIos.get()
         }
+        // mobile-sentry-crash-reporting — the sentry-cocoa framework REQUIRED by the Sentry KMP SDK
+        // (the SDK is fenced in :infra:sentry, but its iOS klib links against sentry-cocoa, which the
+        // final ComposeApp framework must provide). linkOnly = true: the :infra:sentry klib owns the
+        // Kotlin bindings, so the Pod supplies ONLY the framework binary at link time (no duplicate
+        // cinterop). -fmodules is required by sentry-cocoa's modular headers. Version pinned to the SDK's
+        // Cocoa compatibility table (libs.versions.toml § sentryCocoaIos = 0.26.0 → 8.58.2).
+        pod("Sentry") {
+            version = libs.versions.sentryCocoaIos.get()
+            linkOnly = true
+            extraOpts += listOf("-compiler-option", "-fmodules")
+        }
     }
 
     sourceSets {
@@ -122,6 +133,10 @@ kotlin {
             // RealtimeTokenProvider seam. The supabase-kt SDK is an `implementation`-scoped transitive
             // dep of this module, so it NEVER reaches the app's compile classpath (invariant #16).
             implementation(projects.infra.supabaseRealtime)
+            // mobile-sentry-crash-reporting — the vendor-FREE CrashReporter interface + models. The
+            // Sentry KMP SDK is an `implementation`-scoped transitive dep of :infra:sentry, so it NEVER
+            // reaches the app's compile classpath (invariant #16).
+            implementation(projects.infra.sentry)
             // Mobile #3 — Ktor KMP client + serialization + datetime for token expiration.
             implementation(libs.ktor.kmp.clientCore)
             implementation(libs.ktor.kmp.clientContentNegotiation)
@@ -207,6 +222,11 @@ android {
                 "SUPABASE_ANON_KEY",
                 "\"${(project.findProperty("devSupabaseAnonKey") as String?) ?: "REPLACE_WITH_DEV_SUPABASE_ANON_KEY"}\"",
             )
+            // mobile-sentry-crash-reporting — per-flavor Sentry DSN (a write-only client ingest key,
+            // not a secret) + environment tag. Empty until the operator provisions it (task 1.3); an
+            // empty DSN makes init no-op. Overridable via -PdevSentryDsn=.
+            buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("devSentryDsn") as String?) ?: ""}\"")
+            buildConfigField("String", "SENTRY_ENVIRONMENT", "\"dev\"")
         }
         create("staging") {
             dimension = "env"
@@ -236,6 +256,10 @@ android {
                     )
             buildConfigField("String", "SUPABASE_URL", "\"$stagingSupabaseUrl\"")
             buildConfigField("String", "SUPABASE_ANON_KEY", "\"$stagingSupabaseAnonKey\"")
+            // mobile-sentry-crash-reporting — staging Sentry DSN (operator-supplied; empty → init no-ops).
+            // Overridable via -PstagingSentryDsn=.
+            buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("stagingSentryDsn") as String?) ?: ""}\"")
+            buildConfigField("String", "SENTRY_ENVIRONMENT", "\"staging\"")
         }
         create("production") {
             dimension = "env"
@@ -243,6 +267,10 @@ android {
             buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"REPLACE_WITH_PRODUCTION_SERVER_CLIENT_ID.apps.googleusercontent.com\"")
             buildConfigField("String", "SUPABASE_URL", "\"https://REPLACE_WITH_PROD_SUPABASE_REF.supabase.co\"")
             buildConfigField("String", "SUPABASE_ANON_KEY", "\"REPLACE_WITH_PRODUCTION_SUPABASE_ANON_KEY\"")
+            // mobile-sentry-crash-reporting — production Sentry DSN (operator-supplied; empty → init no-ops).
+            // Overridable via -PprodSentryDsn=.
+            buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("prodSentryDsn") as String?) ?: ""}\"")
+            buildConfigField("String", "SENTRY_ENVIRONMENT", "\"production\"")
         }
     }
 

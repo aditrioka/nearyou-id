@@ -11,9 +11,13 @@ import java.io.File
  * chat-realtime-broadcast Phase 8.4 follow-on (one-shot greps in 8.3 catch the current
  * state but don't prevent future drift).
  *
- * Forbidden import prefixes are checked against the source roots of `:core:domain`,
- * `:core:data`, and `:backend:ktor`. `:infra:*` modules are deliberately exempt — they
- * are the canonical homes for vendor SDK adapters.
+ * Two scopes, because the forbidden vendor differs by module set:
+ *  - **Server-side SDKs** (Supabase / Lettuce / Firebase Admin) are checked against `:core:domain`,
+ *    `:core:data`, `:backend:ktor`. `:infra:*` modules are the canonical homes (exempt).
+ *  - The **Sentry KMP SDK** (`io.sentry.`) is checked against `:mobile:app` — it must reach Sentry
+ *    ONLY through the `:infra:sentry` `CrashReporter` interface (mobile-crash-reporting). The
+ *    server-side prefixes are deliberately NOT applied to `mobile/app/src`: the mobile app
+ *    legitimately depends on Firebase/Google *client* SDKs (a different surface from the Admin SDK).
  *
  * Pattern mirrors the existing source-scan tests for `BlockExclusionJoinRule`,
  * `RawFromPostsRule`, `RedisHashTagRule`, etc., which run as kotest specs in this module
@@ -23,27 +27,12 @@ import java.io.File
 class VendorSdkLeakageScanTest : StringSpec({
     val repoRoot = File(System.getProperty("user.dir"), "../../").canonicalFile
 
-    val nonInfraSourceRoots =
-        listOf(
-            File(repoRoot, "core/domain/src"),
-            File(repoRoot, "core/data/src"),
-            File(repoRoot, "backend/ktor/src"),
-        )
-
-    val forbiddenPrefixes =
-        listOf(
-            // Supabase server-side SDKs — `:infra:supabase` is the canonical home.
-            "io.supabase.",
-            "io.github.jan-tennert.supabase.",
-            // Lettuce — `:infra:redis` is the canonical home.
-            "io.lettuce.",
-            // Firebase Admin SDK — `:infra:fcm` is the canonical home.
-            "com.google.firebase.",
-        )
-
-    "no Supabase / Lettuce / Firebase SDK imports outside :infra:*" {
+    fun scanImports(
+        roots: List<File>,
+        prefixes: List<String>,
+    ): List<String> {
         val violations = mutableListOf<String>()
-        nonInfraSourceRoots.forEach { root ->
+        roots.forEach { root ->
             if (!root.exists()) return@forEach
             root
                 .walkTopDown()
@@ -53,22 +42,60 @@ class VendorSdkLeakageScanTest : StringSpec({
                     text.lineSequence().forEachIndexed { idx, line ->
                         val trimmed = line.trimStart()
                         if (!trimmed.startsWith("import ")) return@forEachIndexed
-                        forbiddenPrefixes.forEach { prefix ->
+                        prefixes.forEach { prefix ->
                             if (trimmed.contains("import $prefix")) {
-                                violations.add(
-                                    "${ktFile.relativeTo(repoRoot)}:${idx + 1}: $trimmed",
-                                )
+                                violations.add("${ktFile.relativeTo(repoRoot)}:${idx + 1}: $trimmed")
                             }
                         }
                     }
                 }
         }
+        return violations
+    }
+
+    "no Supabase / Lettuce / Firebase SDK imports outside :infra:*" {
+        val serverRoots =
+            listOf(
+                File(repoRoot, "core/domain/src"),
+                File(repoRoot, "core/data/src"),
+                File(repoRoot, "backend/ktor/src"),
+            )
+        val serverPrefixes =
+            listOf(
+                // Supabase server-side SDKs — `:infra:supabase` is the canonical home.
+                "io.supabase.",
+                "io.github.jan-tennert.supabase.",
+                // Lettuce — `:infra:redis` is the canonical home.
+                "io.lettuce.",
+                // Firebase Admin SDK — `:infra:fcm` is the canonical home.
+                "com.google.firebase.",
+            )
+        val violations = scanImports(serverRoots, serverPrefixes)
         if (violations.isNotEmpty()) {
             error(
                 "Vendor SDK imports detected outside :infra:* modules — these belong in" +
                     " an `:infra:<vendor>` module per CLAUDE.md § Critical invariants. Move the" +
                     " import to the appropriate `:infra:*` adapter and depend on a domain" +
                     " interface from the violating module.\n\n" + violations.joinToString("\n"),
+            )
+        }
+        violations shouldBe emptyList()
+    }
+
+    "no Sentry SDK imports in :mobile:app — reach Sentry only via :infra:sentry" {
+        // mobile-crash-reporting (invariant #16): :mobile:app must NOT import the Sentry KMP SDK
+        // directly — it depends on the vendor-free `CrashReporter` interface in :infra:sentry, where
+        // the `io.sentry.` import is fenced + `implementation`-scoped.
+        val violations =
+            scanImports(
+                roots = listOf(File(repoRoot, "mobile/app/src")),
+                prefixes = listOf("io.sentry."),
+            )
+        if (violations.isNotEmpty()) {
+            error(
+                "Sentry KMP SDK imports detected in :mobile:app — the vendor SDK is fenced to" +
+                    " :infra:sentry (CLAUDE.md invariant #16). Depend on the `CrashReporter`" +
+                    " interface (id.nearyou.app.infra.sentry) instead.\n\n" + violations.joinToString("\n"),
             )
         }
         violations shouldBe emptyList()

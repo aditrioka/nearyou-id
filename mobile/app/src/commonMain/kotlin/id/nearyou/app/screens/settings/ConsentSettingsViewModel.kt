@@ -26,6 +26,11 @@ import kotlin.coroutines.cancellation.CancellationException
 class ConsentSettingsViewModel(
     private val flow: ConsentFlow,
     private val snapshotStore: ConsentSnapshotStore,
+    // mobile-crash-reporting — apply the new `crash` consent immediately on a successful save (close on
+    // decline / re-init on re-consent), per docs/06 § Enforcement "toggles apply immediately". Defaults
+    // no-op so the screen/tests that don't wire it are unaffected; the screen passes
+    // `CrashReportingController::applyConsent`.
+    private val onCrashConsentChanged: (Boolean) -> Unit = {},
 ) : ViewModel() {
     private val seed: ConsentSnapshot =
         snapshotStore.read() ?: ConsentSnapshot(analytics = false, crash = true, adsPersonalization = false)
@@ -72,6 +77,7 @@ class ConsentSettingsViewModel(
                             adsPersonalization = _ads.value,
                         ),
                     )
+                    onCrashConsentChanged(_crash.value)
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
