@@ -8,8 +8,8 @@ Image upload is the largest unbuilt premium feature (`docs/02-Product.md` §6 is
   - **Flag gate** — reads the existing `image_upload_enabled` Remote Config flag (default **FALSE**); returns **403** when off. Mirrors the `search_enabled` kill-switch precedent in `SearchService` (with the opposite default).
   - **Premium gate** — Free tier = **0** uploads (rejected); Premium = entitled. Uses the `PREMIUM_STATES = {premium_active, premium_billing_retry}` precedent (grace-period users keep access), matching `CreatePostService`/`PostEditService`.
   - **Quota + throttle** — Premium **50 uploads/day** + **1 per 60 s** per user, on the existing Redis rate-limit infrastructure (`computeTTLToNextReset(user_id)` WIB-midnight stagger; `{scope:…}` hash tags), mirroring like/reply/chat limiters.
-  - **Upfront moderation** — synchronous Google Cloud Vision **Safe Search**; **reject** (image never stored) when adult OR violent OR racy likelihood > 0.8.
-  - **Size guard** — server-side **5 MB** max.
+  - **Upfront moderation** — synchronous Google Cloud Vision **Safe Search**; **reject** (image never stored) when `adult` OR `violence` OR `racy` likelihood is `LIKELY` or `VERY_LIKELY` (the categorical `Likelihood` enum — docs/02's ">0.8" is conceptual).
+  - **Input guards** — server-side **5 MB** streamed size limit (multipart-bomb guard) + an `image/*` content-type allowlist (415 on non-image).
   - **Store** — upload to Cloudflare Images; delivery URL on `img-staging.nearyou.id` / `img.nearyou.id` (resolved Open Decision #32).
 - **New `:infra:cloudflare-images` module** — Cloudflare Images upload behind an interface; **fail-soft** (feature-unavailable) when unconfigured, per the FCM/RevenueCat precedent.
 - **New `:infra:cloud-vision` module** — Google Cloud Vision Safe Search behind an interface; **fail-soft** when unconfigured (no vendor SDK import outside `:infra:*`).

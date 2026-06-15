@@ -52,7 +52,7 @@ docs/11 §3.3 (operator-ratified 2026-06-11) names `image_upload_enabled` as the
 
 **D8 — Secrets via `secretKey(env, name)`; new `staging-*`-prefixed slots.** `cloudflare-images-api-token`, `cloudflare-images-account-hash`, `gcp-vision-sa` (service-account JSON). Names documented in `docs/05` secrets list (tasks item); values are operator-provisioned (slot names in source are non-sensitive per the public-repo posture).
 
-**D9 — Validation order (fail cheap first).** flag-gate (Redis-cached) → authenticate → premium-gate → throttle (1/60s) → daily-quota reserve (50) → size guard (5 MB, streamed) → Safe Search → CF upload → ledger INSERT → 201. Each earlier stage avoids the cost of the later ones (no Vision/CF call for a flag-off / Free / throttled / over-quota / oversized request).
+**D9 — Validation order (fail cheap first).** flag-gate (Redis-cached) → authenticate → premium-gate → throttle (1/60s) → daily-quota reserve (50) → size guard (5 MB, streamed) + `image/*` content-type allowlist → Safe Search → CF upload → ledger INSERT → 201. Each earlier stage avoids the cost of the later ones (no Vision/CF call for a flag-off / Free / throttled / over-quota / oversized request).
 
 ## Risks / Trade-offs
 

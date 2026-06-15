@@ -13,7 +13,7 @@
 - [ ] 3.1 Scaffold `infra/cloud-vision` (KMP/JVM as appropriate): interface `ImageModerator { fun isConfigured(): Boolean; suspend fun safeSearch(bytes: ByteArray): SafeSearchVerdict }` returning plain Kotlin types (the `RemoteConfigClient` interface precedent); `SafeSearchVerdict(adult, violence, racy)` with a `Likelihood` enum.
 - [ ] 3.2 Single vendor impl (`google-cloud-vision` SDK) + fail-soft `NoOpImageModerator` (unconfigured → `isConfigured()=false`); factory reading the SA via `secretKey(env, "gcp-vision-sa")`. Never throws — null/unavailable on error.
 - [ ] 3.3 Add the `com.google.cloud:google-cloud-vision` pin to `gradle/libs.versions.toml` + a `docs/09-Versions.md` Decisions-log row (rationale + re-check date).
-- [ ] 3.4 Unit tests: verdict mapping (LIKELY/VERY_LIKELY → reject for adult/violence; racy logged-not-blocked); NoOp unconfigured behavior.
+- [ ] 3.4 Unit tests: verdict mapping (LIKELY/VERY_LIKELY → reject for adult/violence/racy; POSSIBLE and lower → pass); NoOp unconfigured behavior.
 
 ## 4. :infra:cloudflare-images module (server-side upload)
 
