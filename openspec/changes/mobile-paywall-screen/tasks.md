@@ -57,7 +57,7 @@
 ## 10. Reconciliation + docs
 
 - [ ] 10.1 Set the disclosure-footer string to the verbatim `docs/01-Business.md` § Pricing & Payment clause "Fitur Premium dapat berubah atau ditambahkan seiring waktu." (confirmed present at docs/01:30; same text as the frame-17 footer).
-- [ ] 10.2 Resolve design Open Question D7 (tenure ladder): implement per the review decision (recommended: omit the live ladder from v1).
+- [x] 10.2 Resolve design Open Question D7 (tenure ladder): implement per the review decision (recommended: omit the live ladder from v1).
 
 ## 11. Verification + housekeeping
 
