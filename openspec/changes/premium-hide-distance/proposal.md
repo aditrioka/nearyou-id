@@ -11,6 +11,7 @@
 - New write endpoint `PATCH /api/v1/user/hide-distance` (JWT-required, boolean body), mirroring the `PATCH /api/v1/user/consent` precedent. `hide_distance_opt_in` is a fresh column — **not** `username` and **not** `private_profile_opt_in` — so it is outside both the username-write and privacy-flag-write Detekt allowlists (no `@allow-*` annotation; no new lint invariant).
 - Mobile: promote the deferred Settings "Sembunyikan jarak" row to a **backed Premium-gated toggle** wired to the new endpoint (Free users see the existing Premium upsell / disabled affordance); make the Nearby wire DTO's `distanceM` nullable so an omitted value parses (the shared `PostCard` already renders city-only when `distanceM` is null — no card change).
 - `:shared:distance` `DistanceRenderer.render(Double): String` stays a **pure formatter** (unchanged); suppression is a visibility decision at the Nearby read path that omits the field before rendering.
+- **Amends canonical docs (reviewer item 8):** `docs/05` § "Distance Floor + Rounding + Fuzz Order (`renderDistance`)" and `docs/01` § Hide Distance Mechanics still describe a `renderDistance(viewer, post, hideDistance)` renderer-parameter hide model; the shipped `distance-rendering` spec already superseded that with the pure `DistanceRenderer.render(Double)`, and this change implements hide-distance as **server-side field omission upstream of the pure renderer**. This PR reconciles both docs to that model (prose/code only — no docs/05 §-coordinate renumbering).
 - **Deferred (named so a follow-up has something to MODIFY):** the Premium Tenure Counter (separate docs/01 feature); any change to the 5km floor or jitter order; adding viewer-relative distance to post-detail / search (those staying null is intentional).
 
 ## Capabilities
@@ -29,6 +30,7 @@
 - **Backend (`:backend:ktor`):** new `user`-package endpoint + repository write; Nearby timeline service + SQL projection + DTO change (`timeline` package).
 - **Mobile (`:mobile:app`):** `SettingsScreen` toggle + a write client; `NearbyPostDto` (`timeline` package) nullability; new Compose Multiplatform Resources strings.
 - **Shared (`:shared:distance`):** no API change (`render()` stays pure).
+- **Docs:** amends `docs/05` § renderDistance + `docs/01` § Hide Distance Mechanics to the shipped pure-renderer + upstream-omission model (the prior `renderDistance(…, hideDistance)` description is stale relative to the shipped `distance-rendering` spec).
 - **Specs:** 1 new (`hide-distance`) + 3 modified (`nearby-timeline`, `mobile-settings`, `mobile-nearby-timeline`).
 - **No new library / `libs.versions.toml` change.** Reuses existing Ktor, DataStore, Compose, kotlinx.serialization.
 - **Follow-up:** partially resolves [#267](https://github.com/aditrioka/nearyou-id/issues/267) (the "Sembunyikan jarak" deferred row).

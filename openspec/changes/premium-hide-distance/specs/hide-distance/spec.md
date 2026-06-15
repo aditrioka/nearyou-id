@@ -14,7 +14,7 @@ The `users` table SHALL carry a `hide_distance_opt_in BOOLEAN NOT NULL DEFAULT F
 
 ### Requirement: PATCH /api/v1/user/hide-distance writes the flag for the authenticated caller
 
-The backend SHALL expose `PATCH /api/v1/user/hide-distance` (Bearer JWT via `AUTH_PROVIDER_USER`) accepting a body `{"hideDistance": <boolean>}` and persisting it to the caller's `users.hide_distance_opt_in` with a single-statement `UPDATE`. A successful write SHALL return HTTP `200` echoing the stored value. The write SHALL be permitted for any caller regardless of `subscription_status` (the flag's *effect* is read-gated per the effectiveness requirement; storing intent is harmless and mirrors how a Free user may hold a stale `private_profile_opt_in = TRUE` after a downgrade). The endpoint SHALL require a valid JWT and reject an unauthenticated request with `401`. The column is neither `username` nor `private_profile_opt_in`, so the write is outside both the username-write and privacy-flag-write lint allowlists and requires no `@allow-*` annotation.
+The backend SHALL expose `PATCH /api/v1/user/hide-distance` (Bearer JWT via `AUTH_PROVIDER_USER`) accepting a body `{"hideDistance": <boolean>}` and persisting it to the caller's `users.hide_distance_opt_in` with a single-statement `UPDATE`. A successful write SHALL return HTTP `200` echoing the stored value. The write SHALL be permitted for any caller regardless of `subscription_status` (the flag's *effect* is read-gated per the effectiveness requirement; storing intent is harmless and mirrors how a Free user may hold a stale `private_profile_opt_in = TRUE` after a downgrade). The endpoint SHALL require a valid JWT and reject an unauthenticated request with `401`. The column is neither `username` nor `private_profile_opt_in`, so the write is outside both the username-write and privacy-flag-write lint allowlists and requires no `@allow-*` annotation. The target user is the JWT principal (`principal.userId`) ONLY — the endpoint accepts NO user-id path or body parameter, so it has no IDOR surface — and it enforces the standard request-body transport cap (mirroring the `ConsentRoutes` precedent).
 
 #### Scenario: Enabling persists the flag
 - **WHEN** an authenticated user sends `PATCH /api/v1/user/hide-distance` with `{"hideDistance": true}`
@@ -31,6 +31,10 @@ The backend SHALL expose `PATCH /api/v1/user/hide-distance` (Bearer JWT via `AUT
 #### Scenario: A Free user may store the flag (no read effect)
 - **WHEN** a `free` user sends `{"hideDistance": true}`
 - **THEN** the response is `200` AND `hide_distance_opt_in` is `TRUE` AND (per the effectiveness requirement) the flag has no effect on any distance rendering while the user is `free`
+
+#### Scenario: The write targets the JWT principal only (no IDOR)
+- **WHEN** an authenticated user calls `PATCH /api/v1/user/hide-distance`
+- **THEN** the `UPDATE` targets the principal's own `users` row only AND the endpoint exposes no user-id path/body parameter that could target another user's row
 
 ### Requirement: hide_distance_opt_in is effective only while the user is Premium
 
