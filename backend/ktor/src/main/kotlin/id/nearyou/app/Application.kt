@@ -103,6 +103,7 @@ import id.nearyou.app.infra.repo.JdbcSinglePostRepository
 import id.nearyou.app.infra.repo.JdbcUserBlockRepository
 import id.nearyou.app.infra.repo.JdbcUserFollowsRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.infra.repo.PostEditHistoryQuery
 import id.nearyou.app.infra.repo.PostRepository
 import id.nearyou.app.infra.repo.PostsFollowingRepository
 import id.nearyou.app.infra.repo.PostsGlobalRepository
@@ -133,8 +134,11 @@ import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.notifications.NotificationService
 import id.nearyou.app.notifications.notificationRoutes
 import id.nearyou.app.post.CreatePostService
+import id.nearyou.app.post.PostEditRateLimiter
+import id.nearyou.app.post.PostEditService
 import id.nearyou.app.post.PostRateLimiter
 import id.nearyou.app.post.PostReadService
+import id.nearyou.app.post.postEditRoutes
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.post.singlePostRoutes
 import id.nearyou.app.search.SearchRateLimiter
@@ -739,6 +743,24 @@ fun Application.module() {
             rateLimiter = PostRateLimiter(rateLimiter),
             dbDispatcher = dbDispatchers.db,
         )
+    // premium-post-editing: PATCH /api/v1/posts/{post_id} + GET .../edits. Mirrors
+    // createPostService wiring — same shared Redis-backed rateLimiter (a DISTINCT
+    // PostEditRateLimiter scope key), the same Layer 3 scope/moderator + moderation
+    // queue + content guard, and the bounded dbDispatcher.
+    val postEditService =
+        PostEditService(
+            dataSource = dataSource,
+            posts = postRepository,
+            contentGuard = contentLengthGuard,
+            textModerator = textModerator,
+            moderationQueue = moderationQueueRepository,
+            rateLimiter = PostEditRateLimiter(rateLimiter),
+            remoteConfig = remoteConfig,
+            layer3DispatcherScope = layer3DispatcherScope,
+            layer3Moderator = layer3Moderator,
+            dbDispatcher = dbDispatchers.db,
+        )
+    val postEditHistoryQuery = PostEditHistoryQuery(dataSource)
     val followService =
         FollowService(
             dataSource = dataSource,
@@ -993,6 +1015,7 @@ fun Application.module() {
     revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)
     postRoutes(createPostService)
     singlePostRoutes(postReadService)
+    postEditRoutes(postEditService, postEditHistoryQuery)
     blockRoutes(blockService)
     followRoutes(followService)
     userSocialRoutes(followService)
