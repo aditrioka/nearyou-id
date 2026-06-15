@@ -99,6 +99,20 @@ postgresql-jdbc = "42.7.11"
 # artifact (it brings `navigation3-runtime`/`-common` + `savedstate` transitively); there is no
 # separate `org.jetbrains.androidx.navigation3:navigation3-runtime` to declare.
 navigation3 = "1.1.1"
+# mobile-sentry-crash-reporting — Sentry Kotlin Multiplatform SDK (crash + error reporting on
+# Android + iOS). Pre-1.0 but actively maintained. Apply-phase substrate re-check (2026-06-14)
+# confirms 0.26.0 as the current best option: the "not fully tested for CMP" caveat applies only
+# to advanced CMP integrations (UI auto-tracking, getsentry/sentry-kotlin-multiplatform#185), NOT
+# the basic crash/error capture this change scopes. Alternatives (CrashKiOS, moko-crash-reporting)
+# target Crashlytics/Bugsnag and would contradict the locked Sentry-provider decision (docs/04
+# unified dashboard + docs/08 Open Decision #17). Vendor import fenced to :infra:sentry (invariant #16).
+sentry-kmp = "0.26.0"
+# mobile-sentry-crash-reporting — the sentry-cocoa Pod version REQUIRED by sentry-kotlin-multiplatform
+# 0.26.0 per the SDK's Cocoa SDK Version Compatibility table (verified 2026-06-14: 0.26.0 → 8.58.2).
+# Linked into the iOS ComposeApp framework via the :mobile:app cocoapods block (linkOnly=true — the KMP
+# SDK klib owns the bindings; the Pod provides only the framework binary at link time). A mismatch here
+# surfaces as an iOS `ld: framework 'Sentry' not found` / symbol error.
+sentryCocoaIos = "8.58.2"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -212,6 +226,11 @@ lettuce-core = { module = "io.lettuce:lettuce-core", version.ref = "lettuce" }
 # realtime-kt is declared version-less against it. Consumed ONLY by :infra:supabase-realtime.
 supabase-bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "supabase" }
 supabase-realtime = { module = "io.github.jan-tennert.supabase:realtime-kt" }
+
+# Sentry Kotlin Multiplatform SDK — mobile crash + error reporting (mobile-crash-reporting).
+# Consumed ONLY by :infra:sentry; the vendor import is fenced there (invariant #16). See the
+# `sentry-kmp` version pin for the apply-phase substrate re-check rationale + #17 fallback.
+sentry-kotlinMultiplatform = { module = "io.sentry:sentry-kotlin-multiplatform", version.ref = "sentry-kmp" }
 
 # OpenTelemetry: SDK + API + exporter come from `opentelemetry-bom` (stable);
 # per-library instrumentation (Ktor 3.0, JDBC, Lettuce 5.1) comes from

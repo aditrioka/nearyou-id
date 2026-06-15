@@ -8,6 +8,7 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -161,7 +162,76 @@ class AdminIndexStatsRouteTest : StringSpec({
             body shouldContain "<dt>Last</dt><dd>—</dd>"
         }
     }
+
+    "operational dashboard renders the new widget sections" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.get("/admin/") {
+                    header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
+                }
+            res.status shouldBe HttpStatusCode.OK
+            val body = res.bodyAsText()
+            body shouldContain "Operational dashboard"
+            body shouldContain "Quick links"
+            body shouldContain "Activity"
+            body shouldContain ">Posts<"
+            body shouldContain ">Signups<"
+            body shouldContain "Top cities"
+            // pg_database_size is callable by the test role → the System card renders.
+            body shouldContain "Database size"
+            // Deferred-cluster widgets are NOT rendered (spec negative guard).
+            body shouldNotContain "Subscription"
+            body shouldNotContain "CSAM"
+            body shouldNotContain "RevenueCat"
+        }
+    }
+
+    "any authenticated admin role can view the read-only dashboard" {
+        val moderator =
+            AdminAuthTestSupport.seedAdmin(dataSource, role = "moderator").also { seededAdmins.add(it.id) }
+        val token = AdminAuthTestSupport.seedSession(dataSource, moderator.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.get("/admin/") {
+                    header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
+                }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "Welcome back"
+        }
+    }
+
+    "viewing the dashboard writes no admin_actions_log row" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        // beforeEach truncated admin_actions_log → start at 0.
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            client.get("/admin/") {
+                header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
+            }
+        }
+        auditRowCount(dataSource) shouldBe 0L
+    }
+
+    "unauthenticated dashboard request redirects to the login page" {
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/")
+            res.status shouldBe HttpStatusCode.Found
+            (res.headers[HttpHeaders.Location]?.contains("/admin/login") ?: false) shouldBe true
+        }
+    }
 })
+
+private fun auditRowCount(dataSource: DataSource): Long =
+    dataSource.connection.use { conn ->
+        conn.prepareStatement("SELECT COUNT(*) FROM admin_actions_log").use { ps ->
+            ps.executeQuery().use { rs ->
+                rs.next()
+                rs.getLong(1)
+            }
+        }
+    }
 
 private fun cleanStatTables(dataSource: DataSource) {
     dataSource.connection.use { conn ->

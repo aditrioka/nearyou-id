@@ -1,6 +1,7 @@
 package id.nearyou.app.screens.routing
 
 import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.followlist.FollowListTab
 import kotlinx.serialization.Serializable
 
 /*
@@ -136,6 +137,26 @@ data object ConsentSettingsRoute : NavKey
 @Serializable
 data class ProfileRoute(
     val userId: String,
+) : NavKey
+
+/**
+ * Follower/following member-list surface ([id.nearyou.app.screens.followlist.FollowListScreen]), opened by
+ * tapping the profile's follower/following counts (`mobile-follow-lists`). Pushed onto the ROOT back stack
+ * above [HomeRoute] (overlaying the section bar — the [ProfileRoute] mechanism). A payload-carrying
+ * `@Serializable data class`, so it MUST be registered in the `navSavedStateConfiguration` polymorphic
+ * `SerializersModule` (the iOS-saveable back stack requirement).
+ *
+ * Carries ONLY [userId] — the profile whose lists to read (the `GET /api/v1/users/{userId}/followers` +
+ * `/following` resource key) — plus [initialTab], the deep-link target tab (the tapped count's side:
+ * follower count → [FollowListTab.Followers]; following count → [FollowListTab.Following]). [userId] is the
+ * target's UUID, supplied by the host from the resolved profile id; it is NEVER rendered as a UI string
+ * (only the API path param) and is distinct from coordinate-PII / token material. It MUST NOT carry any
+ * `latitude`/`longitude` or token.
+ */
+@Serializable
+data class FollowListRoute(
+    val userId: String,
+    val initialTab: FollowListTab,
 ) : NavKey
 
 /**

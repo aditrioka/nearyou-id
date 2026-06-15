@@ -20,9 +20,9 @@ import id.nearyou.app.auth.routes.authRoutes
 import id.nearyou.app.auth.routes.realtimeRoutes
 import id.nearyou.app.auth.session.RefreshTokenService
 import id.nearyou.app.auth.signup.InviteCodePrefixDeriver
-import id.nearyou.app.auth.signup.NoopUsernameHistoryRepository
 import id.nearyou.app.auth.signup.SignupService
 import id.nearyou.app.auth.signup.UsernameGenerator
+import id.nearyou.app.auth.signup.UsernameHistoryRepository
 import id.nearyou.app.auth.signup.WordPairResource
 import id.nearyou.app.auth.signup.signupRoutes
 import id.nearyou.app.block.BlockRateLimiter
@@ -78,9 +78,12 @@ import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.redis.NoOpRedisStringCache
 import id.nearyou.app.infra.redis.RedisStringCache
 import id.nearyou.app.infra.redis.redisHandlesFromUrl
+import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigClient
 import id.nearyou.app.infra.remoteconfig.RemoteConfigInitException
+import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.firebaseRemoteConfigClient
+import id.nearyou.app.infra.remoteconfig.remoteConfigServerPublisher
 import id.nearyou.app.infra.repo.JdbcLayer3ModerationWriter
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
@@ -100,6 +103,7 @@ import id.nearyou.app.infra.repo.JdbcSinglePostRepository
 import id.nearyou.app.infra.repo.JdbcUserBlockRepository
 import id.nearyou.app.infra.repo.JdbcUserFollowsRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.infra.repo.PostEditHistoryQuery
 import id.nearyou.app.infra.repo.PostRepository
 import id.nearyou.app.infra.repo.PostsFollowingRepository
 import id.nearyou.app.infra.repo.PostsGlobalRepository
@@ -130,13 +134,19 @@ import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.notifications.NotificationService
 import id.nearyou.app.notifications.notificationRoutes
 import id.nearyou.app.post.CreatePostService
+import id.nearyou.app.post.PostEditRateLimiter
+import id.nearyou.app.post.PostEditService
 import id.nearyou.app.post.PostRateLimiter
 import id.nearyou.app.post.PostReadService
+import id.nearyou.app.post.postEditRoutes
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.post.singlePostRoutes
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
 import id.nearyou.app.search.searchRoutes
+import id.nearyou.app.subscription.SubscriptionEventRepository
+import id.nearyou.app.subscription.SubscriptionService
+import id.nearyou.app.subscription.revenueCatWebhookRoutes
 import id.nearyou.app.timeline.FollowingTimelineService
 import id.nearyou.app.timeline.GlobalTimelineService
 import id.nearyou.app.timeline.NearbyTimelineService
@@ -149,10 +159,14 @@ import id.nearyou.app.user.FcmTokenRepository
 import id.nearyou.app.user.JdbcActorUsernameLookup
 import id.nearyou.app.user.JdbcUserFcmTokenReader
 import id.nearyou.app.user.JdbcUserProfileReader
+import id.nearyou.app.user.JdbcUsernameHistoryRepository
 import id.nearyou.app.user.UserProfileService
+import id.nearyou.app.user.UsernameChangeService
+import id.nearyou.app.user.UsernameRateLimiter
 import id.nearyou.app.user.consentRoutes
 import id.nearyou.app.user.fcmTokenRoutes
 import id.nearyou.app.user.userProfileRoutes
+import id.nearyou.app.user.userUsernameRoutes
 import id.nearyou.data.repository.ActorUsernameLookup
 import id.nearyou.data.repository.Layer3ModerationWriter
 import id.nearyou.data.repository.ModerationQueueRepository
@@ -372,13 +386,16 @@ fun Application.module() {
     val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource)
 
     val reservedUsernames: ReservedUsernameRepository = JdbcReservedUsernameRepository(dataSource)
+    // Real username_history binding (premium-username-customization) — shared by
+    // the signup generator (release-hold collision check) and the change service.
+    val usernameHistoryRepository: UsernameHistoryRepository = JdbcUsernameHistoryRepository()
     val rejectedIdentifiers: RejectedIdentifierRepository = JdbcRejectedIdentifierRepository(dataSource)
     val wordPairs = WordPairResource.loadFromClasspath()
     val usernameGenerator =
         UsernameGenerator(
             words = wordPairs,
             reserved = reservedUsernames,
-            history = NoopUsernameHistoryRepository(),
+            history = usernameHistoryRepository,
             users = userRepository,
         )
     val inviteSecretBase64 =
@@ -483,6 +500,17 @@ fun Application.module() {
                     throw e
                 }
             }
+        }
+    val remoteConfigPublisher: RemoteConfigPublisher =
+        when (ktorEnv) {
+            "test" -> NoOpRemoteConfigPublisher
+            else ->
+                // Same firebase-admin-sa credential as the read client above; the
+                // operator grants that SA the Remote Config write role (no new slot).
+                // remoteConfigServerPublisher returns NoOp (panel renders read-only)
+                // on a blank/unparseable secret rather than throwing — the read
+                // client already fail-fasted on a truly-missing secret above.
+                remoteConfigServerPublisher(secrets.resolve("firebase-admin-sa").orEmpty())
         }
     val moderationListLoader: ModerationListLoader =
         CachingModerationListLoader(
@@ -715,6 +743,24 @@ fun Application.module() {
             rateLimiter = PostRateLimiter(rateLimiter),
             dbDispatcher = dbDispatchers.db,
         )
+    // premium-post-editing: PATCH /api/v1/posts/{post_id} + GET .../edits. Mirrors
+    // createPostService wiring — same shared Redis-backed rateLimiter (a DISTINCT
+    // PostEditRateLimiter scope key), the same Layer 3 scope/moderator + moderation
+    // queue + content guard, and the bounded dbDispatcher.
+    val postEditService =
+        PostEditService(
+            dataSource = dataSource,
+            posts = postRepository,
+            contentGuard = contentLengthGuard,
+            textModerator = textModerator,
+            moderationQueue = moderationQueueRepository,
+            rateLimiter = PostEditRateLimiter(rateLimiter),
+            remoteConfig = remoteConfig,
+            layer3DispatcherScope = layer3DispatcherScope,
+            layer3Moderator = layer3Moderator,
+            dbDispatcher = dbDispatchers.db,
+        )
+    val postEditHistoryQuery = PostEditHistoryQuery(dataSource)
     val followService =
         FollowService(
             dataSource = dataSource,
@@ -738,6 +784,15 @@ fun Application.module() {
             dispatcher = notificationDispatcher,
             rateLimiter = rateLimiter,
             remoteConfig = remoteConfig,
+            dbDispatcher = dbDispatchers.db,
+        )
+    val subscriptionEventRepository = SubscriptionEventRepository()
+    val subscriptionService =
+        SubscriptionService(
+            dataSource = dataSource,
+            repository = subscriptionEventRepository,
+            notifications = notificationEmitter,
+            dispatcher = notificationDispatcher,
             dbDispatcher = dbDispatchers.db,
         )
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
@@ -841,6 +896,19 @@ fun Application.module() {
             remoteConfig = remoteConfig,
             dbDispatcher = dbDispatchers.db,
         )
+    val usernameChangeService =
+        UsernameChangeService(
+            dataSource = dataSource,
+            users = userRepository,
+            reserved = reservedUsernames,
+            history = usernameHistoryRepository,
+            moderationQueue = moderationQueueRepository,
+            textModerator = textModerator,
+            notificationEmitter = notificationEmitter,
+            remoteConfig = remoteConfig,
+            rateLimiter = UsernameRateLimiter(rateLimiter = rateLimiter),
+            dbDispatcher = dbDispatchers.db,
+        )
     val reportService =
         ReportService(
             dataSource = dataSource,
@@ -905,6 +973,8 @@ fun Application.module() {
                 single { likeService }
                 single<PostReplyRepository> { postReplyRepository }
                 single { replyService }
+                single { subscriptionEventRepository }
+                single { subscriptionService }
                 single<PostsTimelineRepository> { postsTimelineRepository }
                 single { nearbyTimelineService }
                 single<PostsFollowingRepository> { postsFollowingRepository }
@@ -942,8 +1012,10 @@ fun Application.module() {
     signupRoutes(signupService)
     realtimeRoutes(realtimeIssuer)
     appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())
+    revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)
     postRoutes(createPostService)
     singlePostRoutes(postReadService)
+    postEditRoutes(postEditService, postEditHistoryQuery)
     blockRoutes(blockService)
     followRoutes(followService)
     userSocialRoutes(followService)
@@ -956,6 +1028,7 @@ fun Application.module() {
     globalTimelineRoutes(globalTimelineService, timelineReadRateLimiter)
     reportRoutes(reportService)
     searchRoutes(searchService)
+    userUsernameRoutes(usernameChangeService)
     notificationRoutes(notificationService)
     fcmTokenRoutes(fcmTokenRepository)
     consentRoutes(consentRepository)
@@ -1013,6 +1086,7 @@ fun Application.module() {
             Base64.getDecoder().decode(base64)
         },
         environmentName = ktorEnv,
+        remoteConfigPublisher = remoteConfigPublisher,
     )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime

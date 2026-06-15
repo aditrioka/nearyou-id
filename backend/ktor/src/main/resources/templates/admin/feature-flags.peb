@@ -1,0 +1,10 @@
+{% extends "layout.peb" %}
+
+{% block title %}Feature Flags — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Feature Flag Admin</h2>
+<p class="pg-sub">Firebase Remote Config toggles — audit-logged, rate-limited</p>
+
+{% include "feature-flags-content.peb" %}
+{% endblock %}

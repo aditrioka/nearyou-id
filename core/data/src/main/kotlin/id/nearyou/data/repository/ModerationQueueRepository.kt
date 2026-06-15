@@ -51,4 +51,23 @@ interface ModerationQueueRepository {
         targetType: ReportTargetType,
         targetId: UUID,
     ): Boolean
+
+    /**
+     * `INSERT INTO moderation_queue (target_type, target_id, trigger) VALUES
+     * (?, ?, 'username_flagged') ON CONFLICT (target_type, target_id, trigger)
+     * DO NOTHING`. Written by `premium-username-customization` when a Premium
+     * username-change candidate trips the profanity / UU-ITE moderation pipeline:
+     * the change is rejected upfront and a standing admin-awareness row is left.
+     *
+     * Idempotent per V9's `(target_type, target_id, trigger)` UNIQUE — a user's
+     * 2nd+ flagged candidate is a silent no-op (one standing username-flag per
+     * user, NOT one row per attempt). Callers pass `targetType = USER`,
+     * `targetId = <user id>`. Returns `true` when a new row was inserted, `false`
+     * when the ON CONFLICT branch fired.
+     */
+    fun upsertUsernameFlaggedRow(
+        conn: Connection,
+        targetType: ReportTargetType,
+        targetId: UUID,
+    ): Boolean
 }

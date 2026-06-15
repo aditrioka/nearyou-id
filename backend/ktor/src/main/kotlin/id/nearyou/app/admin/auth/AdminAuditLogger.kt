@@ -317,6 +317,169 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for an admin-initiated CHAT MESSAGE REDACTION
+     * (`admin-chat-message-redaction` capability): `POST /admin/chat-messages/
+     * {id}/redact` setting the redaction flags on a `chat_messages` row. Joins
+     * the caller's [conn] so this audit INSERT commits atomically with the
+     * `chat_messages` UPDATE + the participant `chat_message_redacted`
+     * notifications in ONE transaction (mirrors [logModerationQueueResolved]).
+     * `targetType = 'chat_message'`, `targetId` = the redacted message id; the
+     * free-text [reason] is stored here (audit-only) and is NEVER serialized on
+     * the chat data plane. `beforeState` captures the original row (content or
+     * embedded-post snapshot); `afterState` records the redacted result.
+     * `adminId` is the acting human admin, never the `system` sentinel.
+     */
+    fun logChatRedaction(
+        conn: Connection,
+        adminId: UUID,
+        messageId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "admin_chat_redaction",
+            adminId = adminId,
+            targetType = "chat_message",
+            targetId = messageId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a feature-flag publish (`admin-feature-flags` capability):
+     * exactly one immutable row per applied Server-template parameter write.
+     * Joins the caller's [conn] so the rate-limit COUNT and this INSERT read +
+     * append the same ledger snapshot on one connection (the count can't drift
+     * from the ledger it gates — design D3). `action_type='feature_flag_toggled'`,
+     * `target_type='feature_flag'`, `target_id`=the parameter name;
+     * [beforeState]/[afterState] record the value transition (e.g.
+     * `{"value":"false"}` → `{"value":"true"}`); [reason] is the mandatory
+     * operator-supplied free text. `adminId` is the acting human admin, never the
+     * `system` sentinel.
+     */
+    fun logFeatureFlagToggled(
+        conn: Connection,
+        adminId: UUID,
+        parameterName: String,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "feature_flag_toggled",
+            adminId = adminId,
+            targetType = "feature_flag",
+            targetId = parameterName,
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a reserved-username editor ADD (`admin-reserved-usernames-
+     * editor` capability): a single add or one inserted CSV bulk row. Joins the
+     * caller's [conn] so the audit INSERT commits atomically with the
+     * `reserved_usernames` INSERT in the repository transaction. `targetType =
+     * 'reserved_username'`, `targetId` = the username (the `target_id` TEXT
+     * column holds it directly); [afterState] records `{username, reason,
+     * source}`. The action carries no separate free-text justification, so
+     * `reason` is null (the reserved entry's own reason lives in [afterState]).
+     * `adminId` is the acting human admin, never the `system` sentinel.
+     */
+    fun logReservedUsernameAdded(
+        conn: Connection,
+        adminId: UUID,
+        username: String,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "reserved_username_added",
+            adminId = adminId,
+            targetType = "reserved_username",
+            targetId = username,
+            reason = null,
+            beforeState = null,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a reserved-username editor REASON EDIT (`admin-reserved-
+     * usernames-editor`). Joins the caller's [conn] so the audit INSERT commits
+     * atomically with the `reserved_usernames` UPDATE. [beforeState]/[afterState]
+     * record the old/new `{reason}`. `adminId` is the acting human admin.
+     */
+    fun logReservedUsernameEdited(
+        conn: Connection,
+        adminId: UUID,
+        username: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "reserved_username_edited",
+            adminId = adminId,
+            targetType = "reserved_username",
+            targetId = username,
+            reason = null,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a reserved-username editor REMOVE (`admin-reserved-usernames-
+     * editor`). Joins the caller's [conn] so the audit INSERT commits atomically
+     * with the `reserved_usernames` DELETE. [beforeState] records the removed
+     * `{username, reason, source}`. `adminId` is the acting human admin.
+     */
+    fun logReservedUsernameRemoved(
+        conn: Connection,
+        adminId: UUID,
+        username: String,
+        beforeState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "reserved_username_removed",
+            adminId = adminId,
+            targetType = "reserved_username",
+            targetId = username,
+            reason = null,
+            beforeState = beforeState,
+            afterState = null,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Own-connection audit write for the standalone login / logout / CSRF
      * events — opens, writes, and (via `use`) closes its own connection.
      * There is nothing to be atomic against on those paths, so each is a

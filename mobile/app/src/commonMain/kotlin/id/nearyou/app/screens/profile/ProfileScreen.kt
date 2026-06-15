@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.profile
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ReportReasonCategory
 import id.nearyou.app.profile.UserProfile
@@ -71,7 +74,9 @@ import id.nearyou.resources.generated.resources.profile_block_success_toast
 import id.nearyou.resources.generated.resources.profile_follow
 import id.nearyou.resources.generated.resources.profile_follow_rate_limited
 import id.nearyou.resources.generated.resources.profile_followers_count
+import id.nearyou.resources.generated.resources.profile_followers_open_cd
 import id.nearyou.resources.generated.resources.profile_following_count
+import id.nearyou.resources.generated.resources.profile_following_open_cd
 import id.nearyou.resources.generated.resources.profile_not_found
 import id.nearyou.resources.generated.resources.profile_premium_badge
 import id.nearyou.resources.generated.resources.profile_premium_badge_icon_description
@@ -133,6 +138,7 @@ fun ProfileScreen(
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
     onSettings: () -> Unit = {},
+    onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit = { _, _ -> },
 ) {
     val flow = koinInject<ProfileFlow>()
     val selfUserIdProvider = koinInject<SelfUserIdProvider>()
@@ -179,6 +185,7 @@ fun ProfileScreen(
                 onBlockConfirmed = viewModel::onBlockConfirmed,
                 onReportSubmitted = viewModel::onReportSubmitted,
                 onRetry = viewModel::retry,
+                onOpenFollowList = onOpenFollowList,
                 modifier = Modifier.fillMaxSize().padding(padding),
             )
         }
@@ -196,6 +203,7 @@ fun ProfileScreen(
                 onBlockConfirmed = viewModel::onBlockConfirmed,
                 onReportSubmitted = viewModel::onReportSubmitted,
                 onRetry = viewModel::retry,
+                onOpenFollowList = onOpenFollowList,
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
         }
@@ -237,6 +245,7 @@ private fun ProfileBody(
     onBlockConfirmed: () -> Unit,
     onReportSubmitted: (ReportReasonCategory, String?) -> Unit,
     onRetry: () -> Unit,
+    onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -253,6 +262,7 @@ private fun ProfileBody(
                     onToggleFollow = onToggleFollow,
                     onBlockConfirmed = onBlockConfirmed,
                     onReportSubmitted = onReportSubmitted,
+                    onOpenFollowList = onOpenFollowList,
                 )
         }
     }
@@ -266,6 +276,7 @@ private fun ProfileContent(
     onToggleFollow: () -> Unit,
     onBlockConfirmed: () -> Unit,
     onReportSubmitted: (ReportReasonCategory, String?) -> Unit,
+    onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit,
 ) {
     var showBlockDialog by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
@@ -310,19 +321,32 @@ private fun ProfileContent(
                 textAlign = TextAlign.Center,
             )
         }
-        // Static (non-tappable) follower / following counts — no clickable node (lists are deferred).
+        // Tappable follower / following counts → the member-list surface (mobile-follow-lists). Each count
+        // navigates to FollowListRoute at the matching tab. The count VALUES are a read snapshot of a raw
+        // public aggregate (NOT viewer-filtered) and are NOT mutated locally — only navigation is emitted;
+        // the list may legitimately render fewer rows than the count (design D3). Applies to self + other.
+        val followersOpenCd = stringResource(Res.string.profile_followers_open_cd)
+        val followingOpenCd = stringResource(Res.string.profile_following_open_cd)
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             Text(
                 text = stringResource(Res.string.profile_followers_count, profile.followerCount),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.testTag(PROFILE_FOLLOWERS_TAG),
+                modifier =
+                    Modifier
+                        .testTag(PROFILE_FOLLOWERS_TAG)
+                        .clickable { onOpenFollowList(profile.userId, FollowListTab.Followers) }
+                        .semantics { contentDescription = followersOpenCd },
             )
             Text(
                 text = stringResource(Res.string.profile_following_count, profile.followingCount),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.testTag(PROFILE_FOLLOWING_TAG),
+                modifier =
+                    Modifier
+                        .testTag(PROFILE_FOLLOWING_TAG)
+                        .clickable { onOpenFollowList(profile.userId, FollowListTab.Following) }
+                        .semantics { contentDescription = followingOpenCd },
             )
         }
         // Actions are other-user only (the endpoint's isSelf is authoritative).

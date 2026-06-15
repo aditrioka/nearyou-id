@@ -1,5 +1,8 @@
 package id.nearyou.app.auth
 
+import id.nearyou.app.diagnostics.FakeCrashReporter
+import id.nearyou.app.infra.sentry.CrashReporter
+import id.nearyou.app.infra.sentry.NoOpCrashReporter
 import id.nearyou.app.network.HttpClientFactory
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
@@ -30,6 +33,7 @@ class AuthRepositoryTest {
         gateway: GoogleSignInGateway,
         tokenStore: InMemoryTokenStore = InMemoryTokenStore(),
         diagnosticLog: (String) -> Unit = {},
+        crashReporter: CrashReporter = NoOpCrashReporter,
         handler: MockRequestHandler,
     ): AuthRepository {
         val sessionInvalidator = SessionInvalidator(tokenStore)
@@ -49,6 +53,7 @@ class AuthRepositoryTest {
             tokenStore = tokenStore,
             sessionInvalidator = sessionInvalidator,
             diagnosticLog = diagnosticLog,
+            crashReporter = crashReporter,
         )
     }
 
@@ -284,5 +289,32 @@ class AuthRepositoryTest {
             assertNull(store.read())
             assertTrue(signalled)
             collector.cancel()
+        }
+
+    // ----- mobile-crash-reporting: opaque-sub user correlation -----
+
+    @Test
+    fun `successful sign-in sets the crash-reporter user to the access-token sub`() =
+        runTest {
+            // Access token whose base64url payload is {"sub":"user-123"} — never username/email.
+            val jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.sig"
+            val crash = FakeCrashReporter()
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", "Test User", "test@example.com")),
+                    crashReporter = crash,
+                ) { respond("""{"access_token":"$jwt","refresh_token":"rt-1","expires_in":900}""", HttpStatusCode.OK, JSON_HEADERS) }
+
+            assertEquals(SignInOutcome.Success, repo.signInWithGoogle())
+            assertEquals("user-123", crash.lastUserId)
+        }
+
+    @Test
+    fun `session invalidation clears the crash-reporter user`() =
+        runTest {
+            val crash = FakeCrashReporter()
+            val store = InMemoryTokenStore(TokenPair("at", "rt", 1L))
+            SessionInvalidator(store, crashReporter = crash).invalidate()
+            assertEquals(1, crash.clearUserCount)
         }
 }

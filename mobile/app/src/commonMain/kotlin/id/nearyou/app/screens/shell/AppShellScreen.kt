@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.screens.home.HomeScreen
@@ -117,6 +118,7 @@ fun AppShellScreen(
     onOpenProfile: (authorUserId: String) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit = { _, _ -> },
 ) {
     val flow = koinInject<NotificationsFlow>()
     var selectedSection by rememberSaveable { mutableStateOf(Section.Home) }
@@ -208,8 +210,15 @@ fun AppShellScreen(
                 }
                 // The live self profile (mobile-profile): targetUserId = null → the VM resolves the self
                 // id from the session; onBack = null → inset-free section body, no own Scaffold/back bar.
-                // onSettings → the hoisted onOpenSettings: the self section's gear pushes SettingsRoute (#288).
-                Section.Profil -> ProfileScreen(targetUserId = null, onBack = null, onSettings = onOpenSettings)
+                // onSettings → the gear pushes SettingsRoute (#288); onOpenFollowList → the tappable
+                // follower/following counts push FollowListRoute (#298). Both hoisted to appEntryProvider.
+                Section.Profil ->
+                    ProfileScreen(
+                        targetUserId = null,
+                        onBack = null,
+                        onSettings = onOpenSettings,
+                        onOpenFollowList = onOpenFollowList,
+                    )
             }
         }
     }
