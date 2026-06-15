@@ -2,7 +2,7 @@
 
 ### Requirement: Invite code resolves to an inviter
 
-When a signup request carries a non-empty `invite_code`, the system SHALL resolve it to an inviter via an exact-match O(1) lookup on the `users.invite_code_prefix` UNIQUE index (the invite code a user shares IS their `invite_code_prefix`). The lookup MUST restrict to live rows (`deleted_at IS NULL`). An `invite_code` that resolves to no live user SHALL produce no referral ticket, and signup MUST proceed unaffected.
+When a signup request carries a non-empty `invite_code`, the system SHALL resolve it to an inviter via an exact-match O(1) lookup on the `users.invite_code_prefix` UNIQUE index (the invite code a user shares IS their `invite_code_prefix`, matched in full by exact string equality). Because `invite_code_prefix` is `VARCHAR(8)` today, every live code is 8 characters; the resolver is length-agnostic (a plain equality match) so it needs no length-specific handling if the column is ever widened for the `InviteCodePrefixDeriver` 10-char collision fallback (currently unreachable under the `VARCHAR(8)` width — see `InviteCodePrefixDeriver` KDoc). The lookup MUST restrict to live rows (`deleted_at IS NULL`). An `invite_code` that resolves to no live user SHALL produce no referral ticket, and signup MUST proceed unaffected.
 
 #### Scenario: Valid invite code resolves
 - **WHEN** signup is called with `invite_code` equal to a live user's `invite_code_prefix`
@@ -18,7 +18,7 @@ When a signup request carries a non-empty `invite_code`, the system SHALL resolv
 
 ### Requirement: Inviter eligibility validation
 
-A resolved inviter MUST pass ALL of the following for a ticket to be created: the inviter exists and is not soft-deleted; the inviter is not banned (`is_banned = FALSE`); the inviter's account age is strictly greater than 30 days (`created_at < NOW() - INTERVAL '30 days'`); and the inviter is not the invitee (`inviter_user_id <> invitee_user_id`). Any failed check SHALL produce no ticket, silently.
+A resolved inviter MUST pass ALL of the following for a ticket to be created: the inviter exists and is live (the resolver's `deleted_at IS NULL` filter already guarantees liveness — re-stated here as the eligibility contract, not a second query); the inviter is not banned (`is_banned = FALSE`); the inviter's account age is strictly greater than 30 days (`created_at < NOW() - INTERVAL '30 days'`); and the inviter is not the invitee (`inviter_user_id <> invitee_user_id`). Any failed check SHALL produce no ticket, silently.
 
 #### Scenario: Banned inviter produces no ticket
 - **WHEN** the resolved inviter has `is_banned = TRUE`
@@ -34,7 +34,7 @@ A resolved inviter MUST pass ALL of the following for a ticket to be created: th
 
 ### Requirement: Invitee anti-abuse validation at signup time
 
-Before a ticket is created the system SHALL apply two signup-time anti-abuse checks: (1) the invitee's `device_fingerprint_hash` MUST NOT equal the inviter's when both are non-null (a collision blocks the ticket); and (2) the inviter MUST NOT already have 3 referral tickets created within a rolling 7-day window (per-inviter burst rate), enforced via the shared `RateLimiter` over a Redis key of the form `rate:{inviter:<inviter_id>}:referral_ticket`. A failed check SHALL produce no ticket, silently.
+Before a ticket is created the system SHALL apply two signup-time anti-abuse checks: (1) the invitee's `device_fingerprint_hash` MUST NOT equal the inviter's when both are non-null (a collision blocks the ticket); and (2) the inviter MUST NOT already have 3 referral tickets created within a rolling 7-day window (per-inviter burst rate), enforced via the shared `RateLimiter` axis-agnostic entry point over the Redis key `{scope:referral_ticket}:{inviter:<inviter_id>}`. A failed check SHALL produce no ticket, silently.
 
 #### Scenario: Device fingerprint collision blocks ticket
 - **WHEN** the invitee's non-null `device_fingerprint_hash` equals the inviter's non-null `device_fingerprint_hash`
@@ -50,7 +50,7 @@ Before a ticket is created the system SHALL apply two signup-time anti-abuse che
 
 #### Scenario: Burst-rate key uses the cluster-safe hash-tag format
 - **WHEN** the per-inviter burst-rate limiter constructs its Redis key
-- **THEN** the key contains a `{scope:<value>}` hash tag (e.g. `rate:{inviter:<id>}:referral_ticket`) so multi-key operations co-locate on one cluster slot
+- **THEN** the key has the two-segment hash-tagged shape `{scope:referral_ticket}:{inviter:<id>}` (matching the `rate-limit-infrastructure` non-per-user key contract) so multi-key operations co-locate on one cluster slot AND the scope does not end in `_day` (it stays a sliding window, not a fixed daily window)
 
 ### Requirement: Referral ticket persistence
 
