@@ -15,8 +15,8 @@
 
 ## 3. Strings (CMP Resources only)
 
-- [ ] 3.1 Add the new CMP string keys to `:shared:resources` (`composeResources/values/strings.xml` + dark/locale variants as applicable): the 6 benefit labels, period labels (Mingguan/Bulanan/Tahunan), `Hemat`/per-day/`Paling hemat` format strings, the paywall hero/title, the Unconfigured ("Premium belum tersedia") copy, the disclosure-footer lines, and any paywall-specific CTA copy (reuse the existing `cta_activate_premium` / `cta_close` where they fit).
-- [ ] 3.2 Update `SharedStringsCatalogTest` to include the new keys (the catalog-completeness gate).
+- [x] 3.1 Add the new CMP string keys to `:shared:resources` (`composeResources/values/strings.xml` + dark/locale variants as applicable): the 6 benefit labels, period labels (Mingguan/Bulanan/Tahunan), `Hemat`/per-day/`Paling hemat` format strings, the paywall hero/title, the Unconfigured ("Premium belum tersedia") copy, the disclosure-footer lines, and any paywall-specific CTA copy (reuse the existing `cta_activate_premium` / `cta_close` where they fit).
+- [x] 3.2 Update `SharedStringsCatalogTest` to include the new keys (the catalog-completeness gate).
 
 ## 4. Route + navigation
 

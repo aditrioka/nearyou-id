@@ -73,6 +73,26 @@ import id.nearyou.resources.generated.resources.notifications_empty
 import id.nearyou.resources.generated.resources.notifications_loading
 import id.nearyou.resources.generated.resources.notifications_mark_all_read
 import id.nearyou.resources.generated.resources.notifications_title
+import id.nearyou.resources.generated.resources.paywall_benefit_hide_distance
+import id.nearyou.resources.generated.resources.paywall_benefit_no_ads
+import id.nearyou.resources.generated.resources.paywall_benefit_radius
+import id.nearyou.resources.generated.resources.paywall_benefit_search_edit
+import id.nearyou.resources.generated.resources.paywall_benefit_unlimited
+import id.nearyou.resources.generated.resources.paywall_benefit_username
+import id.nearyou.resources.generated.resources.paywall_best_value
+import id.nearyou.resources.generated.resources.paywall_disclosure
+import id.nearyou.resources.generated.resources.paywall_per_day
+import id.nearyou.resources.generated.resources.paywall_period_monthly
+import id.nearyou.resources.generated.resources.paywall_period_weekly
+import id.nearyou.resources.generated.resources.paywall_period_yearly
+import id.nearyou.resources.generated.resources.paywall_purchase_error
+import id.nearyou.resources.generated.resources.paywall_savings
+import id.nearyou.resources.generated.resources.paywall_subhead_default
+import id.nearyou.resources.generated.resources.paywall_subhead_like_cap
+import id.nearyou.resources.generated.resources.paywall_subhead_search
+import id.nearyou.resources.generated.resources.paywall_title
+import id.nearyou.resources.generated.resources.paywall_unavailable_body
+import id.nearyou.resources.generated.resources.paywall_unavailable_title
 import id.nearyou.resources.generated.resources.post_card_action_like
 import id.nearyou.resources.generated.resources.post_card_action_reply
 import id.nearyou.resources.generated.resources.post_card_handle
@@ -457,6 +477,27 @@ class SharedStringsCatalogTest {
             Res.string.follow_list_load_more_failed,
             Res.string.profile_followers_open_cd,
             Res.string.profile_following_open_cd,
+            // mobile-paywall-screen (frame 17)
+            Res.string.paywall_title,
+            Res.string.paywall_subhead_like_cap,
+            Res.string.paywall_subhead_search,
+            Res.string.paywall_subhead_default,
+            Res.string.paywall_benefit_unlimited,
+            Res.string.paywall_benefit_radius,
+            Res.string.paywall_benefit_hide_distance,
+            Res.string.paywall_benefit_username,
+            Res.string.paywall_benefit_search_edit,
+            Res.string.paywall_benefit_no_ads,
+            Res.string.paywall_period_weekly,
+            Res.string.paywall_period_monthly,
+            Res.string.paywall_period_yearly,
+            Res.string.paywall_per_day,
+            Res.string.paywall_savings,
+            Res.string.paywall_best_value,
+            Res.string.paywall_disclosure,
+            Res.string.paywall_unavailable_title,
+            Res.string.paywall_unavailable_body,
+            Res.string.paywall_purchase_error,
         )
 
     @Test
@@ -470,7 +511,10 @@ class SharedStringsCatalogTest {
         // provenance lives in the strings.xml block comments, not duplicated here.
         // + 8 (mobile-follow-lists: title + 2 tab labels + 2 empty states + load-more-failed + 2
         // tappable-count content descriptions; not-found/error/back reuse existing keys) = 198.
-        assertEquals(198, allDeclaredStrings.size)
+        // + 20 (mobile-paywall-screen, frame 17: title + 3 entry-context subheads + 6 benefits + 3 period
+        // labels + per-day + savings + best-value + disclosure + 2 unavailable + purchase-error; the CTA
+        // reuses cta_activate_premium and the close/retry reuse cta_close / cta_retry) = 218.
+        assertEquals(218, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }
