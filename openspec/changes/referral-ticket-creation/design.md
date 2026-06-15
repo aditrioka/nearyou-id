@@ -1,0 +1,64 @@
+## Context
+
+The referral system (docs/01-Business.md § Referral System; docs/08-Roadmap-Risk.md § Phase 4 items 21–23) is DESIGN-only today: `SignupService` ignores invite codes and there is no `referral_tickets` table (docs/05-Implementation.md § Referral System — DESIGN). The supporting sentinel columns already shipped in V2 — `users.invite_code_prefix VARCHAR(8) NOT NULL UNIQUE` (populated by `InviteCodePrefixDeriver`), `users.inviter_reward_claimed_at`, `users.device_fingerprint_hash` — and `subscription_events.source` already accepts `'referral'` (V21). The `invite-code-secret` slot is wired. This change builds the dependency-first slice: **create a `pending_activity` referral ticket at signup**. The activity-gate worker and the entitlement-grant machinery are deliberately separate downstream changes that consume the tickets this one writes.
+
+Current signup flow (`SignupService.signup`): verify provider id-token → rejected-identifier pre-check → DOB parse + age gate → user-exists collision → derive `invite_code_prefix` → atomic `users` INSERT (own transaction) → issue access + refresh tokens (separate transaction). Referral ticket creation slots in as a new best-effort step after the `users` INSERT commits.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Accept an optional `invite_code` on `POST /api/v1/auth/signup` and, when eligible, create one `referral_tickets` row in `pending_activity` state.
+- Resolve the code O(1) via the shipped `users.invite_code_prefix` UNIQUE index.
+- Enforce signup-time eligibility: inviter (exists / not-deleted / not-banned / age > 30d / not-self) + invitee (device-fingerprint non-collision + per-inviter ≤ 3 tickets / 7-day burst).
+- Guarantee referral is **best-effort, non-blocking, silent** (anti-probing) and **audit-logged** server-side.
+- Keep signup thin; isolate referral as its own feature package for the future worker + grants.
+
+**Non-Goals (deferred, captured as negative-guard requirements):**
+- The `/internal/referral-activity-check` worker + 14-day activity gate (≥3 login-days, ≥2 posts, ≥5 sessions) and any `pending_activity → granted/expired` transition.
+- `granted_entitlements` table, RevenueCat Granted-Entitlements dispatch, inviter lifetime single-grant enforcement (`inviter_reward_claimed_at` sentinel + partial unique index).
+- IP-subnet (/24) overlap and recently-seen-identifier anti-collision checks (need login-history data not yet tracked).
+- Any mobile UI for entering / sharing invite codes (Settings entry is a later mobile change).
+
+## Decisions
+
+### D1 — Ticket creation runs after the user-insert COMMIT, in its own transaction, best-effort
+The referral step needs the committed `invitee_user_id`, and a referral failure must never roll back a real user. So it runs after the existing `users` INSERT commits, in a separate short transaction, with all exceptions swallowed (logged). *Alternative considered:* fold the ticket INSERT into the user-insert transaction — rejected: it would couple signup success to referral validity and risk rolling back a legitimate user on a referral hiccup. *Trade-off:* a crash between the user COMMIT and the ticket INSERT loses that referral with no retry (see Risks); acceptable at MVP — referral is a bonus, not a guarantee.
+
+### D2 — New `id.nearyou.app.referral` package behind a narrow interface
+Introduce `ReferralService` (validation + ticket rules + tx boundary) and `ReferralRepository` (referral_tickets SQL + inviter lookup). `SignupService` depends on a narrow `ReferralTicketCreator` interface (one method, best-effort) — cross-feature access via interface, never the other feature's tables (docs/11 §3.1). *Alternative:* inline the logic in the `auth.signup` package — rejected: referral is its own domain with a future worker + grant dispatcher; co-locating now keeps signup thin and gives the downstream changes a home to extend.
+
+### D3 — The invite code IS the inviter's `invite_code_prefix`; resolve via reverse UNIQUE lookup
+A user's shareable code is exactly their 8-char (or 10-char fallback) `invite_code_prefix` (base32lower, `InviteCodePrefixDeriver`). Resolution is `SELECT id, is_banned, created_at, device_fingerprint_hash FROM users WHERE invite_code_prefix = :code AND deleted_at IS NULL` — O(1) on the existing UNIQUE index, no scan. *Alternative:* a separate human-friendly `invite_codes` table — rejected: the prefix is already derived, unique, indexed, and documented as the O(1) resolution path (docs/00 cross-refs, docs/05 § Users Schema note).
+
+### D4 — `referral_tickets` FKs use `ON DELETE CASCADE` on both parties
+Both `inviter_user_id` and `invitee_user_id` are `NOT NULL REFERENCES users(id) ON DELETE CASCADE`, matching the user-referencing-table precedent (`follows` V6, `reports.reporter_id` V9, `user_blocks` V5). A ticket without both parties is meaningless, so `SET NULL` is wrong (columns are NOT NULL anyway). Hard-delete (tombstone cascade) removes the ticket; soft-delete (`deleted_at`) leaves it (and the inviter lookup already filters `deleted_at IS NULL`, so a soft-deleted inviter resolves to nothing).
+
+### D5 — Per-inviter burst rate via the shipped `RateLimiter` (7-day sliding window, max 3), checked last
+Reuse the `RateLimiter` interface (`:core:domain`) + Redis sliding-window binding (`rate-limit-infrastructure` spec) with key `rate:{inviter:<inviter_id>}:referral_ticket`, window 7 days, max 3 (docs/01 § Anti-Abuse: "Max 3 referrals/week"). The limiter is consulted as the LAST gate, after inviter + invitee validation pass, so only genuine ticket creations consume the budget (probing/invalid attempts do not). This is NOT a daily WIB-stagger limit, so `computeTTLToNextReset` does NOT apply (it is for midnight-reset daily caps). The `{scope:<value>}` hash-tag format satisfies `RedisHashTagRule`. *Alternative:* `SELECT COUNT(*) FROM referral_tickets WHERE inviter_user_id = :id AND created_at > NOW() - INTERVAL '7 days'` — correct but adds a query and a race window; the Redis limiter is the shipped, atomic, cheaper pattern.
+
+### D6 — Audit via structured logging, not a table or `admin_actions_log`
+Every attempt logs an outcome line (created / rejected + reason) following the existing `SignupService` `log.warn("signup.blocked …")` precedent. *Alternative:* a durable `referral_attempts` table — rejected: over-engineering for this slice, and rejected attempts are anti-probing-sensitive (we do not want a queryable enumeration surface). `admin_actions_log` is for admin-initiated actions only (invariant) — not applicable.
+
+### D7 — Idempotency via `UNIQUE(invitee_user_id)`
+One ticket per invitee registration ever. The UNIQUE constraint makes a double-submit / retry safe: a duplicate INSERT raises `unique_violation`, which the best-effort wrapper swallows. No `ON CONFLICT` needed (the first ticket wins).
+
+### Standards conformance
+Builds on the canonical **backend layering** pattern (docs/11 §3.1): thin `XxxRoutes` (the existing `signupRoutes` only gains a DTO field) → `XxxService` (referral rules in `ReferralService`; `SignupService` calls it via the `ReferralTicketCreator` interface) → repository/JDBC (`ReferralRepository`). Honors **JDBC discipline** (docs/11 §3.2): the referral tx runs on the shared bounded dispatcher, one transaction per operation. Reuses the existing **rate-limit** pattern (`rate-limit-infrastructure` spec; `RateLimiter` interface + Redis sliding window + `RedisHashTagRule`) rather than inventing a counter. **No new Pattern-Registry pattern is introduced**, so no docs/11 § Pattern Registry amendment is required. No `gradle/libs.versions.toml` change (no new substrate) → propose-time WebSearch not applicable.
+
+## Risks / Trade-offs
+
+- **Referral lost on crash between user COMMIT and ticket INSERT** → Accepted at MVP. Best-effort, no retry; the invitee simply isn't credited. Rare (single-instance window) and low-impact (a bonus, not correctness). A future worker could reconcile from a client-stored code if ever needed — out of scope.
+- **Redis unavailable for the burst limiter** → The referral path swallows limiter errors and creates **no** ticket (fail-closed on the referral only); signup is unaffected. Preferred over fail-open (which would remove the only burst guard).
+- **Invite-code enumeration / probing** → Mitigated by identical, silent signup responses (byte-identical apart from token values) and server-only audit logs. The resolution is a single indexed equality lookup, introducing no new timing oracle beyond the existing signup DB work.
+- **Self-invite is structurally near-impossible** (the invitee's id is freshly random and unknown to them at submit time) but the `inviter_user_id <> invitee_user_id` guard is retained as cheap defense-in-depth.
+- **Partial-index immutability** → The pending-scan index uses only the constant `status = 'pending_activity'` predicate (no `NOW()`), so it applies cleanly; the worker supplies `NOW()` at query time. Guards against the `WHERE … > NOW()` CI-lint trap.
+
+## Migration Plan
+
+- Additive `V23__referral_tickets.sql`: `CREATE TABLE referral_tickets` + partial pending index + `(inviter_user_id, status)` index. No `users` change (sentinel columns exist). No backfill.
+- Deploy via the standard Flyway-on-boot path (staging auto-deploy on merge). Pre-archive staging smoke per docs/11 §5 DoD (runtime-impacting backend change): confirm a signup with a seeded inviter code writes a `pending_activity` ticket and a signup with a garbage code still returns 201 with no ticket.
+- Rollback: drop `referral_tickets` (no other object depends on it; tickets carry no downstream state in this slice). The `invite_code` request field is optional and inert when the table is absent only if code is also reverted — so rollback is migration + code together, standard topic-branch revert.
+
+## Open Questions
+
+None blocking. Resolved during design: burst rate counts *successful creations* not raw attempts (D5); `expires_at = created_at + 14 days` per docs/01 (the activity-gate window the future worker enforces); statuses `granted`/`expired` are reserved in the CHECK now but only written by the future worker (negative-guard requirement).
