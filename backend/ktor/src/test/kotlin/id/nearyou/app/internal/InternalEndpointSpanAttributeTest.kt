@@ -443,6 +443,22 @@ private class FakeUserRepository(private val row: UserRow) : UserRepository {
         row: NewUserRow,
     ): UUID = error("unused")
 
+    override fun findByIdForUpdate(
+        conn: java.sql.Connection,
+        id: UUID,
+    ): UserRow? = error("unused")
+
+    override fun usernameExists(
+        conn: java.sql.Connection,
+        lowercaseCandidate: String,
+    ): Boolean = error("unused")
+
+    override fun updateUsername(
+        conn: java.sql.Connection,
+        id: UUID,
+        newUsername: String,
+    ) = error("unused")
+
     companion object {
         fun withSingleUser(id: UUID): FakeUserRepository =
             FakeUserRepository(

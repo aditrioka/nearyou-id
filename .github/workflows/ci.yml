@@ -114,6 +114,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # settings.gradle.kts ↔ Dockerfile drift guard. A non-mobile-gated
+      # include(":...") in settings.gradle.kts whose module dir isn't COPY'd into
+      # the Dockerfile builder breaks the backend image build (Gradle settings
+      # eval: "Configuring project ... without an existing directory") and thus
+      # EVERY staging/prod deploy — while this lint lane + the test lane stay
+      # green (they build outside Docker, with mobile included). Cheap pure-bash
+      # check, no JDK needed. Precedent: PR #247 (`:infra:supabase-realtime`).
+      - name: Verify settings.gradle.kts ↔ Dockerfile module-copy parity
+        run: ./dev/scripts/check-dockerfile-module-copies.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -205,6 +214,21 @@ jobs:
           DB_USER: postgres
           DB_PASSWORD: postgres
           REDIS_URL: redis://localhost:6379
+      # Flaky-test diagnostics (#287): when `test` fails, capture the Gradle test
+      # report + JUnit XML so the next 1/1403 `:backend:ktor:test` flake names
+      # itself (the failing test is only in the HTML report, not the console).
+      # `if: failure()` also fires on compile/infra failures (no report produced)
+      # → `if-no-files-found: ignore` keeps those runs noise-free.
+      - name: Upload backend test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-ktor-test-report
+          path: |
+            backend/ktor/build/reports/tests/test/**
+            backend/ktor/build/test-results/test/**
+          if-no-files-found: ignore
+          retention-days: 14
 
   # Runs Flyway against a Postgres instance configured to mirror a fresh
   # Supabase project — PostGIS installed-but-not-enabled, realtime/auth

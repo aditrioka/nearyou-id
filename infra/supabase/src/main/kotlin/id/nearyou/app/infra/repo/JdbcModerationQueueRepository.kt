@@ -49,4 +49,22 @@ class JdbcModerationQueueRepository : ModerationQueueRepository {
             return ps.executeUpdate() == 1
         }
     }
+
+    override fun upsertUsernameFlaggedRow(
+        conn: Connection,
+        targetType: ReportTargetType,
+        targetId: UUID,
+    ): Boolean {
+        conn.prepareStatement(
+            """
+            INSERT INTO moderation_queue (target_type, target_id, trigger)
+            VALUES (?, ?, 'username_flagged')
+            ON CONFLICT (target_type, target_id, trigger) DO NOTHING
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setString(1, targetType.wire)
+            ps.setObject(2, targetId)
+            return ps.executeUpdate() == 1
+        }
+    }
 }

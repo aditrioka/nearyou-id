@@ -4,12 +4,19 @@
 
 {% block content %}
 {% import "icons.peb" %}
-{# Board frame 2's landing: greeting + three LIVE stat cards + the CSRF info
-   banner (admin-mockup-parity spec Req "Scaffold landing renders greeting
-   and live stat cards"). The full Operational Dashboard is frame 3 — a
-   separate, later change that replaces this landing. #}
+{# Operational Dashboard (board frame 3; admin-operational-dashboard spec).
+   Greeting + three quick-link stat cards retained from frame 2
+   (admin-panel-scaffold Req "Scaffold landing renders greeting and live stat
+   cards"), plus the operational widgets — posts/signups/reports volume with
+   per-hour sparklines, top active cities, database size — all read-only
+   aggregates (no destructive controls on this page). Widgets whose data
+   source does not yet exist (subscription / CSAM / attestation / DAU·MAU /
+   Sentry / Amplitude / RevenueCat / Resend / health) are deliberately NOT
+   rendered — deferred per the spec, tracked in a follow-up. #}
 <h2>Welcome back, {{ adminName }}</h2>
-<p class="pg-sub">Scaffold landing — quick links below while the full Operational Dashboard is in design.</p>
+<p class="pg-sub">Operational dashboard — read-only platform overview.</p>
+
+<div class="section-title">Quick links</div>
 <div class="card-grid">
     <a class="cardlet" href="/admin/reports">
         <h4>{{ icon("flag") }}Report queue</h4>
@@ -24,6 +31,50 @@
         <dl class="kv"><dt>Actions today</dt><dd>{{ auditActionsToday }}</dd><dt>Last</dt><dd>{{ auditLastActionType }}</dd></dl>
     </a>
 </div>
+
+<div class="section-title">Activity — last 24 h</div>
+<div class="card-grid">
+    <div class="cardlet">
+        <h4>{{ icon("article") }}Posts</h4>
+        <dl class="kv"><dt>Last 24 h</dt><dd>{{ postsLast24h }}</dd></dl>
+        <span class="spark" aria-hidden="true">{% for h in postsSpark %}<i style="height: {{ h }}%"></i>{% endfor %}</span>
+    </div>
+    <div class="cardlet">
+        <h4>{{ icon("group") }}Signups</h4>
+        <dl class="kv"><dt>Last 24 h</dt><dd>{{ signupsLast24h }}</dd><dt>Age-gate rejected</dt><dd>{{ ageGateRejections24h }}</dd></dl>
+        <span class="spark" aria-hidden="true">{% for h in signupsSpark %}<i style="height: {{ h }}%"></i>{% endfor %}</span>
+    </div>
+    <div class="cardlet">
+        <h4>{{ icon("flag") }}Reports</h4>
+        <dl class="kv"><dt>Last 24 h</dt><dd>{{ reportsLast24h }}</dd></dl>
+        <span class="spark" aria-hidden="true">{% for h in reportsSpark %}<i style="height: {{ h }}%"></i>{% endfor %}</span>
+    </div>
+</div>
+
+<div class="section-title">Top cities — last 7 days</div>
+{% if topCities is empty %}
+<p class="pg-sub">No region-matched posts in the last 7 days.</p>
+{% else %}
+<div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>{{ icon("location_city") }}City</th><th>Posts</th></tr></thead>
+    <tbody>
+    {% for city in topCities %}
+        <tr><td>{{ city.cityName }}</td><td>{{ city.count }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% endif %}
+
+{% if dbSizePresent %}
+<div class="section-title">System</div>
+<div class="card-grid">
+    <div class="cardlet">
+        <h4>{{ icon("storage") }}Database size</h4>
+        <dl class="kv"><dt>Current</dt><dd>{{ dbSize }}</dd></dl>
+    </div>
+</div>
+{% endif %}
+
 <div class="banner info">{{ icon("info") }}
     <span>All admin pages live inside this shell. State-changing controls always carry the
     per-session CSRF token (hidden field for no-JS, <code>X-CSRF-Token</code> header via the

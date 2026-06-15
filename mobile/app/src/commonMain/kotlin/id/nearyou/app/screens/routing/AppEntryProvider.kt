@@ -9,6 +9,7 @@ import id.nearyou.app.screens.auth.SignInScreen
 import id.nearyou.app.screens.chat.ChatThreadScreen
 import id.nearyou.app.screens.chat.ConversationListScreen
 import id.nearyou.app.screens.consent.ConsentScreen
+import id.nearyou.app.screens.followlist.FollowListScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
 import id.nearyou.app.screens.profile.ProfileScreen
@@ -118,6 +119,10 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 // SearchRoute onto the root stack (above the shell, overlaying the section bar). Same
                 // call-site mechanism as onOpenComposer; the shell + app bar hold no back-stack reference.
                 onOpenSearch = { backStack.add(SearchRoute) },
+                // The self profile's tappable follower/following counts (mobile-follow-lists): push the
+                // tabbed list onto the root stack at the tapped count's tab. The self ProfileScreen resolves
+                // its own userId from the session and supplies it here; the route carries only userId + tab.
+                onOpenFollowList = { followUserId, tab -> backStack.add(FollowListRoute(followUserId, tab)) },
             )
         }
         entry<AgeGateRoute> {
@@ -173,7 +178,24 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // The other-user profile overlay (mobile-profile). `removeLastOrNull()` is size-safe:
             // ProfileRoute is only ever appended ATOP HomeRoute (the card identity tap), so popping it
             // leaves HomeRoute. targetUserId = the route's resource key; onBack pops the overlay.
-            ProfileScreen(targetUserId = route.userId, onBack = { backStack.removeLastOrNull() })
+            // onOpenFollowList (mobile-follow-lists): the tappable counts push the tabbed list onto the
+            // root stack at the tapped tab — the screen supplies the resolved profile userId.
+            ProfileScreen(
+                targetUserId = route.userId,
+                onBack = { backStack.removeLastOrNull() },
+                onOpenFollowList = { followUserId, tab -> backStack.add(FollowListRoute(followUserId, tab)) },
+            )
+        }
+        entry<FollowListRoute> { route ->
+            // The follower/following list overlay (mobile-follow-lists). `removeLastOrNull()` is size-safe:
+            // FollowListRoute is only ever appended ATOP HomeRoute (a profile-count tap). A row tap pushes
+            // the row user's profile onto the root stack; back pops the list.
+            FollowListScreen(
+                userId = route.userId,
+                initialTab = route.initialTab,
+                onBack = { backStack.removeLastOrNull() },
+                onOpenProfile = { rowUserId -> backStack.add(ProfileRoute(rowUserId)) },
+            )
         }
         entry<ConversationListRoute> {
             // The conversation list overlays the shell via the root stack (the Home app-bar "Pesan"

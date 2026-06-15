@@ -1,0 +1,82 @@
+{% extends "layout.peb" %}
+
+{% block title %}Reserved Usernames — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Reserved Usernames Editor</h2>
+<p class="pg-sub">Manage reserved/blocked handles in reserved_usernames — seed entries are protected</p>
+
+{# Adds create `admin_added` entries. System-seed rows are read-only (cannot be
+   edited/removed) — protected at the app layer AND the V3 DB trigger. #}
+<div class="banner info">
+    Adds create <code>admin_added</code> entries. System-seed entries are read-only
+    (cannot be edited or removed; protected at the app layer and the DB trigger).
+</div>
+
+{# Add-single + bulk forms live OUTSIDE the swapped #reserved-usernames-table so
+   they persist across HTMX swaps; both POST and target the table fragment. The
+   `_csrf` hidden field populates on this full-page render (csrfToken present);
+   under HTMX the layout's configRequest hook adds the X-CSRF-Token header. #}
+<div class="filterbar">
+    <form class="filters"
+          action="/admin/reserved-usernames"
+          method="POST"
+          hx-post="/admin/reserved-usernames"
+          hx-target="#reserved-usernames-table"
+          hx-swap="outerHTML">
+        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+        <label class="field">
+            <span>Username</span>
+            <input type="text" name="username" maxlength="30" placeholder="e.g. brandname" required>
+        </label>
+        <label class="field">
+            <span>Reason</span>
+            <input type="text" name="reason" maxlength="64" placeholder="why reserved" required>
+        </label>
+        <button type="submit" class="btn filled">Add</button>
+    </form>
+</div>
+
+<details class="bulk-add">
+    <summary>Bulk add (CSV)</summary>
+    <form action="/admin/reserved-usernames/bulk"
+          method="POST"
+          hx-post="/admin/reserved-usernames/bulk"
+          hx-target="#reserved-usernames-table"
+          hx-swap="outerHTML">
+        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+        <label class="field">
+            <span>Paste CSV — one <code>username,reason</code> per line (an optional <code>username,reason</code> header is skipped)</span>
+            <textarea name="csv" rows="6" placeholder="brandone,brand protection&#10;brandtwo,impersonation"></textarea>
+        </label>
+        <button type="submit" class="btn filled">Bulk add</button>
+    </form>
+</details>
+
+{# Filter + substring search — GET, swaps the table fragment, works as plain
+   navigation when JS is unavailable (progressive enhancement). #}
+<div class="filterbar">
+    <form class="filters"
+          hx-get="/admin/reserved-usernames"
+          hx-target="#reserved-usernames-table"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          method="GET">
+        <label class="field">
+            <span>Source</span>
+            <select name="source">
+                <option value="">all</option>
+                <option value="admin_added"{% if filters.source == "admin_added" %} selected{% endif %}>admin_added</option>
+                <option value="seed_system"{% if filters.source == "seed_system" %} selected{% endif %}>seed_system</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>Search username</span>
+            <input type="search" name="q" value="{{ filters.q | default('') }}" placeholder="substring">
+        </label>
+        <button type="submit" class="btn filled">Filter</button>
+    </form>
+</div>
+
+{% include "reserved-usernames-table.peb" %}
+{% endblock %}

@@ -33,6 +33,7 @@ val navSavedStateConfiguration: SavedStateConfiguration =
                     subclass(BlockedUsersRoute::class, BlockedUsersRoute.serializer())
                     subclass(ConsentSettingsRoute::class, ConsentSettingsRoute.serializer())
                     subclass(ProfileRoute::class, ProfileRoute.serializer())
+                    subclass(FollowListRoute::class, FollowListRoute.serializer())
                     subclass(ConversationListRoute::class, ConversationListRoute.serializer())
                     subclass(ChatThreadRoute::class, ChatThreadRoute.serializer())
                     subclass(SearchRoute::class, SearchRoute.serializer())

@@ -1,6 +1,7 @@
 package id.nearyou.app.screens.routing
 
 import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.followlist.FollowListTab
 import kotlinx.serialization.PolymorphicSerializer
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -45,6 +46,10 @@ class NavKeySerializationTest {
                 // The second payload-carrying route (mobile-profile) — a missing subclass(...) registration
                 // for ProfileRoute would fail this round-trip.
                 ProfileRoute("11111111-1111-1111-1111-555555555555"),
+                // The follower/following list route (mobile-follow-lists) — both tab variants exercise the
+                // @Serializable FollowListTab payload; a missing subclass(...) registration fails here.
+                FollowListRoute("11111111-1111-1111-1111-666666666666", FollowListTab.Followers),
+                FollowListRoute("11111111-1111-1111-1111-666666666666", FollowListTab.Following),
             )
         for (route in routes) {
             val encoded = json.encodeToString(navKeySerializer, route)

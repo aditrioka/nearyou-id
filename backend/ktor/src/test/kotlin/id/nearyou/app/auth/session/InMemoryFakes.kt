@@ -115,6 +115,25 @@ class InMemoryUsers(initial: List<UserRow> = emptyList()) : UserRepository {
             )
         return row.id
     }
+
+    override fun findByIdForUpdate(
+        conn: Connection,
+        id: UUID,
+    ): UserRow? = rows[id]
+
+    override fun usernameExists(
+        conn: Connection,
+        lowercaseCandidate: String,
+    ): Boolean = rows.values.any { it.username.lowercase() == lowercaseCandidate }
+
+    override fun updateUsername(
+        conn: Connection,
+        id: UUID,
+        newUsername: String,
+    ) {
+        val row = rows[id] ?: error("user $id not found")
+        rows[id] = row.copy(username = newUsername, usernameLastChangedAt = Instant.now())
+    }
 }
 
 fun userRow(

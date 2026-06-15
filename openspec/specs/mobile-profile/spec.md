@@ -2,11 +2,10 @@
 
 ## Purpose
 The `mobile-profile` capability is the `:mobile:app` profile surface — the keystone of the mobile critical path that turns the social-graph half of the product from a visible dead-end into a usable loop. It ships `ProfileScreen`, which renders a user's profile from the shipped `GET /api/v1/users/{user_id}` (`user-profile-read`) read, reachable both as the **self** profile in the Profil bottom-nav section and as an **other-user** root-stack overlay via the feed-card author-identity tap, and it adds the app's **first follow/unfollow action** plus user-level **block** and **report**. It is a pure consumer of already-shipped backend endpoints (`user-profile-read`, `follow-system`, `user-blocking`, `reports`) — no Flyway migration, no backend code — and it unblocks the live Following feed (which needs a follow action to be meaningful).
-
 ## Requirements
 ### Requirement: ProfileScreen renders a user's profile from the shipped profile read
 
-The mobile app SHALL ship a composable `ProfileScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/profile/ProfileScreen.kt`, replacing `ProfilePlaceholderScreen.kt`) that renders a user's profile from `GET /api/v1/users/{user_id}` (`user-profile-read`). It SHALL render, under `NearYouTheme` (light/dark): the **letter avatar + display name + `@username` handle** (reusing the `mobile-post-card` avatar derivation + deterministic-color mapping + @-handle `stringResource` format so the identity treatment cannot drift), the **bio** when non-null (omitted with no empty row when null), an actively-**Premium badge** when `isPremium = true` (an M3 icon + a `stringResource` label — never a color-only signal), and the **follower and following counts** as static numbers (per § "Follower and following counts render as static numbers"). No hardcoded UI string literals SHALL appear in the screen source. The screen SHALL be usable for both the **self** read (rendered in the shell's Profil section, inset-free, no own `Scaffold`/`TopAppBar`) and an **other-user** read (a root-stack overlay owning its own back-bar chrome) — the same composable parameterized by the resolved profile and the endpoint's `isSelf`.
+The mobile app SHALL ship a composable `ProfileScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/profile/ProfileScreen.kt`, replacing `ProfilePlaceholderScreen.kt`) that renders a user's profile from `GET /api/v1/users/{user_id}` (`user-profile-read`). It SHALL render, under `NearYouTheme` (light/dark): the **letter avatar + display name + `@username` handle** (reusing the `mobile-post-card` avatar derivation + deterministic-color mapping + @-handle `stringResource` format so the identity treatment cannot drift), the **bio** when non-null (omitted with no empty row when null), an actively-**Premium badge** when `isPremium = true` (an M3 icon + a `stringResource` label — never a color-only signal), and the **follower and following counts** as tappable entries to the member lists (per § "Follower and following counts are tappable entries to the member lists"). No hardcoded UI string literals SHALL appear in the screen source. The screen SHALL be usable for both the **self** read (rendered in the shell's Profil section, inset-free, no own `Scaffold`/`TopAppBar`) and an **other-user** read (a root-stack overlay owning its own back-bar chrome) — the same composable parameterized by the resolved profile and the endpoint's `isSelf`.
 
 #### Scenario: Profile renders identity, bio, and counts
 
@@ -144,7 +143,7 @@ The other-user kebab SHALL expose "Blokir @{username}" which opens a confirmatio
 
 ### Requirement: Report opens a 6-category reason picker mapped to the wire enum
 
-The other-user kebab SHALL expose "Laporkan" which opens a reason picker showing the six `docs/03-UX-Design.md` § Report UX categories — Spam / Ujaran kebencian (SARA) / Pelecehan / Konten dewasa / Misinformasi / Lainnya (each a `:shared:resources` string) — plus an optional note field of ≤200 Unicode code points (the submit disabled past 200 cp, matching the server bound; the note is omitted from the body when blank). Submitting SHALL issue `POST /api/v1/reports` with body `{ "target_type": "user", "target_id": "<userId>", "reason_category": "<mapped>", "reason_note"?: "<note>" }` (snake_case wire). A pure, exhaustively-tested commonMain mapping SHALL map each picker category to its wire `reason_category` value: Spam→`spam`, Ujaran kebencian (SARA)→`hate_speech_sara`, Pelecehan→`harassment`, Konten dewasa→`adult_content`, Misinformasi→`misinformation`, Lainnya→`other`. The wire values `self_harm` and `csam_suspected` are internal/automated classifications and MUST NOT appear in the picker. The repository maps results to `ReportOutcome` (`Submitted` (204) / `Duplicate` (409 `duplicate_report` — the shipped `ReportRoutes.kt` + `reports` spec requirement code; NOT the stale `reports.duplicate` in that spec's purpose line) / `RateLimited(retryAfterSeconds)` (429) / `NetworkError`). `Submitted` surfaces the success toast; `Duplicate` surfaces an "already reported" message; `429` surfaces the report rate-limit message.
+The other-user kebab SHALL expose "Laporkan" which opens a reason picker showing the six `docs/03-UX-Design.md` § Report UX categories — Spam / Ujaran kebencian (SARA) / Pelecehan / Konten dewasa / Misinformasi / Lainnya (each a `:shared:resources` string) — plus an optional note field of ≤200 Unicode code points (the submit disabled past 200 cp, matching the server bound; the note is omitted from the body when blank). Submitting SHALL issue `POST /api/v1/reports` with body `{ "target_type": "user", "target_id": "<userId>", "reason_category": "<mapped>", "reason_note"?: "<note>" }` (snake_case wire). A pure, exhaustively-tested commonMain mapping SHALL map each picker category to its wire `reason_category` value: Spam→`spam`, Ujaran kebencian (SARA)→`hate_speech_sara`, Pelecehan→`harassment`, Konten dewasa→`adult_content`, Misinformasi→`misinformation`, Lainnya→`other`. The wire values `self_harm` and `csam_suspected` are internal/automated classifications and MUST NOT appear in the picker. The repository maps results to `ReportOutcome` (`Submitted` (204) / `Duplicate` (409 `duplicate_report` — matching the shipped `ReportRoutes.kt` and the `reports` spec, whose purpose line was reconciled from the stale `reports.duplicate` to `duplicate_report` in the 2026-06-13 triage sweep) / `RateLimited(retryAfterSeconds)` (429) / `NetworkError`). `Submitted` surfaces the success toast; `Duplicate` surfaces an "already reported" message; `429` surfaces the report rate-limit message.
 
 #### Scenario: Report submits with the mapped wire enum
 
@@ -185,15 +184,6 @@ The mobile app SHALL model the screen state as a Compose-free `ProfileUiState` (
 
 - **WHEN** inspecting the `ProfileViewModel` + `ProfileUiState`
 - **THEN** the navigate-back / toast / banner one-shots are nullable `ProfileUiState` fields consumed via `onXxxShown()` callbacks AND no `Channel`/`SharedFlow` ViewModel→UI event bus is introduced
-
-### Requirement: Follower and following counts render as static numbers
-
-`ProfileScreen` SHALL render `followerCount` and `followingCount` as static numbers with a `stringResource` label. They SHALL NOT be tappable in this change — there SHALL be no clickable node on the count area and no follower/following list screen (no dead controls). The follower/following **list** screens (backed by `GET /api/v1/users/{user_id}/followers` and `/following` + `social-list-profile-summaries`) are deferred to a `follow-up` issue.
-
-#### Scenario: Counts are not tappable
-
-- **WHEN** the count area's semantics tree is inspected
-- **THEN** the follower and following counts render as text with no clickable node, and no navigation to a list screen is wired
 
 ### Requirement: Profile rendering carries no PII and does not log bodies
 
@@ -241,4 +231,24 @@ The change SHALL ship: (1) **commonTest** covering the `ProfileUiState` projecti
 
 - **WHEN** the test suite is run
 - **THEN** the commonTest projection/parse/mapping tests, the Robolectric `ProfileScreenTest`, and the iosTest flow test all exist and pass, AND `ProfileScreenTest` is in the Release-variant exclude block so `:mobile:app:testDevReleaseUnitTest` passes
+
+### Requirement: Follower and following counts are tappable entries to the member lists
+
+`ProfileScreen` SHALL render `followerCount` and `followingCount` as numbers with a `stringResource` label, and each count SHALL be a **tappable control** that navigates to the follower/following member-list surface (`mobile-follow-lists`) opened at the matching tab: tapping the **follower** count emits navigation to `FollowListRoute(userId, initialTab = Followers)` and tapping the **following** count emits navigation to `FollowListRoute(userId, initialTab = Following)`. Each count control SHALL expose a `stringResource` content description (no color-only or icon-only affordance). The tappable counts apply to **both** the self read and the other-user read (a user may browse their own and others' follower/following lists; the backend filters each list against the viewer regardless of owner). The displayed count VALUES remain a read snapshot of the raw public aggregate and SHALL NOT be mutated locally (unchanged from the prior behavior — a follow/unfollow elsewhere does not adjust the number here). The `userId` passed to `FollowListRoute` is the profile's resolved id (the same id the profile read used) and SHALL NOT be rendered as a UI string. The navigation SHALL be emitted to the host (the `mobile-home-tab-host` root-stack push mechanism), not performed by `ProfileScreen` directly.
+
+#### Scenario: Counts are tappable and navigate to the matching list tab
+
+- **WHEN** the follower count is activated, and again when the following count is activated
+- **THEN** the follower-count activation emits navigation to `FollowListRoute(userId, initialTab = Followers)` AND the following-count activation emits navigation to `FollowListRoute(userId, initialTab = Following)` AND each count is a clickable node in the semantics tree carrying a `stringResource` content description
+
+#### Scenario: Tapping a count does not mutate the displayed value
+
+- **GIVEN** a loaded profile with `followerCount = 12` and `followingCount = 34`
+- **WHEN** either count is activated
+- **THEN** the rendered count values remain 12 and 34 (only a navigation intent is emitted; no local count mutation)
+
+#### Scenario: Both self and other-user reads expose the tappable counts
+
+- **WHEN** `ProfileScreen` is rendered with `isSelf = true` and again with `isSelf = false`
+- **THEN** in both renders the follower and following counts are tappable controls wired to `FollowListRoute` with the profile's `userId` (the counts entry is independent of the follow/block/report actions, which remain `isSelf = false` only)
 

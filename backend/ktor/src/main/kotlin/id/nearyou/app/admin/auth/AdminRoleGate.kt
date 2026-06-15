@@ -26,6 +26,11 @@ object AdminRoleGate {
     /** Roles permitted to take a routine moderation write action. */
     val WRITE_ROLES: Set<String> = setOf("owner", "admin", "moderator")
 
+    /** The higher-trust tier permitted to take owner/admin-only actions
+     *  (permanent ban, chat-message redaction). Excludes `moderator` +
+     *  `read_only`. */
+    val OWNER_ADMIN_ROLES: Set<String> = setOf("owner", "admin")
+
     /**
      * Returns true when the [call]'s authenticated admin may take a write
      * action; otherwise responds 403 and returns false (the caller just
@@ -35,6 +40,25 @@ object AdminRoleGate {
     suspend fun requireWriteRole(call: ApplicationCall): Boolean {
         val principal = call.principal<AdminPrincipal>()
         if (principal == null || principal.role !in WRITE_ROLES) {
+            call.respond(HttpStatusCode.Forbidden)
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Owner/admin-tier gate (sibling to [requireWriteRole], narrower set). Used
+     * by surfaces that are owner/admin-only END TO END — notably
+     * `admin-chat-message-redaction`, whose GET page discloses private 1:1 chat
+     * content, so a `moderator`/`read_only` session is 403'd at BOTH the GET
+     * page and the POST write (the content disclosure is limited to admins who
+     * can act). This is the same role-gate mechanism as [requireWriteRole] with
+     * a narrower role set — NOT a new pattern. Runs AFTER
+     * [AdminCsrfGate.validateCsrf] on state-changing handlers.
+     */
+    suspend fun requireOwnerOrAdmin(call: ApplicationCall): Boolean {
+        val principal = call.principal<AdminPrincipal>()
+        if (principal == null || principal.role !in OWNER_ADMIN_ROLES) {
             call.respond(HttpStatusCode.Forbidden)
             return false
         }

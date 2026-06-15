@@ -1,0 +1,71 @@
+{% import "icons.peb" %}
+{# Swappable chat-redaction fragment (admin-chat-message-redaction, board frame
+   9). Rendered standalone for HTMX requests (HX-Request: true) and {% include %}d
+   by chat-redaction.peb for full-page navigation. The #redaction-panel id is the
+   hx-target swapped in place.
+
+   Left cardlet: the ±2 limited-disclosure context window (design D5) as chat
+   bubbles — the reported message is .reported (error-tinted); an already-redacted
+   message renders the localized placeholder, never its original content. Right
+   cardlet: the redaction form (reason required) + the owner/admin warn banner, OR
+   an "already redacted" note when the target is redacted.
+
+   Every value is Pebble-autoescaped on output (spec: all rendered values are
+   HTML-escaped) — no `raw` filter on the user-controlled message content or ids.
+
+   CSRF: on the full-page (no-JS) render `csrfToken` is present, so the `_csrf`
+   hidden field populates for the no-JS POST. On the HTMX-fragment render
+   `csrfToken` is omitted (mirrors reports-table.peb) — JS is enabled there, so the
+   layout's htmx:configRequest hook adds the X-CSRF-Token header from the meta tag. #}
+<div id="redaction-panel">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+<div class="two-col">
+    <div class="cardlet">
+        <h4>{{ icon("flag") }}Context (reported message ±2)</h4>
+        <div class="chat-ctx">
+            {% for m in context %}
+            <div class="chat-bubble{% if m.isTarget %} reported{% endif %}{% if m.isRedacted %} redacted{% endif %}">
+                {% if m.isTarget %}<b>REPORTED:</b> {% endif %}
+                {% if m.isRedacted %}Pesan ini telah dihapus oleh moderator.
+                {% elseif m.hasContent %}{{ m.content }}
+                {% else %}<span class="embed-tag">[embedded post]</span>{% endif %}
+                <span class="meta">msg {{ m.id }} · {{ m.createdAt }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="cardlet">
+        <h4>{{ icon("block") }}Redaction</h4>
+        {% if targetIsRedacted %}
+        <p class="note">This message is already redacted. No further action available.</p>
+        {% else %}
+        {# Redaction PERFORMS an immediate, permanent change + notifies both
+           participants. hx-confirm surfaces a confirm step under HTMX; the
+           reason is required (blank → 400, no write). #}
+        <form class="resolve-queue"
+              action="/admin/chat-messages/{{ messageId }}/redact"
+              method="POST"
+              hx-post="/admin/chat-messages/{{ messageId }}/redact"
+              hx-target="#redaction-panel"
+              hx-swap="outerHTML"
+              hx-confirm="Redaction is permanent and notifies both participants. Continue?">
+            <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+            <label class="field">
+                <span>Redaction reason (required)</span>
+                <input type="text" name="reason" required maxlength="500"
+                       placeholder="doxxing — home address shared without consent">
+            </label>
+            <button type="submit" class="btn danger sm">{{ icon("block") }}Redact message</button>
+        </form>
+        <div class="banner warn">{{ icon("error") }}
+            <span>Role <b>owner/admin</b> only. <code>redacted_at</code> + <code>redacted_by</code> are
+            written atomically; both active participants receive a <code>chat_message_redacted</code>
+            notification; clients render &ldquo;Pesan ini telah dihapus oleh moderator.&rdquo; Audit:
+            <code>admin_chat_redaction</code>.</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+</div>
