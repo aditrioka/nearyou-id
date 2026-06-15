@@ -113,6 +113,10 @@ sentry-kmp = "0.26.0"
 # SDK klib owns the bindings; the Pod provides only the framework binary at link time). A mismatch here
 # surfaces as an iOS `ld: framework 'Sentry' not found` / symbol error.
 sentryCocoaIos = "8.58.2"
+# mobile-paywall-screen — RevenueCat purchases-kmp (in-app subscriptions) for the paywall. Stable v3
+# line, on Maven Central (verified 2026-06-16: 3.0.6 is latest). Vendor import fenced to
+# :infra:revenuecat (invariant #16); consumed there only, behind the vendor-free PurchaseController.
+purchases-kmp = "3.0.6"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -231,6 +235,9 @@ supabase-realtime = { module = "io.github.jan-tennert.supabase:realtime-kt" }
 # Consumed ONLY by :infra:sentry; the vendor import is fenced there (invariant #16). See the
 # `sentry-kmp` version pin for the apply-phase substrate re-check rationale + #17 fallback.
 sentry-kotlinMultiplatform = { module = "io.sentry:sentry-kotlin-multiplatform", version.ref = "sentry-kmp" }
+# mobile-paywall-screen — RevenueCat KMP in-app-subscription SDK. Consumed ONLY by :infra:revenuecat
+# (implementation-scoped); the vendor import is fenced there (invariant #16).
+purchases-kmp-core = { module = "com.revenuecat.purchases:purchases-kmp-core", version.ref = "purchases-kmp" }
 
 # OpenTelemetry: SDK + API + exporter come from `opentelemetry-bom` (stable);
 # per-library instrumentation (Ktor 3.0, JDBC, Lettuce 5.1) comes from

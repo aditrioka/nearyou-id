@@ -26,6 +26,10 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(libs.kotlinx.coroutines.core)
+            // RevenueCat KMP in-app-subscription SDK — the ONLY place the vendor SDK is imported
+            // (invariant #16). `implementation`-scoped so it never reaches :mobile:app's compile
+            // classpath; the app consumes only the vendor-free PurchaseController interface.
+            implementation(libs.purchases.kmp.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
