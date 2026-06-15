@@ -2,7 +2,9 @@
 
 - [ ] 1.1 Add `editedAt: String? = null` (bare camelCase, like `createdAt`) to `SinglePostResponse` in `backend/ktor/.../post/SinglePostRoutes.kt`; keep the no-PII projection (no author UUID, no coordinates) and the `explicitNulls = false` omission-when-null behavior
 - [ ] 1.2 Extend the single-post read query/service to compute the most-recent edit time from `post_edits` (`MAX(post_edits.edited_at)` or a `LEFT JOIN LATERAL (… ORDER BY edited_at DESC LIMIT 1)`), non-null iff ≥1 `post_edits` row — derived from edit-history existence, NOT from `posts.updated_at`; leave the shipped `visible_posts` two-arm gate (visible arm + own-content self arm) and the constant `404` body unchanged
-- [ ] 1.3 Confirm no migration is needed (`post_edits` + `post_edits_post_id_idx` exist from V22); additive read-only change
+- [ ] 1.3 **Visibility guardrail** — the `post_edits` derivation MUST hang off the already-resolved post row (after the `UNION ALL` / `LIMIT 1` two-arm gate), NOT a top-level/independent scalar subquery, so an invisible/blocked/shadow-banned post yields no row and thus no `editedAt` (never an edit-existence side-channel for a post the viewer can't see)
+- [ ] 1.4 **Lint-integrity guardrail** — add the `post_edits` subquery INSIDE the existing single triple-quoted SQL literal in `JdbcSinglePostRepository.findById` (or the leftmost element of the same `+` chain), so the four block tokens (`visible_posts`, `user_blocks`, `blocker_id =`, `blocked_id =`) stay co-located and `BlockExclusionJoinRule` still passes; keep the existing `@AllowRawPostsRead`; `post_edits` is in neither rule's pattern so it adds no new annotation — verify with `:lint:detekt-rules:test` + `detekt`
+- [ ] 1.5 Confirm no migration is needed (`post_edits` + `post_edits_post_id_idx` exist from V22); additive read-only change
 
 ## 2. Backend tests
 
@@ -38,15 +40,15 @@
 
 ## 7. Mobile tests
 
-- [ ] 7.1 commonTest: `PostEditRepository` outcome mapping (each HTTP status/error code → correct `PostEditOutcome`); history mapping → ordered "Versi ke-N"
-- [ ] 7.2 commonTest: `EditPostViewModel` (success clears editor + emits success; each error outcome → correct UiState field; client validation blocks submit with no network call)
-- [ ] 7.3 Robolectric `*ScreenTest`: `EditPostScreen` (prefilled, validation, submit); post-detail Edit-affordance visibility (own+fresh vs other / stale); "Diedit" label present iff `editedAt`; "Riwayat edit" modal (versions / empty / error+retry); `403` → upsell shown. Add to the Release-variant exclude; verify with `:mobile:app:testDevReleaseUnitTest`
+- [ ] 7.1 commonTest: `PostEditRepository` outcome mapping — EVERY status/code → its `PostEditOutcome`, including `400 no_changes → NoChanges` (distinct from over-length/empty), `404 → NotFound` (distinct from `409 WindowExpired`), and `429 → RateLimited(retryAfter)` with NO second `PATCH` fired before the `Retry-After` delay; history mapping → ordered "Versi ke-N" binding the snake_case wire keys (`version_label`/`content`/`edited_at`) + a camelCase negative-guard assertion (PR #128)
+- [ ] 7.2 commonTest: `EditPostViewModel` (success clears editor + emits success; each error outcome → correct UiState field, with `NoChanges` and `NotFound` surfacing distinct messages; client validation blocks submit with no network call; and the no-premium-pre-check path — the editor opens + `PATCH` is attempted with no client entitlement read, structurally guaranteed because no entitlement seam exists per design § D2, asserted rather than silently assumed)
+- [ ] 7.3 Robolectric `*ScreenTest`: `EditPostScreen` (prefilled, validation, submit); post-detail Edit-affordance visibility (own+fresh vs other / stale); "Diedit" label present iff `editedAt`; "Riwayat edit" modal (versions / empty / error+retry, **and asserts no location/coordinate is rendered for any version** — the spatial-fuzzing privacy invariant); `403` → upsell shown. Add to the Release-variant exclude; verify with `:mobile:app:testDevReleaseUnitTest`
 
 ## 8. Deferrals — tracked, not dropped
 
 - [ ] 8.1 File a `follow-up` issue (labels `follow-up`, `mobile`): timeline-card "Diedit" badge (Nearby/Following/Global) — requires the timeline DTOs/queries to carry a perf-considered edited indicator
 - [ ] 8.2 File a `follow-up` issue (labels `follow-up`, `mobile`): chat context-card edit-history navigation + "Post ini sudah di-edit setelah kamu chat" banner (Phase 4 item 14)
-- [ ] 8.3 Resolve the mockup gap (design § Mockup gap): either add a post-edit / "Riwayat edit" frame to `dev/mockups/nearyou-screens-mockup.html`, or record the translate-from-`docs/03` decision in the PR body
+- [ ] 8.3 Resolve the mockup gap (design § Mockup gap): default to translating look-and-layout from `docs/03` § Post Edit UX + the existing post-detail/post-card frames + M3 modal patterns (the sanctioned `docs/11` § 2.8 precedence when no frame exists) and record that decision in the PR body; adding a dedicated post-edit / "Riwayat edit" frame to `dev/mockups/nearyou-screens-mockup.html` is optional polish
 
 ## 9. Verification & Definition of Done (`docs/11` § 5)
 

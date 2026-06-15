@@ -86,6 +86,16 @@ The edit flow SHALL map each documented `PATCH /api/v1/posts/{post_id}` failure 
 - **WHEN** an edit submit returns `429` with a `Retry-After` header
 - **THEN** the flow shows a rate-limit message and does not silently retry before the hinted delay
 
+#### Scenario: No-op edit shows the no-changes message
+
+- **WHEN** an edit submit returns `400 no_changes`
+- **THEN** the flow shows the "no changes to save" message (distinct from the over-length/empty inline validation and the generic not-found message) and the displayed content is unchanged
+
+#### Scenario: Not-found renders the generic message
+
+- **WHEN** an edit submit returns `404`
+- **THEN** the flow shows the generic not-found message (distinct from `409 edit_window_expired` and the moderation/temporal/rate-limit messages) and the displayed content is unchanged
+
 ### Requirement: Edited posts display a "Diedit" label in post-detail
 
 A post that the post-detail projection reports as edited (its `editedAt` is present) SHALL display a "Diedit [relative time]" label, where the relative time is rendered from `editedAt`. A post with no `editedAt` (never edited) SHALL NOT display the label. The label is the entry point to the edit-history modal.
@@ -103,6 +113,13 @@ A post that the post-detail projection reports as edited (its `editedAt` is pres
 ### Requirement: Tapping the Diedit label opens the "Riwayat edit" history modal
 
 Tapping the "Diedit" label SHALL open a screen-local "Riwayat edit" modal that loads `GET /api/v1/posts/{post_id}/edits` and lists the content versions in chronological order, each labelled "Versi ke-N" (1-based, as returned by the endpoint). The modal SHALL render content, version label, and edit time only — never a location field (matching the endpoint's no-location contract). The modal SHALL present a loading state while fetching, an empty state for a post with no recorded versions, and an error state (with a retry affordance) on a failed load.
+
+The client history DTO MUST bind the endpoint's actual wire keys, which are **snake_case** — `version_label`, `content`, `edited_at` — as emitted by `PostEditRoutes.kt` (a hand-built JSON object, NOT the stale spec JSON example). A client DTO derived from camelCase would silently fail to parse (the PR #128 casing-drift precedent); a negative-guard test SHOULD assert the snake_case binding.
+
+#### Scenario: History versions bind the snake_case wire keys
+
+- **WHEN** the history modal deserializes a `GET /api/v1/posts/{post_id}/edits` response
+- **THEN** each version binds from the snake_case keys `version_label`, `content`, and `edited_at` (a camelCase `editedAt`/`versionLabel` body does NOT populate the version)
 
 #### Scenario: History modal lists versions in order
 
