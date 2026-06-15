@@ -26,12 +26,12 @@
 - [ ] 5.2 Live local format validation (debounced 500 ms) → inline `username_error_format`; gate probe + submit on format-validity.
 - [ ] 5.3 Render each state from the projection (Editing·available/unavailable/probe-deferred, Submitting, Unavailable, Moderated, CooldownActive, RateLimited, PremiumGate, Disabled, SessionExpired, Error) per the design-system loading-state contract.
 - [ ] 5.4 Submit-confirmation modal (`username_confirm_body` formatted @old→@new, `username_confirm_primary`/`_dismiss`) — `PATCH` only on confirm; "Batal" issues nothing.
-- [ ] 5.5 Premium-gate panel (`username_premium_gate_body` + `username_premium_gate_cta` → `onActivatePremium`); no in-screen back-stack ref.
-- [ ] 5.6 Success path: success toast (`username_success_toast`) + self-`ProfileFlow` refresh/invalidate + `onChanged` pop; one-shot nullable UiState field cleared via `onSuccessShown()`.
+- [ ] 5.5 Premium-gate panel (`username_premium_gate_body` + `username_premium_gate_cta` → hoisted `onActivatePremium`); rendered as the INITIAL state for a not-Premium on-entry self-read AND reactively on `403` (change or probe); no in-screen back-stack ref.
+- [ ] 5.6 Success path: success toast (`username_success_toast`) + `onChanged` pop. Do NOT call a self-`ProfileFlow` refresh/invalidate — none exists (stateless `ProfileFlow`); propagation is the profile/settings surface re-fetching on next read. One-shot nullable UiState field cleared via `onSuccessShown()`.
 
 ## 6. ViewModel
 
-- [ ] 6.1 `UsernameCustomizationViewModel` (commonMain androidx `ViewModel`, route-scoped via `koinViewModel()`): one `StateFlow<UsernameUiState>` (`stateIn` WhileSubscribed 5s); owns input/debounced-probe/submit/success one-shot; talks only to `UsernameFlow`.
+- [ ] 6.1 `UsernameCustomizationViewModel` (commonMain androidx `ViewModel`, route-scoped via `koinViewModel()`): one `StateFlow<UsernameUiState>` (`stateIn` WhileSubscribed 5s); owns input, the 500 ms debounced probe (coalescing rapid keystrokes into one `check` — protects the 3/day budget), submit, success one-shot, AND the on-entry self-Premium resolution via `ProfileFlow.loadProfile(selfUserId)` (`selfUserId` from `SelfUserIdProvider`) → initial gate/editor (read failure → editor, reactive 403 governs); talks to `UsernameFlow` + the self-profile read, never an ApiClient directly.
 
 ## 7. Strings (`:shared:resources` — CMP Resources, Bahasa Indonesia)
 
@@ -39,13 +39,13 @@
 
 ## 8. Settings entry wiring (MODIFIED `mobile-settings`)
 
-- [ ] 8.1 Move AKUN > "Ganti username" from the deferred set to a backed row in `SettingsScreen.kt`: Premium-hinted → append `UsernameCustomizationRoute`; Free-hinted → fire `onActivatePremium`. Source the self `isPremium` hint (design.md D2); drop the row's "Segera hadir" path. Update the settings deferred-row follow-up bookkeeping for #267 (the "Ganti username" line is now closed).
+- [ ] 8.1 Move AKUN > "Ganti username" from the deferred set to a backed row in `SettingsScreen.kt`: activation pushes `UsernameCustomizationRoute` **unconditionally** (drop the "Segera hadir" path). Settings adds NO `isPremium` read / NO `onActivatePremium` param — the route-scoped screen owns the Premium gate (design.md D2). Update the settings deferred-row follow-up bookkeeping for #267 (the "Ganti username" line is now closed).
 
 ## 9. Tests
 
-- [ ] 9.1 commonTest: `usernameFormatValid` accept/reject matrix; `UsernameUiStateTest` projection (every state); `UsernameCustomizationRoute` serialized round-trip.
-- [ ] 9.2 commonTest MockEngine: `UsernameApiClient`/`UsernameRepository` — `PATCH` body + `GET candidate` param, success/available parse, each change-status → outcome (incl. the 429/422 error-code splits + `Retry-After` parse + non-positive floor), each probe-status → outcome, terminal-401 → SessionExpired.
-- [ ] 9.3 Robolectric `UsernameCustomizationScreenTest` (added to the `mobile/app/build.gradle.kts` Release-variant exclude): field + live format feedback, each visual state, the confirm modal (confirm fires / dismiss doesn't), success toast + `onChanged` pop, gate CTA → `onActivatePremium`. Mirror a `SettingsScreen` test update for the "Ganti username" row routing (Premium→route / Free→callback).
+- [ ] 9.1 commonTest: `usernameFormatValid` accept/reject matrix incl. the **30-accept / 31-reject** length boundary + field-cap; `UsernameUiStateTest` projection (every state, incl. the **non-positive countdown floor** → "1 hari" / "1 menit", no flash-clear); `UsernameCustomizationRoute` serialized round-trip; a ViewModel debounce-coalescing test (rapid keystrokes → one `check`, test-advanceable dispatcher).
+- [ ] 9.2 commonTest MockEngine: `UsernameApiClient`/`UsernameRepository` — `PATCH` body + `GET candidate` param, success/available parse, each change-status → outcome (incl. the 429/422 error-code splits + `Retry-After` parse, **incl. absent/unparseable → `0` floor**), each probe-status → outcome (incl. `ProbeExhausted`), terminal-401 → SessionExpired.
+- [ ] 9.3 Robolectric `UsernameCustomizationScreenTest` (added to the `mobile/app/build.gradle.kts` Release-variant exclude): field + live format feedback, each visual state, the **on-entry gate resolution** (not-Premium self-read → initial gate; Premium → editor) + the **probe-path gate** (`CheckPremiumGate`), the confirm modal (confirm fires / dismiss doesn't), success toast + `onChanged` pop, gate CTA → `onActivatePremium`. Update the existing (already Release-excluded) `SettingsScreenTest` to assert the "Ganti username" row pushes `UsernameCustomizationRoute` **unconditionally**.
 - [ ] 9.4 `iosTest` `UsernameFlowIosTest` (mirror `SearchFlowIosTest`) over a `FakeUsernameFlow` on the Native target.
 
 ## 10. Verification & gates

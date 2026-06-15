@@ -37,6 +37,10 @@ The screen SHALL validate the candidate handle **locally and live** (debounced 5
 - **WHEN** the guard helper evaluates `abc`, `a_b.c`, and `user1.test_2`
 - **THEN** each passes the local format guard and becomes eligible for the availability probe and submit
 
+#### Scenario: Length boundaries — 30 accepted, 31 rejected, field caps at 30
+- **WHEN** the guard helper evaluates a 30-code-point candidate, a 31-code-point candidate, and the field receives a 31-code-point input
+- **THEN** the 30-code-point candidate passes the guard AND the 31-code-point candidate is rejected with the inline format message AND the field caps the input at 30 code points
+
 ### Requirement: The change request targets PATCH /api/v1/user/username with the shipped wire
 
 `UsernameApiClient` SHALL issue `PATCH /api/v1/user/username` (the canonical endpoint per `openspec/specs/premium-username-customization/spec.md`) with a JSON body whose field name matches the **shipped** `UserUsernameRoutes.kt` wire: `UsernameChangeRequest { @SerialName("new_username") newUsername: String }`. The success body SHALL be parsed as `UsernameChangeResponse { username: String }` (bare camelCase, the shipped wire). The Bearer `Authorization` header is attached by the shipped `HttpClient` `Auth` plugin — this capability MUST NOT reimplement token attachment.
@@ -53,7 +57,7 @@ The screen SHALL validate the candidate handle **locally and live** (debounced 5
 
 ### Requirement: The availability probe targets GET /api/v1/username/check and is budget-aware
 
-`UsernameApiClient` SHALL issue `GET /api/v1/username/check` with a `candidate` query parameter, parsing the `200` body as `UsernameCheckResponse { available: Boolean }` (the shipped wire). Because the shipped probe is **rate-limited to 3 per user per day**, the screen SHALL NOT probe per keystroke: a probe SHALL be issued only for a candidate that passes the local format guard, is different from the last probed candidate, and after the 500 ms debounce — and the screen SHALL degrade gracefully when the daily budget is exhausted (a `429 rate_limited` maps to a non-blocking "availability checked at save" state, NOT an error), since the authoritative availability check happens under the row lock at `PATCH` time (a `409` there is the backstop). The probe is a UX nicety; it carries no reservation.
+`UsernameApiClient` SHALL issue `GET /api/v1/username/check` with a `candidate` query parameter, parsing the `200` body as `UsernameCheckResponse { available: Boolean }` (the shipped wire). Because the shipped probe is **rate-limited to 3 per user per day**, the screen SHALL NOT probe per keystroke: a probe SHALL be issued only for a candidate that passes the local format guard, is different from the last probed candidate, and after the 500 ms debounce — and the screen SHALL degrade gracefully when the daily budget is exhausted (a `429 rate_limited` maps to a non-blocking "availability checked at save" state, NOT an error), since the authoritative availability check happens under the row lock at `PATCH` time (a `409` there is the backstop). The probe is a UX nicety; it carries no reservation. (Logging posture: the shipped `HttpClientFactory` `LogLevel.HEADERS` logs the request line, so the probe's `?candidate=<handle>` term travels in the logged URL in debug builds — the same inherited posture as `mobile-search`'s `q=`, NOT a regression; the candidate is user-typed content, not a token/UUID/coordinate, so no `candidate`-masking is added.)
 
 #### Scenario: Probe request shape
 - **GIVEN** a MockEngine capturing outbound requests
@@ -95,6 +99,11 @@ The screen SHALL validate the candidate handle **locally and live** (debounced 5
 - **GIVEN** a MockEngine returning `429 {"error":"cooldown_active"}` with `Retry-After: 1209600` and, separately, `429 {"error":"rate_limited"}` with `Retry-After: 1800`
 - **WHEN** the repository processes each response
 - **THEN** the first maps to `CooldownActive(retryAfterSeconds = 1209600)` and the second to `RateLimited(retryAfterSeconds = 1800)` — the body `error` code, not the status alone, selects the outcome
+
+#### Scenario: An absent or unparseable Retry-After floors to 0 seconds
+- **GIVEN** a MockEngine returning `429 {"error":"cooldown_active"}` with NO `Retry-After` header, and separately `429 {"error":"rate_limited"}` with an unparseable (HTTP-date) `Retry-After`
+- **WHEN** the repository processes each response
+- **THEN** the outcomes are `CooldownActive(retryAfterSeconds = 0)` and `RateLimited(retryAfterSeconds = 0)` respectively AND no crash occurs (the screen later floors a non-positive value to one day / one minute)
 
 #### Scenario: 422 is split by the error discriminator into InvalidFormat vs Moderated
 - **GIVEN** a MockEngine returning `422 {"error":"invalid_username"}` and, separately, `422 {"error":"username_rejected"}`
@@ -141,6 +150,11 @@ The projection MUST carry no PII and MUST NOT depend on wall-clock or platform s
 - **WHEN** the screen renders
 - **THEN** it contains a node whose text matches `stringResource(Res.string.username_cooldown_countdown)` formatted with `14` AND no automatic re-submit is issued
 
+#### Scenario: A non-positive countdown floors to one day / one minute and does not flash-clear
+- **GIVEN** the change outcome `CooldownActive(retryAfterSeconds = 0)` and, separately, `RateLimited(retryAfterSeconds = 0)`
+- **WHEN** each state renders
+- **THEN** the cooldown shows the one-day countdown ("1 hari") and the rate-limit shows the one-minute countdown ("1 menit") AND neither flash-clears on entry
+
 #### Scenario: Unavailable renders the single generic message
 - **WHEN** the change outcome is `Unavailable`
 - **THEN** the rendered tree contains `stringResource(Res.string.username_unavailable_generic)` AND does NOT attempt to distinguish reserved vs collision vs release-hold (the shipped `409` envelope carries no reason)
@@ -156,14 +170,14 @@ On activating "Ganti" for a format-valid candidate that differs from the current
 - **WHEN** instead the modal's "Batal" is activated
 - **THEN** no change request is issued (the fake's change-invocation count stays 0)
 
-### Requirement: A successful change shows the success toast, refreshes the self profile, and returns to Settings
+### Requirement: A successful change shows the success toast and returns to Settings
 
-On a `Success(username)` outcome, `UsernameCustomizationScreen` SHALL surface the transient success toast (`stringResource(Res.string.username_success_toast)`, "Username berhasil diganti"), trigger a refresh/invalidation of the self `ProfileFlow` so the new handle propagates to the profile and settings surfaces (docs/03 §134 "the profile reloads"), and invoke the hoisted `onChanged` to pop `UsernameCustomizationRoute` back to Settings. The success one-shot SHALL be modeled as a nullable `UsernameUiState` field consumed via an `onSuccessShown()` callback (the docs/11 §2.2 one-shot-events-are-state rule), not a `Channel`/`SharedFlow` event bus.
+On a `Success(username)` outcome, `UsernameCustomizationScreen` SHALL surface the transient success toast (`stringResource(Res.string.username_success_toast)`, "Username berhasil diganti") and invoke the hoisted `onChanged` to pop `UsernameCustomizationRoute` back to Settings. The new handle propagation (docs/03 §134 "the profile reloads") relies on the existing **stateless** `ProfileFlow` (`loadProfile(userId)`) re-fetching on the next read of the self-profile surface — there is NO observable cross-screen self-profile cache to invalidate (verified: `ProfileFlow` exposes no cached `StateFlow`), so this change SHALL NOT assert or introduce a cache-invalidation seam; the profile and settings surfaces reload their own state on next composition/resume. The success one-shot SHALL be modeled as a nullable `UsernameUiState` field consumed via an `onSuccessShown()` callback (the docs/11 §2.2 one-shot-events-are-state rule), not a `Channel`/`SharedFlow` event bus.
 
-#### Scenario: Success refreshes the self profile and pops the route
-- **GIVEN** `UsernameCustomizationScreen` over a `FakeUsernameFlow` returning `Success("newhandle")` and a recording self-profile refresh hook + recording `onChanged`
+#### Scenario: Success shows the toast and pops the route without a cache-invalidation seam
+- **GIVEN** `UsernameCustomizationScreen` over a `FakeUsernameFlow` returning `Success("newhandle")` and a recording `onChanged`
 - **WHEN** the change completes
-- **THEN** the success toast copy is shown AND the self-profile refresh hook is invoked AND `onChanged` fires (popping the route) — and the success one-shot is cleared via `onSuccessShown()` so it does not re-fire on recomposition
+- **THEN** the success toast copy is shown AND `onChanged` fires (popping the route) AND no cross-screen profile-cache-invalidation call is made (none exists) — and the success one-shot is cleared via `onSuccessShown()` so it does not re-fire on recomposition
 
 ### Requirement: The Premium gate renders the upsell and routes to the paywall via a hoisted callback
 
@@ -174,9 +188,32 @@ While the change (or probe) outcome is `PremiumGate` (the authoritative `403 pre
 - **WHEN** the screen renders and the "Aktifkan Premium" CTA is activated
 - **THEN** the tree contains the upsell body (`username_premium_gate_body`) AND the CTA (`username_premium_gate_cta`) AND activating it fires the hoisted `onActivatePremium` (the screen appends no route itself — navigation is owned by the call site)
 
+#### Scenario: The gate reached via the probe path also renders the upsell
+- **GIVEN** `UsernameCustomizationScreen` over a `FakeUsernameFlow` whose probe returns `CheckPremiumGate`
+- **WHEN** the screen renders
+- **THEN** the same upsell panel (`username_premium_gate_body` + `username_premium_gate_cta`) is shown (the gate state is reached identically from the change `PremiumGate` and the probe `CheckPremiumGate`)
+
+### Requirement: The screen resolves Premium status on entry; the Settings row pushes the route unconditionally
+
+To honour docs/03 §114 ("Free user taps: paywall opens") WITHOUT adding a self-profile read to `SettingsScreen` (which today holds no Premium signal — it injects only `SettingsViewModel(tokenStore)`), the Premium gate SHALL be owned by the route-scoped screen, not the Settings row: the `SettingsScreen` "Ganti username" row SHALL push `UsernameCustomizationRoute` **unconditionally** (no `isPremium` branch in Settings), and the `UsernameCustomizationViewModel` SHALL resolve the caller's Premium status on entry via a self-profile read (`ProfileFlow.loadProfile(selfUserId)`, the existing stateless seam — `selfUserId` from the existing `SelfUserIdProvider`), rendering the `PremiumGate` as the INITIAL state when the self read reports not-Premium and the editor otherwise. Because the client `isPremium` signal is `true` only for `premium_active` (NOT `premium_billing_retry`), the reactive `403 premium_required` from a probe/submit SHALL remain the **authoritative** gate (the billing-retry/staleness backstop); a self-read mis-classifying a billing-retry user as Free shows the paywall (harmless — re-subscribe is the intended action). A self-profile read failure SHALL degrade to letting the user attempt the action (the reactive `403` then governs), never an error wall.
+
+#### Scenario: A not-Premium self-read renders the gate as the initial state
+- **GIVEN** `UsernameCustomizationViewModel` over a `FakeUsernameFlow` and a self-profile read reporting `isPremium = false`
+- **WHEN** the screen first composes
+- **THEN** the initial state is `PremiumGate` (the upsell, no editor) WITHOUT having issued a change/probe request
+
+#### Scenario: A Premium self-read renders the editor; the reactive 403 still backstops
+- **GIVEN** a self-profile read reporting `isPremium = true`, then a probe/submit that returns `403 premium_required` (e.g. a downgrade race)
+- **WHEN** the screen composes and the user attempts an action
+- **THEN** the initial state is the editor AND the subsequent `403` transitions the screen to `PremiumGate` (the reactive backstop governs)
+
+#### Scenario: A self-profile read failure does not wall the screen
+- **GIVEN** the on-entry self-profile read fails (5xx / network)
+- **THEN** the screen still renders the editor (the user may attempt the action; the reactive `403`/`200` then governs) AND no error wall is shown for the read failure alone
+
 ### Requirement: UsernameApiClient, UsernameRepository, and the ViewModel are Koin singletons behind a testable seam
 
-`UsernameApiClient` and `UsernameRepository` SHALL be registered in the commonMain Koin `mobileModule`. `UsernameRepository` SHALL be bound behind a `UsernameFlow` interface (`single<UsernameFlow> { get<UsernameRepository>() }`) so a `FakeUsernameFlow` can drive the screen + ViewModel tests, mirroring the timeline / search seams. The `UsernameCustomizationViewModel` SHALL be a commonMain androidx `ViewModel` scoped to the `UsernameCustomizationRoute` NavEntry (resolved via `koinViewModel()` under the root `NavDisplay`'s `rememberViewModelStoreNavEntryDecorator()` — the pushed-route precedent), exposing ONE `StateFlow<UsernameUiState>` via `stateIn(...WhileSubscribed(5_000)...)`; it SHALL own the input, the debounced probe, the submit, and the success one-shot, talking to the `UsernameFlow` seam (never to the ApiClient directly). The query/probe/submit state is owned by the ViewModel, NOT composition-scoped `remember`.
+`UsernameApiClient` and `UsernameRepository` SHALL be registered in the commonMain Koin `mobileModule`. `UsernameRepository` SHALL be bound behind a `UsernameFlow` interface (`single<UsernameFlow> { get<UsernameRepository>() }`) so a `FakeUsernameFlow` can drive the screen + ViewModel tests, mirroring the timeline / search seams. The `UsernameCustomizationViewModel` SHALL be a commonMain androidx `ViewModel` scoped to the `UsernameCustomizationRoute` NavEntry (resolved via `koinViewModel()` under the root `NavDisplay`'s `rememberViewModelStoreNavEntryDecorator()` — the pushed-route precedent), exposing ONE `StateFlow<UsernameUiState>` via `stateIn(...WhileSubscribed(5_000)...)`; it SHALL own the input, the debounced probe (a 500 ms debounce that coalesces rapid keystrokes into a single probe — protecting the 3/day budget), the submit, the success one-shot, AND the on-entry self-Premium resolution (per the § "resolves Premium status on entry" requirement), talking to the `UsernameFlow` seam (and the existing self-profile read) — never to an ApiClient directly. The query/probe/submit state is owned by the ViewModel, NOT composition-scoped `remember`.
 
 #### Scenario: Koin registers the username graph behind the flow interface
 - **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/di/MobileModule.kt`
@@ -187,13 +224,18 @@ While the change (or probe) outcome is `PremiumGate` (the authoritative `403 pre
 - **WHEN** a format-valid candidate is typed (then settles) and, separately, submitted-and-confirmed
 - **THEN** the ViewModel invokes `UsernameFlow.check(candidate)` for the settled candidate and `UsernameFlow.change(candidate)` for the confirmed submit, exposing the resulting outcomes through the `usernameUiState(...)` projection
 
+#### Scenario: The debounce coalesces rapid keystrokes into a single probe
+- **GIVEN** a commonTest `UsernameCustomizationViewModel` over a counting `FakeUsernameFlow` and a test-advanceable dispatcher
+- **WHEN** a format-valid candidate is typed character-by-character within the 500 ms window and the dispatcher is then advanced past it
+- **THEN** exactly one `UsernameFlow.check(...)` is invoked (for the settled candidate), NOT one per keystroke — the debounce protects the 3/day probe budget
+
 ### Requirement: Test coverage for the screen, projection, format guard, networking, and route
 
-The change SHALL ship: (1) a Robolectric `UsernameCustomizationScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the field + live format feedback, each visual state (Editing·available / Editing·unavailable / Editing·probe-deferred / Submitting / Unavailable / Moderated / CooldownActive / RateLimited / PremiumGate / Disabled / SessionExpired / Error) via a `FakeUsernameFlow`, the submit-confirmation modal (confirm fires / dismiss does not), and the success toast + `onChanged` pop — added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention); (2) a commonTest `UsernameUiStateTest` for the pure projection; (3) commonTest for the format guard (length/charset/consecutive-dots matrix mirroring the backend's accept/reject examples) and the `UsernameCustomizationRoute` serialized round-trip; (4) MockEngine-backed `UsernameApiClient` / `UsernameRepository` tests verifying the `PATCH` body + the `GET` `candidate` param, the shipped success/available wire parse, each change-status → `UsernameChangeOutcome` mapping (including the 429 `cooldown_active`/`rate_limited` and 422 `invalid_username`/`username_rejected` error-code splits and the `Retry-After` parse + non-positive floor), and each probe-status → `UsernameCheckOutcome` mapping; (5) an `iosTest` flow test (`UsernameFlowIosTest`) mirroring `SearchFlowIosTest` — exercising the username flow over a `FakeUsernameFlow` on the iOS/Native target so the new route + data seam compile and run on Kotlin/Native.
+The change SHALL ship: (1) a Robolectric `UsernameCustomizationScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the field + live format feedback, each visual state (Editing·available / Editing·unavailable / Editing·probe-deferred / Submitting / Unavailable / Moderated / CooldownActive / RateLimited / PremiumGate / Disabled / SessionExpired / Error) via a `FakeUsernameFlow`, the on-entry gate resolution (not-Premium self-read → initial `PremiumGate`; Premium → editor) and the probe-path gate, the submit-confirmation modal (confirm fires / dismiss does not), and the success toast + `onChanged` pop — added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention); (1b) an update to the existing (already Release-excluded) `SettingsScreenTest` asserting the "Ganti username" row pushes `UsernameCustomizationRoute` unconditionally (the MODIFIED `mobile-settings` row routing); (2) a commonTest `UsernameUiStateTest` for the pure projection (including the non-positive countdown floor); (3) commonTest for the format guard (length/charset/consecutive-dots matrix mirroring the backend's accept/reject examples, including the 30-accept / 31-reject boundary) and the `UsernameCustomizationRoute` serialized round-trip; (4) MockEngine-backed `UsernameApiClient` / `UsernameRepository` tests verifying the `PATCH` body + the `GET` `candidate` param, the shipped success/available wire parse, each change-status → `UsernameChangeOutcome` mapping (including the 429 `cooldown_active`/`rate_limited` and 422 `invalid_username`/`username_rejected` error-code splits and the `Retry-After` parse + non-positive floor), and each probe-status → `UsernameCheckOutcome` mapping; (5) an `iosTest` flow test (`UsernameFlowIosTest`) mirroring `SearchFlowIosTest` — exercising the username flow over a `FakeUsernameFlow` on the iOS/Native target so the new route + data seam compile and run on Kotlin/Native.
 
 #### Scenario: Test classes exist and are discoverable
 - **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest`
-- **THEN** `UsernameCustomizationScreenTest`, `UsernameUiStateTest`, the format-guard + route round-trip tests, and the `UsernameApiClient`/`UsernameRepository` MockEngine tests are discovered AND each documented state / mapping corresponds to at least one `@Test`
+- **THEN** `UsernameCustomizationScreenTest`, `UsernameUiStateTest`, the format-guard + route round-trip tests, the `UsernameApiClient`/`UsernameRepository` MockEngine tests, and the `SettingsScreenTest` "Ganti username" row-routing assertion are discovered AND each documented state / mapping corresponds to at least one `@Test`
 
 #### Scenario: The iOS flow test exists for the Native target
 - **WHEN** inspecting `mobile/app/src/iosTest/...`
