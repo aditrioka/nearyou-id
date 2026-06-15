@@ -34,3 +34,7 @@ The acting hourly worker that performs the flip once the deadline elapses is spe
 #### Scenario: Re-activation with no pending flip leaves the column NULL
 - **WHEN** an authenticated `RENEWAL` event is processed for a user whose `privacy_flip_scheduled_at` is already `NULL`
 - **THEN** that user's `subscription_status` becomes `premium_active` AND `users.privacy_flip_scheduled_at` remains `NULL` (the clear is idempotent)
+
+#### Scenario: Cancellation neither schedules nor clears a privacy flip
+- **WHEN** an authenticated `CANCELLATION` event is processed for a user (whose `subscription_status` stays `premium_active`)
+- **THEN** `users.privacy_flip_scheduled_at` is left unchanged — only an `EXPIRATION` schedules and only an `INITIAL_PURCHASE`/`RENEWAL` clears; a cancellation touches the column in neither direction (a private user keeps any pending deadline, a user with none stays NULL)

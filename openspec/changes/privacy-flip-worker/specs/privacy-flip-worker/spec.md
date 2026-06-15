@@ -36,6 +36,14 @@ Because applying a flip clears `privacy_flip_scheduled_at`, a re-run (a Cloud Sc
 - **WHEN** the worker is invoked a second time immediately after a run that flipped all currently-elapsed rows, with no new deadline having elapsed in between
 - **THEN** the response is `200` with `flipped_count = 0` AND no `admin_actions_log` row is written
 
+### Requirement: Each run emits one structured INFO log line
+
+The system SHALL emit exactly one structured INFO log line per worker run, carrying the event marker `privacy_flip_applied`, the `flipped_count`, the flipped user ids capped at a fixed maximum with a truncation flag when more than the cap were flipped, and the run duration in milliseconds. The id list SHALL be capped so a large run cannot produce an unbounded log line (mirroring the `suspension-unban-worker` `MAX_LOGGED_USER_IDS` discipline).
+
+#### Scenario: A run logs its flipped count and capped ids
+- **WHEN** the worker flips one or more users
+- **THEN** exactly one INFO log line is emitted with `event=privacy_flip_applied`, the correct `flipped_count`, the run duration, and the flipped user ids (truncated with an explicit flag when the number of flipped users exceeds the cap)
+
 ### Requirement: The worker endpoint authenticates via OIDC on its own route subtree
 
 The system SHALL gate `POST /internal/privacy-flip-worker` with the internal-endpoint OIDC verifier installed on the `/privacy-flip-worker` route subtree ONLY — never on the shared `/internal` node — so the gate cannot capture sibling internal endpoints that authenticate by a different mechanism (notably the RevenueCat webhook at `/internal/revenuecat-webhook`, which authenticates via shared-secret Bearer + HMAC, not Google OIDC). A request without a valid OIDC identity token SHALL be rejected `401` and SHALL flip no rows.
