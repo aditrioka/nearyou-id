@@ -181,7 +181,7 @@ End-to-end verified 2026-04-26: Secret Manager credential → OAuth token via SA
 **Notes**:
 - RevenueCat account email: `nearyouid.founder@gmail.com`
 - Project id: `9d323c42` · Test Store app id: `app89fcef0707`
-- Test Store SDK (public) key `test_…`: publishable (mobile-side, not a server secret). TODO: store in Secret Manager `staging-revenuecat-test-api-key` + wire into mobile `:infra:revenuecat` when #309 lands.
+- Test Store SDK (public) key `test_…`: publishable (mobile-side, not a server secret). **Stored in Secret Manager `staging-revenuecat-test-api-key` v1 (2026-06-15; no Cloud Run grant — mobile-side, not backend-consumed).** Wire into mobile `:infra:revenuecat` when #309 lands.
 - Setup-time secret API key (v2) label `nearyou-config-setup` (Project configuration + Apps read/write): used once for API provisioning above. Delete/rotate after use; regenerate when prod config is needed.
 - Webhook (#291): backend route `POST /internal/revenuecat-webhook`; dashboard config (Integrations → Webhooks) + secret slots pending (§4.2).
 
@@ -332,7 +332,7 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`. **Sing
 
 - [ ] `prod-revenuecat-webhook-secret` dan `staging-revenuecat-webhook-secret` — Bearer shared-secret. **Slot name per `RevenueCatWebhookRoutes.kt` (`secretKey(env, "revenuecat-webhook-secret")`)** — earlier `-bearer` label was wrong; the handler logs `bearer_secret_unset` + 401s until this slot exists.
 - [ ] `prod-revenuecat-webhook-hmac-secret` dan `staging-revenuecat-webhook-hmac-secret` (opsional; HMAC-SHA256 `X-RevenueCat-Signature`, slot `revenuecat-webhook-hmac-secret`)
-- [~] `staging-revenuecat-test-api-key` — Test Store SDK public key (`test_…`, mobile-side, publishable — not a server secret; stored for completeness + mobile build wiring). Prod uses real-store SDK keys instead.
+- [x] `staging-revenuecat-test-api-key` v1 — Test Store SDK public key (`test_…`, mobile-side, publishable — not a server secret). Done 2026-06-15 via Secret Manager REST API; **no Cloud Run grant** (consumed by the mobile build, not backend). Prod uses real-store SDK keys instead.
 - [~] `prod-firebase-admin-sa` dan `staging-firebase-admin-sa` (JSON file) — staging done 2026-04-26 (v1, granted) + wired as `FIREBASE_ADMIN_SA=staging-firebase-admin-sa:latest` 2026-04-29 (PR #60 `fcm-push-dispatch`); consumers `:infra:fcm` + `:infra:remote-config` (latter 2026-05-07, PR #70 `content-moderation-keyword-lists`); prod pending
 - [~] `prod-openai-api-key` dan `staging-openai-api-key` — OpenAI Platform API key untuk OpenAI Moderation API (`omni-moderation-latest`, Layer 3 toxicity classifier; consumer `:infra:openai-moderation` `OpenAiModerationClient`). **Vendor pivot 2026-05-11**: spec originally targeted Google Perspective API, which announced sunset (end-of-2026, signups closed Feb 2026) mid-implementation → swapped to OpenAI Moderation. Staging done 2026-05-11: project-scoped key (sk-proj-…) minted on platform.openai.com under the `NearYouID` org; clipboard-pipe upload (`pbpaste | gcloud secrets create`), plaintext never touched disk; slot v1, replication=automatic, labels env=staging,purpose=layer3-moderation; granted; wired as `OPENAI_API_KEY=staging-openai-api-key:latest`. The Moderation endpoint is FREE (no per-call charge), but any platform.openai.com key requires a payment method + $5 minimum prepaid deposit (one-time, idle if only Moderation is used). Prod pending.
 - [ ] `prod-apns-p8-key` dan `staging-apns-p8-key` (file content)
