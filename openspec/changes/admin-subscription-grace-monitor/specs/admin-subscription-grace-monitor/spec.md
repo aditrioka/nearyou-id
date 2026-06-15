@@ -26,7 +26,7 @@ The system SHALL serve an authenticated admin page at `GET /admin/subscriptions/
 
 ### Requirement: The grace list is keyset-paginated, filterable, and summarized by count
 
-The list SHALL be keyset-paginated over a stable ordering key (newest-retry-first) and SHALL accept composable, optional filters: `q` (an exact case-insensitive username match OR an exact user UUID match) and `store` (the billing platform). Filters SHALL compose (applying both narrows to their intersection) and an absent filter SHALL NOT constrain the result. The page SHALL render a count summary of the total users currently in the billing-retry window (the operational signal — a spike indicates a billing or webhook problem). The page SHALL provide an HTMX-driven render AND a plain-`GET` (no-JS) fallback that produces the same data.
+The list SHALL be keyset-paginated over a stable ordering key (newest-retry-first) and SHALL accept composable, optional filters: `q` (an exact case-insensitive username match OR an exact user UUID match) and `store` (the billing platform). Filters SHALL compose (applying both narrows to their intersection) and an absent filter SHALL NOT constrain the result. All filter inputs SHALL be bound as parameterized literals (no SQL injection is possible via `q` or `store`), and a blank or whitespace-only `q` SHALL be ignored (treated as absent, not matched as an empty username). The page SHALL render a count summary of the total users currently in the billing-retry window (the operational signal — a spike indicates a billing or webhook problem). The page SHALL provide an HTMX-driven render AND a plain-`GET` (no-JS) fallback that produces the same data.
 
 #### Scenario: The q filter narrows to a single user by username
 
@@ -47,6 +47,16 @@ The list SHALL be keyset-paginated over a stable ordering key (newest-retry-firs
 
 - **WHEN** the billing-retry population exceeds one page and the admin requests the next page via the keyset cursor
 - **THEN** the next page SHALL continue from the cursor with no row duplicated or skipped across the page boundary
+
+#### Scenario: Filter inputs are bound as literals and cannot inject SQL
+
+- **WHEN** `q` or `store` contains SQL metacharacters (e.g. `' OR 1=1 --`)
+- **THEN** the value SHALL be treated as a literal filter term (matching no user) AND no SQL injection SHALL occur (the billing-retry table is unaffected)
+
+#### Scenario: A blank q filter is ignored
+
+- **WHEN** the page is requested with a blank or whitespace-only `q`
+- **THEN** the `q` filter SHALL be treated as absent (the full billing-retry population is listed, not an empty-username match)
 
 ### Requirement: The grace monitor enforces identity-only PII discipline and escapes user-controlled output
 
@@ -130,3 +140,17 @@ For each listed billing-retry user, the page SHALL indicate whether a manual exp
 
 - **WHEN** a billing-retry user has no `subscription_grace_expedite` audit row
 - **THEN** that user's row SHALL present the expedite action as available (no handled indicator) AND rendering the page SHALL write no `admin_actions_log` row
+
+### Requirement: Manual expedite is rejected for a target outside the billing-retry window
+
+An expedite SHALL be valid only against a user currently in `subscription_status = 'premium_billing_retry'` and not soft-deleted (`deleted_at IS NULL`) — the population the monitor lists. The system SHALL reject an expedite whose `{user_id}` does not resolve to a non-deleted billing-retry user (a user in any other `subscription_status`, a soft-deleted user, or an unknown id), performing no mutation and writing no `admin_actions_log` row for the rejected attempt. This prevents bookkeeping noise (and an `admin_actions_log` row whose `before_state`/`after_state` would carry a non-`premium_billing_retry` status) against a user the surface never lists.
+
+#### Scenario: Expedite against a non-billing-retry user is rejected
+
+- **WHEN** an `owner`/`admin` submits an expedite (valid CSRF token + ticket reference) for a user whose `subscription_status` is `premium_active` or `free`
+- **THEN** the request SHALL be rejected AND no `admin_actions_log` row SHALL be written AND no mutation SHALL occur
+
+#### Scenario: Expedite against a soft-deleted or unknown user is rejected
+
+- **WHEN** an expedite targets a soft-deleted user (`deleted_at IS NOT NULL`) OR a `{user_id}` that does not exist
+- **THEN** the request SHALL be rejected AND no `admin_actions_log` row SHALL be written AND no mutation SHALL occur

@@ -23,6 +23,6 @@ The RevenueCat billing webhook (`revenuecat-subscription-webhook`, [PR #291](htt
 - **Code**: `:backend:ktor` `admin` package only — a new route group (`Application.adminSubscriptionGrace()` extension or equivalent), a read query + an expedite write service, Pebble templates + HTMX partial, and an admin-nav entry. No `:infra:*`, no `:mobile:app`, no `:shared:*`, no `:core:*` changes.
 - **Schema / migrations**: none (reads V2 / V21 / V16 surfaces; no new Flyway version → disjoint from any in-flight migration-bearing change).
 - **APIs**: two new admin-only HTTP routes under `/admin/subscriptions/grace`. No public `/api/v1/*` change.
-- **Data access**: admin-module raw read of `users` + `subscription_events` (exempt from the `visible_*` view + block-join lint rules per the established admin-monitor precedent; annotated accordingly). One append-only `admin_actions_log` INSERT per expedite.
+- **Data access**: admin-module raw read of `users` + `subscription_events` (admin module is exempt from the `visible_*` views; the block-exclusion / raw-`FROM posts` lint rules do not fire on these tables, so no functional annotation is required — per the `AdminPrivacyFlipsRepository` precedent). One append-only `admin_actions_log` INSERT per expedite.
 - **Dependencies**: none added to `gradle/libs.versions.toml` (no substrate change).
 - **Docs**: admin mockup frame 18 flips from "Usulan" (proposed) to shipped; docs/07 § Subscription Grace Monitor reflected as PARTIALLY/SHIPPED on archive.
