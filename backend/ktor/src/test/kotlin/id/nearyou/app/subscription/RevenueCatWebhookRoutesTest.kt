@@ -7,10 +7,12 @@ import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.notifications.DbNotificationEmitter
 import id.nearyou.app.notifications.NoopNotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.data.repository.NotificationDispatcher
 import io.kotest.assertions.throwables.shouldThrowAny
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -134,14 +136,34 @@ class RevenueCatWebhookRoutesTest : StringSpec({
             }
         }
 
-    fun privacyFlipIsNull(userId: UUID): Boolean =
+    fun privacyFlipAt(userId: UUID): java.time.Instant? =
         dataSource.connection.use { conn ->
             conn.prepareStatement("SELECT privacy_flip_scheduled_at FROM users WHERE id = ?").use { ps ->
                 ps.setObject(1, userId)
                 ps.executeQuery().use { rs ->
                     rs.next()
-                    rs.getTimestamp(1) == null
+                    rs.getTimestamp(1)?.toInstant()
                 }
+            }
+        }
+
+    fun privacyFlipIsNull(userId: UUID): Boolean = privacyFlipAt(userId) == null
+
+    // The privacy_flip_warning body_data carries the deadline in Postgres-native
+    // timestamptz form; compare it as ::timestamptz to the user's stored column,
+    // never string-match (jsonb does not render Instant.toString()).
+    fun warningScheduleMatchesColumn(userId: UUID): Boolean =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT (n.body_data ->> 'privacy_flip_scheduled_at')::timestamptz = u.privacy_flip_scheduled_at
+                  FROM notifications n
+                  JOIN users u ON u.id = n.user_id
+                 WHERE n.user_id = ? AND n.type = 'privacy_flip_warning'
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, userId)
+                ps.executeQuery().use { rs -> rs.next() && rs.getBoolean(1) }
             }
         }
 
@@ -546,17 +568,6 @@ class RevenueCatWebhookRoutesTest : StringSpec({
         }
     }
 
-    "5.4 EXPIRATION on a private-profile user → free AND privacy_flip_scheduled_at stays NULL" {
-        val u = seedUser(status = "premium_active", privateProfile = true)
-        try {
-            service.process(incoming("EXPIRATION", "rc_pflip_$u", u))
-            status(u) shouldBe "free"
-            privacyFlipIsNull(u) shouldBe true // privacy-flip scheduling deferred
-        } finally {
-            cleanup(u)
-        }
-    }
-
     "5.4 premium_billing_retry with no EXPIRATION is NOT auto-downgraded (no time-based worker)" {
         val u = seedUser(status = "premium_active")
         try {
@@ -629,6 +640,111 @@ class RevenueCatWebhookRoutesTest : StringSpec({
             shouldThrowAny { rollbackService.process(incoming("BILLING_ISSUE", "rc_rollback_$u", u)) }
             status(u) shouldBe "premium_active" // status UPDATE rolled back
             countEvents("rc_rollback_$u") shouldBe 0 // event INSERT rolled back
+        } finally {
+            cleanup(u)
+        }
+    }
+
+    // ---------- 5.7 Privacy-flip scheduling/clearing (privacy-flip-worker) ----------
+
+    "5.7 EXPIRATION on a private user schedules a 72h flip + privacy_flip_warning + still expires" {
+        val u = seedUser(status = "premium_active", privateProfile = true)
+        try {
+            service.process(incoming("EXPIRATION", "rc_pflip_$u", u)) shouldBe SubscriptionService.Result.Ok
+            status(u) shouldBe "free"
+            val at = privacyFlipAt(u)
+            at shouldNotBe null
+            // ~72h ahead (DB NOW()+72h).
+            (at!!.isAfter(java.time.Instant.now().plus(java.time.Duration.ofHours(71)))) shouldBe true
+            (at.isBefore(java.time.Instant.now().plus(java.time.Duration.ofHours(73)))) shouldBe true
+            countNotifications(u, "privacy_flip_warning") shouldBe 1
+            countNotifications(u, "subscription_expired") shouldBe 1
+            warningScheduleMatchesColumn(u) shouldBe true // body_data deadline == users column (::timestamptz)
+        } finally {
+            cleanup(u)
+        }
+    }
+
+    "5.7 EXPIRATION on a public user leaves privacy_flip_scheduled_at NULL + no warning" {
+        val u = seedUser(status = "premium_active", privateProfile = false)
+        try {
+            service.process(incoming("EXPIRATION", "rc_pub_$u", u)) shouldBe SubscriptionService.Result.Ok
+            status(u) shouldBe "free"
+            privacyFlipIsNull(u) shouldBe true
+            countNotifications(u, "privacy_flip_warning") shouldBe 0
+            countNotifications(u, "subscription_expired") shouldBe 1
+        } finally {
+            cleanup(u)
+        }
+    }
+
+    "5.7 a re-delivered EXPIRATION (distinct event id) does NOT move the deadline (COALESCE)" {
+        val u = seedUser(status = "premium_active", privateProfile = true)
+        try {
+            service.process(incoming("EXPIRATION", "rc_pflip1_$u", u)) shouldBe SubscriptionService.Result.Ok
+            val first = privacyFlipAt(u)
+            first shouldNotBe null
+            // Second, genuinely-new event (distinct revenuecat_event_id) for the same now-free private user.
+            service.process(incoming("EXPIRATION", "rc_pflip2_$u", u)) shouldBe SubscriptionService.Result.Ok
+            privacyFlipAt(u) shouldBe first // COALESCE kept the earlier deadline
+        } finally {
+            cleanup(u)
+        }
+    }
+
+    "5.7 re-activation clears a pending flip; clearing is idempotent" {
+        val u = seedUser(status = "premium_active", privateProfile = true)
+        try {
+            service.process(incoming("EXPIRATION", "rc_clr_exp_$u", u))
+            privacyFlipAt(u) shouldNotBe null
+            service.process(incoming("RENEWAL", "rc_clr_rn_$u", u)) shouldBe SubscriptionService.Result.Ok
+            status(u) shouldBe "premium_active"
+            privacyFlipIsNull(u) shouldBe true // cleared on re-activation
+            // Idempotent: another re-activation with NULL stays NULL.
+            service.process(incoming("INITIAL_PURCHASE", "rc_clr_ip_$u", u)) shouldBe SubscriptionService.Result.Ok
+            privacyFlipIsNull(u) shouldBe true
+        } finally {
+            cleanup(u)
+        }
+    }
+
+    "5.7 CANCELLATION neither schedules nor clears a privacy flip" {
+        val u = seedUser(status = "premium_active", privateProfile = true)
+        try {
+            // No pending flip → cancellation must not schedule one.
+            service.process(incoming("CANCELLATION", "rc_cx1_$u", u)) shouldBe SubscriptionService.Result.Ok
+            status(u) shouldBe "premium_active"
+            privacyFlipIsNull(u) shouldBe true
+            // With a pending flip (after an expiration) → cancellation must not clear it.
+            service.process(incoming("EXPIRATION", "rc_cx_exp_$u", u))
+            val pending = privacyFlipAt(u)
+            pending shouldNotBe null
+            service.process(incoming("CANCELLATION", "rc_cx2_$u", u)) shouldBe SubscriptionService.Result.Ok
+            privacyFlipAt(u) shouldBe pending // unchanged
+        } finally {
+            cleanup(u)
+        }
+    }
+
+    "5.7 FCM: private EXPIRATION dispatches BOTH expired + privacy_flip_warning; a duplicate dispatches none" {
+        val recorded = java.util.concurrent.CopyOnWriteArrayList<UUID>()
+        val recordingService =
+            SubscriptionService(
+                dataSource = dataSource,
+                repository = SubscriptionEventRepository(),
+                notifications = emitter,
+                dispatcher = NotificationDispatcher { recorded.add(it) },
+                dbDispatcher = Dispatchers.IO,
+            )
+        val u = seedUser(status = "premium_active", privateProfile = true)
+        try {
+            recordingService.process(incoming("EXPIRATION", "rc_fcm_$u", u)) shouldBe SubscriptionService.Result.Ok
+            recorded.size shouldBe 2 // subscription_expired + privacy_flip_warning, both post-commit
+            countNotifications(u, "subscription_expired") shouldBe 1
+            countNotifications(u, "privacy_flip_warning") shouldBe 1
+            // Duplicate (same event id) rolls back → no new emit, no new dispatch.
+            recordingService.process(incoming("EXPIRATION", "rc_fcm_$u", u)) shouldBe SubscriptionService.Result.Duplicate
+            recorded.size shouldBe 2
         } finally {
             cleanup(u)
         }
