@@ -1,7 +1,9 @@
 package id.nearyou.app.di
 
+import id.nearyou.app.config.revenueCatPublicKey
 import id.nearyou.app.data.consent.ConsentSnapshotStore
 import id.nearyou.app.diagnostics.CrashReportingController
+import id.nearyou.app.infra.revenuecat.configureRevenueCat
 import org.koin.core.context.startKoin
 import org.koin.dsl.KoinAppDeclaration
 import org.koin.mp.KoinPlatformTools
@@ -43,6 +45,21 @@ fun initKoin(additionalConfig: KoinAppDeclaration? = null) {
             additionalConfig?.invoke(this)
         }
         startCrashReporting()
+        configureRevenueCatBilling()
+    }
+}
+
+/**
+ * mobile-paywall-screen — configure the RevenueCat SDK once at startup with the per-flavor publishable
+ * client key ([revenueCatPublicKey]). A blank key (not yet provisioned for the flavor) leaves `Purchases`
+ * unconfigured, so the paywall fail-softs to its Unconfigured state. `appUserId` is anonymous at startup;
+ * aligning it to `users.id` for the #291 webhook resolution (`Purchases.logIn` on sign-in) is a tracked
+ * follow-on. Safe no-op if already configured (idempotent in `configureRevenueCat`).
+ */
+private fun configureRevenueCatBilling() {
+    val key = revenueCatPublicKey
+    if (key.isNotBlank()) {
+        configureRevenueCat(apiKey = key, appUserId = null)
     }
 }
 

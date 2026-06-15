@@ -230,6 +230,9 @@ android {
             // not a secret) + environment tag. Empty until the operator provisions it (task 1.3); an
             // empty DSN makes init no-op. Overridable via -PdevSentryDsn=.
             buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("devSentryDsn") as String?) ?: ""}\"")
+            // mobile-paywall-screen — RevenueCat publishable client key (ships in the binary; not a
+            // secret). Blank in dev (no RevenueCat locally) → configure skipped → paywall Unconfigured.
+            buildConfigField("String", "REVENUECAT_PUBLIC_KEY", "\"${(project.findProperty("devRevenueCatPublicKey") as String?) ?: ""}\"")
             buildConfigField("String", "SENTRY_ENVIRONMENT", "\"dev\"")
         }
         create("staging") {
@@ -263,6 +266,13 @@ android {
             // mobile-sentry-crash-reporting — staging Sentry DSN (operator-supplied; empty → init no-ops).
             // Overridable via -PstagingSentryDsn=.
             buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("stagingSentryDsn") as String?) ?: ""}\"")
+            // mobile-paywall-screen — RevenueCat Test Store publishable key (staging-revenuecat-test-api-key
+            // slot, PR #319). Blank by default; CI injects via -PstagingRevenueCatPublicKey for the live path.
+            buildConfigField(
+                "String",
+                "REVENUECAT_PUBLIC_KEY",
+                "\"${(project.findProperty("stagingRevenueCatPublicKey") as String?) ?: ""}\"",
+            )
             buildConfigField("String", "SENTRY_ENVIRONMENT", "\"staging\"")
         }
         create("production") {
@@ -274,6 +284,9 @@ android {
             // mobile-sentry-crash-reporting — production Sentry DSN (operator-supplied; empty → init no-ops).
             // Overridable via -PprodSentryDsn=.
             buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("prodSentryDsn") as String?) ?: ""}\"")
+            // mobile-paywall-screen — production RevenueCat publishable key. Blank until the prod twin is
+            // provisioned (needs Apple/Google dev accounts); CI injects via -PprodRevenueCatPublicKey.
+            buildConfigField("String", "REVENUECAT_PUBLIC_KEY", "\"${(project.findProperty("prodRevenueCatPublicKey") as String?) ?: ""}\"")
             buildConfigField("String", "SENTRY_ENVIRONMENT", "\"production\"")
         }
     }
