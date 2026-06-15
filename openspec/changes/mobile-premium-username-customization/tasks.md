@@ -1,0 +1,59 @@
+## 1. Pre-flight & reconciliation
+
+- [ ] 1.1 Render mockup frame 16 (`dev/mockups/nearyou-screens-mockup.html`, the "Ganti username" entry row) per docs/11 §2.8 — confirm no dedicated customization-screen frame exists; the screen derives from docs/03 §117–134 over the design-system substrate (design.md D9). Generate the frame-16 measurement annex (`dev/scripts/mockup-measure.sh`) for the Settings touchpoint.
+- [ ] 1.2 Re-read the shipped wire (`backend/.../user/UserUsernameRoutes.kt`) + `openspec/specs/premium-username-customization/spec.md` to lock the DTOs/statuses/error codes the client maps. (No new `libs.versions.toml` pin — propose-time substrate WebSearch gate does not fire; record "no new substrate" in the first feat commit.)
+- [ ] 1.3 File the reconciliation/deferral `follow-up` issues (label `follow-up` + `mobile`): (a) proactive cooldown entry-state — needs `username_last_changed_at` on the self-profile read; (b) three distinct unavailable messages — needs a `409`/probe reason discriminator; (c) distinct downgrade banner — needs a "previously customized" signal; (d) username autocomplete — needs a backend endpoint; (e) docs/03 §119/§121–123/§129 wording clarification vs the shipped wire.
+
+## 2. Data layer (`id.nearyou.app.data.username`)
+
+- [ ] 2.1 `UsernameApiClient`: `PATCH /api/v1/user/username` (body `UsernameChangeRequest{@SerialName("new_username") newUsername}`) + `GET /api/v1/username/check?candidate=`; wire-truth DTOs `UsernameChangeResponse{username}`, `UsernameCheckResponse{available}`; Bearer via the shared `Auth`-plugin `HttpClient` (no ad-hoc client).
+- [ ] 2.2 Sealed `UsernameChangeOutcome` (Success/PremiumGate/Unavailable/InvalidFormat/Moderated/CooldownActive/RateLimited/Disabled/Error/SessionExpired/NetworkError) + `UsernameCheckOutcome` (Available/CheckPremiumGate/CheckInvalidFormat/ProbeExhausted/CheckDisabled/CheckSessionExpired/CheckNetworkError).
+- [ ] 2.3 `UsernameRepository`: status-driven mapping with the `error`-code split on `429` (cooldown_active/rate_limited) and `422` (invalid_username/username_rejected); `Retry-After` parse with non-positive floor; terminal-401 → SessionExpired ahead of the NetworkError fallback. Bind `single<UsernameFlow> { get<UsernameRepository>() }` in `MobileModule.kt`.
+
+## 3. Pure helpers (commonMain, no UI)
+
+- [ ] 3.1 `usernameFormatValid(candidate): Boolean` — trim + 3–30 code points + charset `^[a-z0-9][a-z0-9_.]*[a-z0-9_]$` + `!contains("..")` (mirrors the backend accept/reject matrix).
+- [ ] 3.2 `usernameUiState(...)` pure projection over (input, format-validity, latest check outcome, latest change outcome, in-flight flags) → the documented states; day-countdown + minute-countdown formatters (reuse `capCountdownMinutes`); deterministic, monotonic-clock-driven (no wall-clock).
+
+## 4. Route & navigation
+
+- [ ] 4.1 Add `UsernameCustomizationRoute` (`@Serializable data object`, no payload) to `NavKeys.kt`; register it in the `navSavedStateConfiguration` polymorphic `SerializersModule`.
+- [ ] 4.2 Map `entry<UsernameCustomizationRoute>` → `UsernameCustomizationScreen` in `AppEntryProvider`; wire the hoisted `onBack` (pop), `onChanged` (pop), and `onActivatePremium` → push `PaywallRoute` (introduced by #309 — design.md D8; until #309 merges, a documented TODO no-op).
+
+## 5. Screen (`id.nearyou.app.screens.username`)
+
+- [ ] 5.1 `UsernameCustomizationScreen`: own `Scaffold` + top bar (title `username_title`, back), current `@handle`, single-line field (hint `username_field_hint`, cap 30 code points), inline status slot, primary "Ganti"; navigation-free (hoisted callbacks only); no hardcoded strings; light/dark via theme tokens.
+- [ ] 5.2 Live local format validation (debounced 500 ms) → inline `username_error_format`; gate probe + submit on format-validity.
+- [ ] 5.3 Render each state from the projection (Editing·available/unavailable/probe-deferred, Submitting, Unavailable, Moderated, CooldownActive, RateLimited, PremiumGate, Disabled, SessionExpired, Error) per the design-system loading-state contract.
+- [ ] 5.4 Submit-confirmation modal (`username_confirm_body` formatted @old→@new, `username_confirm_primary`/`_dismiss`) — `PATCH` only on confirm; "Batal" issues nothing.
+- [ ] 5.5 Premium-gate panel (`username_premium_gate_body` + `username_premium_gate_cta` → `onActivatePremium`); no in-screen back-stack ref.
+- [ ] 5.6 Success path: success toast (`username_success_toast`) + self-`ProfileFlow` refresh/invalidate + `onChanged` pop; one-shot nullable UiState field cleared via `onSuccessShown()`.
+
+## 6. ViewModel
+
+- [ ] 6.1 `UsernameCustomizationViewModel` (commonMain androidx `ViewModel`, route-scoped via `koinViewModel()`): one `StateFlow<UsernameUiState>` (`stateIn` WhileSubscribed 5s); owns input/debounced-probe/submit/success one-shot; talks only to `UsernameFlow`.
+
+## 7. Strings (`:shared:resources` — CMP Resources, Bahasa Indonesia)
+
+- [ ] 7.1 Add the screen + state strings (verbatim docs/03 where specified): `username_title`, `username_field_hint`, `username_error_format`, `username_available`, `username_unavailable_generic` ("Username ini tidak tersedia. Coba username lain."), `username_probe_deferred` ("akan dicek saat kamu simpan"), `username_error_moderated` (docs/03 §124), `username_cooldown_countdown` ("Ganti username berikutnya tersedia dalam %1$d hari."), `username_rate_limited`, `username_disabled`, `username_confirm_body`/`_primary`/`_dismiss` (docs/03 §133), `username_success_toast` ("Username berhasil diganti"), `username_premium_gate_body` (docs/03 §114) / `_cta` ("Aktifkan Premium"). Reuse `timeline_session_redirect`, `signin_error_network`, `cta_retry`. Verify the no-hardcoded-UI-strings grep.
+
+## 8. Settings entry wiring (MODIFIED `mobile-settings`)
+
+- [ ] 8.1 Move AKUN > "Ganti username" from the deferred set to a backed row in `SettingsScreen.kt`: Premium-hinted → append `UsernameCustomizationRoute`; Free-hinted → fire `onActivatePremium`. Source the self `isPremium` hint (design.md D2); drop the row's "Segera hadir" path. Update the settings deferred-row follow-up bookkeeping for #267 (the "Ganti username" line is now closed).
+
+## 9. Tests
+
+- [ ] 9.1 commonTest: `usernameFormatValid` accept/reject matrix; `UsernameUiStateTest` projection (every state); `UsernameCustomizationRoute` serialized round-trip.
+- [ ] 9.2 commonTest MockEngine: `UsernameApiClient`/`UsernameRepository` — `PATCH` body + `GET candidate` param, success/available parse, each change-status → outcome (incl. the 429/422 error-code splits + `Retry-After` parse + non-positive floor), each probe-status → outcome, terminal-401 → SessionExpired.
+- [ ] 9.3 Robolectric `UsernameCustomizationScreenTest` (added to the `mobile/app/build.gradle.kts` Release-variant exclude): field + live format feedback, each visual state, the confirm modal (confirm fires / dismiss doesn't), success toast + `onChanged` pop, gate CTA → `onActivatePremium`. Mirror a `SettingsScreen` test update for the "Ganti username" row routing (Premium→route / Free→callback).
+- [ ] 9.4 `iosTest` `UsernameFlowIosTest` (mirror `SearchFlowIosTest`) over a `FakeUsernameFlow` on the Native target.
+
+## 10. Verification & gates
+
+- [ ] 10.1 `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` green; `:mobile:app:linkDebugFrameworkIosSimulatorArm64` green locally (new route + iosTest touch Kotlin/Native).
+- [ ] 10.2 `./gradlew ktlintCheck detekt` green (mobile module).
+- [ ] 10.3 docs/11 §5 DoD: manual `verify-loop` bring-up of the Ganti Username screen (Settings entry → screen → typing/validation → confirm modal → states) with screenshot evidence in the PR body BEFORE archive (context-routed run via `scripts/run_on_device.sh` / `scripts/test_android.sh`).
+
+## 11. Deferred-scope bookkeeping
+
+- [ ] 11.1 Confirm every spec'd deferral (proactive cooldown entry-state, distinct unavailable messages, downgrade banner, autocomplete) has its `follow-up` issue from 1.3 referenced in the PR body — none silently dropped.

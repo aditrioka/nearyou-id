@@ -1,0 +1,32 @@
+## Why
+
+Premium username customization shipped on the **backend** (`premium-username-customization`, PR [#301](https://github.com/aditrioka/nearyou-id/pull/301)) — `PATCH /api/v1/user/username` + the `GET /api/v1/username/check` probe, fully gated and tested — but has **no mobile surface**, so a flagship paid perk is unreachable by users. Meanwhile the paywall (PR [#309](https://github.com/aditrioka/nearyou-id/pull/309), in flight) is building the conversion path *to* Premium; this change gives a just-shipped Premium backend its mobile screen so the paywall's "fitur tersedia sekarang" benefit set stays truthful. It is Phase 4 item 11 (`docs/08-Roadmap-Risk.md:251`) and wires the already-rendered-but-deferred Settings "Ganti username" row, partially closing [#267](https://github.com/aditrioka/nearyou-id/issues/267).
+
+## What Changes
+
+- **New mobile capability `mobile-premium-username`** — a route-scoped Compose Multiplatform / M3 surface consuming the two shipped endpoints with **zero backend work**, mirroring the proven `mobile-search` seam:
+  - `UsernameCustomizationRoute` (parameterless serializable `NavKey`, root-stack push, registered in the polymorphic `SerializersModule`).
+  - A navigation-free `UsernameCustomizationScreen` + route-scoped `UsernameCustomizationViewModel` + a pure `usernameUiState(...)` projection (commonTest-testable).
+  - A `UsernameApiClient` (wire-truth DTOs) + `UsernameRepository` behind a `UsernameFlow` interface, with sealed `UsernameChangeOutcome` / `UsernameCheckOutcome` mapping every shipped HTTP status — reading the body `error` discriminator **only** to split the two same-status pairs (`429 cooldown_active` vs `rate_limited`; `422 invalid_username` vs `username_rejected`).
+  - **Live local format validation** (length 3–30 code points, charset `^[a-z0-9][a-z0-9_.]*[a-z0-9_]$`, no `..`) for instant inline feedback, plus a **budget-aware network availability probe** (the shipped probe is rate-limited 3/day — a per-keystroke probe is impossible).
+  - The docs/03 §117–134 state set: editing/inline-validation, availability, the moderation rejection, the **reactive** cooldown countdown (from the `429 cooldown_active` `Retry-After`), rate-limited, premium-gate, kill-switch, session-expired, submitting, and success.
+  - A **submit-confirmation modal** (docs/03 §133) gating the destructive `PATCH`; on `200` a success toast + self-profile refresh + pop to Settings.
+- **Modified capability `mobile-settings`** — the AKUN > "Ganti username" row moves from the **deferred** set ("Segera hadir") to a **backed** row: a Premium user routes to `UsernameCustomizationRoute`; a Free user routes to the paywall via a hoisted `onActivatePremium` callback (wired at the app-entry call site to push `PaywallRoute`, introduced by #309).
+- **New Bahasa strings** via `:shared:resources` Compose Multiplatform Resources (screen + all error/cooldown/confirm/success copy) — no hardcoded UI strings.
+- **Explicitly deferred** (each an in-spec requirement + a `follow-up` issue, not silent): the **proactive** cooldown disabled-entry state (needs a `username_last_changed_at` field on the self-profile read, which the backend does not expose); the three **distinct** unavailable messages (the shipped `409` collapses reserved/collision/release-hold into one `username_unavailable` envelope — no reason discriminator on the wire); the distinct **downgrade banner** (needs a "previously customized" signal the client lacks); username **autocomplete** (no backend).
+- **No Flyway migration. No new library pin** (consumes the already-pinned, actively-used Ktor client + CMP Resources + Navigation 3) — the propose-time substrate WebSearch gate does not fire.
+
+## Capabilities
+
+### New Capabilities
+- `mobile-premium-username`: the `:mobile:app` Ganti Username surface — route, screen, route-scoped ViewModel, the `UsernameApiClient`/`UsernameRepository`/`UsernameFlow` data seam, the change + probe outcome mappings, the live-local-validation + budget-aware-probe flow, the submit-confirmation modal, the success→profile-refresh path, the Premium-gate-via-hoisted-callback, and the explicit deferrals.
+
+### Modified Capabilities
+- `mobile-settings`: the "Backed rows are wired; deferred rows show a non-writing 'Segera hadir' affordance" requirement — AKUN > "Ganti username" transitions from a deferred row to a backed row that routes by Premium status (Premium → `UsernameCustomizationRoute`; Free → the hoisted paywall callback).
+
+## Impact
+
+- **Code:** `:mobile:app` only. New `id.nearyou.app.data.username` (ApiClient + Repository + Flow + outcomes) and `id.nearyou.app.screens.username` (Screen + ViewModel + UiState) packages; a new `NavKey` in `NavKeys.kt` + its `SerializersModule` registration + the `AppEntryProvider` entry; the Settings "Ganti username" row wiring; new strings in `:shared:resources`.
+- **APIs:** consumes the **shipped, frozen** `PATCH /api/v1/user/username` + `GET /api/v1/username/check` (`openspec/specs/premium-username-customization/spec.md`). No new or changed backend endpoint.
+- **Dependencies:** soft-depends on #309 (`mobile-paywall-screen`) for the Free-tier upsell `PaywallRoute` — decoupled at the code level via a hoisted `onActivatePremium` callback (only the one-line app-entry wiring needs #309 merged), so the **squash-merge SHOULD sequence behind #309**. Disjoint from #321 (`privacy-flip-worker`). The only shared file with #309 is the nav graph (trivial merge); no migration-number contention.
+- **Docs reconciliation:** docs/03 §119/§129 ("live debounced probe", proactive cooldown countdown) and §121–123 (three distinct unavailable messages) predate the shipped backend's 3/day probe limit, single `username_unavailable` envelope, and absent self-profile cooldown field — reconciled to the shipped wire here, with `follow-up` issues filed for the doc-clarification + the backend enrichments that would unlock the fuller UX.
