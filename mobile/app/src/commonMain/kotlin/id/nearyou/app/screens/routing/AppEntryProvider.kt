@@ -10,6 +10,7 @@ import id.nearyou.app.screens.chat.ChatThreadScreen
 import id.nearyou.app.screens.chat.ConversationListScreen
 import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.followlist.FollowListScreen
+import id.nearyou.app.screens.paywall.PaywallScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
 import id.nearyou.app.screens.profile.ProfileScreen
@@ -245,6 +246,17 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                         ),
                     )
                 },
+            )
+        }
+        entry<PaywallRoute> { route ->
+            // The Premium paywall (mobile-paywall, frame 17). `removeLastOrNull()` is size-safe:
+            // PaywallRoute is only ever appended ATOP the surface that opened it (the cap dialog or the
+            // search Premium gate), so popping returns there. `route.entry` tailors only the hero
+            // subheadline; on a confirmed purchase the screen pops itself (onPurchaseComplete defaults
+            // to onClose) and the underlying surface re-evaluates its gate on next action (design D5).
+            PaywallScreen(
+                entry = route.entry,
+                onClose = { backStack.removeLastOrNull() },
             )
         }
     }

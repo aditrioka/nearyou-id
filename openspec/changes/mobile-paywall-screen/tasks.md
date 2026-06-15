@@ -9,7 +9,7 @@
 
 - [x] 2.1 In `:infra:revenuecat` commonMain, define the vendor-SDK-free `PurchaseController` interface + plain-Kotlin domain models (`PaywallPackage` with period + store-localized price + raw amount/currency for derivation; `OfferingsResult` = Loaded(packages) / Unavailable; `PurchaseResult` = Success(entitlementActive) / Cancelled / Error; an entitlement check) — no RevenueCat SDK type in any signature.
 - [x] 2.2 Implement the RevenueCat-backed `PurchaseController` in `:infra:revenuecat` commonMain/androidMain/iosMain over `purchases-kmp-core` (configure, `getOfferings`, `purchase(package)`, `CustomerInfo` entitlement read), mapping vendor types → the domain models. Use the provisioned staging config (PR #319, project `9d323c42` / Test Store `app89fcef0707`): entitlement `premium` (`entlcce792ba27`) for `isPremiumEntitlementActive()`; offering `default` (`ofrngcfc30f15d2`, current); packages `$rc_weekly`/`$rc_monthly`/`$rc_annual` → `PaywallPeriod.WEEKLY`/`MONTHLY`/`YEARLY`; products `nearyou_premium_weekly`/`_monthly`/`_yearly`. Map "no offering / not configured / fetch failure" → `OfferingsResult.Unavailable` (the fail-soft seam, design D6). NOTE: Test Store package *prices* are not settable via the v2 REST API (dashboard-only) — until set, packages may carry zero/empty price → the price-derivation degenerate-input guard (9.2) / `Unavailable` handle it.
-- [ ] 2.3 Provide platform SDK init via per-platform Koin modules (Android needs the `Application` context; iOS the configuration) — the §2.5 platform-binding pattern, NOT an `expect class`.
+- [x] 2.3 Provide platform SDK init via per-platform Koin modules (Android needs the `Application` context; iOS the configuration) — the §2.5 platform-binding pattern, NOT an `expect class`.
 - [ ] 2.4 Wire the RevenueCat **publishable client key** into the app per-flavor via Android `buildConfigField` / iOS xcconfig (mirroring `SUPABASE_ANON_KEY` / `GOOGLE_SERVER_CLIENT_ID`; `REPLACE_WITH_*` placeholder default → maps to `Unavailable`), overridable via a `-PstagingRevenueCatPublicKey`-style project property. The key VALUE is the Test Store publishable key stored in GCP slot `staging-revenuecat-test-api-key` (PR #319) — CI reads that slot and passes it as the project property at BUILD time; the app NEVER reads Secret Manager at runtime (no `secretKey()`, which is backend-only). This is the MOBILE SDK key, distinct from #291's backend `staging-revenuecat-webhook-secret`. Configure RevenueCat `appUserID` = the authenticated `users.id` UUID so #291's webhook user-resolution matches the client purchase.
 - [ ] 2.5 Run `:infra:revenuecat:linkDebugFrameworkIosSimulatorArm64` locally to catch K/N ObjC category-member import gaps (docs/11 §2.5 — Linux CI cannot).
 
@@ -22,7 +22,7 @@
 
 - [x] 4.1 Add the `PaywallEntry` enum + the `@Serializable data class PaywallRoute(val entry: PaywallEntry)` to `screens/routing/NavKeys.kt` (no PII payload).
 - [x] 4.2 Register `PaywallRoute` in `screens/routing/AppNavSerialization.kt`'s polymorphic `SerializersModule` via an explicit `subclass(PaywallRoute::class, PaywallRoute.serializer())` (iOS-saveable back stack; keep the load-bearing explicit form).
-- [ ] 4.3 Map `PaywallRoute` → `PaywallScreen` in `screens/routing/AppEntryProvider.kt`, wiring `onClose` to pop and `onPurchaseComplete` to pop (natural return; `PendingReturnDestination` NOT reused).
+- [x] 4.3 Map `PaywallRoute` → `PaywallScreen` in `screens/routing/AppEntryProvider.kt`, wiring `onClose` to pop and `onPurchaseComplete` to pop (natural return; `PendingReturnDestination` NOT reused).
 
 ## 5. ViewModel, UiState, price derivation
 
@@ -33,8 +33,8 @@
 
 ## 6. PaywallScreen (frame 17)
 
-- [ ] 6.1 Implement `screens/paywall/PaywallScreen.kt` per the frame-17 annex: close app-bar action; Premium hero; benefit list (features-available-now, no image upload); the 3 pricing cards (store-localized prices + derived anchors/savings/per-day, default-selected Monthly, "Paling hemat" on Yearly); full-width "Aktifkan Premium" CTA; disclosure footer. Navigation-free (hoisted `onClose` / `onPurchaseComplete`); all text via `stringResource`; `NearYouTheme` tokens only; light + dark. Entry-context tailors the hero headline.
-- [ ] 6.2 Implement the Unconfigured + PurchaseInProgress + Error renderings (graceful "Premium belum tersedia"; single progress indicator + disabled CTA; retryable error) — no crash, no fabricated price card.
+- [x] 6.1 Implement `screens/paywall/PaywallScreen.kt` per the frame-17 annex: close app-bar action; Premium hero; benefit list (features-available-now, no image upload); the 3 pricing cards (store-localized prices + derived anchors/savings/per-day, default-selected Monthly, "Paling hemat" on Yearly); full-width "Aktifkan Premium" CTA; disclosure footer. Navigation-free (hoisted `onClose` / `onPurchaseComplete`); all text via `stringResource`; `NearYouTheme` tokens only; light + dark. Entry-context tailors the hero headline.
+- [x] 6.2 Implement the Unconfigured + PurchaseInProgress + Error renderings (graceful "Premium belum tersedia"; single progress indicator + disabled CTA; retryable error) — no crash, no fabricated price card.
 
 ## 7. Wire the dead-end CTAs
 
@@ -43,7 +43,7 @@
 
 ## 8. DI
 
-- [ ] 8.1 Bind `PurchaseController` (production `:infra:revenuecat` impl) + register `PaywallViewModel` for the `PaywallRoute` entry in the mobile Koin module(s); add a `FakePurchaseController` in commonTest for the screen/VM seam.
+- [x] 8.1 Bind `PurchaseController` (production `:infra:revenuecat` impl) + register `PaywallViewModel` for the `PaywallRoute` entry in the mobile Koin module(s); add a `FakePurchaseController` in commonTest for the screen/VM seam.
 
 ## 9. Tests
 
