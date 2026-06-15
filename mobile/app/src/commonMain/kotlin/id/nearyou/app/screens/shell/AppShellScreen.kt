@@ -75,7 +75,8 @@ import org.koin.compose.koinInject
  * sections — **Home / Notifikasi / Profil** — over a body that renders the selected section's content via
  * `when(selectedSection)` (design D3): Home → [HomeScreen] (the feed tab host + composer FAB), Notifikasi
  * → [NotificationsScreen], Profil → the live self [ProfileScreen] (`mobile-profile`; `targetUserId = null`
- * → the VM resolves the self id from the session).
+ * → the VM resolves the self id from the session; its settings gear invokes [onOpenSettings] → a
+ * `SettingsRoute` push, #288).
  *
  * This shell `Scaffold` is the **single inset-owning `Scaffold`** for the authenticated surface
  * (mobile-design-system § "The app shell owns a single Scaffold and window insets" / design D1): the
@@ -116,6 +117,7 @@ fun AppShellScreen(
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
     onOpenSearch: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit = { _, _ -> },
 ) {
     val flow = koinInject<NotificationsFlow>()
@@ -208,7 +210,15 @@ fun AppShellScreen(
                 }
                 // The live self profile (mobile-profile): targetUserId = null → the VM resolves the self
                 // id from the session; onBack = null → inset-free section body, no own Scaffold/back bar.
-                Section.Profil -> ProfileScreen(targetUserId = null, onBack = null, onOpenFollowList = onOpenFollowList)
+                // onSettings → the gear pushes SettingsRoute (#288); onOpenFollowList → the tappable
+                // follower/following counts push FollowListRoute (#298). Both hoisted to appEntryProvider.
+                Section.Profil ->
+                    ProfileScreen(
+                        targetUserId = null,
+                        onBack = null,
+                        onSettings = onOpenSettings,
+                        onOpenFollowList = onOpenFollowList,
+                    )
             }
         }
     }

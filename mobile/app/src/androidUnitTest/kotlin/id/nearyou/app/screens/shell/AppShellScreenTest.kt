@@ -35,6 +35,7 @@ import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.profile.PROFILE_FOLLOWERS_TAG
+import id.nearyou.app.screens.profile.PROFILE_SETTINGS_TAG
 import id.nearyou.app.screens.timeline.FOLLOWING_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
@@ -233,6 +234,26 @@ class AppShellScreenTest {
             // feed is gone. (The old "Profil segera hadir." placeholder is removed.)
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOWERS_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertDoesNotExist()
+        }
+    }
+
+    // mobile-settings (#288) — the self-profile section's settings gear is the Settings surface's entry
+    // point: tapping it invokes the hoisted onOpenSettings (the appEntryProvider wires this to a
+    // SettingsRoute push). Targets the gear by test tag (the "Profil" header title now collides with the
+    // bottom-nav "Profil" label while the section is active, so text lookups would be ambiguous).
+    @Test
+    fun profilSection_settingsGear_invokesOnOpenSettings() {
+        installKoin()
+        runComposeUiTest {
+            var settingsOpens = 0
+            setContent {
+                KoinContext { NearYouTheme { AppShellScreen(onOpenComposer = {}, onOpenSettings = { settingsOpens++ }) } }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(SECTION_PROFILE).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_SETTINGS_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(PROFILE_SETTINGS_TAG).performClick()
+            assertEquals(1, settingsOpens, "the Profil section's settings gear invokes onOpenSettings (→ SettingsRoute push)")
         }
     }
 

@@ -105,9 +105,9 @@ data class PostDetailRoute(
  * Settings surface (the `mobile-settings` capability — mockup frame 16 "Pengaturan"), pushed onto the
  * ROOT back stack above [HomeRoute] so it overlays the section bar (the [PostDetailRoute] mechanism).
  * A parameterless marker carrying NO identity payload (the user identity lives in the persisted token,
- * never in the serialized back stack). The entry affordance is a settings gear on the profile surface
- * (`mobile-profile`, PR #245) — wired there once that lands (design D7); the route + screen are owned
- * here regardless.
+ * never in the serialized back stack). The entry affordance is the settings gear on the self-profile
+ * section ([id.nearyou.app.screens.profile.ProfileScreen]'s self variant), wired via
+ * `AppShellScreen.onOpenSettings` → `ProfileScreen.onSettings` to a push here (#288).
  */
 @Serializable
 data object SettingsRoute : NavKey

@@ -260,6 +260,9 @@
     <string name="profile_follow">Ikuti</string>
     <string name="profile_unfollow">Mengikuti</string>
     <string name="profile_actions_menu_description">Opsi lainnya</string>
+    <!-- The self-profile section's settings gear (mobile-settings entry point, #288) — "Buka pengaturan"
+         mirrors the section_*_icon_description "Buka <thing>" register. -->
+    <string name="profile_settings_action">Buka pengaturan</string>
     <string name="profile_block_action" formatted="true">Blokir @%1$s</string>
     <string name="profile_report_action">Laporkan</string>
     <string name="profile_block_confirm_title" formatted="true">Blokir @%1$s?</string>

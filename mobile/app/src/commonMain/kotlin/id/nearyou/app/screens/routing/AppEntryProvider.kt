@@ -119,6 +119,10 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 // SearchRoute onto the root stack (above the shell, overlaying the section bar). Same
                 // call-site mechanism as onOpenComposer; the shell + app bar hold no back-stack reference.
                 onOpenSearch = { backStack.add(SearchRoute) },
+                // The self-profile section's settings gear (mobile-settings, #288) → push the parameterless
+                // SettingsRoute onto the root stack (above the shell). Same call-site mechanism as the
+                // others; AppShellScreen forwards this to ProfileScreen's onSettings on the Profil section.
+                onOpenSettings = { backStack.add(SettingsRoute) },
                 // The self profile's tappable follower/following counts (mobile-follow-lists): push the
                 // tabbed list onto the root stack at the tapped count's tab. The self ProfileScreen resolves
                 // its own userId from the session and supplies it here; the route carries only userId + tab.
@@ -151,9 +155,9 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             PostDetailScreen(route = route, onBack = { backStack.removeLastOrNull() })
         }
         // mobile-settings — the Settings surface + its two sub-surfaces, pushed onto the root stack above
-        // the shell. SettingsRoute is reached from a gear on the profile surface (mobile-profile, PR #245),
-        // wired there once it lands (design D7); the route→screen mappings are owned here regardless. A
-        // terminal 401 on a sub-surface routes to sign-in (replaceAll — the auth-boundary transition).
+        // the shell. SettingsRoute is reached from the settings gear on the self-profile section, wired via
+        // AppShellScreen.onOpenSettings → ProfileScreen.onSettings (#288); the route→screen mappings are
+        // owned here. A terminal 401 on a sub-surface routes to sign-in (replaceAll — the auth boundary).
         entry<SettingsRoute> {
             SettingsScreen(
                 onBack = { backStack.removeLastOrNull() },
