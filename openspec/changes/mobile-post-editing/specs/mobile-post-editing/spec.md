@@ -2,7 +2,7 @@
 
 ### Requirement: The post-detail screen offers an Edit affordance on the viewer's own recent post
 
-The `:mobile:app` post-detail screen SHALL present an **Edit** affordance for a post when, and only when, the post was authored by the current viewer AND the post is within the 30-minute edit window measured from its `createdAt`. For a post authored by another user, or the viewer's own post whose `createdAt` is more than 30 minutes ago, the Edit affordance SHALL NOT be shown. The client-side window/ownership check is an affordance hint only; the backend `PATCH /api/v1/posts/{post_id}` remains the authoritative gate, so a boundary case (clock skew) that surfaces the affordance and then receives `409 edit_window_expired` SHALL be handled gracefully (see the error-mapping requirement) rather than crashing or showing a generic failure.
+The `:mobile:app` post-detail screen SHALL present an **Edit** affordance for a post when, and only when, the post was authored by the current viewer AND the post is within the 30-minute edit window measured from its `createdAt`. Authorship SHALL be determined by the server-authoritative `isAuthor` flag from the `single-post-read` projection (the client cannot otherwise determine ownership — neither the post-detail route payload nor the projection carries `author_id`); the 30-minute window SHALL be a client-side hint computed from `createdAt`. For a post authored by another user (`isAuthor` false or not yet resolved), or the viewer's own post whose `createdAt` is more than 30 minutes ago, the Edit affordance SHALL NOT be shown. The window hint is advisory only; the backend `PATCH /api/v1/posts/{post_id}` remains the authoritative gate, so a boundary case (clock skew) that surfaces the affordance and then receives `409 edit_window_expired` SHALL be handled gracefully (see the error-mapping requirement) rather than crashing or showing a generic failure.
 
 #### Scenario: Own fresh post shows the Edit affordance
 
@@ -18,6 +18,20 @@ The `:mobile:app` post-detail screen SHALL present an **Edit** affordance for a 
 
 - **WHEN** the viewer opens post-detail for a post authored by someone else
 - **THEN** the Edit affordance is not shown regardless of the post's age
+
+### Requirement: Post-detail reads edit state from a single-post-read refresh
+
+Because the post-detail screen is otherwise driven by its navigation route payload (which carries no edit state), it SHALL fetch the `single-post-read` projection (`GET /api/v1/posts/{post_id}`) on each resume — the first open AND the return from the edit screen — to obtain the current `content` (freshening a post edited elsewhere or just now), `editedAt` (the "Diedit" label signal), and `isAuthor` (the Edit-affordance gate). A failed refresh SHALL degrade silently: the header keeps its route-payload content and the "Diedit" label / Edit affordance stay hidden — it SHALL NOT error the post-detail surface.
+
+#### Scenario: A successful edit is reflected on return to post-detail
+
+- **WHEN** the viewer edits their post and the edit screen pops back to post-detail
+- **THEN** post-detail's resume refresh re-reads the post and renders the updated content and the "Diedit" label
+
+#### Scenario: A failed refresh degrades silently
+
+- **WHEN** the single-post-read refresh fails (a non-200 or transport error)
+- **THEN** post-detail keeps its route-payload content and shows no "Diedit" label and no Edit affordance (no error chrome)
 
 ### Requirement: Selecting Edit opens a prefilled editor that submits a content edit
 

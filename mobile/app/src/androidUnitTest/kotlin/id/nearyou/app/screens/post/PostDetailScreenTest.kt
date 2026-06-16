@@ -19,6 +19,7 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -30,15 +31,23 @@ import androidx.compose.ui.unit.dp
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.post.EditHistoryOutcome
+import id.nearyou.app.post.EditVersionDto
 import id.nearyou.app.post.FakePostDetailFlow
+import id.nearyou.app.post.FakePostEditFlow
 import id.nearyou.app.post.LikeApiClient
 import id.nearyou.app.post.LikeCountOutcome
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostDetailRepository
+import id.nearyou.app.post.PostEditApiClient
+import id.nearyou.app.post.PostEditFlow
+import id.nearyou.app.post.PostEditRepository
+import id.nearyou.app.post.PostRefreshOutcome
 import id.nearyou.app.post.RepliesOutcome
 import id.nearyou.app.post.ReplyApiClient
 import id.nearyou.app.post.ReplyPostOutcome
+import id.nearyou.app.post.SinglePostApiClient
 import id.nearyou.app.post.fakeReply
 import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.theme.NearYouTheme
@@ -58,6 +67,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Clock
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val CONTENT = "halo"
@@ -85,8 +95,8 @@ private val JSON = headersOf("Content-Type", "application/json")
 
 /**
  * Render + interaction coverage of `PostDetailScreen` via the Robolectric-backed CMP UI runner (task 9.3),
- * driven by `FakePostDetailFlow` (plus one real-repository-over-MockEngine test for the no-single-post-GET
- * guarantee). The outcome→state projection is covered purely by `PostDetailUiStateTest`; this suite
+ * driven by `FakePostDetailFlow` (plus one real-repository-over-MockEngine test for the mobile-post-editing
+ * single-post-read refresh on resume). The outcome→state projection is covered purely by `PostDetailUiStateTest`; this suite
  * verifies the composable renders the header (empty-city tolerated, no `author_id`/coordinate), the
  * replies states (incl. a viewer's-own auto-hidden reply rendering normally), the like toggle (optimistic
  * + revert + 429 upsell + count + graceful degradation), and the reply composer (counter, 280-disable,
@@ -106,9 +116,19 @@ private val JSON = headersOf("Content-Type", "application/json")
 @Config(sdk = [33], qualifiers = "w360dp-h800dp")
 @OptIn(ExperimentalTestApi::class)
 class PostDetailScreenTest {
-    private fun installKoin(flow: PostDetailFlow) {
+    private fun installKoin(
+        flow: PostDetailFlow,
+        editFlow: PostEditFlow = FakePostEditFlow(),
+    ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        startKoin { modules(module { single { flow } }) }
+        startKoin {
+            modules(
+                module {
+                    single { flow }
+                    single { editFlow }
+                },
+            )
+        }
     }
 
     @AfterTest
@@ -123,19 +143,135 @@ class PostDetailScreenTest {
         authorUsername: String = "raka.jkt",
         authorDisplayName: String = "Raka Pratama",
         focusReplyComposer: Boolean = false,
+        createdAtIso: String = CREATED_AT,
     ): PostDetailRoute =
         PostDetailRoute(
             postId = "p1",
             content = CONTENT,
             cityName = cityName,
             distanceM = 1234.5,
-            createdAtIso = CREATED_AT,
+            createdAtIso = createdAtIso,
             likedByViewer = likedByViewer,
             replyCount = replyCount,
             authorUsername = authorUsername,
             authorDisplayName = authorDisplayName,
             focusReplyComposer = focusReplyComposer,
         )
+
+    // ---- mobile-post-editing integration (the refresh-on-resume → affordance / Diedit label / history) ----
+
+    @Test
+    fun editAffordance_shown_forOwnPostWithinWindow() {
+        val fresh = Clock.System.now().toString()
+        installKoin(
+            FakePostDetailFlow(),
+            FakePostEditFlow(refreshOutcome = PostRefreshOutcome.Loaded(content = CONTENT, editedAt = null, isAuthor = true)),
+        )
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(route = route(createdAtIso = fresh), onBack = {}, onEditPost = {
+                                _,
+                                _,
+                            ->
+                        })
+                    }
+                }
+            }
+            // The affordance appears only AFTER the resume refresh reports isAuthor = true (within the window).
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(POST_DETAIL_EDIT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_EDIT_TAG).assertExists()
+        }
+    }
+
+    @Test
+    fun editAffordance_hidden_forAnotherUsersPost() {
+        val fresh = Clock.System.now().toString()
+        installKoin(
+            FakePostDetailFlow(),
+            // editedAt non-null is the refresh-completed SIGNAL (the Diedit label appears); isAuthor = false.
+            FakePostEditFlow(
+                refreshOutcome = PostRefreshOutcome.Loaded(content = CONTENT, editedAt = "2026-06-07T09:00:00Z", isAuthor = false),
+            ),
+        )
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(route = route(createdAtIso = fresh), onBack = {}, onEditPost = {
+                                _,
+                                _,
+                            ->
+                        })
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(POST_DETAIL_EDITED_LABEL_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_EDIT_TAG).assertDoesNotExist() // not the author → no affordance
+        }
+    }
+
+    @Test
+    fun editAffordance_hidden_forOwnButStalePost() {
+        installKoin(
+            FakePostDetailFlow(),
+            // own post (isAuthor = true) but the route's createdAt is the far-past CREATED_AT (outside 30 min).
+            FakePostEditFlow(
+                refreshOutcome = PostRefreshOutcome.Loaded(content = CONTENT, editedAt = "2026-06-07T09:00:00Z", isAuthor = true),
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}, onEditPost = { _, _ -> }) } } }
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(POST_DETAIL_EDITED_LABEL_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_EDIT_TAG).assertDoesNotExist() // own but stale → no affordance
+        }
+    }
+
+    @Test
+    fun dieditLabel_shown_whenEdited_andOpensHistoryOverlay() {
+        installKoin(
+            FakePostDetailFlow(),
+            FakePostEditFlow(
+                refreshOutcome = PostRefreshOutcome.Loaded(content = CONTENT, editedAt = "2026-06-07T09:00:00Z", isAuthor = false),
+                historyOutcome = EditHistoryOutcome.Loaded(listOf(EditVersionDto("Versi ke-1", "isi lama", "2026-06-07T09:00:00Z"))),
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}, onEditPost = { _, _ -> }) } } }
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(POST_DETAIL_EDITED_LABEL_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_EDITED_LABEL_TAG).performClick()
+            // The "Riwayat edit" overlay opens and lists the version (label + content; no location field).
+            onNodeWithTag(EDIT_HISTORY_SHEET_TAG).assertExists()
+            onNodeWithText("Versi ke-1").assertExists()
+            onNodeWithText("isi lama").assertExists()
+        }
+    }
+
+    @Test
+    fun dieditLabel_absent_whenNotEdited() {
+        val fresh = Clock.System.now().toString()
+        installKoin(
+            FakePostDetailFlow(),
+            // editedAt = null (never edited); isAuthor = true is the refresh-completed signal (affordance appears).
+            FakePostEditFlow(refreshOutcome = PostRefreshOutcome.Loaded(content = CONTENT, editedAt = null, isAuthor = true)),
+        )
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(route = route(createdAtIso = fresh), onBack = {}, onEditPost = {
+                                _,
+                                _,
+                            ->
+                        })
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(POST_DETAIL_EDIT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_EDITED_LABEL_TAG).assertDoesNotExist() // never edited → no Diedit label
+        }
+    }
 
     // ---- header ----
 
@@ -435,10 +571,10 @@ class PostDetailScreenTest {
         }
     }
 
-    // ---- no single-post GET (real repository over a capturing MockEngine) ----
+    // ---- mobile-post-editing: the single-post-read refresh on resume (real repos over a capturing MockEngine) ----
 
     @Test
-    fun noSinglePostGet_issuesOnlySubResourceRequests() {
+    fun postDetail_issuesSinglePostRefresh_plusSubResourceRequests() {
         val captured = mutableListOf<String>()
         val mockClient =
             HttpClientFactory.create(
@@ -450,34 +586,50 @@ class PostDetailScreenTest {
                     MockEngine { request ->
                         captured += request.url.encodedPath
                         when {
-                            request.url.encodedPath.endsWith("/likes/count") -> respond("""{"count":0}""", HttpStatusCode.OK, JSON)
-                            else -> respond("""{"replies":[],"next_cursor":null}""", HttpStatusCode.OK, JSON)
+                            request.url.encodedPath.endsWith("/likes/count") ->
+                                respond("""{"count":0}""", HttpStatusCode.OK, JSON)
+                            request.url.encodedPath.endsWith("/replies") ->
+                                respond("""{"replies":[],"next_cursor":null}""", HttpStatusCode.OK, JSON)
+                            // mobile-post-editing: the single-post-read refresh (GET /posts/{id}).
+                            else ->
+                                respond(
+                                    """{"id":"p1","authorUsername":"u","authorDisplayName":"D","content":"halo",""" +
+                                        """"city_name":"","createdAt":"t","liked_by_viewer":false,""" +
+                                        """"reply_count":0,"isAuthor":false}""",
+                                    HttpStatusCode.OK,
+                                    JSON,
+                                )
                         }
                     },
                 installLogging = false,
                 nowMillis = { 0L },
             )
-        val repo = PostDetailRepository(LikeApiClient(mockClient), ReplyApiClient(mockClient))
+        val detailRepo = PostDetailRepository(LikeApiClient(mockClient), ReplyApiClient(mockClient))
+        val editRepo = PostEditRepository(PostEditApiClient(mockClient), SinglePostApiClient(mockClient))
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        startKoin { modules(module { single<PostDetailFlow> { repo } }) }
+        startKoin {
+            modules(
+                module {
+                    single<PostDetailFlow> { detailRepo }
+                    single<PostEditFlow> { editRepo }
+                },
+            )
+        }
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
-            // Await the captured-request list DIRECTLY (a plain list, not a rendered node): the two entry
-            // loads (loadReplies + likeCount) fire from a LaunchedEffect through real coroutines + MockEngine,
-            // which are async w.r.t. compose idle, so polling the list is the right mechanism. The ceiling is
-            // deliberately generous: under BATCH Robolectric load (the full module suite, many suites
-            // contending for the JVM) the prior 5s budget occasionally lapsed before the second request
-            // landed and threw ComposeTimeoutException — passing solo / on retry every time (#228). waitUntil
-            // returns the instant the condition holds, so the larger ceiling costs nothing on passing runs; it
-            // only widens the failure budget enough to absorb CPU contention.
-            waitUntil(timeoutMillis = 30_000) { captured.size >= 2 } // loadReplies + likeCount fire on entry
-            // The header came from the route payload — NO bare single-post GET was issued.
-            assertTrue(captured.none { it == "/api/v1/posts/p1" }, "no single-post by-id GET; captured=$captured")
+            // Entry loads fire from real coroutines + MockEngine (async w.r.t. compose idle), so poll the
+            // captured list directly. The "fetch on open" change adds the single-post refresh GET alongside
+            // the like + reply sub-resource loads. Generous ceiling for batch Robolectric CPU contention (#228).
+            waitUntil(timeoutMillis = 30_000) { captured.contains("/api/v1/posts/p1") }
+            // mobile-post-editing reverses the prior no-single-post-GET guarantee: the refresh IS now issued.
+            assertTrue(captured.contains("/api/v1/posts/p1"), "the single-post-read refresh is issued; captured=$captured")
             assertTrue(
                 captured.all {
-                    it == "/api/v1/posts/p1/replies" || it == "/api/v1/posts/p1/likes/count"
+                    it == "/api/v1/posts/p1" ||
+                        it == "/api/v1/posts/p1/replies" ||
+                        it == "/api/v1/posts/p1/likes/count"
                 },
-                "only sub-resource paths; captured=$captured",
+                "only the post + its sub-resources; captured=$captured",
             )
         }
     }

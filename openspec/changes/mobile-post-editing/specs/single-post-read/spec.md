@@ -11,6 +11,7 @@ A Ktor route SHALL be registered at `GET /api/v1/posts/{post_id}` requiring Bear
 - `cityName` — the reverse-geocoded city label (the backend empty-string convention `""` is preserved verbatim when unset; never `null`-collapsed differently than the timelines)
 - `createdAt` — the creation timestamp as a String
 - `editedAt` — `String?`, the timestamp of the post's most recent edit. It MUST be non-null **iff the post has edit history** (one or more `post_edits` rows) and MUST be derived from edit-history existence (e.g. `MAX(post_edits.edited_at)`), NOT from `posts.updated_at` (which is not a reliable edited-signal). For a never-edited post it MUST be `null`/absent (omitted under the app-wide `explicitNulls = false`). This is the only signal the client uses to render the "Diedit" label and to decide whether to surface the edit-history entry; it introduces no PII and no coordinate.
+- `isAuthor` — `Boolean`, true iff the calling viewer authored this post. It MUST be computed server-side from `author_id` WITHOUT projecting the UUID — a boolean about the *viewer's* relationship to the post that leaks nothing about the author's identity. It gates the `mobile-post-editing` Edit affordance (the client cannot otherwise determine ownership: neither the timeline route payload nor this projection carries `author_id`).
 - `likedByViewer` — whether the calling viewer has liked this post
 - `replyCount` — the post's reply count, computed identically to the timeline DTOs' `reply_count` (NOT viewer-block-filtered — the documented `post-likes` / `post-replies` counter tradeoff)
 - `distanceM` — `Double?`, always `null` in v1 (no viewer-location context on a by-id read)
@@ -34,6 +35,13 @@ The projection MUST NOT include the author UUID, any `latitude`/`longitude`, or 
 - **WHEN** an authenticated viewer reads `GET /api/v1/posts/{P}`
 - **THEN** the response carries no non-null `editedAt` (the field is `null`/absent under `explicitNulls = false`)
 
+#### Scenario: isAuthor reflects the viewer's authorship without exposing the author UUID
+
+- **WHEN** the author of post P reads `GET /api/v1/posts/{P}`
+- **THEN** the response `isAuthor` is `true`
+- **AND** for any other viewer who can see P, `isAuthor` is `false`
+- **AND** the response body contains no author UUID under any key
+
 #### Scenario: likedByViewer reflects the viewer's own like state
 
 - **GIVEN** viewer V has liked post P
@@ -53,7 +61,7 @@ The projection MUST NOT include the author UUID, any `latitude`/`longitude`, or 
 
 ### Requirement: The wire shape matches the shipped timeline post DTO mixed-case convention
 
-The `SinglePostResponse` serialization MUST match the SHIPPED timeline post DTO casing in `backend/ktor/.../timeline/TimelineRoutes.kt` EXACTLY, which is mixed-case: `cityName` serializes as `@SerialName("city_name")`, `likedByViewer` as `@SerialName("liked_by_viewer")`, and `replyCount` as `@SerialName("reply_count")` (snake_case), while `id`, `authorUsername`, `authorDisplayName`, `content`, `createdAt`, `editedAt`, and `distanceM` are bare camelCase. A negative-guard test MUST assert the all-camelCase form does not bind (the PR #128 casing-drift precedent), so the client DTO derived from this contract parses correctly.
+The `SinglePostResponse` serialization MUST match the SHIPPED timeline post DTO casing in `backend/ktor/.../timeline/TimelineRoutes.kt` EXACTLY, which is mixed-case: `cityName` serializes as `@SerialName("city_name")`, `likedByViewer` as `@SerialName("liked_by_viewer")`, and `replyCount` as `@SerialName("reply_count")` (snake_case), while `id`, `authorUsername`, `authorDisplayName`, `content`, `createdAt`, `editedAt`, `isAuthor`, and `distanceM` are bare camelCase. A negative-guard test MUST assert the all-camelCase form does not bind (the PR #128 casing-drift precedent), so the client DTO derived from this contract parses correctly.
 
 #### Scenario: Response serializes with the mixed-case keys
 
