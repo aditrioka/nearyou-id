@@ -568,6 +568,31 @@ class UsernameCustomizationEndpointsTest : StringSpec({
         }
     }
 
+    // A non-consumed override for X does NOT get spent when X is already TAKEN by
+    // another user: the collision gate (409) fires BEFORE the override consume inside
+    // the FOR UPDATE block, so consumed_at stays NULL and the approved handle remains
+    // claimable once it frees up.
+    "8.4 override preserved when candidate is taken → 409 + override consumed_at stays NULL" {
+        val (id, tok, _) = seedUser()
+        val (other, _, otherName) = seedUser(username = "approvedtaken")
+        seedOverride(id, otherName) // admin pre-approved 'approvedtaken' for this user
+        try {
+            withApp(profanity = listOf(otherName)) { _ ->
+                val r = patchUsername(tok, otherName)
+                r.status shouldBe HttpStatusCode.Conflict
+                parse(r.bodyAsText()).error() shouldBe "username_unavailable"
+            }
+            currentUsername(id).startsWith("user_") shouldBe true // unchanged
+            // override survives the collision — still claimable once the handle frees up
+            count(
+                "SELECT COUNT(*) FROM username_flag_overrides WHERE user_id = '$id' " +
+                    "AND candidate = '$otherName' AND consumed_at IS NULL",
+            ) shouldBe 1
+        } finally {
+            cleanup(id, other)
+        }
+    }
+
     // The flagged upsert re-opens a resolved standing row with the LATEST candidate.
     "8.4 flagged upsert re-opens a resolved row with the latest candidate in notes" {
         val (id, tok, _) = seedUser()
