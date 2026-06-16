@@ -10,16 +10,16 @@
 
 ## 3. :infra:cloud-vision module (Google Cloud Vision Safe Search)
 
-- [ ] 3.1 Scaffold `infra/cloud-vision` (KMP/JVM as appropriate): interface `ImageModerator { fun isConfigured(): Boolean; suspend fun safeSearch(bytes: ByteArray): SafeSearchVerdict }` returning plain Kotlin types (the `RemoteConfigClient` interface precedent); `SafeSearchVerdict(adult, violence, racy)` with a `Likelihood` enum.
-- [ ] 3.2 Single vendor impl (`google-cloud-vision` SDK) + fail-soft `NoOpImageModerator` (unconfigured → `isConfigured()=false`); factory reading the SA via `secretKey(env, "gcp-vision-sa")`. Never throws — null/unavailable on error.
-- [ ] 3.3 Add the `com.google.cloud:google-cloud-vision` pin to `gradle/libs.versions.toml` + a `docs/09-Versions.md` Decisions-log row (rationale + re-check date).
-- [ ] 3.4 Unit tests: verdict mapping (LIKELY/VERY_LIKELY → reject for adult/violence/racy; POSSIBLE and lower → pass); NoOp unconfigured behavior.
+- [x] 3.1 Scaffold `infra/cloud-vision` (KMP/JVM as appropriate): interface `ImageModerator { fun isConfigured(): Boolean; suspend fun safeSearch(bytes: ByteArray): SafeSearchVerdict }` returning plain Kotlin types (the `RemoteConfigClient` interface precedent); `SafeSearchVerdict(adult, violence, racy)` with a `Likelihood` enum.
+- [x] 3.2 Single vendor impl (`google-cloud-vision` SDK) + fail-soft `NoOpImageModerator` (unconfigured → `isConfigured()=false`); factory reading the SA via `secretKey(env, "gcp-vision-sa")`. Never throws — null/unavailable on error.
+- [x] 3.3 Add the `com.google.cloud:google-cloud-vision` pin to `gradle/libs.versions.toml` + a `docs/09-Versions.md` Decisions-log row (rationale + re-check date).
+- [x] 3.4 Unit tests: verdict mapping (LIKELY/VERY_LIKELY → reject for adult/violence/racy; POSSIBLE and lower → pass); NoOp unconfigured behavior.
 
 ## 4. :infra:cloudflare-images module (server-side upload)
 
-- [ ] 4.1 Scaffold `infra/cloudflare-images`: interface `ImageStore { fun isConfigured(): Boolean; suspend fun upload(bytes, contentType): StoredImage }` (`StoredImage(imageId, deliveryUrl)`); raw Ktor-client `POST .../accounts/{account}/images/v1` (server-side upload, NOT Direct Creator Upload — D1).
-- [ ] 4.2 Fail-soft `NoOpImageStore` + factory reading `secretKey(env, "cloudflare-images-api-token")` + `secretKey(env, "cloudflare-images-account-hash")`. Delivery URL built on the `img` subdomain (Open Decision #32).
-- [ ] 4.3 Unit tests (mock Ktor engine): success → `StoredImage`; unconfigured → NoOp; HTTP error → fail-soft.
+- [x] 4.1 Scaffold `infra/cloudflare-images`: interface `ImageStore { fun isConfigured(): Boolean; suspend fun upload(bytes, contentType): StoredImage }` (`StoredImage(imageId, deliveryUrl)`); raw Ktor-client `POST .../accounts/{account}/images/v1` (server-side upload, NOT Direct Creator Upload — D1).
+- [x] 4.2 Fail-soft `NoOpImageStore` + factory reading `secretKey(env, "cloudflare-images-api-token")` + `secretKey(env, "cloudflare-images-account-hash")`. Delivery URL built on the `img` subdomain (Open Decision #32).
+- [x] 4.3 Unit tests (mock Ktor engine): success → `StoredImage`; unconfigured → NoOp; HTTP error → fail-soft.
 
 ## 5. Flag-cache for image_upload_enabled (docs/11 §3.3 short-TTL override)
 
@@ -46,9 +46,9 @@
 
 ## 9. Module-registration maintenance (silent-deploy-break guards)
 
-- [ ] 9.1 Add `include(":infra:cloudflare-images")` + `include(":infra:cloud-vision")` to `settings.gradle.kts` (backend-included, NOT mobile-gated).
-- [ ] 9.2 Add matching `Dockerfile` builder-stage COPY blocks for both modules (PR #247 precedent: a non-gated `include()` without COPY breaks every staging/prod deploy while CI stays green). Run `dev/scripts/check-dockerfile-module-copies.sh` — must pass.
-- [ ] 9.3 Add one-line entries to `dev/module-descriptions.txt` for both modules + run `dev/scripts/sync-readme.sh --write`.
+- [x] 9.1 Add `include(":infra:cloudflare-images")` + `include(":infra:cloud-vision")` to `settings.gradle.kts` (backend-included, NOT mobile-gated).
+- [x] 9.2 Add matching `Dockerfile` builder-stage COPY blocks for both modules (PR #247 precedent: a non-gated `include()` without COPY breaks every staging/prod deploy while CI stays green). Run `dev/scripts/check-dockerfile-module-copies.sh` — must pass.
+- [x] 9.3 Add one-line entries to `dev/module-descriptions.txt` for both modules + run `dev/scripts/sync-readme.sh --write`.
 
 ## 10. Verification gate (pre-push)
 

@@ -21,6 +21,8 @@ A modular monolith on Kotlin Multiplatform. Module list below is auto-generated 
 - `:shared:distance` — KMP utilities for great-circle distance + nearby-radius math, shared by mobile and backend.
 - `:shared:resources` — KMP brand resources via Compose Multiplatform Resources: `NearYouColorScheme` + `NearYouTypography` (Plus Jakarta Sans) + brand logo variants + foundational Bahasa Indonesia strings consumed by `:mobile:app`.
 - `:shared:tmp` — scratch placeholder for KMP boilerplate; will be split into real `:shared:<name>` modules as features are built.
+- `:infra:cloud-vision` — Google Cloud Vision Safe Search wrapper (`premium-image-upload-pipeline`); fences the Vision SDK behind the `ImageModerator` interface returning a plain `SafeSearchVerdict`, fail-soft `NoOpImageModerator` when the credential is unset.
+- `:infra:cloudflare-images` — Cloudflare Images server-side upload via raw Ktor client (`premium-image-upload-pipeline`); owns the `ImageStore` interface + `CloudflareImageStore` (Cloudflare has no JVM SDK), fail-soft `NoOpImageStore` when unconfigured.
 - `:infra:fcm` — Firebase Cloud Messaging Admin SDK wrapper; production `NotificationDispatcher` impl, per-platform payload builders, on-send token-prune contract.
 - `:infra:oidc` — Google OIDC bearer-token verifier (Auth0 `jwks-rsa` + `java-jwt`) for `/internal/*` endpoints invoked by Cloud Scheduler.
 - `:infra:openai-moderation` — OpenAI Moderation API HTTP client (Ktor CIO + kotlinx.serialization). Owns the vendor-agnostic `ModerationClient` interface and the `OpenAiModerationClient` Layer-3 toxicity-classifier binding consumed by `:backend:ktor`'s `Layer3Moderator`. Originally targeted Google Perspective; vendor pivoted to OpenAI mid-implementation due to Perspective sunset.

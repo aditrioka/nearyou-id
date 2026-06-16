@@ -44,6 +44,8 @@ COPY build-logic build-logic
 COPY backend/ktor/build.gradle.kts backend/ktor/build.gradle.kts
 COPY core/data/build.gradle.kts core/data/build.gradle.kts
 COPY core/domain/build.gradle.kts core/domain/build.gradle.kts
+COPY infra/cloud-vision/build.gradle.kts infra/cloud-vision/build.gradle.kts
+COPY infra/cloudflare-images/build.gradle.kts infra/cloudflare-images/build.gradle.kts
 COPY infra/fcm/build.gradle.kts infra/fcm/build.gradle.kts
 COPY infra/oidc/build.gradle.kts infra/oidc/build.gradle.kts
 COPY infra/openai-moderation/build.gradle.kts infra/openai-moderation/build.gradle.kts
@@ -59,6 +61,8 @@ COPY shared/tmp/build.gradle.kts shared/tmp/build.gradle.kts
 COPY backend/ktor/src backend/ktor/src
 COPY core/data/src core/data/src
 COPY core/domain/src core/domain/src
+COPY infra/cloud-vision/src infra/cloud-vision/src
+COPY infra/cloudflare-images/src infra/cloudflare-images/src
 COPY infra/fcm/src infra/fcm/src
 COPY infra/oidc/src infra/oidc/src
 COPY infra/openai-moderation/src infra/openai-moderation/src
