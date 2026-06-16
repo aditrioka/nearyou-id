@@ -183,11 +183,21 @@ private suspend fun ApplicationCall.respondOversight(
     // cursor), so paging one list never resets the other.
     val flagsOlderUrl =
         flagsPage.nextCursor?.let { next ->
-            oversightUrl(buildList { add("flags_cursor" to next.encode()); rawSearch?.let { add("q" to it) } })
+            oversightUrl(
+                buildList {
+                    add("flags_cursor" to next.encode())
+                    rawSearch?.let { add("q" to it) }
+                },
+            )
         }
     val historyOlderUrl =
         historyPage.nextCursor?.let { next ->
-            oversightUrl(buildList { add("history_cursor" to next.encode()); rawSearch?.let { add("q" to it) } })
+            oversightUrl(
+                buildList {
+                    add("history_cursor" to next.encode())
+                    rawSearch?.let { add("q" to it) }
+                },
+            )
         }
 
     val model =
@@ -206,7 +216,12 @@ private suspend fun ApplicationCall.respondOversight(
             historyOlderUrl?.let { put("historyOlderUrl", it) }
             message?.let { put("message", it) }
             if (request.headers[HX_REQUEST] != "true") {
-                layout.putShellModel(this@respondOversight, this, pageTitle = "Username oversight", activePath = "/admin/username-oversight")
+                layout.putShellModel(
+                    this@respondOversight,
+                    this,
+                    pageTitle = "Username oversight",
+                    activePath = "/admin/username-oversight",
+                )
             }
         }
     val template = if (request.headers[HX_REQUEST] == "true") "username-oversight-table.peb" else "username-oversight.peb"

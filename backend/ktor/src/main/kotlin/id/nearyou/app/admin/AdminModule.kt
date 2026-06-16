@@ -21,8 +21,6 @@ import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersReposito
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
 import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
 import id.nearyou.app.admin.reservedusernames.ReservedUsernamesRepository
-import id.nearyou.app.admin.usernameoversight.UsernameOversightRepository
-import id.nearyou.app.admin.usernameoversight.UsernameOversightService
 import id.nearyou.app.admin.routes.AdminIndexStatsRepository
 import id.nearyou.app.admin.routes.AdminLayout
 import id.nearyou.app.admin.routes.adminActionsLog
@@ -38,6 +36,8 @@ import id.nearyou.app.admin.routes.adminReservedUsernames
 import id.nearyou.app.admin.routes.adminUserModeration
 import id.nearyou.app.admin.routes.adminUsernameOversight
 import id.nearyou.app.admin.usermanagement.UserProfileRepository
+import id.nearyou.app.admin.usernameoversight.UsernameOversightRepository
+import id.nearyou.app.admin.usernameoversight.UsernameOversightService
 import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import id.nearyou.app.infra.repo.JdbcUsernameFlagOverrideRepository
