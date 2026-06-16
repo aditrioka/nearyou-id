@@ -20,9 +20,9 @@ private fun String.stripComments(): String {
  *
  * Covers: no-hardcoded-UI-strings on the screen; the screen holds no back-stack reference; `PostDetailRoute`
  * declares no coordinate; the never-widen-logging discipline (`HttpClientFactory` stays `LogLevel.HEADERS`;
- * the clients + repository never `println`/log); no block/report affordance; the replies cursor is parsed
- * but no `cursor=`-bearing request is issued; and deferral bookkeeping (tracked as `follow-up` GitHub
- * issues: block/report #200, inline-card #201, by-id #202, plus the amended infinite-scroll issue #173).
+ * the clients + repository never `println`/log); no block/report affordance; the replies cursor drives
+ * load-more (a `cursor=`-bearing request IS issued); and deferral bookkeeping (tracked as `follow-up`
+ * GitHub issues: block/report #200, inline-card #201, by-id #202; replies infinite-scroll #188 is implemented).
  */
 class PostDetailSourceGuardTest {
     private val repoRoot: File = findRepoRoot()
@@ -106,12 +106,12 @@ class PostDetailSourceGuardTest {
     }
 
     @Test
-    fun replyApiClient_parsesNextCursorButIssuesNoCursorRequest() {
+    fun replyApiClient_wiresCursorLoadMore() {
         val replyApi = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/post/ReplyApiClient.kt")
-        // The DTO retains next_cursor…
+        // The DTO retains the snake_case next_cursor…
         assertTrue(replyApi.contains("next_cursor"), "ReplyListResponse must parse the snake_case next_cursor")
-        // …but no cursor=-bearing GET is issued (load-more is deferred — design D9).
-        assertFalse(replyApi.contains("parameter(\"cursor\""), "no cursor= request may be issued (replies load-more is deferred)")
+        // …and load-more now issues a cursor=-bearing GET (mobile-nearby-timeline-infinite-scroll, #188).
+        assertTrue(replyApi.contains("parameter(\"cursor\""), "replies load-more must issue a cursor= request")
     }
 
     // Note: deferral bookkeeping (block/report kebab, inline-card actions, by-id endpoint, replies

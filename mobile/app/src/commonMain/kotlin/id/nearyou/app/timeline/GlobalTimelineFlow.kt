@@ -9,10 +9,17 @@ package id.nearyou.app.timeline
 interface GlobalTimelineFlow {
     /**
      * Loads the first page of the Global feed. Pull-to-refresh re-invokes this; the returned
-     * [GlobalTimelineOutcome.Loaded.nextCursor] is retained but not yet consumed for load-more
-     * (deferred alongside `mobile-nearby-timeline-infinite-scroll`).
+     * [GlobalTimelineOutcome.Loaded.nextCursor] drives [loadMore].
      */
     suspend fun loadFirstPage(): GlobalTimelineOutcome
+
+    /**
+     * Loads a subsequent page for [cursor]. Unlike Nearby, Global is **cursor-only** — there is no
+     * spatial anchor to reuse (Global has no spatial filter), so the request carries only the cursor
+     * (`mobile-nearby-timeline-infinite-scroll`, extended to Global). The backend cursor is chronological
+     * (`createdAt`, `id`).
+     */
+    suspend fun loadMore(cursor: String): GlobalTimelineOutcome
 }
 
 /**
@@ -31,7 +38,7 @@ sealed interface GlobalTimelineOutcome {
     /**
      * HTTP 200. Carries the raw parsed [posts] (incl. the `authorUserId` / `latitude` / `longitude`
      * fields that the UI-state projection STRIPS — PII never reaches the rendered state), the bare
-     * camelCase [nextCursor] (retained, not yet used for load-more), and the optional [upsell].
+     * camelCase [nextCursor] (drives [loadMore]; `null` ⇒ end-reached), and the optional [upsell].
      */
     data class Loaded(
         val posts: List<GlobalPostDto>,

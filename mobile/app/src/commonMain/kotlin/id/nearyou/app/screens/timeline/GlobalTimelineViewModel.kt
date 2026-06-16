@@ -3,9 +3,12 @@ package id.nearyou.app.screens.timeline
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.timeline.GlobalPostDto
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.ui.timeline.InlineLikeController
+import id.nearyou.app.ui.timeline.LoadMoreController
+import id.nearyou.app.ui.timeline.LoadMorePage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,9 +68,45 @@ class GlobalTimelineViewModel(
     /** Non-null while the Free like-cap dialog should be shown (one-shot state, docs/11 § 2.2). */
     val likeCapRetryAfterSeconds: StateFlow<Long?> = likeController.capRetryAfterSeconds
 
+    // mobile-nearby-timeline-infinite-scroll (extended to Global): the Global instance of the ONE shared
+    // load-more lifecycle (ui/timeline/LoadMoreController). Appends pages into the retained Loaded
+    // outcome. Unlike Nearby, Global is CURSOR-ONLY — there is no spatial anchor to reuse (no spatial
+    // filter), so fetchPage passes only the cursor. Eligibility-gated so load-more never runs during the
+    // initial load or a refresh.
+    private val loadMoreController =
+        LoadMoreController<GlobalPostDto>(
+            scope = viewModelScope,
+            currentCursor = { (_outcome.value as? GlobalTimelineOutcome.Loaded)?.nextCursor },
+            canLoadMore = { !_isInitialLoad.value && !_isRefreshing.value },
+            fetchPage = { cursor ->
+                when (val outcome = flow.loadMore(cursor)) {
+                    is GlobalTimelineOutcome.Loaded -> LoadMorePage.Success(outcome.posts, outcome.nextCursor)
+                    else -> LoadMorePage.Failure
+                }
+            },
+            appendItems = { items, next ->
+                val current = _outcome.value
+                if (current is GlobalTimelineOutcome.Loaded) {
+                    _outcome.value = current.copy(posts = current.posts + items, nextCursor = next)
+                }
+            },
+        )
+
+    /** True while a load-more page is in flight — drives only the list-end footer spinner. */
+    val isLoadingMore: StateFlow<Boolean> = loadMoreController.isLoadingMore
+
+    /** True after a failed load-more — drives the non-destructive retry footer (loaded list retained). */
+    val loadMoreError: StateFlow<Boolean> = loadMoreController.loadMoreError
+
     init {
         load(initial = true)
     }
+
+    /** Scroll-end trigger from the screen — appends the next page (no-op during initial/refresh or at end). */
+    fun onLoadMore() = loadMoreController.loadMore()
+
+    /** Retry control on the load-more error footer — re-issues for the still-current cursor. */
+    fun onRetryLoadMore() = loadMoreController.retry()
 
     /** Inline like tap: [currentlyLiked] is the tapped card's CURRENT state (both directions valid). */
     fun toggleLike(
@@ -91,6 +130,9 @@ class GlobalTimelineViewModel(
         // raced concurrent fetches — latest-writer-wins on outcome and a flickering
         // isRefreshing. One reload at a time; the next gesture re-fires after.
         if (_isRefreshing.value || _isInitialLoad.value) return
+        // Refresh resets paging: load() swaps in a fresh first page (dropping the appended tail) and the
+        // footer state is cleared here (mobile-design-system § load-more pattern, design D3).
+        loadMoreController.reset()
         load(initial = false)
     }
 

@@ -171,4 +171,126 @@ class NotificationsViewModelTest {
         assertNull(viewModel.readAtOf("n1"), "a failed read-all reverts every optimistic flip")
         assertNull(viewModel.readAtOf("n2"))
     }
+
+    // ---- mobile-nearby-timeline-infinite-scroll (extended to notifications): cursor load-more ----
+
+    private fun NotificationsViewModel.loadedIds(): List<String> =
+        (outcome.value as NotificationsOutcome.Loaded).items.map { it.id }
+
+    @Test
+    fun onLoadMore_appendsBelowPage1_andAdvancesCursor() {
+        val fake =
+            FakeNotificationsFlow(
+                outcome = NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n1")), "c1"),
+                loadMorePages = listOf(NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n2")), "c2")),
+            )
+        val viewModel = NotificationsViewModel(fake)
+
+        viewModel.onLoadMore()
+
+        val loaded = viewModel.outcome.value as NotificationsOutcome.Loaded
+        assertEquals(listOf("n1", "n2"), loaded.items.map { it.id }, "page 2 appends below page 1")
+        assertEquals("c2", loaded.nextCursor, "the cursor advances to the new page's cursor")
+        assertEquals(listOf("c1"), fake.loadMoreCalls, "load-more fetches the retained cursor c1")
+    }
+
+    @Test
+    fun markRead_flipsARowFromAnAppendedPage() {
+        // n2 arrives only via load-more — marking it read must flip it in the GROWN list.
+        val fake =
+            FakeNotificationsFlow(
+                outcome = NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n1", readAt = null)), "c1"),
+                loadMorePages =
+                    listOf(NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n2", readAt = null)), null)),
+                markReadResult = MarkReadResult.Acknowledged,
+            )
+        val viewModel = NotificationsViewModel(fake)
+        viewModel.onLoadMore()
+        assertEquals(listOf("n1", "n2"), viewModel.loadedIds(), "the appended row is present before mark-read")
+
+        viewModel.markRead("n2")
+
+        assertEquals(listOf("n2"), fake.markReadIds, "a mark-read PATCH is issued for the APPENDED row")
+        assertNotNull(viewModel.readAtOf("n2"), "the appended row flips to read in the grown list")
+        assertNull(viewModel.readAtOf("n1"), "the page-1 row is untouched")
+    }
+
+    @Test
+    fun markAllRead_flipsAllLoadedRowsIncludingAppended() {
+        val fake =
+            FakeNotificationsFlow(
+                outcome = NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n1", readAt = null)), "c1"),
+                loadMorePages =
+                    listOf(NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n2", readAt = null)), null)),
+                markAllReadResult = MarkAllReadResult.Success(2),
+            )
+        val viewModel = NotificationsViewModel(fake)
+        viewModel.onLoadMore()
+
+        viewModel.markAllRead()
+
+        assertEquals(1, fake.markAllReadInvocationCount)
+        assertNotNull(viewModel.readAtOf("n1"), "the page-1 row is flipped read")
+        assertNotNull(viewModel.readAtOf("n2"), "the APPENDED row is flipped read too (mark-all spans the grown list)")
+    }
+
+    @Test
+    fun onLoadMore_whenEndReached_isNoOp() {
+        // First page already end-reached (null cursor) → load-more must not fire.
+        val fake = FakeNotificationsFlow(outcome = NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n1")), null))
+        val viewModel = NotificationsViewModel(fake)
+
+        viewModel.onLoadMore()
+
+        assertTrue(fake.loadMoreCalls.isEmpty(), "no load-more request when the cursor is null (end-reached)")
+    }
+
+    @Test
+    fun onLoadMore_failure_raisesErrorFooter_andKeepsLoadedItems() {
+        val fake =
+            FakeNotificationsFlow(
+                outcome = NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n1")), "c1"),
+                loadMorePages = listOf(NotificationsOutcome.NetworkError),
+            )
+        val viewModel = NotificationsViewModel(fake)
+
+        viewModel.onLoadMore()
+
+        assertTrue(viewModel.loadMoreError.value, "a failed load-more raises the non-destructive error footer")
+        assertEquals(listOf("n1"), viewModel.loadedIds(), "the loaded items are retained on load-more failure")
+    }
+
+    @Test
+    fun reload_clearsTheLoadMoreErrorFooter() {
+        val fake =
+            FakeNotificationsFlow(
+                outcome = NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n1")), "c1"),
+                loadMorePages = listOf(NotificationsOutcome.NetworkError),
+            )
+        val viewModel = NotificationsViewModel(fake)
+        viewModel.onLoadMore()
+        assertTrue(viewModel.loadMoreError.value)
+
+        viewModel.reload()
+
+        assertFalse(viewModel.loadMoreError.value, "a refresh resets paging — the load-more footer state clears")
+    }
+
+    @Test
+    fun onLoadMore_isSuppressedWhileARefreshIsInFlight() {
+        // suspendFromCall = 2 → the reload's loadFirstPage suspends, so the refresh stays in flight.
+        val fake =
+            FakeNotificationsFlow(
+                outcome = NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n1")), "c1"),
+                suspendFromCall = 2,
+                loadMorePages = listOf(NotificationsOutcome.Loaded(listOf(fakeNotification(id = "n2")), "c2")),
+            )
+        val viewModel = NotificationsViewModel(fake)
+
+        viewModel.reload()
+        assertTrue(viewModel.isRefreshing.value, "the reload is in flight")
+        viewModel.onLoadMore()
+
+        assertTrue(fake.loadMoreCalls.isEmpty(), "load-more is suppressed while a refresh is in flight (canLoadMore gate)")
+    }
 }
