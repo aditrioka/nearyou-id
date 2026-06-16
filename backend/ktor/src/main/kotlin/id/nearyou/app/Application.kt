@@ -1095,6 +1095,10 @@ fun Application.module() {
         },
         environmentName = ktorEnv,
         remoteConfigPublisher = remoteConfigPublisher,
+        // Pass the SAME override-store instance the username-change gate uses, so
+        // the admin "accept" approvals and the live consult/consume share one repo
+        // (admin-premium-username-oversight Decision 2).
+        usernameFlagOverrideRepository = usernameFlagOverrideRepository,
     )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime

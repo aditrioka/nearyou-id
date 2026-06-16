@@ -1,0 +1,196 @@
+{# Swappable username-oversight fragment. Rendered standalone for HTMX requests
+   (HX-Request: true) and {% include %}d by username-oversight.peb for full-page
+   navigation. The #username-oversight id is the hx-target swapped in place.
+
+   Every dynamic value is Pebble-autoescaped on output — NO `raw` filter is used
+   anywhere. Escaping is LOAD-BEARING: candidate handles + old/new usernames are
+   user-derived (and the candidate is admin-judged false-positive review material,
+   docs/06), so markup is entity-encoded, never executed.
+
+   Three sections (admin mockup frame 22):
+     1. Flagged candidates — moderation_queue · trigger=username_flagged · pending.
+        Shows the candidate (from notes, in full — frame-22 masking is a deferred
+        cosmetic) + a user deep-link + (for write roles) Accept (override) / Reject.
+        The frame-22 "Hit" column is OMITTED (the flag row does not persist it).
+     2. username_history viewer — read-only, searchable old/new handle. NO
+        username-edit control (usernames change only via the user-facing PATCH).
+     3. 30-day hold — handles still held (released_at > NOW()) + (for write roles)
+        "Release now".
+
+   Write controls render ONLY when canWrite (the session role is write-capable),
+   each carrying `csrfToken` for the no-JS path; the HTMX-fragment render omits the
+   token (the layout's htmx:configRequest hook adds the X-CSRF-Token header). #}
+<div id="username-oversight">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+
+{# ---- 1. Flagged candidates ------------------------------------------------ #}
+<div class="cardlet">
+    <h4>Flagged candidates (moderation_queue · trigger = username_flagged) — resolution {{ flagResolveCap }}/hour</h4>
+{% if hasFlags %}
+    <div class="tbl-wrap">
+    <table class="tbl">
+        <thead>
+            <tr><th>When (UTC)</th><th>User</th><th>Candidate</th>{% if canWrite %}<th style="width:280px;">Resolution</th>{% endif %}</tr>
+        </thead>
+        <tbody>
+        {% for row in flags %}
+            <tr>
+                <td>{{ row.createdAt }}</td>
+                <td>
+                {% if row.username is not null %}
+                    <a href="{{ row.userLink }}">{{ row.username }}</a>
+                {% else %}
+                    <span class="muted code">{{ row.targetId }}</span>
+                {% endif %}
+                </td>
+                <td>
+                {% if row.hasCandidate %}
+                    <span class="code">{{ row.candidate }}</span>
+                {% else %}
+                    <span class="muted">(none)</span>
+                {% endif %}
+                </td>
+                {% if canWrite %}
+                <td>
+                    <div style="display:flex;gap:6px;">
+                        <form action="{{ row.resolveAction }}"
+                              method="POST"
+                              hx-post="{{ row.resolveAction }}"
+                              hx-target="#username-oversight"
+                              hx-swap="outerHTML"
+                              hx-confirm="Accept the candidate '{{ row.candidate }}'? This approves it for the user's NEXT username change (one-shot override).">
+                            <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                            <input type="hidden" name="resolution" value="accept_flagged_username">
+                            <button type="submit" class="btn tonal sm">Accept (override)</button>
+                        </form>
+                        <form action="{{ row.resolveAction }}"
+                              method="POST"
+                              hx-post="{{ row.resolveAction }}"
+                              hx-target="#username-oversight"
+                              hx-swap="outerHTML">
+                            <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                            <input type="hidden" name="resolution" value="reject_flagged_username">
+                            <button type="submit" class="btn danger sm">Reject (confirm block)</button>
+                        </form>
+                    </div>
+                </td>
+                {% endif %}
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if flagsOlderUrl is not null %}
+    <div class="pager">
+        <a class="pagination-older"
+           href="{{ flagsOlderUrl }}"
+           hx-get="{{ flagsOlderUrl }}"
+           hx-target="#username-oversight"
+           hx-swap="outerHTML"
+           hx-push-url="true">Load older</a>
+    </div>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No pending flagged candidates.</p>
+{% endif %}
+</div>
+
+<div class="two-col">
+{# ---- 2. username_history viewer (read-only) ------------------------------- #}
+<div class="cardlet" style="margin-top:14px;">
+    <h4>username_history (read-only)</h4>
+    <div class="filterbar">
+        <form class="filters"
+              hx-get="/admin/username-oversight"
+              hx-target="#username-oversight"
+              hx-swap="outerHTML"
+              hx-push-url="true"
+              method="GET">
+            <label class="field">
+                <span>Search old / new username</span>
+                <input type="search" name="q" value="{{ search | default('') }}" placeholder="substring">
+            </label>
+            <button type="submit" class="btn filled sm">Search</button>
+        </form>
+    </div>
+{% if hasHistory %}
+    <div class="tbl-wrap">
+    <table class="tbl">
+        <thead><tr><th>Changed (UTC)</th><th>Old &rarr; New</th><th>User</th></tr></thead>
+        <tbody>
+        {% for row in history %}
+            <tr>
+                <td>{{ row.changedAt }}</td>
+                <td><span class="code">{{ row.oldUsername }}</span> &rarr; <span class="code">{{ row.newUsername }}</span></td>
+                <td>
+                {% if row.username is not null %}
+                    <a href="{{ row.userLink }}">{{ row.username }}</a>
+                {% else %}
+                    <span class="muted code">{{ row.userId }}</span>
+                {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if historyOlderUrl is not null %}
+    <div class="pager">
+        <a class="pagination-older"
+           href="{{ historyOlderUrl }}"
+           hx-get="{{ historyOlderUrl }}"
+           hx-target="#username-oversight"
+           hx-swap="outerHTML"
+           hx-push-url="true">Load older</a>
+    </div>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No username history matches the current search.</p>
+{% endif %}
+</div>
+
+{# ---- 3. 30-day hold — manual release -------------------------------------- #}
+<div class="cardlet" style="margin-top:14px;">
+    <h4>30-day hold — manual release ({{ holdReleaseCap }}/hour)</h4>
+{% if hasHolds %}
+    <div class="tbl-wrap">
+    <table class="tbl">
+        <thead><tr><th>Held handle</th><th>User</th><th>Auto-release (UTC)</th>{% if canWrite %}<th></th>{% endif %}</tr></thead>
+        <tbody>
+        {% for row in holds %}
+            <tr>
+                <td><span class="code">{{ row.oldUsername }}</span></td>
+                <td>
+                {% if row.username is not null %}
+                    <a href="{{ row.userLink }}">{{ row.username }}</a>
+                {% else %}
+                    <span class="muted code">{{ row.userId }}</span>
+                {% endif %}
+                </td>
+                <td>{{ row.releasedAt }}</td>
+                {% if canWrite %}
+                <td>
+                    <form action="{{ row.releaseAction }}"
+                          method="POST"
+                          hx-post="{{ row.releaseAction }}"
+                          hx-target="#username-oversight"
+                          hx-swap="outerHTML"
+                          hx-confirm="Release the hold on '{{ row.oldUsername }}' now? The handle becomes immediately claimable. Audit-logged.">
+                        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                        <button type="submit" class="btn outl sm">Release now</button>
+                    </form>
+                </td>
+                {% endif %}
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+{% else %}
+    <p class="empty-state">No handles are currently under hold.</p>
+{% endif %}
+</div>
+</div>
+</div>

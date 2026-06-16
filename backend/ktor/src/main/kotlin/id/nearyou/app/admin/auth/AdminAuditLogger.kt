@@ -390,6 +390,76 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a Premium username-flag RESOLUTION (`admin-premium-username-
+     * oversight` capability): `POST /admin/username-oversight/flags/{queue_id}/
+     * resolve` transitioning a `username_flagged` `moderation_queue` row
+     * `pending → resolved`. Joins the caller's [conn] so this audit INSERT commits
+     * atomically with the queue UPDATE AND — on `accept_flagged_username` — the
+     * `username_flag_overrides` upsert in ONE transaction (design Decision 2). The
+     * [afterState] records the chosen `resolution` and, on accept, the approved
+     * candidate (e.g. `{"resolution":"accept_flagged_username","candidate":"…"}`)
+     * so the audit trail is self-describing — it is the only record of WHICH handle
+     * the operator whitelisted. `targetType = 'user'`, `targetId` = the flag's
+     * `target_id` (the flagged user). `adminId` is the acting human admin, never the
+     * `system` sentinel.
+     */
+    fun logUsernameFlagResolved(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "username_flag_resolved",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = null,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a Premium handle HOLD RELEASE (`admin-premium-username-
+     * oversight` capability): `POST /admin/username-oversight/holds/{history_id}/
+     * release` force-releasing a `username_history` 30-day hold (`released_at =
+     * NOW()`). Joins the caller's [conn] so this audit INSERT commits atomically
+     * with the `username_history` UPDATE in ONE transaction. The [beforeState]
+     * records the prior `released_at` (e.g. `{"released_at":"…"}`) so the audit
+     * trail captures the hold that was shortened. `targetType = 'username_history'`,
+     * `targetId` = the history row id. `adminId` is the acting human admin, never
+     * the `system` sentinel.
+     */
+    fun logUsernameHoldReleased(
+        conn: Connection,
+        adminId: UUID,
+        historyId: UUID,
+        beforeState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "username_hold_released",
+            adminId = adminId,
+            targetType = "username_history",
+            targetId = historyId.toString(),
+            reason = null,
+            beforeState = beforeState,
+            afterState = null,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a reserved-username editor ADD (`admin-reserved-usernames-
      * editor` capability): a single add or one inserted CSV bulk row. Joins the
      * caller's [conn] so the audit INSERT commits atomically with the

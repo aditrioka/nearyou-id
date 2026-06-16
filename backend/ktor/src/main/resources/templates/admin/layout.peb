@@ -63,6 +63,7 @@
         <span class="ngroup">Konfigurasi</span>
         <a class="nitem{% if activePath == "/admin/feature-flags" %} active{% endif %}" href="/admin/feature-flags">{{ icon("toggle_on") }}Feature flags</a>
         <a class="nitem{% if activePath == "/admin/reserved-usernames" %} active{% endif %}" href="/admin/reserved-usernames">{{ icon("badge") }}Reserved usernames</a>
+        <a class="nitem{% if activePath == "/admin/username-oversight" %} active{% endif %}" href="/admin/username-oversight">{{ icon("alternate_email") }}Username oversight</a>
         <span class="ngroup">Sistem</span>
         <a class="nitem{% if activePath == "/admin/actions-log" %} active{% endif %}" href="/admin/actions-log">{{ icon("receipt_long") }}Audit log</a>
         {# Identity box (design.md D5): role chip + display name + the
