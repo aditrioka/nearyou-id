@@ -647,8 +647,9 @@ class UsernameCustomizationEndpointsTest : StringSpec({
     // attempt against the 10/hour limit, and the standing row reflects the latest candidate.
     "8.4 repeated flagged attempts count against the 10-failed/hour limit; standing row tracks latest" {
         val (id, tok, _) = seedUser()
+        val flagged = (0..10).map { "flagged$it" }
         try {
-            withApp(profanity = listOf("flagged0", "flagged1", "flagged2", "flagged3", "flagged4", "flagged5", "flagged6", "flagged7", "flagged8", "flagged9", "flagged10")) { _ ->
+            withApp(profanity = flagged) { _ ->
                 // 10 flagged attempts (each a failed attempt) all → 422
                 repeat(10) { i ->
                     patchUsername(tok, "flagged$i").status shouldBe HttpStatusCode.UnprocessableEntity

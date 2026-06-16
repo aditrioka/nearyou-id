@@ -133,9 +133,8 @@ class UsernameChangeService(
         // override is consumed under the FOR UPDATE lock below, not here, so the
         // skip is re-validated atomically (the one-shot holds even under a same-user
         // race).
-        val moderationHit = withContext(dbDispatcher) { textModerator.moderate(candidate) }.let {
-            it is Verdict.Reject || it is Verdict.Flag
-        }
+        val verdict = withContext(dbDispatcher) { textModerator.moderate(candidate) }
+        val moderationHit = verdict is Verdict.Reject || verdict is Verdict.Flag
         var viaOverride = false
         if (moderationHit) {
             val approved =
@@ -179,9 +178,8 @@ class UsernameChangeService(
                         // so roll back the change and fall through to the standard
                         // moderation reject (re-open the standing flag) OUTSIDE the lock.
                         if (viaOverride && flagOverrides.consume(conn, userId, lc) == 0) {
-                            val stillFlagged =
-                                textModerator.moderate(candidate).let { it is Verdict.Reject || it is Verdict.Flag }
-                            if (stillFlagged) {
+                            val reverdict = textModerator.moderate(candidate)
+                            if (reverdict is Verdict.Reject || reverdict is Verdict.Flag) {
                                 conn.rollback()
                                 return@use ChangeResult.Moderated
                             }
