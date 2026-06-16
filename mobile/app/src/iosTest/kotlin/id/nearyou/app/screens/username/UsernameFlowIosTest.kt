@@ -49,7 +49,7 @@ class UsernameFlowIosTest {
             modules(
                 module {
                     single<UsernameFlow> { usernameFlow }
-                    single<ProfileFlow> { FakeProfileFlow(profileOutcome = selfProfile(isPremium)) }
+                    single<ProfileFlow> { FakeProfileFlow(profileOutcome = selfProfile(isPremium = isPremium)) }
                     single<SelfUserIdProvider> { FakeSelfUserIdProvider() }
                 },
             )

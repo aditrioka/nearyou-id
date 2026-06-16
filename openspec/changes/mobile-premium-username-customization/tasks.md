@@ -1,8 +1,8 @@
 ## 1. Pre-flight & reconciliation
 
-- [ ] 1.1 Render mockup frame 16 (`dev/mockups/nearyou-screens-mockup.html`, the "Ganti username" entry row) per docs/11 §2.8 — confirm no dedicated customization-screen frame exists; the screen derives from docs/03 §117–134 over the design-system substrate (design.md D9). Generate the frame-16 measurement annex (`dev/scripts/mockup-measure.sh`) for the Settings touchpoint.
+- [x] 1.1 Render mockup frame 16 (`dev/mockups/nearyou-screens-mockup.html`, the "Ganti username" entry row) per docs/11 §2.8 — confirm no dedicated customization-screen frame exists; the screen derives from docs/03 §117–134 over the design-system substrate (design.md D9). Generate the frame-16 measurement annex (`dev/scripts/mockup-measure.sh`) for the Settings touchpoint.
 - [x] 1.2 Re-read the shipped wire (`backend/.../user/UserUsernameRoutes.kt`) + `openspec/specs/premium-username-customization/spec.md` to lock the DTOs/statuses/error codes the client maps. (No new `libs.versions.toml` pin — propose-time substrate WebSearch gate does not fire; record "no new substrate" in the first feat commit.)
-- [ ] 1.3 File the reconciliation/deferral `follow-up` issues (label `follow-up` + `mobile`): (a) proactive cooldown entry-state — needs `username_last_changed_at` on the self-profile read; (b) three distinct unavailable messages — needs a `409`/probe reason discriminator; (c) distinct downgrade banner — needs a "previously customized" signal; (d) username autocomplete — needs a backend endpoint; (e) docs/03 §119/§121–123/§129 wording clarification vs the shipped wire.
+- [x] 1.3 File the reconciliation/deferral `follow-up` issues (label `follow-up` + `mobile`): (a) proactive cooldown entry-state — needs `username_last_changed_at` on the self-profile read; (b) three distinct unavailable messages — needs a `409`/probe reason discriminator; (c) distinct downgrade banner — needs a "previously customized" signal; (d) username autocomplete — needs a backend endpoint; (e) docs/03 §119/§121–123/§129 wording clarification vs the shipped wire. **Filed: #333 (proactive cooldown), #334 (distinct unavailable msgs), #335 (downgrade banner), #336 (autocomplete), #337 (docs/03 reconcile).**
 
 ## 2. Data layer (`id.nearyou.app.data.username`)
 
@@ -50,10 +50,10 @@
 
 ## 10. Verification & gates
 
-- [ ] 10.1 `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` green; `:mobile:app:linkDebugFrameworkIosSimulatorArm64` green locally (new route + iosTest touch Kotlin/Native).
+- [x] 10.1 `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` green; `:mobile:app:linkDebugFrameworkIosSimulatorArm64` green locally (new route + iosTest touch Kotlin/Native).
 - [x] 10.2 `./gradlew ktlintCheck detekt` green (mobile module).
 - [ ] 10.3 docs/11 §5 DoD: manual `verify-loop` bring-up of the Ganti Username screen (Settings entry → screen → typing/validation → confirm modal → states) with screenshot evidence in the PR body BEFORE archive (context-routed run via `scripts/run_on_device.sh` / `scripts/test_android.sh`).
 
 ## 11. Deferred-scope bookkeeping
 
-- [ ] 11.1 Confirm every spec'd deferral (proactive cooldown entry-state, distinct unavailable messages, downgrade banner, autocomplete) has its `follow-up` issue from 1.3 referenced in the PR body — none silently dropped.
+- [x] 11.1 Confirm every spec'd deferral (proactive cooldown entry-state, distinct unavailable messages, downgrade banner, autocomplete) has its `follow-up` issue from 1.3 referenced in the PR body — none silently dropped. **Tracked: #333–#337.**
