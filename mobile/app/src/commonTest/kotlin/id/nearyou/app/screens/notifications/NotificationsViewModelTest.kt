@@ -174,8 +174,7 @@ class NotificationsViewModelTest {
 
     // ---- mobile-nearby-timeline-infinite-scroll (extended to notifications): cursor load-more ----
 
-    private fun NotificationsViewModel.loadedIds(): List<String> =
-        (outcome.value as NotificationsOutcome.Loaded).items.map { it.id }
+    private fun NotificationsViewModel.loadedIds(): List<String> = (outcome.value as NotificationsOutcome.Loaded).items.map { it.id }
 
     @Test
     fun onLoadMore_appendsBelowPage1_andAdvancesCursor() {

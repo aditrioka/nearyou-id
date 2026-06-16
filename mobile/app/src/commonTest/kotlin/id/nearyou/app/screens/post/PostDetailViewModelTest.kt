@@ -44,8 +44,7 @@ class PostDetailViewModelTest {
         vararg ids: String,
     ) = RepliesOutcome.Loaded(ids.map { fakeReply(id = it) }, nextCursor = cursor)
 
-    private fun PostDetailViewModel.replyIds(): List<String> =
-        (repliesOutcome.value as RepliesOutcome.Loaded).replies.map { it.id }
+    private fun PostDetailViewModel.replyIds(): List<String> = (repliesOutcome.value as RepliesOutcome.Loaded).replies.map { it.id }
 
     @Test
     fun init_loadsRepliesOnce_andExposesOutcome() {

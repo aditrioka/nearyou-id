@@ -53,7 +53,7 @@
 ## 9. Verification (local — mobile unit tests are local-only; CI mobile = device-run APK build)
 
 - [x] 9.1 `./gradlew :mobile:app:testDevDebugUnitTest` (the docs/11 §5 DoD + spec-scenario variant) + `:mobile:app:testDevReleaseUnitTest` (confirm `*ScreenTest` Release-variant excludes still hold) — all green.
-- [ ] 9.2 `./gradlew :mobile:app:iosSimulatorArm64Test` — the existing `*TimelineFlowIosTest` + any touched iosTest pass (the load-more additions are commonMain; confirm no K/N break).
+- [x] 9.2 `./gradlew :mobile:app:iosSimulatorArm64Test` — the existing `*TimelineFlowIosTest` + any touched iosTest pass (the load-more additions are commonMain; confirm no K/N break).
 - [ ] 9.3 Manual (verify-loop, local device/emulator): scroll each of the five surfaces past page 1 → appended pages load; footer spinner shows then clears; reaching the true end shows no further requests; a forced load-more error shows the retry footer without losing the list; pull-to-refresh resets to page 1.
 - [ ] 9.4 Pre-push gate for the touched non-mobile files (none expected) — N/A here; mobile lint is `ktlintCheck`/`detekt` on `:mobile:app` if wired, else the unit-test gate above.
 
