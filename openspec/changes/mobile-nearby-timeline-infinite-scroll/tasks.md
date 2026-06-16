@@ -11,9 +11,9 @@
 
 ## 3. Nearby feed (anchor-reuse load-more)
 
-- [ ] 3.1 Extend `NearbyTimelineFlow` with `loadMore(cursor, anchor)` and expose the resolved first-page anchor to the VM (carry it on the `Loaded` outcome, VM-held, never projected/rendered); `NearbyTimelineRepository.loadMore` forwards the retained anchor to `NearbyTimelineApiClient.fetchNearby(cursor=…)` (client already accepts `lat`/`lng`/`cursor`).
-- [ ] 3.2 `NearbyTimelineViewModel`: retain the page-1 anchor; hold a `LoadMoreController` instance; expose appended posts + `isLoadingMore`/`endReached`/`loadMoreError`; reset paging on `reload()`. Keep the inline-like controller operating over the grown list.
-- [ ] 3.3 `NearbyTimelineScreen`: add the footer + scroll-end detector to the `Content`/`SoftLimit` post list (`nearbyTimelineList`); wire `onLoadMore` / `onRetryLoadMore` to the VM.
+- [x] 3.1 Extend `NearbyTimelineFlow` with `loadMore(cursor, anchor)` and expose the resolved first-page anchor to the VM (carry it on the `Loaded` outcome, VM-held, never projected/rendered); `NearbyTimelineRepository.loadMore` forwards the retained anchor to `NearbyTimelineApiClient.fetchNearby(cursor=…)` (client already accepts `lat`/`lng`/`cursor`).
+- [x] 3.2 `NearbyTimelineViewModel`: retain the page-1 anchor; hold a `LoadMoreController` instance; expose appended posts + `isLoadingMore`/`endReached`/`loadMoreError`; reset paging on `reload()`. Keep the inline-like controller operating over the grown list.
+- [x] 3.3 `NearbyTimelineScreen`: add the footer + scroll-end detector to the `Content`/`SoftLimit` post list (`nearbyTimelineList`); wire `onLoadMore` / `onRetryLoadMore` to the VM.
 - [ ] 3.4 Tests: VM (append below page 1, cursor advance, end-reached, non-destructive error, anchor reused + never logged, **`reload()` resets paging — clears appended tail + end-reached**, **load-more suppressed while a refresh is in flight**); MockEngine `NearbyTimelineApiClient`/`Repository` (follow-up carries `cursor` + the page-1 `lat`/`lng`/`radius_m`); **load-more error logs exception TYPE only (no `cause.message`/coordinate) — extend the `DiagnosticSinkWiringTest` source-scan to the new `loadMore` diagnostic call sites on all three timeline repositories (incl. `FollowingTimelineRepository`)**; extend `NearbyTimelineScreenTest` (scroll-end triggers load-more exactly once; footer states; footer never co-occurs with skeleton/refresh).
 
 ## 4. Following feed (cursor-only load-more)
