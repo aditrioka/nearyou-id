@@ -73,8 +73,17 @@ class LoadMoreController<T>(
     /** Derived end-reached: the host's retained cursor is `null` (last page consumed). */
     val endReached: Boolean get() = currentCursor() == null
 
-    /** Scroll-end trigger. No-op when ineligible (refresh/initial in flight), end-reached, or in flight. */
+    /**
+     * Scroll-end trigger. No-op when ineligible (refresh/initial in flight), end-reached, in flight, OR
+     * **while an error footer is showing** — after a failed load-more the user must tap retry ([retry]),
+     * so the scroll-end detector never auto-retries on every error (a hammer loop).
+     */
     fun loadMore() {
+        if (_loadMoreError.value) return
+        doLoadMore()
+    }
+
+    private fun doLoadMore() {
         if (!canLoadMore()) return
         val cursor = currentCursor() ?: return
         if (inFlight) return
@@ -107,8 +116,11 @@ class LoadMoreController<T>(
         }
     }
 
-    /** The retry-footer control: re-issue load-more for the still-current cursor. */
-    fun retry() = loadMore()
+    /** The retry-footer control: clear the error + re-issue load-more for the still-current cursor. */
+    fun retry() {
+        _loadMoreError.value = false
+        doLoadMore()
+    }
 
     /** Called by the host on a pull-to-refresh / first-page reload — clears the footer state (the host
      *  simultaneously resets its outcome to the fresh first page, which resets the cursor). */

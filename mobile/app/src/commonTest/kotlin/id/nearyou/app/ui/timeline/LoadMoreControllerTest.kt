@@ -177,4 +177,27 @@ class LoadMoreControllerTest {
             assertEquals("cFresh", host.cursor, "the cursor is NOT rewound by the stale page")
             assertFalse(controller.isLoadingMore.value, "the footer spinner is cleared")
         }
+
+    @Test
+    fun loadMore_isSuppressedWhileAnErrorFooterIsShowing_untilRetry() =
+        runTest {
+            val fetch = FakeFetch(listOf(LoadMorePage.Failure, LoadMorePage.Success(listOf("c"), "c2")))
+            val host = Host()
+            val controller = controller(host, fetch)
+
+            controller.loadMore()
+            advanceUntilIdle()
+            assertTrue(controller.loadMoreError.value, "the first load-more failed → error footer")
+
+            // The scroll-end auto-trigger must NOT re-fire while the error footer is up (no hammer loop).
+            controller.loadMore()
+            advanceUntilIdle()
+            assertEquals(1, fetch.calls, "loadMore() is a no-op while an error footer is showing")
+
+            // Only an explicit retry() clears the error and re-fetches.
+            controller.retry()
+            advanceUntilIdle()
+            assertEquals(2, fetch.calls, "retry() clears the error and re-fetches")
+            assertFalse(controller.loadMoreError.value, "retry success clears the error footer")
+        }
 }
