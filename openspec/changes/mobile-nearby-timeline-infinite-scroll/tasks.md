@@ -1,9 +1,9 @@
 ## 1. Shared load-more substrate
 
-- [x] 1.1 Add a generic, Compose-free `LoadMoreController<T>` in commonMain `ui/timeline/` (the `InlineLikeController` precedent): owns the appended list, current cursor, `isLoadingMore`, `endReached`, `loadMoreError`, a per-instance in-flight guard; takes a `suspend (cursor) -> PageResult<T>` fetch lambda; exposes `loadMore()` (no-op when in-flight / end-reached) and a `retryLoadMore()` + a `reset(firstPage, cursor)` for refresh.
-- [ ] 1.2 Add a small `PageResult<T>(items: List<T>, nextCursor: String?)` mapping type + per-surface adapters (feed `Loaded(posts,…)`, notifications `Loaded(items,…)`, replies `Loaded(replies,…)` → `PageResult`; `upsell` mapped out per design D6).
+- [x] 1.1 Add a generic, Compose-free `LoadMoreController<T>` in commonMain `ui/timeline/` (the `InlineLikeController` precedent): owns the appended list, current cursor, `isLoadingMore`, `endReached`, `loadMoreError`, a per-instance in-flight guard; takes a `suspend (cursor) -> PageResult<T>` fetch lambda; exposes `loadMore()` (no-op when in-flight / end-reached / an error footer is showing), `retry()`, and `reset()` (called on refresh).
+- [x] 1.2 Add the `LoadMorePage<T>(items, nextCursor)` page-result type (in `LoadMoreController.kt`) + per-surface adapters (each VM's `fetchPage` maps its `Loaded(posts/items/replies,…)` → `LoadMorePage`; `upsell` mapped out per design D6).
 - [x] 1.3 Add a reusable Compose load-more **footer** + scroll-end detector in `ui/components/` (or `ui/timeline/`): a footer composable (spinner / non-destructive retry-on-error / nothing-when-end-reached) and a `LazyListState`+`derivedStateOf` near-end detector (threshold-based, keys off the paginated items region), with stable `key`/`contentType` for the footer item.
-- [x] 1.4 commonTest `LoadMoreControllerTest`: append + advance cursor; null cursor → end-reached + no further fetch; in-flight guard ignores a concurrent `loadMore`; `loadMoreError` set on failure then cleared + re-fetched on retry; `reset` clears the appended tail + end-reached. ✓ 6 tests green.
+- [x] 1.4 commonTest `LoadMoreControllerTest`: append + advance cursor; null cursor → end-reached + no further fetch; in-flight guard ignores a concurrent `loadMore`; `loadMoreError` set on failure then cleared + re-fetched on retry; `reset` clears the appended tail + end-reached; the generation-guard stale-page drop after refresh; auto-retry suppressed while the error footer is up. ✓ 8 tests green.
 
 ## 2. Design-system spec conformance
 
@@ -54,7 +54,7 @@
 
 - [x] 9.1 `./gradlew :mobile:app:testDevDebugUnitTest` (the docs/11 §5 DoD + spec-scenario variant) + `:mobile:app:testDevReleaseUnitTest` (confirm `*ScreenTest` Release-variant excludes still hold) — all green.
 - [x] 9.2 `./gradlew :mobile:app:iosSimulatorArm64Test` — the existing `*TimelineFlowIosTest` + any touched iosTest pass (the load-more additions are commonMain; confirm no K/N break).
-- [ ] 9.3 Manual (verify-loop, local device/emulator): scroll each of the five surfaces past page 1 → appended pages load; footer spinner shows then clears; reaching the true end shows no further requests; a forced load-more error shows the retry footer without losing the list; pull-to-refresh resets to page 1.
+- [~] 9.3 Manual scroll-verify on each surface — DEFERRED to the PR's CI device-run (`.github/workflows/device-run.yml` auto-Robo-crawls mobile PRs) + an operator manual pass. Automated UI coverage is comprehensive: per-surface `*ScreenTest` (load-more appends / retry footer / footer-absent-during-skeleton) + VM + the shared `LoadMoreControllerTest`.
 - [ ] 9.4 Pre-push gate for the touched non-mobile files (none expected) — N/A here; mobile lint is `ktlintCheck`/`detekt` on `:mobile:app` if wired, else the unit-test gate above.
 
 ## 10. Archive
