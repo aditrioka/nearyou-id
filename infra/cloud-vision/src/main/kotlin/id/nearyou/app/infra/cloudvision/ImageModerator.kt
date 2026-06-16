@@ -21,9 +21,10 @@ data class SafeSearchVerdict(
      * (design D2 — matches docs/02 §6 flow + docs/06). `POSSIBLE` and lower pass.
      */
     val isExplicit: Boolean
-        get() = listOf(adult, violence, racy).any {
-            it == SafeSearchLikelihood.LIKELY || it == SafeSearchLikelihood.VERY_LIKELY
-        }
+        get() =
+            listOf(adult, violence, racy).any {
+                it == SafeSearchLikelihood.LIKELY || it == SafeSearchLikelihood.VERY_LIKELY
+            }
 }
 
 /**

@@ -314,7 +314,7 @@ Client B fetches history via REST to resync if needed
 Built during Phase 4 (Weeks 14-16), released to users in Month 6. Gated via:
 
 - **Firebase Remote Config flag** `image_upload_enabled` (boolean, default FALSE)
-- Backend: `POST /api/v1/post` with `image_id` rejects 403 if the flag is FALSE
+- Backend (two-step — `premium-image-upload-pipeline`): `POST /api/v1/images` (multipart) uploads → Safe Search → Cloudflare store → returns `{ image_id, delivery_url }`; then `POST /api/v1/posts` accepts the owner-validated `image_id` to attach (bound to the uploader via the `image_uploads` ledger). The `POST /api/v1/images` endpoint rejects 403 if the flag is FALSE
 - Mobile UI: upload button hidden if the flag is FALSE
 - Admin Panel toggle to flip the flag (audit-logged)
 - Pre-Month 6 launch rehearsal: enable in the internal QA build variant, dogfood 2 weeks before public enable
@@ -351,18 +351,26 @@ Google Cloud Vision Safe Search at upload time blocks adult/violent content befo
 ### Image Upload Flow (Product View)
 
 ```
-User uploads image (5MB max, compressed client-side)
+Step 1 — POST /api/v1/images (multipart, 5MB max, compressed client-side)
   ↓
-Ktor: checks image_upload_enabled flag; validates file size, quota Premium 50/day, 1 per 60 sec throttle
+Ktor: image_upload_enabled flag (Redis-cached 30s, fail-closed) → Premium gate →
+      1/60s throttle + Premium 50/day quota (consumed at attempt)
+  ↓
+Ktor: streamed 5MB size guard + image/* content-type allowlist
   ↓
 Ktor: Google Cloud Vision Safe Search scan (sync, ~200-500ms)
-  ↓ (if adult/violent/racy >0.8: REJECT upload)
+  ↓ (if adult OR violence OR racy is LIKELY or VERY_LIKELY: REJECT upload, 422)
   ↓
 Ktor: upload to Cloudflare Images API
   ↓
-Ktor: INSERT INTO posts + images relation, status 'published'
+Ktor: INSERT INTO image_uploads (status 'uploaded')
   ↓
-Return 201 to client with https://img.nearyou.id/... URL
+Return 201 with { image_id, https://img.nearyou.id/... delivery_url }
+  ↓
+Step 2 — POST /api/v1/posts { content, lat, lng, image_id }
+  ↓
+Ktor: validate image_id is caller-owned + unattached (image_uploads), then INSERT
+      the post with posts.image_id + flip ledger 'uploaded' → 'attached' (same tx)
   ↓
 (async, separate path)
 Client views image then the request hits CF edge at img.nearyou.id
@@ -411,7 +419,7 @@ Admin receives CF email + reviews in Admin Panel (or CF Worker auto-forwards 451
 
 | Stage | Trigger | Detection | Decision | Execution |
 |-------|---------|-----------|----------|-----------|
-| Upfront block | Vision Safe Search adult/violent >0.8 | Auto | Auto | Auto reject upload |
+| Upfront block | Vision Safe Search adult/violent/racy `LIKELY` or `VERY_LIKELY` (categorical `Likelihood`, not a 0–1 score; racy in the reject set per `premium-image-upload-pipeline` design D2 — relaxing racy to log-not-block is a post-launch tunable) | Auto | Auto | Auto reject upload (422) |
 | Soft warning | User at 40/50 uploads today | Auto | Auto | Auto in-app toast |
 | Daily limit | Upload number 51 | Auto | Auto | Auto modal reject |
 | CSAM positive | CF CSAM Scanning Tool match (URL blocked + daily email) | Auto block + admin notify | Admin-triggered handler (or CF Worker auto-forward in Phase 2+) | Auto block URL + ban user + cascade + archive |

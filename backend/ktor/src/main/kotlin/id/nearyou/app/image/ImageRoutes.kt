@@ -47,11 +47,19 @@ fun Application.imageRoutes(service: ImageUploadService) {
                         return@post call.respondError(HttpStatusCode.Forbidden, "premium_required", "Image upload is a Premium feature.")
                     is ImageUploadService.GateResult.Throttled -> {
                         call.response.headers.append(HttpHeaders.RetryAfter, gate.retryAfterSeconds.toString())
-                        return@post call.respondError(HttpStatusCode.TooManyRequests, "image_upload_throttled", "Tunggu sebentar sebelum mengunggah lagi.")
+                        return@post call.respondError(
+                            HttpStatusCode.TooManyRequests,
+                            "image_upload_throttled",
+                            "Tunggu sebentar sebelum mengunggah lagi.",
+                        )
                     }
                     is ImageUploadService.GateResult.QuotaExceeded -> {
                         call.response.headers.append(HttpHeaders.RetryAfter, gate.retryAfterSeconds.toString())
-                        return@post call.respondError(HttpStatusCode.TooManyRequests, "image_upload_quota_exceeded", "Batas unggah harian tercapai.")
+                        return@post call.respondError(
+                            HttpStatusCode.TooManyRequests,
+                            "image_upload_quota_exceeded",
+                            "Batas unggah harian tercapai.",
+                        )
                     }
                     ImageUploadService.GateResult.Ok -> Unit
                 }
@@ -61,7 +69,11 @@ fun Application.imageRoutes(service: ImageUploadService) {
                     MultipartReadResult.TooLarge ->
                         return@post call.respondError(HttpStatusCode.PayloadTooLarge, "image_too_large", "Gambar melebihi batas 5 MB.")
                     MultipartReadResult.UnsupportedType ->
-                        return@post call.respondError(HttpStatusCode.UnsupportedMediaType, "unsupported_image_type", "Format gambar tidak didukung.")
+                        return@post call.respondError(
+                            HttpStatusCode.UnsupportedMediaType,
+                            "unsupported_image_type",
+                            "Format gambar tidak didukung.",
+                        )
                     MultipartReadResult.NoFile ->
                         return@post call.respondError(HttpStatusCode.BadRequest, "no_image", "Tidak ada gambar pada permintaan.")
                     is MultipartReadResult.Ok ->
@@ -75,9 +87,17 @@ fun Application.imageRoutes(service: ImageUploadService) {
                                 call.respondText(body.toString(), ContentType.Application.Json, HttpStatusCode.Created)
                             }
                             ImageUploadService.StoreResult.Rejected ->
-                                call.respondError(HttpStatusCode.UnprocessableEntity, "image_rejected", "Gambar tidak memenuhi standar konten.")
+                                call.respondError(
+                                    HttpStatusCode.UnprocessableEntity,
+                                    "image_rejected",
+                                    "Gambar tidak memenuhi standar konten.",
+                                )
                             ImageUploadService.StoreResult.Unavailable ->
-                                call.respondError(HttpStatusCode.ServiceUnavailable, "image_upload_unavailable", "Layanan unggah gambar sedang tidak tersedia.")
+                                call.respondError(
+                                    HttpStatusCode.ServiceUnavailable,
+                                    "image_upload_unavailable",
+                                    "Layanan unggah gambar sedang tidak tersedia.",
+                                )
                         }
                 }
             }

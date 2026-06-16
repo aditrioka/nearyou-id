@@ -10,6 +10,9 @@ object FeatureFlagCatalog {
     const val MATCH_THRESHOLD_MIN: Int = 1
     const val MATCH_THRESHOLD_MAX: Int = 10_000
 
+    const val IMAGE_UPLOAD_CAP_MIN: Int = 1
+    const val IMAGE_UPLOAD_CAP_MAX: Int = 10_000
+
     val ATTESTATION_MODE_VALUES: List<String> = listOf("enforce", "warn", "off")
 
     /** Editable flags / parameters, in frame-20 render order. */
@@ -45,6 +48,11 @@ object FeatureFlagCatalog {
                 key = "premium_like_cap_override",
                 kind = FlagKind.Bool,
                 description = "Emergency like-cap raise.",
+            ),
+            FlagDef(
+                key = "premium_image_upload_cap_override",
+                kind = FlagKind.IntRange(IMAGE_UPLOAD_CAP_MIN, IMAGE_UPLOAD_CAP_MAX),
+                description = "Daily image-upload cap override (default 50; $IMAGE_UPLOAD_CAP_MIN–$IMAGE_UPLOAD_CAP_MAX).",
             ),
             FlagDef(
                 key = "moderation_match_threshold",

@@ -26,7 +26,11 @@ private val CLEAN = SafeSearchVerdict(UNLIKELY, UNLIKELY, UNLIKELY)
 private object MissCache : RedisStringCache {
     override fun get(key: String): String? = null
 
-    override fun set(key: String, value: String, ttl: Duration) = Unit
+    override fun set(
+        key: String,
+        value: String,
+        ttl: Duration,
+    ) = Unit
 }
 
 private class FakeRemoteConfig(val bool: Boolean? = null, val long: Long? = null) : RemoteConfig {
@@ -39,16 +43,28 @@ private class FakeRateLimiter(
     val throttleAllowed: Boolean = true,
     val dailyAllowed: Boolean = true,
 ) : RateLimiter {
-    override fun tryAcquire(userId: UUID, key: String, capacity: Int, ttl: Duration): RateLimiter.Outcome =
+    override fun tryAcquire(
+        userId: UUID,
+        key: String,
+        capacity: Int,
+        ttl: Duration,
+    ): RateLimiter.Outcome =
         when {
             key.contains("throttle") -> if (throttleAllowed) RateLimiter.Outcome.Allowed(0) else RateLimiter.Outcome.RateLimited(60)
             key.contains("_day}") -> if (dailyAllowed) RateLimiter.Outcome.Allowed(capacity - 1) else RateLimiter.Outcome.RateLimited(3600)
             else -> RateLimiter.Outcome.Allowed(0)
         }
 
-    override fun tryAcquireByKey(key: String, capacity: Int, ttl: Duration) = RateLimiter.Outcome.Allowed(0)
+    override fun tryAcquireByKey(
+        key: String,
+        capacity: Int,
+        ttl: Duration,
+    ) = RateLimiter.Outcome.Allowed(0)
 
-    override fun releaseMostRecent(userId: UUID, key: String) = Unit
+    override fun releaseMostRecent(
+        userId: UUID,
+        key: String,
+    ) = Unit
 }
 
 private class FakeModerator(
@@ -58,27 +74,40 @@ private class FakeModerator(
 ) : ImageModerator {
     override fun isConfigured(): Boolean = configured
 
-    override suspend fun safeSearch(bytes: ByteArray): SafeSearchVerdict =
-        if (throws) throw RuntimeException("vision boom") else verdict
+    override suspend fun safeSearch(bytes: ByteArray): SafeSearchVerdict = if (throws) throw RuntimeException("vision boom") else verdict
 }
 
 private class FakeStore(val configured: Boolean = true, val throws: Boolean = false) : ImageStore {
     override fun isConfigured(): Boolean = configured
 
-    override suspend fun upload(bytes: ByteArray, contentType: String, fileName: String): StoredImage =
+    override suspend fun upload(
+        bytes: ByteArray,
+        contentType: String,
+        fileName: String,
+    ): StoredImage =
         if (throws) throw RuntimeException("cf boom") else StoredImage("img-1", "https://img-staging.nearyou.id/hash/img-1/public")
 }
 
 private class FakeRepo : ImageUploadRepository {
     val inserted = mutableListOf<String>()
 
-    override fun insertUploaded(cfImageId: String, uploaderUserId: UUID, verdict: SafeSearchVerdict) {
+    override fun insertUploaded(
+        cfImageId: String,
+        uploaderUserId: UUID,
+        verdict: SafeSearchVerdict,
+    ) {
         inserted += cfImageId
     }
 
-    override fun findForAttach(conn: Connection, cfImageId: String): ImageUploadRow? = null
+    override fun findForAttach(
+        conn: Connection,
+        cfImageId: String,
+    ): ImageUploadRow? = null
 
-    override fun markAttached(conn: Connection, cfImageId: String): Boolean = false
+    override fun markAttached(
+        conn: Connection,
+        cfImageId: String,
+    ): Boolean = false
 }
 
 private fun service(

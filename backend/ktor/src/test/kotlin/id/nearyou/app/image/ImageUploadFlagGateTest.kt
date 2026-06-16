@@ -14,7 +14,11 @@ private class MutCache(var value: String? = null) : RedisStringCache {
 
     override fun get(key: String): String? = value
 
-    override fun set(key: String, value: String, ttl: Duration) {
+    override fun set(
+        key: String,
+        value: String,
+        ttl: Duration,
+    ) {
         sets += key to value
     }
 }
@@ -33,8 +37,10 @@ private class BoolRemoteConfig(val value: Boolean?, val throws: Boolean = false)
 
 class ImageUploadFlagGateTest : StringSpec({
 
-    fun gate(cache: RedisStringCache, rc: RemoteConfig) =
-        ImageUploadFlagGate(cache, rc, dbDispatcher = Dispatchers.Unconfined)
+    fun gate(
+        cache: RedisStringCache,
+        rc: RemoteConfig,
+    ) = ImageUploadFlagGate(cache, rc, dbDispatcher = Dispatchers.Unconfined)
 
     "flag TRUE → enabled" {
         gate(MutCache(), BoolRemoteConfig(true)).isEnabled().shouldBeTrue()
