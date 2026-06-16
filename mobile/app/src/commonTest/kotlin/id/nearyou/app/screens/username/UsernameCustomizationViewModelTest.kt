@@ -1,9 +1,7 @@
 package id.nearyou.app.screens.username
 
-import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
-import id.nearyou.app.profile.UserProfile
 import id.nearyou.app.username.FakeUsernameFlow
 import id.nearyou.app.username.UsernameChangeOutcome
 import id.nearyou.app.username.UsernameCheckOutcome
@@ -21,29 +19,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-
-private class FakeSelfUserIdProvider(private val id: String?) : SelfUserIdProvider {
-    override suspend fun selfUserId(): String? = id
-}
-
-private fun selfProfile(
-    username: String = "oldname",
-    isPremium: Boolean = true,
-): ProfileOutcome =
-    ProfileOutcome.Loaded(
-        UserProfile(
-            userId = "self-id",
-            username = username,
-            displayName = "Me",
-            bio = null,
-            followerCount = 0,
-            followingCount = 0,
-            isSelf = true,
-            followedByViewer = false,
-            isPremium = isPremium,
-            isPrivate = false,
-        ),
-    )
 
 /**
  * Unit coverage of [UsernameCustomizationViewModel]: the on-entry self-Premium resolution (Premium →
