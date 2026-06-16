@@ -25,7 +25,7 @@ The tombstone pattern **never row-deletes the `users` row** — it `UPDATE`s `de
 Per-table matrix (worker, one transaction per due row):
 | Table | Action | Mechanism |
 |---|---|---|
-| `users` (self) | tombstone | `UPDATE`: set `deleted_at`; NULL `display_name, bio, google_id_hash, apple_id_hash, device_fingerprint_hash, date_of_birth, email`; `username = 'deleted_user_' || left(id::text, 8)` |
+| `users` (self) | tombstone | `UPDATE`: set `deleted_at`; NULL `display_name, bio, google_id_hash, apple_id_hash, device_fingerprint_hash, date_of_birth, email`; reset `apple_relay_email = FALSE`; `username = 'deleted_user_' || left(id::text, 8)` |
 | sessions, refresh-token families | cascade-DELETE | explicit `DELETE` (also terminates any live session) |
 | `follows` (both directions), `user_blocks` (both directions), `user_fcm_tokens`, `notifications` (addressed to user), non-post location history | cascade-DELETE | explicit `DELETE` |
 | `posts` (+location), `post_replies`, `post_likes`, `post_edits`, `chat_messages` (sender), `reports` (reporter) | anonymize-RETAIN | no statement — rows persist; identity nulled via the tombstoned `users` join (renders "Akun Dihapus") |
