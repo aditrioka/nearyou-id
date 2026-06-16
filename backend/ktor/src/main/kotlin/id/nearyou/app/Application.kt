@@ -139,6 +139,14 @@ import id.nearyou.app.post.PostEditService
 import id.nearyou.app.post.PostRateLimiter
 import id.nearyou.app.post.PostReadService
 import id.nearyou.app.post.postEditRoutes
+import id.nearyou.app.image.ImageUploadFlagGate
+import id.nearyou.app.image.ImageUploadRateLimiter
+import id.nearyou.app.image.ImageUploadService
+import id.nearyou.app.image.JdbcImageUploadRepository
+import id.nearyou.app.image.imageRoutes
+import id.nearyou.app.infra.cloudflareimages.CloudflareImagesConfig
+import id.nearyou.app.infra.cloudflareimages.imageStore
+import id.nearyou.app.infra.cloudvision.imageModerator
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.post.singlePostRoutes
 import id.nearyou.app.search.SearchRateLimiter
@@ -896,6 +904,28 @@ fun Application.module() {
             remoteConfig = remoteConfig,
             dbDispatcher = dbDispatchers.db,
         )
+    // premium-image-upload-pipeline — fail-soft infra (Vision + Cloudflare Images return
+    // NoOp when their secret slots are unset; the endpoint then 503s and the feature stays
+    // dark behind the default-FALSE image_upload_enabled flag). Delivery base is env-derived.
+    val imageUploadService =
+        ImageUploadService(
+            dataSource = dataSource,
+            repository = JdbcImageUploadRepository(),
+            flagGate = ImageUploadFlagGate(redisStringCache, remoteConfig),
+            rateLimiter = ImageUploadRateLimiter(rateLimiter),
+            moderator = imageModerator(secrets.resolve(secretKey(ktorEnv, "gcp-vision-sa"))),
+            store =
+                imageStore(
+                    CloudflareImagesConfig(
+                        apiToken = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-api-token")).orEmpty(),
+                        accountId = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-account-id")).orEmpty(),
+                        accountHash = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-account-hash")).orEmpty(),
+                        deliveryBaseUrl = if (ktorEnv == "staging") "https://img-staging.nearyou.id" else "https://img.nearyou.id",
+                    ),
+                ),
+            remoteConfig = remoteConfig,
+            dbDispatcher = dbDispatchers.db,
+        )
     val usernameChangeService =
         UsernameChangeService(
             dataSource = dataSource,
@@ -1014,6 +1044,7 @@ fun Application.module() {
     appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())
     revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)
     postRoutes(createPostService)
+    imageRoutes(imageUploadService)
     singlePostRoutes(postReadService)
     postEditRoutes(postEditService, postEditHistoryQuery)
     blockRoutes(blockService)
