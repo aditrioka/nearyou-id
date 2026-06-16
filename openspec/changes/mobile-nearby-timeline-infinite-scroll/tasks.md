@@ -1,9 +1,9 @@
 ## 1. Shared load-more substrate
 
-- [ ] 1.1 Add a generic, Compose-free `LoadMoreController<T>` in commonMain `ui/timeline/` (the `InlineLikeController` precedent): owns the appended list, current cursor, `isLoadingMore`, `endReached`, `loadMoreError`, a per-instance in-flight guard; takes a `suspend (cursor) -> PageResult<T>` fetch lambda; exposes `loadMore()` (no-op when in-flight / end-reached) and a `retryLoadMore()` + a `reset(firstPage, cursor)` for refresh.
+- [x] 1.1 Add a generic, Compose-free `LoadMoreController<T>` in commonMain `ui/timeline/` (the `InlineLikeController` precedent): owns the appended list, current cursor, `isLoadingMore`, `endReached`, `loadMoreError`, a per-instance in-flight guard; takes a `suspend (cursor) -> PageResult<T>` fetch lambda; exposes `loadMore()` (no-op when in-flight / end-reached) and a `retryLoadMore()` + a `reset(firstPage, cursor)` for refresh.
 - [ ] 1.2 Add a small `PageResult<T>(items: List<T>, nextCursor: String?)` mapping type + per-surface adapters (feed `Loaded(posts,…)`, notifications `Loaded(items,…)`, replies `Loaded(replies,…)` → `PageResult`; `upsell` mapped out per design D6).
-- [ ] 1.3 Add a reusable Compose load-more **footer** + scroll-end detector in `ui/components/` (or `ui/timeline/`): a footer composable (spinner / non-destructive retry-on-error / nothing-when-end-reached) and a `LazyListState`+`derivedStateOf` near-end detector (threshold-based, keys off the paginated items region), with stable `key`/`contentType` for the footer item.
-- [ ] 1.4 commonTest `LoadMoreControllerTest`: append + advance cursor; null cursor → end-reached + no further fetch; in-flight guard ignores a concurrent `loadMore`; `loadMoreError` set on failure then cleared + re-fetched on retry; `reset` clears the appended tail + end-reached.
+- [x] 1.3 Add a reusable Compose load-more **footer** + scroll-end detector in `ui/components/` (or `ui/timeline/`): a footer composable (spinner / non-destructive retry-on-error / nothing-when-end-reached) and a `LazyListState`+`derivedStateOf` near-end detector (threshold-based, keys off the paginated items region), with stable `key`/`contentType` for the footer item.
+- [x] 1.4 commonTest `LoadMoreControllerTest`: append + advance cursor; null cursor → end-reached + no further fetch; in-flight guard ignores a concurrent `loadMore`; `loadMoreError` set on failure then cleared + re-fetched on retry; `reset` clears the appended tail + end-reached. ✓ 6 tests green.
 
 ## 2. Design-system spec conformance
 
