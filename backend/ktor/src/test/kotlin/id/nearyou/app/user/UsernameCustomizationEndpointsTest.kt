@@ -36,6 +36,10 @@ import io.ktor.server.auth.Authentication
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -122,6 +126,39 @@ class UsernameCustomizationEndpointsTest : StringSpec({
             }
         }
     }
+
+    /**
+     * Seed a per-candidate admin override (the admin accept side-effect). `candidate`
+     * is stored normalized lowercase to mirror the writer. `consumed` pre-spends it.
+     */
+    fun seedOverride(
+        userId: UUID,
+        candidate: String,
+        consumed: Boolean = false,
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "INSERT INTO username_flag_overrides (user_id, candidate, approved_by, consumed_at) " +
+                    "VALUES (?, LOWER(?), NULL, ${if (consumed) "NOW()" else "NULL"})",
+            ).use { ps ->
+                ps.setObject(1, userId)
+                ps.setString(2, candidate)
+                ps.executeUpdate()
+            }
+        }
+    }
+
+    /** notes (the persisted flagged candidate) of the standing username_flagged row, or null. */
+    fun flaggedNotes(userId: UUID): String? =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT notes FROM moderation_queue WHERE target_id = ? AND target_type = 'user' " +
+                    "AND trigger = 'username_flagged'",
+            ).use { ps ->
+                ps.setObject(1, userId)
+                ps.executeQuery().use { rs -> if (rs.next()) rs.getString(1) else null }
+            }
+        }
 
     fun currentUsername(userId: UUID): String =
         dataSource.connection.use { conn ->
@@ -435,6 +472,195 @@ class UsernameCustomizationEndpointsTest : StringSpec({
         } finally {
             cleanup(id)
             dataSource.connection.use { it.createStatement().executeUpdate("DELETE FROM reserved_usernames WHERE username = 'failword'") }
+        }
+    }
+
+    // ---- 8.4 coupling: admin override (username_flag_overrides) ----
+
+    // A non-consumed override skips moderation, the change succeeds, and the override
+    // is consumed inside the successful-change transaction.
+    "8.4 non-consumed override → moderation skipped, change succeeds (200), consumed_at set" {
+        val (id, tok, _) = seedUser()
+        seedOverride(id, "borderlinehandle")
+        try {
+            withApp(profanity = listOf("borderlinehandle")) { _ ->
+                val r = patchUsername(tok, "borderlinehandle")
+                r.status shouldBe HttpStatusCode.OK
+                parse(r.bodyAsText())["username"]!!.jsonPrimitive.content shouldBe "borderlinehandle"
+            }
+            currentUsername(id) shouldBe "borderlinehandle"
+            // override row consumed
+            count(
+                "SELECT COUNT(*) FROM username_flag_overrides WHERE user_id = '$id' " +
+                    "AND candidate = 'borderlinehandle' AND consumed_at IS NOT NULL",
+            ) shouldBe 1
+            // a successful override change is NOT a moderation reject → no standing flag
+            count(
+                "SELECT COUNT(*) FROM moderation_queue WHERE target_id = '$id' AND trigger = 'username_flagged'",
+            ) shouldBe 0
+        } finally {
+            cleanup(id)
+        }
+    }
+
+    // The override is stored normalized lowercase (the admin writer's LOWER(?)); the
+    // gate consults with the lowercased candidate, so a mixed-case approval still
+    // matches the user's (necessarily-lowercase) submission.
+    "8.4 override stored mixed-case (normalized lowercase) still matches the submission" {
+        val (id, tok, _) = seedUser()
+        seedOverride(id, "MixedCaseApproved") // stored as 'mixedcaseapproved' via LOWER()
+        try {
+            withApp(profanity = listOf("mixedcaseapproved")) { _ ->
+                patchUsername(tok, "mixedcaseapproved").status shouldBe HttpStatusCode.OK
+            }
+            count(
+                "SELECT COUNT(*) FROM username_flag_overrides WHERE user_id = '$id' " +
+                    "AND candidate = 'mixedcaseapproved' AND consumed_at IS NOT NULL",
+            ) shouldBe 1
+        } finally {
+            cleanup(id)
+        }
+    }
+
+    // A consumed override grants no pass; an absent override grants no pass — both 422.
+    "8.4 consumed override OR absent override → still 422 username_rejected" {
+        val (idC, tokC, _) = seedUser()
+        seedOverride(idC, "spenthandle", consumed = true)
+        val (idA, tokA, _) = seedUser()
+        try {
+            withApp(profanity = listOf("spenthandle", "neverapproved")) { _ ->
+                // consumed override → no pass
+                val rC = patchUsername(tokC, "spenthandle")
+                rC.status shouldBe HttpStatusCode.UnprocessableEntity
+                parse(rC.bodyAsText()).error() shouldBe "username_rejected"
+                // absent override → no pass
+                val rA = patchUsername(tokA, "neverapproved")
+                rA.status shouldBe HttpStatusCode.UnprocessableEntity
+                parse(rA.bodyAsText()).error() shouldBe "username_rejected"
+            }
+            currentUsername(idC).startsWith("user_") shouldBe true
+            currentUsername(idA).startsWith("user_") shouldBe true
+        } finally {
+            cleanup(idC, idA)
+        }
+    }
+
+    // Per-candidate scope: an override for X does NOT let a DIFFERENT flagged Y through.
+    "8.4 override for X does not grant a pass to a different flagged Y" {
+        val (id, tok, _) = seedUser()
+        seedOverride(id, "approvedx")
+        try {
+            withApp(profanity = listOf("approvedx", "flaggedy")) { _ ->
+                // Y is flagged + has NO override → rejected
+                val r = patchUsername(tok, "flaggedy")
+                r.status shouldBe HttpStatusCode.UnprocessableEntity
+                parse(r.bodyAsText()).error() shouldBe "username_rejected"
+            }
+            // X's override remains unconsumed (Y never touched it)
+            count(
+                "SELECT COUNT(*) FROM username_flag_overrides WHERE user_id = '$id' " +
+                    "AND candidate = 'approvedx' AND consumed_at IS NULL",
+            ) shouldBe 1
+            // Y re-opened the standing flag with notes = 'flaggedy'
+            flaggedNotes(id) shouldBe "flaggedy"
+        } finally {
+            cleanup(id)
+        }
+    }
+
+    // The flagged upsert re-opens a resolved standing row with the LATEST candidate.
+    "8.4 flagged upsert re-opens a resolved row with the latest candidate in notes" {
+        val (id, tok, _) = seedUser()
+        try {
+            withApp(profanity = listOf("firstbad", "secondbad")) { _ ->
+                patchUsername(tok, "firstbad").status shouldBe HttpStatusCode.UnprocessableEntity
+            }
+            flaggedNotes(id) shouldBe "firstbad"
+            // Admin resolves the standing row (simulate an accept/reject resolution).
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "UPDATE moderation_queue SET status='resolved', resolution='reject_flagged_username', " +
+                        "resolved_at=NOW() WHERE target_id = ? AND trigger='username_flagged'",
+                ).use { ps ->
+                    ps.setObject(1, id)
+                    ps.executeUpdate()
+                }
+            }
+            // A NEW flagged attempt must re-open the row (status=pending, resolution cleared)
+            // with the latest candidate — NOT be swallowed by the resolved row.
+            withApp(profanity = listOf("firstbad", "secondbad")) { _ ->
+                patchUsername(tok, "secondbad").status shouldBe HttpStatusCode.UnprocessableEntity
+            }
+            flaggedNotes(id) shouldBe "secondbad"
+            count(
+                "SELECT COUNT(*) FROM moderation_queue WHERE target_id = '$id' AND trigger='username_flagged' " +
+                    "AND status='pending' AND resolution IS NULL",
+            ) shouldBe 1
+            // still exactly one standing row (UNIQUE holds; re-open, not insert)
+            count(
+                "SELECT COUNT(*) FROM moderation_queue WHERE target_id = '$id' AND trigger='username_flagged'",
+            ) shouldBe 1
+        } finally {
+            cleanup(id)
+        }
+    }
+
+    // Concurrent same-user double-submit on a single override → at most one pass.
+    // The two PATCHes serialize on the per-user FOR UPDATE lock; the conditional
+    // rows-affected-gated consume (WHERE consumed_at IS NULL) is what enforces the
+    // one-shot. The loser — acquiring the lock AFTER the winner commits — is rejected
+    // via whichever gate fires first under the lock: cooldown (429, the winner's
+    // successful change just stamped username_last_changed_at), the now-taken handle
+    // (409), or re-moderation after a zero-row consume (422). Never a second 200.
+    "8.4 concurrent same-user submit → override consumed at most once; loser rejected" {
+        val (id, tok, _) = seedUser()
+        seedOverride(id, "raceword")
+        try {
+            withApp(profanity = listOf("raceword")) { _ ->
+                val statuses =
+                    coroutineScope {
+                        val client = createClient { }
+                        (1..2).map {
+                            async(Dispatchers.IO) {
+                                client.patch("/api/v1/user/username") {
+                                    header(HttpHeaders.Authorization, "Bearer $tok")
+                                    header(HttpHeaders.ContentType, "application/json")
+                                    setBody("""{"new_username":"raceword"}""")
+                                }.status
+                            }
+                        }.awaitAll()
+                    }
+                // exactly one 200 success; the other is rejected (any non-200)
+                statuses.count { it == HttpStatusCode.OK } shouldBe 1
+                statuses.count { it != HttpStatusCode.OK } shouldBe 1
+            }
+            currentUsername(id) shouldBe "raceword"
+            // the override was consumed AT MOST ONCE — exactly the winner spent it; the
+            // loser's WHERE consumed_at IS NULL matched zero rows (one-shot holds).
+            count("SELECT COUNT(*) FROM username_flag_overrides WHERE user_id = '$id' AND consumed_at IS NOT NULL") shouldBe 1
+        } finally {
+            cleanup(id)
+        }
+    }
+
+    // The repeated-flagged throttle still applies: a flagged attempt counts as a failed
+    // attempt against the 10/hour limit, and the standing row reflects the latest candidate.
+    "8.4 repeated flagged attempts count against the 10-failed/hour limit; standing row tracks latest" {
+        val (id, tok, _) = seedUser()
+        try {
+            withApp(profanity = listOf("flagged0", "flagged1", "flagged2", "flagged3", "flagged4", "flagged5", "flagged6", "flagged7", "flagged8", "flagged9", "flagged10")) { _ ->
+                // 10 flagged attempts (each a failed attempt) all → 422
+                repeat(10) { i ->
+                    patchUsername(tok, "flagged$i").status shouldBe HttpStatusCode.UnprocessableEntity
+                }
+                // 11th attempt → throttled by the failed-attempt limiter (not moderation)
+                patchUsername(tok, "flagged10").status shouldBe HttpStatusCode.TooManyRequests
+            }
+            // standing row reflects the latest candidate that actually ran the gate (flagged9;
+            // the 11th was throttled before moderation)
+            flaggedNotes(id) shouldBe "flagged9"
+        } finally {
+            cleanup(id)
         }
     }
 })
