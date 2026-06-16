@@ -1,11 +1,11 @@
 ## 1. Pre-flight (library re-check + version contention)
 
-- [ ] 1.1 Pre-implementation library re-check (MUST — new substrate): dated WebSearch for `com.google.cloud:google-cloud-vision` (current stable 3.x, deprecations, JVM support 2026) AND confirm Cloudflare Images still has no official JVM SDK → raw Ktor-client HTTP. Record the outcome one-liner in the first feat commit body (`re-check 2026-MM-DD confirms …`).
-- [ ] 1.2 Pick the next free Flyway version for `image_uploads` against current `origin/main` (latest is V22). If `privacy-flip-worker` (#321) or `admin-premium-username-oversight` (#323) merged a V23 first, renumber — never edit an applied migration (checksum-immutable).
+- [x] 1.1 Pre-implementation library re-check (MUST — new substrate): dated WebSearch for `com.google.cloud:google-cloud-vision` (current stable 3.x, deprecations, JVM support 2026) AND confirm Cloudflare Images still has no official JVM SDK → raw Ktor-client HTTP. Record the outcome one-liner in the first feat commit body (`re-check 2026-MM-DD confirms …`).
+- [x] 1.2 Pick the next free Flyway version for `image_uploads` against current `origin/main` (latest is V22). If `privacy-flip-worker` (#321) or `admin-premium-username-oversight` (#323) merged a V23 first, renumber — never edit an applied migration (checksum-immutable).
 
 ## 2. Schema — image_uploads ledger (Flyway)
 
-- [ ] 2.1 Add `V<next>__image_uploads.sql`: `image_uploads(cf_image_id TEXT PK, uploader_user_id UUID NOT NULL REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), safe_search_adult TEXT, safe_search_violence TEXT, safe_search_racy TEXT, status TEXT NOT NULL DEFAULT 'uploaded' CHECK (status IN ('uploaded','attached')))` + index on `(uploader_user_id, created_at)`. Confirm `posts.image_id TEXT` already exists (V4) — no posts DDL needed.
+- [x] 2.1 Add `V<next>__image_uploads.sql`: `image_uploads(cf_image_id TEXT PK, uploader_user_id UUID NOT NULL REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), safe_search_adult TEXT, safe_search_violence TEXT, safe_search_racy TEXT, status TEXT NOT NULL DEFAULT 'uploaded' CHECK (status IN ('uploaded','attached')))` + index on `(uploader_user_id, created_at)`. Confirm `posts.image_id TEXT` already exists (V4) — no posts DDL needed.
 - [ ] 2.2 Verify the migration applies cleanly on a fresh DB container (CI-equivalent: disposable postgis container + Flyway boot).
 
 ## 3. :infra:cloud-vision module (Google Cloud Vision Safe Search)
