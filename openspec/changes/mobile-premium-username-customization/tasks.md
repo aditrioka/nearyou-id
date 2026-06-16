@@ -13,11 +13,11 @@
 ## 3. Pure helpers (commonMain, no UI)
 
 - [x] 3.1 `usernameFormatValid(candidate): Boolean` — trim + 3–30 code points + charset `^[a-z0-9][a-z0-9_.]*[a-z0-9_]$` + `!contains("..")` (mirrors the backend accept/reject matrix).
-- [ ] 3.2 `usernameUiState(...)` pure projection over (input, format-validity, latest check outcome, latest change outcome, in-flight flags) → the documented states; day-countdown + minute-countdown formatters (reuse `capCountdownMinutes`); deterministic, monotonic-clock-driven (no wall-clock).
+- [x] 3.2 `usernameUiState(...)` pure projection over (input, format-validity, latest check outcome, latest change outcome, in-flight flags) → the documented states; day-countdown + minute-countdown formatters (reuse `capCountdownMinutes`); deterministic, monotonic-clock-driven (no wall-clock).
 
 ## 4. Route & navigation
 
-- [ ] 4.1 Add `UsernameCustomizationRoute` (`@Serializable data object`, no payload) to `NavKeys.kt`; register it in the `navSavedStateConfiguration` polymorphic `SerializersModule`.
+- [x] 4.1 Add `UsernameCustomizationRoute` (`@Serializable data object`, no payload) to `NavKeys.kt`; register it in the `navSavedStateConfiguration` polymorphic `SerializersModule`.
 - [ ] 4.2 Map `entry<UsernameCustomizationRoute>` → `UsernameCustomizationScreen` in `AppEntryProvider`; wire the hoisted `onBack` (pop), `onChanged` (pop), and `onActivatePremium` → push `PaywallRoute` (introduced by #309 — design.md D8; until #309 merges, a documented TODO no-op).
 
 ## 5. Screen (`id.nearyou.app.screens.username`)
@@ -31,7 +31,7 @@
 
 ## 6. ViewModel
 
-- [ ] 6.1 `UsernameCustomizationViewModel` (commonMain androidx `ViewModel`, route-scoped via `koinViewModel()`): one `StateFlow<UsernameUiState>` (`stateIn` WhileSubscribed 5s); owns input, the 500 ms debounced probe (coalescing rapid keystrokes into one `check` — protects the 3/day budget), submit, success one-shot, AND the on-entry self-Premium resolution via `ProfileFlow.loadProfile(selfUserId)` (`selfUserId` from `SelfUserIdProvider`) → initial gate/editor (read failure → editor, reactive 403 governs); talks to `UsernameFlow` + the self-profile read, never an ApiClient directly.
+- [x] 6.1 `UsernameCustomizationViewModel` (commonMain androidx `ViewModel`, route-scoped via `koinViewModel()`): one `StateFlow<UsernameUiState>` (`stateIn` WhileSubscribed 5s); owns input, the 500 ms debounced probe (coalescing rapid keystrokes into one `check` — protects the 3/day budget), submit, success one-shot, AND the on-entry self-Premium resolution via `ProfileFlow.loadProfile(selfUserId)` (`selfUserId` from `SelfUserIdProvider`) → initial gate/editor (read failure → editor, reactive 403 governs); talks to `UsernameFlow` + the self-profile read, never an ApiClient directly.
 
 ## 7. Strings (`:shared:resources` — CMP Resources, Bahasa Indonesia)
 
@@ -43,7 +43,7 @@
 
 ## 9. Tests
 
-- [ ] 9.1 commonTest: `usernameFormatValid` accept/reject matrix incl. the **30-accept / 31-reject** length boundary + field-cap; `UsernameUiStateTest` projection (every state, incl. the **non-positive countdown floor** → "1 hari" / "1 menit", no flash-clear); `UsernameCustomizationRoute` serialized round-trip; a ViewModel debounce-coalescing test (rapid keystrokes → one `check`, test-advanceable dispatcher).
+- [x] 9.1 commonTest: `usernameFormatValid` accept/reject matrix incl. the **30-accept / 31-reject** length boundary + field-cap; `UsernameUiStateTest` projection (every state, incl. the **non-positive countdown floor** → "1 hari" / "1 menit", no flash-clear); `UsernameCustomizationRoute` serialized round-trip; a ViewModel debounce-coalescing test (rapid keystrokes → one `check`, test-advanceable dispatcher).
 - [x] 9.2 commonTest MockEngine: `UsernameApiClient`/`UsernameRepository` — `PATCH` body + `GET candidate` param, success/available parse, each change-status → outcome (incl. the 429/422 error-code splits + `Retry-After` parse, **incl. absent/unparseable → `0` floor**), each probe-status → outcome (incl. `ProbeExhausted`), terminal-401 → SessionExpired.
 - [ ] 9.3 Robolectric `UsernameCustomizationScreenTest` (added to the `mobile/app/build.gradle.kts` Release-variant exclude): field + live format feedback, each visual state, the **on-entry gate resolution** (not-Premium self-read → initial gate; Premium → editor) + the **probe-path gate** (`CheckPremiumGate`), the confirm modal (confirm fires / dismiss doesn't), success toast + `onChanged` pop, gate CTA → `onActivatePremium`. Update the existing (already Release-excluded) `SettingsScreenTest` to assert the "Ganti username" row pushes `UsernameCustomizationRoute` **unconditionally**.
 - [ ] 9.4 `iosTest` `UsernameFlowIosTest` (mirror `SearchFlowIosTest`) over a `FakeUsernameFlow` on the Native target.
