@@ -48,7 +48,7 @@ The `source` CHECK MUST enumerate all four canonical values even though this cha
 
 ### Requirement: User can request account deletion with a 30-day grace
 
-An authenticated endpoint `POST /api/v1/account/deletion-request` (Bearer JWT via `AUTH_PROVIDER_USER`) SHALL insert a `deletion_requests` row for the calling user with `source = 'user'` and `scheduled_hard_delete_at = NOW() + INTERVAL '30 days'`, and respond `200`/`201` with the scheduled hard-delete timestamp. The operation MUST be **idempotent**: when the user already has a row with `cancelled_at IS NULL AND executed_at IS NULL`, the endpoint MUST NOT insert a second row and MUST return the existing schedule. An unauthenticated request MUST return `401`.
+An authenticated endpoint `POST /api/v1/account/deletion-request` (Bearer JWT via `AUTH_PROVIDER_USER`) SHALL insert a `deletion_requests` row for the calling user with `source = 'user'` and `scheduled_hard_delete_at = NOW() + INTERVAL '30 days'`, and respond `200`/`201` with the scheduled hard-delete timestamp. The operation MUST be **idempotent**: when the user already has a row with `cancelled_at IS NULL AND executed_at IS NULL`, the endpoint MUST NOT insert a second row and MUST return the existing schedule. A user whose only prior request was **cancelled** (or executed — impossible to reach this endpoint post-tombstone) MAY create a new pending request (the partial index excludes cancelled/executed rows from the "already pending" check). An unauthenticated request MUST return `401`. The endpoint is intentionally **not rate-limited** — it is idempotent (a re-request returns the existing row, no amplification), so no per-user throttle is required.
 
 #### Scenario: First request schedules deletion 30 days out
 - **WHEN** an authenticated user with no pending request calls `POST /api/v1/account/deletion-request`
@@ -57,6 +57,10 @@ An authenticated endpoint `POST /api/v1/account/deletion-request` (Bearer JWT vi
 #### Scenario: Re-request is idempotent
 - **WHEN** a user who already has one pending (un-cancelled, un-executed) request calls the endpoint again
 - **THEN** no second row is inserted AND the response returns the same `scheduled_hard_delete_at` as the existing row
+
+#### Scenario: Re-request after a cancellation creates a new pending row
+- **WHEN** a user whose only deletion request was cancelled (`cancelled_at IS NOT NULL`) calls `POST /api/v1/account/deletion-request` again
+- **THEN** a NEW pending row is inserted with a fresh `scheduled_hard_delete_at` ≈ `NOW() + 30 days` (the cancelled row is not reused) AND the response returns the new schedule
 
 #### Scenario: Unauthenticated request rejected
 - **WHEN** a caller without a valid Bearer JWT calls `POST /api/v1/account/deletion-request`

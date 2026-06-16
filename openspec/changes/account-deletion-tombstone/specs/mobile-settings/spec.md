@@ -73,3 +73,7 @@ The account-deletion request / cancel / status calls SHALL be implemented behind
 #### Scenario: The deletion seam logs no token or sub
 - **WHEN** the account-deletion seam sources are scanned
 - **THEN** no logging call site passes the bearer token, the `Authorization` header, or the JWT `sub` as a logged argument
+
+#### Scenario: An iOS flow test exercises the account-deletion path
+- **WHEN** inspecting `mobile/app/src/iosTest/...`
+- **THEN** an iOS flow test exists exercising the Hapus-Akun → confirm path (and the restore banner) on the simulator with Kotlin/Native-legal test function names (mirroring the existing settings iOS flow test; `commonTest`/Kotest does not run on Native)

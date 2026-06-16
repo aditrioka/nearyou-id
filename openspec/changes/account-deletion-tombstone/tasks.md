@@ -16,8 +16,8 @@
 ## 3. Hard-delete worker (`/internal/account-hard-delete-worker`)
 
 - [ ] 3.1 Mount the worker endpoint under the internal-endpoint-auth (OIDC) subtree (precedent: suspension-unban-worker); reject non-internal callers; attribute actions to the system actor.
-- [ ] 3.2 Scan due rows: `scheduled_hard_delete_at <= NOW() AND executed_at IS NULL AND cancelled_at IS NULL`; process each in its OWN transaction.
-- [ ] 3.3 Tombstone the user row: set `deleted_at`; NULL `display_name, bio, google_id_hash, apple_id_hash, device_fingerprint_hash, date_of_birth, email`; `username = 'deleted_user_' || left(id::text, 8)` with the `// @allow-username-write: deletion` annotation.
+- [ ] 3.2 Scan due rows: `scheduled_hard_delete_at <= NOW() AND executed_at IS NULL AND cancelled_at IS NULL`; claim each with `SELECT … FOR UPDATE SKIP LOCKED` (concurrency-safe vs overlapping invocations); process each in its OWN transaction.
+- [ ] 3.3 Tombstone the user row: set `deleted_at`; NULL `display_name, bio, google_id_hash, apple_id_hash, device_fingerprint_hash, date_of_birth, email`; reset `apple_relay_email = FALSE`; `username = 'deleted_user_' || left(id::text, 8)` (widen for uniqueness) with the `// @allow-username-write: deletion` annotation.
 - [ ] 3.4 Cascade-DELETE (explicit statements, since the user row is not row-deleted): `refresh_tokens` (all families), `follows` (both directions), `user_blocks` (both directions), `user_fcm_tokens`, addressed `notifications`. (`docs/06`'s "non-post location history" item is a no-op — no such table; location-on-open is request-only.)
 - [ ] 3.5 Leave authored content RETAINED (no delete): `posts`, `post_replies`, `post_likes`, `post_edits`, `chat_messages`, submitted `reports`.
 - [ ] 3.6 In the same transaction: insert a `deletion_log` row (`user_id`, `source`) and set `deletion_requests.executed_at = NOW()`; verify all-or-nothing rollback on a mid-row failure.
@@ -30,6 +30,8 @@
 - [ ] 4.3 Ensure the author-identity projection tolerates a tombstoned author (nulled `display_name`, `deleted_user_` handle) so the wire DTO carries the anonymized identity (LEFT/raw-users author join as needed; allowlist annotations where a raw read is introduced).
 - [ ] 4.4 Confirm the client renders the nulled identity as "Akun Dihapus" (string via `:shared:resources`); verify push bodies still never include distance/identity beyond the existing contract.
 - [ ] 4.5 Verify the deliberately-NOT-relaxed surfaces: `user-profile-read` still `404`s a tombstoned target, `premium-search` still excludes them, active-user metrics (operational dashboard) still exclude them.
+- [ ] 4.6 `single-post-read`: a tombstoned author's post now resolves `200` anonymized (was `404`) — implement + test per the `single-post-read` MODIFIED delta.
+- [ ] 4.7 Verify chat renders a tombstoned sender/partner as "Akun Dihapus" with NO code change (message-list has no author-`deleted_at` exclusion; partner-list `LEFT JOIN visible_users` → existing `COALESCE(…, 'Akun Dihapus')`); add the chat scenarios as regression guards.
 
 ## 5. Mobile Settings (Hapus Akun + restore banner)
 
@@ -48,7 +50,8 @@
 
 ## 7. Docs reconciliation & follow-ups
 
-- [ ] 7.1 File a `follow-up` issue (D4): `docs/05:508` ("on user hard-delete, submitted reports cascade") is stale under the tombstone pattern (no row-delete → no FK cascade → reports retained per `docs/06:343`); flag for a clarifying doc-amend. Do NOT edit docs in this change.
+- [ ] 7.1 File a `follow-up` issue (D4 + D6): (a) `docs/05:508` ("on user hard-delete, submitted reports cascade") is stale under the tombstone pattern (no row-delete → no FK cascade → reports retained per `docs/06:343`); (b) `docs/05:630`/`docs/08` call the worker `/internal/cleanup` while this ships a dedicated `/internal/account-hard-delete-worker`. Flag both for a clarifying doc-amend. Do NOT edit docs in this change.
+- [ ] 7.6 Spec reconciliation landed in this change (no separate follow-up needed): `single-post-read` (MODIFIED 404→200), `post-creation` (MODIFIED FK prose), `post-replies` + `reports` (ADDED tombstone-retain requirements) — keep these spec deltas in sync if the worker behavior shifts during apply.
 - [ ] 7.2 File a `follow-up` issue: R2 deletion-log → R2 export (7-yr retention) once `:infra:r2` exists.
 - [ ] 7.3 File a `follow-up` issue: optional "Akun Dihapus" placeholder profile (instead of `404`) for a tombstoned user (Q1 polish; docs/06:327 allows either).
 - [ ] 7.4 File a `follow-up` issue (Q2): if the both-direction block cascade's ghost-post edge case proves jarring, narrow to blocker-only.

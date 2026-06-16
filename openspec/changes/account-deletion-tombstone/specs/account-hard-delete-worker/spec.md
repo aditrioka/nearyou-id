@@ -15,13 +15,17 @@ CREATE TABLE deletion_log (
 
 `user_id` MUST NOT carry an FK to `users` (the row must survive a future true row-purge of the tombstoned user). The DB role grants SHALL make this table append-only at the application role (no UPDATE/DELETE) consistent with the audit-log posture. The canonical long-term home is R2 (7-year retention, `docs/06` § Retention) — that export is a deferred follow-up; the DB table is the in-scope cut.
 
-#### Scenario: deletion_log exists and is append-only
+#### Scenario: deletion_log exists with no FK on user_id
 - **WHEN** the migration set is applied and `deletion_log` is inspected
 - **THEN** the table exists with `id, user_id, executed_at, source` AND `user_id` has no foreign key to `users`
 
+#### Scenario: deletion_log is append-only at the application role
+- **WHEN** the application DB role attempts `UPDATE` or `DELETE` on `deletion_log`
+- **THEN** the operation is denied (only `INSERT`/`SELECT` are granted), mirroring the `admin_actions_log` immutable-audit posture
+
 ### Requirement: Hard-delete worker scans and executes only due, un-cancelled, un-executed requests
 
-An internal worker endpoint `/internal/account-hard-delete-worker` (triggered by Cloud Scheduler) SHALL select `deletion_requests` rows where `scheduled_hard_delete_at <= NOW() AND executed_at IS NULL AND cancelled_at IS NULL` (the `deletion_requests_scheduled_idx` predicate) and process each. A request that is cancelled, not yet due, or already executed MUST NOT be processed. The worker MUST be source-agnostic over the schedule (it processes any due row regardless of `source`).
+An internal worker endpoint `/internal/account-hard-delete-worker` (triggered by Cloud Scheduler) SHALL select `deletion_requests` rows where `scheduled_hard_delete_at <= NOW() AND executed_at IS NULL AND cancelled_at IS NULL` (the `deletion_requests_scheduled_idx` predicate; the boundary is inclusive — a row whose `scheduled_hard_delete_at` exactly equals `NOW()` is due) and process each. A request that is cancelled, not yet due, or already executed MUST NOT be processed. The worker MUST be source-agnostic over the schedule (it processes any due row regardless of `source`). To make concurrent worker invocations safe, each row MUST be claimed with `SELECT … FOR UPDATE SKIP LOCKED` (or an equivalent atomic claim) so two overlapping runs never both process the same row (precedent: `SuspensionUnbanWorker` row-locking).
 
 #### Scenario: Due un-cancelled request is executed
 - **WHEN** the worker runs and a request has `scheduled_hard_delete_at` in the past, `cancelled_at IS NULL`, `executed_at IS NULL`
@@ -35,13 +39,17 @@ An internal worker endpoint `/internal/account-hard-delete-worker` (triggered by
 - **WHEN** the worker runs and a request has `scheduled_hard_delete_at` in the future
 - **THEN** the request is NOT processed
 
+#### Scenario: Exactly-at-deadline request is due
+- **WHEN** the worker runs and a request has `scheduled_hard_delete_at` exactly equal to the worker's evaluation `NOW()`
+- **THEN** the request IS processed (the `<= NOW()` boundary is inclusive)
+
 ### Requirement: Hard-delete tombstones the user row
 
-For each due request, the worker SHALL, in one transaction, tombstone the user: set `users.deleted_at = NOW()`; NULL the PII columns `display_name`, `bio`, `google_id_hash`, `apple_id_hash`, `device_fingerprint_hash`, `date_of_birth`, `email` (the exact shipped-schema PII set); and rename `username` to a collision-free `deleted_user_`-prefixed handle derived from the user id (e.g. `'deleted_user_' || left(id::text, 8)`, widened as needed to preserve the `username` UNIQUE constraint). The `username` UPDATE site MUST carry the `// @allow-username-write: deletion` allowlist annotation (the username-write lint invariant) and MUST stay within the 60-char schema ceiling. The user ROW is NOT row-deleted — it persists as a tombstone so retained content (posts/replies/chat) can anonymize against it.
+For each due request, the worker SHALL, in one transaction, tombstone the user: set `users.deleted_at = NOW()`; NULL the PII columns `display_name`, `bio`, `google_id_hash`, `apple_id_hash`, `device_fingerprint_hash`, `date_of_birth`, `email`; reset the residual Apple-identity flag `apple_relay_email` to its default `FALSE` (it is part of the Apple-identity cluster being erased — `docs/06:325`'s PII list omits it but the shipped V2 schema carries it); and rename `username` to a collision-free `deleted_user_`-prefixed handle derived from the user id (e.g. `'deleted_user_' || left(id::text, 8)`, widened as needed to preserve the `username` UNIQUE constraint). The `username` UPDATE site MUST carry the `// @allow-username-write: deletion` allowlist annotation (the username-write lint invariant) and MUST stay within the 60-char schema ceiling. The user ROW is NOT row-deleted — it persists as a tombstone so retained content (posts/replies/chat) can anonymize against it.
 
 #### Scenario: Tombstone nulls exactly the specified PII set
 - **WHEN** the worker hard-deletes a user
-- **THEN** afterward that `users` row has `deleted_at` set, `display_name / bio / google_id_hash / apple_id_hash / device_fingerprint_hash / date_of_birth / email` all NULL, and `username` matching `^deleted_user_[0-9a-f]{8,}$` (the `deleted_user_` prefix + a unique id-derived suffix)
+- **THEN** afterward that `users` row has `deleted_at` set, `display_name / bio / google_id_hash / apple_id_hash / device_fingerprint_hash / date_of_birth / email` all NULL, `apple_relay_email = FALSE`, and `username` matching `^deleted_user_[0-9a-f]{8,}$` (the `deleted_user_` prefix + a unique id-derived suffix)
 
 #### Scenario: A tombstoned user cannot sign back in to the same account
 - **WHEN** the (nulled) `google_id_hash` / `apple_id_hash` are searched for at a later sign-in
@@ -75,21 +83,57 @@ The worker SHALL NOT delete the user's authored content rows: `posts` (and their
 - **WHEN** the worker hard-deletes a user who had submitted reports
 - **THEN** those `reports` rows still exist with `reporter_id` pointing at the now-tombstoned user (not cascade-deleted)
 
+### Requirement: The tombstone model supersedes the earlier delete-then-row-delete assumption
+
+This worker is the "tombstone / hard-delete worker (separate future change)" that several shipped specs anticipated, but it MUST implement the `docs/06` **tombstone** model, NOT the delete-then-row-delete model those specs assumed. The user `users` row MUST NOT be row-deleted (it is `UPDATE`d to a tombstone), so the content FKs — `posts.author_id` / `post_replies.author_id` (`ON DELETE RESTRICT`) and `post_likes.user_id` / `reports.reporter_id` (`ON DELETE CASCADE`) — are **never triggered** by this worker, and that content MUST be RETAINED anonymized. This SUPERSEDES the now-stale prose in `post-creation` ("worker … deleting post rows before the author"), `post-replies` ("worker … removing replies before the author"), and `reports`/`docs/05:508` ("on user hard-delete, submitted reports cascade"); the corresponding spec deltas in this change reconcile each, and `docs/05:508` is flagged for a doc-amend follow-up. The RESTRICT/CASCADE FKs remain in force as guards against an accidental raw row-delete (their existing FK-behavior scenarios are unchanged).
+
+#### Scenario: No content FK is triggered by a tombstone
+- **WHEN** the worker hard-deletes a user who has posts, replies, likes, and submitted reports
+- **THEN** none of the `RESTRICT`/`CASCADE` content FKs fire (the user row was `UPDATE`d, not row-deleted) AND all that content is retained
+
 ### Requirement: Tombstoned authors' content surfaces in feeds rendered as "Akun Dihapus"
 
 A tombstoned (hard-deleted) author's non-hidden, non-soft-deleted posts SHALL remain visible in every post-listing read surface — Nearby, Following, and Global timelines, post detail, and reply lists — with the author identity rendered from the nulled `display_name` + `deleted_user_` handle (the client maps this to the user-facing "Akun Dihapus" string). The shadow-ban, post-soft-delete, and bidirectional-block predicates on those surfaces MUST continue to apply (see `visible-posts-view` for the view-level mechanism; the Nearby/Global raw-`posts` queries and post-detail/reply-list relax ONLY the author-side `deleted_at` predicate). Profile read, search, and active-user metrics are deliberately NOT relaxed — a tombstoned user stays a `404` profile, non-discoverable in search, and uncounted as active.
 
-#### Scenario: A tombstoned author's post still appears in the Global timeline
-- **WHEN** an author with a visible post is hard-deleted, and a viewer loads the Global timeline that would include that post
-- **THEN** the post is present in the response with the author identity nulled (no `display_name`, `username` = `deleted_user_…`), so the client renders "Akun Dihapus"
+#### Scenario: A tombstoned author's post appears in each feed surface, anonymized
+- **WHEN** an author with a visible post is hard-deleted, and a viewer loads the **Nearby**, **Following**, and **Global** timelines that would include that post
+- **THEN** on each surface the post is present with the author identity nulled (no `display_name`, `username` = `deleted_user_…`), so the client renders "Akun Dihapus" (post detail is covered by `single-post-read`; reply lists by `post-replies`)
 
-#### Scenario: A shadow-banned-then-deleted author stays hidden
-- **WHEN** an author who is shadow-banned (`is_shadow_banned = TRUE`) is also hard-deleted
-- **THEN** their posts remain EXCLUDED from feeds (the shadow-ban predicate dominates; deletion does not un-hide shadow-banned content)
+#### Scenario: A tombstoned sender's chat messages still render for the peer
+- **WHEN** the sender of 1:1 messages is hard-deleted
+- **THEN** the peer's message list still returns those messages (the sender is not row-deleted; the message-list query has no author-`deleted_at` exclusion), rendered with the sender anonymized
+
+#### Scenario: A tombstoned conversation partner shows as Akun Dihapus
+- **WHEN** a viewer's conversation partner is hard-deleted
+- **THEN** the conversation list still shows the conversation with the partner display name as "Akun Dihapus" (the partner-list `LEFT JOIN visible_users` resolves to NULL → existing `COALESCE(…, 'Akun Dihapus')` — `visible_users` is intentionally unchanged, so this works with no new code)
+
+#### Scenario: A shadow-banned-then-deleted author stays hidden (shadow-ban dominates, view AND raw feeds)
+- **WHEN** an author who is shadow-banned (`is_shadow_banned = TRUE`) is also hard-deleted, on both the view-backed (Following) and raw-`posts` (Nearby/Global) feeds
+- **THEN** their posts remain EXCLUDED on every surface (the shadow-ban predicate dominates over the tombstone-surfacing rule; deletion does not un-hide shadow-banned content)
+
+#### Scenario: Relaxing the author-deletion exclusion does not weaken viewer block suppression
+- **WHEN** viewer V has blocked a (non-deleted) author A, and a separate tombstoned author T also has posts in the same feed
+- **THEN** A's posts stay suppressed for V (the bidirectional `user_blocks` NOT-IN join is intact) AND T's posts surface anonymized — the V24 author-deletion relaxation did not drop the block predicate
+
+#### Scenario: The shadow-ban self-visibility arm is unaffected by the relaxation
+- **WHEN** a shadow-banned (NOT deleted) author loads their own Nearby/Global feed after V24
+- **THEN** they still see their own posts (the `shadow-ban-feed-self-visibility` UNION self-arm is byte-identical post-relaxation)
+
+#### Scenario: Reply and like counts are unaffected by a contributor's deletion
+- **WHEN** a post has 3 replies and 5 likes, one reply and one like by users who are then hard-deleted
+- **THEN** the post's `reply_count` stays 3 and like count stays 5 (the replies/likes are retained; their contributors are tombstoned, not removed)
 
 #### Scenario: A tombstoned author's profile is still 404
 - **WHEN** a viewer calls `GET /api/v1/users/{deleted_id}` for a hard-deleted user
 - **THEN** the response is `404 user_not_found` (`visible_users` is unchanged; docs/06 permits the 404 form)
+
+#### Scenario: A tombstoned user is not discoverable in search
+- **WHEN** a search query that would have matched the user's former handle/identity runs after the user is hard-deleted
+- **THEN** the tombstoned user is NOT returned (search reads `visible_users`, which is unchanged and still excludes `deleted_at IS NOT NULL`)
+
+#### Scenario: A tombstoned user is not counted as active
+- **WHEN** an active-user metric (e.g. the operational dashboard DAU/MAU, which filters `deleted_at IS NULL`) is computed after the user is hard-deleted
+- **THEN** the tombstoned user is NOT counted (they are gone for "active user" purposes)
 
 ### Requirement: Hard-delete writes a deletion-log row and marks the request executed, in one transaction
 
@@ -115,14 +159,22 @@ Re-running the worker MUST NOT re-process an already-executed request (the `exec
 - **WHEN** a batch has one row whose transaction fails and others that succeed
 - **THEN** the succeeding rows are executed and logged AND the failing row stays due (`executed_at IS NULL`) for a later run
 
+#### Scenario: Concurrent workers do not double-process a row
+- **WHEN** two worker invocations run concurrently and both would select the same due row
+- **THEN** exactly one claims and processes it (via `FOR UPDATE SKIP LOCKED`), exactly one `deletion_log` row is written, and the other invocation skips it (it observes the row locked then `executed_at` set) — no double-tombstone, no double cascade
+
+#### Scenario: Cancel racing with execution resolves deterministically
+- **WHEN** a `DELETE` cancel and a worker execution target the same row concurrently
+- **THEN** exactly one wins: either the cancel commits first (the worker's `cancelled_at IS NULL` claim no longer matches → the row is skipped, no tombstone) or the worker commits first (the cancel then sees `executed_at IS NOT NULL` → rejected) — never a half-tombstoned-then-cancelled state
+
 ### Requirement: Hard-delete worker is internal-auth gated and audited via the system actor
 
-The worker endpoint SHALL be mounted under the internal-endpoint-auth (OIDC) subtree — never reachable by a user JWT — mirroring the `suspension-unban-worker` / privacy-flip-worker precedent, and its actions SHALL be attributable to the system actor (so the audit trail records a non-human principal). A request without a valid internal OIDC token MUST be rejected.
+The worker endpoint SHALL be mounted under the internal-endpoint-auth (OIDC) subtree — never reachable by a user JWT — mirroring the `suspension-unban-worker` / privacy-flip-worker precedent. A request without a valid internal OIDC token MUST be rejected. Because `deletion_log` carries no actor column, the "non-human principal" attribution lives in the **OIDC service-account identity on the request** (surfaced as the internal-endpoint OTel `service.account.id` trace attribute), not in a `deletion_log` row — the log records *what* (`user_id`, `source`) and the trace records *who* (the system service account). The worker MUST NOT write a human-admin attribution.
 
 #### Scenario: Unauthenticated internal call is rejected
 - **WHEN** `/internal/account-hard-delete-worker` is called without a valid internal OIDC token
 - **THEN** the response is `401`/`403` and no deletion runs
 
-#### Scenario: Executed deletions are attributed to the system actor
+#### Scenario: Executed deletions are attributed to the system service account, not a human
 - **WHEN** the worker hard-deletes a user
-- **THEN** the audit/log attribution is the system actor (not a human admin or the deleted user)
+- **THEN** the request is authenticated as the internal system service account (the OIDC principal / OTel `service.account.id`), and no human-admin actor is recorded for the deletion

@@ -22,6 +22,8 @@ NearYouID has no account-deletion path today: a user cannot exercise the UU PDP 
 
 ### Modified Capabilities
 - `visible-posts-view`: the `visible_posts` view **surfaces** a hard-deleted (tombstoned) author's posts with anonymized identity, rather than excluding them on the author-side `u.deleted_at IS NULL`; the post-soft-delete, shadow-ban, and bidirectional-block predicates are unchanged (design D1). The cross-surface "Akun Dihapus" render contract for the raw-`posts` timelines + post-detail is owned by the new `account-hard-delete-worker` capability's scenarios.
+- `single-post-read`: a tombstoned author's post detail resolves to `200` anonymized (was `404`) — the "author soft-deleted → 404" clause is removed for the tombstone case (soft-deleted POSTS, shadow-banned authors, auto-hidden posts still `404`).
+- `post-creation` / `post-replies` / `reports`: reconcile the now-stale "the hard-delete worker deletes content + row-deletes the author" prose to the **tombstone-retain** model — under a tombstone (`UPDATE`, no row-delete) the `author_id RESTRICT` / `reporter_id` + `user_id CASCADE` FKs never fire, so posts/replies/likes/reports are RETAINED anonymized. The FK-behavior scenarios (raw-`DELETE` guards) are unchanged. This is the cross-cutting reconciliation the shipped specs anticipated under a different (delete-based) deletion model.
 - `mobile-settings`: the Settings screen offers account deletion (the previously deferred, non-writing "Hapus Akun" affordance becomes a real request + restore flow with a scheduled-deletion banner).
 
 ## Impact
