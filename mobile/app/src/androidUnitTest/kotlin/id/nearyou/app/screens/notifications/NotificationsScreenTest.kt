@@ -1,6 +1,7 @@
 package id.nearyou.app.screens.notifications
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -15,6 +16,8 @@ import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.fakeNotification
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
+import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.runner.RunWith
@@ -51,7 +54,7 @@ private const val TARGET_UUID = "22222222-2222-2222-2222-222222222222"
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
+@Config(sdk = [33], qualifiers = "w360dp-h891dp")
 @OptIn(ExperimentalTestApi::class)
 class NotificationsScreenTest {
     private lateinit var fake: FakeNotificationsFlow
@@ -61,6 +64,7 @@ class NotificationsScreenTest {
         suspendForever: Boolean = false,
         markReadResult: MarkReadResult = MarkReadResult.Acknowledged,
         markReadThrows: Throwable? = null,
+        loadMorePages: List<NotificationsOutcome> = emptyList(),
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake =
@@ -69,6 +73,7 @@ class NotificationsScreenTest {
                 suspendForever = suspendForever,
                 markReadResult = markReadResult,
                 markReadThrows = markReadThrows,
+                loadMorePages = loadMorePages,
             )
         startKoin { modules(module { single<NotificationsFlow> { fake } }) }
     }
@@ -303,6 +308,78 @@ class NotificationsScreenTest {
             onNodeWithTag(NOTIFICATIONS_LIST_TAG).performTouchInput { swipeDown() }
             waitForIdle()
             assertEquals(2, fake.loadInvocationCount, "pull-to-refresh re-invokes the fetch")
+        }
+    }
+
+    // ---- mobile-notifications-list infinite-scroll: cursor load-more (screen integration) ----
+
+    // A short page-1 list keeps the footer within the load-more threshold, so the scroll-end detector fires
+    // load-more without an explicit gesture; the appended page-2 row appears AND the follow-up reused the
+    // page-1 cursor. Distinguishable row text is the `post_excerpt` body_data (rows have no free content
+    // field — the type-keyed copy is identical across rows, so the excerpt is what differs per page).
+    @Test
+    fun loadMore_appendsTheNextPage_reusingTheCursor() {
+        installKoin(
+            outcome =
+                NotificationsOutcome.Loaded(
+                    listOf(fakeNotification(id = "n1", bodyData = buildJsonObject { put("post_excerpt", "PAGE1_EXCERPT") })),
+                    "c1",
+                ),
+            loadMorePages =
+                listOf(
+                    NotificationsOutcome.Loaded(
+                        listOf(fakeNotification(id = "n2", bodyData = buildJsonObject { put("post_excerpt", "PAGE2_EXCERPT") })),
+                        null,
+                    ),
+                ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NotificationsScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("PAGE2_EXCERPT", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("PAGE1_EXCERPT", substring = true).assertExists()
+            onNodeWithText("PAGE2_EXCERPT", substring = true).assertExists()
+            assertEquals(listOf("c1"), fake.loadMoreCalls, "load-more fetched the retained cursor c1")
+        }
+    }
+
+    // A failed load-more shows the non-destructive retry footer (page-1 retained); tapping retry recovers.
+    @Test
+    fun loadMoreError_showsRetryFooter_andRetryRecovers() {
+        installKoin(
+            outcome =
+                NotificationsOutcome.Loaded(
+                    listOf(fakeNotification(id = "n1", bodyData = buildJsonObject { put("post_excerpt", "PAGE1_EXCERPT") })),
+                    "c1",
+                ),
+            loadMorePages =
+                listOf(
+                    NotificationsOutcome.NetworkError,
+                    NotificationsOutcome.Loaded(
+                        listOf(fakeNotification(id = "n2", bodyData = buildJsonObject { put("post_excerpt", "PAGE2_EXCERPT") })),
+                        null,
+                    ),
+                ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NotificationsScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(LOAD_MORE_RETRY_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("PAGE1_EXCERPT", substring = true).assertExists() // the loaded list is retained on load-more failure
+            onNodeWithTag(LOAD_MORE_RETRY_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("PAGE2_EXCERPT", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(LOAD_MORE_RETRY_TAG).assertCountEquals(0) // footer clears on success
+        }
+    }
+
+    // The load-more footer never co-occurs with the initial-load skeleton (it lives inside the Content
+    // list, which the Loading state does not render) — mobile-design-system load-more pattern.
+    @Test
+    fun loadMoreFooter_absentDuringInitialLoadSkeleton() {
+        installKoin(suspendForever = true)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NotificationsScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(LOADING).fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(LOAD_MORE_FOOTER_TAG).assertCountEquals(0)
+            onAllNodesWithTag(LOAD_MORE_RETRY_TAG).assertCountEquals(0)
         }
     }
 }
