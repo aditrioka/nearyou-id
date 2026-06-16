@@ -909,8 +909,7 @@ fun Application.module() {
     // dark behind the default-FALSE image_upload_enabled flag). Delivery base is env-derived.
     val imageUploadService =
         ImageUploadService(
-            dataSource = dataSource,
-            repository = JdbcImageUploadRepository(),
+            repository = JdbcImageUploadRepository(dataSource),
             flagGate = ImageUploadFlagGate(redisStringCache, remoteConfig),
             rateLimiter = ImageUploadRateLimiter(rateLimiter),
             moderator = imageModerator(secrets.resolve(secretKey(ktorEnv, "gcp-vision-sa"))),

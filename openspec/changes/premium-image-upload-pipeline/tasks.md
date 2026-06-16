@@ -6,7 +6,7 @@
 ## 2. Schema — image_uploads ledger (Flyway)
 
 - [x] 2.1 Add `V<next>__image_uploads.sql`: `image_uploads(cf_image_id TEXT PK, uploader_user_id UUID NOT NULL REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), safe_search_adult TEXT, safe_search_violence TEXT, safe_search_racy TEXT, status TEXT NOT NULL DEFAULT 'uploaded' CHECK (status IN ('uploaded','attached')))` + index on `(uploader_user_id, created_at)`. Confirm `posts.image_id TEXT` already exists (V4) — no posts DDL needed.
-- [ ] 2.2 Verify the migration applies cleanly on a fresh DB container (CI-equivalent: disposable postgis container + Flyway boot).
+- [x] 2.2 Verify the migration applies cleanly on a fresh DB container (CI-equivalent: disposable postgis container + Flyway boot).
 
 ## 3. :infra:cloud-vision module (Google Cloud Vision Safe Search)
 
@@ -24,14 +24,14 @@
 ## 5. Flag-cache for image_upload_enabled (docs/11 §3.3 short-TTL override)
 
 - [x] 5.1 Implement a Redis-cached flag read for `image_upload_enabled` with a 30s per-flag TTL (key `{scope:remote_config}:{flag:image_upload_enabled}`), following the `Layer3ConfigLoader` Redis-cache precedent — cache miss → `RemoteConfig.getBoolean(...)`; any error → default FALSE (fail closed).
-- [ ] 5.2 Unit tests: flag TRUE/FALSE/null/Redis-error → effective value (default FALSE on error); TTL=30s asserted.
+- [x] 5.2 Unit tests: flag TRUE/FALSE/null/Redis-error → effective value (default FALSE on error); TTL=30s asserted.
 
 ## 6. Backend image package — upload endpoint (Route → Service → Repository)
 
 - [x] 6.1 `ImageUploadRepository` (JDBC): insert `image_uploads` (status uploaded); select-for-attach by `(cf_image_id, uploader_user_id, status='uploaded')`; flip to attached.
 - [x] 6.2 `ImageUploadService` (business rules + tx boundary): the D9 validation order — flag → premium (`PREMIUM_STATES`) → throttle (1/60s) → daily quota (50, override `premium_image_upload_cap_override`, `computeTTLToNextReset`, `{scope:image_upload:<userId>}`) consumed at attempt → streamed 5 MB size guard + `image/*` content-type allowlist → Safe Search (reject adult/violence/racy LIKELY|VERY_LIKELY) → CF upload → ledger insert. Fail-soft → 503 when CF or Vision unconfigured (two separate `isConfigured()` checks).
 - [x] 6.3 `ImageRoutes` (thin): `POST /api/v1/images` multipart parse with a **streamed** size cap (abort once >5 MB — no full-part buffering), authenticate, `call.clientIp` for limiter keys, map service results → 201 / 403 / 413 / 415 / 422 / 429 / 503 with the existing error envelope. Wire into Koin + route registration.
-- [ ] 6.4 Service tests (kotest, `@Tags("database")` where DB-backed; InMemory RateLimiter + fake ImageStore/ImageModerator): every spec scenario — happy path; flag-off 403; fail-closed 403; Free 403; grace allowed; 51st/day 429; 2nd-in-60s 429; moderation-reject still consumes quota+throttle; adult 422 + violence 422 + racy 422 (not stored); below-threshold passes (incl. `adult=POSSIBLE`); >5 MB 413 (streamed, no full buffer); exactly-5 MB accepted; non-image content-type 415; **Vision-unconfigured 503 AND CF-unconfigured 503 (separate paths)**; ledger row written on success; **orphan-retained: an uploaded-but-never-attached row persists `status='uploaded'`**.
+- [x] 6.4 Service tests (kotest, `@Tags("database")` where DB-backed; InMemory RateLimiter + fake ImageStore/ImageModerator): every spec scenario — happy path; flag-off 403; fail-closed 403; Free 403; grace allowed; 51st/day 429; 2nd-in-60s 429; moderation-reject still consumes quota+throttle; adult 422 + violence 422 + racy 422 (not stored); below-threshold passes (incl. `adult=POSSIBLE`); >5 MB 413 (streamed, no full buffer); exactly-5 MB accepted; non-image content-type 415; **Vision-unconfigured 503 AND CF-unconfigured 503 (separate paths)**; ledger row written on success; **orphan-retained: an uploaded-but-never-attached row persists `status='uploaded'`**.
 - [ ] 6.5 Register `premium_image_upload_cap_override` in `backend/.../admin/featureflags/FeatureFlagCatalog.kt` `EDITABLE` (kind `IntRange`, default 50 — NOT `Bool`; do not copy the miscategorized `premium_like_cap_override` entry). Confirm `image_upload_enabled` is already present (it is). Catalog test asserts both flags render + validate.
 
 ## 7. Post-creation image attach

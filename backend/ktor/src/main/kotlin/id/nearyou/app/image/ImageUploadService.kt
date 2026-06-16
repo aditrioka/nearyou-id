@@ -10,7 +10,6 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
-import javax.sql.DataSource
 
 /**
  * Image-upload pipeline orchestration (design D9 validation order). Split into two phases so
@@ -25,7 +24,6 @@ import javax.sql.DataSource
  * the store); the 413/415 size + content-type guards live in the route (streamed, pre-service).
  */
 class ImageUploadService(
-    private val dataSource: DataSource,
     private val repository: ImageUploadRepository,
     private val flagGate: ImageUploadFlagGate,
     private val rateLimiter: ImageUploadRateLimiter,
@@ -90,9 +88,7 @@ class ImageUploadService(
             }
 
         withContext(dbDispatcher) {
-            dataSource.connection.use { conn ->
-                repository.insertUploaded(conn, stored.imageId, userId, verdict)
-            }
+            repository.insertUploaded(stored.imageId, userId, verdict)
         }
         return StoreResult.Success(imageId = stored.imageId, deliveryUrl = stored.deliveryUrl)
     }

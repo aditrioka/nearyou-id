@@ -3,6 +3,7 @@ package id.nearyou.app.image
 import id.nearyou.app.infra.cloudvision.SafeSearchVerdict
 import java.sql.Connection
 import java.util.UUID
+import javax.sql.DataSource
 
 /** A row in the `image_uploads` ownership ledger (the fields the attach path needs). */
 data class ImageUploadRow(
@@ -12,15 +13,15 @@ data class ImageUploadRow(
 )
 
 /**
- * JDBC access to the `image_uploads` ownership ledger. Methods take a [Connection] so the
- * caller owns the transaction boundary (the upload path inserts in its own tx; the attach
- * path runs inside the post-creation tx). `image_uploads` is a ledger, not shadow-ban /
- * block-protected user content, so raw reads need no `visible_*` view or block-join.
+ * JDBC access to the `image_uploads` ownership ledger. The standalone [insertUploaded] owns
+ * its own connection (a single INSERT on the upload path); [findForAttach] / [markAttached]
+ * take a caller [Connection] so the attach runs inside the post-creation transaction.
+ * `image_uploads` is a ledger, not shadow-ban / block-protected user content, so raw reads
+ * need no `visible_*` view or block-join.
  */
 interface ImageUploadRepository {
-    /** Insert a freshly-stored image as `status = 'uploaded'`. */
+    /** Insert a freshly-stored image as `status = 'uploaded'` (own connection). */
     fun insertUploaded(
-        conn: Connection,
         cfImageId: String,
         uploaderUserId: UUID,
         verdict: SafeSearchVerdict,
@@ -44,20 +45,23 @@ interface ImageUploadRepository {
 }
 
 /** Production JDBC binding for [ImageUploadRepository]. */
-class JdbcImageUploadRepository : ImageUploadRepository {
+class JdbcImageUploadRepository(
+    private val dataSource: DataSource,
+) : ImageUploadRepository {
     override fun insertUploaded(
-        conn: Connection,
         cfImageId: String,
         uploaderUserId: UUID,
         verdict: SafeSearchVerdict,
     ) {
-        conn.prepareStatement(INSERT_SQL).use { ps ->
-            ps.setString(1, cfImageId)
-            ps.setObject(2, uploaderUserId)
-            ps.setString(3, verdict.adult.name)
-            ps.setString(4, verdict.violence.name)
-            ps.setString(5, verdict.racy.name)
-            ps.executeUpdate()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(INSERT_SQL).use { ps ->
+                ps.setString(1, cfImageId)
+                ps.setObject(2, uploaderUserId)
+                ps.setString(3, verdict.adult.name)
+                ps.setString(4, verdict.violence.name)
+                ps.setString(5, verdict.racy.name)
+                ps.executeUpdate()
+            }
         }
     }
 
