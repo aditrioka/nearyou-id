@@ -48,12 +48,12 @@
 
 - [x] 8.1 File a `follow-up` issue (labels `follow-up`, `mobile`): timeline-card "Diedit" badge (Nearby/Following/Global) — requires the timeline DTOs/queries to carry a perf-considered edited indicator
 - [x] 8.2 File a `follow-up` issue (labels `follow-up`, `mobile`): chat context-card edit-history navigation + "Post ini sudah di-edit setelah kamu chat" banner (Phase 4 item 14)
-- [ ] 8.3 Resolve the mockup gap (design § Mockup gap): default to translating look-and-layout from `docs/03` § Post Edit UX + the existing post-detail/post-card frames + M3 modal patterns (the sanctioned `docs/11` § 2.8 precedence when no frame exists) and record that decision in the PR body; adding a dedicated post-edit / "Riwayat edit" frame to `dev/mockups/nearyou-screens-mockup.html` is optional polish
+- [x] 8.3 Resolve the mockup gap (design § Mockup gap): default to translating look-and-layout from `docs/03` § Post Edit UX + the existing post-detail/post-card frames + M3 modal patterns (the sanctioned `docs/11` § 2.8 precedence when no frame exists) and record that decision in the PR body; adding a dedicated post-edit / "Riwayat edit" frame to `dev/mockups/nearyou-screens-mockup.html` is optional polish
 
 ## 9. Verification & Definition of Done (`docs/11` § 5)
 
-- [ ] 9.1 Pre-push gate green locally: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`
-- [ ] 9.2 Mobile gate green: `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` (run `linkDebugFrameworkIosSimulatorArm64` if `iosMain` is touched beyond NavKey registration)
+- [x] 9.1 Pre-push gate green locally: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`
+- [x] 9.2 Mobile gate green: `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` (run `linkDebugFrameworkIosSimulatorArm64` if `iosMain` is touched beyond NavKey registration)
 - [ ] 9.3 UI-affecting → `verify-loop` bring-up with screenshot evidence in the PR body: edit own post → `200` → updated content + "Diedit"; open "Riwayat edit"; Free user `403` → upsell
 - [ ] 9.4 Backend runtime impact (additive `editedAt`) → pre-archive staging branch deploy + smoke `GET /api/v1/posts/{id}` returns `editedAt` for an edited post
-- [ ] 9.5 Keep PR title/body current at each phase boundary (proposal → first feat retitle `feat(mobile): …` → archive)
+- [x] 9.5 Keep PR title/body current at each phase boundary (proposal → first feat retitle `feat(mobile): …` → archive)
