@@ -13,6 +13,7 @@ import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcReservedUsernameRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.infra.repo.JdbcUsernameFlagOverrideRepository
 import id.nearyou.app.moderation.ModerationList
 import id.nearyou.app.moderation.ModerationListLoader
 import id.nearyou.app.moderation.TextModerator
@@ -150,6 +151,7 @@ class UsernameCustomizationEndpointsTest : StringSpec({
                     st.executeUpdate("DELETE FROM notifications WHERE user_id = '$it'")
                     st.executeUpdate("DELETE FROM moderation_queue WHERE target_id = '$it'")
                     st.executeUpdate("DELETE FROM username_history WHERE user_id = '$it'")
+                    st.executeUpdate("DELETE FROM username_flag_overrides WHERE user_id = '$it'")
                     st.executeUpdate("DELETE FROM users WHERE id = '$it'")
                 }
             }
@@ -177,6 +179,7 @@ class UsernameCustomizationEndpointsTest : StringSpec({
                 reserved = JdbcReservedUsernameRepository(dataSource),
                 history = JdbcUsernameHistoryRepository(),
                 moderationQueue = JdbcModerationQueueRepository(),
+                flagOverrides = JdbcUsernameFlagOverrideRepository(),
                 textModerator = TextModerator(FixedListLoader(profanity, uuIte)),
                 notificationEmitter = DbNotificationEmitter(JdbcNotificationRepository(dataSource)),
                 remoteConfig = remoteConfig,
