@@ -54,6 +54,12 @@ class LoadMoreController<T>(
 ) {
     private var inFlight = false
 
+    // Bumped by reset() (a pull-to-refresh / first-page reload). A load-more captures the generation at
+    // launch; if it changed by the time the fetch resumes, the page is STALE and is dropped — so a
+    // refresh that lands mid-load-more can never append the stale page onto (or rewind the cursor of) the
+    // fresh post-refresh list (the lost-update race; PR #331 review B1).
+    private var generation = 0L
+
     private val _isLoadingMore = MutableStateFlow(false)
 
     /** True while a load-more page is in flight — drives ONLY the list-end footer spinner. */
@@ -73,21 +79,30 @@ class LoadMoreController<T>(
         val cursor = currentCursor() ?: return
         if (inFlight) return
         inFlight = true
+        val gen = generation
         _isLoadingMore.value = true
         _loadMoreError.value = false
         scope.launch {
             try {
-                when (val page = fetchPage(cursor)) {
-                    is LoadMorePage.Success -> appendItems(page.items, page.nextCursor)
-                    LoadMorePage.Failure -> _loadMoreError.value = true
+                val page = fetchPage(cursor)
+                // Drop the result if a reset()/refresh invalidated this load-more while it was in flight.
+                if (gen == generation) {
+                    when (page) {
+                        is LoadMorePage.Success -> appendItems(page.items, page.nextCursor)
+                        LoadMorePage.Failure -> _loadMoreError.value = true
+                    }
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Throwable) {
-                _loadMoreError.value = true
+                if (gen == generation) _loadMoreError.value = true
             } finally {
-                inFlight = false
-                _isLoadingMore.value = false
+                // Only release the in-flight/spinner state if THIS load-more is still current — a reset()
+                // already cleared it and a newer load-more (or the fresh page) now owns that state.
+                if (gen == generation) {
+                    inFlight = false
+                    _isLoadingMore.value = false
+                }
             }
         }
     }
@@ -98,6 +113,8 @@ class LoadMoreController<T>(
     /** Called by the host on a pull-to-refresh / first-page reload — clears the footer state (the host
      *  simultaneously resets its outcome to the fresh first page, which resets the cursor). */
     fun reset() {
+        // Invalidate any in-flight load-more (its result becomes stale + is dropped) and clear the footer.
+        generation++
         inFlight = false
         _isLoadingMore.value = false
         _loadMoreError.value = false

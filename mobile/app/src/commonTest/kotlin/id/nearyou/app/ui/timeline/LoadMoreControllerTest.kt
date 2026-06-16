@@ -155,4 +155,26 @@ class LoadMoreControllerTest {
             assertFalse(controller.loadMoreError.value, "reset clears the error footer")
             assertFalse(controller.isLoadingMore.value)
         }
+
+    @Test
+    fun resetDuringInFlightLoadMore_dropsTheStalePage_andDoesNotRewindTheCursor() =
+        runTest {
+            // The load-more is in flight (gated) when a pull-to-refresh lands.
+            val fetch = FakeFetch(listOf(LoadMorePage.Success(listOf("stale"), "c-stale"))).apply { gate = CompletableDeferred() }
+            val host = Host()
+            val controller = controller(host, fetch)
+
+            controller.loadMore()
+            // Simulate the refresh: the host swaps to a fresh first page, and the controller is reset.
+            host.items = listOf("fresh1")
+            host.cursor = "cFresh"
+            controller.reset()
+            // The stale in-flight load-more now resumes.
+            fetch.gate!!.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(listOf("fresh1"), host.items, "the stale load-more page is dropped (no clobber of the refreshed list)")
+            assertEquals("cFresh", host.cursor, "the cursor is NOT rewound by the stale page")
+            assertFalse(controller.isLoadingMore.value, "the footer spinner is cleared")
+        }
 }
