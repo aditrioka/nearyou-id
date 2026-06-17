@@ -12,7 +12,7 @@ CREATE TABLE deletion_requests (
     scheduled_hard_delete_at TIMESTAMPTZ NOT NULL,
     cancelled_at TIMESTAMPTZ,
     executed_at TIMESTAMPTZ,
-    source VARCHAR(24) NOT NULL CHECK (source IN (
+    source VARCHAR(32) NOT NULL CHECK (source IN (
         'user', 'apple_s2s_consent_revoked', 'apple_s2s_account_delete', 'admin'
     ))
 );

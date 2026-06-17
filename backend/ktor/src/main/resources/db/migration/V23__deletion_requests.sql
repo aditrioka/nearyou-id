@@ -26,7 +26,10 @@ CREATE TABLE deletion_requests (
     scheduled_hard_delete_at TIMESTAMPTZ NOT NULL,
     cancelled_at             TIMESTAMPTZ,
     executed_at              TIMESTAMPTZ,
-    source                   VARCHAR(24) NOT NULL CHECK (source IN (
+    -- VARCHAR(32): docs/05 specified VARCHAR(24), but 'apple_s2s_consent_revoked'
+    -- is 25 chars — the canonical width could never hold its own CHECK value
+    -- (a latent docs/05 bug, flagged for a doc-amend). Widened to 32.
+    source                   VARCHAR(32) NOT NULL CHECK (source IN (
         'user', 'apple_s2s_consent_revoked', 'apple_s2s_account_delete', 'admin'
     ))
 );
@@ -48,5 +51,5 @@ CREATE TABLE deletion_log (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID NOT NULL,
     executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    source      VARCHAR(24) NOT NULL
+    source      VARCHAR(32) NOT NULL
 );

@@ -42,15 +42,15 @@
 
 ## 6. Tests
 
-- [ ] 6.1 Backend schema tests (`@Tags("database")`): table/index existence, `source` CHECK accept-4/reject-unknown, `NOW()`-free partial indexes, `deletion_log` append-only + no-FK.
-- [ ] 6.2 API tests: request (first + idempotent + 401), cancel (within grace, post-execution reject, apple non-cancellable guard), status (pending / none), grace auth-boundary (write succeeds, no `token_version` bump).
-- [ ] 6.3 Worker tests: due/cancelled/not-due selection; tombstone exact-PII-set + username regex; cascade tables emptied (both-direction blocks/follows); retain tables intact + like-count parity; deletion_log + executed_at atomic; partial-failure leaves no tombstone; idempotent re-run; internal-auth rejection + system-actor attribution.
+- [x] 6.1 Backend schema tests (`@Tags("database")`): table/index existence, `source` CHECK accept-4/reject-unknown, `NOW()`-free partial indexes, `deletion_log` append-only + no-FK.
+- [x] 6.2 API tests: request (first + idempotent + 401), cancel (within grace, post-execution reject, apple non-cancellable guard), status (pending / none), grace auth-boundary (write succeeds, no `token_version` bump).
+- [x] 6.3 Worker tests: due/cancelled/not-due selection; tombstone exact-PII-set + username regex; cascade tables emptied (both-direction blocks/follows); retain tables intact + like-count parity; deletion_log + executed_at atomic; partial-failure leaves no tombstone; idempotent re-run; internal-auth rejection + system-actor attribution.
 - [ ] 6.4 View + render tests: V24 `pg_views` definition (shadow-ban + `p.deleted_at` present, no author `u.deleted_at`); tombstoned author's post surfaces in Global timeline anonymized; shadow-banned-then-deleted stays hidden; soft-deleted post still excluded; tombstoned author's profile still `404`.
 - [ ] 6.5 Mobile tests (the `mobile-settings` test trio): `*ScreenTest` (Release-excluded) for the Hapus Akun + banner flow; `commonTest` for the deletion-seam DTO/outcome projections + Koin resolution; `iosTest` flow covering open settings → confirm-deletion path; the out-of-scope scenario updated (no data-export/suspension/chat-preview; Hapus Akun present).
 
 ## 7. Docs reconciliation & follow-ups
 
-- [ ] 7.1 File a `follow-up` issue (D4 + D6): (a) `docs/05:508` ("on user hard-delete, submitted reports cascade") is stale under the tombstone pattern (no row-delete → no FK cascade → reports retained per `docs/06:343`); (b) `docs/05:630`/`docs/08` call the worker `/internal/cleanup` while this ships a dedicated `/internal/account-hard-delete-worker`. Flag both for a clarifying doc-amend. Do NOT edit docs in this change.
+- [ ] 7.1 File a `follow-up` issue (D4 + D6): (a) `docs/05:508` ("on user hard-delete, submitted reports cascade") is stale under the tombstone pattern (no row-delete → no FK cascade → reports retained per `docs/06:343`); (b) `docs/05:630`/`docs/08` call the worker `/internal/cleanup` while this ships a dedicated `/internal/account-hard-delete-worker`. Plus (c) docs/05 `source VARCHAR(24)` is too narrow — `apple_s2s_consent_revoked` is 25 chars (shipped V23 widened to VARCHAR(32)). Flag all for a clarifying doc-amend. Do NOT edit docs in this change.
 - [ ] 7.6 Spec reconciliation landed in this change (no separate follow-up needed): `single-post-read` (MODIFIED 404→200), `post-creation` (MODIFIED FK prose), `post-replies` + `reports` (ADDED tombstone-retain requirements) — keep these spec deltas in sync if the worker behavior shifts during apply.
 - [ ] 7.2 File a `follow-up` issue: R2 deletion-log → R2 export (7-yr retention) once `:infra:r2` exists.
 - [ ] 7.3 File a `follow-up` issue: optional "Akun Dihapus" placeholder profile (instead of `404`) for a tombstoned user (Q1 polish; docs/06:327 allows either).
