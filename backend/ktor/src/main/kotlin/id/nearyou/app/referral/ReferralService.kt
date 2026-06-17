@@ -1,6 +1,7 @@
 package id.nearyou.app.referral
 
 import id.nearyou.app.infra.repo.UserRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -63,11 +64,18 @@ class ReferralService(
                     log.info("referral.ticket_created inviter={} invitee={}", inviter.id, inviteeUserId)
                 } catch (e: SQLException) {
                     // UNIQUE(invitee_user_id) duplicate or any insert failure — swallow.
+                    // The burst slot consumed just above is intentionally NOT released
+                    // here (unlike ReportService's 409 path): the only realistic duplicate
+                    // is the same invitee double-submitting — already counted — so no
+                    // distinct invitee is ever wrongly blocked.
                     reject(inviteeUserId, "insert_failed sqlstate=${e.sqlState}")
                 }
             }
+        } catch (ce: CancellationException) {
+            // Never swallow structured-concurrency cancellation (project convention).
+            throw ce
         } catch (t: Throwable) {
-            // Best-effort: a referral failure must never fail signup.
+            // Best-effort: any other referral failure must never fail signup.
             log.warn("referral.attempt_error invitee={} err={}", inviteeUserId, t.toString())
         }
     }

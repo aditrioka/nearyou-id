@@ -78,10 +78,14 @@ class JdbcUserRepository(
                 ps.setString(1, prefix)
                 ps.executeQuery().use { rs ->
                     if (!rs.next()) return null
+                    // created_at is nullable in V2 (TIMESTAMPTZ DEFAULT NOW(), not NOT NULL);
+                    // always populated in practice. Guard like the sibling nullable-timestamp
+                    // reads — a null-age row is treated as unresolvable (no inviter).
+                    val createdAt = rs.getTimestamp("created_at")?.toInstant() ?: return null
                     return InviterRow(
                         id = rs.getObject("id", UUID::class.java),
                         isBanned = rs.getBoolean("is_banned"),
-                        createdAt = rs.getTimestamp("created_at").toInstant(),
+                        createdAt = createdAt,
                         deviceFingerprintHash = rs.getString("device_fingerprint_hash"),
                     )
                 }

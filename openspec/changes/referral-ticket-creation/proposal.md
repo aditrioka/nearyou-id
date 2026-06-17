@@ -25,5 +25,5 @@ The referral system is the growth lever in the freemium revenue loop (docs/01-Bu
 - **API**: `POST /api/v1/auth/signup` request gains optional `invite_code` (response unchanged).
 - **Schema**: new `V23__referral_tickets.sql` (table + 2 indexes). No change to `users` (sentinel columns already exist). FKs `REFERENCES users(id) ON DELETE CASCADE` (follows/reports/user_blocks precedent).
 - **Code**: new `id.nearyou.app.referral` package (`ReferralService`, `ReferralRepository`, a narrow `ReferralTicketCreator` interface); `SignupService` gains one best-effort call after the user insert; Koin wiring; the `invite_code` DTO field + `AuthWireFormatTest` surface.
-- **Infra**: reuses the shipped `RateLimiter`/Redis via the axis-agnostic `tryAcquireByKey` (new `{scope:referral_ticket}:{inviter:<id>}` key, strict hash-tag shape) and the existing `invite-code-secret` (no new secret slot, no new library).
+- **Infra**: reuses the shipped `RateLimiter`/Redis via the axis-agnostic `tryAcquireByKey` (new `{scope:rate_referral_ticket}:{inviter:<id>}` key, strict hash-tag shape) and the existing `invite-code-secret` (no new secret slot, no new library).
 - **Docs**: flips docs/05-Implementation.md § Referral System from DESIGN toward shipped for the ticket-creation slice (reconciled during proposal review).

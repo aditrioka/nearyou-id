@@ -3,12 +3,14 @@ package id.nearyou.app.referral
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
+import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
+import kotlinx.coroutines.Dispatchers
 import java.sql.Date
 import java.sql.Timestamp
 import java.sql.Types
@@ -268,6 +270,32 @@ class ReferralServiceTest : StringSpec({
         ticketCount(invitee) shouldBe 0
     }
 
+    "inviter with null fingerprint + invitee with a fingerprint is not a collision" {
+        // Asymmetric inverse of the null-invitee case: exercises the
+        // `inviter.deviceFingerprintHash != null` short-circuit.
+        seedUser(inviteCodePrefix = "fpinv001", deviceFingerprintHash = null)
+        val invitee = seedUser()
+        build().createTicketIfInvited("fpinv001", invitee, inviteeDeviceFingerprintHash = "invitee-fp")
+        ticketCount(invitee) shouldBe 1
+    }
+
+    "an unexpected limiter error is swallowed: no ticket, no throw (signup-safe)" {
+        // Exercises the outer catch(Throwable) — a non-SQL throw from the burst
+        // limiter must never propagate into signup.
+        seedUser(inviteCodePrefix = "throw001")
+        val invitee = seedUser()
+        val svc =
+            ReferralService(
+                users = JdbcUserRepository(dataSource),
+                referrals = ReferralRepository(dataSource),
+                rateLimiter = ReferralTicketRateLimiter(rateLimiter = ThrowingRateLimiter),
+                dbDispatcher = Dispatchers.IO,
+                clock = serviceClock,
+            )
+        svc.createTicketIfInvited("throw001", invitee, inviteeDeviceFingerprintHash = null)
+        ticketCount(invitee) shouldBe 0
+    }
+
     "inviter resolution uses the invite_code_prefix index, not a seq scan" {
         // Postgres picks Seq Scan on tiny tables regardless of indexes, so disable
         // seqscan for this check — the point (docs/08 'Invite code prefix lookup
@@ -295,6 +323,27 @@ class ReferralServiceTest : StringSpec({
         }
     }
 })
+
+/** A RateLimiter that blows up on every call — to verify ReferralService's outer catch. */
+private object ThrowingRateLimiter : RateLimiter {
+    override fun tryAcquire(
+        userId: UUID,
+        key: String,
+        capacity: Int,
+        ttl: java.time.Duration,
+    ): RateLimiter.Outcome = error("boom")
+
+    override fun tryAcquireByKey(
+        key: String,
+        capacity: Int,
+        ttl: java.time.Duration,
+    ): RateLimiter.Outcome = error("boom")
+
+    override fun releaseMostRecent(
+        userId: UUID,
+        key: String,
+    ) = error("boom")
+}
 
 private fun hikari(): HikariDataSource {
     val url = System.getenv("DB_URL") ?: "jdbc:postgresql://localhost:5433/nearyou_dev"

@@ -34,7 +34,7 @@ A resolved inviter MUST pass ALL of the following for a ticket to be created: th
 
 ### Requirement: Invitee anti-abuse validation at signup time
 
-Before a ticket is created the system SHALL apply two signup-time anti-abuse checks: (1) the invitee's `device_fingerprint_hash` MUST NOT equal the inviter's when both are non-null (a collision blocks the ticket); and (2) the inviter MUST NOT already have 3 referral tickets created within a rolling 7-day window (per-inviter burst rate), enforced via the shared `RateLimiter` axis-agnostic entry point over the Redis key `{scope:referral_ticket}:{inviter:<inviter_id>}`. A failed check SHALL produce no ticket, silently.
+Before a ticket is created the system SHALL apply two signup-time anti-abuse checks: (1) the invitee's `device_fingerprint_hash` MUST NOT equal the inviter's when both are non-null (a collision blocks the ticket); and (2) the inviter MUST NOT already have 3 referral tickets created within a rolling 7-day window (per-inviter burst rate), enforced via the shared `RateLimiter` axis-agnostic entry point over the Redis key `{scope:rate_referral_ticket}:{inviter:<inviter_id>}`. A failed check SHALL produce no ticket, silently.
 
 #### Scenario: Device fingerprint collision blocks ticket
 - **WHEN** the invitee's non-null `device_fingerprint_hash` equals the inviter's non-null `device_fingerprint_hash`
@@ -50,7 +50,7 @@ Before a ticket is created the system SHALL apply two signup-time anti-abuse che
 
 #### Scenario: Burst-rate key uses the cluster-safe hash-tag format
 - **WHEN** the per-inviter burst-rate limiter constructs its Redis key
-- **THEN** the key has the two-segment hash-tagged shape `{scope:referral_ticket}:{inviter:<id>}` (matching the `rate-limit-infrastructure` non-per-user key contract) so multi-key operations co-locate on one cluster slot AND the scope does not end in `_day` (it stays a sliding window, not a fixed daily window)
+- **THEN** the key has the two-segment hash-tagged shape `{scope:rate_referral_ticket}:{inviter:<id>}` (matching the `rate-limit-infrastructure` non-per-user key contract) so multi-key operations co-locate on one cluster slot AND the scope does not end in `_day` (it stays a sliding window, not a fixed daily window)
 
 ### Requirement: Referral ticket persistence
 
