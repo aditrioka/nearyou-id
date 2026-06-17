@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -45,15 +46,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.post.LikeCountOutcome
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.post.PostRefreshOutcome
-import id.nearyou.app.post.RepliesOutcome
 import id.nearyou.app.post.ReplyPostOutcome
 import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.ui.components.LetterAvatar
+import id.nearyou.app.ui.components.LoadMoreFooter
+import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.app.ui.components.postDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_close
@@ -132,8 +136,10 @@ const val POST_DETAIL_EDITED_LABEL_TAG: String = "postDetailEditedLabel"
  * [onBack] and its Edit affordance the hoisted [onEditPost]. The header content is freshened by a
  * `single-post-read` GET on each resume (`mobile-post-editing`) — which also drives the "Diedit" label
  * (`editedAt`) and the Edit affordance gate (`isAuthor`); a freshness failure degrades silently to the
- * [route] payload. PII discipline: no `author_id` and no coordinate is rendered (the refresh exposes only a
- * boolean `isAuthor`, never the author UUID; [ReplyUi] drops `authorId`); this screen never `println`s/logs.
+ * [route] payload. The replies + like state use the like + reply sub-resources. PII discipline: no
+ * `author_id` and no coordinate is rendered (the refresh exposes only a boolean `isAuthor`, never the
+ * author UUID; the [route] carries no coordinate, and [ReplyUi] drops `authorId`); this screen never
+ * `println`s/logs.
  */
 @Composable
 fun PostDetailScreen(
@@ -144,6 +150,27 @@ fun PostDetailScreen(
     val flow = koinInject<PostDetailFlow>()
     val editFlow = koinInject<PostEditFlow>()
     val scope = rememberCoroutineScope()
+
+    // Like state: initial liked from the nav arg; count + last outcome (for the cap upsell) are live.
+    var liked by remember { mutableStateOf(route.likedByViewer) }
+    var likeCount by remember { mutableStateOf<Long?>(null) }
+    var likeInFlight by remember { mutableStateOf(false) }
+    var likeOutcome by remember { mutableStateOf<LikeOutcome?>(null) }
+
+    // Replies list + cursor paging + the header reply count are held in PostDetailViewModel (design D5,
+    // mirrors the timeline-VM migration #167) so the loaded replies + load-more state survive
+    // recomposition + config change. The like + composer state stay composition-local (noted follow-up).
+    val viewModel = viewModel { PostDetailViewModel(flow, route.postId, route.replyCount) }
+    val repliesOutcome by viewModel.repliesOutcome.collectAsStateWithLifecycle()
+    val repliesInFlight by viewModel.repliesInFlight.collectAsStateWithLifecycle()
+    val replyCount by viewModel.replyCount.collectAsStateWithLifecycle()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
+    val loadMoreError by viewModel.loadMoreError.collectAsStateWithLifecycle()
+
+    // Composer state.
+    var replyContent by remember { mutableStateOf("") }
+    var replyInFlight by remember { mutableStateOf(false) }
+    var replyOutcome by remember { mutableStateOf<ReplyPostOutcome?>(null) }
 
     // mobile-post-editing: a single-post-read refresh on each resume (first open AND the return from the
     // edit screen — the revealed entry goes RESUMED) freshens the displayed content + reads `editedAt` (the
@@ -176,34 +203,7 @@ fun PostDetailScreen(
             createdAtMillis != null &&
             isWithinEditWindow(createdAtMillis, Clock.System.now().toEpochMilliseconds())
 
-    // Like state: initial liked from the nav arg; count + last outcome (for the cap upsell) are live.
-    var liked by remember { mutableStateOf(route.likedByViewer) }
-    var likeCount by remember { mutableStateOf<Long?>(null) }
-    var likeInFlight by remember { mutableStateOf(false) }
-    var likeOutcome by remember { mutableStateOf<LikeOutcome?>(null) }
-
-    // Replies state: the outcome drives the loading/loaded/empty/error projection; a 201 mutates the
-    // Loaded list in place (local append) so the list re-projects WITHOUT a re-fetch (design D9).
-    var repliesOutcome by remember { mutableStateOf<RepliesOutcome?>(null) }
-    var repliesInFlight by remember { mutableStateOf(true) }
-
-    // Header reply count: from the nav arg; +1 on a successful reply (no re-fetch).
-    var replyCount by remember { mutableStateOf(route.replyCount) }
-
-    // Composer state.
-    var replyContent by remember { mutableStateOf("") }
-    var replyInFlight by remember { mutableStateOf(false) }
-    var replyOutcome by remember { mutableStateOf<ReplyPostOutcome?>(null) }
-
-    // The replies first-page load is a LaunchedEffect keyed on the post id + a retry counter, so the
-    // error-state retry simply bumps the key to re-run the load (a reliably-driven composition effect,
-    // not a click-scoped launch). On entry the effect runs once.
-    var repliesRetryKey by remember { mutableStateOf(0) }
-    LaunchedEffect(route.postId, repliesRetryKey) {
-        repliesInFlight = true
-        repliesOutcome = flow.loadReplies(route.postId)
-        repliesInFlight = false
-    }
+    // The replies first-page load + retry + load-more live in the ViewModel (loads once on construction).
     // The like count is fetched once on entry (no single-post GET); degrades to null when unavailable.
     LaunchedEffect(route.postId) {
         likeCount =
@@ -213,7 +213,7 @@ fun PostDetailScreen(
             }
     }
 
-    val reloadReplies: () -> Unit = { repliesRetryKey++ }
+    val reloadReplies: () -> Unit = viewModel::reloadReplies
 
     // Reply-shortcut autofocus (mobile-inline-post-actions § "Reply composer autofocuses on
     // reply-shortcut entry"): when the route carries focusReplyComposer = true, focus the composer
@@ -274,23 +274,11 @@ fun PostDetailScreen(
                 try {
                     when (val outcome = flow.postReply(route.postId, replyContent)) {
                         is ReplyPostOutcome.Success -> {
-                            // Prepend the returned reply + bump the count; NO list re-fetch.
-                            // The list renders newest-first (created_at DESC), so appending
-                            // to the END put the user's fresh reply at the BOTTOM of page 1
-                            // (2026-06-10 audit, 06 medium).
-                            val current = repliesOutcome
-                            if (current is RepliesOutcome.Loaded) {
-                                repliesOutcome =
-                                    RepliesOutcome.Loaded(listOf(outcome.reply) + current.replies, current.nextCursor)
-                            } else {
-                                // Replies never loaded (error/in-flight) but the POST succeeded:
-                                // fabricating Loaded(listOf(reply)) here used to make the error +
-                                // retry control vanish and strand the post's OTHER replies until
-                                // screen re-entry (2026-06-10 audit, 06 medium). Re-fetch instead —
-                                // the fresh page 1 includes the new reply at its true position.
-                                reloadReplies()
-                            }
-                            replyCount += 1
+                            // Prepend the returned reply + bump the header count via the VM; NO list
+                            // re-fetch (if replies never loaded, the VM re-fetches page 1 instead). The
+                            // list renders newest-first, so the fresh reply lands at the top of page 1 and
+                            // any appended later pages are undisturbed.
+                            viewModel.onReplyPosted(outcome.reply)
                             replyContent = ""
                             replyOutcome = null
                         }
@@ -327,10 +315,16 @@ fun PostDetailScreen(
                 )
             },
         ) { padding ->
-            // Everything scrolls in one LazyColumn (header + like row + the replies states/list); the reply
-            // composer is the fixed bottom bar. The replies retry re-runs the keyed LaunchedEffect (above),
+            // Everything scrolls in one LazyColumn (header + like row + the replies states/list + the
+            // load-more footer); the reply composer is the fixed bottom bar. The replies retry calls the VM,
             // so the retry control works even though its item is replaced by the Loading item on re-load.
+            val listState = rememberLazyListState()
+            // Replies load-more scroll-end trigger: the LoadMoreController guards make an eager fire (short
+            // list / not-yet-loaded / end-reached / during the initial load) a no-op, and the end-relative
+            // threshold keys off the list tail (the footer), AFTER the post header + like-row items.
+            LoadMoreOnScrollEnd(listState = listState, onLoadMore = viewModel::onLoadMore)
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -368,6 +362,15 @@ fun PostDetailScreen(
                             key = { it.id },
                             contentType = { "reply" },
                         ) { reply -> ReplyCard(reply) }
+                }
+                // Replies load-more footer: spinner while a page loads, non-destructive retry on error,
+                // nothing at end / during the initial load (mobile-design-system § load-more pattern).
+                item(key = "loadMoreFooter", contentType = "footer") {
+                    LoadMoreFooter(
+                        isLoadingMore = isLoadingMore,
+                        loadMoreError = loadMoreError,
+                        onRetry = viewModel::onRetryLoadMore,
+                    )
                 }
             }
         }

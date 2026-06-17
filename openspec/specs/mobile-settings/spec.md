@@ -2,7 +2,6 @@
 
 ## Purpose
 The `mobile-settings` capability is the `:mobile:app` **Settings** surface (mockup frame 16 "Pengaturan") — the last screen of the mobile critical-path live menu. It ships the grouped settings list (AKUN / PREMIUM / PRIVASI / LAINNYA) with three backed actions: **blocked-users management** (list + unblock over `GET` / `DELETE /api/v1/blocks`), the post-onboarding **analytics-consent toggle** (reusing the existing `ConsentFlow` `PATCH /api/v1/user/consent` seam), and **logout** (token wipe → sign-in). The Premium/DESIGN rows render mockup chrome with no backend write. It owns the `SettingsRoute` root-stack contract + push semantics; the profile-screen entry gear that triggers the push is deferred to [#288](https://github.com/aditrioka/nearyou-id/issues/288). Mobile-only — no Flyway migration, no backend code.
-
 ## Requirements
 ### Requirement: SettingsRoute and its sub-routes are serializable parameterless NavKeys pushed onto the root back stack
 
@@ -50,7 +49,7 @@ The `mobile-settings` capability SHALL own the `SettingsRoute` contract and its 
 
 ### Requirement: Backed rows are wired; deferred rows show a non-writing "Segera hadir" affordance and ship no dead control
 
-Per the operator's mockup-faithful-shell scope decision, `SettingsScreen` SHALL render ALL frame-16 rows, partitioned into **backed** rows (wired to a real destination/action) and **deferred** rows (no backend yet). The backed rows are exactly: PRIVASI > "Pengguna diblokir" (→ `BlockedUsersRoute`), PRIVASI > "Privasi & data" (→ `ConsentSettingsRoute`), LAINNYA > "Ketentuan & kebijakan privasi" (→ the static legal/privacy URL), and LAINNYA > "Keluar" (logout). The deferred rows are exactly: AKUN > "Edit profil", AKUN > "Ganti username", PREMIUM > "Perjalanan Premium", PREMIUM > "Kelola langganan", PRIVASI > "Profil privat", PRIVASI > "Sembunyikan jarak". A deferred row SHALL render its mockup icon/title/subtitle but its activation SHALL surface a non-trapping "Segera hadir" affordance (a snackbar / inert state via `stringResource(Res.string.settings_coming_soon)`) and SHALL perform **no backend write and no navigation to a non-existent destination** — in particular the deferred "Profil privat" and "Sembunyikan jarak" toggles SHALL NOT issue any `UPDATE users` / privacy-flag write (the `@allow-privacy-write` invariant surface is deliberately not entered by this change). Each deferred row SHALL be tracked by a follow-up GitHub issue (label `follow-up` + `mobile`).
+Per the operator's mockup-faithful-shell scope decision, `SettingsScreen` SHALL render ALL frame-16 rows, partitioned into **backed** rows (wired to a real destination/action) and **deferred** rows (no backend yet). The backed rows are exactly: AKUN > "Ganti username" (→ `UsernameCustomizationRoute`, pushed **unconditionally** — the route-scoped screen owns the Free/Premium gate, so `SettingsScreen` holds no `isPremium` signal and adds no self-profile read), PRIVASI > "Pengguna diblokir" (→ `BlockedUsersRoute`), PRIVASI > "Privasi & data" (→ `ConsentSettingsRoute`), LAINNYA > "Ketentuan & kebijakan privasi" (→ the static legal/privacy URL), and LAINNYA > "Keluar" (logout). The deferred rows are exactly: AKUN > "Edit profil", PREMIUM > "Perjalanan Premium", PREMIUM > "Kelola langganan", PRIVASI > "Profil privat", PRIVASI > "Sembunyikan jarak". A deferred row SHALL render its mockup icon/title/subtitle but its activation SHALL surface a non-trapping "Segera hadir" affordance (a snackbar / inert state via `stringResource(Res.string.settings_coming_soon)`) and SHALL perform **no backend write and no navigation to a non-existent destination** — in particular the deferred "Profil privat" and "Sembunyikan jarak" toggles SHALL NOT issue any `UPDATE users` / privacy-flag write (the `@allow-privacy-write` invariant surface is deliberately not entered by this change). Each deferred row SHALL be tracked by a follow-up GitHub issue (label `follow-up` + `mobile`).
 
 #### Scenario: A deferred row surfaces "Segera hadir" and writes nothing
 
@@ -63,6 +62,12 @@ Per the operator's mockup-faithful-shell scope decision, `SettingsScreen` SHALL 
 - **GIVEN** `SettingsScreen` composed over a test root back stack
 - **WHEN** "Pengguna diblokir" and then "Privasi & data" are activated
 - **THEN** `BlockedUsersRoute` and `ConsentSettingsRoute` respectively are appended onto the root back stack
+
+#### Scenario: The "Ganti username" row pushes UsernameCustomizationRoute unconditionally
+
+- **GIVEN** `SettingsScreen` composed over a test root back stack
+- **WHEN** "Ganti username" is activated
+- **THEN** `UsernameCustomizationRoute` is appended onto the root back stack (the route-scoped screen then resolves Premium status and renders the editor or the gate) AND the activation issues no "Segera hadir" affordance — the row is no longer deferred — and Settings reads no `isPremium` signal
 
 ### Requirement: Block-list management lists the viewer's blocked users and unblocks them
 

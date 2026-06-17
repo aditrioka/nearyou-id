@@ -182,7 +182,9 @@ class AdminIndexStatsRouteTest : StringSpec({
             // pg_database_size is callable by the test role → the System card renders.
             body shouldContain "Database size"
             // Deferred-cluster widgets are NOT rendered (spec negative guard).
-            body shouldNotContain "Subscription"
+            // ("Subscription" now legitimately appears in the nav — the shipped
+            // admin-subscription-grace-monitor item — so it is no longer a valid
+            // dashboard-widget-absence signal; CSAM + RevenueCat remain absent.)
             body shouldNotContain "CSAM"
             body shouldNotContain "RevenueCat"
         }

@@ -354,6 +354,45 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a subscription-grace MANUAL EXPEDITE
+     * (`admin-subscription-grace-monitor` capability): `POST
+     * /admin/subscriptions/grace/{user_id}/expedite` recording a support-desk
+     * bookkeeping resolution. Joins the caller's [conn] so the audit INSERT + the
+     * rate-limit COUNT read the same ledger snapshot and append atomically inside
+     * the expedite transaction. `target_type = 'user'`, `target_id` = the
+     * billing-retry user's id. This action changes NO entitlement: it mutates no
+     * `users` column and writes no `subscription_events` row — so [beforeState]
+     * and [afterState] carry an IDENTICAL `subscription_status` (the snapshot
+     * documents that expedite did not downgrade/grant); [afterState] additionally
+     * records `{expedited: true, ticket_ref}`. The mandatory support-ticket
+     * reference is carried in [reason]. `adminId` is the acting human admin,
+     * never the `system` sentinel.
+     */
+    fun logSubscriptionGraceExpedite(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "subscription_grace_expedite",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a feature-flag publish (`admin-feature-flags` capability):
      * exactly one immutable row per applied Server-template parameter write.
      * Joins the caller's [conn] so the rate-limit COUNT and this INSERT read +

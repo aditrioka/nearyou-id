@@ -9,10 +9,16 @@ package id.nearyou.app.timeline
 interface FollowingTimelineFlow {
     /**
      * Loads the first page of the Following feed. Pull-to-refresh re-invokes this; the returned
-     * [FollowingTimelineOutcome.Loaded.nextCursor] is retained but not yet consumed for load-more
-     * (deferred alongside `mobile-nearby-timeline-infinite-scroll`, extended to cover Following).
+     * [FollowingTimelineOutcome.Loaded.nextCursor] drives [loadMore].
      */
     suspend fun loadFirstPage(): FollowingTimelineOutcome
+
+    /**
+     * Loads a subsequent page for [cursor] (`mobile-nearby-timeline-infinite-scroll`, extended to cover
+     * Following). Following is **cursor-only** — it has NO spatial anchor to reuse (unlike Nearby), so the
+     * request carries only the chronological [cursor]. Same status→outcome mapping as [loadFirstPage].
+     */
+    suspend fun loadMore(cursor: String): FollowingTimelineOutcome
 }
 
 /**
@@ -31,7 +37,7 @@ sealed interface FollowingTimelineOutcome {
     /**
      * HTTP 200. Carries the raw parsed [posts] (incl. the `authorUserId` / `latitude` / `longitude`
      * fields that the UI-state projection STRIPS — PII never reaches the rendered state), the bare
-     * camelCase [nextCursor] (retained, not yet used for load-more), and the optional [upsell].
+     * camelCase [nextCursor] (drives load-more), and the optional [upsell].
      */
     data class Loaded(
         val posts: List<FollowingPostDto>,

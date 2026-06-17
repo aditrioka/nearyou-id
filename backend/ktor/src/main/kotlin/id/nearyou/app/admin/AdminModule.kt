@@ -15,6 +15,7 @@ import id.nearyou.app.admin.featureflags.FeatureFlagToggleRateLimiter
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
+import id.nearyou.app.admin.ratelimit.GraceExpediteActionRateLimiter
 import id.nearyou.app.admin.ratelimit.ReservedUsernameActionRateLimiter
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
@@ -32,7 +33,9 @@ import id.nearyou.app.admin.routes.adminRejectedIdentifiers
 import id.nearyou.app.admin.routes.adminReportQueue
 import id.nearyou.app.admin.routes.adminReportResolution
 import id.nearyou.app.admin.routes.adminReservedUsernames
+import id.nearyou.app.admin.routes.adminSubscriptionGrace
 import id.nearyou.app.admin.routes.adminUserModeration
+import id.nearyou.app.admin.subscriptiongrace.SubscriptionGraceRepository
 import id.nearyou.app.admin.usermanagement.UserProfileRepository
 import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
@@ -118,6 +121,9 @@ fun Application.admin(
         )
     val chatRedactionRepository =
         ChatRedactionRepository(dataSource, auditLogger, destructiveActionRateLimiter)
+    val graceExpediteRateLimiter = GraceExpediteActionRateLimiter(dataSource)
+    val subscriptionGraceRepository =
+        SubscriptionGraceRepository(dataSource, auditLogger, graceExpediteRateLimiter)
     val loginRoutes =
         AdminLoginRoutes(
             adminUserRepository = adminUserRepository,
@@ -222,6 +228,12 @@ fun Application.admin(
                 adminReservedUsernames(
                     reservedUsernamesRepository,
                     reservedUsernameActionRateLimiter,
+                    auditLogger,
+                    layout,
+                )
+                adminSubscriptionGrace(
+                    subscriptionGraceRepository,
+                    graceExpediteRateLimiter,
                     auditLogger,
                     layout,
                 )

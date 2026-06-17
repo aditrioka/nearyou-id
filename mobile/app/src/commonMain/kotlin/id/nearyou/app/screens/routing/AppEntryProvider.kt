@@ -19,6 +19,7 @@ import id.nearyou.app.screens.settings.BlockedUsersScreen
 import id.nearyou.app.screens.settings.ConsentSettingsScreen
 import id.nearyou.app.screens.settings.SettingsScreen
 import id.nearyou.app.screens.shell.AppShellScreen
+import id.nearyou.app.screens.username.UsernameCustomizationScreen
 import org.koin.compose.koinInject
 
 /**
@@ -176,6 +177,9 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
         entry<SettingsRoute> {
             SettingsScreen(
                 onBack = { backStack.removeLastOrNull() },
+                // The "Ganti username" row pushes the Ganti Username surface unconditionally (the
+                // route-scoped screen owns the Free/Premium gate — mobile-premium-username).
+                onOpenUsernameCustomization = { backStack.add(UsernameCustomizationRoute) },
                 onOpenBlocked = { backStack.add(BlockedUsersRoute) },
                 onOpenConsent = { backStack.add(ConsentSettingsRoute) },
                 onLoggedOut = { backStack.replaceAll(SignInRoute) },
@@ -260,6 +264,22 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                         ),
                     )
                 },
+            )
+        }
+        entry<UsernameCustomizationRoute> {
+            // The Ganti Username surface (mobile-premium-username). `removeLastOrNull()` is size-safe:
+            // UsernameCustomizationRoute is only ever appended ATOP HomeRoute (the Settings "Ganti
+            // username" row), so popping it leaves the settings/home surface. The route-scoped screen
+            // owns the Free/Premium gate (an on-entry self-isPremium read + the reactive 403 backstop),
+            // so Settings pushes this unconditionally. onChanged pops back to Settings on a successful
+            // change; the stateless ProfileFlow re-fetches the new handle on the next read.
+            UsernameCustomizationScreen(
+                onBack = { backStack.removeLastOrNull() },
+                onChanged = { backStack.removeLastOrNull() },
+                // TODO(#309): backStack.add(PaywallRoute) once mobile-paywall-screen lands the route
+                // (design D8 — the gate CTA is a documented no-op until then; this change sequences
+                // its squash-merge behind #309).
+                onActivatePremium = {},
             )
         }
     }

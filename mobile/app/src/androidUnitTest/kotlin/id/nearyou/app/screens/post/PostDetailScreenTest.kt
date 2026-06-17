@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotFocused
@@ -51,6 +52,8 @@ import id.nearyou.app.post.SinglePostApiClient
 import id.nearyou.app.post.fakeReply
 import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
+import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -332,8 +335,8 @@ class PostDetailScreenTest {
     }
 
     // mobile-post-detail § "Header renders the author display identity from the payload" — the identity
-    // row comes SOLELY from the route (no network request for it; the no-single-post-GET test below
-    // keeps pinning the outbound surface).
+    // row comes SOLELY from the route (no per-identity network call; the outbound-surface test below
+    // keeps pinning the allowed request set — now incl. the mobile-post-editing refresh GET).
     @Test
     fun header_rendersAuthorDisplayIdentity_fromTheRoutePayload() {
         installKoin(FakePostDetailFlow())
@@ -448,6 +451,65 @@ class PostDetailScreenTest {
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("RETRIED_REPLY").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("RETRIED_REPLY").assertExists() // recovered to Content
             assertEquals(2, fake.loadRepliesCount, "retry re-invokes the replies load")
+        }
+    }
+
+    // ---- replies cursor load-more (screen integration) ----
+
+    // A short page-1 replies list keeps the load-more footer within the scroll-end threshold, so the
+    // eager detector fires load-more without an explicit gesture; the appended page-2 reply appears AND
+    // the follow-up reused the page-1 anchor's cursor c1.
+    @Test
+    fun repliesLoadMore_appendsTheNextPage_reusingTheCursor() {
+        val fake =
+            FakePostDetailFlow(
+                repliesOutcome = RepliesOutcome.Loaded(listOf(fakeReply(id = "r1", content = "REPLY_PAGE1")), nextCursor = "c1"),
+                loadMoreRepliesPages =
+                    listOf(RepliesOutcome.Loaded(listOf(fakeReply(id = "r2", content = "REPLY_PAGE2")), nextCursor = null)),
+            )
+        installKoin(fake)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("REPLY_PAGE2").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("REPLY_PAGE1").assertExists()
+            assertEquals(listOf("c1"), fake.loadMoreRepliesCalls, "load-more fetched the retained cursor c1")
+        }
+    }
+
+    // A failed replies load-more shows the non-destructive retry footer (page-1 retained); tapping retry
+    // recovers and the footer clears.
+    @Test
+    fun repliesLoadMoreError_showsRetryFooter_andRetryRecovers() {
+        val fake =
+            FakePostDetailFlow(
+                repliesOutcome = RepliesOutcome.Loaded(listOf(fakeReply(id = "r1", content = "REPLY_PAGE1")), nextCursor = "c1"),
+                loadMoreRepliesPages =
+                    listOf(
+                        RepliesOutcome.NetworkError,
+                        RepliesOutcome.Loaded(listOf(fakeReply(id = "r2", content = "REPLY_PAGE2")), nextCursor = null),
+                    ),
+            )
+        installKoin(fake)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(LOAD_MORE_RETRY_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("REPLY_PAGE1").assertExists() // the loaded list is retained on load-more failure
+            onNodeWithTag(LOAD_MORE_RETRY_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("REPLY_PAGE2").fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(LOAD_MORE_RETRY_TAG).assertCountEquals(0) // footer clears on success
+        }
+    }
+
+    // The load-more footer never co-occurs with the replies initial-load skeleton (it lives inside the
+    // replies Content list, which the loading state does not render) — mobile-design-system load-more pattern.
+    @Test
+    fun repliesLoadMoreFooter_absentDuringInitialLoad() {
+        installKoin(FakePostDetailFlow(suspendRepliesForever = true))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(LOADING).fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(LOAD_MORE_FOOTER_TAG).assertCountEquals(0)
+            onAllNodesWithTag(LOAD_MORE_RETRY_TAG).assertCountEquals(0)
         }
     }
 
