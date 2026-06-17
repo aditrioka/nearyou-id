@@ -103,7 +103,7 @@ class SettingsAccountDeletionViewModelTest {
     }
 
     @Test
-    fun `cancel retryable error keeps the banner (no optimistic clear)`() {
+    fun `cancel retryable error keeps the banner no optimistic clear`() {
         val flow =
             FakeAccountDeletionFlow(
                 statusOutcome = DeletionStatusOutcome.Pending("2026-07-17T00:00:00Z"),

@@ -67,7 +67,7 @@ class AccountDeletionRepositoryTest {
         }
 
     @Test
-    fun `status pending maps to Pending, absent maps to NotPending`() =
+    fun `status pending maps to Pending and absent maps to NotPending`() =
         runTest {
             val pending =
                 repo {
@@ -82,14 +82,14 @@ class AccountDeletionRepositoryTest {
         }
 
     @Test
-    fun `status 401 maps to Terminal401, 500 maps to Unavailable (non-trapping)`() =
+    fun `status 401 maps to Terminal401 and 500 maps to Unavailable non-trapping`() =
         runTest {
             assertEquals(DeletionStatusOutcome.Terminal401, repo { respond("", HttpStatusCode.Unauthorized) }.fetchStatus())
             assertEquals(DeletionStatusOutcome.Unavailable, repo { respond("", HttpStatusCode.InternalServerError) }.fetchStatus())
         }
 
     @Test
-    fun `cancel targets DELETE and maps 2xx to Success, 401 to Terminal401, 409 to RetryableError`() =
+    fun `cancel targets DELETE and maps 2xx to Success and 401 to Terminal401 and 409 to RetryableError`() =
         runTest {
             var captured: HttpRequestData? = null
             val ok =
