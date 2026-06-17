@@ -32,6 +32,17 @@ class PostDetailRepository(
             is ReplyListApiResult.HttpError -> RepliesOutcome.NetworkError
         }
 
+    override suspend fun loadMoreReplies(
+        postId: String,
+        cursor: String,
+    ): RepliesOutcome =
+        when (val result = replyApiClient.listReplies(postId, cursor)) {
+            is ReplyListApiResult.Success ->
+                RepliesOutcome.Loaded(replies = result.body.replies, nextCursor = result.body.nextCursor)
+            is ReplyListApiResult.NetworkError -> RepliesOutcome.NetworkError
+            is ReplyListApiResult.HttpError -> RepliesOutcome.NetworkError
+        }
+
     override suspend fun toggleLike(
         postId: String,
         currentlyLiked: Boolean,

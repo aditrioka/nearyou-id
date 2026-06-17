@@ -3,6 +3,7 @@ package id.nearyou.app.post
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -137,10 +138,16 @@ class ReplyApiClient(
         )
     }
 
-    suspend fun listReplies(postId: String): ReplyListApiResult {
+    suspend fun listReplies(
+        postId: String,
+        cursor: String? = null,
+    ): ReplyListApiResult {
         val response: HttpResponse =
             try {
-                client.get("/api/v1/posts/$postId/replies")
+                client.get("/api/v1/posts/$postId/replies") {
+                    // First page omits cursor; load-more passes the retained snake_case next_cursor verbatim.
+                    cursor?.let { parameter("cursor", it) }
+                }
             } catch (cause: CancellationException) {
                 throw cause
             } catch (cause: Throwable) {

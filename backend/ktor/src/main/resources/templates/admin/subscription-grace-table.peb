@@ -1,0 +1,84 @@
+{# Swappable subscription-grace fragment. Rendered standalone for HTMX requests
+   (HX-Request: true) and {% include %}d by subscription-grace.peb for full-page
+   navigation. The #subscription-grace-table id is the hx-target swapped in place.
+
+   Every value is Pebble-autoescaped on output — NO `raw` filter on any value.
+   Escaping is LOAD-BEARING: `username` is user-controlled free text, and it is
+   also interpolated into the /admin/users?q= deep-link href (attribute/URL
+   context — the route URL-encodes the href value too).
+
+   CSRF on the per-row expedite form: the full-page (no-JS) render carries
+   `csrfToken` so the `_csrf` hidden field populates; the HTMX-fragment render
+   omits it (the layout's htmx:configRequest hook adds the X-CSRF-Token header
+   from the meta tag). #}
+<div id="subscription-grace-table">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+{% if quotaCap is not null %}
+    <p class="quota-chip">Expedite actions this hour: {{ quotaUsed }}/{{ quotaCap }}</p>
+{% endif %}
+{# Total in the billing-retry window — the operational signal (a spike means a
+   billing or webhook problem). #}
+<div class="summary">
+    <p class="summary-total">In billing-retry: {{ total }}</p>
+</div>
+{% if hasRows %}
+    <div class="tbl-wrap">
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Store</th>
+                <th>Retry since (UTC)</th>
+                <th>Last webhook</th>
+                <th>Expedite</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td>
+                    <a href="{{ row.usersLink }}">{{ row.username }}</a>
+                    <span class="st info">PREMIUM</span>
+                </td>
+                <td>{% if row.store is not empty %}{{ row.store }}{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{% if row.retrySince is not empty %}{{ row.retrySince }}{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{% if row.lastWebhook is not empty %}<span class="code">{{ row.lastWebhook }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>
+                {% if row.expedited %}
+                    <span class="st ok">Expedited</span>
+                    <span class="muted">by {{ row.expeditedBy }} · {{ row.expeditedAt }}</span>
+                {% else %}
+                    <form class="expedite"
+                          action="{{ row.expediteAction }}"
+                          method="POST"
+                          hx-post="{{ row.expediteAction }}"
+                          hx-target="#subscription-grace-table"
+                          hx-swap="outerHTML">
+                        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                        <input type="text" name="ticket_ref" maxlength="64" placeholder="Ticket ref (required)" required aria-label="Support ticket reference">
+                        <input type="text" name="note" maxlength="200" placeholder="Note (optional)" aria-label="Resolution note">
+                        <button type="submit" class="btn tonal sm">Expedite resolution</button>
+                    </form>
+                {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if nextUrl is not null %}
+    <div class="pager">
+        <a class="pagination-next"
+           href="{{ nextUrl }}"
+           hx-get="{{ nextUrl }}"
+           hx-target="#subscription-grace-table"
+           hx-swap="outerHTML"
+           hx-push-url="true">Next</a>
+    </div>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No users in the billing-retry window match the current filters.</p>
+{% endif %}
+</div>

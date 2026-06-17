@@ -84,9 +84,9 @@ All admin actions:
 - **Permanent ban**: `is_banned = TRUE`, `suspended_until = NULL`; no automatic unban.
 - **Shadow ban**: `is_shadow_banned = TRUE`; see `06-Security-Privacy.md`.
 
-### Privacy Downgrade Flow (Premium to Free) — DESIGN
+### Privacy Downgrade Flow (Premium to Free)
 
-> **Status: DESIGN.** No code today — the `/internal/privacy-flip-worker` route, RevenueCat webhook handler, and worker SQL below do NOT exist; `Application.kt` mounts only `/internal/unban-worker` under the internal namespace. `users.privacy_flip_scheduled_at` IS present in V2 schema (data model partially ready).
+> **Status: shipped** (`privacy-flip-worker`, 2026-06-17). The RevenueCat webhook schedules/clears `users.privacy_flip_scheduled_at` (private profiles, idempotent `COALESCE` on `EXPIRATION`; cleared on re-activation) and emits `privacy_flip_warning`; the hourly `/internal/privacy-flip-worker` (OIDC-gated, mounted in `Application.kt`) applies the flip + writes a `system_privacy_flip_applied` audit row. Step 5's "busts the Redis profile cache" is currently a **no-op** — profile reads are uncached, so the flip is immediately visible via `JdbcUserProfileReader`'s grace short-circuit ([#332](https://github.com/aditrioka/nearyou-id/issues/332) tracks wiring it if a profile read-cache lands).
 
 When a user with `private_profile_opt_in = TRUE` downgrades to Free (RevenueCat `EXPIRATION` or grace elapse):
 

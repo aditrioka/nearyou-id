@@ -1,6 +1,7 @@
 package id.nearyou.app.screens.timeline
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -20,6 +21,8 @@ import id.nearyou.app.timeline.UpsellDto
 import id.nearyou.app.timeline.fakeGlobalPost
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
+import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
+import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_ACTION_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_FILLED_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_OUTLINED_TAG
@@ -60,7 +63,7 @@ private const val RETRY = "Coba lagi"
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
+@Config(sdk = [33], qualifiers = "w360dp-h891dp")
 @OptIn(ExperimentalTestApi::class)
 class GlobalTimelineScreenTest {
     private lateinit var fake: FakeGlobalTimelineFlow
@@ -71,9 +74,16 @@ class GlobalTimelineScreenTest {
         suspendForever: Boolean = false,
         suspendFromCall: Int = Int.MAX_VALUE,
         likeOutcome: LikeOutcome = LikeOutcome.Liked,
+        loadMorePages: List<GlobalTimelineOutcome> = emptyList(),
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        fake = FakeGlobalTimelineFlow(outcome = outcome, suspendForever = suspendForever, suspendFromCall = suspendFromCall)
+        fake =
+            FakeGlobalTimelineFlow(
+                outcome = outcome,
+                suspendForever = suspendForever,
+                suspendFromCall = suspendFromCall,
+                loadMorePages = loadMorePages,
+            )
         likeFake = FakeLikeFlow(likeOutcome)
         startKoin {
             modules(
@@ -360,6 +370,61 @@ class GlobalTimelineScreenTest {
             waitForIdle()
             assertEquals("g7", replied?.id, "the reply shortcut carries the tapped post")
             assertEquals(0, opened, "the reply shortcut does NOT fire the whole-card onOpenPost")
+        }
+    }
+
+    // ---- mobile-global-timeline-infinite-scroll: cursor load-more (screen integration) ----
+
+    // A short page-1 list keeps the footer within the load-more threshold, so the scroll-end detector
+    // fires load-more without an explicit gesture; the appended page-2 content appears AND the follow-up
+    // reused the page-1 cursor (Global is cursor-only — no anchor).
+    @Test
+    fun loadMore_appendsTheNextPage_reusingTheCursor() {
+        installKoin(
+            outcome = GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "g1", content = "PAGE1_POST")), "c1", null),
+            loadMorePages =
+                listOf(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "g2", content = "PAGE2_POST")), null, null)),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("PAGE2_POST").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("PAGE1_POST").assertExists()
+            onNodeWithText("PAGE2_POST").assertExists()
+            assertEquals(listOf("c1"), fake.loadMoreCalls, "load-more fetched the retained cursor c1")
+        }
+    }
+
+    // A failed load-more shows the non-destructive retry footer (page-1 retained); tapping retry recovers.
+    @Test
+    fun loadMoreError_showsRetryFooter_andRetryRecovers() {
+        installKoin(
+            outcome = GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "g1", content = "PAGE1_POST")), "c1", null),
+            loadMorePages =
+                listOf(
+                    GlobalTimelineOutcome.NetworkError,
+                    GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "g2", content = "PAGE2_POST")), null, null),
+                ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(LOAD_MORE_RETRY_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("PAGE1_POST").assertExists() // the loaded list is retained on load-more failure
+            onNodeWithTag(LOAD_MORE_RETRY_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("PAGE2_POST").fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(LOAD_MORE_RETRY_TAG).assertCountEquals(0) // footer clears on success
+        }
+    }
+
+    // The load-more footer never co-occurs with the initial-load skeleton (it lives inside the Content
+    // post list, which the skeleton state does not render) — mobile-design-system load-more pattern.
+    @Test
+    fun loadMoreFooter_absentDuringInitialLoadSkeleton() {
+        installKoin(suspendForever = true)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(LOADING).fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(LOAD_MORE_FOOTER_TAG).assertCountEquals(0)
+            onAllNodesWithTag(LOAD_MORE_RETRY_TAG).assertCountEquals(0)
         }
     }
 }

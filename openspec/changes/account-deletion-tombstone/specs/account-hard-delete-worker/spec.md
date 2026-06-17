@@ -2,7 +2,7 @@
 
 ### Requirement: deletion_log schema (append-only)
 
-Migration `V23__deletion_requests.sql` (alongside `deletion_requests`) SHALL create an append-only `deletion_log` table recording every executed hard-delete, so the Pre-Launch backup-restore reconciliation test ("no tombstoned user resurrected") has a queryable source of truth:
+Migration `V24__deletion_requests.sql` (alongside `deletion_requests`) SHALL create an append-only `deletion_log` table recording every executed hard-delete, so the Pre-Launch backup-restore reconciliation test ("no tombstoned user resurrected") has a queryable source of truth:
 
 ```sql
 CREATE TABLE deletion_log (

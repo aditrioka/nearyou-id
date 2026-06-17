@@ -28,7 +28,7 @@ NearYouID has no account-deletion path today: a user cannot exercise the UU PDP 
 
 ## Impact
 
-- **Migrations**: `V23__deletion_requests.sql` (+ `deletion_log`), and a `V24` view-replace for `visible_posts` **only** (design D1; `visible_users` untouched). `CREATE OR REPLACE VIEW`, no data backfill.
+- **Migrations**: `V24__deletion_requests.sql` (+ `deletion_log`), and a `V24` view-replace for `visible_posts` **only** (design D1; `visible_users` untouched). `CREATE OR REPLACE VIEW`, no data backfill.
 - **Backend** (`:backend:ktor`): a new `account` package (design D3) — routes + repository + the worker; the worker mounts under the existing `/internal/*` OIDC-gated subtree and writes a system-actor audit row. Touches the tombstone UPDATE on `users` (username-write + privacy-flag allowlist annotations) and the cascade/anonymize statements across `posts`, `post_replies`, `post_likes`, `post_edits`, `chat_messages`, `reports` (design D4 reconciles the reports cascade-vs-retain contradiction between `docs/05:508` and `docs/06:343`), `follows`, `user_blocks`, `user_fcm_tokens`, `notifications`, session/refresh-token tables.
 - **Read surfaces** that surface tombstoned authors anonymized: Nearby / Following / Global timelines, post detail, reply lists, chat context cards (verified by `account-hard-delete-worker` + `visible-posts-view` scenarios). **Profile read, search, and active-user metrics deliberately keep excluding** tombstoned users (`visible_users` untouched).
 - **Mobile** (`:mobile:app`): `mobile-settings` row + dialog + banner + Ktor client calls + CMP strings.

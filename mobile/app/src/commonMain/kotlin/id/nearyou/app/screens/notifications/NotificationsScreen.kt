@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.notifications.NotificationsFlow
+import id.nearyou.app.ui.components.LoadMoreFooter
+import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.notif_chat_message
@@ -81,13 +84,19 @@ fun NotificationsScreen() {
     val outcome by viewModel.outcome.collectAsStateWithLifecycle()
     val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
+    val loadMoreError by viewModel.loadMoreError.collectAsStateWithLifecycle()
 
     NotificationsContent(
         uiState = remember(outcome, isInitialLoad) { notificationsUiState(outcome, isInitialLoad) },
         isRefreshing = isRefreshing,
-        // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload
-        // path). `next_cursor` is retained on Loaded but NOT consumed for load-more (deferred alongside
-        // mobile-nearby-timeline-infinite-scroll, extended to cover notifications).
+        // Load-more (infinite scroll): the footer flags + the scroll-end/retry callbacks. The shared
+        // LoadMoreController appends pages into the retained Loaded outcome, reusing the page-1 unread filter.
+        isLoadingMore = isLoadingMore,
+        loadMoreError = loadMoreError,
+        onLoadMore = viewModel::onLoadMore,
+        onRetryLoadMore = viewModel::onRetryLoadMore,
+        // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload path).
         onRefresh = viewModel::reload,
         onRetry = viewModel::reload,
         // Row tap → optimistic mark-read (204/404 keep, other revert). NO navigation is wired (deep-link
@@ -117,6 +126,10 @@ fun NotificationsScreen() {
 private fun NotificationsContent(
     uiState: NotificationsUiState,
     isRefreshing: Boolean,
+    isLoadingMore: Boolean,
+    loadMoreError: Boolean,
+    onLoadMore: () -> Unit,
+    onRetryLoadMore: () -> Unit,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
     onRowTap: (String) -> Unit,
@@ -151,7 +164,15 @@ private fun NotificationsContent(
                 // copy) — the SessionInvalidator re-route is already in flight (06-#3).
                 NotificationsUiState.SessionRedirect ->
                     CenteredMessage(stringResource(Res.string.timeline_session_redirect))
-                is NotificationsUiState.Content -> NotificationList(rows = uiState.rows, onRowTap = onRowTap)
+                is NotificationsUiState.Content ->
+                    NotificationList(
+                        rows = uiState.rows,
+                        isLoadingMore = isLoadingMore,
+                        loadMoreError = loadMoreError,
+                        onLoadMore = onLoadMore,
+                        onRetryLoadMore = onRetryLoadMore,
+                        onRowTap = onRowTap,
+                    )
             }
         }
     }
@@ -224,15 +245,32 @@ private fun ErrorState(onRetry: () -> Unit) {
 @Composable
 private fun NotificationList(
     rows: List<NotificationRow>,
+    isLoadingMore: Boolean,
+    loadMoreError: Boolean,
+    onLoadMore: () -> Unit,
+    onRetryLoadMore: () -> Unit,
     onRowTap: (String) -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    LoadMoreOnScrollEnd(listState = listState, onLoadMore = onLoadMore)
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().testTag(NOTIFICATIONS_LIST_TAG),
         contentPadding = PaddingValues(vertical = 8.dp),
     ) {
         items(items = rows, key = { it.id }, contentType = { "notification" }) { row ->
             NotificationRowItem(row = row, onTap = { onRowTap(row.id) })
             HorizontalDivider()
+        }
+        // Load-more footer: spinner while a page loads, non-destructive retry on error, nothing at end
+        // (mobile-design-system § "Canonical list load-more pattern"). The scroll-end detector above
+        // drives onLoadMore; the LoadMoreController's guards make an eager trigger on a short list a no-op.
+        item(key = "loadMoreFooter", contentType = "footer") {
+            LoadMoreFooter(
+                isLoadingMore = isLoadingMore,
+                loadMoreError = loadMoreError,
+                onRetry = onRetryLoadMore,
+            )
         }
     }
 }

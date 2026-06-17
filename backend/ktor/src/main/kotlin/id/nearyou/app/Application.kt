@@ -5,8 +5,10 @@ import id.nearyou.app.account.AccountDeletionService
 import id.nearyou.app.account.AccountHardDeleteWorker
 import id.nearyou.app.account.accountHardDeleteWorkerRoute
 import id.nearyou.app.account.accountRoutes
+import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.admin
+import id.nearyou.app.admin.privacyFlipWorkerRoute
 import id.nearyou.app.admin.unbanWorkerRoute
 import id.nearyou.app.auth.installAuth
 import id.nearyou.app.auth.jwks.jwksRoutes
@@ -146,6 +148,9 @@ import id.nearyou.app.post.PostReadService
 import id.nearyou.app.post.postEditRoutes
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.post.singlePostRoutes
+import id.nearyou.app.referral.ReferralRepository
+import id.nearyou.app.referral.ReferralService
+import id.nearyou.app.referral.ReferralTicketRateLimiter
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
 import id.nearyou.app.search.searchRoutes
@@ -389,6 +394,7 @@ fun Application.module() {
     val oidcTokenVerifier: OidcTokenVerifier =
         GoogleOidcTokenVerifier(audience = internalOidcAudience, jwkProvider = googleJwkProvider())
     val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource)
+    val privacyFlipWorker = PrivacyFlipWorker(dataSource)
     // account-deletion-tombstone: user-facing request/cancel/status API + the daily
     // hard-delete worker (Cloud Scheduler → /internal/account-hard-delete-worker).
     val accountDeletionRepository = AccountDeletionRepository(dataSource, dbDispatchers.db)
@@ -931,6 +937,14 @@ fun Application.module() {
         )
     val fcmTokenRepository = FcmTokenRepository(dataSource, dbDispatchers.db)
     val consentRepository = ConsentRepository(dataSource, dbDispatchers.db)
+    val referralRepository = ReferralRepository(dataSource)
+    val referralService =
+        ReferralService(
+            users = userRepository,
+            referrals = referralRepository,
+            rateLimiter = ReferralTicketRateLimiter(rateLimiter = rateLimiter),
+            dbDispatcher = dbDispatchers.db,
+        )
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -941,6 +955,7 @@ fun Application.module() {
             inviteDeriver = inviteDeriver,
             refreshTokens = refreshTokenService,
             jwtIssuer = jwtIssuer,
+            referral = referralService,
         )
 
     install(Koin) {
@@ -1058,6 +1073,7 @@ fun Application.module() {
     routing {
         route("/internal") {
             unbanWorkerRoute(suspensionUnbanWorker, oidcTokenVerifier)
+            privacyFlipWorkerRoute(privacyFlipWorker, oidcTokenVerifier)
             accountHardDeleteWorkerRoute(accountHardDeleteWorker, oidcTokenVerifier)
         }
     }

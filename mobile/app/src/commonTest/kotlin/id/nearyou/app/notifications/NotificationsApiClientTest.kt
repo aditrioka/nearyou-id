@@ -104,6 +104,30 @@ class NotificationsApiClientTest {
         }
 
     @Test
+    fun `load-more carries the cursor and reuses the first-page unread filter`() =
+        runTest {
+            // The first page uses unreadOnly=false (NotificationsRepository.loadFirstPage's default), which
+            // emits NO unread param; load-more reuses that filter (unreadOnly=false), so it must carry
+            // cursor=c1 AND, like the first page, omit unread — paging never narrows mid-scroll.
+            var captured: HttpRequestData? = null
+            val api =
+                NotificationsApiClient(
+                    client { request ->
+                        captured = request
+                        respond("""{"items":[]}""", HttpStatusCode.OK, JSON_HEADERS)
+                    },
+                )
+            api.fetch(cursor = "c1", unreadOnly = false)
+
+            val req = requireNotNull(captured)
+            assertEquals("c1", req.url.parameters["cursor"], "load-more sends the retained cursor verbatim")
+            assertFalse(
+                req.url.parameters.contains("unread"),
+                "load-more reuses the first page's unread=false filter (no unread param), so paging never narrows",
+            )
+        }
+
+    @Test
     fun `full notification shape parses against the shipped mixed-case wire`() =
         runTest {
             val api = NotificationsApiClient(client { respond(SHIPPED_LIST_BODY, HttpStatusCode.OK, JSON_HEADERS) })

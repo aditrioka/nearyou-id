@@ -341,5 +341,30 @@
     <string name="follow_list_load_more_failed">Gagal memuat. Ketuk untuk coba lagi.</string>
     <string name="profile_followers_open_cd">Lihat daftar pengikut</string>
     <string name="profile_following_open_cd">Lihat daftar yang diikuti</string>
+    <!-- mobile-premium-username: the Ganti Username surface (docs/03-UX-Design.md §107-148), consuming the
+         SHIPPED PATCH /api/v1/user/username + GET /api/v1/username/check. Error/session states REUSE
+         signin_error_network / cta_retry / timeline_session_redirect; the Premium-gate CTA REUSES
+         cta_activate_premium (no duplicate-value key). The cooldown is surfaced REACTIVELY (429
+         cooldown_active → username_cooldown_countdown) — the proactive entry countdown is deferred (needs a
+         backend username_last_changed_at field). The 409 shows ONE generic message (the shipped
+         username_unavailable envelope carries no reason; the three distinct docs/03 messages are deferred). -->
+    <string name="username_title">Ganti Username</string>
+    <string name="username_back_cd">Kembali</string>
+    <string name="username_current_label" formatted="true">Username sekarang: @%1$s</string>
+    <string name="username_field_hint">Username baru</string>
+    <string name="username_error_format">Username harus 3–30 karakter: huruf kecil, angka, titik, atau garis bawah (tidak di awal/akhir, tanpa titik ganda).</string>
+    <string name="username_available">Username tersedia.</string>
+    <string name="username_unavailable_generic">Username ini tidak tersedia. Coba username lain.</string>
+    <string name="username_probe_deferred">Ketersediaan akan dicek saat kamu simpan.</string>
+    <string name="username_error_moderated">Username ini akan ditinjau tim moderasi. Silakan pilih username lain atau tunggu hasil review.</string>
+    <string name="username_cooldown_countdown" formatted="true">Ganti username berikutnya tersedia dalam %1$d hari.</string>
+    <string name="username_rate_limited" formatted="true">Terlalu banyak percobaan. Coba lagi dalam %1$d menit.</string>
+    <string name="username_disabled">Fitur ganti username sedang tidak tersedia. Coba lagi nanti.</string>
+    <string name="username_submit">Ganti</string>
+    <string name="username_confirm_body" formatted="true">Ganti username dari @%1$s menjadi @%2$s? Username lama akan dilepas ke publik 30 hari setelah perubahan.</string>
+    <string name="username_confirm_primary">Ganti</string>
+    <string name="username_confirm_dismiss">Batal</string>
+    <string name="username_success_toast">Username berhasil diganti</string>
+    <string name="username_premium_gate_body">Ganti username adalah fitur Premium.</string>
 </resources>
 

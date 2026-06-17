@@ -86,8 +86,8 @@ Surfaced during `/opsx:apply`: operator Q1 ("tombstoned authors' feed content re
 
 ## Migration Plan
 
-1. `V23__deletion_requests.sql` — `CREATE TABLE deletion_requests` + the two partial indexes (verbatim `docs/05:603-624`) + `CREATE TABLE deletion_log`.
-2. `V24__visible_posts_surface_tombstoned_authors.sql` — `CREATE OR REPLACE VIEW visible_posts` dropping **only** the author-side `u.deleted_at IS NULL` (keeping `p.deleted_at IS NULL`, `is_auto_hidden = FALSE`, `is_shadow_banned = FALSE`). `visible_users` is **NOT** touched. `CREATE OR REPLACE`, no data backfill.
+1. `V24__deletion_requests.sql` — `CREATE TABLE deletion_requests` + the two partial indexes (verbatim `docs/05:603-624`) + `CREATE TABLE deletion_log`.
+2. `V25__visible_posts_surface_tombstoned_authors.sql` — `CREATE OR REPLACE VIEW visible_posts` dropping **only** the author-side `u.deleted_at IS NULL` (keeping `p.deleted_at IS NULL`, `is_auto_hidden = FALSE`, `is_shadow_banned = FALSE`). `visible_users` is **NOT** touched. `CREATE OR REPLACE`, no data backfill.
 3. Relax the author-`deleted_at` predicate in the Nearby + Global raw-`posts` timeline queries, post-detail, and reply-list (code, not migration) — shadow-ban / block / self-arm predicates unchanged.
 4. Wire `AccountRoutes` + the `/internal/account-hard-delete-worker` (Cloud Scheduler trigger added at deploy, not in-migration).
 5. Mobile Settings additions.
