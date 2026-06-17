@@ -9,7 +9,7 @@ CREATE TABLE deletion_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL,
     executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    source VARCHAR(24) NOT NULL
+    source VARCHAR(32) NOT NULL
 );
 ```
 

@@ -122,6 +122,7 @@ class AccountHardDeleteWorkerTest : StringSpec({
         val bio: String?,
         val email: String?,
         val google: String?,
+        val apple: String?,
         val device: String?,
         val dob: LocalDate,
         val relay: Boolean,
@@ -132,7 +133,7 @@ class AccountHardDeleteWorkerTest : StringSpec({
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
-                SELECT deleted_at, display_name, bio, email, google_id_hash,
+                SELECT deleted_at, display_name, bio, email, google_id_hash, apple_id_hash,
                        device_fingerprint_hash, date_of_birth, apple_relay_email, username
                   FROM users WHERE id = ?
                 """.trimIndent(),
@@ -146,6 +147,7 @@ class AccountHardDeleteWorkerTest : StringSpec({
                         bio = rs.getString("bio"),
                         email = rs.getString("email"),
                         google = rs.getString("google_id_hash"),
+                        apple = rs.getString("apple_id_hash"),
                         device = rs.getString("device_fingerprint_hash"),
                         dob = rs.getDate("date_of_birth").toLocalDate(),
                         relay = rs.getBoolean("apple_relay_email"),
@@ -212,6 +214,7 @@ class AccountHardDeleteWorkerTest : StringSpec({
             t.bio shouldBe null
             t.email shouldBe null
             t.google shouldBe null
+            t.apple shouldBe null
             t.device shouldBe null
             t.dob shouldBe LocalDate.of(1900, 1, 1)
             t.relay shouldBe false
