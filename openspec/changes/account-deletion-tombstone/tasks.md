@@ -60,6 +60,6 @@
 ## 8. Verification & deploy
 
 - [ ] 8.1 Local gate green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` + (mobile) `:mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`.
-- [ ] 8.2 UI-affecting (mobile) bring-up via `verify-loop` with screenshot evidence in the PR body BEFORE archive (Hapus Akun dialog + restore banner), per docs/11 §5 DoD.
-- [ ] 8.3 Pre-archive staging branch deploy + smoke (request → status → cancel → re-request → worker dry-run on a synthetic user); tick this before archive.
+- [x] 8.2 UI-affecting (mobile) bring-up via `verify-loop` with screenshot evidence in the PR body BEFORE archive (Hapus Akun dialog + restore banner), per docs/11 §5 DoD.
+- [x] 8.3 Pre-archive staging branch deploy + smoke (request → status → cancel → re-request → worker dry-run on a synthetic user); tick this before archive.
 - [ ] 8.4 (Deploy, stays unchecked until prod infra) Wire the Cloud Scheduler trigger for `/internal/account-hard-delete-worker` (daily), mirroring the existing internal-worker schedule pattern.
