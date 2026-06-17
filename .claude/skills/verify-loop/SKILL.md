@@ -39,7 +39,7 @@ Always also run the **gate** (§D) before declaring done.
 `KTOR_ENV=test` is the magic switch: Firebase Admin SDK (FCM), OpenAI key, and Supabase service-role key are hard startup requirements unless `ktor.environment == "test"`, which fail-softs all three and binds NoOp Redis/cache. Without it, boot dies on missing cloud creds.
 
 **Always-required boot env** (NOT env-gated — `?: error(...)` at `Application.kt`):
-`KTOR_RSA_PRIVATE_KEY` (gen: `dev/scripts/generate-rsa-keypair.sh`), `SUPABASE_JWT_SECRET` (any base64), `SUPABASE_URL` + `INTERNAL_OIDC_AUDIENCE` (any dummy URL), `DB_URL` / `DB_USER` / `DB_PASSWORD`. Local dev Postgres: `localhost:5433`, `postgres`/`postgres`/`nearyou_dev`.
+`KTOR_RSA_PRIVATE_KEY` (gen: `dev/scripts/generate-rsa-keypair.sh`), `SUPABASE_JWT_SECRET` (any base64), `SUPABASE_URL` + `INTERNAL_OIDC_AUDIENCE` (any dummy URL), `INVITE_CODE_SECRET` (any base64), `JITTER_SECRET` (base64 of **exactly 32 bytes** — `openssl rand -base64 32`; a `require(size == 32)` rejects any other length), `DB_URL` / `DB_USER` / `DB_PASSWORD`. Local dev Postgres: `localhost:5433`, `postgres`/`postgres`/`nearyou_dev`.
 
 **Boot:**
 ```bash
