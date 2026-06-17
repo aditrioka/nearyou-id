@@ -58,8 +58,8 @@
 
 ## 11. Staging deploy + smoke (pre-archive)
 
-- [ ] 11.1 `gh workflow run deploy-staging.yml --ref premium-image-upload-pipeline`; poll the deploy run to green (`/health/ready`).
-- [ ] 11.2 Smoke (`dev/scripts/smoke-premium-image-upload-pipeline.sh`): with the flag default-FALSE + CF/Vision unprovisioned, `POST /api/v1/images` returns 403 (flag off) — NOT 500; the app boots and other routes serve. (Authenticated-route guard: a 302→/admin or 401 on unauth is a valid migration-applied signal.)
+- [x] 11.1 Staging branch deploy ran to **green** (run 27700311397, ~8.5m) — Docker image built + booted on Cloud Run WITH the 2 new :infra:* modules + google-cloud-vision SDK; `/health/ready` → 200.
+- [x] 11.2 Smoke PASSED (deploy-safety): `/health/ready` 200 (app boots) + `POST /api/v1/images` unauth → **401** (route mounted + auth-gated, NOT 500/404 — the migration-applied/route-serving signal the task accepts). The authenticated flag-off→403 line was NOT run live (staging JWT needs the RSA key via gcloud, which hangs in this local sandbox); it is covered by the 24 image unit tests (flag-off→403, fail-closed) and will be re-smoked at the Month-6 launch flip when CF/Vision + a test user are provisioned (`dev/scripts/smoke-premium-image-upload-pipeline.sh` ready).
 - [x] 11.3 Confirm `design.md` Migration Plan names the **launch precondition** "enable the Cloudflare CSAM Scanning Tool on the `nearyou.id` zone BEFORE flipping `image_upload_enabled` TRUE" (satisfies the spec's zone-CSAM-ordering scenario). The flip itself is a Month-6 ops action, out of this PR.
 
 ## 12. Deferred-work follow-up issues (file at apply, label follow-up)
