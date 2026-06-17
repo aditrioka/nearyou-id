@@ -37,7 +37,11 @@ data class NearbyPostDto(
     val content: String,
     val latitude: Double,
     val longitude: Double,
-    val distanceM: Double,
+    // Nullable as of the hide-distance capability: the backend OMITS distanceM (explicitNulls=false)
+    // when the symmetric hide rule suppresses it for this (author, viewer) pair. A non-null value is
+    // raw meters; an absent one means "distance hidden" → the card renders city-only (the shipped
+    // null-tolerant PostCard needs no change). A non-null declaration would throw MissingFieldException.
+    val distanceM: Double? = null,
     @SerialName("city_name") val cityName: String,
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,

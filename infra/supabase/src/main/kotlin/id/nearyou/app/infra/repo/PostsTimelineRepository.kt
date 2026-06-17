@@ -19,6 +19,12 @@ data class TimelineRow(
     val likedByViewer: Boolean,
     val replyCount: Int,
     val cityName: String? = null,
+    // Author's effective hide-distance preference, projected from the per-arm author join
+    // (hide-distance capability): `hide_distance_opt_in AND subscription_status IN
+    // ('premium_active','premium_billing_retry')`. Defaulted FALSE so Following/Global rows
+    // (which carry no distance) and existing constructors are unaffected. Combined with the
+    // viewer's preference by `effectiveDistanceMeters` to decide Nearby distance suppression.
+    val authorHidesDistance: Boolean = false,
 )
 
 interface PostsTimelineRepository {

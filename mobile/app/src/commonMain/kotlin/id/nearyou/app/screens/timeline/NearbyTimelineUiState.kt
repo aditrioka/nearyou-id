@@ -11,7 +11,8 @@ import id.nearyou.app.timeline.NearbyTimelineOutcome
  * `mobile-timeline-card-redesign` it carries the author **display** identity ([authorUsername] +
  * [authorDisplayName]) — the product-spec'd card header — which is display data, not the banned UUID.
  * [id] is the post's own UUID (not author PII), kept as a stable `LazyColumn` key. The user-facing
- * distance is produced from [distanceM] via `DistanceRenderer.render` at the card level.
+ * distance is produced from [distanceM] via `DistanceRenderer.render` at the card level WHEN non-null;
+ * [distanceM] is null when the backend suppressed it under the hide-distance rule (city renders alone).
  */
 data class NearbyTimelinePost(
     val id: String,
@@ -19,7 +20,7 @@ data class NearbyTimelinePost(
     val authorDisplayName: String,
     val content: String,
     val cityName: String,
-    val distanceM: Double,
+    val distanceM: Double?,
     val createdAt: String,
     val likedByViewer: Boolean,
     val replyCount: Int,

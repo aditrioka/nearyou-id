@@ -21,7 +21,7 @@ class JdbcUserRepository(
                google_id_hash, apple_id_hash, apple_relay_email,
                is_shadow_banned, is_banned, suspended_until,
                token_version, deleted_at, subscription_status,
-               username_last_changed_at
+               username_last_changed_at, hide_distance_opt_in
           FROM users
         """.trimIndent()
 
@@ -208,5 +208,6 @@ class JdbcUserRepository(
             deletedAt = getTimestamp("deleted_at")?.toInstant(),
             subscriptionStatus = getString("subscription_status") ?: "free",
             usernameLastChangedAt = getTimestamp("username_last_changed_at")?.toInstant(),
+            hideDistanceOptIn = getBoolean("hide_distance_opt_in"),
         )
 }

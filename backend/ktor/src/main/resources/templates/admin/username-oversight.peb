@@ -1,0 +1,21 @@
+{% extends "layout.peb" %}
+
+{% block title %}Username Oversight — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Premium Username Change Oversight</h2>
+<p class="pg-sub">username_history viewer + flagged-candidate resolution + 30-day-hold manual release</p>
+
+{# Read-only viewer + two write actions. Accept writes a one-shot, per-candidate
+   override (the approved handle passes on the user's NEXT change only) — never a
+   per-user moderation bypass. Reject confirms the block. Manual release force-ends
+   a 30-day re-claim hold (impersonation complaints over a legitimately-relinquished
+   handle). All writes are CSRF- + write-role-gated, rate-limited, and audit-logged. #}
+<div class="banner info">
+    The <code>username_history</code> viewer is read-only — usernames change only via the
+    user-facing endpoint. <b>Accept (override)</b> approves the shown candidate for the
+    user's <b>next</b> change only (one-shot). All actions are audit-logged.
+</div>
+
+{% include "username-oversight-table.peb" %}
+{% endblock %}

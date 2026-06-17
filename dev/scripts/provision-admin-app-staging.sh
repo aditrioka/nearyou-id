@@ -24,11 +24,12 @@
 #      ROLE with same password if the role already exists — keeps the
 #      secret + role in sync on re-runs).
 #   2. GRANT USAGE ON SCHEMA public TO admin_app.
-#   3. GRANT scoped per-table privileges on the 23 operational tables
-#      (V1-V16) — enumerated explicitly, NOT `ON ALL TABLES`. New
+#   3. GRANT scoped per-table privileges on the operational tables
+#      (V1-V23) — enumerated explicitly, NOT `ON ALL TABLES`. New
 #      tables shipped in future migrations require an explicit grant
 #      added here (the per-migration cost is the price of least-
-#      privilege auditability).
+#      privilege auditability). V23 added username_flag_overrides
+#      (admin-premium-username-oversight; SELECT/INSERT/UPDATE).
 #   4. GRANT SELECT on the two views (visible_posts, visible_users)
 #      so admin code can use shadow-ban-aware reads.
 #   5. REVOKE UPDATE, DELETE ON admin_actions_log FROM admin_app —
@@ -213,6 +214,14 @@ GRANT SELECT ON moderation_queue TO admin_app;
 GRANT INSERT ON moderation_queue TO admin_app;
 GRANT UPDATE ON moderation_queue TO admin_app;
 GRANT DELETE ON moderation_queue TO admin_app;
+-- username_flag_overrides (V23, admin-premium-username-oversight): the admin
+-- "accept" side INSERTs/UPDATEs a one-shot per-candidate approval (upsertApproval);
+-- SELECT backs no admin read today but is granted for parity/diagnostics. No DELETE
+-- (the admin never deletes an override; the live PATCH gate CONSUMES it via UPDATE,
+-- and that runs under the main API role, not admin_app).
+GRANT SELECT ON username_flag_overrides TO admin_app;
+GRANT INSERT ON username_flag_overrides TO admin_app;
+GRANT UPDATE ON username_flag_overrides TO admin_app;
 
 -- 3e. Notifications + push.
 GRANT SELECT ON notifications TO admin_app;

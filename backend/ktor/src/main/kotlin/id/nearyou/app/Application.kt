@@ -105,6 +105,7 @@ import id.nearyou.app.infra.repo.JdbcSinglePostRepository
 import id.nearyou.app.infra.repo.JdbcUserBlockRepository
 import id.nearyou.app.infra.repo.JdbcUserFollowsRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.infra.repo.JdbcUsernameFlagOverrideRepository
 import id.nearyou.app.infra.repo.PostEditHistoryQuery
 import id.nearyou.app.infra.repo.PostRepository
 import id.nearyou.app.infra.repo.PostsFollowingRepository
@@ -161,6 +162,7 @@ import id.nearyou.app.timeline.globalTimelineRoutes
 import id.nearyou.app.timeline.timelineRoutes
 import id.nearyou.app.user.ConsentRepository
 import id.nearyou.app.user.FcmTokenRepository
+import id.nearyou.app.user.HideDistanceRepository
 import id.nearyou.app.user.JdbcActorUsernameLookup
 import id.nearyou.app.user.JdbcUserFcmTokenReader
 import id.nearyou.app.user.JdbcUserProfileReader
@@ -170,6 +172,7 @@ import id.nearyou.app.user.UsernameChangeService
 import id.nearyou.app.user.UsernameRateLimiter
 import id.nearyou.app.user.consentRoutes
 import id.nearyou.app.user.fcmTokenRoutes
+import id.nearyou.app.user.hideDistanceRoutes
 import id.nearyou.app.user.userProfileRoutes
 import id.nearyou.app.user.userUsernameRoutes
 import id.nearyou.data.repository.ActorUsernameLookup
@@ -185,6 +188,7 @@ import id.nearyou.data.repository.SearchRepository
 import id.nearyou.data.repository.UserFcmTokenReader
 import id.nearyou.data.repository.UserFollowsRepository
 import id.nearyou.data.repository.UserProfileReader
+import id.nearyou.data.repository.UsernameFlagOverrideRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpHeaders
@@ -585,6 +589,10 @@ fun Application.module() {
     // moderation pipeline scaffolding instead of further down with the report
     // wiring so both consumers reach it without forward references.
     val moderationQueueRepository: ModerationQueueRepository = JdbcModerationQueueRepository()
+    // Shared by UsernameChangeService (consult/consume the one-shot per-candidate
+    // approval) and, out-of-session, the admin-premium-username-oversight write path
+    // (upsertApproval on accept). Stateless above the connection seam — one binding.
+    val usernameFlagOverrideRepository: UsernameFlagOverrideRepository = JdbcUsernameFlagOverrideRepository()
     // createPostService is constructed AFTER the shared rateLimiter (below) so its
     // PostRateLimiter (docs/05 daily cap; 02-M2) rides the same Redis seam.
     val userBlockRepository: UserBlockRepository = JdbcUserBlockRepository(dataSource)
@@ -909,6 +917,7 @@ fun Application.module() {
             reserved = reservedUsernames,
             history = usernameHistoryRepository,
             moderationQueue = moderationQueueRepository,
+            flagOverrides = usernameFlagOverrideRepository,
             textModerator = textModerator,
             notificationEmitter = notificationEmitter,
             remoteConfig = remoteConfig,
@@ -927,6 +936,7 @@ fun Application.module() {
         )
     val fcmTokenRepository = FcmTokenRepository(dataSource, dbDispatchers.db)
     val consentRepository = ConsentRepository(dataSource, dbDispatchers.db)
+    val hideDistanceRepository = HideDistanceRepository(dataSource, dbDispatchers.db)
     val referralRepository = ReferralRepository(dataSource)
     val referralService =
         ReferralService(
@@ -999,6 +1009,7 @@ fun Application.module() {
                 single { timelineReadRateLimiter }
                 single<ReportRepository> { reportRepository }
                 single<ModerationQueueRepository> { moderationQueueRepository }
+                single<UsernameFlagOverrideRepository> { usernameFlagOverrideRepository }
                 single<PostAutoHideRepository> { postAutoHideRepository }
                 single { reportRateLimiter }
                 single { reportService }
@@ -1013,6 +1024,7 @@ fun Application.module() {
                 single<ActorUsernameLookup> { actorUsernameLookup }
                 single { fcmTokenRepository }
                 single { consentRepository }
+                single { hideDistanceRepository }
                 single<OidcTokenVerifier> { oidcTokenVerifier }
                 single { suspensionUnbanWorker }
             },
@@ -1047,6 +1059,7 @@ fun Application.module() {
     notificationRoutes(notificationService)
     fcmTokenRoutes(fcmTokenRepository)
     consentRoutes(consentRepository)
+    hideDistanceRoutes(hideDistanceRepository)
 
     // /internal/* — Cloud-Scheduler-invoked job endpoints. The OIDC gate is
     // installed PER JOB SUBTREE inside unbanWorkerRoute (internal-endpoint-auth
@@ -1103,6 +1116,10 @@ fun Application.module() {
         },
         environmentName = ktorEnv,
         remoteConfigPublisher = remoteConfigPublisher,
+        // Pass the SAME override-store instance the username-change gate uses, so
+        // the admin "accept" approvals and the live consult/consume share one repo
+        // (admin-premium-username-oversight Decision 2).
+        usernameFlagOverrideRepository = usernameFlagOverrideRepository,
     )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime

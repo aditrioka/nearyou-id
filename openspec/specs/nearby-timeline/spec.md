@@ -191,7 +191,7 @@ A successful response SHALL be HTTP 200 with body:
       "content": "<string>",
       "latitude": <double>,
       "longitude": <double>,
-      "distanceM": <double>,
+      "distanceM": <double — present only when not hidden; omitted when the hide-distance rule applies>,
       "city_name": "<string>",
       "createdAt": "<ISO-8601 UTC>",
       "liked_by_viewer": <boolean>,
@@ -204,7 +204,7 @@ A successful response SHALL be HTTP 200 with body:
 
 (The example reflects the SHIPPED mixed-case wire of `TimelineRoutes.kt` — bare camelCase `authorUserId`/`authorUsername`/`authorDisplayName`/`distanceM`/`createdAt`/`nextCursor`; `@SerialName` snake_case `city_name`/`liked_by_viewer`/`reply_count`. `city_name` was added by V11 per § "Response projects city_name on every post as of V11" and is included here for example accuracy. The shape is UNCHANGED by `shadow-ban-feed-self-visibility` — self-arm rows serialize identically to visible-arm rows.)
 
-The `latitude`/`longitude` fields MUST be derived from `display_location` (NOT `actual_location`) — including on the viewer's own self-arm rows (the author sees their own post at its fuzzed location). The `distanceM` field MUST be the value computed by `ST_Distance(display_location, ST_MakePoint(:lng, :lat)::geography)` in the SQL query — server-computed, returned in raw meters.
+The `latitude`/`longitude` fields MUST be derived from `display_location` (NOT `actual_location`) — including on the viewer's own self-arm rows (the author sees their own post at its fuzzed location). The `distanceM` field, WHEN PRESENT, MUST be the value computed by `ST_Distance(display_location, ST_MakePoint(:lng, :lat)::geography)` in the SQL query — server-computed, returned in raw meters. As of the `hide-distance` capability, `distanceM` is **conditionally present**: it MUST be OMITTED from a post's response object (via the app-wide `explicitNulls = false`; neither a number nor `null` on the wire) when the symmetric hide-distance rule applies to that (author, viewer) pair — i.e. when the post author's hide-distance preference is effective OR the requesting viewer's preference is effective (effectiveness = `hide_distance_opt_in = TRUE AND subscription_status IN ('premium_active','premium_billing_retry')`, per the `hide-distance` capability). Suppressing `distanceM` MUST NOT change which posts are returned, their order, the radius filter, or the `city_name` value — only the presence of the distance number. The canonical query is extended to project the **author's** effective-hide input from the existing per-arm author join (no new JOIN); the **viewer's** effective-hide is read from the auth principal (no per-request `users` SELECT in the timeline handler — preserving the `timeline-read-rate-limit` invariant), not from the query.
 
 The `liked_by_viewer` field MUST be a JSON Boolean and MUST be present on EVERY post in the response (never omitted, never null). It MUST be `true` if and only if a `post_likes` row exists with `(post_id = <that post's id>, user_id = <caller>)`; otherwise `false`. The value is derived from the `LEFT JOIN post_likes` in the canonical query.
 
@@ -222,11 +222,15 @@ The `authorUsername` and `authorDisplayName` fields (added by `mobile-timeline-c
 
 #### Scenario: Self-arm rows expose only the fuzzed location to their own author
 - **WHEN** shadow-banned caller A's own post appears in A's Nearby response
-- **THEN** its `latitude`/`longitude`/`distanceM` derive from `display_location` exactly like every other row (no `actual_location` leak on the own-content path)
+- **THEN** its `latitude`/`longitude` derive from `display_location` exactly like every other row (no `actual_location` leak on the own-content path), and `distanceM` (when present) likewise derives from `display_location`
 
-#### Scenario: distanceM is raw meters
-- **WHEN** the response contains a post for which `ST_Distance(display_location, viewer_loc)` is approximately 1234.5 meters
+#### Scenario: distanceM is raw meters when present
+- **WHEN** the response contains a post whose distance is NOT hidden AND for which `ST_Distance(display_location, viewer_loc)` is approximately 1234.5 meters
 - **THEN** the response field `distanceM` is approximately 1234.5 (NOT a formatted "1km" string)
+
+#### Scenario: distanceM is omitted when the hide-distance rule applies
+- **WHEN** a post's distance is suppressed for the requesting viewer (the author's hide-distance preference is effective, OR the viewer's preference is effective)
+- **THEN** that post's response object contains NO `distanceM` key (neither a number nor `null`) AND still contains its `city_name`, `liked_by_viewer`, and `reply_count` fields unchanged
 
 #### Scenario: liked_by_viewer true when caller has liked the post
 - **WHEN** a post P is in the response AND a `post_likes` row `(P, caller)` exists
@@ -312,11 +316,15 @@ The Nearby canonical SQL (see existing `nearby-timeline` requirement "Canonical 
 
 ### Requirement: Existing Nearby response fields unchanged
 
-V11 MUST NOT remove, rename, or change the type of any existing Nearby response field (`id`, `author_user_id`, `content`, `latitude`, `longitude`, `distance_m`, `created_at`, `liked_by_viewer`, `reply_count`). The addition of `city_name` is the only response-shape change from V10 to V11 on the Nearby endpoint.
+V11 MUST NOT remove, rename, or change the type of any existing Nearby response field (`id`, `author_user_id`, `content`, `latitude`, `longitude`, `distance_m`, `created_at`, `liked_by_viewer`, `reply_count`). The addition of `city_name` is the only response-shape change from V10 to V11 on the Nearby endpoint. As of the `hide-distance` capability, the `distanceM` field is no longer unconditionally present: it is RAW METERS when shown but OMITTED when the symmetric hide-distance rule applies (per the "Response shape" requirement). This is a deliberate, separately-specified change to the *presence* of `distanceM` ONLY — its type-when-present (raw-meters double), name, and the presence/type of every other field remain unchanged.
 
-#### Scenario: distance_m still present and raw meters
-- **WHEN** a post in a Nearby response has `ST_Distance(display_location, viewer_loc)` ≈ 1234.5 meters
-- **THEN** `response.posts[i].distance_m ≈ 1234.5` (unchanged from V8)
+#### Scenario: distance_m present and raw meters when not hidden
+- **WHEN** a post in a Nearby response has `ST_Distance(display_location, viewer_loc)` ≈ 1234.5 meters AND the hide-distance rule does NOT apply to it
+- **THEN** `response.posts[i].distanceM ≈ 1234.5` (unchanged from V8; raw meters)
+
+#### Scenario: distance_m omitted only via the hide-distance rule
+- **WHEN** the hide-distance rule applies to a post for the requesting viewer
+- **THEN** `distanceM` is absent on that post object (the only sanctioned reason for omission) AND every other field retains its V11 presence and type
 
 #### Scenario: liked_by_viewer and reply_count still present
 - **WHEN** the Nearby response contains any post
@@ -347,7 +355,7 @@ The route handler MUST:
 - Validate the `X-Session-Id` header per `timeline-read-rate-limit` § "X-Session-Id header validation"; substitute with `no-session` on missing or malformed values.
 - For Premium callers (`subscription_status IN ('premium_active', 'premium_billing_retry')`): SKIP both pre-checks and post-increment entirely. Run the canonical Nearby query and respond per the existing shape; never include the `upsell` field.
 
-The existing Nearby requirements ("Canonical query joins visible_posts and excludes blocks bidirectionally", "Keyset pagination on (created_at DESC, id DESC)", "Per-page cap of 30", "Response shape", "Response projects city_name on every post as of V11", and the V11-extended Integration test coverage requirement) remain unchanged. The rate-limit gate is a NEW pre-DB short-circuit; it does NOT alter the SQL query, the response post shape (per-post fields are unchanged), the cursor format, or any of the V5–V11 invariants.
+The existing Nearby requirements ("Canonical query joins visible_posts and excludes blocks bidirectionally", "Keyset pagination on (created_at DESC, id DESC)", "Per-page cap of 30", "Response shape", "Response projects city_name on every post as of V11", and the V11-extended Integration test coverage requirement) remain unchanged. The rate-limit gate is a NEW pre-DB short-circuit; it does NOT alter the SQL query, the cursor format, or any of the V5–V11 invariants. The response post shape is unchanged by the rate-limit gate itself; the only per-post-field change anywhere on this endpoint is the conditional omission of `distanceM` under the `hide-distance` rule (per the "Response shape" requirement) — every other per-post field is unchanged.
 
 #### Scenario: Free Nearby read at rolling cap returns empty + upsell.hard
 - **WHEN** Free-tier caller A's rolling bucket holds 150 entries AND A issues `GET /api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=1000`
@@ -363,7 +371,7 @@ The existing Nearby requirements ("Canonical query joins visible_posts and exclu
 
 #### Scenario: Nearby below caps — response shape unchanged
 - **WHEN** Free caller A is below both caps AND issues a Nearby read returning 5 posts
-- **THEN** the response body matches the existing Nearby response shape exactly (the `upsell` key is NOT present) AND all V5–V11 per-post fields are present (id, author_user_id, content, latitude, longitude, distance_m, created_at, liked_by_viewer, reply_count, city_name)
+- **THEN** the response body matches the existing Nearby response shape exactly (the `upsell` key is NOT present) AND all V5–V11 per-post fields are present (id, author_user_id, content, latitude, longitude, created_at, liked_by_viewer, reply_count, city_name) AND `distanceM` is present on each post UNLESS that post is subject to the `hide-distance` rule (per the "Response shape" requirement — the only sanctioned omission)
 
 #### Scenario: Nearby empty radius result still consumes 1 rolling slot
 - **WHEN** Free-tier caller A is at slot 0/150 rolling AND issues a Nearby read where the spatial filter returns zero posts (e.g., a remote ocean coordinate where no posts exist)
