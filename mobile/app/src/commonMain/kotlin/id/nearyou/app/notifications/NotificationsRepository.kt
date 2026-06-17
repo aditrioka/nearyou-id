@@ -1,9 +1,10 @@
 package id.nearyou.app.notifications
 
 /**
- * Orchestrates a notifications first-page fetch: call `GET /api/v1/notifications` (NO cursor on the first
- * page) → map the HTTP **status** to exactly one [NotificationsOutcome] (design D8). There is no generic
- * "load failed" fallthrough; `401` is delegated to the shipped `Auth` plugin (this repository MUST NOT
+ * Orchestrates a notifications fetch: call `GET /api/v1/notifications` (NO cursor on the first page; the
+ * opaque `next_cursor` sent back verbatim on [loadMore], reusing the first page's `unread=false` filter) →
+ * map the HTTP **status** to exactly one [NotificationsOutcome] (design D8). There is no generic "load
+ * failed" fallthrough; `401` is delegated to the shipped `Auth` plugin (this repository MUST NOT
  * reimplement token refresh / re-route). The unread-count / mark-read / mark-all-read pass-throughs back
  * the badge + the optimistic read mutations.
  *
@@ -53,6 +54,42 @@ class NotificationsRepository(
                     // generic "load failed" fallthrough (mirrors GlobalTimelineRepository).
                     else -> {
                         diagnosticLog("notifications_unexpected_status: status=${result.status}")
+                        NotificationsOutcome.NetworkError
+                    }
+                }
+        }
+
+    override suspend fun loadMore(cursor: String): NotificationsOutcome =
+        // Reuse the SAME unread filter the first page used (the default unread=false — the full inbox), so
+        // paging never narrows mid-scroll. No spatial anchor (unlike Nearby). Same status→outcome mapping
+        // as loadFirstPage, with load-more-specific diagnostic tags. The diagnostic carries ONLY the
+        // status / outcome type — NEVER actor_user_id / target_id / body_data / the body / any token.
+        when (val result = apiClient.fetch(cursor = cursor, unreadOnly = false)) {
+            is NotificationsApiResult.Success ->
+                NotificationsOutcome.Loaded(
+                    items = result.body.items,
+                    nextCursor = result.body.nextCursor,
+                )
+            is NotificationsApiResult.NetworkError -> {
+                diagnosticLog("notifications_loadmore_error: outcome=NetworkError")
+                NotificationsOutcome.NetworkError
+            }
+            is NotificationsApiResult.HttpError ->
+                when {
+                    result.status == 400 -> {
+                        diagnosticLog("notifications_loadmore_invalid_request: status=400")
+                        NotificationsOutcome.Error
+                    }
+                    result.status == 401 -> {
+                        diagnosticLog("notifications_loadmore_session_expired: status=401")
+                        NotificationsOutcome.SessionExpired
+                    }
+                    result.status in 500..599 -> {
+                        diagnosticLog("notifications_loadmore_server_error: status=${result.status}")
+                        NotificationsOutcome.NetworkError
+                    }
+                    else -> {
+                        diagnosticLog("notifications_loadmore_unexpected_status: status=${result.status}")
                         NotificationsOutcome.NetworkError
                     }
                 }

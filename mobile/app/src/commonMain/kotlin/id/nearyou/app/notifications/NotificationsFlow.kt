@@ -8,11 +8,20 @@ package id.nearyou.app.notifications
  */
 interface NotificationsFlow {
     /**
-     * Loads the first page of the notifications feed. Pull-to-refresh + error-retry re-invoke this; the
-     * returned [NotificationsOutcome.Loaded.nextCursor] is retained but NOT consumed for load-more
-     * (infinite scroll deferred alongside `mobile-nearby-timeline-infinite-scroll`).
+     * Loads the first page of the notifications feed (with the default `unread=false` filter — the full
+     * inbox). Pull-to-refresh + error-retry re-invoke this; the returned
+     * [NotificationsOutcome.Loaded.nextCursor] drives [loadMore] (cursor infinite scroll,
+     * `mobile-nearby-timeline-infinite-scroll` extended to notifications).
      */
     suspend fun loadFirstPage(): NotificationsOutcome
+
+    /**
+     * Loads a subsequent page for [cursor] — the opaque `next_cursor` from the prior page, sent back
+     * verbatim — reusing the SAME `unread` filter the first page used (`unread=false`, the full inbox), so
+     * paging never narrows mid-scroll. Same status→outcome mapping as [loadFirstPage]; there is no spatial
+     * anchor (unlike the Nearby feed) and no rate-limit / `upsell` state.
+     */
+    suspend fun loadMore(cursor: String): NotificationsOutcome
 
     /**
      * The unread-count badge source (`GET /api/v1/notifications/unread-count`). Returns the count on
@@ -41,7 +50,7 @@ sealed interface NotificationsOutcome {
     /**
      * HTTP 200. Carries the raw parsed [items] (incl. the `actorUserId` / `targetId` fields that the
      * UI-state projection STRIPS — PII never reaches the rendered state) and the opaque [nextCursor]
-     * (retained, not yet used for load-more).
+     * (the load-more cursor; `null` ⇒ end-reached).
      */
     data class Loaded(
         val items: List<NotificationDto>,
