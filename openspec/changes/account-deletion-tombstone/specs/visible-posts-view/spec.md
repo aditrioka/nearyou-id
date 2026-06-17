@@ -35,7 +35,7 @@ The `p.deleted_at IS NULL` predicate keeps the V4 partial cursor indexes (`WHERE
 
 ### Requirement: View excludes shadow-banned authors and soft-deleted posts, but surfaces tombstoned authors' posts
 
-Rows whose author has `is_shadow_banned = TRUE`, and rows that are themselves soft-deleted (`posts.deleted_at IS NOT NULL`), MUST NOT appear in `visible_posts`. As of V24 (`account-deletion-tombstone`), rows whose author is **tombstoned** (`users.deleted_at IS NOT NULL` — a hard-deleted account) MUST still APPEAR in `visible_posts` (rendered anonymized via the author's nulled `display_name` + `deleted_user_` handle), per `docs/06` § Account Deletion ("posts remain, author becomes Akun Dihapus"). This reverses the V20 author-soft-delete exclusion specifically for the account-deletion tombstone case; the shadow-ban exclusion is unchanged and dominates (a shadow-banned-then-deleted author stays hidden). The own-content exception — a shadow-banned user sees their OWN content — is carried by the consuming layer (the Repository own-content paths and the `shadow-ban-feed-self-visibility` viewer-aware self arms), unchanged here; a tombstoned user has no session to view anything.
+Rows whose author has `is_shadow_banned = TRUE`, and rows that are themselves soft-deleted (`posts.deleted_at IS NOT NULL`), MUST NOT appear in `visible_posts`. As of V24 (`account-deletion-tombstone`), rows whose author is **tombstoned** (`users.deleted_at IS NOT NULL` — a hard-deleted account) MUST still APPEAR in `visible_posts` (rendered anonymized via the author's server-set `display_name = 'Akun Dihapus'` + `deleted_user_` handle), per `docs/06` § Account Deletion ("posts remain, author becomes Akun Dihapus"). This reverses the V20 author-soft-delete exclusion specifically for the account-deletion tombstone case; the shadow-ban exclusion is unchanged and dominates (a shadow-banned-then-deleted author stays hidden). The own-content exception — a shadow-banned user sees their OWN content — is carried by the consuming layer (the Repository own-content paths and the `shadow-ban-feed-self-visibility` viewer-aware self arms), unchanged here; a tombstoned user has no session to view anything.
 
 #### Scenario: Shadow-banning an author hides their posts live
 - **WHEN** `users.is_shadow_banned` is flipped to `TRUE` for an author with existing posts
@@ -47,7 +47,7 @@ Rows whose author has `is_shadow_banned = TRUE`, and rows that are themselves so
 
 #### Scenario: Tombstoned author's posts are surfaced (anonymized), not excluded
 - **WHEN** an author row has `deleted_at IS NOT NULL` (hard-deleted) but `is_shadow_banned = FALSE`, and a non-auto-hidden, non-soft-deleted post of theirs
-- **THEN** `SELECT 1 FROM visible_posts WHERE id = <that post>` returns one row (the post surfaces; the author's nulled identity renders "Akun Dihapus" at the consuming layer)
+- **THEN** `SELECT 1 FROM visible_posts WHERE id = <that post>` returns one row (the post surfaces; the author's server-set `display_name = 'Akun Dihapus'` renders at the consuming layer)
 
 #### Scenario: Shadow-banned AND tombstoned author stays hidden
 - **WHEN** an author has BOTH `is_shadow_banned = TRUE` AND `deleted_at IS NOT NULL`

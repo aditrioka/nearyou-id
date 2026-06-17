@@ -45,11 +45,18 @@ An internal worker endpoint `/internal/account-hard-delete-worker` (triggered by
 
 ### Requirement: Hard-delete tombstones the user row
 
-For each due request, the worker SHALL, in one transaction, tombstone the user: set `users.deleted_at = NOW()`; NULL the PII columns `display_name`, `bio`, `google_id_hash`, `apple_id_hash`, `device_fingerprint_hash`, `date_of_birth`, `email`; reset the residual Apple-identity flag `apple_relay_email` to its default `FALSE` (it is part of the Apple-identity cluster being erased — `docs/06:325`'s PII list omits it but the shipped V2 schema carries it); and rename `username` to a collision-free `deleted_user_`-prefixed handle derived from the user id (e.g. `'deleted_user_' || left(id::text, 8)`, widened as needed to preserve the `username` UNIQUE constraint). The `username` UPDATE site MUST carry the `// @allow-username-write: deletion` allowlist annotation (the username-write lint invariant) and MUST stay within the 60-char schema ceiling. The user ROW is NOT row-deleted — it persists as a tombstone so retained content (posts/replies/chat) can anonymize against it.
+For each due request, the worker SHALL, in one transaction, tombstone the user: set `users.deleted_at = NOW()` and **erase the PII set**. Because the shipped V2 schema makes some PII columns `NOT NULL` (and `date_of_birth` carries a `>= 18y` CHECK), erasure uses NULL for the nullable columns and a placeholder/sentinel for the `NOT NULL` ones (the canonical tombstone pattern — you cannot violate `NOT NULL`):
+- NULL the nullable PII columns: `bio`, `google_id_hash`, `apple_id_hash`, `device_fingerprint_hash`, `email`.
+- Set `display_name = 'Akun Dihapus'` (the `NOT NULL` real-name column → the canonical docs/06 placeholder; replacing the real name erases the PII AND makes every server-rendered surface show "Akun Dihapus" with no client logic).
+- Set `date_of_birth` to a CHECK-satisfying sentinel `DATE '1900-01-01'` (the `NOT NULL` + `>= 18y` CHECK forbids NULL; the sentinel erases the real DOB).
+- Reset the residual Apple-identity flag `apple_relay_email = FALSE` (part of the Apple cluster; `docs/06:325`'s list omits it but the shipped schema carries it).
+- Rename `username = 'deleted_user_' || left(id::text, 8)` (collision-free, widened as needed to preserve the `username` UNIQUE constraint).
 
-#### Scenario: Tombstone nulls exactly the specified PII set
+The `username` (and `display_name`) UPDATE site MUST carry the `// @allow-username-write: deletion` allowlist annotation (the username-write lint invariant) and MUST stay within the 60-char `username` ceiling. The user ROW is NOT row-deleted — it persists as a tombstone so retained content (posts/replies/chat) can anonymize against it.
+
+#### Scenario: Tombstone erases the PII set
 - **WHEN** the worker hard-deletes a user
-- **THEN** afterward that `users` row has `deleted_at` set, `display_name / bio / google_id_hash / apple_id_hash / device_fingerprint_hash / date_of_birth / email` all NULL, `apple_relay_email = FALSE`, and `username` matching `^deleted_user_[0-9a-f]{8,}$` (the `deleted_user_` prefix + a unique id-derived suffix)
+- **THEN** afterward that `users` row has `deleted_at` set, `bio / google_id_hash / apple_id_hash / device_fingerprint_hash / email` all NULL, `display_name = 'Akun Dihapus'`, `date_of_birth = DATE '1900-01-01'`, `apple_relay_email = FALSE`, and `username` matching `^deleted_user_[0-9a-f]{8,}$` (the `deleted_user_` prefix + a unique id-derived suffix)
 
 #### Scenario: A tombstoned user cannot sign back in to the same account
 - **WHEN** the (nulled) `google_id_hash` / `apple_id_hash` are searched for at a later sign-in
@@ -75,9 +82,9 @@ The worker SHALL NOT delete the user's authored content rows: `posts` (and their
 - **WHEN** the worker hard-deletes a user who authored posts, replies, likes, post-edits, chat messages, and submitted reports
 - **THEN** those rows still exist (none deleted), now associated with the tombstoned user
 
-#### Scenario: Like counts are unchanged by the author's deletion
-- **WHEN** a post had 5 likes, one of them from a user who is then hard-deleted
-- **THEN** the post's like count remains 5 (the like row is retained)
+#### Scenario: A hard-deleted user's likes are retained
+- **WHEN** a user who liked posts is hard-deleted
+- **THEN** their `post_likes` rows still exist (retained, not cascade-deleted — the like row anchors to the tombstoned user)
 
 #### Scenario: Submitted reports are retained
 - **WHEN** the worker hard-deletes a user who had submitted reports
@@ -93,11 +100,11 @@ This worker is the "tombstone / hard-delete worker (separate future change)" tha
 
 ### Requirement: Tombstoned authors' content surfaces in feeds rendered as "Akun Dihapus"
 
-A tombstoned (hard-deleted) author's non-hidden, non-soft-deleted posts SHALL remain visible in every post-listing read surface — Nearby, Following, and Global timelines, post detail, and reply lists — with the author identity rendered from the nulled `display_name` + `deleted_user_` handle (the client maps this to the user-facing "Akun Dihapus" string). The shadow-ban, post-soft-delete, and bidirectional-block predicates on those surfaces MUST continue to apply (see `visible-posts-view` for the view-level mechanism; the Nearby/Global raw-`posts` queries and post-detail/reply-list relax ONLY the author-side `deleted_at` predicate). Profile read, search, and active-user metrics are deliberately NOT relaxed — a tombstoned user stays a `404` profile, non-discoverable in search, and uncounted as active.
+A tombstoned (hard-deleted) author's non-hidden, non-soft-deleted **posts** SHALL remain visible in the post-listing read surfaces — the Nearby, Following, and Global timelines and post detail — with the author identity rendered as the server-set placeholder (`display_name = 'Akun Dihapus'`, `username = deleted_user_…`; the identity join reads raw `users`, since `visible_posts` already excludes shadow-banned authors). The shadow-ban, post-soft-delete, and bidirectional-block predicates on those surfaces MUST continue to apply (`visible_posts` V24 is the view-level mechanism; the timeline + single-post identity join switches from `visible_users` to `users`). Profile read, search, and active-user metrics are deliberately NOT relaxed — a tombstoned user stays a `404` profile, non-discoverable in search, and uncounted as active. **Reply lists and reply/like counters are out of this surfacing's scope (design D10):** a tombstoned replier's reply is RETAINED in the DB but filtered from the public reply list + `reply_count` by the unchanged `visible_users` contributor-filter, exactly as a shadow-banned replier is — account deletion changes neither.
 
 #### Scenario: A tombstoned author's post appears in each feed surface, anonymized
 - **WHEN** an author with a visible post is hard-deleted, and a viewer loads the **Nearby**, **Following**, and **Global** timelines that would include that post
-- **THEN** on each surface the post is present with the author identity nulled (no `display_name`, `username` = `deleted_user_…`), so the client renders "Akun Dihapus" (post detail is covered by `single-post-read`; reply lists by `post-replies`)
+- **THEN** on each surface the post is present with the author identity anonymized (`display_name = 'Akun Dihapus'`, `username = deleted_user_…`) — rendered uniformly server-side (post detail is covered by `single-post-read`)
 
 #### Scenario: A tombstoned sender's chat messages still render for the peer
 - **WHEN** the sender of 1:1 messages is hard-deleted
@@ -119,9 +126,9 @@ A tombstoned (hard-deleted) author's non-hidden, non-soft-deleted posts SHALL re
 - **WHEN** a shadow-banned (NOT deleted) author loads their own Nearby/Global feed after V24
 - **THEN** they still see their own posts (the `shadow-ban-feed-self-visibility` UNION self-arm is byte-identical post-relaxation)
 
-#### Scenario: Reply and like counts are unaffected by a contributor's deletion
-- **WHEN** a post has 3 replies and 5 likes, one reply and one like by users who are then hard-deleted
-- **THEN** the post's `reply_count` stays 3 and like count stays 5 (the replies/likes are retained; their contributors are tombstoned, not removed)
+#### Scenario: A tombstoned replier is excluded from reply_count, like a shadow-banned one
+- **WHEN** a post has 3 replies, one authored by a user who is then hard-deleted
+- **THEN** the reply ROW is retained (not deleted) but the public `reply_count` is `2` — the `visible_users` contributor-filter excludes the tombstoned replier exactly as it excludes a shadow-banned replier (design D10); account deletion does not change the counter
 
 #### Scenario: A tombstoned author's profile is still 404
 - **WHEN** a viewer calls `GET /api/v1/users/{deleted_id}` for a hard-deleted user

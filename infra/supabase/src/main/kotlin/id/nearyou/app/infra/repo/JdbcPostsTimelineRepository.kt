@@ -25,10 +25,12 @@ class JdbcPostsTimelineRepository(
     ): List<TimelineRow> {
         // Canonical Nearby query per docs/05-Implementation.md § Timeline Implementation —
         // viewer-aware two-arm UNION ALL since shadow-ban-feed-self-visibility:
-        // - Visible arm: FROM visible_posts (auto-hide + soft-delete + author shadow-ban/delete
-        //   via the V20 view) restricted to author_id <> :viewer, with bidirectional user_blocks
-        //   exclusion (viewer-blocked authors AND authors-who-blocked-viewer both hidden) and
-        //   author identity via visible_users.
+        // - Visible arm: FROM visible_posts (auto-hide + post-soft-delete + author shadow-ban
+        //   via the V24 view; V24 surfaces tombstoned authors) restricted to author_id <> :viewer,
+        //   with bidirectional user_blocks exclusion (viewer-blocked authors AND
+        //   authors-who-blocked-viewer both hidden). Author identity via raw `users` so a
+        //   tombstoned author renders anonymized ('Akun Dihapus') — shadow-ban-safe since
+        //   visible_posts already excluded shadow-banned authors (account-deletion-tombstone).
         // - Self arm: the docs/05 own-content exception at the feed layer — raw posts scoped to
         //   author_id = :viewer AND deleted_at IS NULL (no is_auto_hidden filter: auto-hide is
         //   transparent to the author, reply-list parity; no shadow-ban filter: self-visibility
@@ -80,7 +82,7 @@ class JdbcPostsTimelineRepository(
                              u.display_name AS author_display_name, p.content,
                              p.display_location, p.city_name, p.created_at
                         FROM visible_posts p
-                        JOIN visible_users u ON u.id = p.author_id
+                        JOIN users u ON u.id = p.author_id
                        WHERE p.author_id <> ?
                          AND ST_DWithin(p.display_location, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)
                          AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?)

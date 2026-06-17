@@ -8,6 +8,6 @@ The earlier `post_replies` schema note — "the tombstone + hard-delete worker (
 - **WHEN** the hard-delete worker tombstones a user who authored replies
 - **THEN** those `post_replies` rows still exist (none removed) AND the `author_id RESTRICT` FK was never triggered (the worker `UPDATE`d the user, it did not row-delete them)
 
-#### Scenario: A tombstoned author's reply renders anonymized in the reply list
+#### Scenario: A tombstoned replier's reply is retained but filtered from the public reply list
 - **WHEN** a user who authored a reply on another user's post is hard-deleted, and a viewer loads that post's reply list
-- **THEN** the reply still appears with the replier identity nulled (no `display_name`, `deleted_user_` handle → "Akun Dihapus")
+- **THEN** the reply ROW is retained (not deleted — the `RESTRICT` FK never fired) but it is filtered from the public reply list by the unchanged `visible_users` contributor-filter, exactly as a shadow-banned replier's reply is (design D10; surfacing tombstoned repliers anonymized is a deferred follow-up)

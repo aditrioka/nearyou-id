@@ -43,9 +43,11 @@ class JdbcPostsGlobalRepository(
     ): List<TimelineRow> {
         // Canonical Global query per global-timeline spec — viewer-aware two-arm UNION ALL
         // since shadow-ban-feed-self-visibility:
-        //  - Visible arm: FROM visible_posts (V20 filters) restricted to author_id <> :viewer,
-        //    bidirectional user_blocks NOT-IN (BlockExclusionJoinRule: blocker_id = ? AND
-        //    blocked_id = ? both present), author identity via visible_users.
+        //  - Visible arm: FROM visible_posts (V24 filters; surfaces tombstoned authors) restricted
+        //    to author_id <> :viewer, bidirectional user_blocks NOT-IN (BlockExclusionJoinRule:
+        //    blocker_id = ? AND blocked_id = ? both present). Author identity via raw `users` so a
+        //    tombstoned author renders anonymized ('Akun Dihapus') — shadow-ban-safe since
+        //    visible_posts already excluded shadow-banned authors (account-deletion-tombstone).
         //  - Self arm: docs/05 own-content exception at the feed layer — raw posts scoped to
         //    author_id = :viewer AND deleted_at IS NULL (no is_auto_hidden / shadow-ban filter:
         //    both are invisible-to-the-author moderation states; soft-deleted stays hidden).
@@ -95,7 +97,7 @@ class JdbcPostsGlobalRepository(
                              u.display_name AS author_display_name, p.content,
                              p.display_location, p.city_name, p.created_at
                         FROM visible_posts p
-                        JOIN visible_users u ON u.id = p.author_id
+                        JOIN users u ON u.id = p.author_id
                        WHERE p.author_id <> ?
                          AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?)
                          AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?)

@@ -4,7 +4,7 @@
 
 For a read where the post's author is NOT the calling viewer, the post MUST be resolved through the `visible_posts` view (never a raw `FROM posts` business read outside the sanctioned own-content arm). A post that is soft-deleted (`posts.deleted_at IS NOT NULL`), whose author is shadow-banned (`is_shadow_banned = TRUE`), or that is content-moderation auto-hidden (`is_auto_hidden = TRUE`) MUST be unresolvable for other viewers and MUST produce `404 post_not_found`. An unknown post UUID MUST also produce `404 post_not_found`.
 
-As of `account-deletion-tombstone` (V24), a post whose author is **tombstoned** (account hard-deleted: `users.deleted_at IS NOT NULL`, NOT shadow-banned) MUST instead resolve to `200` with the author identity **anonymized** (`authorDisplayName` null, `authorUsername` of the `deleted_user_…` form → the client renders "Akun Dihapus"). This is because `visible_posts` now surfaces tombstoned authors' non-soft-deleted, non-auto-hidden posts (per the `visible-posts-view` capability); the author's account deletion no longer hides their post (the previous "author … soft-deleted … MUST produce 404" clause is removed for the tombstone case). Soft-deleted POSTS, shadow-banned authors, and auto-hidden posts still collapse to `404`.
+As of `account-deletion-tombstone` (V24), a post whose author is **tombstoned** (account hard-deleted: `users.deleted_at IS NOT NULL`, NOT shadow-banned) MUST instead resolve to `200` with the author identity **anonymized** (`authorDisplayName = "Akun Dihapus"`, `authorUsername` of the `deleted_user_…` form — the placeholder is set server-side on the tombstoned row). This is because `visible_posts` now surfaces tombstoned authors' non-soft-deleted, non-auto-hidden posts (per the `visible-posts-view` capability); the author's account deletion no longer hides their post (the previous "author … soft-deleted … MUST produce 404" clause is removed for the tombstone case). Soft-deleted POSTS, shadow-banned authors, and auto-hidden posts still collapse to `404`.
 
 #### Scenario: Unknown post UUID
 - **WHEN** an authenticated viewer calls `GET /api/v1/posts/<uuid that does not exist>`
@@ -24,4 +24,4 @@ As of `account-deletion-tombstone` (V24), a post whose author is **tombstoned** 
 
 #### Scenario: Tombstoned author's post resolves to 200, anonymized
 - **WHEN** an authenticated viewer V (≠ author) calls `GET /api/v1/posts/{P}` where P's author is hard-deleted (`users.deleted_at` set, `is_shadow_banned = FALSE`) and P is non-soft-deleted, non-auto-hidden, and not bidirectionally blocked
-- **THEN** the response is `200` with `authorDisplayName` null and `authorUsername` matching `deleted_user_…` (the client renders "Akun Dihapus") — the post is no longer hidden by the author's deletion
+- **THEN** the response is `200` with `authorDisplayName = "Akun Dihapus"` and `authorUsername` matching `deleted_user_…` — the post is no longer hidden by the author's deletion
