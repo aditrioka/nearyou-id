@@ -30,7 +30,10 @@ data class NearbyPostDto(
     val content: String,
     val latitude: Double,
     val longitude: Double,
-    val distanceM: Double,
+    // Nullable as of the hide-distance capability: omitted (via the app-wide explicitNulls=false)
+    // when the symmetric hide rule suppresses the distance for this (author, viewer) pair; raw
+    // meters otherwise.
+    val distanceM: Double?,
     @SerialName("city_name") val cityName: String,
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
@@ -247,6 +250,16 @@ fun Application.timelineRoutes(
                             }
                         // LocationOutOfBoundsException propagates to StatusPages, which renders the 400.
                         rateLimiter.postIncrement(principal, sanitizedSessionId, page.rows.size)
+                        // hide-distance: the viewer's effective preference, resolved ONCE from the auth
+                        // principal (no per-request users SELECT — preserves the timeline-read-rate-limit
+                        // "zero users SELECTs in the handler" invariant). Symmetric: combined per-row with
+                        // the author preference by effectiveDistanceMeters.
+                        val viewerHidesDistance =
+                            principal.hideDistanceOptIn &&
+                                (
+                                    principal.subscriptionStatus == "premium_active" ||
+                                        principal.subscriptionStatus == "premium_billing_retry"
+                                )
                         call.respond(
                             NearbyResponse(
                                 posts =
@@ -259,7 +272,14 @@ fun Application.timelineRoutes(
                                             content = it.content,
                                             latitude = it.latitude,
                                             longitude = it.longitude,
-                                            distanceM = it.distanceMeters,
+                                            // hide-distance: omit the number when the author OR
+                                            // the viewer is effectively hiding (symmetric rule).
+                                            distanceM =
+                                                effectiveDistanceMeters(
+                                                    rawMeters = it.distanceMeters,
+                                                    authorHidesDistance = it.authorHidesDistance,
+                                                    viewerHidesDistance = viewerHidesDistance,
+                                                ),
                                             cityName = it.cityName.orEmpty(),
                                             createdAt = it.createdAt.toString(),
                                             likedByViewer = it.likedByViewer,

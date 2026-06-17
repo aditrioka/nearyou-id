@@ -260,6 +260,10 @@
     <string name="settings_row_legal">Ketentuan &amp; kebijakan privasi</string>
     <string name="settings_row_logout">Keluar</string>
     <string name="settings_coming_soon">Segera hadir</string>
+    <!-- hide-distance capability: the Premium upsell shown when a Free user taps the "Sembunyikan jarak"
+         toggle, and the non-trapping error when the toggle's PATCH fails. FLAGGED FOR UX REVIEW. -->
+    <string name="settings_hide_distance_premium_only">Fitur Premium. Aktifkan Premium untuk menyembunyikan jarak.</string>
+    <string name="settings_hide_distance_error">Gagal memperbarui pengaturan. Coba lagi.</string>
     <string name="settings_save">Simpan</string>
     <string name="settings_logout_title">Keluar dari akun?</string>
     <string name="settings_logout_body">Kamu perlu masuk lagi dengan Google untuk memakai NearYouID.</string>

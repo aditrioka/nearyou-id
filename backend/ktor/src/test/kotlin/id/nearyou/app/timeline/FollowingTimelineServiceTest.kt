@@ -955,4 +955,37 @@ class FollowingTimelineServiceTest : StringSpec({
             cleanup(viewer, followed)
         }
     }
+
+    "hide-distance no-regression — a Premium hiding viewer still gets NO distanceM on Following (flag is Nearby-only)" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            follow(viewer, author)
+            seedPost(author)
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "UPDATE users SET hide_distance_opt_in = TRUE, subscription_status = 'premium_active' WHERE id = ?",
+                ).use { ps ->
+                    ps.setObject(1, viewer)
+                    ps.executeUpdate()
+                }
+            }
+            withFollowing {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/following") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                    .map { it.jsonObject }
+                    .forEach {
+                        it.containsKey("distanceM") shouldBe false
+                        it.containsKey("distance_m") shouldBe false
+                    }
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
 })

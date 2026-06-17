@@ -51,6 +51,9 @@ data class UserPrincipal(
     val tokenVersion: Int,
     val subscriptionStatus: String,
     val isShadowBanned: Boolean,
+    // hide-distance capability: loaded at auth time (like subscriptionStatus) so the Nearby read
+    // path evaluates the viewer-side hide from the principal — no per-request users SELECT.
+    val hideDistanceOptIn: Boolean = false,
 )
 
 fun Application.installAuth(
@@ -146,6 +149,7 @@ internal fun AuthenticationConfig.configureUserJwt(
                         tokenVersion = user.tokenVersion,
                         subscriptionStatus = user.subscriptionStatus,
                         isShadowBanned = user.isShadowBanned,
+                        hideDistanceOptIn = user.hideDistanceOptIn,
                     )
                 }
             }

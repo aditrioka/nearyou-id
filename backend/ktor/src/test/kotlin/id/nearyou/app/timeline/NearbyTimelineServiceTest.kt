@@ -199,6 +199,25 @@ class NearbyTimelineServiceTest : StringSpec({
         }
     }
 
+    fun setHideDistance(
+        userId: UUID,
+        optIn: Boolean,
+        subscriptionStatus: String = "premium_active",
+        shadowBanned: Boolean = false,
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "UPDATE users SET hide_distance_opt_in = ?, subscription_status = ?, is_shadow_banned = ? WHERE id = ?",
+            ).use { ps ->
+                ps.setBoolean(1, optIn)
+                ps.setString(2, subscriptionStatus)
+                ps.setBoolean(3, shadowBanned)
+                ps.setObject(4, userId)
+                ps.executeUpdate()
+            }
+        }
+    }
+
     suspend fun withTimeline(block: suspend io.ktor.server.testing.ApplicationTestBuilder.() -> Unit) {
         testApplication {
             application {
@@ -1212,6 +1231,220 @@ class NearbyTimelineServiceTest : StringSpec({
             }
         } finally {
             cleanup(author, replier1, replier2)
+        }
+    }
+
+    // ── hide-distance capability ──────────────────────────────────────────────────────────
+
+    "hide-distance — author with effective-Premium hide omits distanceM for every viewer; city/like/reply stay" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val p = seedPost(author, -6.201, 106.801)
+            setHideDistance(author, optIn = true, subscriptionStatus = "premium_active")
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val item =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                item.containsKey("distanceM") shouldBe false
+                item.containsKey("city_name") shouldBe true
+                item.containsKey("liked_by_viewer") shouldBe true
+                item.containsKey("reply_count") shouldBe true
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "hide-distance — viewer with effective-Premium hide omits distanceM on every post" {
+        val (viewer, vt) = seedUser()
+        val (authorA, _) = seedUser()
+        val (authorB, _) = seedUser()
+        try {
+            val a = seedPost(authorA, -6.201, 106.801)
+            val b = seedPost(authorB, -6.202, 106.802)
+            // Authors are plain Free / non-hiding; only the VIEWER hides.
+            setHideDistance(viewer, optIn = true, subscriptionStatus = "premium_active")
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val posts = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                posts.map { it.jsonObject }.forEach { it.containsKey("distanceM") shouldBe false }
+                posts.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
+                    .toSet() shouldBe setOf(a.toString(), b.toString())
+            }
+        } finally {
+            cleanup(viewer, authorA, authorB)
+        }
+    }
+
+    "hide-distance — both sides off: distanceM present and raw meters" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val p = seedPost(author, -6.201, 106.801) // ~150 m from -6.2,106.8
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val item =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                item.containsKey("distanceM") shouldBe true
+                // Raw meters (positive, well under the 5km radius), NOT a formatted string.
+                (item["distanceM"]!!.jsonPrimitive.content.toDouble() > 0.0) shouldBe true
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "hide-distance — premium_billing_retry author is effective (distanceM omitted)" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val p = seedPost(author, -6.201, 106.801)
+            setHideDistance(author, optIn = true, subscriptionStatus = "premium_billing_retry")
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val item =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                item.containsKey("distanceM") shouldBe false
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "hide-distance — free author with a stale TRUE flag is NOT effective (distanceM shown)" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val p = seedPost(author, -6.201, 106.801)
+            setHideDistance(author, optIn = true, subscriptionStatus = "free")
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val item =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                item.containsKey("distanceM") shouldBe true
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "hide-distance — viewer-on leaves ordering and the result set unchanged (only the number drops)" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val p1 = seedPost(author, -6.200, 106.800)
+            Thread.sleep(10)
+            val p2 = seedPost(author, -6.205, 106.805)
+            Thread.sleep(10)
+            val p3 = seedPost(author, -6.210, 106.810)
+            setHideDistance(viewer, optIn = true, subscriptionStatus = "premium_active")
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val posts = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
+                // Same created_at DESC ordering as the non-hiding happy path …
+                posts.map { (it as JsonObject)["id"]!!.jsonPrimitive.content } shouldBe
+                    listOf(p3.toString(), p2.toString(), p1.toString())
+                // … only the distance number is gone.
+                posts.map { it.jsonObject }.forEach { it.containsKey("distanceM") shouldBe false }
+            }
+        } finally {
+            cleanup(viewer, author)
+        }
+    }
+
+    "hide-distance — self arm: a shadow-banned, effectively-hiding viewer sees their OWN post with distanceM omitted" {
+        val (viewer, vt) = seedUser()
+        try {
+            val p = seedPost(viewer, -6.201, 106.801)
+            // Viewer is shadow-banned (self-arm visibility) AND effectively hiding.
+            setHideDistance(viewer, optIn = true, subscriptionStatus = "premium_active", shadowBanned = true)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val item =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                // Own post still appears (self arm), but with no distance number (author==viewer).
+                item.containsKey("distanceM") shouldBe false
+            }
+        } finally {
+            cleanup(viewer)
+        }
+    }
+
+    "hide-distance — a sub-5km post (both off) returns raw meters, not the render-side 5km floor" {
+        val (viewer, vt) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            // ~15 m away — well under the renderer's 5km floor.
+            val p = seedPost(author, -6.2001, 106.8001)
+            withTimeline {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val item =
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["posts"]!!.jsonArray
+                        .first { (it as JsonObject)["id"]!!.jsonPrimitive.content == p.toString() }
+                        .jsonObject
+                item.containsKey("distanceM") shouldBe true
+                // Raw meters — the 5km floor is applied by DistanceRenderer at render time, not on the wire.
+                (item["distanceM"]!!.jsonPrimitive.content.toDouble() < 5000.0) shouldBe true
+            }
+        } finally {
+            cleanup(viewer, author)
         }
     }
 })
