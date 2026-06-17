@@ -46,7 +46,7 @@
 - [x] 6.2 API tests: request (first + idempotent + 401), cancel (within grace, post-execution reject, apple non-cancellable guard), status (pending / none), grace auth-boundary (write succeeds, no `token_version` bump).
 - [x] 6.3 Worker tests: due/cancelled/not-due selection; tombstone exact-PII-set + username regex; cascade tables emptied (both-direction blocks/follows); retain tables intact + like-count parity; deletion_log + executed_at atomic; partial-failure leaves no tombstone; idempotent re-run; internal-auth rejection + system-actor attribution.
 - [ ] 6.4 View + render tests: V24 `pg_views` definition (shadow-ban + `p.deleted_at` present, no author `u.deleted_at`); tombstoned author's post surfaces in Global timeline anonymized; shadow-banned-then-deleted stays hidden; soft-deleted post still excluded; tombstoned author's profile still `404`.
-- [ ] 6.5 Mobile tests (the `mobile-settings` test trio): `*ScreenTest` (Release-excluded) for the Hapus Akun + banner flow; `commonTest` for the deletion-seam DTO/outcome projections + Koin resolution; `iosTest` flow covering open settings → confirm-deletion path; the out-of-scope scenario updated (no data-export/suspension/chat-preview; Hapus Akun present).
+- [x] 6.5 Mobile tests (the `mobile-settings` test trio): `*ScreenTest` (Release-excluded) for the Hapus Akun + banner flow; `commonTest` for the deletion-seam DTO/outcome projections + Koin resolution; `iosTest` flow covering open settings → confirm-deletion path; the out-of-scope scenario updated (no data-export/suspension/chat-preview; Hapus Akun present).
 
 ## 7. Docs reconciliation & follow-ups
 
