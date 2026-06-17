@@ -309,7 +309,7 @@ CREATE TABLE posts (
     actual_location GEOGRAPHY(POINT, 4326) NOT NULL,
     city_name TEXT,
     city_match_type VARCHAR(16),
-    image_id TEXT, -- Cloudflare image id; owner-validated against image_uploads on attach (V23)
+    image_id TEXT, -- Cloudflare image id; owner-validated against image_uploads on attach (V24)
     content_tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED,
     is_auto_hidden BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -324,7 +324,7 @@ CREATE INDEX posts_content_trgm_idx ON posts USING GIN(content gin_trgm_ops);
 CREATE INDEX posts_author_idx ON posts(author_id, created_at DESC) WHERE deleted_at IS NULL;
 ```
 
-**`image_uploads` ownership ledger** (V23, `premium-image-upload-pipeline`): one row per image stored in Cloudflare Images — `cf_image_id TEXT PRIMARY KEY`, `uploader_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`, `created_at`, `safe_search_adult|violence|racy TEXT` (the Vision `Likelihood` enum name), `status TEXT CHECK (status IN ('uploaded','attached'))`. Binds each Cloudflare image to its uploader so `POST /api/v1/posts` can authorize the `image_id` attach (the otherwise-free-text `posts.image_id`); also the future linkage point for the deferred CSAM subsystem + orphan cleanup. Daily quota/throttle live in Redis (rate-limit infra), not a count on this table. Indexed `(uploader_user_id, created_at DESC)`.
+**`image_uploads` ownership ledger** (V24, `premium-image-upload-pipeline`): one row per image stored in Cloudflare Images — `cf_image_id TEXT PRIMARY KEY`, `uploader_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`, `created_at`, `safe_search_adult|violence|racy TEXT` (the Vision `Likelihood` enum name), `status TEXT CHECK (status IN ('uploaded','attached'))`. Binds each Cloudflare image to its uploader so `POST /api/v1/posts` can authorize the `image_id` attach (the otherwise-free-text `posts.image_id`); also the future linkage point for the deferred CSAM subsystem + orphan cleanup. Daily quota/throttle live in Redis (rate-limit infra), not a count on this table. Indexed `(uploader_user_id, created_at DESC)`.
 
 ### Jitter Generation (HMAC-based, non-reversible)
 
