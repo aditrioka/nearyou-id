@@ -143,6 +143,9 @@ import id.nearyou.app.post.PostReadService
 import id.nearyou.app.post.postEditRoutes
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.post.singlePostRoutes
+import id.nearyou.app.referral.ReferralRepository
+import id.nearyou.app.referral.ReferralService
+import id.nearyou.app.referral.ReferralTicketRateLimiter
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
 import id.nearyou.app.search.searchRoutes
@@ -924,6 +927,14 @@ fun Application.module() {
         )
     val fcmTokenRepository = FcmTokenRepository(dataSource, dbDispatchers.db)
     val consentRepository = ConsentRepository(dataSource, dbDispatchers.db)
+    val referralRepository = ReferralRepository(dataSource)
+    val referralService =
+        ReferralService(
+            users = userRepository,
+            referrals = referralRepository,
+            rateLimiter = ReferralTicketRateLimiter(rateLimiter = rateLimiter),
+            dbDispatcher = dbDispatchers.db,
+        )
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -934,6 +945,7 @@ fun Application.module() {
             inviteDeriver = inviteDeriver,
             refreshTokens = refreshTokenService,
             jwtIssuer = jwtIssuer,
+            referral = referralService,
         )
 
     install(Koin) {

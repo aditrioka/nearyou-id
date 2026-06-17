@@ -1172,13 +1172,15 @@ MRR/ARR queries MUST filter `WHERE source = 'paid' AND event_type IN ('initial_p
 
 ---
 
-## Referral System — DESIGN
+## Referral System — PARTIAL (ticket creation shipped; worker + grants DESIGN)
 
-> **Status: DESIGN** (as of 2026-05-07). `SignupService.kt` does NOT accept `invite_code`; `referral_tickets` / `granted_entitlements` tables not created; no `/internal/referral-activity-check` worker.
+> **Status: PARTIAL** (ticket creation shipped 2026-06 via `referral-ticket-creation`; the rest DESIGN). `POST /api/v1/auth/signup` now accepts an optional `invite_code` and best-effort creates one `referral_tickets` row in `pending_activity` (V23, FK `ON DELETE CASCADE` both parties, `invitee_user_id` UNIQUE). Resolution is O(1) on `users.invite_code_prefix`; inviter (exists / not-deleted / not-banned / age > 30d / not-self) + invitee (device-fingerprint non-collision + ≤ 3 tickets / rolling 7-day window per inviter via `{scope:rate_referral_ticket}:{inviter:…}`) are validated; failure is silent to the invitee + audit-logged. STILL DESIGN: `granted_entitlements` table, the `/internal/referral-activity-check` worker, the GRANT/entitlement dispatch, and the lifetime 5th-referral single-grant enforcement.
 >
-> Already-shipped support: `users.invite_code_prefix` (populated via `InviteCodePrefixDeriver.kt`, 10-char fallback on collision), `users.inviter_reward_claimed_at` (V2 lifetime sentinel), `subscription_events.source` accepts `'referral'`/`'manual_admin'` (V9), GCP secret slot `invite-code-secret`.
+> Already-shipped support: `users.invite_code_prefix` (populated via `InviteCodePrefixDeriver.kt`, 10-char fallback on collision — currently unreachable under the `VARCHAR(8)` column width), `users.inviter_reward_claimed_at` (V2 lifetime sentinel, untouched by ticket creation), `subscription_events.source` accepts `'referral'`/`'manual_admin'` (V9), GCP secret slot `invite-code-secret`.
 >
-> Future proposal will define `referral_tickets` + `granted_entitlements` schema (with `granted_entitlements_inviter_once_idx` partial unique index for DB-level lifetime-cap enforcement), activity-gate worker, anti-fingerprint-collision checks at signup, and RevenueCat dispatch.
+> **Anti-collision scope note:** ticket creation applies only the device-fingerprint-hash exact-equality check at signup (the data available there). The full multi-stage gate — docs/01 § Bonus Release Criteria item 3's 90-day-windowed fingerprint + IP /24 + recently-seen-identifier legs — is deferred to the activity-gate worker, which needs login-history data not yet tracked. docs/08 #22 (signup-time) and docs/01 §3 (worker-stage) are thereby reconciled, not contradictory.
+>
+> Future change will define `granted_entitlements` schema (with `granted_entitlements_inviter_once_idx` partial unique index for DB-level lifetime-cap enforcement), the activity-gate worker, the deferred anti-collision legs, and RevenueCat dispatch.
 
 ---
 

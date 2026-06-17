@@ -1,6 +1,7 @@
 package id.nearyou.app.auth.session
 
 import id.nearyou.app.infra.repo.IdentifierType
+import id.nearyou.app.infra.repo.InviterRow
 import id.nearyou.app.infra.repo.NewUserRow
 import id.nearyou.app.infra.repo.RefreshTokenRepository
 import id.nearyou.app.infra.repo.RefreshTokenRow
@@ -89,6 +90,8 @@ class InMemoryUsers(initial: List<UserRow> = emptyList()) : UserRepository {
     val inviteCodePrefixes = mutableSetOf<String>()
 
     override fun existsByInviteCodePrefix(prefix: String): Boolean = prefix in inviteCodePrefixes
+
+    override fun findInviterByInviteCodePrefix(prefix: String): InviterRow? = null
 
     override fun create(
         conn: Connection,
