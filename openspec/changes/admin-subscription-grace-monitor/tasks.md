@@ -39,8 +39,8 @@
 
 - [x] 6.1 Pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally.
 - [x] 6.2 If `backend/ktor/.../admin/static/*` is touched (e.g. admin.css), re-pin `htmx.min.js.SHA256SUMS` (CI lint-lane integrity check). Default: reuse existing assets → N/A.
-- [ ] 6.3 UI-affecting bring-up (docs/11 §5 DoD): boot the admin panel (local Ktor `:8080` admin bootstrap + TOTP, or staging `api-staging.nearyou.id/admin`), seed a `premium_billing_retry` user + `billing_issue` event, screenshot the grace list + an expedite result; attach evidence to the PR body BEFORE archive.
-- [ ] 6.4 Pre-archive staging smoke (per Migration Plan): `gh workflow run deploy-staging.yml --ref admin-subscription-grace-monitor` → confirm the list renders, an expedite writes one audit row with unchanged `subscription_status`, and a CSRF-less expedite is 403'd.
+- [x] 6.3 UI-affecting bring-up (docs/11 §5 DoD): boot the admin panel (local Ktor `:8080` admin bootstrap + TOTP, or staging `api-staging.nearyou.id/admin`), seed a `premium_billing_retry` user + `billing_issue` event, screenshot the grace list + an expedite result; attach evidence to the PR body BEFORE archive.
+- [x] 6.4 Pre-archive staging smoke (per Migration Plan): `gh workflow run deploy-staging.yml --ref admin-subscription-grace-monitor` → confirm the list renders, an expedite writes one audit row with unchanged `subscription_status`, and a CSRF-less expedite is 403'd.
 
 ## 7. Docs / mockup reconciliation (at archive)
 
