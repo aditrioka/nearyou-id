@@ -35,10 +35,10 @@
 
 ## 5. Mobile Settings (Hapus Akun + restore banner)
 
-- [ ] 5.1 Account-deletion data seam: `AccountDeletionApiClient` → `AccountDeletionRepository` → sealed `AccountDeletionOutcome` (success / terminal-401 / retryable), reusing the `Auth { bearer }` client; Koin-wired at `SettingsRoute` scope; no token/sub/body logging.
-- [ ] 5.2 Destructive "Hapus Akun" affordance + confirmation dialog (30-day-grace + restore copy via `:shared:resources`); confirm → `POST`; `401` → sign-in; retryable → in-screen error.
-- [ ] 5.3 Non-blocking scheduled-deletion banner driven by `GET` status (restore-by date) + "Batalkan" → `DELETE`; failed cancel keeps the banner (no optimistic clear).
-- [ ] 5.4 Add the new Bahasa Indonesia strings to `:shared:resources` (`strings.xml`) — confirm the no-hardcoded-string grep passes.
+- [x] 5.1 Account-deletion data seam: `AccountDeletionApiClient` → `AccountDeletionRepository` → sealed `AccountDeletionOutcome` (success / terminal-401 / retryable), reusing the `Auth { bearer }` client; Koin-wired at `SettingsRoute` scope; no token/sub/body logging.
+- [x] 5.2 Destructive "Hapus Akun" affordance + confirmation dialog (30-day-grace + restore copy via `:shared:resources`); confirm → `POST`; `401` → sign-in; retryable → in-screen error.
+- [x] 5.3 Non-blocking scheduled-deletion banner driven by `GET` status (restore-by date) + "Batalkan" → `DELETE`; failed cancel keeps the banner (no optimistic clear).
+- [x] 5.4 Add the new Bahasa Indonesia strings to `:shared:resources` (`strings.xml`) — confirm the no-hardcoded-string grep passes.
 
 ## 6. Tests
 

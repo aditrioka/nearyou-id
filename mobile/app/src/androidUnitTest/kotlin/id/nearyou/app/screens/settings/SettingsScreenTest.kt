@@ -9,6 +9,8 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.TokenPair
 import id.nearyou.app.auth.TokenStore
+import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
+import id.nearyou.app.data.accountdeletion.FakeAccountDeletionFlow
 import id.nearyou.app.theme.NearYouTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.runner.RunWith
@@ -50,7 +52,16 @@ class SettingsScreenTest {
     private fun installKoin() {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         tokenStore = InMemoryTokenStore()
-        startKoin { modules(module { single<TokenStore> { tokenStore } }) }
+        startKoin {
+            modules(
+                module {
+                    single<TokenStore> { tokenStore }
+                    // account-deletion-tombstone: SettingsScreen now resolves the deletion flow.
+                    // Default fake → NotPending status (no banner), so the existing assertions hold.
+                    single<AccountDeletionFlow> { FakeAccountDeletionFlow() }
+                },
+            )
+        }
     }
 
     @AfterTest
@@ -129,7 +140,9 @@ class SettingsScreenTest {
             setContent {
                 KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
             }
-            onAllNodesWithText("Hapus Akun", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
+            // account-deletion-tombstone: "Hapus akun" is now IN scope (renders a real row); data
+            // export + suspension stay out of scope (no dead controls).
+            onAllNodesWithText("Hapus akun", substring = true).fetchSemanticsNodes().let { assertEquals(1, it.size) }
             onAllNodesWithText("Unduh Data", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
             onAllNodesWithText("suspensi", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
         }

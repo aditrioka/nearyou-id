@@ -246,6 +246,15 @@
     <string name="settings_logout_body">Kamu perlu masuk lagi dengan Google untuk memakai NearYouID.</string>
     <string name="settings_logout_confirm">Ya, keluar</string>
     <string name="settings_logout_cancel">Batal</string>
+    <!-- account-deletion-tombstone: "Hapus Akun" + the 30-day-grace restore banner. -->
+    <string name="settings_row_delete_account">Hapus akun</string>
+    <string name="delete_account_dialog_title">Hapus akun kamu?</string>
+    <string name="delete_account_dialog_body">Akun kamu akan dijadwalkan untuk dihapus. Kamu punya 30 hari untuk memulihkannya sebelum data dihapus permanen. Selama masa tunggu kamu tetap bisa memakai aplikasi.</string>
+    <string name="delete_account_confirm">Ya, hapus akun</string>
+    <string name="delete_account_cancel">Batal</string>
+    <string name="delete_account_banner">Akun dijadwalkan dihapus. Pulihkan sebelum %1$s.</string>
+    <string name="delete_account_banner_cancel">Batalkan</string>
+    <string name="delete_account_error">Gagal. Coba lagi sebentar.</string>
     <string name="blocked_users_title">Pengguna diblokir</string>
     <string name="blocked_users_empty">Belum ada pengguna yang diblokir.</string>
     <string name="blocked_users_unblock">Buka blokir</string>
