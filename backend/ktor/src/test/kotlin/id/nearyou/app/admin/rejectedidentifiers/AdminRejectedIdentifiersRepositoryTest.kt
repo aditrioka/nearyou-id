@@ -1,15 +1,21 @@
 package id.nearyou.app.admin.rejectedidentifiers
 
+import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminAuthTestSupport
+import id.nearyou.app.admin.ratelimit.RejectedIdentifierClearRateLimiter
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
+import java.util.UUID
 
 /**
  * Integration tests for [AdminRejectedIdentifiersRepository] — the
@@ -34,11 +40,27 @@ class AdminRejectedIdentifiersRepositoryTest : StringSpec({
     val dataSource = AdminAuthTestSupport.hikari()
     afterSpec { dataSource.close() }
 
+    // Clear tests seed an admin + write admin_actions_log rows (audit + ledger);
+    // those rows carry admin_id and are the real cross-spec pollution vector, so
+    // clean them per-test by acting-admin id. NEVER autoClose the shared pool the
+    // afterEach cleanup uses (it closes only in afterSpec).
+    val seededAdmins = mutableListOf<UUID>()
     beforeEach { RejectedIdentifiersTestSupport.deleteAll(dataSource) }
-    afterEach { RejectedIdentifiersTestSupport.deleteAll(dataSource) }
+    afterEach {
+        RejectedIdentifiersTestSupport.deleteAll(dataSource)
+        seededAdmins.forEach { AdminAuthTestSupport.cleanupAdmin(dataSource, it) }
+        seededAdmins.clear()
+    }
 
-    val repo = AdminRejectedIdentifiersRepository(dataSource)
+    val repo =
+        AdminRejectedIdentifiersRepository(
+            dataSource,
+            AdminAuditLogger(dataSource),
+            RejectedIdentifierClearRateLimiter(dataSource),
+        )
     val base = Instant.parse("2026-05-20T00:00:00Z")
+
+    fun newAdmin(): UUID = AdminAuthTestSupport.seedAdmin(dataSource).also { seededAdmins += it.id }.id
 
     fun seed(
         hash: String,
@@ -193,5 +215,81 @@ class AdminRejectedIdentifiersRepositoryTest : StringSpec({
         page.rows.size shouldBe 0
         page.nextCursor.shouldBeNull()
         repo.summary(RejectedIdentifiersQuery(reason = "attestation_persistent_fail")).total shouldBe 0L
+    }
+
+    // ---- Clear (admin-rejected-identifiers-clear-action) --------------------
+
+    "clear — removes the row + writes one audit row with full before_state + null after_state" {
+        val admin = newAdmin()
+        val id = seed("clear-hash", type = "google", reason = "age_under_18", at = base)
+
+        repo.clear(id, admin, "legitimate adult re-verify", "127.0.0.1", null) shouldBe ClearOutcome.Cleared
+
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe false
+        val rows = AdminAuthTestSupport.latestAuditRows(dataSource, admin)
+        rows shouldHaveSize 1
+        rows[0].actionType shouldBe "rejected_identifier_cleared"
+        rows[0].targetType shouldBe "rejected_identifier"
+        rows[0].reason shouldBe "legitimate adult re-verify"
+        // before_state captures all four cleared-row fields
+        rows[0].beforeState!! shouldContain "clear-hash"
+        rows[0].beforeState!! shouldContain "google"
+        rows[0].beforeState!! shouldContain "age_under_18"
+        rows[0].beforeState!! shouldContain "rejected_at"
+        // after_state is null — the row is gone; the audit trail is the record
+        rows[0].afterState.shouldBeNull()
+    }
+
+    "clear — nonexistent id is a graceful no-op: no delete, no audit row, no quota burn" {
+        val admin = newAdmin()
+        seed("survivor", at = base)
+
+        repo.clear(UUID.randomUUID(), admin, "x", "127.0.0.1", null) shouldBe ClearOutcome.NotFound
+
+        RejectedIdentifiersTestSupport.count(dataSource) shouldBe 1
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin) shouldHaveSize 0
+    }
+
+    "clear — at the 10/hr cap → RateLimited: the row remains, no new audit row" {
+        val admin = newAdmin()
+        repeat(10) { RejectedIdentifiersTestSupport.seedClearAudit(dataSource, admin) }
+        val id = seed("capped-hash", at = base)
+
+        repo.clear(id, admin, "x", "127.0.0.1", null) shouldBe ClearOutcome.RateLimited
+
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe true
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin) shouldHaveSize 10 // the 10 seeded; no new one
+    }
+
+    "clear — atomic: an audit-write failure (FK on a nonexistent admin) rolls back the delete" {
+        // A random acting-admin id is absent from admin_users, so the audit INSERT
+        // (admin_id NOT NULL REFERENCES admin_users) fails → the whole tx rolls
+        // back → the DELETE is undone and the row survives.
+        val id = seed("rollback-hash", at = base)
+
+        shouldThrow<Exception> {
+            repo.clear(id, UUID.randomUUID(), "x", "127.0.0.1", null)
+        }
+
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe true
+    }
+
+    "clear — a cleared identifier can be re-rejected (UNIQUE allows re-insert of the same hash+type)" {
+        val admin = newAdmin()
+        val id = seed("reusable-hash", type = "google", reason = "age_under_18", at = base)
+
+        repo.clear(id, admin, "x", "127.0.0.1", null) shouldBe ClearOutcome.Cleared
+
+        // Re-insert the SAME (hash, type) — succeeds because the prior row is gone
+        // (the UNIQUE(identifier_hash, identifier_type) no longer conflicts).
+        val reId =
+            RejectedIdentifiersTestSupport.seedRejectedIdentifier(
+                dataSource,
+                "reusable-hash",
+                "google",
+                "age_under_18",
+                base.plusSeconds(60),
+            )
+        RejectedIdentifiersTestSupport.existsById(dataSource, reId) shouldBe true
     }
 })

@@ -69,4 +69,43 @@ object RejectedIdentifiersTestSupport {
                 }
             }
         }
+
+    /** True when a row with [id] still exists — for the clear-action delete /
+     *  not-found / atomic-rollback assertions (`admin-rejected-identifiers-clear-action`). */
+    fun existsById(
+        dataSource: DataSource,
+        id: UUID,
+    ): Boolean =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("SELECT 1 FROM rejected_identifiers WHERE id = ?").use { ps ->
+                ps.setObject(1, id)
+                ps.executeQuery().use { rs -> rs.next() }
+            }
+        }
+
+    /**
+     * Seed one `admin_actions_log` row of `action_type = 'rejected_identifier_cleared'`
+     * with a controlled trailing-hour age — the COUNT substrate for the clear
+     * 10/hr cap. Seeds by RELATIVE age against DB `NOW()` (not an absolute
+     * client-side `Instant`) so the trailing-window comparison is deterministic
+     * regardless of the host's clock precision (macOS micros vs Linux nanos).
+     * Mirrors `ReservedUsernamesTestSupport.seedReservedAudit`.
+     */
+    fun seedClearAudit(
+        dataSource: DataSource,
+        adminId: UUID,
+        ageMinutes: Int = 1,
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "INSERT INTO admin_actions_log (admin_id, action_type, target_type, target_id, reason, created_at) " +
+                    "VALUES (?, 'rejected_identifier_cleared', 'rejected_identifier', ?, 'seed', NOW() - (? * INTERVAL '1 minute'))",
+            ).use { ps ->
+                ps.setObject(1, adminId)
+                ps.setString(2, UUID.randomUUID().toString())
+                ps.setInt(3, ageMinutes)
+                ps.executeUpdate()
+            }
+        }
+    }
 }

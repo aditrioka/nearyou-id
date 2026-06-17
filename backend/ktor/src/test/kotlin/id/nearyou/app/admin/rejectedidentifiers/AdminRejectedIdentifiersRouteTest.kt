@@ -12,9 +12,13 @@ import io.kotest.matchers.string.shouldNotContain
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.http.formUrlEncode
 import java.time.Instant
 import java.util.UUID
 
@@ -54,6 +58,11 @@ class AdminRejectedIdentifiersRouteTest : StringSpec({
         reason: String = "age_under_18",
         at: Instant = base,
     ) = RejectedIdentifiersTestSupport.seedRejectedIdentifier(dataSource, hash, type, reason, at)
+
+    fun form(vararg pairs: Pair<String, String>): String = pairs.toList().formUrlEncode()
+
+    fun csrfViolated(adminId: UUID): Boolean =
+        AdminAuthTestSupport.latestAuditRows(dataSource, adminId).any { it.actionType == "admin_csrf_violation" }
 
     "6.1 — authenticated GET renders the table with a seeded row's hash + reason + base layout" {
         val admin = seedAdmin()
@@ -234,20 +243,232 @@ class AdminRejectedIdentifiersRouteTest : StringSpec({
         AdminAuthTestSupport.countAuditRows(dataSource, admin.id) shouldBe auditBefore
     }
 
-    "6.10 — deferred-action negative guard: no clear / remove / delete control is rendered" {
-        val admin = seedAdmin()
+    // ---- Clear action (admin-rejected-identifiers-clear-action) -------------
+
+    "clear control renders for an owner/admin session (inverting the prior deferral guard)" {
+        val admin = seedAdmin(role = "admin")
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
-        seed("h1", reason = "age_under_18")
+        val id = seed("ctrl-hash", reason = "age_under_18")
 
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             val body =
                 client.get("/admin/rejected-identifiers") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
-            body shouldNotContain "Clear"
-            body shouldNotContain "Remove"
-            body shouldNotContain "Delete"
-            body shouldNotContain "hx-delete"
-            body shouldNotContain "hx-post"
+            body shouldContain "/admin/rejected-identifiers/$id/clear" // per-row clear form action
+            body shouldContain "Clear"
         }
+    }
+
+    "no clear control is rendered for a read_only or moderator session (read view still 200)" {
+        seed("noctrl-hash", reason = "age_under_18")
+        listOf("read_only", "moderator").forEach { role ->
+            val admin = seedAdmin(role = role)
+            val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+            AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+                val res = client.get("/admin/rejected-identifiers") { header(HttpHeaders.Cookie, cookie(token)) }
+                res.status shouldBe HttpStatusCode.OK
+                res.bodyAsText() shouldNotContain "/clear" // no per-row clear control
+            }
+        }
+    }
+
+    "clear (HTMX) by an owner removes the row + writes one audit row; the cleared row is absent from the fragment" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val id = seed("htmx-clear-hash", reason = "age_under_18")
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/$id/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header("HX-Request", "true")
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("_csrf" to AdminAuthTestSupport.csrfFor(token), "reason" to "legitimate adult"))
+                }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldNotContain "htmx-clear-hash" // cleared row gone from the re-queried fragment
+        }
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe false
+        val rows = AdminAuthTestSupport.latestAuditRows(dataSource, admin.id)
+        rows.count { it.actionType == "rejected_identifier_cleared" } shouldBe 1
+    }
+
+    "clear (no-JS) by an owner returns 303 back to the listing + removes the row" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val id = seed("nojs-clear-hash", reason = "age_under_18")
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/$id/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("_csrf" to AdminAuthTestSupport.csrfFor(token), "reason" to "legitimate adult"))
+                }
+            res.status shouldBe HttpStatusCode.SeeOther
+            res.headers[HttpHeaders.Location] shouldBe "/admin/rejected-identifiers"
+        }
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe false
+    }
+
+    "clear without a CSRF token → 403 + admin_csrf_violation, no delete" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val id = seed("nocsrf-hash", reason = "age_under_18")
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/$id/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("reason" to "no csrf"))
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        csrfViolated(admin.id) shouldBe true
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe true
+    }
+
+    "clear by a moderator → 403 (owner/admin-only), no delete, no CSRF violation" {
+        val admin = seedAdmin(role = "moderator")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val id = seed("mod-hash", reason = "age_under_18")
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/$id/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("_csrf" to AdminAuthTestSupport.csrfFor(token), "reason" to "should fail"))
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe true
+        csrfViolated(admin.id) shouldBe false // the role gate rejected, not CSRF
+    }
+
+    "clear by a read_only admin → 403, no delete" {
+        val admin = seedAdmin(role = "read_only")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val id = seed("ro-hash", reason = "age_under_18")
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/$id/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("_csrf" to AdminAuthTestSupport.csrfFor(token), "reason" to "should fail"))
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe true
+    }
+
+    "clear with CSRF missing AND a non-write role → the CSRF rejection fires first (CSRF before role)" {
+        val admin = seedAdmin(role = "read_only")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val id = seed("order-hash", reason = "age_under_18")
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/$id/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("reason" to "no csrf"))
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        csrfViolated(admin.id) shouldBe true // CSRF evaluated before the role gate
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe true
+    }
+
+    "clear with a blank reason → 400, no delete" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val id = seed("blank-reason-hash", reason = "age_under_18")
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/$id/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("_csrf" to AdminAuthTestSupport.csrfFor(token), "reason" to "   "))
+                }
+            res.status shouldBe HttpStatusCode.BadRequest
+        }
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe true
+    }
+
+    "clear with an over-long reason → 400, no delete" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val id = seed("long-reason-hash", reason = "age_under_18")
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/$id/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("_csrf" to AdminAuthTestSupport.csrfFor(token), "reason" to "x".repeat(501)))
+                }
+            res.status shouldBe HttpStatusCode.BadRequest
+        }
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe true
+    }
+
+    "clear with a malformed (non-UUID) id → 400, no write" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/not-a-uuid/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("_csrf" to AdminAuthTestSupport.csrfFor(token), "reason" to "valid reason"))
+                }
+            res.status shouldBe HttpStatusCode.BadRequest
+        }
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin.id)
+            .count { it.actionType == "rejected_identifier_cleared" } shouldBe 0
+    }
+
+    "clear of a nonexistent id → graceful no-op (200 re-render), no audit row" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/${UUID.randomUUID()}/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("_csrf" to AdminAuthTestSupport.csrfFor(token), "reason" to "valid reason"))
+                }
+            res.status shouldBe HttpStatusCode.OK // graceful re-render, not a 5xx
+            res.bodyAsText() shouldContain "no longer exists"
+        }
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin.id)
+            .count { it.actionType == "rejected_identifier_cleared" } shouldBe 0
+    }
+
+    "clear at the 10/hr cap → quota-exceeded re-render (200), row remains, no new audit row" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        repeat(10) { RejectedIdentifiersTestSupport.seedClearAudit(dataSource, admin.id) }
+        val id = seed("cap-hash", reason = "age_under_18")
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/rejected-identifiers/$id/clear") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("_csrf" to AdminAuthTestSupport.csrfFor(token), "reason" to "over cap"))
+                }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "quota"
+        }
+        RejectedIdentifiersTestSupport.existsById(dataSource, id) shouldBe true
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin.id)
+            .count { it.actionType == "rejected_identifier_cleared" } shouldBe 10 // the 10 seeded; no new one
     }
 
     "6.3 — malformed cursor falls back to the newest page (200, no error)" {
