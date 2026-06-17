@@ -21,8 +21,16 @@ import id.nearyou.app.data.like.LikeFlow
  */
 interface PostDetailFlow : LikeFlow {
     /** `GET /api/v1/posts/{postId}/replies` (first page). `next_cursor` is retained on [RepliesOutcome.Loaded]
-     *  but cursor load-more is NOT wired in this change (deferred). */
+     *  and drives [loadMoreReplies] (the `PostDetailViewModel` appends subsequent pages). */
     suspend fun loadReplies(postId: String): RepliesOutcome
+
+    /** `GET /api/v1/posts/{postId}/replies?cursor=…` — a subsequent replies page (cursor load-more,
+     *  `mobile-nearby-timeline-infinite-scroll`). Returns the same [RepliesOutcome]; the caller appends the
+     *  page below the existing replies and advances the cursor. */
+    suspend fun loadMoreReplies(
+        postId: String,
+        cursor: String,
+    ): RepliesOutcome
 
     /** `POST /api/v1/posts/{postId}/replies` with `{ "content": <content> }`. On [ReplyPostOutcome.Success]
      *  the caller appends the returned reply locally + bumps the count — the repo does NOT re-fetch. */

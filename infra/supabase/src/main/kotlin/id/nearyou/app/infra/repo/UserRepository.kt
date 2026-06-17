@@ -52,6 +52,18 @@ data class NewUserRow(
     val deviceFingerprintHash: String?,
 )
 
+/**
+ * Minimal live-inviter projection for referral ticket creation, resolved from an
+ * invite code (== `invite_code_prefix`, exact equality). Only the fields the
+ * referral eligibility gates need; restricted to live rows (`deleted_at IS NULL`).
+ */
+data class InviterRow(
+    val id: UUID,
+    val isBanned: Boolean,
+    val createdAt: Instant,
+    val deviceFingerprintHash: String?,
+)
+
 interface UserRepository {
     fun findById(id: UUID): UserRow?
 
@@ -75,6 +87,16 @@ interface UserRepository {
 
     /** Pre-transaction invite-code-prefix collision probe. */
     fun existsByInviteCodePrefix(prefix: String): Boolean
+
+    /**
+     * Resolve an invite code (== `users.invite_code_prefix`, exact equality) to
+     * its live inviter for referral ticket creation. Returns null when no live
+     * user (`deleted_at IS NULL`) carries that prefix. O(1) on the
+     * `invite_code_prefix` UNIQUE index. Reads raw `users` — covered by the
+     * class-level `@AllowMissingBlockJoin` on `JdbcUserRepository` (auth-plane
+     * invite-code read; no viewer-block axis at pre-auth signup).
+     */
+    fun findInviterByInviteCodePrefix(prefix: String): InviterRow?
 
     /**
      * Insert a new `users` row inside the caller's transaction.

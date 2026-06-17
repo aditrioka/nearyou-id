@@ -170,4 +170,93 @@ class FollowingTimelineViewModelTest {
 
         assertEquals(1, likeFlow.invocationCount, "the per-post in-flight guard ignores the re-tap")
     }
+
+    // ---- mobile-nearby-timeline-infinite-scroll (extended to Following): cursor load-more (no anchor) ----
+
+    private fun loadedPage1(
+        cursor: String?,
+        vararg posts: FollowingPostDto,
+    ) = FollowingTimelineOutcome.Loaded(posts.toList(), cursor, null)
+
+    @Test
+    fun onLoadMore_appendsBelowPage1_andAdvancesCursor() {
+        val fake =
+            FakeFollowingTimelineFlow(
+                outcome = loadedPage1("c1", fakeFollowingPost(id = "p1")),
+                loadMorePages = listOf(FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(id = "p2")), "c2", null)),
+            )
+        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow())
+
+        viewModel.onLoadMore()
+
+        val loaded = viewModel.outcome.value as FollowingTimelineOutcome.Loaded
+        assertEquals(listOf("p1", "p2"), loaded.posts.map { it.id }, "page 2 appends below page 1")
+        assertEquals("c2", loaded.nextCursor, "the cursor advances to the new page's cursor")
+        assertEquals(
+            listOf("c1"),
+            fake.loadMoreCalls,
+            "load-more fetches the retained cursor c1 (cursor-only — Following has no anchor)",
+        )
+    }
+
+    @Test
+    fun onLoadMore_whenEndReached_isNoOp() {
+        // First page already end-reached (null cursor) → load-more must not fire.
+        val fake = FakeFollowingTimelineFlow(outcome = loadedPage1(null, fakeFollowingPost(id = "p1")))
+        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow())
+
+        viewModel.onLoadMore()
+
+        assertTrue(fake.loadMoreCalls.isEmpty(), "no load-more request when the cursor is null (end-reached)")
+    }
+
+    @Test
+    fun onLoadMore_failure_raisesErrorFooter_andKeepsLoadedPosts() {
+        val fake =
+            FakeFollowingTimelineFlow(
+                outcome = loadedPage1("c1", fakeFollowingPost(id = "p1")),
+                loadMorePages = listOf(FollowingTimelineOutcome.NetworkError),
+            )
+        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow())
+
+        viewModel.onLoadMore()
+
+        assertTrue(viewModel.loadMoreError.value, "a failed load-more raises the non-destructive error footer")
+        val loaded = viewModel.outcome.value as FollowingTimelineOutcome.Loaded
+        assertEquals(listOf("p1"), loaded.posts.map { it.id }, "the loaded posts are retained on load-more failure")
+    }
+
+    @Test
+    fun reload_clearsTheLoadMoreErrorFooter() {
+        val fake =
+            FakeFollowingTimelineFlow(
+                outcome = loadedPage1("c1", fakeFollowingPost(id = "p1")),
+                loadMorePages = listOf(FollowingTimelineOutcome.NetworkError),
+            )
+        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow())
+        viewModel.onLoadMore()
+        assertTrue(viewModel.loadMoreError.value)
+
+        viewModel.reload()
+
+        assertFalse(viewModel.loadMoreError.value, "a refresh resets paging — the load-more footer state clears")
+    }
+
+    @Test
+    fun onLoadMore_isSuppressedWhileARefreshIsInFlight() {
+        // suspendFromCall = 2 → the reload's loadFirstPage suspends, so the refresh stays in flight.
+        val fake =
+            FakeFollowingTimelineFlow(
+                outcome = loadedPage1("c1", fakeFollowingPost(id = "p1")),
+                suspendFromCall = 2,
+                loadMorePages = listOf(FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(id = "p2")), "c2", null)),
+            )
+        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow())
+
+        viewModel.reload()
+        assertTrue(viewModel.isRefreshing.value, "the reload is in flight")
+        viewModel.onLoadMore()
+
+        assertTrue(fake.loadMoreCalls.isEmpty(), "load-more is suppressed while a refresh is in flight (canLoadMore gate)")
+    }
 }

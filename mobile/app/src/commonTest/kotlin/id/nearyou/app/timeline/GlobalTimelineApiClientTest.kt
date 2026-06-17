@@ -104,6 +104,29 @@ class GlobalTimelineApiClientTest {
         }
 
     @Test
+    fun `a load-more request carries the cursor and still no spatial params`() =
+        runTest {
+            // The load-more page (GlobalTimelineRepository.loadMore → fetchGlobal(cursor=…)): the cursor
+            // is sent AND Global stays spatial-filter-free (no lat / lng / radius_m), unlike Nearby's
+            // anchor-bearing load-more.
+            var captured: HttpRequestData? = null
+            val api =
+                GlobalTimelineApiClient(
+                    client { request ->
+                        captured = request
+                        respond("""{"posts":[]}""", HttpStatusCode.OK, JSON_HEADERS)
+                    },
+                )
+            api.fetchGlobal(sessionId = "s", cursor = "c1")
+
+            val req = requireNotNull(captured)
+            assertEquals("c1", req.url.parameters["cursor"], "the load-more cursor is sent")
+            assertFalse(req.url.parameters.contains("lat"), "Global load-more has no spatial filter: no lat")
+            assertFalse(req.url.parameters.contains("lng"), "Global load-more has no spatial filter: no lng")
+            assertFalse(req.url.parameters.contains("radius_m"), "Global load-more has no spatial filter: no radius_m")
+        }
+
+    @Test
     fun `full post shape parses against the shipped distance-less mixed-case wire`() =
         runTest {
             val api = GlobalTimelineApiClient(client { respond(MIXED_CASE_BODY, HttpStatusCode.OK, JSON_HEADERS) })

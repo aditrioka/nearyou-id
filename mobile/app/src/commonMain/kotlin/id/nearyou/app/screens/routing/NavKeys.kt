@@ -55,6 +55,19 @@ data object PostCreationRoute : NavKey
 data object SearchRoute : NavKey
 
 /**
+ * The Premium username-customization ("Ganti Username") surface (the `mobile-premium-username` capability),
+ * reached from the Settings AKUN "Ganti username" row and pushed **unconditionally** onto the ROOT back
+ * stack above [HomeRoute] (overlaying the section bar, the [SearchRoute] / [PostDetailRoute] mechanism).
+ * A **parameterless** marker — the current handle is fetched by the screen's ViewModel (a self-profile
+ * read), never carried on the route, so no identity enters the serialized back stack. The route-scoped
+ * screen owns the Free/Premium gate (an on-entry self-`isPremium` read + the reactive `403` backstop), so
+ * Settings holds no premium signal. Registered in the `navSavedStateConfiguration` polymorphic
+ * `SerializersModule` for the iOS-saveable back stack.
+ */
+@Serializable
+data object UsernameCustomizationRoute : NavKey
+
+/**
  * Analytics & Tracking Consent surface (the `mobile-analytics-consent` capability), reached after
  * age-gate signup success. A parameterless marker — the user identity lives in the persisted token,
  * never in the serialized back stack. The signup-success transition REPLACES `AgeGateRoute` with

@@ -20,6 +20,11 @@ private fun String.stripComments(): String {
  * profile surface is deferred (follow-up issue #193 (`mobile-notifications-deep-link-targets`)). Needles are
  * assembled from fragments AND the scanned source is comment-stripped, so neither the screen's own KDoc nor
  * this guard's source trips it. Runs in every variant (NOT a Compose UI test).
+ *
+ * The companion cursor-load-more deferral guard was removed when notifications gained cursor infinite
+ * scroll (`mobile-nearby-timeline-infinite-scroll` extended to notifications): `next_cursor` is now
+ * consumed via the shared `LoadMoreController`, so the deferral it guarded no longer holds. Deep-link
+ * tap-through stays deferred — only the navigation guard remains.
  */
 class NotificationsDeepLinkAbsenceScanTest {
     // Assembled (not contiguous literals): a Nav3 back-stack handle, a route key, and #159's
@@ -27,11 +32,6 @@ class NotificationsDeepLinkAbsenceScanTest {
     private val backStackNeedle = "Nav" + "BackStack"
     private val navKeyNeedle = "Nav" + "Key"
     private val postDetailNeedle = "PostDetail" + "Route"
-
-    // Assembled: the load-more API surface that would exist if cursor-based infinite scroll were wired
-    // (deferred — `next_cursor` is parsed/retained but NOT consumed). See follow-up issue #188 (`mobile-nearby-timeline-infinite-scroll`).
-    private val loadNextPageNeedle = "load" + "NextPage"
-    private val loadMoreNeedle = "load" + "More"
 
     @Test
     fun notificationsScreenWiresNoNavigationRoute() {
@@ -47,26 +47,6 @@ class NotificationsDeepLinkAbsenceScanTest {
             screen.contains(postDetailNeedle),
             "NotificationsScreen must not navigate to a post-detail route (#159 deep-link deferred)",
         )
-    }
-
-    @Test
-    fun notificationsWiresNoCursorLoadMore() {
-        // `next_cursor` is parsed + retained (NotificationsOutcome.Loaded.nextCursor) but NOT consumed to
-        // issue a follow-up cursor-bearing request — infinite scroll is deferred. No load-more API surface
-        // exists across the notifications graph.
-        val root = findRepoRoot()
-        val sources =
-            listOf(
-                "mobile/app/src/commonMain/kotlin/id/nearyou/app/notifications/NotificationsFlow.kt",
-                "mobile/app/src/commonMain/kotlin/id/nearyou/app/notifications/NotificationsRepository.kt",
-                "mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/notifications/NotificationsViewModel.kt",
-                "mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/notifications/NotificationsScreen.kt",
-            ).map { File(root, it).readText().stripComments() }
-
-        for (src in sources) {
-            assertFalse(src.contains(loadNextPageNeedle), "notifications must wire no cursor load-more (infinite scroll deferred)")
-            assertFalse(src.contains(loadMoreNeedle), "notifications must wire no cursor load-more (infinite scroll deferred)")
-        }
     }
 
     private companion object {

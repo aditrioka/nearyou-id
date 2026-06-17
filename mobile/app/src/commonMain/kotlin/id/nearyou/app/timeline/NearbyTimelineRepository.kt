@@ -1,5 +1,7 @@
 package id.nearyou.app.timeline
 
+import id.nearyou.distance.LatLng
+
 /**
  * The Free-tier fixed Nearby radius — 20 km per `docs/02-Product.md` § Nearby Timeline ("Free: stuck
  * at 20km"). A single named constant (NOT a magic literal at the call site) so the deferred
@@ -53,6 +55,8 @@ class NearbyTimelineRepository(
                     posts = result.body.posts,
                     nextCursor = result.body.nextCursor,
                     upsell = result.body.upsell,
+                    // Retain the page-1 anchor so load-more reuses it (design D4); VM-held, never rendered/logged.
+                    anchor = location,
                 )
             is NearbyApiResult.NetworkError -> {
                 // Log the exception TYPE, not cause.message: a timeout exception's message can embed the
@@ -80,6 +84,48 @@ class NearbyTimelineRepository(
                     // fallback rather than a generic "load failed" fallthrough (the match is over an Int,
                     // so a defined fallback MUST remain — the "no generic fallthrough" rule bans a generic
                     // copy, not a `when` else). Mirrors AuthRepository.
+                    else -> NearbyTimelineOutcome.NetworkError
+                }
+        }
+    }
+
+    override suspend fun loadMore(
+        cursor: String,
+        anchor: LatLng,
+    ): NearbyTimelineOutcome {
+        // Reuse the first-page [anchor] — NO fresh GPS acquisition. The backend cursor is chronological,
+        // so ordering is anchor-independent; reuse keeps the radius stable + avoids redundant location
+        // work (design D4). Same status→outcome mapping as loadFirstPage.
+        val result =
+            apiClient.fetchNearby(
+                lat = anchor.lat,
+                lng = anchor.lng,
+                radiusM = NEARBY_RADIUS_M,
+                sessionId = sessionIdProvider.sessionId,
+                cursor = cursor,
+            )
+        return when (result) {
+            is NearbyApiResult.Success ->
+                NearbyTimelineOutcome.Loaded(
+                    posts = result.body.posts,
+                    nextCursor = result.body.nextCursor,
+                    upsell = result.body.upsell,
+                    anchor = anchor,
+                )
+            is NearbyApiResult.NetworkError -> {
+                // Type-only diagnostic: a load-more timeout's message can embed the ?lat=&lng= URL
+                // (design D4 / security review) — log the exception class, NEVER cause.message or a coordinate.
+                diagnosticLog("nearby_loadmore_error: ${result.cause::class.simpleName}")
+                NearbyTimelineOutcome.NetworkError
+            }
+            is NearbyApiResult.HttpError ->
+                when {
+                    result.status == 401 -> NearbyTimelineOutcome.SessionExpired
+                    result.status == 400 -> {
+                        diagnosticLog("nearby_loadmore_invalid_request: status=400")
+                        NearbyTimelineOutcome.Error
+                    }
+                    result.status in 500..599 -> NearbyTimelineOutcome.NetworkError
                     else -> NearbyTimelineOutcome.NetworkError
                 }
         }

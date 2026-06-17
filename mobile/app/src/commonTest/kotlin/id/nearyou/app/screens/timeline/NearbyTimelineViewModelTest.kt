@@ -6,6 +6,7 @@ import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyPostDto
 import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.timeline.fakeNearbyPost
+import id.nearyou.distance.LatLng
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -170,5 +171,96 @@ class NearbyTimelineViewModelTest {
         viewModel.toggleLike("p1", currentlyLiked = true)
 
         assertEquals(1, likeFlow.invocationCount, "the per-post in-flight guard ignores the re-tap")
+    }
+
+    // ---- mobile-nearby-timeline-infinite-scroll: cursor load-more (anchor reuse) ----
+
+    private val testAnchor = LatLng(lat = -6.2, lng = 106.8)
+
+    private fun loadedPage1(
+        cursor: String?,
+        vararg posts: NearbyPostDto,
+    ) = NearbyTimelineOutcome.Loaded(posts.toList(), cursor, null, anchor = testAnchor)
+
+    @Test
+    fun onLoadMore_appendsBelowPage1_advancesCursor_andReusesTheAnchor() {
+        val fake =
+            FakeNearbyTimelineFlow(
+                outcome = loadedPage1("c1", fakeNearbyPost(id = "p1")),
+                loadMorePages = listOf(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(id = "p2")), "c2", null)),
+            )
+        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow())
+
+        viewModel.onLoadMore()
+
+        val loaded = viewModel.outcome.value as NearbyTimelineOutcome.Loaded
+        assertEquals(listOf("p1", "p2"), loaded.posts.map { it.id }, "page 2 appends below page 1")
+        assertEquals("c2", loaded.nextCursor, "the cursor advances to the new page's cursor")
+        assertEquals(
+            listOf("c1" to testAnchor),
+            fake.loadMoreCalls,
+            "load-more fetches the retained cursor c1 reusing the page-1 anchor (NOT a re-acquired fix)",
+        )
+    }
+
+    @Test
+    fun onLoadMore_whenEndReached_isNoOp() {
+        // First page already end-reached (null cursor) → load-more must not fire.
+        val fake = FakeNearbyTimelineFlow(outcome = loadedPage1(null, fakeNearbyPost(id = "p1")))
+        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow())
+
+        viewModel.onLoadMore()
+
+        assertTrue(fake.loadMoreCalls.isEmpty(), "no load-more request when the cursor is null (end-reached)")
+    }
+
+    @Test
+    fun onLoadMore_failure_raisesErrorFooter_andKeepsLoadedPosts() {
+        val fake =
+            FakeNearbyTimelineFlow(
+                outcome = loadedPage1("c1", fakeNearbyPost(id = "p1")),
+                loadMorePages = listOf(NearbyTimelineOutcome.NetworkError),
+            )
+        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow())
+
+        viewModel.onLoadMore()
+
+        assertTrue(viewModel.loadMoreError.value, "a failed load-more raises the non-destructive error footer")
+        val loaded = viewModel.outcome.value as NearbyTimelineOutcome.Loaded
+        assertEquals(listOf("p1"), loaded.posts.map { it.id }, "the loaded posts are retained on load-more failure")
+    }
+
+    @Test
+    fun reload_clearsTheLoadMoreErrorFooter() {
+        val fake =
+            FakeNearbyTimelineFlow(
+                outcome = loadedPage1("c1", fakeNearbyPost(id = "p1")),
+                loadMorePages = listOf(NearbyTimelineOutcome.NetworkError),
+            )
+        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow())
+        viewModel.onLoadMore()
+        assertTrue(viewModel.loadMoreError.value)
+
+        viewModel.reload()
+
+        assertFalse(viewModel.loadMoreError.value, "a refresh resets paging — the load-more footer state clears")
+    }
+
+    @Test
+    fun onLoadMore_isSuppressedWhileARefreshIsInFlight() {
+        // suspendFromCall = 2 → the reload's loadFirstPage suspends, so the refresh stays in flight.
+        val fake =
+            FakeNearbyTimelineFlow(
+                outcome = loadedPage1("c1", fakeNearbyPost(id = "p1")),
+                suspendFromCall = 2,
+                loadMorePages = listOf(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(id = "p2")), "c2", null)),
+            )
+        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow())
+
+        viewModel.reload()
+        assertTrue(viewModel.isRefreshing.value, "the reload is in flight")
+        viewModel.onLoadMore()
+
+        assertTrue(fake.loadMoreCalls.isEmpty(), "load-more is suppressed while a refresh is in flight (canLoadMore gate)")
     }
 }

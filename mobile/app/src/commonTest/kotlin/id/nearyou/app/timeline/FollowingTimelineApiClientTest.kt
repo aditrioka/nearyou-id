@@ -104,6 +104,26 @@ class FollowingTimelineApiClientTest {
         }
 
     @Test
+    fun `a load-more request carries the cursor and still NO spatial params`() =
+        runTest {
+            var captured: HttpRequestData? = null
+            val api =
+                FollowingTimelineApiClient(
+                    client { request ->
+                        captured = request
+                        respond("""{"posts":[]}""", HttpStatusCode.OK, JSON_HEADERS)
+                    },
+                )
+            api.fetchFollowing(sessionId = "sess-abc", cursor = "c1")
+
+            val req = requireNotNull(captured)
+            assertEquals("c1", req.url.parameters["cursor"], "the load-more cursor is sent")
+            assertFalse(req.url.parameters.contains("lat"), "Following load-more has no spatial filter: no lat")
+            assertFalse(req.url.parameters.contains("lng"), "Following load-more has no spatial filter: no lng")
+            assertFalse(req.url.parameters.contains("radius_m"), "Following load-more has no spatial filter: no radius_m")
+        }
+
+    @Test
     fun `full post shape parses against the shipped distance-less mixed-case wire`() =
         runTest {
             val api = FollowingTimelineApiClient(client { respond(MIXED_CASE_BODY, HttpStatusCode.OK, JSON_HEADERS) })

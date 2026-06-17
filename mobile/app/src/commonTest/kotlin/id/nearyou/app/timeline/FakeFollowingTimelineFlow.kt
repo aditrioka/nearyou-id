@@ -17,15 +17,27 @@ class FakeFollowingTimelineFlow(
     private val suspendForever: Boolean = false,
     private val suspendFromCall: Int = Int.MAX_VALUE,
     private val failWith: Throwable? = null,
+    loadMorePages: List<FollowingTimelineOutcome> = emptyList(),
 ) : FollowingTimelineFlow {
     var loadInvocationCount: Int = 0
         private set
+
+    private val pages = ArrayDeque(loadMorePages)
+
+    /** Records the cursor of each [loadMore] call (Following is cursor-only — no anchor to record). */
+    val loadMoreCalls: MutableList<String> = mutableListOf()
 
     override suspend fun loadFirstPage(): FollowingTimelineOutcome {
         loadInvocationCount++
         if (suspendForever || loadInvocationCount >= suspendFromCall) awaitCancellation()
         failWith?.let { throw it }
         return outcome
+    }
+
+    override suspend fun loadMore(cursor: String): FollowingTimelineOutcome {
+        loadMoreCalls += cursor
+        // Default to an end page (empty + null cursor) so a test that programs no pages still terminates.
+        return if (pages.isEmpty()) FollowingTimelineOutcome.Loaded(emptyList(), null, null) else pages.removeFirst()
     }
 }
 
