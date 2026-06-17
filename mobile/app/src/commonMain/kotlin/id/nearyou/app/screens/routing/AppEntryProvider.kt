@@ -19,6 +19,7 @@ import id.nearyou.app.screens.settings.BlockedUsersScreen
 import id.nearyou.app.screens.settings.ConsentSettingsScreen
 import id.nearyou.app.screens.settings.SettingsScreen
 import id.nearyou.app.screens.shell.AppShellScreen
+import id.nearyou.app.screens.username.UsernameCustomizationScreen
 import org.koin.compose.koinInject
 
 /**
@@ -165,6 +166,9 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
         entry<SettingsRoute> {
             SettingsScreen(
                 onBack = { backStack.removeLastOrNull() },
+                // The "Ganti username" row pushes the Ganti Username surface unconditionally (the
+                // route-scoped screen owns the Free/Premium gate — mobile-premium-username).
+                onOpenUsernameCustomization = { backStack.add(UsernameCustomizationRoute) },
                 onOpenBlocked = { backStack.add(BlockedUsersRoute) },
                 onOpenConsent = { backStack.add(ConsentSettingsRoute) },
                 onLoggedOut = { backStack.replaceAll(SignInRoute) },
@@ -255,13 +259,29 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
         }
         entry<PaywallRoute> { route ->
             // The Premium paywall (mobile-paywall, frame 17). `removeLastOrNull()` is size-safe:
-            // PaywallRoute is only ever appended ATOP the surface that opened it (the cap dialog or the
-            // search Premium gate), so popping returns there. `route.entry` tailors only the hero
-            // subheadline; on a confirmed purchase the screen pops itself (onPurchaseComplete defaults
-            // to onClose) and the underlying surface re-evaluates its gate on next action (design D5).
+            // PaywallRoute is only ever appended ATOP the surface that opened it (the cap dialog, the
+            // search Premium gate, or the username gate), so popping returns there. `route.entry` tailors
+            // only the hero subheadline; on a confirmed purchase the screen pops itself (onPurchaseComplete
+            // defaults to onClose) and the underlying surface re-evaluates its gate on next action (design D5).
             PaywallScreen(
                 entry = route.entry,
                 onClose = { backStack.removeLastOrNull() },
+            )
+        }
+        entry<UsernameCustomizationRoute> {
+            // The Ganti Username surface (mobile-premium-username). `removeLastOrNull()` is size-safe:
+            // UsernameCustomizationRoute is only ever appended ATOP HomeRoute (the Settings "Ganti
+            // username" row), so popping it leaves the settings/home surface. The route-scoped screen
+            // owns the Free/Premium gate (an on-entry self-isPremium read + the reactive 403 backstop),
+            // so Settings pushes this unconditionally. onChanged pops back to Settings on a successful
+            // change; the stateless ProfileFlow re-fetches the new handle on the next read.
+            UsernameCustomizationScreen(
+                onBack = { backStack.removeLastOrNull() },
+                onChanged = { backStack.removeLastOrNull() },
+                // mobile-premium-username § "The Premium gate ... routes to the paywall": the call site
+                // pushes PaywallRoute with the USERNAME entry-context — the reserved entry mobile-paywall-screen
+                // (#309) introduced for exactly this cross-change hook (fulfils that change's TODO(#309)).
+                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.USERNAME)) },
             )
         }
     }

@@ -123,6 +123,10 @@ class DiagnosticSinkWiringTest {
             listOf(
                 "mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/NearbyTimelineRepository.kt",
                 "mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/GlobalTimelineRepository.kt",
+                // Following also carries coordinates in the response BODY (not the URL); its loadFirstPage +
+                // load-more diagnostics must stay coordinate-free too (mobile-nearby-timeline-infinite-scroll
+                // security review). The whole-file scan covers every diagnosticLog(...) site, incl. loadMore.
+                "mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/FollowingTimelineRepository.kt",
             )
         // Coordinate / token identifiers that must never reach the diagnostic sink.
         val forbidden = listOf("latitude", "longitude", "lat", "lng", "coord", "token", "Token", "location")

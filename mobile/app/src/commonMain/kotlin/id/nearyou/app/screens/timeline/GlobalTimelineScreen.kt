@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +31,8 @@ import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
+import id.nearyou.app.ui.components.LoadMoreFooter
+import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.app.ui.components.PostCard
 import id.nearyou.app.ui.components.PostCardModel
 import id.nearyou.resources.generated.resources.Res
@@ -94,15 +97,21 @@ fun GlobalTimelineScreen(
     val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val likeCapRetryAfterSeconds by viewModel.likeCapRetryAfterSeconds.collectAsStateWithLifecycle()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
+    val loadMoreError by viewModel.loadMoreError.collectAsStateWithLifecycle()
 
     GlobalTimelineContent(
         // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
         // list stays mounted). The refresh spinner is conveyed by isRefreshing, NOT by this projection.
         uiState = remember(outcome, isInitialLoad) { globalTimelineUiState(outcome, isInitialLoad) },
         isRefreshing = isRefreshing,
-        // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload
-        // path). `next_cursor` is retained on Loaded but NOT consumed for load-more (deferred alongside
-        // mobile-nearby-timeline-infinite-scroll, extended to cover Global).
+        // Load-more (infinite scroll): the footer flags + the scroll-end/retry callbacks. The shared
+        // LoadMoreController appends pages into the retained Loaded outcome (cursor-only — no anchor).
+        isLoadingMore = isLoadingMore,
+        loadMoreError = loadMoreError,
+        onLoadMore = viewModel::onLoadMore,
+        onRetryLoadMore = viewModel::onRetryLoadMore,
+        // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload path).
         onRefresh = viewModel::reload,
         onRetry = viewModel::reload,
         onOpenPost = onOpenPost,
@@ -143,6 +152,10 @@ fun GlobalTimelineScreen(
 private fun GlobalTimelineContent(
     uiState: GlobalTimelineUiState,
     isRefreshing: Boolean,
+    isLoadingMore: Boolean,
+    loadMoreError: Boolean,
+    onLoadMore: () -> Unit,
+    onRetryLoadMore: () -> Unit,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
     onOpenPost: (GlobalTimelinePost) -> Unit,
@@ -168,6 +181,10 @@ private fun GlobalTimelineContent(
             is GlobalTimelineUiState.Content ->
                 PostList(
                     posts = uiState.posts,
+                    isLoadingMore = isLoadingMore,
+                    loadMoreError = loadMoreError,
+                    onLoadMore = onLoadMore,
+                    onRetryLoadMore = onRetryLoadMore,
                     onOpenPost = onOpenPost,
                     onToggleLike = onToggleLike,
                     onReplyShortcut = onReplyShortcut,
@@ -176,6 +193,10 @@ private fun GlobalTimelineContent(
             is GlobalTimelineUiState.SoftLimit ->
                 PostList(
                     posts = uiState.posts,
+                    isLoadingMore = isLoadingMore,
+                    loadMoreError = loadMoreError,
+                    onLoadMore = onLoadMore,
+                    onRetryLoadMore = onRetryLoadMore,
                     onOpenPost = onOpenPost,
                     onToggleLike = onToggleLike,
                     onReplyShortcut = onReplyShortcut,
@@ -261,13 +282,20 @@ private fun ErrorState(onRetry: () -> Unit) {
 @Composable
 private fun PostList(
     posts: List<GlobalTimelinePost>,
+    isLoadingMore: Boolean,
+    loadMoreError: Boolean,
+    onLoadMore: () -> Unit,
+    onRetryLoadMore: () -> Unit,
     onOpenPost: (GlobalTimelinePost) -> Unit,
     onToggleLike: (GlobalTimelinePost) -> Unit,
     onReplyShortcut: (GlobalTimelinePost) -> Unit,
     onOpenProfile: (GlobalTimelinePost) -> Unit,
     banner: String? = null,
 ) {
+    val listState = rememberLazyListState()
+    LoadMoreOnScrollEnd(listState = listState, onLoadMore = onLoadMore)
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().testTag(GLOBAL_TIMELINE_LIST_TAG),
         // Bottom clearance for the shell's overlaid composer FAB (56dp + 16 margin + breathing
         // room) so the last card's like/reply row never sits under it at scroll end
@@ -291,6 +319,16 @@ private fun PostList(
                 onReplyShortcut = { onReplyShortcut(post) },
                 onOpenProfile = { onOpenProfile(post) },
                 modifier = Modifier.testTag(GLOBAL_POST_CARD_TAG),
+            )
+        }
+        // Load-more footer: spinner while a page loads, non-destructive retry on error, nothing at end
+        // (mobile-design-system § "Canonical list load-more pattern"). The scroll-end detector above
+        // drives onLoadMore; the LoadMoreController's guards make an eager trigger on a short list a no-op.
+        item(key = "loadMoreFooter", contentType = "footer") {
+            LoadMoreFooter(
+                isLoadingMore = isLoadingMore,
+                loadMoreError = loadMoreError,
+                onRetry = onRetryLoadMore,
             )
         }
     }

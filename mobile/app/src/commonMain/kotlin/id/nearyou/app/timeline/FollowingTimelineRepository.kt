@@ -59,4 +59,38 @@ class FollowingTimelineRepository(
                 }
         }
     }
+
+    override suspend fun loadMore(cursor: String): FollowingTimelineOutcome {
+        // Cursor-only: Following has NO spatial anchor to reuse (unlike Nearby) — only the chronological
+        // cursor is passed. Same status→outcome mapping as loadFirstPage.
+        val result =
+            apiClient.fetchFollowing(
+                sessionId = sessionIdProvider.sessionId,
+                cursor = cursor,
+            )
+        return when (result) {
+            is FollowingApiResult.Success ->
+                FollowingTimelineOutcome.Loaded(
+                    posts = result.body.posts,
+                    nextCursor = result.body.nextCursor,
+                    upsell = result.body.upsell,
+                )
+            is FollowingApiResult.NetworkError -> {
+                // Type-only diagnostic (Following carries coordinates in the body) — log the exception
+                // class, NEVER cause.message or a body field. Mirror the coord-safe loadFirstPage tag.
+                diagnosticLog("following_loadmore_error: ${result.cause::class.simpleName}")
+                FollowingTimelineOutcome.NetworkError
+            }
+            is FollowingApiResult.HttpError ->
+                when {
+                    result.status == 401 -> FollowingTimelineOutcome.SessionExpired
+                    result.status == 400 -> {
+                        diagnosticLog("following_loadmore_invalid_request: status=400")
+                        FollowingTimelineOutcome.Error
+                    }
+                    result.status in 500..599 -> FollowingTimelineOutcome.NetworkError
+                    else -> FollowingTimelineOutcome.NetworkError
+                }
+        }
+    }
 }

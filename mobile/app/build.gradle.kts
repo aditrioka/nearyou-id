@@ -389,6 +389,7 @@ tasks.withType<Test>().configureEach {
             "**/ChatThreadScreenTest*",
             "**/SearchScreenTest*",
             "**/PaywallScreenTest*",
+            "**/UsernameCustomizationScreenTest*",
         )
     }
 }

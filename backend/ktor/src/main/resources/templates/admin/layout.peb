@@ -60,6 +60,8 @@
         <a class="nitem{% if activePath == "/admin/blocks" %} active{% endif %}" href="/admin/blocks">{{ icon("group") }}Block registry</a>
         <span class="ngroup">Lifecycle</span>
         <a class="nitem{% if activePath == "/admin/privacy-flips" %} active{% endif %}" href="/admin/privacy-flips">{{ icon("timer") }}Privacy flips</a>
+        <span class="ngroup">Premium</span>
+        <a class="nitem{% if activePath == "/admin/subscriptions/grace" %} active{% endif %}" href="/admin/subscriptions/grace">{{ icon("credit_card") }}Subscription grace</a>
         <span class="ngroup">Konfigurasi</span>
         <a class="nitem{% if activePath == "/admin/feature-flags" %} active{% endif %}" href="/admin/feature-flags">{{ icon("toggle_on") }}Feature flags</a>
         <a class="nitem{% if activePath == "/admin/reserved-usernames" %} active{% endif %}" href="/admin/reserved-usernames">{{ icon("badge") }}Reserved usernames</a>

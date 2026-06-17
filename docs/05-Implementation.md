@@ -236,9 +236,9 @@ Audit log inserted per unban. Permanent bans (`suspended_until IS NULL`) are unt
 
 ---
 
-## Privacy Flip Worker — DESIGN
+## Privacy Flip Worker
 
-> **Status: DESIGN** (as of 2026-05-07). `/internal/privacy-flip-worker` not mounted; `users.privacy_flip_scheduled_at` reserved in V2. Future proposal will author the worker SQL (flip `private_profile_opt_in = FALSE` once the 72h grace expires) + the trigger SQL on the RevenueCat webhook handler.
+> **Status: shipped** (`privacy-flip-worker`, 2026-06-17; no migration — column + index in V2, notification type in V10, system actor in V18). The hourly `/internal/privacy-flip-worker` (OIDC-gated on its own subtree, mirrors `SuspensionUnbanWorker`) runs a single data-modifying CTE: snapshot `users WHERE privacy_flip_scheduled_at IS NOT NULL AND privacy_flip_scheduled_at <= NOW() AND deleted_at IS NULL` `FOR UPDATE` → `UPDATE … SET private_profile_opt_in = FALSE, privacy_flip_scheduled_at = NULL` → INSERT one `admin_actions_log` row per flip (`action_type = 'system_privacy_flip_applied'`, attributed to the seeded `system` sentinel actor; `docs/08` calls it `privacy_flip_applied` loosely — the running convention matches `system_unban_applied`). The set/clear half lives in the RevenueCat webhook handler (`subscription-billing-webhook`): `EXPIRATION` sets `COALESCE(privacy_flip_scheduled_at, NOW() + INTERVAL '72 hours')` for private profiles + emits `privacy_flip_warning`; `INITIAL_PURCHASE`/`RENEWAL` clears it. The "bust Redis profile cache" step is a no-op today (profile reads uncached — [#332](https://github.com/aditrioka/nearyou-id/issues/332)).
 
 ---
 

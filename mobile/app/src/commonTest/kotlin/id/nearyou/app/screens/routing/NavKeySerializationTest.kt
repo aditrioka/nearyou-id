@@ -32,6 +32,9 @@ class NavKeySerializationTest {
                 // The parameterless search route (mobile-search) — a missing subclass(...) registration
                 // in AppNavSerialization.kt would fail this round-trip.
                 SearchRoute,
+                // The parameterless Ganti Username route (mobile-premium-username) — a missing
+                // subclass(...) registration in AppNavSerialization.kt would fail this round-trip.
+                UsernameCustomizationRoute,
                 // The first payload-carrying route — a Nearby-origin instance (distanceM non-null) and a
                 // Global-origin instance (distanceM null) both exercise the polymorphic serializer; the
                 // reply-shortcut variant (focusReplyComposer = true, mobile-inline-post-actions) pins the

@@ -23,7 +23,14 @@ class FakePostDetailFlow(
     // When set, the SECOND+ `loadReplies` call returns this instead of [repliesOutcome] — lets a test
     // drive "error → retry → recovered" (the first load fails, the retry succeeds).
     private val secondRepliesOutcome: RepliesOutcome? = null,
+    // Replies load-more pages, consumed in order (default: an end page — empty + null cursor).
+    loadMoreRepliesPages: List<RepliesOutcome> = emptyList(),
 ) : PostDetailFlow {
+    private val loadMorePages = ArrayDeque(loadMoreRepliesPages)
+
+    /** Records the cursor of each [loadMoreReplies] call so a test can assert the follow-up cursor. */
+    val loadMoreRepliesCalls: MutableList<String> = mutableListOf()
+
     var loadRepliesCount: Int = 0
         private set
 
@@ -46,6 +53,14 @@ class FakePostDetailFlow(
         loadRepliesCount++
         if (suspendRepliesForever) awaitCancellation()
         return if (loadRepliesCount >= 2 && secondRepliesOutcome != null) secondRepliesOutcome else repliesOutcome
+    }
+
+    override suspend fun loadMoreReplies(
+        postId: String,
+        cursor: String,
+    ): RepliesOutcome {
+        loadMoreRepliesCalls += cursor
+        return if (loadMorePages.isEmpty()) RepliesOutcome.Loaded(emptyList(), nextCursor = null) else loadMorePages.removeFirst()
     }
 
     override suspend fun toggleLike(

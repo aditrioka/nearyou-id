@@ -1,0 +1,38 @@
+{% extends "layout.peb" %}
+
+{% block title %}Subscription Grace Monitor — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Subscription Grace Monitor</h2>
+<p class="pg-sub">Users in subscription_status = 'premium_billing_retry' — the RevenueCat billing-retry grace window. Expedite records a support-desk resolution; it does NOT change entitlement (RevenueCat remains the source of truth).</p>
+
+{# Read list over billing-retry `users` + a per-row manual "expedite" bookkeeping
+   write. Every value is autoescaped; `username` is user-controlled free text, so
+   escaping is load-bearing here (and in the /admin/users?q= deep-link href). #}
+
+{# Filter form. hx-get swaps only the #subscription-grace-table fragment;
+   method=GET means it also works as plain navigation when JS is unavailable. #}
+<div class="filterbar">
+    <input type="checkbox" id="filters-toggle" class="filters-toggle" aria-label="Toggle filters">
+    <label for="filters-toggle" class="btn tonal sm filters-label">Filters</label>
+    <span class="filters-chips">{% for f in filters %}{% if f.value is not empty %}<span class="pill">{{ f.key }}: {{ f.value }}</span>{% endif %}{% endfor %}</span>
+    <form class="filters"
+          hx-get="/admin/subscriptions/grace"
+          hx-target="#subscription-grace-table"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          method="GET">
+        <label class="field">
+            <span>User (username or ID)</span>
+            <input type="text" name="q" value="{{ filters.q | default('') }}" placeholder="username or UUID">
+        </label>
+        <label class="field">
+            <span>Store</span>
+            <input type="text" name="store" value="{{ filters.store | default('') }}" placeholder="e.g. app_store">
+        </label>
+        <button type="submit" class="btn filled">Filter</button>
+    </form>
+</div>
+
+{% include "subscription-grace-table.peb" %}
+{% endblock %}

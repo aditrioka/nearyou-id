@@ -84,6 +84,9 @@ import id.nearyou.app.timeline.NearbyTimelineApiClient
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineRepository
 import id.nearyou.app.timeline.SessionIdProvider
+import id.nearyou.app.username.UsernameApiClient
+import id.nearyou.app.username.UsernameFlow
+import id.nearyou.app.username.UsernameRepository
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import kotlin.time.TimeSource
@@ -370,6 +373,16 @@ val mobileModule =
         single { SearchApiClient(get()) }
         single { SearchRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<SearchFlow> { get<SearchRepository>() }
+
+        // mobile-premium-username-customization — the Ganti Username data seam over the SHIPPED, FROZEN
+        // PATCH /api/v1/user/username + GET /api/v1/username/check endpoints (Bearer attached by the Auth
+        // plugin; no new client). The status→outcome mapping (reading the body error code only to split
+        // 429 cooldown_active/rate_limited + 422 invalid_username/username_rejected) lives in
+        // UsernameRepository, bound behind the UsernameFlow seam so a FakeUsernameFlow drives the screen +
+        // ViewModel tests. diagnosticLog wired to the real coordinate-/candidate-safe sink (status/type only).
+        single { UsernameApiClient(get()) }
+        single { UsernameRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<UsernameFlow> { get<UsernameRepository>() }
 
         // mobile-fcm-token-registration — the push-token registration graph. Reuses the shared
         // (bearer-authed) HttpClient (NO new client). The FcmTokenProvider platform actual is bound in

@@ -17,15 +17,27 @@ class FakeGlobalTimelineFlow(
     private val suspendForever: Boolean = false,
     private val suspendFromCall: Int = Int.MAX_VALUE,
     private val failWith: Throwable? = null,
+    loadMorePages: List<GlobalTimelineOutcome> = emptyList(),
 ) : GlobalTimelineFlow {
     var loadInvocationCount: Int = 0
         private set
+
+    private val pages = ArrayDeque(loadMorePages)
+
+    /** Records the cursor of each [loadMore] call (cursor-only — Global has no anchor). */
+    val loadMoreCalls: MutableList<String> = mutableListOf()
 
     override suspend fun loadFirstPage(): GlobalTimelineOutcome {
         loadInvocationCount++
         if (suspendForever || loadInvocationCount >= suspendFromCall) awaitCancellation()
         failWith?.let { throw it }
         return outcome
+    }
+
+    override suspend fun loadMore(cursor: String): GlobalTimelineOutcome {
+        loadMoreCalls += cursor
+        // Default to an end page (empty + null cursor) so a test that programs no pages still terminates.
+        return if (pages.isEmpty()) GlobalTimelineOutcome.Loaded(emptyList(), null, null) else pages.removeFirst()
     }
 }
 

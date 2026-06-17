@@ -1,5 +1,6 @@
 package id.nearyou.app.timeline
 
+import id.nearyou.distance.LatLng
 import kotlinx.coroutines.awaitCancellation
 
 /**
@@ -18,15 +19,30 @@ class FakeNearbyTimelineFlow(
     private val suspendForever: Boolean = false,
     private val suspendFromCall: Int = Int.MAX_VALUE,
     private val failWith: Throwable? = null,
+    loadMorePages: List<NearbyTimelineOutcome> = emptyList(),
 ) : NearbyTimelineFlow {
     var loadInvocationCount: Int = 0
         private set
+
+    private val pages = ArrayDeque(loadMorePages)
+
+    /** Records the (cursor, anchor) of each [loadMore] call so a test can assert the anchor is reused. */
+    val loadMoreCalls: MutableList<Pair<String, LatLng>> = mutableListOf()
 
     override suspend fun loadFirstPage(): NearbyTimelineOutcome {
         loadInvocationCount++
         if (suspendForever || loadInvocationCount >= suspendFromCall) awaitCancellation()
         failWith?.let { throw it }
         return outcome
+    }
+
+    override suspend fun loadMore(
+        cursor: String,
+        anchor: LatLng,
+    ): NearbyTimelineOutcome {
+        loadMoreCalls += cursor to anchor
+        // Default to an end page (empty + null cursor) so a test that programs no pages still terminates.
+        return if (pages.isEmpty()) NearbyTimelineOutcome.Loaded(emptyList(), null, null) else pages.removeFirst()
     }
 }
 

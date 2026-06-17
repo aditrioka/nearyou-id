@@ -28,9 +28,13 @@ import javax.sql.DataSource
  * and the notification never fires — exactly-once for the user-visible effects.
  *
  * PAID path only. `GRANT` (referral) + unknown event types are benign no-ops
- * that record nothing; the 72h privacy-flip coupling and the time-based
- * grace-elapse downgrade are deferred to their owning worker changes (the
- * `EXPIRATION` handler downgrades to `free` but schedules no privacy flip).
+ * that record nothing. On `EXPIRATION` the handler also schedules the 72h
+ * privacy flip for private profiles (idempotent COALESCE) + emits a
+ * `privacy_flip_warning`; purchase/renewal clear any pending flip on
+ * re-activation — both in the same transaction (privacy-flip-worker capability;
+ * the acting `/internal/privacy-flip-worker` applies the flip once the deadline
+ * elapses). The time-based grace-elapse downgrade remains deferred to its own
+ * worker change.
  */
 class SubscriptionService(
     private val dataSource: DataSource,
@@ -69,20 +73,33 @@ class SubscriptionService(
     suspend fun process(event: IncomingEvent): Result {
         val transition =
             when (event.type.uppercase()) {
-                "INITIAL_PURCHASE" -> Transition("initial_purchase", STATUS_PREMIUM_ACTIVE, null, EMPTY_BODY)
-                "RENEWAL" -> Transition("renewal", STATUS_PREMIUM_ACTIVE, null, EMPTY_BODY)
+                // Re-activation clears any pending privacy flip (re-subscribe cancels the downgrade).
+                "INITIAL_PURCHASE" ->
+                    Transition("initial_purchase", STATUS_PREMIUM_ACTIVE, null, EMPTY_BODY, PrivacyFlipAction.CLEAR)
+                "RENEWAL" ->
+                    Transition("renewal", STATUS_PREMIUM_ACTIVE, null, EMPTY_BODY, PrivacyFlipAction.CLEAR)
                 "BILLING_ISSUE" ->
                     Transition(
                         "billing_issue",
                         STATUS_PREMIUM_BILLING_RETRY,
                         NotificationType.SUBSCRIPTION_BILLING_ISSUE,
                         billingIssueBody(),
+                        PrivacyFlipAction.NONE,
                     )
                 // Any EXPIRATION is terminal regardless of expiration_reason
-                // (docs/01 § Payment Stack: "only EXPIRATION flips to free").
-                "EXPIRATION" -> Transition("expiration", STATUS_FREE, NotificationType.SUBSCRIPTION_EXPIRED, EMPTY_BODY)
-                // CANCELLATION keeps the user premium until the period ends — no status change.
-                "CANCELLATION" -> Transition("cancellation", null, null, EMPTY_BODY)
+                // (docs/01 § Payment Stack: "only EXPIRATION flips to free"). It also
+                // schedules the 72h privacy flip for private profiles (privacy-flip-worker).
+                "EXPIRATION" ->
+                    Transition(
+                        "expiration",
+                        STATUS_FREE,
+                        NotificationType.SUBSCRIPTION_EXPIRED,
+                        EMPTY_BODY,
+                        PrivacyFlipAction.SCHEDULE_IF_PRIVATE,
+                    )
+                // CANCELLATION keeps the user premium until the period ends — no status
+                // change, and it neither schedules nor clears a privacy flip.
+                "CANCELLATION" -> Transition("cancellation", null, null, EMPTY_BODY, PrivacyFlipAction.NONE)
                 "GRANT" -> {
                     // Deferred to the referral-system change (granted_entitlements /
                     // referral_tickets do not exist yet) — record nothing, grant nothing.
@@ -95,14 +112,15 @@ class SubscriptionService(
                 }
             }
 
-        var emittedId: UUID? = null
+        val emittedIds = mutableListOf<UUID>()
         val result =
             withContext(dbDispatcher) {
                 dataSource.connection.use { conn ->
                     conn.autoCommit = false
                     try {
-                        val userExists = repository.applyStatusReturningExists(conn, event.userId, transition.newStatus)
-                        if (!userExists) {
+                        val applied =
+                            repository.applyStatus(conn, event.userId, transition.newStatus, transition.privacyFlip)
+                        if (!applied.exists) {
                             conn.rollback()
                             Result.UnknownUser
                         } else {
@@ -119,22 +137,37 @@ class SubscriptionService(
                                     platform = event.platform,
                                 )
                             if (!isNew) {
-                                // Duplicate: rollback undoes the status apply (so it is NOT
-                                // re-applied) and the notification below never runs.
+                                // Duplicate: rollback undoes the status apply + flip schedule (so
+                                // neither is re-applied) and the notifications below never run.
                                 conn.rollback()
                                 Result.Duplicate
                             } else {
                                 transition.notificationType?.let { type ->
-                                    emittedId =
-                                        notifications.emit(
-                                            conn = conn,
-                                            recipientId = event.userId,
-                                            actorUserId = null,
-                                            type = type,
-                                            targetType = null,
-                                            targetId = null,
-                                            bodyData = transition.notificationBody,
-                                        )
+                                    notifications.emit(
+                                        conn = conn,
+                                        recipientId = event.userId,
+                                        actorUserId = null,
+                                        type = type,
+                                        targetType = null,
+                                        targetId = null,
+                                        bodyData = transition.notificationBody,
+                                    )?.let(emittedIds::add)
+                                }
+                                // A private profile whose grace was just scheduled gets a
+                                // privacy_flip_warning carrying the deadline (privacy-flip-worker).
+                                if (transition.privacyFlip == PrivacyFlipAction.SCHEDULE_IF_PRIVATE &&
+                                    applied.wasPrivate &&
+                                    applied.privacyFlipScheduledAt != null
+                                ) {
+                                    notifications.emit(
+                                        conn = conn,
+                                        recipientId = event.userId,
+                                        actorUserId = null,
+                                        type = NotificationType.PRIVACY_FLIP_WARNING,
+                                        targetType = null,
+                                        targetId = null,
+                                        bodyData = privacyFlipWarningBody(applied.privacyFlipScheduledAt),
+                                    )?.let(emittedIds::add)
                                 }
                                 conn.commit()
                                 Result.Ok
@@ -165,8 +198,9 @@ class SubscriptionService(
         }
 
         // Post-commit FCM dispatch (fire-and-forget inside the dispatcher impl) so a
-        // rolled-back notification is never pushed — mirrors LikeService.
-        emittedId?.let(dispatcher::dispatch)
+        // rolled-back notification is never pushed — mirrors LikeService. A private
+        // EXPIRATION dispatches two (subscription_expired + privacy_flip_warning).
+        emittedIds.forEach(dispatcher::dispatch)
         return result
     }
 
@@ -175,11 +209,17 @@ class SubscriptionService(
             put("grace_end_at", JsonPrimitive(clock().plus(Duration.ofDays(GRACE_DAYS)).toString()))
         }
 
+    private fun privacyFlipWarningBody(scheduledAt: Instant): JsonObject =
+        buildJsonObject {
+            put("privacy_flip_scheduled_at", JsonPrimitive(scheduledAt.toString()))
+        }
+
     private data class Transition(
         val eventType: String,
         val newStatus: String?,
         val notificationType: NotificationType?,
         val notificationBody: JsonObject,
+        val privacyFlip: PrivacyFlipAction,
     )
 
     private companion object {

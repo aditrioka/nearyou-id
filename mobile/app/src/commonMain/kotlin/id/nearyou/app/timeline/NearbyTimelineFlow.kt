@@ -1,5 +1,7 @@
 package id.nearyou.app.timeline
 
+import id.nearyou.distance.LatLng
+
 /**
  * The Nearby-timeline orchestration contract consumed by `NearbyTimelineScreen`. The production
  * binding is [NearbyTimelineRepository]; commonTest substitutes a `FakeNearbyTimelineFlow` so the
@@ -9,10 +11,22 @@ package id.nearyou.app.timeline
 interface NearbyTimelineFlow {
     /**
      * Loads the first page of the Nearby feed (≤ 30 posts). Pull-to-refresh re-invokes this; the
-     * returned [NearbyTimelineOutcome.Loaded.nextCursor] is retained but not yet consumed for
-     * load-more (deferred to `mobile-nearby-timeline-infinite-scroll`).
+     * returned [NearbyTimelineOutcome.Loaded.nextCursor] drives [loadMore], and the resolved
+     * [NearbyTimelineOutcome.Loaded.anchor] is the coordinate [loadMore] reuses.
      */
     suspend fun loadFirstPage(): NearbyTimelineOutcome
+
+    /**
+     * Loads a subsequent page for [cursor], **reusing the first-page [anchor] coordinate** rather than
+     * re-acquiring a device fix (`mobile-nearby-timeline-infinite-scroll`, design D4). The backend
+     * cursor is chronological (`createdAt`, `id`), so ordering is anchor-independent; reusing the anchor
+     * keeps the 20 km radius stable across pages and avoids redundant GPS. [anchor] is request state
+     * only — it is never rendered or logged.
+     */
+    suspend fun loadMore(
+        cursor: String,
+        anchor: LatLng,
+    ): NearbyTimelineOutcome
 }
 
 /**
@@ -37,6 +51,11 @@ sealed interface NearbyTimelineOutcome {
         val posts: List<NearbyPostDto>,
         val nextCursor: String?,
         val upsell: UpsellDto?,
+        // The coordinate this page was fetched against — retained so load-more can reuse the first-page
+        // anchor (design D4). VM-held request state ONLY: it is NEVER projected to the UI state, rendered,
+        // or logged (the same discipline that strips the per-post latitude/longitude). Nullable + default
+        // so commonTest fakes that don't model the anchor still construct Loaded.
+        val anchor: LatLng? = null,
     ) : NearbyTimelineOutcome
 
     /** HTTP 5xx, transport/IO failure, or any unenumerated non-2xx status — retryable (connectivity copy). */

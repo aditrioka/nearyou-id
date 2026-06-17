@@ -1,7 +1,9 @@
 package id.nearyou.app
 
+import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.admin
+import id.nearyou.app.admin.privacyFlipWorkerRoute
 import id.nearyou.app.admin.unbanWorkerRoute
 import id.nearyou.app.auth.installAuth
 import id.nearyou.app.auth.jwks.jwksRoutes
@@ -384,6 +386,7 @@ fun Application.module() {
     val oidcTokenVerifier: OidcTokenVerifier =
         GoogleOidcTokenVerifier(audience = internalOidcAudience, jwkProvider = googleJwkProvider())
     val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource)
+    val privacyFlipWorker = PrivacyFlipWorker(dataSource)
 
     val reservedUsernames: ReservedUsernameRepository = JdbcReservedUsernameRepository(dataSource)
     // Real username_history binding (premium-username-customization) — shared by
@@ -1044,6 +1047,7 @@ fun Application.module() {
     routing {
         route("/internal") {
             unbanWorkerRoute(suspensionUnbanWorker, oidcTokenVerifier)
+            privacyFlipWorkerRoute(privacyFlipWorker, oidcTokenVerifier)
         }
     }
 

@@ -28,6 +28,7 @@ private const val TITLE = "Pengaturan"
 private const val PRIVACY_DATA = "Privasi & data"
 private const val BLOCKED = "Pengguna diblokir"
 private const val PRIVATE_PROFILE = "Profil privat"
+private const val GANTI_USERNAME = "Ganti username"
 private const val COMING_SOON = "Segera hadir"
 private const val LOGOUT_ROW = "Keluar"
 private const val LOGOUT_DIALOG_TITLE = "Keluar dari akun?"
@@ -90,6 +91,32 @@ class SettingsScreenTest {
             onNodeWithText(PRIVACY_DATA).performScrollTo().performClick()
             assertEquals(1, blocked)
             assertEquals(1, consent)
+        }
+    }
+
+    @Test
+    fun gantiUsernameRow_pushesUsernameRoute_unconditionally() {
+        installKoin()
+        var opened = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        SettingsScreen(
+                            onBack = {},
+                            onOpenUsernameCustomization = { opened++ },
+                            onOpenBlocked = {},
+                            onOpenConsent = {},
+                            onLoggedOut = {},
+                        )
+                    }
+                }
+            }
+            // The "Ganti username" row is BACKED (mobile-premium-username): it pushes the route
+            // unconditionally and shows no "Segera hadir" (the screen owns the Free/Premium gate).
+            onNodeWithText(GANTI_USERNAME).performScrollTo().performClick()
+            assertEquals(1, opened, "the Ganti username row pushes UsernameCustomizationRoute unconditionally")
+            onNodeWithText(COMING_SOON).assertDoesNotExist()
         }
     }
 

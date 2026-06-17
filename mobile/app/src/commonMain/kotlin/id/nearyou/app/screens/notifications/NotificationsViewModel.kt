@@ -7,6 +7,8 @@ import id.nearyou.app.notifications.MarkReadResult
 import id.nearyou.app.notifications.NotificationDto
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
+import id.nearyou.app.ui.timeline.LoadMoreController
+import id.nearyou.app.ui.timeline.LoadMorePage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,8 +25,14 @@ import kotlin.coroutines.cancellation.CancellationException
  *
  * Mark-read / mark-all-read are **optimistic** local mutations of the `Loaded` items: the row(s) flip to
  * read immediately, then `204`/`404` keeps the flip while any other transport failure reverts it — no full
- * re-fetch (design D8). The unread **badge** count is owned separately by the shell (a one-shot
- * `unread-count` fetch, refreshed on leaving the section), so it is NOT recomputed here.
+ * re-fetch (design D8). Both map over the retained `Loaded.items`, so once load-more has appended pages
+ * they operate over the GROWN list (mark-all-read flips appended rows too). The unread **badge** count is
+ * owned separately by the shell (a one-shot `unread-count` fetch, refreshed on leaving the section), so it
+ * is NOT recomputed here.
+ *
+ * Cursor load-more (infinite scroll) appends pages into the same retained `Loaded` outcome via the shared
+ * [LoadMoreController] (`mobile-nearby-timeline-infinite-scroll`, extended to notifications), reusing the
+ * first page's `unread=false` filter and gated so it never runs during the initial load or a refresh.
  */
 class NotificationsViewModel(
     private val flow: NotificationsFlow,
@@ -45,9 +53,46 @@ class NotificationsViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    // mobile-nearby-timeline-infinite-scroll (extended to notifications): the notifications instance of the
+    // ONE shared load-more lifecycle (ui/timeline/LoadMoreController). Appends pages into the retained
+    // Loaded outcome — so the optimistic markRead / markAllRead mutations (which map over the retained
+    // items list) operate over the GROWN list, appended rows included. There is NO spatial anchor (unlike
+    // Nearby) and NO rate-limit / upsell state. Eligibility-gated so load-more never runs during the
+    // initial load or a refresh.
+    private val loadMoreController =
+        LoadMoreController<NotificationDto>(
+            scope = viewModelScope,
+            currentCursor = { (_outcome.value as? NotificationsOutcome.Loaded)?.nextCursor },
+            canLoadMore = { !_isInitialLoad.value && !_isRefreshing.value },
+            fetchPage = { cursor ->
+                when (val outcome = flow.loadMore(cursor)) {
+                    is NotificationsOutcome.Loaded -> LoadMorePage.Success(outcome.items, outcome.nextCursor)
+                    else -> LoadMorePage.Failure
+                }
+            },
+            appendItems = { items, next ->
+                val current = _outcome.value
+                if (current is NotificationsOutcome.Loaded) {
+                    _outcome.value = current.copy(items = current.items + items, nextCursor = next)
+                }
+            },
+        )
+
+    /** True while a load-more page is in flight — drives only the list-end footer spinner. */
+    val isLoadingMore: StateFlow<Boolean> = loadMoreController.isLoadingMore
+
+    /** True after a failed load-more — drives the non-destructive retry footer (loaded list retained). */
+    val loadMoreError: StateFlow<Boolean> = loadMoreController.loadMoreError
+
     init {
         load(initial = true)
     }
+
+    /** Scroll-end trigger from the screen — appends the next page (no-op during initial/refresh or at end). */
+    fun onLoadMore() = loadMoreController.loadMore()
+
+    /** Retry control on the load-more error footer — re-issues for the still-current cursor. */
+    fun onRetryLoadMore() = loadMoreController.retry()
 
     /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
     fun reload() {
@@ -55,6 +100,9 @@ class NotificationsViewModel(
         // raced concurrent fetches — latest-writer-wins on outcome and a flickering
         // isRefreshing. One reload at a time; the next gesture re-fires after.
         if (_isRefreshing.value || _isInitialLoad.value) return
+        // Refresh resets paging: load() swaps in a fresh first page (dropping the appended tail) and the
+        // footer state is cleared here (mobile-design-system § load-more pattern).
+        loadMoreController.reset()
         load(initial = false)
     }
 
