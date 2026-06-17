@@ -23,8 +23,9 @@ import kotlinx.coroutines.launch
  * pre-provisioning / fetch-failure state). [onSubscribe] drives the purchase; the client-side entitlement
  * (RevenueCat `CustomerInfo`) is authoritative for the one-shot [PaywallUiState.Content.purchaseSucceeded]
  * return signal, while the server's `subscription_status` syncs independently via the webhook (#291,
- * design D5). One-shot signals are nullable-style flags consumed via [onReturnConsumed] /
- * [onPurchaseErrorShown] (docs/11 §2.2 — events are state, not streams).
+ * design D5). The one-shot success signal is consumed via [onReturnConsumed]; the
+ * [PaywallUiState.Content.purchaseError] flag is sticky (cleared on the next [onSubscribe] retry). Both are
+ * state on the [PaywallUiState.Content], not event streams (docs/11 §2.2).
  */
 class PaywallViewModel(
     private val purchaseController: PurchaseController,
@@ -44,12 +45,19 @@ class PaywallViewModel(
         viewModelScope.launch {
             when (val result = purchaseController.fetchOfferings()) {
                 is OfferingsResult.Loaded -> {
-                    loadedPackages = result.packages
-                    mutableState.value =
-                        PaywallUiState.Content(
-                            cards = derivePaywallPricing(result.packages),
-                            selectedPeriod = defaultSelectedPeriod(result.packages),
-                        )
+                    // A Loaded result with no packages is treated as Unconfigured (defensive: the production
+                    // controller maps empty → Unavailable, but this keeps the VM total — no empty-list crash).
+                    if (result.packages.isEmpty()) {
+                        loadedPackages = emptyList()
+                        mutableState.value = PaywallUiState.Unconfigured
+                    } else {
+                        loadedPackages = result.packages
+                        mutableState.value =
+                            PaywallUiState.Content(
+                                cards = derivePaywallPricing(result.packages),
+                                selectedPeriod = defaultSelectedPeriod(result.packages),
+                            )
+                    }
                 }
 
                 OfferingsResult.Unavailable -> {
@@ -87,12 +95,6 @@ class PaywallViewModel(
     fun onReturnConsumed() {
         val content = mutableState.value as? PaywallUiState.Content ?: return
         if (content.purchaseSucceeded) mutableState.value = content.copy(purchaseSucceeded = false)
-    }
-
-    /** Consume the one-shot purchase-error signal once the screen has surfaced it. */
-    fun onPurchaseErrorShown() {
-        val content = mutableState.value as? PaywallUiState.Content ?: return
-        if (content.purchaseError) mutableState.value = content.copy(purchaseError = false)
     }
 
     private fun defaultSelectedPeriod(packages: List<PaywallPackage>): PaywallPeriod =

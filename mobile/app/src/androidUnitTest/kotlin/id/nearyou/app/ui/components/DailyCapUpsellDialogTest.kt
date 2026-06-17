@@ -19,8 +19,8 @@ import kotlin.test.assertEquals
  * Render + behavior coverage of the shared daily-cap upsell dialog (`mobile-cap-upsell-dialog`,
  * mockup frame 18). Covers: the verbatim docs/03:187 like-body render with the frame-true
  * "14 j 19 mnt" countdown + both CTAs, the CTA/dismiss callback routing (the component fires the
- * hoisted callbacks; the v1 dismiss-only Premium wiring is the HOST's concern, covered by the feed
- * screen tests), the per-minute tick-down, the zero auto-dismiss, the `RateLimited(0)` floor
+ * hoisted callbacks; the Premium-CTA navigation (host pushes `PaywallRoute(LIKE_CAP)`, mobile-paywall
+ * #235) is the HOST's concern, covered by the feed screen tests), the per-minute tick-down, the zero auto-dismiss, the `RateLimited(0)` floor
  * (no flash-dismiss on entry), and light+dark rendering. Scrim/back dismissal shares the SAME
  * `onDismiss` lambda by construction (`AlertDialog(onDismissRequest = onDismiss)`), exercised here
  * through the dismiss path.

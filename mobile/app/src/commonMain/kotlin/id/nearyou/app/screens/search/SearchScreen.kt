@@ -312,8 +312,9 @@ private fun ErrorState(onRetry: () -> Unit) {
 
 /**
  * The Free-tier upsell panel (the reactive 403 gate). An informational body + an "Aktifkan Premium" CTA
- * that is a v1 placeholder (no paywall destination — Phase 4 billing; the deferred requirement is tracked
- * by a follow-up issue), so its click is a no-op (the panel just communicates the gate).
+ * that invokes the hoisted [onActivatePremium]; the host (`appEntryProvider`) pushes
+ * `PaywallRoute(SEARCH_GATE)` (mobile-paywall-screen, #254). The panel itself holds no back-stack
+ * reference — `SearchScreen` stays navigation-free.
  */
 @Composable
 private fun PremiumGateState(onActivatePremium: () -> Unit) {

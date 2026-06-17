@@ -9,6 +9,15 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.infra.revenuecat.OfferingsResult
+import id.nearyou.app.infra.revenuecat.PurchaseController
+import id.nearyou.app.screens.paywall.FakePurchaseController
+import id.nearyou.app.screens.routing.PaywallEntry
+import id.nearyou.app.screens.routing.PaywallRoute
+import id.nearyou.app.screens.routing.SearchRoute
+import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.search.FakeSearchFlow
 import id.nearyou.app.search.SearchFlow
 import id.nearyou.app.search.SearchOutcome
@@ -25,6 +34,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val IDLE_PROMPT = "Cari postingan atau pengguna."
@@ -72,7 +82,17 @@ class SearchScreenTest {
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeSearchFlow(firstOutcome = firstOutcome, loadMoreOutcome = loadMoreOutcome, suspendForever = suspendForever)
-        startKoin { modules(module { single<SearchFlow> { fake } }) }
+        startKoin {
+            modules(
+                module {
+                    single<SearchFlow> { fake }
+                    // The host-push test navigates onward to PaywallRoute, whose screen injects a
+                    // PurchaseController (Unavailable → the fail-soft Unconfigured state; the test asserts the
+                    // route push, not paywall content). Unused by the screen-level tests, which never push it.
+                    single<PurchaseController> { FakePurchaseController(OfferingsResult.Unavailable) }
+                },
+            )
+        }
     }
 
     /** Type a query then trigger the ime Search action (onSubmit → no-delay fetch), then settle. */
@@ -162,6 +182,27 @@ class SearchScreenTest {
             assertEquals(1, activated, "the Premium-gate CTA invokes the hoisted onActivatePremium exactly once")
             assertEquals(0, opened, "the gate CTA is not a result tap")
             onNodeWithText(GATE_BODY).assertExists()
+        }
+    }
+
+    // mobile-paywall-screen (#254) — the host-push half of the MODIFIED search-gate scenario: under the
+    // REAL appEntryProvider (TestNavHost started at SearchRoute), the Premium-gate CTA pushes
+    // PaywallRoute(entry = SEARCH_GATE) onto the root stack (NOT LIKE_CAP — the entry-context distinguishes
+    // the two gated surfaces). The screen-level callback firing is covered by the test above.
+    @Test
+    fun premiumGateCta_underHost_pushesPaywallRouteSearchGateOntoRootStack() {
+        installKoin(SearchOutcome.PremiumGate)
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(SearchRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(SEARCH_FIELD_TAG).fetchSemanticsNodes().isNotEmpty() }
+            submitQuery()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(SEARCH_PREMIUM_CTA_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(SEARCH_PREMIUM_CTA_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
+            val top = backStack.last()
+            assertTrue(top is PaywallRoute, "the search Premium-gate CTA pushes PaywallRoute (was: ${backStack.toList()})")
+            assertEquals(PaywallEntry.SEARCH_GATE, top.entry, "the search-gate entry-context is SEARCH_GATE")
         }
     }
 

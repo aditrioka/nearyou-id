@@ -83,6 +83,11 @@ class PaywallScreenTest {
             onNodeWithText(PRICE_YEARLY).assertExists()
             onNodeWithTag(PAYWALL_CTA_TAG).assertExists()
             onNodeWithText(DISCLOSURE).assertExists()
+            // docs/03 § Paywall disclosure: the Month-1 benefit set MUST NOT advertise image upload
+            // (a Month-6 feature). No benefit node mentions image/photo/upload copy.
+            for (term in listOf("gambar", "foto", "unggah", "upload")) {
+                onAllNodesWithText(term, substring = true, ignoreCase = true).assertCountEquals(0)
+            }
         }
     }
 

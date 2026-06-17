@@ -100,4 +100,23 @@ class VendorSdkLeakageScanTest : StringSpec({
         }
         violations shouldBe emptyList()
     }
+
+    "no RevenueCat SDK imports in :mobile:app — reach RevenueCat only via :infra:revenuecat" {
+        // mobile-paywall-screen (invariant #16): :mobile:app must NOT import the RevenueCat purchases-kmp
+        // SDK directly — it depends on the vendor-free `PurchaseController` interface in :infra:revenuecat,
+        // where the `com.revenuecat.` import is fenced + `implementation`-scoped.
+        val violations =
+            scanImports(
+                roots = listOf(File(repoRoot, "mobile/app/src")),
+                prefixes = listOf("com.revenuecat."),
+            )
+        if (violations.isNotEmpty()) {
+            error(
+                "RevenueCat SDK imports detected in :mobile:app — the vendor SDK is fenced to" +
+                    " :infra:revenuecat (CLAUDE.md invariant #16). Depend on the `PurchaseController`" +
+                    " interface (id.nearyou.app.infra.revenuecat) instead.\n\n" + violations.joinToString("\n"),
+            )
+        }
+        violations shouldBe emptyList()
+    }
 })
