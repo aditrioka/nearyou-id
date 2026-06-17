@@ -13,12 +13,18 @@ import id.nearyou.app.auth.routes.RefreshRequest
 import id.nearyou.app.auth.routes.TokenPairResponse
 import id.nearyou.app.auth.routes.authRoutes
 import id.nearyou.app.auth.session.RefreshTokenService
+import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.infra.repo.IdentifierType
 import id.nearyou.app.infra.repo.JdbcRefreshTokenRepository
 import id.nearyou.app.infra.repo.JdbcRejectedIdentifierRepository
 import id.nearyou.app.infra.repo.JdbcReservedUsernameRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.infra.repo.RejectedReason
+import id.nearyou.app.referral.NoopReferralTicketCreator
+import id.nearyou.app.referral.ReferralRepository
+import id.nearyou.app.referral.ReferralService
+import id.nearyou.app.referral.ReferralTicketCreator
+import id.nearyou.app.referral.ReferralTicketRateLimiter
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.ints.shouldBeLessThanOrEqual
@@ -39,7 +45,9 @@ import io.ktor.server.auth.Authentication
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
 import java.security.MessageDigest
+import java.sql.Timestamp
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -91,6 +99,9 @@ class SignupFlowTest : StringSpec({
         dataSource.connection.use { conn ->
             conn.createStatement().use { st ->
                 st.executeUpdate("DELETE FROM refresh_tokens")
+                // referral_tickets FK users(id) ON DELETE CASCADE — explicit wipe
+                // keeps ticket-count assertions clean across tests.
+                st.executeUpdate("DELETE FROM referral_tickets")
                 // V15 chat tables FK users(id) ON DELETE RESTRICT — wipe in
                 // child→parent order so the blanket users delete below succeeds
                 // even if a sibling test left chat fixtures behind.
@@ -106,6 +117,7 @@ class SignupFlowTest : StringSpec({
     fun buildSignupService(
         googleSub: String = "g-sub-default",
         appleSub: String = "a-sub-default",
+        referral: ReferralTicketCreator = NoopReferralTicketCreator,
     ): SignupService {
         val users = JdbcUserRepository(dataSource)
         val refreshRepo = JdbcRefreshTokenRepository(dataSource)
@@ -134,8 +146,53 @@ class SignupFlowTest : StringSpec({
             inviteDeriver = deriver,
             refreshTokens = refreshService,
             jwtIssuer = jwtIssuer,
+            referral = referral,
             clock = fixedClock,
         )
+    }
+
+    /** A real referral service wired to the live DB + an in-memory burst limiter. */
+    fun buildReferralService(): ReferralService =
+        ReferralService(
+            users = JdbcUserRepository(dataSource),
+            referrals = ReferralRepository(dataSource),
+            rateLimiter = ReferralTicketRateLimiter(rateLimiter = InMemoryRateLimiter()),
+            dbDispatcher = kotlinx.coroutines.Dispatchers.IO,
+            clock = fixedClock,
+        )
+
+    /** Seed an eligible inviter (>30d old relative to fixedClock) with a known invite code. */
+    fun seedInviter(inviteCodePrefix: String): java.util.UUID {
+        val id = java.util.UUID.randomUUID()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO users (id, username, display_name, date_of_birth, invite_code_prefix, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setString(2, "inviter_${id.toString().take(8)}")
+                ps.setString(3, "Inviter")
+                ps.setDate(4, java.sql.Date.valueOf(LocalDate.of(1990, 1, 1)))
+                ps.setString(5, inviteCodePrefix)
+                // 60 days before fixedClock (2026-04-20) → comfortably past the 30-day gate.
+                ps.setTimestamp(6, Timestamp.from(fixedClock.instant().minus(Duration.ofDays(60))))
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
+    fun referralTicketCount(): Int {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("SELECT COUNT(*) FROM referral_tickets").use { ps ->
+                ps.executeQuery().use { rs ->
+                    rs.next()
+                    return rs.getInt(1)
+                }
+            }
+        }
     }
 
     suspend fun withSignup(block: suspend io.ktor.server.testing.ApplicationTestBuilder.(svc: SignupService) -> Unit) {
@@ -525,6 +582,71 @@ class SignupFlowTest : StringSpec({
                     }
                 }
             }
+        }
+    }
+
+    "signup with a valid invite_code creates a pending referral ticket" {
+        val inviterId = seedInviter("siginv01")
+        val svc = buildSignupService(referral = buildReferralService())
+        testApplication {
+            application {
+                install(ContentNegotiation) { json() }
+                signupRoutes(svc)
+            }
+            val client = createClient { install(ClientCN) { json() } }
+            val response =
+                client.post("/api/v1/auth/signup") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SignupRequestDto("google", "ok", "1995-03-14", inviteCode = "siginv01"))
+                }
+            response.status shouldBe HttpStatusCode.Created
+
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("SELECT inviter_user_id, status FROM referral_tickets").use { ps ->
+                    ps.executeQuery().use { rs ->
+                        rs.next() shouldBe true
+                        rs.getObject("inviter_user_id", java.util.UUID::class.java) shouldBe inviterId
+                        rs.getString("status") shouldBe "pending_activity"
+                        rs.next() shouldBe false
+                    }
+                }
+            }
+        }
+    }
+
+    "signup with an unknown invite_code still returns 201 and creates no ticket" {
+        val svc = buildSignupService(referral = buildReferralService())
+        testApplication {
+            application {
+                install(ContentNegotiation) { json() }
+                signupRoutes(svc)
+            }
+            val client = createClient { install(ClientCN) { json() } }
+            val response =
+                client.post("/api/v1/auth/signup") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SignupRequestDto("google", "ok", "1995-03-14", inviteCode = "zzzzzzzz"))
+                }
+            response.status shouldBe HttpStatusCode.Created
+            referralTicketCount() shouldBe 0
+        }
+    }
+
+    "signup with no invite_code returns 201 and creates no ticket" {
+        val svc = buildSignupService(referral = buildReferralService())
+        testApplication {
+            application {
+                install(ContentNegotiation) { json() }
+                signupRoutes(svc)
+            }
+            val client = createClient { install(ClientCN) { json() } }
+            val response =
+                client.post("/api/v1/auth/signup") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SignupRequestDto("google", "ok", "1995-03-14"))
+                }
+            response.status shouldBe HttpStatusCode.Created
+            referralTicketCount() shouldBe 0
         }
     }
 

@@ -55,4 +55,39 @@ class GlobalTimelineRepository(
                 }
         }
     }
+
+    override suspend fun loadMore(cursor: String): GlobalTimelineOutcome {
+        // Cursor-only — Global has no spatial anchor to reuse (no spatial filter), so the request carries
+        // ONLY the cursor (unlike Nearby's anchor reuse, design D4). Same status→outcome mapping as
+        // loadFirstPage.
+        val result =
+            apiClient.fetchGlobal(
+                sessionId = sessionIdProvider.sessionId,
+                cursor = cursor,
+            )
+        return when (result) {
+            is GlobalApiResult.Success ->
+                GlobalTimelineOutcome.Loaded(
+                    posts = result.body.posts,
+                    nextCursor = result.body.nextCursor,
+                    upsell = result.body.upsell,
+                )
+            is GlobalApiResult.NetworkError -> {
+                // Type-only diagnostic (kept parallel with Nearby's coordinate-safe sink) — log the
+                // exception class, NEVER cause.message.
+                diagnosticLog("global_loadmore_error: ${result.cause::class.simpleName}")
+                GlobalTimelineOutcome.NetworkError
+            }
+            is GlobalApiResult.HttpError ->
+                when {
+                    result.status == 401 -> GlobalTimelineOutcome.SessionExpired
+                    result.status == 400 -> {
+                        diagnosticLog("global_loadmore_invalid_request: status=400")
+                        GlobalTimelineOutcome.Error
+                    }
+                    result.status in 500..599 -> GlobalTimelineOutcome.NetworkError
+                    else -> GlobalTimelineOutcome.NetworkError
+                }
+        }
+    }
 }

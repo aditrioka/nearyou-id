@@ -151,7 +151,7 @@ Authoritative list — regenerate from `find backend/ktor/src/main/kotlin/id/nea
 - **`follow`** — V6; `POST/DELETE/GET /api/v1/follows`
 - **`guard`** — block / shadow-ban guard helpers used by services
 - **`health`** — `/health/live`, `/health/ready` (parallel async dependency probes)
-- **`internal`** — `/internal/*` routes under OIDC auth (currently `/internal/unban-worker`; Apple S2S route lives separately)
+- **`internal`** — `/internal/*` routes, each under OIDC auth on its OWN route subtree (`/internal/unban-worker`, `/internal/privacy-flip-worker`; the RevenueCat + Apple S2S vendor webhooks live separately with their own shared-secret/signed-payload auth, NOT OIDC)
 - **`lint`** — runtime allowlist annotations referenced by Detekt rules
 - **`moderation`** — V9 reports/moderation; `POST /api/v1/reports` + rate-limit; admin moderation queue is a 31-LOC stub for future admin UI
 - **`notifications`** — V10 in-app notifications; 13-type catalog; read + write paths

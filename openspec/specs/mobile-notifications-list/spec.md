@@ -1,8 +1,7 @@
 # mobile-notifications-list Specification
 
 ## Purpose
-The mobile in-app notifications surface — the Notifikasi bottom-nav section's `NotificationsScreen` and its supporting seam (`NotificationsApiClient` / `NotificationsRepository` behind a `NotificationsFlow` interface / a shell-`NavEntry`-scoped `NotificationsViewModel` / a Compose-free `NotificationsUiState` projection) over the **shipped** `/api/v1/notifications` read API. It renders the authenticated caller's notification feed (loading / content / empty / error states; type-keyed generic-actor Bahasa Indonesia copy + `body_data` excerpts; the `actor_user_id` / `target_id` UUID is never rendered or logged), with optimistic mark-read / mark-all-read (per-id revert on transport failure) and pull-to-refresh, parsing the SHIPPED mixed-case wire (opaque base64url `next_cursor`, non-null `body_data`, `{count}`, `{marked_read}`, `204`/`404 not_found`) — guarded by a negative-regression test against the stale `in-app-notifications` spec. Deep-link tap-through, actor-username rendering, infinite scroll, and live unread-badge updates are explicitly deferred (each captured here as a negative-guard requirement + a deferred-work GitHub issue (label `follow-up`)).
-
+The mobile in-app notifications surface — the Notifikasi bottom-nav section's `NotificationsScreen` and its supporting seam (`NotificationsApiClient` / `NotificationsRepository` behind a `NotificationsFlow` interface / a shell-`NavEntry`-scoped `NotificationsViewModel` / a Compose-free `NotificationsUiState` projection) over the **shipped** `/api/v1/notifications` read API. It renders the authenticated caller's notification feed (loading / content / empty / error states; type-keyed generic-actor Bahasa Indonesia copy + `body_data` excerpts; the `actor_user_id` / `target_id` UUID is never rendered or logged), with optimistic mark-read / mark-all-read (per-id revert on transport failure) and pull-to-refresh, parsing the SHIPPED mixed-case wire (opaque base64url `next_cursor`, non-null `body_data`, `{count}`, `{marked_read}`, `204`/`404 not_found`) — guarded by a negative-regression test against the stale `in-app-notifications` spec. Cursor load-more (infinite scroll) is wired (the list appends pages on scroll-to-end via the shared `LoadMoreController`). Deep-link tap-through, actor-username rendering, and live unread-badge updates remain explicitly deferred (each captured here as a negative-guard requirement + a deferred-work GitHub issue (label `follow-up`)).
 ## Requirements
 ### Requirement: NotificationsScreen renders the in-app notifications surface
 
@@ -173,21 +172,6 @@ The screen SHALL provide a "mark all read" action (labelled `stringResource(Res.
 - **WHEN** the mark-all-read action is activated
 - **THEN** a `PATCH /api/v1/notifications/read-all` request is issued AND every loaded row renders as read
 
-### Requirement: Pull-to-refresh re-fetches the first page; infinite scroll is deferred
-
-The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equivalent) that re-invokes the first-page fetch. `next_cursor` SHALL be parsed and retained on the `Loaded` outcome, but cursor-based load-more (infinite scroll) is NOT implemented in this change and is deferred (tracked alongside the existing `mobile-nearby-timeline-infinite-scroll` follow-up, extended to cover notifications).
-
-#### Scenario: Pull-to-refresh re-invokes the fetch
-
-- **GIVEN** a `FakeNotificationsFlow` counting fetch invocations
-- **WHEN** the pull-to-refresh gesture is triggered after the initial load
-- **THEN** the fetch is invoked again (invocation count increases) for the first page
-
-#### Scenario: next_cursor is parsed but no load-more is wired
-
-- **WHEN** inspecting the repository/screen for cursor usage
-- **THEN** `next_cursor` is parsed and retained on `Loaded` but is NOT consumed to issue a follow-up `cursor=`-bearing request in this change
-
 ### Requirement: ApiClient, Repository, ViewModel wired as Koin singletons behind a testable seam
 
 `NotificationsApiClient` and `NotificationsRepository` SHALL be registered in the commonMain Koin `mobileModule`. `NotificationsRepository` SHALL be bound behind a `NotificationsFlow` interface (`single<NotificationsFlow> { get<NotificationsRepository>() }`) so a `FakeNotificationsFlow` can drive the screen tests, mirroring the Global/Nearby seam. The `NotificationsViewModel` SHALL be resolved via `viewModel { … }` scoped to the shell NavEntry (so it survives bottom-nav section switches without re-fetch, mirroring the `HomeRoute`-scoped feed ViewModels), loading the first page once on first composition of the Notifikasi section and re-fetching on pull-to-refresh / retry.
@@ -216,4 +200,59 @@ The change SHALL ship: (1) a Robolectric `NotificationsScreenTest` (`mobile/app/
 
 - **WHEN** inspecting `mobile/app/build.gradle.kts`
 - **THEN** the Release-variant `tasks.withType<Test>()` exclude block lists `**/NotificationsScreenTest*` alongside the existing `*ScreenTest` exclusions AND `:mobile:app:testDevReleaseUnitTest` passes
+
+### Requirement: Pull-to-refresh re-fetches the first page; cursor load-more is wired
+
+The screen SHALL provide pull-to-refresh (Material 3 `PullToRefreshBox` or equivalent) that re-invokes the first-page fetch. `next_cursor` SHALL be parsed and retained on the `Loaded` outcome AND SHALL drive cursor-based load-more per the § "Notifications list wires cursor load-more" requirement (which follows `mobile-design-system` § "Canonical list load-more (infinite-scroll) pattern"). A pull-to-refresh (or retry) reload re-fetches the first page and SHALL reset paging state — any appended later pages are dropped and the end-reached flag is cleared.
+
+#### Scenario: Pull-to-refresh re-invokes the fetch
+
+- **GIVEN** a `FakeNotificationsFlow` counting fetch invocations
+- **WHEN** the pull-to-refresh gesture is triggered after the initial load
+- **THEN** the fetch is invoked again (invocation count increases) for the first page
+
+#### Scenario: Refresh resets paging to the first page
+
+- **GIVEN** the notifications list with a first page plus at least one appended load-more page
+- **WHEN** a pull-to-refresh reload completes
+- **THEN** the list shows a fresh first page (the previously appended later pages are dropped) AND the end-reached flag is cleared so load-more can run again
+
+### Requirement: Notifications list wires cursor load-more
+
+`NotificationsViewModel` SHALL append subsequent notification pages via the shared load-more controller following `mobile-design-system` § "Canonical list load-more (infinite-scroll) pattern": scrolling near the end of the notifications `LazyColumn` (tag `notificationsList`) issues a follow-up `GET /api/v1/notifications` carrying the retained `cursor` (and the same `unread` filter the first page used), appends the page's notification rows below the existing list, advances the cursor, stops at a null cursor (end-reached), and shows the load-more footer / non-destructive retry-on-error per the canonical pattern. The in-place **mark-read** and **mark-all-read** optimistic mutations SHALL continue to operate over the GROWN list (a row from any appended page can be marked read, and mark-all-read flips every loaded row including appended ones). The unread-badge count remains the shell's separate one-shot concern (not recomputed here). The PII discipline (no `actor_user_id` / `target_id` / `body_data` rendered beyond the existing row copy; none logged) is unchanged on appended rows.
+
+#### Scenario: Scrolling near the end issues a cursor-bearing follow-up
+
+- **GIVEN** the notifications list loaded with a first page whose `Loaded.nextCursor = "c1"` AND a MockEngine/fake capturing requests
+- **WHEN** the user scrolls near the end of the list
+- **THEN** exactly one follow-up `GET /api/v1/notifications` is issued carrying `cursor=c1`
+
+#### Scenario: Load-more preserves the first-page unread filter
+
+- **GIVEN** the notifications first page was fetched with a specific `unread` filter value (the default unfiltered request in the shipped UI)
+- **WHEN** load-more issues the follow-up `GET /api/v1/notifications`
+- **THEN** the follow-up carries the SAME `unread` filter value the first page used — a regression that drops or changes `unread` on a later page (silently mixing read rows into an unread-filtered list) is rejected by an explicit assertion
+
+#### Scenario: The second page appends below the first and advances the cursor
+
+- **GIVEN** a fake returning a second page of notification rows with `nextCursor = "c2"` for `cursor = "c1"`
+- **WHEN** load-more completes
+- **THEN** the second page's rows are appended below the first page (page-1 rows retained) AND the list's current cursor is `"c2"`
+
+#### Scenario: Mark-read works on an appended row and survives append
+
+- **GIVEN** the notifications list with a first page and an appended second page (both holding unread rows)
+- **WHEN** an unread row from the appended second page is tapped (mark-read) AND, separately, mark-all-read is invoked
+- **THEN** the tapped appended row flips to read in place AND mark-all-read flips every loaded row (first- and second-page) to read AND no appended row is lost or reordered by the mutation
+
+#### Scenario: A null cursor stops further load-more
+
+- **GIVEN** the notifications list whose latest page returned `nextCursor = null`
+- **WHEN** the user scrolls to the end again
+- **THEN** no further `GET /api/v1/notifications` request is issued AND no load-more footer spinner is shown (end-reached)
+
+#### Scenario: A load-more failure keeps the loaded rows and offers retry
+
+- **GIVEN** the notifications list with a loaded first page AND a load-more fetch that fails (network/5xx)
+- **THEN** the first-page rows remain rendered AND a non-destructive load-more error footer with a retry control is shown AND retry re-issues the `cursor`-bearing follow-up for the same cursor
 

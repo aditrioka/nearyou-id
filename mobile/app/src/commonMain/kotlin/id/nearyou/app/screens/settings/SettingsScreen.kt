@@ -91,6 +91,7 @@ private const val LEGAL_URL: String = "https://nearyou.id/kebijakan-privasi"
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenUsernameCustomization: () -> Unit = {},
     onOpenBlocked: () -> Unit,
     onOpenConsent: () -> Unit,
     onLoggedOut: () -> Unit,
@@ -145,7 +146,9 @@ fun SettingsScreen(
                     .background(MaterialTheme.colorScheme.background)
                     .verticalScroll(rememberScrollState()),
         ) {
-            // AKUN — both rows deferred (no profile-write / Premium-username backend).
+            // AKUN — "Edit profil" deferred (no profile-write backend); "Ganti username" is BACKED
+            // (mobile-premium-username): the row pushes UsernameCustomizationRoute UNCONDITIONALLY — the
+            // route-scoped screen owns the Free/Premium gate, so Settings reads no isPremium signal here.
             SettingsSectionHeader(stringResource(Res.string.settings_section_account))
             SettingsRow(
                 icon = Res.drawable.ic_nav_profile,
@@ -156,7 +159,7 @@ fun SettingsScreen(
                 icon = Res.drawable.ic_alternate_email,
                 title = stringResource(Res.string.settings_row_change_username),
                 subtitle = stringResource(Res.string.settings_row_change_username_sub),
-                onClick = onComingSoon,
+                onClick = onOpenUsernameCustomization,
             )
 
             // PREMIUM — deferred (Phase 4 tenure + billing).

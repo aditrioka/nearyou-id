@@ -69,6 +69,30 @@ class JdbcUserRepository(
         }
     }
 
+    override fun findInviterByInviteCodePrefix(prefix: String): InviterRow? {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT id, is_banned, created_at, device_fingerprint_hash " +
+                    "FROM users WHERE invite_code_prefix = ? AND deleted_at IS NULL",
+            ).use { ps ->
+                ps.setString(1, prefix)
+                ps.executeQuery().use { rs ->
+                    if (!rs.next()) return null
+                    // created_at is nullable in V2 (TIMESTAMPTZ DEFAULT NOW(), not NOT NULL);
+                    // always populated in practice. Guard like the sibling nullable-timestamp
+                    // reads — a null-age row is treated as unresolvable (no inviter).
+                    val createdAt = rs.getTimestamp("created_at")?.toInstant() ?: return null
+                    return InviterRow(
+                        id = rs.getObject("id", UUID::class.java),
+                        isBanned = rs.getBoolean("is_banned"),
+                        createdAt = createdAt,
+                        deviceFingerprintHash = rs.getString("device_fingerprint_hash"),
+                    )
+                }
+            }
+        }
+    }
+
     override fun existsByProviderHash(
         conn: Connection,
         hash: String,

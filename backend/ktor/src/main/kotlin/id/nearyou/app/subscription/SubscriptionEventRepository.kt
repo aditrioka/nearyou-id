@@ -6,6 +6,40 @@ import java.time.Instant
 import java.util.UUID
 
 /**
+ * What the status-apply UPDATE should do to `users.privacy_flip_scheduled_at`
+ * alongside the `subscription_status` write (privacy-flip-worker capability —
+ * the webhook owns scheduling/clearing; the acting worker owns applying). The
+ * privacy action is keyed off the EVENT, not the resulting status, so the
+ * coupling stays explicit even though only `EXPIRATION` produces `free` and
+ * only purchase/renewal produce `premium_active` today.
+ */
+enum class PrivacyFlipAction {
+    /** No privacy-flip column change (BILLING_ISSUE, CANCELLATION). */
+    NONE,
+
+    /** EXPIRATION: schedule a 72h flip for private profiles, idempotent via COALESCE. */
+    SCHEDULE_IF_PRIVATE,
+
+    /** INITIAL_PURCHASE / RENEWAL: clear any pending flip on re-activation. */
+    CLEAR,
+}
+
+/**
+ * Result of [SubscriptionEventRepository.applyStatus] read off the
+ * `UPDATE ... RETURNING` (design D6, read-free). [exists] `false` is the orphan
+ * signal. [wasPrivate] is the user's `private_profile_opt_in` (the webhook never
+ * changes it, so RETURNING reflects the pre-existing value) — it gates the
+ * `privacy_flip_warning` emit. [privacyFlipScheduledAt] is the post-update
+ * deadline (the just-set/COALESCE'd value on a private EXPIRATION, `null` after
+ * a CLEAR), carried into the warning's `body_data`.
+ */
+data class StatusApplyResult(
+    val exists: Boolean,
+    val wasPrivate: Boolean,
+    val privacyFlipScheduledAt: Instant?,
+)
+
+/**
  * Transactional SQL for the RevenueCat webhook. Both methods take an explicit
  * [Connection] so they ride [SubscriptionService]'s single per-event
  * transaction (status apply + event insert + notification commit/rollback
@@ -19,38 +53,56 @@ import java.util.UUID
  */
 class SubscriptionEventRepository {
     /**
-     * Applies [newStatus] to `users.subscription_status` for [userId] and
-     * returns whether a row matched — `false` is the orphan signal (the
-     * RevenueCat `app_user_id` maps to no user). When [newStatus] is `null`
-     * (a `CANCELLATION`, which does not change status) the statement is a
-     * no-op self-assignment whose sole purpose is the existence check; it
-     * rolls back cleanly with the surrounding transaction if the event turns
-     * out to be a duplicate. This relies on `users` having no row-touch
-     * BEFORE-UPDATE trigger (no `updated_at`-style side effect) — if one is
-     * ever added, swap this for an explicit existence read carrying
-     * `@AllowMissingBlockJoin` so a cancellation doesn't silently bump a row.
+     * Applies [newStatus] to `users.subscription_status` for [userId] and, per
+     * [privacyFlip], schedules/clears `users.privacy_flip_scheduled_at` in the
+     * same statement; returns the [StatusApplyResult] read off `RETURNING`
+     * (`exists = false` is the orphan signal — the RevenueCat `app_user_id`
+     * maps to no user). When [newStatus] is `null` (a `CANCELLATION`, which does
+     * not change status) the status write is a no-op self-assignment whose sole
+     * purpose is the existence check; [privacyFlip] is `NONE` for that path, so
+     * the privacy column is untouched. This relies on `users` having no
+     * row-touch BEFORE-UPDATE trigger (no `updated_at`-style side effect) — if
+     * one is ever added, swap the cancellation path for an explicit existence
+     * read carrying `@AllowMissingBlockJoin` so a cancellation doesn't silently
+     * bump a row. An `UPDATE users` by id is not a viewer-scoped feed read, so
+     * the block-exclusion-join / shadow-ban-view invariants do not apply.
      */
-    fun applyStatusReturningExists(
+    fun applyStatus(
         conn: Connection,
         userId: UUID,
         newStatus: String?,
-    ): Boolean {
+        privacyFlip: PrivacyFlipAction,
+    ): StatusApplyResult {
+        // Both fragments are internal enum-driven literals — no user input in the SQL string.
+        val statusSet =
+            if (newStatus != null) "subscription_status = ?" else "subscription_status = subscription_status"
+        val privacySet =
+            when (privacyFlip) {
+                PrivacyFlipAction.NONE -> ""
+                PrivacyFlipAction.CLEAR -> ", privacy_flip_scheduled_at = NULL"
+                PrivacyFlipAction.SCHEDULE_IF_PRIVATE ->
+                    ", privacy_flip_scheduled_at = CASE WHEN private_profile_opt_in " +
+                        "THEN COALESCE(privacy_flip_scheduled_at, NOW() + INTERVAL '72 hours') " +
+                        "ELSE privacy_flip_scheduled_at END"
+            }
         val sql =
-            if (newStatus != null) {
-                "UPDATE users SET subscription_status = ? WHERE id = ? RETURNING id"
-            } else {
-                // Existence touch only — see KDoc. Self-assignment leaves the value
-                // unchanged; the RETURNING row tells us the user exists.
-                "UPDATE users SET subscription_status = subscription_status WHERE id = ? RETURNING id"
-            }
+            "UPDATE users SET $statusSet$privacySet WHERE id = ? " +
+                "RETURNING private_profile_opt_in, privacy_flip_scheduled_at"
         return conn.prepareStatement(sql).use { ps ->
-            if (newStatus != null) {
-                ps.setString(1, newStatus)
-                ps.setObject(2, userId)
-            } else {
-                ps.setObject(1, userId)
+            var idx = 1
+            if (newStatus != null) ps.setString(idx++, newStatus)
+            ps.setObject(idx, userId)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) {
+                    StatusApplyResult(exists = false, wasPrivate = false, privacyFlipScheduledAt = null)
+                } else {
+                    StatusApplyResult(
+                        exists = true,
+                        wasPrivate = rs.getBoolean("private_profile_opt_in"),
+                        privacyFlipScheduledAt = rs.getTimestamp("privacy_flip_scheduled_at")?.toInstant(),
+                    )
+                }
             }
-            ps.executeQuery().use { rs -> rs.next() }
         }
     }
 
