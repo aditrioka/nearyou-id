@@ -46,7 +46,8 @@ The system SHALL serve `POST /admin/rejected-identifiers/{id}/clear` as an authe
 - **GIVEN** an authenticated owner/admin session with a valid CSRF token AND a `rejected_identifiers` row with id `R` (`identifier_hash = H`, `reason = age_under_18`)
 - **WHEN** the client sends `POST /admin/rejected-identifiers/R/clear` with a non-blank `reason`
 - **THEN** the `rejected_identifiers` row `R` SHALL no longer exist
-- **AND** exactly one `admin_actions_log` row SHALL be written with `action_type = 'rejected_identifier_cleared'`, `target_id = R`, the acting admin's id, the supplied reason, AND a `before_state` containing `H` and `age_under_18`
+- **AND** exactly one `admin_actions_log` row SHALL be written with `action_type = 'rejected_identifier_cleared'`, `target_type = 'rejected_identifier'`, `target_id = R`, the acting admin's id, and the supplied reason
+- **AND** that row's `before_state` SHALL capture all four cleared-row fields (`identifier_hash = H`, `identifier_type`, `reason = age_under_18`, `rejected_at`) AND its `after_state` SHALL be null
 
 #### Scenario: A cleared identifier can be re-rejected on a later signup attempt
 
