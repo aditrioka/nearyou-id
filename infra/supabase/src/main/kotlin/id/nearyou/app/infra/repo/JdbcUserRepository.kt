@@ -69,6 +69,26 @@ class JdbcUserRepository(
         }
     }
 
+    override fun findInviterByInviteCodePrefix(prefix: String): InviterRow? {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT id, is_banned, created_at, device_fingerprint_hash " +
+                    "FROM users WHERE invite_code_prefix = ? AND deleted_at IS NULL",
+            ).use { ps ->
+                ps.setString(1, prefix)
+                ps.executeQuery().use { rs ->
+                    if (!rs.next()) return null
+                    return InviterRow(
+                        id = rs.getObject("id", UUID::class.java),
+                        isBanned = rs.getBoolean("is_banned"),
+                        createdAt = rs.getTimestamp("created_at").toInstant(),
+                        deviceFingerprintHash = rs.getString("device_fingerprint_hash"),
+                    )
+                }
+            }
+        }
+    }
+
     override fun existsByProviderHash(
         conn: Connection,
         hash: String,

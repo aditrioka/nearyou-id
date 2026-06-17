@@ -77,6 +77,21 @@ class AuthWireFormatTest : StringSpec({
         req.dateOfBirth shouldBe "1995-03-14"
     }
 
+    "SignupRequestDto invite_code is optional and snake_case (referral-ticket-creation)" {
+        // Absent → null (optionality preserved; existing callers unaffected).
+        val without =
+            json.decodeFromString<SignupRequestDto>(
+                """{"provider":"google","id_token":"tok","date_of_birth":"1995-03-14"}""",
+            )
+        without.inviteCode shouldBe null
+        // Present → bound from the snake_case wire field.
+        val withCode =
+            json.decodeFromString<SignupRequestDto>(
+                """{"provider":"google","id_token":"tok","date_of_birth":"1995-03-14","invite_code":"abcd2345"}""",
+            )
+        withCode.inviteCode shouldBe "abcd2345"
+    }
+
     "SignupTokenPairResponse serializes access_token / refresh_token / expires_in, never camelCase" {
         val s = json.encodeToString(SignupTokenPairResponse("at", "rt", 900))
         s shouldContain "\"access_token\""

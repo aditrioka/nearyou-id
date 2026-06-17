@@ -36,6 +36,9 @@ data class SignupRequestDto(
     @SerialName("id_token") val idToken: String,
     @SerialName("date_of_birth") val dateOfBirth: String,
     @SerialName("device_fingerprint_hash") val deviceFingerprintHash: String? = null,
+    // Optional referral entry point — engages referral-ticket-creation as a
+    // best-effort, non-blocking, silent side effect (never changes the response).
+    @SerialName("invite_code") val inviteCode: String? = null,
 )
 
 @Serializable
@@ -74,6 +77,7 @@ fun Application.signupRoutes(signupService: SignupService) {
                             idToken = req.idToken,
                             dateOfBirth = req.dateOfBirth,
                             deviceFingerprintHash = req.deviceFingerprintHash,
+                            inviteCode = req.inviteCode,
                         ),
                     )
                 call.respond(

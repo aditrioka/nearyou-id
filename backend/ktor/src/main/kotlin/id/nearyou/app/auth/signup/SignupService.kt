@@ -8,6 +8,8 @@ import id.nearyou.app.infra.repo.IdentifierType
 import id.nearyou.app.infra.repo.RejectedIdentifierRepository
 import id.nearyou.app.infra.repo.RejectedReason
 import id.nearyou.app.infra.repo.UserRepository
+import id.nearyou.app.referral.NoopReferralTicketCreator
+import id.nearyou.app.referral.ReferralTicketCreator
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
 import java.time.Clock
@@ -38,6 +40,7 @@ class SignupService(
     private val inviteDeriver: InviteCodePrefixDeriver,
     private val refreshTokens: RefreshTokenService,
     private val jwtIssuer: JwtIssuer,
+    private val referral: ReferralTicketCreator = NoopReferralTicketCreator,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val log = LoggerFactory.getLogger(SignupService::class.java)
@@ -127,6 +130,15 @@ class SignupService(
                 }
             }
 
+        // (5.5) Best-effort referral ticket creation — runs after the users INSERT
+        //       commits and NEVER affects the signup outcome (silent to the invitee,
+        //       audit-logged server-side only). See referral-ticket-creation change.
+        referral.createTicketIfInvited(
+            inviteCode = req.inviteCode,
+            inviteeUserId = generated.userId,
+            inviteeDeviceFingerprintHash = req.deviceFingerprintHash,
+        )
+
         // (6) Issue access + refresh. Separate transaction; on DB flake caller retries
         //     /signup (→ 409 user_exists) and then /signin to recover. See design.md.
         val access = jwtIssuer.issueAccessToken(generated.userId, tokenVersion = 0)
@@ -166,6 +178,7 @@ data class SignupRequest(
     val idToken: String,
     val dateOfBirth: String,
     val deviceFingerprintHash: String? = null,
+    val inviteCode: String? = null,
 )
 
 data class SignupResult(

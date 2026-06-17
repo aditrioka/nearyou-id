@@ -18,6 +18,7 @@ import id.nearyou.app.infra.otel.installKtorServerTelemetry
 import id.nearyou.app.infra.otel.testing.FailingSpanProcessor
 import id.nearyou.app.infra.otel.testing.SpanRecorder
 import id.nearyou.app.infra.repo.IdentifierType
+import id.nearyou.app.infra.repo.InviterRow
 import id.nearyou.app.infra.repo.NewUserRow
 import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.infra.repo.UserRow
@@ -437,6 +438,8 @@ private class FakeUserRepository(private val row: UserRow) : UserRepository {
     ): Boolean = error("unused")
 
     override fun existsByInviteCodePrefix(prefix: String): Boolean = error("unused")
+
+    override fun findInviterByInviteCodePrefix(prefix: String): InviterRow? = error("unused")
 
     override fun create(
         conn: java.sql.Connection,
