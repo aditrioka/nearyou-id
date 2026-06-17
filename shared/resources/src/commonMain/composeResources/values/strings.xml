@@ -88,6 +88,25 @@
     <string name="post_create_location_chip">Lokasi saat ini</string>
     <string name="post_create_privacy_note">Lokasi kamu disamarkan hingga ±5 km sebelum tampil ke pengguna lain</string>
 
+    <!-- mobile-post-editing: the Premium post-editing UI (edit own post within 30 min) + the "Diedit" label
+         + the "Riwayat edit" history. cta_activate_premium / signin_error_network / cta_retry / cta_close /
+         cta_cancel / post_create_char_counter / timeline_loading are reused (declared elsewhere). -->
+    <string name="cta_edit_post">Edit</string>
+    <string name="post_edit_title">Edit postingan</string>
+    <string name="post_edit_content_placeholder">Ubah isi postingan…</string>
+    <string name="cta_save_edit">Simpan</string>
+    <string name="post_edit_edited_label" formatted="true">Diedit %1$s</string>
+    <string name="post_edit_history_title">Riwayat edit</string>
+    <string name="post_edit_history_empty">Belum ada riwayat edit.</string>
+    <string name="post_edit_premium_title">Fitur Premium</string>
+    <string name="post_edit_premium_body">Edit postingan tersedia untuk pengguna Premium.</string>
+    <string name="post_edit_error_window">Waktu edit sudah lewat (maksimal 30 menit setelah memposting).</string>
+    <string name="post_edit_error_no_changes">Tidak ada perubahan untuk disimpan.</string>
+    <string name="post_edit_error_moderated">Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi.</string>
+    <string name="post_edit_error_conflict">Coba lagi sebentar.</string>
+    <string name="post_edit_error_rate_limited">Terlalu banyak perubahan. Coba lagi nanti.</string>
+    <string name="post_edit_error_not_found">Postingan tidak ditemukan.</string>
+
     <!-- mobile-analytics-consent-screen. The three `consent_*_desc` strings are BYTE-IDENTICAL to the
          data-summary bullets in docs/03-UX-Design.md § "Analytics & Tracking Consent Screen (UU PDP)"
          (the only consent copy the doc pins verbatim); the title / explainer / labels / CTA / error /

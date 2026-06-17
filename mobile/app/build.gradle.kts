@@ -378,6 +378,7 @@ tasks.withType<Test>().configureEach {
             "**/NotificationsScreenTest*",
             "**/AppShellScreenTest*",
             "**/PostDetailScreenTest*",
+            "**/EditPostScreenTest*",
             "**/PostCardTest*",
             "**/DailyCapUpsellDialogTest*",
             "**/SettingsScreenTest*",

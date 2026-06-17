@@ -128,6 +128,33 @@ class JdbcSinglePostRepositoryTest : StringSpec({
         }
     }
 
+    fun seedEdit(
+        postId: UUID,
+        editedBy: UUID,
+        editedAt: Instant,
+        snapshot: String = "old content",
+        lng: Double = 106.8,
+        lat: Double = -6.2,
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO post_edits (id, post_id, edited_at, content_snapshot, location_snapshot, edited_by)
+                VALUES (?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, UUID.randomUUID())
+                ps.setObject(2, postId)
+                ps.setTimestamp(3, Timestamp.from(editedAt))
+                ps.setString(4, snapshot)
+                ps.setDouble(5, lng)
+                ps.setDouble(6, lat)
+                ps.setObject(7, editedBy)
+                ps.executeUpdate()
+            }
+        }
+    }
+
     fun insertBlock(
         blocker: UUID,
         blocked: UUID,
@@ -147,6 +174,7 @@ class JdbcSinglePostRepositoryTest : StringSpec({
         dataSource.connection.use { conn ->
             conn.createStatement().use { st ->
                 ids.forEach {
+                    st.executeUpdate("DELETE FROM post_edits WHERE edited_by = '$it'")
                     st.executeUpdate("DELETE FROM post_likes WHERE user_id = '$it'")
                     st.executeUpdate("DELETE FROM post_replies WHERE author_id = '$it'")
                     st.executeUpdate("DELETE FROM posts WHERE author_id = '$it'")
@@ -248,6 +276,46 @@ class JdbcSinglePostRepositoryTest : StringSpec({
             repo.findById(viewer, postId).shouldNotBeNull().replyCount shouldBe 1
         } finally {
             cleanup(author, viewer, replier)
+        }
+    }
+
+    "1.3 findById — isAuthor is true for the viewer's own post, false for another viewer" {
+        val (author, _) = seedUser()
+        val (viewer, _) = seedUser()
+        try {
+            val post = seedPost(author)
+            repo.findById(author, post).shouldNotBeNull().isAuthor shouldBe true
+            repo.findById(viewer, post).shouldNotBeNull().isAuthor shouldBe false
+        } finally {
+            cleanup(author, viewer)
+        }
+    }
+
+    "2.1 findById — editedAt is MAX(post_edits.edited_at) for an edited post" {
+        val (author, _) = seedUser()
+        val (viewer, _) = seedUser()
+        try {
+            val postId = seedPost(author)
+            val older = Instant.parse("2026-01-01T00:00:00Z")
+            val newer = Instant.parse("2026-01-01T00:05:00Z")
+            seedEdit(postId, author, older)
+            seedEdit(postId, author, newer)
+            val row = repo.findById(viewer, postId).shouldNotBeNull()
+            row.editedAt.shouldNotBeNull()
+            row.editedAt!!.toEpochMilli() shouldBe newer.toEpochMilli()
+        } finally {
+            cleanup(author, viewer)
+        }
+    }
+
+    "2.2 findById — editedAt is null for a never-edited post" {
+        val (author, _) = seedUser()
+        val (viewer, _) = seedUser()
+        try {
+            val postId = seedPost(author)
+            repo.findById(viewer, postId).shouldNotBeNull().editedAt.shouldBeNull()
+        } finally {
+            cleanup(author, viewer)
         }
     }
 })

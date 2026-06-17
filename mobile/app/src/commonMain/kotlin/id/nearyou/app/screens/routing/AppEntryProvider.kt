@@ -11,6 +11,7 @@ import id.nearyou.app.screens.chat.ConversationListScreen
 import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.followlist.FollowListScreen
 import id.nearyou.app.screens.paywall.PaywallScreen
+import id.nearyou.app.screens.post.EditPostScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
 import id.nearyou.app.screens.profile.ProfileScreen
@@ -157,7 +158,21 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
         entry<PostDetailRoute> { route ->
             // `removeLastOrNull()` is size-safe: PostDetailRoute is only ever appended ATOP HomeRoute
             // (the feed card tap), so popping it leaves HomeRoute — never an empty stack.
-            PostDetailScreen(route = route, onBack = { backStack.removeLastOrNull() })
+            PostDetailScreen(
+                route = route,
+                onBack = { backStack.removeLastOrNull() },
+                onEditPost = { postId, content -> backStack.add(EditPostRoute(postId, content)) },
+            )
+        }
+        entry<EditPostRoute> { route ->
+            // `removeLastOrNull()` is size-safe: EditPostRoute is only ever appended ATOP a PostDetailRoute
+            // (the detail Edit affordance), so popping it reveals that detail — never an empty stack. On a
+            // successful edit it pops; post-detail refreshes its content + "Diedit" label on the resumed entry.
+            EditPostScreen(
+                route = route,
+                onBack = { backStack.removeLastOrNull() },
+                onPostEdited = { backStack.removeLastOrNull() },
+            )
         }
         // mobile-settings — the Settings surface + its two sub-surfaces, pushed onto the root stack above
         // the shell. SettingsRoute is reached from the settings gear on the self-profile section, wired via

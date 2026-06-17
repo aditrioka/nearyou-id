@@ -71,6 +71,14 @@ fun Application.singlePostRoutes(service: PostReadService) {
  * more restrictive than the timeline wire (no-PII; issue #202 + the `PostDetailRoute` discipline).
  * `distanceM` is always `null` in v1 (a by-id read has no viewer-location context) and is omitted from
  * the body under the app-wide ContentNegotiation `explicitNulls = false`.
+ *
+ * `editedAt` (bare camelCase, like `createdAt`) is the most-recent edit timestamp (`MAX(post_edits.edited_at)`),
+ * non-null iff the post has edit history — the only edited-signal the mobile client uses for the "Diedit"
+ * label (`mobile-post-editing`). Omitted when `null` under `explicitNulls = false`; no PII, no coordinate.
+ *
+ * `isAuthor` (bare camelCase) is the per-viewer authorship flag (true iff the JWT caller authored this post),
+ * computed server-side from `author_id` WITHOUT exposing the UUID — it gates the mobile edit affordance. A
+ * boolean about the viewer's relationship to the post; it leaks nothing about the author's identity.
  */
 @Serializable
 data class SinglePostResponse(
@@ -81,8 +89,10 @@ data class SinglePostResponse(
     val distanceM: Double? = null,
     @SerialName("city_name") val cityName: String,
     val createdAt: String,
+    val editedAt: String? = null,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
     @SerialName("reply_count") val replyCount: Int,
+    val isAuthor: Boolean = false,
 )
 
 private const val POST_NOT_FOUND_BODY = """{"error":{"code":"post_not_found"}}"""

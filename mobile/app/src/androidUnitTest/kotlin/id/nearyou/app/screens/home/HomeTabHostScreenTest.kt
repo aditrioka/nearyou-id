@@ -24,8 +24,10 @@ import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.FakeCreatePostFlow
 import id.nearyou.app.post.FakePostDetailFlow
+import id.nearyou.app.post.FakePostEditFlow
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.PostDetailFlow
+import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.PaywallEntry
@@ -131,8 +133,10 @@ class HomeTabHostScreenTest {
                     // badge injects a NotificationsFlow (empty/0 fake — the badge is exercised in AppShellScreenTest).
                     single<NotificationsFlow> { FakeNotificationsFlow() }
                     single { fakeFcmTokenRegistrar() }
-                    // A card tap appends PostDetailRoute, whose screen injects the PostDetailFlow seam.
+                    // A card tap appends PostDetailRoute, whose screen injects the PostDetailFlow seam +
+                    // (mobile-post-editing) the PostEditFlow seam for its refresh-on-resume + "Riwayat edit".
                     single<PostDetailFlow> { FakePostDetailFlow() }
+                    single<PostEditFlow> { FakePostEditFlow() }
                 },
             )
         }

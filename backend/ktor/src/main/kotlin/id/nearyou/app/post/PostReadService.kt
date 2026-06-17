@@ -36,8 +36,10 @@ class PostReadService(
             content = row.content,
             cityName = row.cityName.orEmpty(),
             createdAt = row.createdAt.toString(),
+            editedAt = row.editedAt?.toString(),
             likedByViewer = row.likedByViewer,
             replyCount = row.replyCount,
+            isAuthor = row.isAuthor,
         )
     }
 }
