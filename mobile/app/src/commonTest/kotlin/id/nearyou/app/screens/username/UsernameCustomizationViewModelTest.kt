@@ -82,6 +82,31 @@ class UsernameCustomizationViewModelTest {
         }
 
     @Test
+    fun onEntry_selfReadFailure_degradesToTheEditor() =
+        runTest(dispatcher) {
+            // The VM's NotFound/NetworkError arm (distinct from the null-id early return) must degrade to
+            // the editor (reactive 403 backstops correctness), never an error wall or a stuck Resolving.
+            val viewModel = vm(profileOutcome = ProfileOutcome.NetworkError)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.status is UsernameStatus.Editing, "a self-read failure degrades to the editor")
+        }
+
+    @Test
+    fun probePath_premiumGate_rendersTheGate() =
+        runTest(dispatcher) {
+            // A Premium user whose PROBE returns 403 (e.g. a downgrade race) → the gate, reached via the
+            // probe path (not just the change path or the on-entry read).
+            val fake = FakeUsernameFlow(checkOutcomes = listOf(UsernameCheckOutcome.CheckPremiumGate))
+            val viewModel = vm(usernameFlow = fake)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            viewModel.onCandidateChange("newhandle")
+            advanceUntilIdle()
+            assertEquals(UsernameStatus.PremiumGate, viewModel.uiState.value.status)
+        }
+
+    @Test
     fun debounce_coalescesRapidKeystrokesIntoOneProbe() =
         runTest(dispatcher) {
             val fake = FakeUsernameFlow(checkOutcomes = listOf(UsernameCheckOutcome.Available(true)))

@@ -142,6 +142,7 @@ class UsernameCustomizationViewModel(
 
     /** Confirmation accepted ("Ganti") — issue the PATCH; Success raises the [VmState.changed] one-shot. */
     fun onConfirmChange() {
+        if (state.value.isSubmitting) return
         val candidate = state.value.candidate
         if (!UsernameFormatGuard.isValid(candidate)) return
         probeJob?.cancel()

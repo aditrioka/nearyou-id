@@ -4,7 +4,6 @@ import id.nearyou.app.ui.components.capCountdownMinutes
 import id.nearyou.app.username.UsernameChangeOutcome
 import id.nearyou.app.username.UsernameCheckOutcome
 import id.nearyou.app.username.UsernameFormatGuard
-import kotlin.math.ceil
 
 /** The inline status line shown under the field while editing (the docs/03 §119–125 availability/format
  *  feedback). Derived from the LOCAL format guard + the network probe outcome — never PII. */
@@ -76,10 +75,18 @@ data class UsernameUiState(
     val changed: Boolean = false,
 )
 
-private const val SECONDS_PER_DAY = 86_400.0
+private const val SECONDS_PER_DAY = 86_400L
 
-/** Whole days, rounded up, floored to 1 (never a flash-clear) — the cooldown copy's `%1$d hari`. */
-fun cooldownDays(retryAfterSeconds: Long): Int = maxOf(1, ceil(retryAfterSeconds.toDouble() / SECONDS_PER_DAY).toInt())
+/**
+ * `Retry-After` seconds → remaining whole days, rounded up and floored to 1 (never a flash-clear) — the
+ * cooldown copy's `%1$d hari`. Integer math with a saturating coerce, mirroring [capCountdownMinutes] so a
+ * pathological near-`Long.MAX_VALUE` Retry-After can't overflow. Pure + deterministic.
+ */
+fun cooldownDays(retryAfterSeconds: Long): Int {
+    if (retryAfterSeconds <= 0) return 1
+    val days = retryAfterSeconds / SECONDS_PER_DAY + if (retryAfterSeconds % SECONDS_PER_DAY > 0) 1 else 0
+    return days.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+}
 
 /**
  * Maps the VM's internal fields to the screen state. Priority: terminal takeovers (session / kill switch
