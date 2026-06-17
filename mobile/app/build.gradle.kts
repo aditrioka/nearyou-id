@@ -79,6 +79,16 @@ kotlin {
             linkOnly = true
             extraOpts += listOf("-compiler-option", "-fmodules")
         }
+        // mobile-paywall-screen — the native RevenueCat iOS framework REQUIRED by the purchases-kmp SDK
+        // (fenced in :infra:revenuecat; its iOS klib's SPM cinterop links against RevenueCat/purchases-ios).
+        // linkOnly = true: the :infra:revenuecat klib owns the Kotlin bindings, so the Pod supplies ONLY
+        // the framework binary at link time (no duplicate cinterop). -fmodules for the modular headers.
+        // Version pinned to the purchases-kmp 3.0.6 upstream (libs.versions.toml § revenuecat-ios = 5.77.0).
+        pod("RevenueCat") {
+            version = libs.versions.revenuecat.ios.get()
+            linkOnly = true
+            extraOpts += listOf("-compiler-option", "-fmodules")
+        }
     }
 
     sourceSets {

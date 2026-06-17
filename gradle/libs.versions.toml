@@ -117,6 +117,12 @@ sentryCocoaIos = "8.58.2"
 # line, on Maven Central (verified 2026-06-16: 3.0.6 is latest). Vendor import fenced to
 # :infra:revenuecat (invariant #16); consumed there only, behind the vendor-free PurchaseController.
 purchases-kmp = "3.0.6"
+# mobile-paywall-screen — the native RevenueCat iOS SDK (purchases-ios) the purchases-kmp 3.0.6 klib's
+# SPM cinterop links against (per the 3.0.6 release: upstream/purchases-ios v5.77.0). The final
+# ComposeApp framework must provide it (the :infra:revenuecat klib owns the bindings) — supplied via the
+# `RevenueCat` CocoaPod linkOnly in the :mobile:app cocoapods block (the sentryCocoaIos pattern). A
+# mismatch surfaces as an iOS `ld: framework 'RevenueCat' not found` / symbol error.
+revenuecat-ios = "5.77.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
