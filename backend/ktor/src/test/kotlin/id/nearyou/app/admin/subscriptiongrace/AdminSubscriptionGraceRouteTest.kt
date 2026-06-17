@@ -220,6 +220,15 @@ class AdminSubscriptionGraceRouteTest : StringSpec({
             GraceTestSupport.countExpeditesFor(dataSource, u) shouldBe 1
             // Entitlement is UNCHANGED — RevenueCat remains the source of truth.
             GraceTestSupport.subscriptionStatusOf(dataSource, u) shouldBe STATUS_BILLING_RETRY
+            // Spec Req 4: the logged row carries matching before/after
+            // subscription_status (documents no entitlement change) AND the
+            // reason incorporates the required support-ticket reference.
+            val logged =
+                AdminAuthTestSupport.latestAuditRows(dataSource, admin.id)
+                    .first { it.actionType == "subscription_grace_expedite" }
+            logged.beforeState!! shouldContain "premium_billing_retry"
+            logged.afterState!! shouldContain "premium_billing_retry"
+            logged.reason!! shouldContain "SUP-2026-0142"
         }
     }
 
@@ -239,6 +248,22 @@ class AdminSubscriptionGraceRouteTest : StringSpec({
             res.status shouldBe HttpStatusCode.SeeOther
             res.headers[HttpHeaders.Location] shouldBe "/admin/subscriptions/grace"
             GraceTestSupport.countExpeditesFor(dataSource, u) shouldBe 1
+        }
+    }
+
+    "5.4 — expedite with a malformed (non-UUID) user_id is 400 (no write)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/subscriptions/grace/not-a-uuid/expedite") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header("X-CSRF-Token", AdminAuthTestSupport.csrfFor(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody("ticket_ref=SUP-X")
+                }
+            res.status shouldBe HttpStatusCode.BadRequest
         }
     }
 

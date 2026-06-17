@@ -68,11 +68,11 @@ fun Route.adminSubscriptionGrace(
                 return@post
             }
         val ticketRef =
-            body[TICKET_FIELD]?.trim()?.takeIf { it.isNotEmpty() } ?: run {
+            body[TICKET_FIELD]?.trim()?.takeIf { it.isNotEmpty() }?.take(TICKET_MAX) ?: run {
                 call.respond(HttpStatusCode.BadRequest, MSG_TICKET_REQUIRED)
                 return@post
             }
-        val note = body[NOTE_FIELD]?.trim()?.takeIf { it.isNotEmpty() }
+        val note = body[NOTE_FIELD]?.trim()?.takeIf { it.isNotEmpty() }?.take(NOTE_MAX)
         val principal =
             call.principal<AdminPrincipal>() ?: run {
                 call.respond(HttpStatusCode.Forbidden)
@@ -221,6 +221,13 @@ private const val FRAGMENT_TEMPLATE = "subscription-grace-table.peb"
 // the V21 `platform VARCHAR(16)` column width.
 private const val Q_MAX = 100
 private const val STORE_MAX = 16
+
+// Server-side caps for the expedite write fields (match the template's
+// client-side maxlengths). Both flow into the unbounded `admin_actions_log.reason`
+// TEXT column, so this is hygiene/consistency with the q/store read caps, not an
+// overflow guard.
+private const val TICKET_MAX = 64
+private const val NOTE_MAX = 200
 
 private val TS_FORMAT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC)
