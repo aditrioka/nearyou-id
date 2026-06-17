@@ -63,6 +63,14 @@ import id.nearyou.app.guard.installContentLengthGuard
 import id.nearyou.app.health.JdbcPostgresProbe
 import id.nearyou.app.health.KtorSupabaseRealtimeProbe
 import id.nearyou.app.health.healthRoutes
+import id.nearyou.app.image.ImageUploadFlagGate
+import id.nearyou.app.image.ImageUploadRateLimiter
+import id.nearyou.app.image.ImageUploadService
+import id.nearyou.app.image.JdbcImageUploadRepository
+import id.nearyou.app.image.imageRoutes
+import id.nearyou.app.infra.cloudflareimages.CloudflareImagesConfig
+import id.nearyou.app.infra.cloudflareimages.imageStore
+import id.nearyou.app.infra.cloudvision.imageModerator
 import id.nearyou.app.infra.db.DataSourceFactory
 import id.nearyou.app.infra.db.DbConfig
 import id.nearyou.app.infra.fcm.FcmDispatcherScope
@@ -744,6 +752,9 @@ fun Application.module() {
     // declarations above) because their mutation limiters (docs/05; 2026-06-10
     // audit, findings 02-M2 + 03-#3) wrap the shared Redis-backed rateLimiter
     // built just above.
+    // premium-image-upload-pipeline — shared ledger repo, consumed by both the upload
+    // service (insert) and the post-attach in CreatePostService (find + conditional flip).
+    val imageUploadRepository = JdbcImageUploadRepository(dataSource)
     val createPostService =
         CreatePostService(
             dataSource = dataSource,
@@ -755,6 +766,7 @@ fun Application.module() {
             layer3DispatcherScope = layer3DispatcherScope,
             layer3Moderator = layer3Moderator,
             rateLimiter = PostRateLimiter(rateLimiter),
+            imageUploads = imageUploadRepository,
             dbDispatcher = dbDispatchers.db,
         )
     // premium-post-editing: PATCH /api/v1/posts/{post_id} + GET .../edits. Mirrors
@@ -910,6 +922,27 @@ fun Application.module() {
             remoteConfig = remoteConfig,
             dbDispatcher = dbDispatchers.db,
         )
+    // premium-image-upload-pipeline — fail-soft infra (Vision + Cloudflare Images return
+    // NoOp when their secret slots are unset; the endpoint then 503s and the feature stays
+    // dark behind the default-FALSE image_upload_enabled flag). Delivery base is env-derived.
+    val imageUploadService =
+        ImageUploadService(
+            repository = imageUploadRepository,
+            flagGate = ImageUploadFlagGate(redisStringCache, remoteConfig),
+            rateLimiter = ImageUploadRateLimiter(rateLimiter),
+            moderator = imageModerator(secrets.resolve(secretKey(ktorEnv, "gcp-vision-sa"))),
+            store =
+                imageStore(
+                    CloudflareImagesConfig(
+                        apiToken = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-api-token")).orEmpty(),
+                        accountId = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-account-id")).orEmpty(),
+                        accountHash = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-account-hash")).orEmpty(),
+                        deliveryBaseUrl = if (ktorEnv == "staging") "https://img-staging.nearyou.id" else "https://img.nearyou.id",
+                    ),
+                ),
+            remoteConfig = remoteConfig,
+            dbDispatcher = dbDispatchers.db,
+        )
     val usernameChangeService =
         UsernameChangeService(
             dataSource = dataSource,
@@ -1041,6 +1074,7 @@ fun Application.module() {
     appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())
     revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)
     postRoutes(createPostService)
+    imageRoutes(imageUploadService)
     singlePostRoutes(postReadService)
     postEditRoutes(postEditService, postEditHistoryQuery)
     blockRoutes(blockService)

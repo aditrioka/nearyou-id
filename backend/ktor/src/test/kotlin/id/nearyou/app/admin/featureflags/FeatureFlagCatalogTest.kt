@@ -35,6 +35,13 @@ class FeatureFlagCatalogTest : StringSpec({
         invalid("search_enabled", "")
     }
 
+    "premium_image_upload_cap_override validates as an integer in range (not a boolean)" {
+        valid("premium_image_upload_cap_override", "100").normalized shouldBe "100"
+        valid("premium_image_upload_cap_override", "50").normalized shouldBe "50"
+        invalid("premium_image_upload_cap_override", "true") // it is IntRange, not Bool
+        invalid("premium_image_upload_cap_override", "0") // below the min of 1
+    }
+
     "attestation_mode accepts each of enforce / warn / off" {
         valid("attestation_mode", "enforce").normalized shouldBe "enforce"
         valid("attestation_mode", "warn").normalized shouldBe "warn"

@@ -2,6 +2,7 @@ package id.nearyou.app.post
 
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
 import id.nearyou.app.guard.ContentLengthGuard
+import id.nearyou.app.image.ImageUploadRepository
 import id.nearyou.app.infra.repo.NewPostRow
 import id.nearyou.app.infra.repo.PostRepository
 import id.nearyou.app.moderation.Layer3DispatcherScope
@@ -50,6 +51,9 @@ class CreatePostService(
     private val nowProvider: () -> Instant = Instant::now,
     // docs/05 § Layer 2 daily cap — 10/day Free, Premium skips (2026-06-10 audit, 02-M2).
     private val rateLimiter: PostRateLimiter = PostRateLimiter(),
+    // premium-image-upload-pipeline — owner-validated image attach (null on the text-only
+    // path / pre-image test fixtures). Required only when create() is called with an imageId.
+    private val imageUploads: ImageUploadRepository? = null,
     // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
     private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -74,6 +78,9 @@ class CreatePostService(
         // The route MUST pass the principal's tier (PostRoutes does); the default
         // exists only so pre-cap test fixtures keep constructing the Free path.
         subscriptionStatus: String = "free",
+        // Optional Cloudflare image id to attach (premium-image-upload-pipeline). Validated
+        // owner + unattached and flipped to 'attached' in the same tx as the post INSERT.
+        imageId: String? = null,
     ): CreatedPost {
         // 1. Length + normalize (throws ContentEmpty / ContentTooLong).
         val content = contentGuard.enforce("post.content", rawContent)
@@ -124,6 +131,25 @@ class CreatePostService(
             dataSource.connection.use { conn ->
                 conn.autoCommit = false
                 try {
+                    // Image attach (premium-image-upload-pipeline): validate ownership +
+                    // unattached, then flip 'uploaded' → 'attached' in THIS tx so a failed
+                    // post INSERT rolls the flip back. The conditional markAttached resolves
+                    // a concurrent-attach race to a single winner (zero-rows → 422).
+                    if (imageId != null) {
+                        val repo =
+                            checkNotNull(imageUploads) {
+                                "imageUploads repository is required to attach an image_id"
+                            }
+                        val ledgerRow =
+                            repo.findForAttach(conn, imageId)
+                                ?: throw ImageAttachInvalidException(imageId)
+                        if (ledgerRow.uploaderUserId != authorId) {
+                            throw ImageAttachForbiddenException(imageId)
+                        }
+                        if (ledgerRow.status != "uploaded" || !repo.markAttached(conn, imageId)) {
+                            throw ImageAttachInvalidException(imageId)
+                        }
+                    }
                     posts.create(
                         conn,
                         NewPostRow(
@@ -134,6 +160,7 @@ class CreatePostService(
                             actualLng = longitude,
                             displayLat = display.lat,
                             displayLng = display.lng,
+                            imageId = imageId,
                         ),
                     )
                     if (verdict is Verdict.Flag) {
@@ -225,3 +252,18 @@ class LocationOutOfBoundsException(val latitude: Double, val longitude: Double) 
  */
 class PostRateLimitedException(val retryAfterSeconds: Long) :
     RuntimeException("post daily cap exhausted; retry after $retryAfterSeconds s")
+
+/**
+ * Thrown when a post attaches an `image_id` owned by a different user (premium-image-upload-
+ * pipeline). Mapped at StatusPages to HTTP 403 `image_not_owned`.
+ */
+class ImageAttachForbiddenException(val imageId: String) :
+    RuntimeException("image $imageId is not owned by the caller")
+
+/**
+ * Thrown when a post attaches an `image_id` that does not exist, is already attached, or
+ * loses the concurrent-attach race (premium-image-upload-pipeline). Mapped at StatusPages to
+ * HTTP 422 `image_not_attachable`.
+ */
+class ImageAttachInvalidException(val imageId: String) :
+    RuntimeException("image $imageId is not attachable (missing, already attached, or race lost)")
