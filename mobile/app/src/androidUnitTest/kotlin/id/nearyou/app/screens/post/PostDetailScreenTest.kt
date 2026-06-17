@@ -245,6 +245,49 @@ class PostDetailScreenTest {
             onNodeWithTag(EDIT_HISTORY_SHEET_TAG).assertExists()
             onNodeWithText("Versi ke-1").assertExists()
             onNodeWithText("isi lama").assertExists()
+            // Spatial-fuzzing privacy invariant (spec § "History modal renders no location"): the version
+            // surface renders content + version + time ONLY — never a coordinate/location field.
+            onNodeWithText("106.8", substring = true).assertDoesNotExist()
+            onNodeWithText("-6.2", substring = true).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun historyModal_emptyHistory_showsEmptyState() {
+        installKoin(
+            FakePostDetailFlow(),
+            FakePostEditFlow(
+                refreshOutcome = PostRefreshOutcome.Loaded(content = CONTENT, editedAt = "2026-06-07T09:00:00Z", isAuthor = false),
+                historyOutcome = EditHistoryOutcome.Loaded(emptyList()),
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}, onEditPost = { _, _ -> }) } } }
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(POST_DETAIL_EDITED_LABEL_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_EDITED_LABEL_TAG).performClick()
+            onNodeWithTag(EDIT_HISTORY_SHEET_TAG).assertExists()
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(EDIT_HISTORY_EMPTY_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(EDIT_HISTORY_EMPTY_TAG).assertExists()
+        }
+    }
+
+    @Test
+    fun historyModal_networkError_showsRetry() {
+        installKoin(
+            FakePostDetailFlow(),
+            FakePostEditFlow(
+                refreshOutcome = PostRefreshOutcome.Loaded(content = CONTENT, editedAt = "2026-06-07T09:00:00Z", isAuthor = false),
+                historyOutcome = EditHistoryOutcome.Network,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}, onEditPost = { _, _ -> }) } } }
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(POST_DETAIL_EDITED_LABEL_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_EDITED_LABEL_TAG).performClick()
+            onNodeWithTag(EDIT_HISTORY_SHEET_TAG).assertExists()
+            // The history load fails → the modal shows the error state + a retry affordance (not blank/crash).
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(EDIT_HISTORY_RETRY_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(EDIT_HISTORY_RETRY_TAG).assertExists()
         }
     }
 

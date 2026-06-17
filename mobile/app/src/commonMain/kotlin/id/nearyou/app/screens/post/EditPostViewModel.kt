@@ -49,6 +49,9 @@ class EditPostViewModel(
     /** Submit the edit. No-op when the gate is closed (empty / over-limit / in-flight). Clears prior
      *  one-shots, sets in-flight synchronously, then commits the mapped outcome. */
     fun submit() {
+        // Guard on the LIVE in-flight flag FIRST (the post-detail 05-#10 double-tap precedent): a same-frame
+        // second tap — before recomposition disables "Simpan" — must NOT launch a second PATCH.
+        if (_uiState.value.isSubmitting) return
         if (!editPostUiState(content = content, isSubmitting = false).submitEnabled) return
         _uiState.value = editPostUiState(content = content, isSubmitting = true)
         viewModelScope.launch {

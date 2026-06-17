@@ -1,7 +1,11 @@
 package id.nearyou.app.screens.post
 
+import id.nearyou.app.post.EditHistoryOutcome
 import id.nearyou.app.post.FakePostEditFlow
+import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.post.PostEditOutcome
+import id.nearyou.app.post.PostRefreshOutcome
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestCoroutineScheduler
@@ -124,5 +128,36 @@ class EditPostViewModelTest {
         vm.onPremiumUpsellDismissed()
         assertTrue(!vm.uiState.value.showPremiumUpsell)
         assertEquals("baru", vm.uiState.value.content, "the editor text survives the dismissal")
+    }
+
+    @Test
+    fun submit_isSingleFlight_sameFrameDoubleTapIssuesOnePatch() {
+        // The 05-#10 double-tap invariant: a second submit() in the same frame (while the first PATCH is
+        // still in flight, before recomposition disables "Simpan") must NOT launch a second PATCH.
+        val gate = CompletableDeferred<Unit>()
+        var editCount = 0
+        val suspendingFlow =
+            object : PostEditFlow {
+                override suspend fun editPost(
+                    postId: String,
+                    content: String,
+                ): PostEditOutcome {
+                    editCount++
+                    gate.await() // stay in flight until released
+                    return PostEditOutcome.Success(content)
+                }
+
+                override suspend fun loadHistory(postId: String): EditHistoryOutcome = EditHistoryOutcome.Loaded(emptyList())
+
+                override suspend fun refreshPost(postId: String): PostRefreshOutcome = PostRefreshOutcome.Unavailable
+            }
+        val vm = EditPostViewModel(suspendingFlow, "p1", "lama")
+        vm.onContentChange("baru")
+        vm.submit() // first: claims in-flight, editPost increments to 1, suspends on the gate
+        vm.submit() // same-frame second: the live-isSubmitting guard returns → no second PATCH
+        gate.complete(Unit)
+        scheduler.advanceUntilIdle()
+        assertEquals(1, editCount, "a same-frame double-tap issues exactly one PATCH (single-flight)")
+        assertEquals("baru", vm.uiState.value.editedContent)
     }
 }
