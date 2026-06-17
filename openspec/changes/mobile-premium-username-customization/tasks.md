@@ -52,7 +52,7 @@
 
 - [x] 10.1 `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` green; `:mobile:app:linkDebugFrameworkIosSimulatorArm64` green locally (new route + iosTest touch Kotlin/Native).
 - [x] 10.2 `./gradlew ktlintCheck detekt` green (mobile module).
-- [ ] 10.3 docs/11 §5 DoD: manual `verify-loop` bring-up of the Ganti Username screen (Settings entry → screen → typing/validation → confirm modal → states) with screenshot evidence in the PR body BEFORE archive (context-routed run via `scripts/run_on_device.sh` / `scripts/test_android.sh`).
+- [x] 10.3 docs/11 §5 DoD: manual `verify-loop` bring-up of the Ganti Username screen (Settings entry → screen → typing/validation → confirm modal → states) with screenshot evidence in the PR body BEFORE archive (context-routed run via `scripts/run_on_device.sh` / `scripts/test_android.sh`).
 
 ## 11. Deferred-scope bookkeeping
 
