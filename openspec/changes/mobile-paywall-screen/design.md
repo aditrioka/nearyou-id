@@ -53,7 +53,7 @@ Frame 17's caption marks the Perunggu→Berlian ladder as an *optional* board el
 ### Standards conformance (docs/11 — anti-patchwork)
 
 This change builds on existing Pattern-Registry patterns and introduces **no new pattern** → **no docs/11 amendment required**:
-- **State (§2.2):** `PaywallViewModel` = androidx `ViewModel` in commonMain via `koinViewModel()`, one `StateFlow<PaywallUiState>` via `stateIn(WhileSubscribed(5000))`, one-shot events as nullable state fields cleared via `onXxxShown()` — no event-bus.
+- **State (§2.2):** `PaywallViewModel` = androidx `ViewModel` in commonMain via `koinViewModel()`, one `StateFlow<PaywallUiState>` via `stateIn(WhileSubscribed(5000))`, the one-shot purchase-success signal as a nullable-style flag cleared via `onReturnConsumed()` (`purchaseError` is a sticky flag cleared on the next `onSubscribe()`) — no event-bus.
 - **Navigation (§2.3):** `@Serializable` `NavKey` registered in the polymorphic `SavedStateConfiguration`; root-stack push like `SearchRoute` / `PostDetailRoute`.
 - **Data / vendor-SDK seam (§2.5 + §2.6):** commonMain `PurchaseController` interface + per-platform Koin binding; the RevenueCat SDK lives only in `:infra:revenuecat`, `implementation`-scoped — the identical fencing as `:infra:supabase-realtime`.
 - **UI substrate:** `mobile-design-system` tokens; mockup frame 17 per §2.8 (behavior from specs/docs, look from the board).

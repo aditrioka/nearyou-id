@@ -200,8 +200,8 @@ private fun NearbyFeed(
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18): shown while the one-shot cap
     // state is non-null. The body is the verbatim docs/03:187 modal copy formatted with the live
-    // ticking countdown. The Premium CTA is the v1 dismiss-only placeholder — the paywall destination
-    // is the deferred requirement tracked by issue #235.
+    // ticking countdown. The Premium CTA dismisses the dialog AND pushes the paywall via the host
+    // (mobile-paywall-screen #235); the dialog component itself stays navigation-free.
     likeCapRetryAfterSeconds?.let { retryAfterSeconds ->
         DailyCapUpsellDialog(
             retryAfterSeconds = retryAfterSeconds,

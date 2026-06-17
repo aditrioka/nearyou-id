@@ -123,7 +123,7 @@ fun FollowingTimelineScreen(
     )
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18) — same one-shot wiring as Nearby/Global;
-    // the Premium CTA is the v1 dismiss-only placeholder (paywall deferred, issue #235).
+    // the Premium CTA dismisses AND pushes PaywallRoute(LIKE_CAP) via the host (mobile-paywall-screen #235).
     likeCapRetryAfterSeconds?.let { retryAfterSeconds ->
         DailyCapUpsellDialog(
             retryAfterSeconds = retryAfterSeconds,
