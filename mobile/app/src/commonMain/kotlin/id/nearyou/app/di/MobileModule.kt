@@ -59,7 +59,11 @@ import id.nearyou.app.post.LikeApiClient
 import id.nearyou.app.post.PostCreationApiClient
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostDetailRepository
+import id.nearyou.app.post.PostEditApiClient
+import id.nearyou.app.post.PostEditFlow
+import id.nearyou.app.post.PostEditRepository
 import id.nearyou.app.post.ReplyApiClient
+import id.nearyou.app.post.SinglePostApiClient
 import id.nearyou.app.profile.ProfileApiClient
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileRepository
@@ -255,6 +259,22 @@ val mobileModule =
             )
         }
         single<CreatePostFlow> { get<CreatePostRepository>() }
+
+        // mobile-post-editing — the edit-post graph. Reuses the shared HttpClient; PostEditApiClient (PATCH
+        // + GET /edits) + SinglePostApiClient (the single-post-read freshness GET for the "Diedit" label +
+        // isAuthor). PostEditRepository is bound behind the PostEditFlow seam so a FakePostEditFlow drives
+        // the EditPostViewModel + post-detail screen tests (the concrete stays resolvable).
+        single { PostEditApiClient(get()) }
+        single { SinglePostApiClient(get()) }
+        single {
+            val sink = get<DiagnosticSink>()
+            PostEditRepository(
+                get(),
+                get(),
+                diagnosticLog = { status, errorCode -> sink.log("edit_post_error: status=$status code=$errorCode") },
+            )
+        }
+        single<PostEditFlow> { get<PostEditRepository>() }
 
         // mobile-analytics-consent-screen — the consent-submit graph. Reuses the shared
         // (bearer-authed) HttpClient; ConsentRepository is bound behind the ConsentFlow seam so a

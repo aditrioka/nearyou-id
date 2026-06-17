@@ -115,6 +115,19 @@ data class PostDetailRoute(
 ) : NavKey
 
 /**
+ * The edit-post surface (the `mobile-post-editing` editor), pushed onto the ROOT back stack above the
+ * [PostDetailRoute] it was opened from (the same overlay mechanism). Carries the [postId] + the
+ * [initialContent] (the current post text to prefill the editor); on a successful edit the entry pops and
+ * post-detail refreshes its content + "Diedit" label on resume. No PII — the content is the post's own
+ * text (already shown on detail); no author UUID, no coordinate.
+ */
+@Serializable
+data class EditPostRoute(
+    val postId: String,
+    val initialContent: String,
+) : NavKey
+
+/**
  * Settings surface (the `mobile-settings` capability — mockup frame 16 "Pengaturan"), pushed onto the
  * ROOT back stack above [HomeRoute] so it overlays the section bar (the [PostDetailRoute] mechanism).
  * A parameterless marker carrying NO identity payload (the user identity lives in the persisted token,
