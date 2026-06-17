@@ -44,5 +44,5 @@
 
 ## 7. Docs / mockup reconciliation (at archive)
 
-- [ ] 7.1 Reflect docs/07 § Subscription Grace Monitor as **SHIPPED** — add an explicit bold **SHIPPED** status tag to the line (mirror how the §61 `admin-privacy-flip-monitor` line is tagged; don't just edit prose) — and flip the admin mockup frame 18 tag from "Usulan" to shipped. Apply note: the stored `subscription_events.event_type` literal is lowercase `billing_issue` (not the mockup's display text `BILLING_ISSUE`) — query the lowercase value.
-- [ ] 7.2 `openspec validate admin-subscription-grace-monitor --strict` green; archive via the one-PR lifecycle (`/opsx:archive` pushes the archive commit to the same branch).
+- [x] 7.1 Reflect docs/07 § Subscription Grace Monitor as **SHIPPED** — add an explicit bold **SHIPPED** status tag to the line (mirror how the §61 `admin-privacy-flip-monitor` line is tagged; don't just edit prose) — and flip the admin mockup frame 18 tag from "Usulan" to shipped. Apply note: the stored `subscription_events.event_type` literal is lowercase `billing_issue` (not the mockup's display text `BILLING_ISSUE`) — query the lowercase value.
+- [x] 7.2 `openspec validate admin-subscription-grace-monitor --strict` green; archive via the one-PR lifecycle (`/opsx:archive` pushes the archive commit to the same branch).
