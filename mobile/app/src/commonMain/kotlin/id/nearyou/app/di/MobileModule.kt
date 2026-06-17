@@ -40,6 +40,9 @@ import id.nearyou.app.diagnostics.SentryBreadcrumbDiagnosticSink
 import id.nearyou.app.followlist.FollowListApiClient
 import id.nearyou.app.followlist.FollowListFlow
 import id.nearyou.app.followlist.FollowListRepository
+import id.nearyou.app.hidedistance.DefaultHideDistanceRepository
+import id.nearyou.app.hidedistance.HideDistanceApiClient
+import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.infra.sentry.CrashReporterConfig
 import id.nearyou.app.infra.sentry.SentryCrashReporter
@@ -260,6 +263,12 @@ val mobileModule =
         // diagnosticLog wired to the real sink (2026-06-10 audit, 06 medium: sink-wiring drift).
         single { ConsentRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<ConsentFlow> { get<ConsentRepository>() }
+
+        // hide-distance capability — the Settings Premium toggle seam. ApiClient (GET state + PATCH) →
+        // DefaultHideDistanceRepository bound behind the HideDistanceRepository interface so a fake drives
+        // the screen tests; reuses the shared bearer-authed HttpClient.
+        single { HideDistanceApiClient(get()) }
+        single<HideDistanceRepository> { DefaultHideDistanceRepository(get()) }
 
         // mobile-settings-screen — the settings graph. The block-list seam (ApiClient → Repository bound
         // behind BlockedUsersFlow so a FakeBlockedUsersFlow drives the screen tests) reuses the shared

@@ -156,6 +156,7 @@ import id.nearyou.app.timeline.globalTimelineRoutes
 import id.nearyou.app.timeline.timelineRoutes
 import id.nearyou.app.user.ConsentRepository
 import id.nearyou.app.user.FcmTokenRepository
+import id.nearyou.app.user.HideDistanceRepository
 import id.nearyou.app.user.JdbcActorUsernameLookup
 import id.nearyou.app.user.JdbcUserFcmTokenReader
 import id.nearyou.app.user.JdbcUserProfileReader
@@ -165,6 +166,7 @@ import id.nearyou.app.user.UsernameChangeService
 import id.nearyou.app.user.UsernameRateLimiter
 import id.nearyou.app.user.consentRoutes
 import id.nearyou.app.user.fcmTokenRoutes
+import id.nearyou.app.user.hideDistanceRoutes
 import id.nearyou.app.user.userProfileRoutes
 import id.nearyou.app.user.userUsernameRoutes
 import id.nearyou.data.repository.ActorUsernameLookup
@@ -921,6 +923,7 @@ fun Application.module() {
         )
     val fcmTokenRepository = FcmTokenRepository(dataSource, dbDispatchers.db)
     val consentRepository = ConsentRepository(dataSource, dbDispatchers.db)
+    val hideDistanceRepository = HideDistanceRepository(dataSource, dbDispatchers.db)
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -998,6 +1001,7 @@ fun Application.module() {
                 single<ActorUsernameLookup> { actorUsernameLookup }
                 single { fcmTokenRepository }
                 single { consentRepository }
+                single { hideDistanceRepository }
                 single<OidcTokenVerifier> { oidcTokenVerifier }
                 single { suspensionUnbanWorker }
             },
@@ -1032,6 +1036,7 @@ fun Application.module() {
     notificationRoutes(notificationService)
     fcmTokenRoutes(fcmTokenRepository)
     consentRoutes(consentRepository)
+    hideDistanceRoutes(hideDistanceRepository)
 
     // /internal/* — Cloud-Scheduler-invoked job endpoints. The OIDC gate is
     // installed PER JOB SUBTREE inside unbanWorkerRoute (internal-endpoint-auth

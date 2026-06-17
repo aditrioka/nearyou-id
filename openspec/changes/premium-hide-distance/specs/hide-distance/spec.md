@@ -36,6 +36,22 @@ The backend SHALL expose `PATCH /api/v1/user/hide-distance` (Bearer JWT via `AUT
 - **WHEN** an authenticated user calls `PATCH /api/v1/user/hide-distance`
 - **THEN** the `UPDATE` targets the principal's own `users` row only AND the endpoint exposes no user-id path/body parameter that could target another user's row
 
+### Requirement: GET /api/v1/user/hide-distance returns the toggle state for the Settings screen
+
+The backend SHALL expose `GET /api/v1/user/hide-distance` (Bearer JWT via `AUTH_PROVIDER_USER`) returning `{"hideDistance": <boolean>, "premium": <boolean>}` for the authenticated caller. `hideDistance` is the stored `users.hide_distance_opt_in`; `premium` is whether the caller is **effectively Premium** (`subscription_status IN ('premium_active','premium_billing_retry')`, derived from the JWT principal with no extra read). The mobile Settings screen reads this on open to seed the toggle's checked state AND to decide interactive-toggle (Premium) vs Premium-upsell (Free). An unauthenticated request MUST be rejected with `401`.
+
+#### Scenario: Returns the stored flag and premium status
+- **WHEN** an authenticated `premium_active` user whose `hide_distance_opt_in` is `TRUE` calls `GET /api/v1/user/hide-distance`
+- **THEN** the response is `200` with body `{"hideDistance": true, "premium": true}`
+
+#### Scenario: Free caller reads premium=false regardless of the stored flag
+- **WHEN** an authenticated `free` user (with any stored `hide_distance_opt_in`) calls `GET /api/v1/user/hide-distance`
+- **THEN** the response is `200` AND `premium` is `false`
+
+#### Scenario: Unauthenticated read is rejected
+- **WHEN** `GET /api/v1/user/hide-distance` is called with no valid JWT
+- **THEN** the response is `401`
+
 ### Requirement: hide_distance_opt_in is effective only while the user is Premium
 
 A user's hide-distance preference SHALL be **effective** if and only if `hide_distance_opt_in = TRUE AND subscription_status IN ('premium_active','premium_billing_retry')`. This mirrors the EFFECTIVE-private formula in `user-profile-read` (active OR billing-retry — `premium_billing_retry` is an effective-Premium state), deliberately broader than the badge-only `premium_active` test. A Free user with a stale `hide_distance_opt_in = TRUE` is treated as OFF.

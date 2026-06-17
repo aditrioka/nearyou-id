@@ -80,10 +80,10 @@ Daily caps target write-heavy actions — post, reply, chat, like (a like = `pos
 - Activate: viewers stop seeing **the distance number** on this user's posts; symmetric — the activator also stops seeing others' distance numbers
 - **Scope: distance number only** — city name stays visible; the 5km floor still applies globally
 - No ordering leak (all timelines sort by time)
-- Implementation: **shared module `:shared:distance`** (`jvmMain` + native targets), used by both the Ktor backend and the mobile app — single source of truth for `renderDistance(post, viewer)`
-- **Mandatory test checklist** spans all surfaces incl. backend-rendered: Timeline card, Post detail, Profile page, Chat context card, Search result, Notification list (push body: only "Pesan baru dari {username}", never distance)
+- Implementation: **shared module `:shared:distance`** (`jvmMain` + native targets) — single source of truth for distance *rendering* via the pure `DistanceRenderer.render(distanceMeters)`, consumed by both the Ktor backend and the mobile app. Hide-distance suppression is **server-side field omission upstream of the renderer** (the Nearby read omits `distanceM` when the symmetric author-OR-viewer rule applies); it is NOT a renderer parameter. The flag is premium-effective + read-gated (`hide-distance` capability)
+- **Mandatory test checklist** spans all surfaces incl. backend-rendered: Timeline card, Post detail, Profile page, Chat context card, Search result, Notification list (push body: only "Pesan baru dari {username}", never distance). NOTE: as shipped, only the Nearby timeline emits a distance number; every other surface is already distance-free, so the rule is a verified no-op there.
 
-> `renderDistance()` algorithm (fuzz first, floor at 5km, round to nearest 1km above 5km) + jitter order: `05-Implementation.md`.
+> `DistanceRenderer.render()` algorithm (floor at 5km, round to nearest 1km above 5km) + jitter order (`JitterEngine`): `05-Implementation.md`.
 
 ### Premium Tenure Counter
 

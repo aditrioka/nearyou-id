@@ -79,3 +79,19 @@ data class NearbyPage(
 
 class RadiusOutOfBoundsException(val radius: Int) :
     RuntimeException("radius $radius outside [${NearbyTimelineService.RADIUS_MIN}, ${NearbyTimelineService.RADIUS_MAX}]")
+
+/**
+ * Pure hide-distance decision (hide-distance capability). The Nearby distance NUMBER is shown
+ * only when NEITHER the post author nor the viewer is effectively hiding — symmetric: author-on
+ * OR viewer-on suppresses it. Returns the raw meters when shown, or `null` when suppressed; the
+ * route omits a `null` `distanceM` from the wire via the app-wide `explicitNulls = false`.
+ *
+ * This stays a small pure function (no DB, no fuzzing) so the symmetric rule is unit-testable in
+ * isolation; the `:shared:distance` `DistanceRenderer.render(Double)` remains a pure formatter
+ * and is NOT given a hidden mode (design D2).
+ */
+fun effectiveDistanceMeters(
+    rawMeters: Double,
+    authorHidesDistance: Boolean,
+    viewerHidesDistance: Boolean,
+): Double? = if (authorHidesDistance || viewerHidesDistance) null else rawMeters

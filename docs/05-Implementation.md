@@ -352,17 +352,19 @@ display_location = offset_by_bearing(actual_location, bearing_radians, distance_
 
 ### Distance Floor + Rounding + Fuzz Order (`renderDistance`)
 
+The shared `:shared:distance` module exposes a PURE formatter — `DistanceRenderer.render(distanceMeters: Double): String` — consumed by both the Ktor backend and the mobile app:
+
 ```kotlin
-fun renderDistance(viewer: Location, post: Post, hideDistance: Boolean): String {
-    if (hideDistance) return ""
-    val fuzzedMeters = haversine(viewer, post.displayLocation)
-    val flooredMeters = max(fuzzedMeters, 5_000.0)
+fun render(distanceMeters: Double): String {
+    val flooredMeters = max(distanceMeters, 5_000.0)
     val roundedKm = (flooredMeters / 1_000.0).roundToInt()
     return "${roundedKm}km"
 }
 ```
 
-Order matters: fuzz first (crypto jitter) → floor second (UX/privacy) → round to nearest 1km last (display). Examples: actual 4.5km → fuzz 4.8km → floor 5km → "5km" (fuzz doesn't leak). Actual 7.4km → fuzz 7.3km → floor unchanged → "7km". Actual 7.6km → fuzz 7.7km → floor unchanged → "8km".
+The input is an ALREADY-FUZZED distance (measured against `display_location`, never `actual_location`); fuzzing lives in `JitterEngine`, NOT the renderer — `render` must not alter its input (`openspec/specs/distance-rendering`). Order across the pipeline: fuzz first (crypto jitter) → measure against `display_location` → floor at 5km (UX/privacy) → round to nearest 1km (display). Examples: actual 4.5km → fuzz 4.8km → floor 5km → "5km" (fuzz doesn't leak); actual 7.4km → fuzz 7.3km → "7km"; actual 7.6km → fuzz 7.7km → "8km".
+
+**Hide Distance (Premium) is server-side field omission, NOT a renderer parameter** — the earlier `renderDistance(viewer, post, hideDistance)` sketch is superseded by the `hide-distance` capability. When the symmetric author-OR-viewer hide rule suppresses a post's distance for a viewer, the Nearby read path OMITS the `distanceM` field from the response (the renderer is simply not invoked for that post); `render` stays pure. See `openspec/specs/hide-distance` + `docs/01` § Hide Distance Mechanics.
 
 ### Post Edit History (Race-Safe Temporal Versioning)
 
