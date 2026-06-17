@@ -3,6 +3,8 @@ package id.nearyou.app.common
 import id.nearyou.app.guard.ContentEmptyException
 import id.nearyou.app.guard.ContentTooLongException
 import id.nearyou.app.post.ContentModeratedProfanityException
+import id.nearyou.app.post.ImageAttachForbiddenException
+import id.nearyou.app.post.ImageAttachInvalidException
 import id.nearyou.app.post.LocationOutOfBoundsException
 import id.nearyou.app.post.PostEditConflictException
 import id.nearyou.app.post.PostEditNoChangesException
@@ -97,6 +99,34 @@ internal fun Application.installAppStatusPages() {
                         mapOf(
                             "code" to "rate_limited",
                             "message" to "Too many posts today. Try again after the daily reset.",
+                        ),
+                ),
+            )
+        }
+        // --- premium-image-upload-pipeline (POST /api/v1/posts with image_id) ---
+        // Attaching another user's image → 403; the ledger ownership check runs inside the
+        // post tx, so a rejected attach leaves no post and no ledger flip.
+        exception<ImageAttachForbiddenException> { call, _ ->
+            call.respond(
+                HttpStatusCode.Forbidden,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "image_not_owned",
+                            "message" to "Gambar ini tidak dapat dilampirkan.",
+                        ),
+                ),
+            )
+        }
+        // image_id missing / already attached / lost the concurrent-attach race → 422.
+        exception<ImageAttachInvalidException> { call, _ ->
+            call.respond(
+                HttpStatusCode.UnprocessableEntity,
+                mapOf(
+                    "error" to
+                        mapOf(
+                            "code" to "image_not_attachable",
+                            "message" to "Gambar ini tidak dapat dilampirkan.",
                         ),
                 ),
             )

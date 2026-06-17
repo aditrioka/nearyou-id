@@ -738,6 +738,9 @@ fun Application.module() {
     // declarations above) because their mutation limiters (docs/05; 2026-06-10
     // audit, findings 02-M2 + 03-#3) wrap the shared Redis-backed rateLimiter
     // built just above.
+    // premium-image-upload-pipeline — shared ledger repo, consumed by both the upload
+    // service (insert) and the post-attach in CreatePostService (find + conditional flip).
+    val imageUploadRepository = JdbcImageUploadRepository(dataSource)
     val createPostService =
         CreatePostService(
             dataSource = dataSource,
@@ -749,6 +752,7 @@ fun Application.module() {
             layer3DispatcherScope = layer3DispatcherScope,
             layer3Moderator = layer3Moderator,
             rateLimiter = PostRateLimiter(rateLimiter),
+            imageUploads = imageUploadRepository,
             dbDispatcher = dbDispatchers.db,
         )
     // premium-post-editing: PATCH /api/v1/posts/{post_id} + GET .../edits. Mirrors
@@ -909,7 +913,7 @@ fun Application.module() {
     // dark behind the default-FALSE image_upload_enabled flag). Delivery base is env-derived.
     val imageUploadService =
         ImageUploadService(
-            repository = JdbcImageUploadRepository(dataSource),
+            repository = imageUploadRepository,
             flagGate = ImageUploadFlagGate(redisStringCache, remoteConfig),
             rateLimiter = ImageUploadRateLimiter(rateLimiter),
             moderator = imageModerator(secrets.resolve(secretKey(ktorEnv, "gcp-vision-sa"))),
