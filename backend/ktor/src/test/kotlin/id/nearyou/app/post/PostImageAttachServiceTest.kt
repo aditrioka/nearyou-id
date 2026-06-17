@@ -30,7 +30,9 @@ private fun attachHikari(): HikariDataSource {
             jdbcUrl = url
             username = System.getenv("DB_USER") ?: "postgres"
             password = System.getenv("DB_PASSWORD") ?: "postgres"
-            maximumPoolSize = 4
+            // Small pool + autoClose (below) so this spec doesn't add to the CI Postgres
+            // connection budget (per the ~53-leaked-pool "too many clients" precedent, PR #157).
+            maximumPoolSize = 2
             initializationFailTimeout = -1
         }
     return HikariDataSource(config)
@@ -109,8 +111,29 @@ class PostImageAttachServiceTest : StringSpec({
     fun ledgerStatus(cfImageId: String): String? =
         query("SELECT status FROM image_uploads WHERE cf_image_id = ?", cfImageId) { it.getString("status") }
 
-    val lat = -6.2
-    val lng = 106.8
+    // Deep Indian Ocean coords no kabupaten polygon covers and far outside any timeline
+    // test's Nearby radius (the project.md § Test-data conventions isolation pattern) — so
+    // these posts don't pollute the location-scoped timeline tests. The afterSpec below also
+    // deletes them so they don't pollute the (location-agnostic) Global timeline test.
+    val lat = -10.5
+    val lng = 105.0
+
+    // Clean up THIS spec's rows after every test (the per-test-cleanup convention used by
+    // NearbyTimelineServiceTest / CreatePostServiceTest) so the posts never leak into the
+    // location-agnostic Global timeline test. Prefix `ia_` is unique to this spec.
+    afterTest {
+        dataSource.connection.use { conn ->
+            conn.createStatement().use { st ->
+                st.executeUpdate("DELETE FROM image_uploads WHERE uploader_user_id IN (SELECT id FROM users WHERE username LIKE 'ia\\_%')")
+                st.executeUpdate("DELETE FROM posts WHERE author_id IN (SELECT id FROM users WHERE username LIKE 'ia\\_%')")
+                st.executeUpdate("DELETE FROM users WHERE username LIKE 'ia\\_%'")
+            }
+        }
+    }
+
+    // Close the pool LAST (after all tests + afterTest cleanups) — explicit close instead of
+    // autoClose so it never races ahead of the afterTest connection use.
+    afterSpec { dataSource.close() }
 
     "attach a caller-owned uploaded image — post gets image_id, ledger flips to attached" {
         val user = seedUser()

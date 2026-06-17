@@ -52,18 +52,18 @@
 
 ## 10. Verification gate (pre-push)
 
-- [ ] 10.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally (CI runs both lint frameworks).
-- [ ] 10.2 Confirm Detekt invariants pass: secrets-via-`secretKey`, no-vendor-SDK-outside-`:infra:*`, rate-limit-TTL, Redis hash-tags, `clientIp` (no raw `X-Forwarded-For`).
-- [ ] 10.3 Full gate on fresh DB containers (CI-equivalent) to avoid dev-seed pollution false-fails.
+- [x] 10.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally (CI runs both lint frameworks).
+- [x] 10.2 Confirm Detekt invariants pass: secrets-via-`secretKey`, no-vendor-SDK-outside-`:infra:*`, rate-limit-TTL, Redis hash-tags, `clientIp` (no raw `X-Forwarded-For`).
+- [x] 10.3 Full gate on fresh DB containers (CI-equivalent) to avoid dev-seed pollution false-fails.
 
 ## 11. Staging deploy + smoke (pre-archive)
 
 - [ ] 11.1 `gh workflow run deploy-staging.yml --ref premium-image-upload-pipeline`; poll the deploy run to green (`/health/ready`).
 - [ ] 11.2 Smoke (`dev/scripts/smoke-premium-image-upload-pipeline.sh`): with the flag default-FALSE + CF/Vision unprovisioned, `POST /api/v1/images` returns 403 (flag off) — NOT 500; the app boots and other routes serve. (Authenticated-route guard: a 302→/admin or 401 on unauth is a valid migration-applied signal.)
-- [ ] 11.3 Confirm `design.md` Migration Plan names the **launch precondition** "enable the Cloudflare CSAM Scanning Tool on the `nearyou.id` zone BEFORE flipping `image_upload_enabled` TRUE" (satisfies the spec's zone-CSAM-ordering scenario). The flip itself is a Month-6 ops action, out of this PR.
+- [x] 11.3 Confirm `design.md` Migration Plan names the **launch precondition** "enable the Cloudflare CSAM Scanning Tool on the `nearyou.id` zone BEFORE flipping `image_upload_enabled` TRUE" (satisfies the spec's zone-CSAM-ordering scenario). The flip itself is a Month-6 ops action, out of this PR.
 
 ## 12. Deferred-work follow-up issues (file at apply, label follow-up)
 
-- [ ] 12.1 `gh issue create --label follow-up,backend` — orphan-image cleanup job (delete CF blob + `image_uploads` row for `status='uploaded'` older than N).
-- [ ] 12.2 `gh issue create --label follow-up,backend` — `csam-detection-webhook-and-archive` (the deferred CSAM subsystem; references the guard requirement).
-- [ ] 12.3 `gh issue create --label follow-up,mobile` — `mobile-image-upload-ui` (upload UI + client compression + read-path image surfacing modifying the read specs/DTOs).
+- [x] 12.1 `gh issue create --label follow-up,backend` — orphan-image cleanup job (delete CF blob + `image_uploads` row for `status='uploaded'` older than N).
+- [x] 12.2 `gh issue create --label follow-up,backend` — `csam-detection-webhook-and-archive` (the deferred CSAM subsystem; references the guard requirement).
+- [x] 12.3 `gh issue create --label follow-up,mobile` — `mobile-image-upload-ui` (upload UI + client compression + read-path image surfacing modifying the read specs/DTOs).
