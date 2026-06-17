@@ -54,8 +54,8 @@
 
 - [x] 9.1 `./gradlew :mobile:app:testDevDebugUnitTest` (the docs/11 §5 DoD + spec-scenario variant) + `:mobile:app:testDevReleaseUnitTest` (confirm `*ScreenTest` Release-variant excludes still hold) — all green.
 - [x] 9.2 `./gradlew :mobile:app:iosSimulatorArm64Test` — the existing `*TimelineFlowIosTest` + any touched iosTest pass (the load-more additions are commonMain; confirm no K/N break).
-- [~] 9.3 Manual scroll-verify on each surface — DEFERRED to the PR's CI device-run (`.github/workflows/device-run.yml` auto-Robo-crawls mobile PRs) + an operator manual pass. Automated UI coverage is comprehensive: per-surface `*ScreenTest` (load-more appends / retry footer / footer-absent-during-skeleton) + VM + the shared `LoadMoreControllerTest`.
-- [ ] 9.4 Pre-push gate for the touched non-mobile files (none expected) — N/A here; mobile lint is `ktlintCheck`/`detekt` on `:mobile:app` if wired, else the unit-test gate above.
+- [x] 9.3 Manual scroll-verify — DONE on a verify36 emulator + local backend (2026-06-17): seeded 35 Global posts; page 1 = 30 + a non-null `nextCursor`; scrolled to the bottom → page 2 (#5–#1) appended (post #1 visible at the list end); the backend log shows the 2nd `200 OK GET /api/v1/timeline/global` cursor request during the scroll. Load-more verified end-to-end on the real app + real backend. (Per-surface UI also covered by the `*ScreenTest`s.)
+- [x] 9.4 Pre-push gate — N/A (mobile-only change, no non-mobile files); the mobile `ktlintCheck` + `detekt` + unit/iOS gates above are green.
 
 ## 10. Archive
 
