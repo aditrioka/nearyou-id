@@ -151,10 +151,17 @@ class FcmTokenRegistrarTest {
     fun `concurrent registrations both proceed without client-side dedup`() =
         runTest {
             val provider = FakeFcmTokenProvider(token = "tok-1")
-            var calls = 0
+            // Both POSTs land in the MockEngine handler, whose internals run OFF the runTest scheduler. A bare
+            // `var calls++` is therefore unsafe twice over: two concurrent increments can lose one, and the
+            // test thread may read `calls` before an off-scheduler handler runs (the flake that failed only in
+            // the production variant — see `token refresh re-registers the new token`). Record each landing in
+            // its own CompletableDeferred (complete() is atomic + idempotent) and await both before asserting.
+            val landed = List(2) { CompletableDeferred<Unit>() }
             val reg =
                 registrar(provider) {
-                    calls++
+                    // Invocation #1 completes landed[0] (complete() → true); #2 finds it already completed
+                    // (→ false) and completes landed[1] — two distinct landings, no shared mutable counter.
+                    if (!landed[0].complete(Unit)) landed[1].complete(Unit)
                     respond("", HttpStatusCode.NoContent)
                 }
 
@@ -162,8 +169,12 @@ class FcmTokenRegistrarTest {
             val b = launch { reg.registerCurrentToken() }
             a.join()
             b.join()
+            // Deterministic barrier: both registrations reached the network. A client-side mutex that coalesced
+            // the overlapping pair into a single POST would complete only landed[0] and hang here — exactly the
+            // "no client-side dedup" regression this test defends against.
+            landed.forEach { it.await() }
 
-            assertEquals(2, calls, "both overlapping registrations proceed — no client-side mutex")
+            assertEquals(2, landed.count { it.isCompleted }, "both overlapping registrations proceed — no client-side mutex")
         }
 
     @Test
