@@ -34,7 +34,7 @@ data class UserRow(
      */
     val usernameLastChangedAt: Instant? = null,
     /**
-     * V24 schema: BOOLEAN NOT NULL DEFAULT FALSE. The Premium "Hide Distance" preference
+     * V25 schema: BOOLEAN NOT NULL DEFAULT FALSE. The Premium "Hide Distance" preference
      * (`hide-distance` capability). Loaded at auth time — like [subscriptionStatus] — so the Nearby
      * read path can evaluate the symmetric viewer-side suppression from the principal WITHOUT a
      * per-request `users` SELECT (the `timeline-read-rate-limit` "zero users SELECTs in the timeline
