@@ -35,10 +35,10 @@
 
 ## 5. Manual verification (verify-loop §A — admin panel)
 
-- [ ] 5.1 Boot `KTOR_ENV=test` backend (`RUN_FLYWAY_ON_STARTUP=true` not needed — no migration); bootstrap an `owner` admin (TOTP); seed a `rejected_identifiers` row.
-- [ ] 5.2 Drive `POST /admin/rejected-identifiers/{id}/clear` via a browser MCP (login → TOTP → clear with a reason); confirm the row disappears, exactly one `admin_actions_log` row exists with `before_state`, and a second clear of the same id is a graceful no-op.
-- [ ] 5.3 Confirm a `read_only`/`moderator` session sees NO clear control and is refused on a direct `POST`.
-- [ ] 5.4 Capture screenshot evidence (control rendered + post-clear state) for the PR body (docs/11 §5 DoD — UI-affecting).
+- [x] 5.1 Boot `KTOR_ENV=test` backend (`RUN_FLYWAY_ON_STARTUP=true` not needed — no migration); bootstrap an `owner` admin (TOTP); seed a `rejected_identifiers` row.
+- [x] 5.2 Drive `POST /admin/rejected-identifiers/{id}/clear` via a browser MCP (login → TOTP → clear with a reason); confirm the row disappears, exactly one `admin_actions_log` row exists with `before_state`, and a second clear of the same id is a graceful no-op.
+- [x] 5.3 Confirm a `read_only`/`moderator` session sees NO clear control and is refused on a direct `POST`.
+- [x] 5.4 Capture screenshot evidence (control rendered + post-clear state) for the PR body (docs/11 §5 DoD — UI-affecting).
 
 ## 6. Staging smoke (pre-archive)
 
