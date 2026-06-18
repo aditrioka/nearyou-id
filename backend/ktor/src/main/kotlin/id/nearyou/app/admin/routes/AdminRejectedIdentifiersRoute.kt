@@ -103,7 +103,9 @@ fun Route.adminRejectedIdentifiers(
  * Successful-clear response: re-render the table fragment with a success message
  * for an `HX-Request` (htmx swaps it in place — the cleared row is absent from the
  * re-queried page), or 303-redirect to the list for the no-JS path (PRG, so a
- * refresh doesn't re-POST). Mirrors [adminReservedUsernames]'s success handling.
+ * refresh doesn't re-POST). The re-render re-queries unfiltered (mirrors
+ * [adminReservedUsernames]); the hard-deleted row cannot reappear regardless of any
+ * prior filter.
  */
 private suspend fun ApplicationCall.respondClearSuccess(
     repo: AdminRejectedIdentifiersRepository,

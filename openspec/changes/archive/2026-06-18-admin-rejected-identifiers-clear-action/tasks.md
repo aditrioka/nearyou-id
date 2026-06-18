@@ -42,12 +42,12 @@
 
 ## 6. Staging smoke (pre-archive)
 
-- [ ] 6.1 `gh workflow run deploy-staging.yml --ref admin-rejected-identifiers-clear-action`; poll the deploy run to green.
-- [ ] 6.2 Smoke the clear against the branch deploy (seed a synthetic `rejected_identifiers` row, clear it, verify the audit row + before_state) and a role-refusal check; tick this section.
+- [x] 6.1 `gh workflow run deploy-staging.yml --ref admin-rejected-identifiers-clear-action`; poll the deploy run to green.
+- [x] 6.2 Smoke the clear against the branch deploy (seed a synthetic `rejected_identifiers` row, clear it, verify the audit row + before_state) and a role-refusal check; tick this section.
 
 ## 7. Docs + archive prep
 
 - [x] 7.1 Update `docs/07-Operations.md` § Core Features (Rejected Identifiers Viewer): change the "manual clear path remains DESIGN — deferred to ... admin-rejected-identifiers-clear-action" line to shipped, noting owner/admin + CSRF + audit + dedicated 10/hr cap.
 - [x] 7.2 Run the pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (CI-equivalent against fresh DB containers if the long-lived dev DB pollutes isolation-dependent specs).
-- [ ] 7.3 At archive, update the canonical `openspec/specs/admin-rejected-identifiers-viewer/spec.md` `## Purpose` paragraph (it still says the clear action "is deferred to the fast-follow `admin-rejected-identifiers-clear-action`") to describe the clear as shipped — the requirement deltas don't touch Purpose prose, so it needs a manual one-line touch-up or it will read "deferred" while the requirements implement it.
-- [ ] 7.4 `/opsx:archive`: `openspec validate --specs admin-rejected-identifiers-viewer --strict`; move the change under `archive/`; resolve issue #190 (`Closes #190`).
+- [x] 7.3 At archive, update the canonical `openspec/specs/admin-rejected-identifiers-viewer/spec.md` `## Purpose` paragraph (it still says the clear action "is deferred to the fast-follow `admin-rejected-identifiers-clear-action`") to describe the clear as shipped — the requirement deltas don't touch Purpose prose, so it needs a manual one-line touch-up or it will read "deferred" while the requirements implement it.
+- [x] 7.4 `/opsx:archive`: `openspec validate --specs admin-rejected-identifiers-viewer --strict`; move the change under `archive/`; resolve issue #190 (`Closes #190`).
