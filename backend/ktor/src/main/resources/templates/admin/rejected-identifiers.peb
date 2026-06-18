@@ -6,10 +6,11 @@
 <h2>Rejected Identifiers</h2>
 <p class="pg-sub">Anti-abuse audit/triage — hash-only (SHA-256 of sub/email), no recoverable PII</p>
 
-{# Read-only anti-abuse triage view over `rejected_identifiers`. Hash-only:
-   the table surfaces the one-way `identifier_hash`; no raw identifier is
-   stored or resolvable, and there is no clear/remove control (the manual
-   support-clear is the deferred `admin-rejected-identifiers-clear-action`). #}
+{# Anti-abuse triage view over `rejected_identifiers`. Hash-only: the table
+   surfaces the one-way `identifier_hash`; no raw identifier is stored or
+   resolvable. Owner/admin sessions also get a per-row manual support-clear
+   control (`admin-rejected-identifiers-clear-action`); moderator/read_only
+   sessions see the read view with no clear control. #}
 
 {# Filter form. hx-get swaps only the #rejected-identifiers-table fragment;
    method=GET means it also works as a plain navigation when JS is unavailable

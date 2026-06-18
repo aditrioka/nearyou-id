@@ -16,6 +16,7 @@ import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import id.nearyou.app.admin.ratelimit.GraceExpediteActionRateLimiter
+import id.nearyou.app.admin.ratelimit.RejectedIdentifierClearRateLimiter
 import id.nearyou.app.admin.ratelimit.ReservedUsernameActionRateLimiter
 import id.nearyou.app.admin.ratelimit.UsernameOversightActionRateLimiter
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
@@ -114,7 +115,9 @@ fun Application.admin(
     val sessionRepository = SessionRepository(dataSource)
     val auditLogger = AdminAuditLogger(dataSource)
     val actionsLogRepository = AdminActionsLogRepository(dataSource)
-    val rejectedIdentifiersRepository = AdminRejectedIdentifiersRepository(dataSource)
+    val rejectedIdentifierClearRateLimiter = RejectedIdentifierClearRateLimiter(dataSource)
+    val rejectedIdentifiersRepository =
+        AdminRejectedIdentifiersRepository(dataSource, auditLogger, rejectedIdentifierClearRateLimiter)
     val blockRegistryRepository = AdminBlockRegistryRepository(dataSource)
     val privacyFlipsRepository = AdminPrivacyFlipsRepository(dataSource)
     val reportQueueRepository = ReportQueueRepository(dataSource)
@@ -229,7 +232,7 @@ fun Application.admin(
                 logoutRoute.install(this)
                 adminIndex(layout, indexStatsRepository)
                 adminActionsLog(actionsLogRepository, layout)
-                adminRejectedIdentifiers(rejectedIdentifiersRepository, layout)
+                adminRejectedIdentifiers(rejectedIdentifiersRepository, auditLogger, layout)
                 adminBlockRegistry(blockRegistryRepository, layout)
                 adminPrivacyFlips(privacyFlipsRepository, layout, privacyFlipsClock)
                 adminReportQueue(reportQueueRepository, layout)

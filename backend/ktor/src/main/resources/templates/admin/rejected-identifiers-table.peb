@@ -10,6 +10,9 @@
    in attribute position, not only in element text. The .tbl-wrap wrapper
    provides the frame-4b overflow-x scroll below ~900 px. #}
 <div id="rejected-identifiers-table">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
     {# Per-reason / per-type count summary scoped to the active filters. Counts
        the WHOLE filtered set (not just this page) so a rejection-volume spike
        is visible at a glance. Styled as pill chips (board frame 10). #}
@@ -35,6 +38,7 @@
                 <th>Type</th>
                 <th>Reason</th>
                 <th>Rejected at (UTC)</th>
+                {% if canClear %}<th>Actions</th>{% endif %}
             </tr>
         </thead>
         <tbody>
@@ -44,6 +48,24 @@
                 <td>{{ row.identifierType }}</td>
                 <td>{{ row.reason }}</td>
                 <td>{{ row.rejectedAt }}</td>
+                {% if canClear %}
+                <td>
+                    {# Owner/admin-only manual support-clear (admin-rejected-identifiers-clear-action).
+                       _csrf populates on the no-JS full-page render; the HTMX hook adds the
+                       X-CSRF-Token header on the fragment path. Reason is required (server re-validates). #}
+                    <form class="clear-rejected"
+                          action="{{ row.clearAction }}"
+                          method="POST"
+                          hx-post="{{ row.clearAction }}"
+                          hx-target="#rejected-identifiers-table"
+                          hx-swap="outerHTML"
+                          hx-confirm="Clear this rejected identifier? The blocked user will be able to re-verify on a new signup. This cannot be undone.">
+                        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                        <input type="text" name="reason" maxlength="500" required placeholder="Reason (required)" aria-label="Clear reason">
+                        <button type="submit" class="btn danger sm">Clear</button>
+                    </form>
+                </td>
+                {% endif %}
             </tr>
         {% endfor %}
         </tbody>

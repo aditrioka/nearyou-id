@@ -1,5 +1,11 @@
 package id.nearyou.app.admin.rejectedidentifiers
 
+import id.nearyou.app.admin.auth.AdminAuditLogger
+import id.nearyou.app.admin.ratelimit.RejectedIdentifierClearRateLimiter
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import java.sql.Connection
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
@@ -43,13 +49,16 @@ val ALLOWED_IDENTIFIER_TYPES: List<String> = listOf("google", "apple")
  *    (per `openspec/project.md` § Coding Conventions — admin-module raw reads
  *    allowed). `rejected_identifiers` is an anti-abuse blocklist, not a
  *    user-content table, so no `visible_*` view or block-exclusion join applies.
- *  - This repository exposes NO write path. The manual support-clear `DELETE`
- *    is deferred to the fast-follow `admin-rejected-identifiers-clear-action`
- *    (design.md D3) — it would be role-gated + CSRF-gated + audit-logged +
- *    rate-limited, none of which this read-only surface carries.
+ *  - The read path exposes NO mutation. The manual support-clear `DELETE` (the
+ *    `admin-rejected-identifiers-clear-action` capability) is the [clear] method
+ *    below — owner/admin + CSRF gated at the route, then audit-logged +
+ *    rate-limited here, all in one transaction (mirrors the reserved-usernames
+ *    remove path: lock-then-count-then-delete-then-audit).
  */
 class AdminRejectedIdentifiersRepository(
     private val dataSource: DataSource,
+    private val auditLogger: AdminAuditLogger,
+    private val rateLimiter: RejectedIdentifierClearRateLimiter,
 ) {
     /**
      * Run the filtered + keyset-paginated page query and return one page of
@@ -167,6 +176,92 @@ class AdminRejectedIdentifiersRepository(
         return RejectedIdentifiersSummary(total = total, byReason = byReason, byType = byType)
     }
 
+    // ---- Write (manual support-clear) --------------------------------------
+
+    /**
+     * Hard-`DELETE` one `rejected_identifiers` row, writing exactly one immutable
+     * `admin_actions_log` row on the SAME connection so the delete + audit commit
+     * (or roll back) together (`admin-rejected-identifiers-clear-action`). The
+     * route has already gated CSRF + owner/admin role + validated [reason]
+     * (non-blank, length-bounded). Sequence (mirrors the reserved-usernames
+     * remove path):
+     *   1. `SELECT … FOR UPDATE` the row → absent ⇒ [ClearOutcome.NotFound] FIRST
+     *      (a stale/already-cleared id is a graceful no-op that does NOT consume
+     *      rate-limit quota — design.md review N4).
+     *   2. dedicated per-admin trailing-hour cap check on the SAME tx → at/over ⇒
+     *      [ClearOutcome.RateLimited] (no delete, no audit row).
+     *   3. `DELETE` the row + INSERT the audit row (`before_state` = the locked
+     *      row's four columns; `after_state` null — the row is gone, the audit
+     *      trail is the retained record, design.md D4) → commit ⇒
+     *      [ClearOutcome.Cleared].
+     */
+    fun clear(
+        id: UUID,
+        actingAdminId: UUID,
+        reason: String,
+        ip: String,
+        userAgent: String?,
+    ): ClearOutcome =
+        dataSource.connection.use { conn ->
+            conn.autoCommit = false
+            try {
+                val locked =
+                    lockRow(conn, id) ?: run {
+                        conn.rollback()
+                        return ClearOutcome.NotFound
+                    }
+                if (rateLimiter.isAtOrOverCap(conn, actingAdminId)) {
+                    conn.rollback()
+                    return ClearOutcome.RateLimited
+                }
+                conn.prepareStatement("DELETE FROM rejected_identifiers WHERE id = ?").use { ps ->
+                    ps.setObject(1, id)
+                    ps.executeUpdate()
+                }
+                auditLogger.logRejectedIdentifierCleared(
+                    conn,
+                    actingAdminId,
+                    id,
+                    reason,
+                    beforeState(locked),
+                    ip,
+                    userAgent,
+                )
+                conn.commit()
+                ClearOutcome.Cleared
+            } catch (e: Throwable) {
+                runCatching { conn.rollback() }
+                throw e
+            } finally {
+                runCatching { conn.autoCommit = true }
+            }
+        }
+
+    /** `SELECT … FOR UPDATE` the row by id, locking it for the tx + capturing the
+     *  four columns the audit `before_state` records. Null when the id is absent. */
+    private fun lockRow(
+        conn: Connection,
+        id: UUID,
+    ): RejectedIdentifierRow? =
+        conn.prepareStatement(
+            "SELECT id, identifier_hash, identifier_type, reason, rejected_at FROM rejected_identifiers WHERE id = ? FOR UPDATE",
+        ).use { ps ->
+            ps.setObject(1, id)
+            ps.executeQuery().use { rs ->
+                if (rs.next()) {
+                    RejectedIdentifierRow(
+                        id = rs.getObject("id", UUID::class.java),
+                        identifierHash = rs.getString("identifier_hash"),
+                        identifierType = rs.getString("identifier_type"),
+                        reason = rs.getString("reason"),
+                        rejectedAt = rs.getTimestamp("rejected_at").toInstant(),
+                    )
+                } else {
+                    null
+                }
+            }
+        }
+
     /**
      * The filter half of the WHERE clause, shared verbatim by [query] and
      * [summary] so the summary counts EXACTLY the filtered set the page query
@@ -198,6 +293,18 @@ class AdminRejectedIdentifiersRepository(
     companion object {
         /** Fixed page size (design.md D1 — implementation constant, not a client param). */
         const val PAGE_SIZE: Int = 50
+
+        /** `before_state` for a cleared row — all four columns, so the cleared
+         *  identifier is fully reconstructable from the immutable audit trail
+         *  (the row itself is hard-deleted; `admin-rejected-identifiers-clear-action`
+         *  design.md D4). */
+        private fun beforeState(row: RejectedIdentifierRow): JsonObject =
+            buildJsonObject {
+                put("identifier_hash", JsonPrimitive(row.identifierHash))
+                put("identifier_type", JsonPrimitive(row.identifierType))
+                put("reason", JsonPrimitive(row.reason))
+                put("rejected_at", JsonPrimitive(row.rejectedAt.toString()))
+            }
     }
 }
 
@@ -237,6 +344,19 @@ data class RejectedIdentifiersSummary(
     val byReason: Map<String, Long>,
     val byType: Map<String, Long>,
 )
+
+/**
+ * Typed result of [AdminRejectedIdentifiersRepository.clear]. [NotFound] and
+ * [RateLimited] are graceful in-band outcomes (no 5xx) — the route re-renders
+ * the list with a message; only [Cleared] removed a row + wrote an audit row.
+ */
+sealed interface ClearOutcome {
+    data object Cleared : ClearOutcome
+
+    data object NotFound : ClearOutcome
+
+    data object RateLimited : ClearOutcome
+}
 
 /**
  * Opaque keyset cursor over `(rejected_at, id)`. Encoded as
