@@ -148,8 +148,12 @@ class AdminRejectedIdentifiersRouteTest : StringSpec({
     "6.5 — unrecognized reason is ignored; the valid identifier_type filter still applies" {
         val admin = seedAdmin()
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
-        seed("g1", type = "google", reason = "age_under_18", at = base.plusSeconds(1))
-        seed("a1", type = "apple", reason = "age_under_18", at = base.plusSeconds(2))
+        // Distinctive, token-proof hashes (NOT 2-char): the owner clear control now renders
+        // the row's UUID (in the form action) + a CSRF token into the page, so a 2-char
+        // substring like "a1" appears incidentally in that hex/base64 and flakes a
+        // `shouldNotContain` (observed on CI). Long hyphenated strings can't collide.
+        seed("google-kept-row", type = "google", reason = "age_under_18", at = base.plusSeconds(1))
+        seed("apple-excluded-row", type = "apple", reason = "age_under_18", at = base.plusSeconds(2))
 
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             val res =
@@ -158,8 +162,8 @@ class AdminRejectedIdentifiersRouteTest : StringSpec({
                 }
             res.status shouldBe HttpStatusCode.OK
             val body = res.bodyAsText()
-            body shouldContain "g1"
-            body shouldNotContain "a1"
+            body shouldContain "google-kept-row"
+            body shouldNotContain "apple-excluded-row"
         }
     }
 
