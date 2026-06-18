@@ -1,4 +1,4 @@
--- V24: users.hide_distance_opt_in — the Premium "Hide Distance" toggle
+-- V25: users.hide_distance_opt_in — the Premium "Hide Distance" toggle
 -- (docs/01-Business.md § Hide Distance Mechanics; the `hide-distance` capability).
 --
 -- Additive, no backfill: the column default covers every existing row. Mirrors the
