@@ -26,6 +26,9 @@ import id.nearyou.app.config.supabaseConfig
 import id.nearyou.app.consent.ConsentApiClient
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentRepository
+import id.nearyou.app.data.accountdeletion.AccountDeletionApiClient
+import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
+import id.nearyou.app.data.accountdeletion.AccountDeletionRepository
 import id.nearyou.app.data.block.BlockedUsersApiClient
 import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersRepository
@@ -303,6 +306,13 @@ val mobileModule =
         single { BlockedUsersRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<BlockedUsersFlow> { get<BlockedUsersRepository>() }
         single<ConsentSnapshotStore> { InMemoryConsentSnapshotStore() }
+
+        // account-deletion-tombstone — the "Hapus Akun" + restore-banner seam (ApiClient → Repository
+        // bound behind AccountDeletionFlow so a FakeAccountDeletionFlow drives the screen tests). Reuses
+        // the shared bearer-authed HttpClient; no new client. The endpoints are not session-soft-capped.
+        single { AccountDeletionApiClient(get()) }
+        single { AccountDeletionRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<AccountDeletionFlow> { get<AccountDeletionRepository>() }
 
         // mobile-post-detail-screen — the post-detail graph (like toggle + replies + reply composer).
         // Reuses the shared HttpClient (NO new client, NO X-Session-Id — the like/reply endpoints are not

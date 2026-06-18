@@ -3,6 +3,7 @@ package id.nearyou.app.screens.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -11,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -22,13 +24,23 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.TokenStore
+import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
+import id.nearyou.app.data.accountdeletion.deletionDateLabel
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.blocked_users_title
 import id.nearyou.resources.generated.resources.consent_title
+import id.nearyou.resources.generated.resources.delete_account_banner
+import id.nearyou.resources.generated.resources.delete_account_banner_cancel
+import id.nearyou.resources.generated.resources.delete_account_cancel
+import id.nearyou.resources.generated.resources.delete_account_confirm
+import id.nearyou.resources.generated.resources.delete_account_dialog_body
+import id.nearyou.resources.generated.resources.delete_account_dialog_title
+import id.nearyou.resources.generated.resources.delete_account_error
 import id.nearyou.resources.generated.resources.ic_alternate_email
 import id.nearyou.resources.generated.resources.ic_block
 import id.nearyou.resources.generated.resources.ic_credit_card
@@ -48,6 +60,7 @@ import id.nearyou.resources.generated.resources.settings_logout_confirm
 import id.nearyou.resources.generated.resources.settings_logout_title
 import id.nearyou.resources.generated.resources.settings_row_change_username
 import id.nearyou.resources.generated.resources.settings_row_change_username_sub
+import id.nearyou.resources.generated.resources.settings_row_delete_account
 import id.nearyou.resources.generated.resources.settings_row_edit_profile
 import id.nearyou.resources.generated.resources.settings_row_hide_distance
 import id.nearyou.resources.generated.resources.settings_row_hide_distance_sub
@@ -111,8 +124,35 @@ fun SettingsScreen(
     val hideDistanceErrorText = stringResource(Res.string.settings_hide_distance_error)
     var showLogoutDialog by remember { mutableStateOf(false) }
 
+    // account-deletion-tombstone — the "Hapus Akun" + restore-banner state holder, NavEntry-scoped.
+    val accountDeletionFlow = koinInject<AccountDeletionFlow>()
+    val accountDeletionVm = viewModel { SettingsAccountDeletionViewModel(accountDeletionFlow) }
+    val deletionBanner by accountDeletionVm.banner.collectAsStateWithLifecycle()
+    val deletionTerminal401 by accountDeletionVm.terminal401.collectAsStateWithLifecycle()
+    val deletionRequestError by accountDeletionVm.requestError.collectAsStateWithLifecycle()
+    val deletionCancelError by accountDeletionVm.cancelError.collectAsStateWithLifecycle()
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    val deleteErrorText = stringResource(Res.string.delete_account_error)
+
     LaunchedEffect(loggedOut) {
         if (loggedOut) onLoggedOut()
+    }
+    // A 401 on any account-deletion call is terminal → route to sign-in (same destination as logout).
+    LaunchedEffect(deletionTerminal401) {
+        if (deletionTerminal401) onLoggedOut()
+    }
+    // Request / cancel failures surface a non-trapping snackbar (the cancel keeps its banner).
+    LaunchedEffect(deletionRequestError) {
+        if (deletionRequestError) {
+            snackbarHostState.showSnackbar(deleteErrorText)
+            accountDeletionVm.consumeRequestError()
+        }
+    }
+    LaunchedEffect(deletionCancelError) {
+        if (deletionCancelError) {
+            snackbarHostState.showSnackbar(deleteErrorText)
+            accountDeletionVm.consumeCancelError()
+        }
     }
 
     // hide-distance one-shot events → a non-trapping snackbar, then cleared (docs/11 §2.2 event-as-state).
@@ -146,6 +186,14 @@ fun SettingsScreen(
                     .background(MaterialTheme.colorScheme.background)
                     .verticalScroll(rememberScrollState()),
         ) {
+            // account-deletion-tombstone — non-blocking restore banner when a deletion is scheduled.
+            deletionBanner?.let { banner ->
+                DeletionScheduledBanner(
+                    restoreByDate = deletionDateLabel(banner.scheduledHardDeleteAt),
+                    onCancel = { accountDeletionVm.cancelDeletion() },
+                )
+            }
+
             // AKUN — "Edit profil" deferred (no profile-write backend); "Ganti username" is BACKED
             // (mobile-premium-username): the row pushes UsernameCustomizationRoute UNCONDITIONALLY — the
             // route-scoped screen owns the Free/Premium gate, so Settings reads no isPremium signal here.
@@ -227,6 +275,15 @@ fun SettingsScreen(
                 onClick = { showLogoutDialog = true },
                 trailing = SettingsRowTrailing.None,
             )
+
+            // account-deletion-tombstone — destructive "Hapus Akun" (docs/03 § Account Deletion;
+            // absent from mockup frame 16 per design D8). Opens a 30-day-grace confirmation.
+            SettingsRow(
+                icon = Res.drawable.ic_block,
+                title = stringResource(Res.string.settings_row_delete_account),
+                onClick = { showDeleteDialog = true },
+                trailing = SettingsRowTrailing.None,
+            )
         }
     }
 
@@ -249,5 +306,57 @@ fun SettingsScreen(
                 }
             },
         )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text(stringResource(Res.string.delete_account_dialog_title)) },
+            text = { Text(stringResource(Res.string.delete_account_dialog_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    accountDeletionVm.confirmDeletion()
+                }) {
+                    Text(stringResource(Res.string.delete_account_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text(stringResource(Res.string.delete_account_cancel))
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Non-blocking banner shown while a deletion is scheduled (in the 30-day grace). States the restore-by
+ * date and offers "Batalkan" (→ `DELETE` restore). The account stays fully functional during grace — this
+ * is NOT a suspension. Rendered in the error-container tone (the closest design-system destructive cue).
+ */
+@Composable
+private fun DeletionScheduledBanner(
+    restoreByDate: String,
+    onCancel: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = stringResource(Res.string.delete_account_banner, restoreByDate),
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = onCancel) {
+                Text(stringResource(Res.string.delete_account_banner_cancel))
+            }
+        }
     }
 }

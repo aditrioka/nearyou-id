@@ -11,7 +11,10 @@ class JdbcSinglePostRepository(
         "own-content self-arm (shadow-ban-feed-self-visibility): the raw posts/users reads are " +
             "scoped to id = :post_id AND author_id = :viewer so a shadow-banned author can still " +
             "read their own post by id; every other viewer resolves via the visible_posts arm and " +
-            "keeps the constant opaque 404",
+            "keeps the constant opaque 404. The visible arm's author-identity JOIN is raw `users` " +
+            "(not visible_users) so a tombstoned author's post surfaces anonymized as 'Akun Dihapus' " +
+            "(account-deletion-tombstone V24) — shadow-ban-safe because visible_posts already " +
+            "excludes shadow-banned/soft-deleted-post rows; block exclusion stays via the NOT-IN",
     )
     override fun findById(
         viewerId: UUID,
@@ -19,10 +22,12 @@ class JdbcSinglePostRepository(
     ): SinglePostRow? {
         // Single-post visibility gate + no-PII projection. Two arms (resolveVisiblePost shape,
         // Global projection), keyed on `p.id = ?` instead of a keyset:
-        //  - Visible arm: FROM visible_posts (V20 author shadow-ban / soft-delete / auto-hide
-        //    filters) with bidirectional user_blocks NOT-IN (BlockExclusionJoinRule: the literal
-        //    carries `visible_posts` + `user_blocks` + both `blocker_id =` / `blocked_id =`
-        //    tokens), author identity via visible_users.
+        //  - Visible arm: FROM visible_posts (V24 author shadow-ban / post-soft-delete / auto-hide
+        //    filters; V24 surfaces tombstoned authors) with bidirectional user_blocks NOT-IN
+        //    (BlockExclusionJoinRule: the literal carries `visible_posts` + `user_blocks` + both
+        //    `blocker_id =` / `blocked_id =` tokens). Author identity via raw `users` so a
+        //    tombstoned author renders anonymized ('Akun Dihapus') — shadow-ban-safe since
+        //    visible_posts already excluded shadow-banned authors.
         //  - Self arm: docs/05 own-content exception — raw posts scoped to author_id = :viewer
         //    AND deleted_at IS NULL (a shadow-banned/auto-hidden author still reads their OWN
         //    post; own soft-deleted stays 404). No user_blocks subqueries (self-blocks
@@ -59,7 +64,7 @@ class JdbcSinglePostRepository(
                              u.display_name AS author_display_name, p.content,
                              p.city_name, p.created_at
                         FROM visible_posts p
-                        JOIN visible_users u ON u.id = p.author_id
+                        JOIN users u ON u.id = p.author_id
                        WHERE p.id = ?
                          AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id = ?)
                          AND p.author_id NOT IN (SELECT blocker_id FROM user_blocks WHERE blocked_id = ?)

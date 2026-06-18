@@ -55,9 +55,12 @@ class JdbcPostsFollowingRepository(
         //
         // Both user_blocks NOT-IN subqueries are required for BlockExclusionJoinRule.
         //
-        // JOIN visible_users on p.author_id projects the author display identity
+        // JOIN raw `users` on p.author_id projects the author display identity
         // (author_username / author_display_name). PK-equality INNER JOIN; visible_posts
-        // already filters shadow-banned/deleted authors (V20) — cardinality unchanged.
+        // already filters shadow-banned authors + soft-deleted posts (V24), so raw users is
+        // shadow-ban-safe AND surfaces a tombstoned author anonymized ('Akun Dihapus',
+        // account-deletion-tombstone). BlockExclusionJoinRule is satisfied: this JOIN literal
+        // also carries both user_blocks NOT-IN block tokens. Cardinality unchanged.
         val sql =
             buildString {
                 append(
@@ -74,7 +77,7 @@ class JdbcPostsFollowingRepository(
                            (pl.user_id IS NOT NULL) AS liked_by_viewer,
                            c.n AS reply_count
                       FROM visible_posts p
-                      JOIN visible_users u ON u.id = p.author_id
+                      JOIN users u ON u.id = p.author_id
                       LEFT JOIN post_likes pl ON pl.post_id = p.id AND pl.user_id = ?
                       LEFT JOIN LATERAL (
                           SELECT COUNT(*) AS n

@@ -1,5 +1,10 @@
 package id.nearyou.app
 
+import id.nearyou.app.account.AccountDeletionRepository
+import id.nearyou.app.account.AccountDeletionService
+import id.nearyou.app.account.AccountHardDeleteWorker
+import id.nearyou.app.account.accountHardDeleteWorkerRoute
+import id.nearyou.app.account.accountRoutes
 import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.admin
@@ -402,6 +407,11 @@ fun Application.module() {
         GoogleOidcTokenVerifier(audience = internalOidcAudience, jwkProvider = googleJwkProvider())
     val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource)
     val privacyFlipWorker = PrivacyFlipWorker(dataSource)
+    // account-deletion-tombstone: user-facing request/cancel/status API + the daily
+    // hard-delete worker (Cloud Scheduler → /internal/account-hard-delete-worker).
+    val accountDeletionRepository = AccountDeletionRepository(dataSource, dbDispatchers.db)
+    val accountDeletionService = AccountDeletionService(accountDeletionRepository)
+    val accountHardDeleteWorker = AccountHardDeleteWorker(dataSource, dbDispatchers.db)
 
     val reservedUsernames: ReservedUsernameRepository = JdbcReservedUsernameRepository(dataSource)
     // Real username_history binding (premium-username-customization) — shared by
@@ -1060,6 +1070,9 @@ fun Application.module() {
                 single { hideDistanceRepository }
                 single<OidcTokenVerifier> { oidcTokenVerifier }
                 single { suspensionUnbanWorker }
+                single { accountDeletionRepository }
+                single { accountDeletionService }
+                single { accountHardDeleteWorker }
             },
         )
     }
@@ -1093,6 +1106,7 @@ fun Application.module() {
     notificationRoutes(notificationService)
     fcmTokenRoutes(fcmTokenRepository)
     consentRoutes(consentRepository)
+    accountRoutes(accountDeletionService)
     hideDistanceRoutes(hideDistanceRepository)
 
     // /internal/* — Cloud-Scheduler-invoked job endpoints. The OIDC gate is
@@ -1107,6 +1121,7 @@ fun Application.module() {
         route("/internal") {
             unbanWorkerRoute(suspensionUnbanWorker, oidcTokenVerifier)
             privacyFlipWorkerRoute(privacyFlipWorker, oidcTokenVerifier)
+            accountHardDeleteWorkerRoute(accountHardDeleteWorker, oidcTokenVerifier)
         }
     }
 

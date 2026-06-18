@@ -133,13 +133,16 @@ class MigrationV20SmokeTest : StringSpec({
         }
     }
 
-    "a soft-deleted author's posts are excluded" {
+    "a tombstoned (account-deleted) author's posts are surfaced anonymized (V28 account-deletion-tombstone)" {
         connect().use { conn ->
             val author = seedUser(conn)
             val post = seedPost(conn, author)
             visibleCount(conn, post) shouldBe 1
             setUserFlag(conn, author, "UPDATE users SET deleted_at = NOW() WHERE id = ?")
-            visibleCount(conn, post) shouldBe 0
+            // V28 (account-deletion-tombstone) SURFACES a tombstoned author's posts anonymized
+            // instead of excluding them — only the AUTHOR-side deleted_at exclusion was dropped
+            // (shadow-ban + post-soft-delete still exclude).
+            visibleCount(conn, post) shouldBe 1
         }
     }
 
@@ -167,7 +170,7 @@ class MigrationV20SmokeTest : StringSpec({
         }
     }
 
-    "view definition stays viewer-agnostic after shadow-ban-feed-self-visibility (V20 shape, no self-arm)" {
+    "view definition stays viewer-agnostic (V28 shape — author-deletion exclusion dropped, no self-arm)" {
         // The visible-posts-view delta scenario "View stays viewer-agnostic after the
         // self-visibility change": the own-content self arm lives in the FEED queries
         // (JdbcPostsTimelineRepository / JdbcPostsGlobalRepository), NOT in the view —
@@ -187,7 +190,9 @@ class MigrationV20SmokeTest : StringSpec({
                             (def.contains("not") && def.contains("is_auto_hidden"))
                     ) shouldBe true
                     def shouldContain "p.deleted_at is null"
-                    def shouldContain "u.deleted_at is null"
+                    // V28 (account-deletion-tombstone) dropped the AUTHOR-side deleted_at exclusion so
+                    // tombstoned authors surface anonymized; only the post-side p.deleted_at remains.
+                    def.contains("u.deleted_at") shouldBe false
                     (
                         def.contains("is_shadow_banned = false") ||
                             (def.contains("not") && def.contains("is_shadow_banned"))

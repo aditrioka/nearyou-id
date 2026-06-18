@@ -61,9 +61,14 @@ class TimelineSelfArmLiteralTest : StringSpec({
         src shouldContain "JOIN users u"
         src shouldContain "author_id = ?"
         src shouldContain "deleted_at IS NULL"
-        // The ONLY raw posts read / raw users join in the file is the self arm's.
+        // The ONLY raw posts read is the self arm's (the visible arm reads FROM visible_posts).
         rawPostsRead.findAll(src).count() shouldBe 1
-        rawUsersJoin.findAll(src).count() shouldBe 1
+        // TWO raw `JOIN users` since account-deletion-tombstone (V24): the self arm's
+        // (own-content identity) AND the visible arm's author-identity join — the latter
+        // switched visible_users → raw users so a tombstoned author's post surfaces
+        // anonymized ('Akun Dihapus'); shadow-ban-safe because visible_posts already
+        // excludes shadow-banned authors, block exclusion stays via the NOT-IN tokens.
+        rawUsersJoin.findAll(src).count() shouldBe 2
         // RawFromPostsRule allowlist annotation on the SQL-holding declaration.
         src shouldContain "@AllowRawPostsRead"
     }
