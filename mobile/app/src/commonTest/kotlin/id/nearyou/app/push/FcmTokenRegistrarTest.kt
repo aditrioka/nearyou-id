@@ -11,6 +11,8 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -151,10 +153,17 @@ class FcmTokenRegistrarTest {
     fun `concurrent registrations both proceed without client-side dedup`() =
         runTest {
             val provider = FakeFcmTokenProvider(token = "tok-1")
+            // The two registrations genuinely overlap, so their MockEngine handlers run concurrently and
+            // OFF the test scheduler (see `token refresh re-registers the new token` above). A plain
+            // `var calls` would then drop an increment under the race — and not publish the final value to
+            // the asserting thread — which is the flake that surfaced only in the release variant. The
+            // Mutex serialises the count and gives the read a happens-before edge; it guards the TEST
+            // counter only and does NOT add a client-side mutex to the registrar under test.
+            val callLock = Mutex()
             var calls = 0
             val reg =
                 registrar(provider) {
-                    calls++
+                    callLock.withLock { calls++ }
                     respond("", HttpStatusCode.NoContent)
                 }
 
@@ -163,7 +172,7 @@ class FcmTokenRegistrarTest {
             a.join()
             b.join()
 
-            assertEquals(2, calls, "both overlapping registrations proceed — no client-side mutex")
+            assertEquals(2, callLock.withLock { calls }, "both overlapping registrations proceed — no client-side mutex")
         }
 
     @Test
