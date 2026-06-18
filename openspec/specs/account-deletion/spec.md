@@ -5,7 +5,7 @@ The account-deletion capability provides user-initiated account deletion (the UU
 ## Requirements
 ### Requirement: deletion_requests schema
 
-Migration `V24__deletion_requests.sql` SHALL create the `deletion_requests` table **exactly** per the canonical `docs/05-Implementation.md` § Deletion Requests Schema (the migration number MAY be renumbered above V23 at rebase if a concurrent change lands first):
+Migration `V27__deletion_requests.sql` SHALL create the `deletion_requests` table **exactly** per the canonical `docs/05-Implementation.md` § Deletion Requests Schema (the migration number MAY be renumbered above V23 at rebase if a concurrent change lands first):
 
 ```sql
 CREATE TABLE deletion_requests (

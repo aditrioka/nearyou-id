@@ -53,21 +53,35 @@ interface ModerationQueueRepository {
     ): Boolean
 
     /**
-     * `INSERT INTO moderation_queue (target_type, target_id, trigger) VALUES
-     * (?, ?, 'username_flagged') ON CONFLICT (target_type, target_id, trigger)
-     * DO NOTHING`. Written by `premium-username-customization` when a Premium
-     * username-change candidate trips the profanity / UU-ITE moderation pipeline:
-     * the change is rejected upfront and a standing admin-awareness row is left.
+     * `INSERT INTO moderation_queue (target_type, target_id, trigger, notes) VALUES
+     * (?, ?, 'username_flagged', ?) ON CONFLICT (target_type, target_id, trigger)
+     * DO UPDATE SET status='pending', resolution=NULL, resolved_by=NULL,
+     * resolved_at=NULL, notes=EXCLUDED.notes, created_at=NOW()`. Written by
+     * `premium-username-customization` when a Premium username-change candidate trips
+     * the profanity / UU-ITE moderation pipeline (and no admin override pre-approves
+     * the candidate): the change is rejected upfront and a standing admin-awareness
+     * row recording the flagged `candidate` in `notes` is left.
      *
-     * Idempotent per V9's `(target_type, target_id, trigger)` UNIQUE — a user's
-     * 2nd+ flagged candidate is a silent no-op (one standing username-flag per
-     * user, NOT one row per attempt). Callers pass `targetType = USER`,
-     * `targetId = <user id>`. Returns `true` when a new row was inserted, `false`
-     * when the ON CONFLICT branch fired.
+     * One standing username-flag per user (V9's `(target_type, target_id, trigger)`
+     * UNIQUE still holds — NOT one row per attempt), but unlike the prior
+     * `DO NOTHING`, a 2nd+ flagged candidate **re-opens** the standing row: it resets
+     * `status` to `'pending'`, clears any `resolution`/`resolved_by`/`resolved_at`,
+     * refreshes `notes` to the latest flagged candidate, and re-stamps `created_at`.
+     * This is intentional (`admin-premium-username-oversight` Decision 6) — a
+     * previously-resolved flag must not silently swallow a new attempt, and the admin
+     * always sees the latest flagged candidate. A still-unused per-candidate approval
+     * is unaffected: it lives in the separate `username_flag_overrides` table, not on
+     * this row.
+     *
+     * Callers pass `targetType = USER`, `targetId = <user id>`, and `candidate = the
+     * flagged candidate string` (rendered HTML-escaped in the admin UI). Returns
+     * `true` when a NEW row was inserted, `false` when the ON CONFLICT DO UPDATE
+     * branch fired (the standing row already existed and was re-opened).
      */
     fun upsertUsernameFlaggedRow(
         conn: Connection,
         targetType: ReportTargetType,
         targetId: UUID,
+        candidate: String,
     ): Boolean
 }

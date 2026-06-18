@@ -1,8 +1,8 @@
 ## 1. Schema (migrations)
 
-- [x] 1.1 Add `V24__deletion_requests.sql`: `CREATE TABLE deletion_requests` + the two partial indexes (`deletion_requests_scheduled_idx`, `deletion_requests_immediate_idx`) verbatim per `docs/05` § Deletion Requests Schema; `source` CHECK enumerates all four canonical values; both partial-index `WHERE` clauses `NOW()`-free.
+- [x] 1.1 Add `V27__deletion_requests.sql`: `CREATE TABLE deletion_requests` + the two partial indexes (`deletion_requests_scheduled_idx`, `deletion_requests_immediate_idx`) verbatim per `docs/05` § Deletion Requests Schema; `source` CHECK enumerates all four canonical values; both partial-index `WHERE` clauses `NOW()`-free.
 - [x] 1.2 Same migration: `CREATE TABLE deletion_log` (`id, user_id, executed_at, source`; no FK on `user_id`); make it append-only at the app role (no UPDATE/DELETE grant), mirroring the audit-log posture.
-- [x] 1.3 Add `V25__visible_posts_surface_tombstoned_authors.sql`: `CREATE OR REPLACE VIEW visible_posts` dropping ONLY the author-side `u.deleted_at IS NULL` (keep `p.deleted_at IS NULL`, `is_auto_hidden = FALSE`, `is_shadow_banned = FALSE`); `visible_users` untouched. Add the migration-header comment noting the surfaces that consume the view + the bidirectional-block caller requirement (per the view-consumer convention).
+- [x] 1.3 Add `V28__visible_posts_surface_tombstoned_authors.sql`: `CREATE OR REPLACE VIEW visible_posts` dropping ONLY the author-side `u.deleted_at IS NULL` (keep `p.deleted_at IS NULL`, `is_auto_hidden = FALSE`, `is_shadow_banned = FALSE`); `visible_users` untouched. Add the migration-header comment noting the surfaces that consume the view + the bidirectional-block caller requirement (per the view-consumer convention).
 - [x] 1.4 Renumber note: if a concurrent change squash-merges V23 first, rebase + bump these two files (mechanical).
 
 ## 2. Account-deletion API (`account` package)
@@ -45,7 +45,7 @@
 - [x] 6.1 Backend schema tests (`@Tags("database")`): table/index existence, `source` CHECK accept-4/reject-unknown, `NOW()`-free partial indexes, `deletion_log` append-only + no-FK.
 - [x] 6.2 API tests: request (first + idempotent + 401), cancel (within grace, post-execution reject, apple non-cancellable guard), status (pending / none), grace auth-boundary (write succeeds, no `token_version` bump).
 - [x] 6.3 Worker tests: due/cancelled/not-due selection; tombstone exact-PII-set + username regex; cascade tables emptied (both-direction blocks/follows); retain tables intact + like-count parity; deletion_log + executed_at atomic; partial-failure leaves no tombstone; idempotent re-run; internal-auth rejection + system-actor attribution.
-- [ ] 6.4 View + render tests: V24 `pg_views` definition (shadow-ban + `p.deleted_at` present, no author `u.deleted_at`); tombstoned author's post surfaces in Global timeline anonymized; shadow-banned-then-deleted stays hidden; soft-deleted post still excluded; tombstoned author's profile still `404`.
+- [ ] 6.4 View + render tests: V28 `pg_views` definition (shadow-ban + `p.deleted_at` present, no author `u.deleted_at`); tombstoned author's post surfaces in Global timeline anonymized; shadow-banned-then-deleted stays hidden; soft-deleted post still excluded; tombstoned author's profile still `404`.
 - [x] 6.5 Mobile tests (the `mobile-settings` test trio): `*ScreenTest` (Release-excluded) for the Hapus Akun + banner flow; `commonTest` for the deletion-seam DTO/outcome projections + Koin resolution; `iosTest` flow covering open settings → confirm-deletion path; the out-of-scope scenario updated (no data-export/suspension/chat-preview; Hapus Akun present).
 
 ## 7. Docs reconciliation & follow-ups

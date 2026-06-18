@@ -22,7 +22,7 @@ private fun hikari(): HikariDataSource {
             jdbcUrl = url
             username = user
             this.password = password
-            maximumPoolSize = 4
+            maximumPoolSize = 2
             initializationFailTimeout = -1
         }
     return HikariDataSource(config)
@@ -31,7 +31,8 @@ private fun hikari(): HikariDataSource {
 @Tags("database")
 class AccountHardDeleteWorkerTest : StringSpec({
 
-    val dataSource = hikari()
+    // autoClose releases the pool after the spec (CI connection-budget: don't leak a HikariPool).
+    val dataSource = autoClose(hikari())
     val worker = AccountHardDeleteWorker(dataSource)
 
     fun seedUser(): UUID {

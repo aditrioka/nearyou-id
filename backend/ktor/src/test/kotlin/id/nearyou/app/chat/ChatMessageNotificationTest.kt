@@ -354,6 +354,9 @@ class ChatMessageNotificationTest : StringSpec({
                 captured.targetId shouldBe mid
                 captured.bodyData["conversation_id"]?.jsonPrimitive?.content shouldBe conv.toString()
                 captured.bodyData["preview"]?.jsonPrimitive?.content shouldBe "halo B"
+                // hide-distance no-op guard (docs/01 § Hide Distance mandatory checklist —
+                // "Notification list … never distance"): the emitted body_data carries NO distance key.
+                captured.bodyData.keys.none { it.contains("distance", ignoreCase = true) } shouldBe true
             }
         } finally {
             cleanup(sender, recipient)

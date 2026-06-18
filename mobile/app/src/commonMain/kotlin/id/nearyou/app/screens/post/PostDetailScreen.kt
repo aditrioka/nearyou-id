@@ -44,11 +44,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.post.LikeCountOutcome
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.PostDetailFlow
+import id.nearyou.app.post.PostEditFlow
+import id.nearyou.app.post.PostRefreshOutcome
 import id.nearyou.app.post.ReplyPostOutcome
 import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.ui.components.LetterAvatar
@@ -57,6 +61,7 @@ import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.app.ui.components.postDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_close
+import id.nearyou.resources.generated.resources.cta_edit_post
 import id.nearyou.resources.generated.resources.cta_reply
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.ic_post_like
@@ -73,6 +78,7 @@ import id.nearyou.resources.generated.resources.post_detail_reply_cap_upsell
 import id.nearyou.resources.generated.resources.post_detail_reply_counter
 import id.nearyou.resources.generated.resources.post_detail_reply_placeholder
 import id.nearyou.resources.generated.resources.post_detail_reset_hours
+import id.nearyou.resources.generated.resources.post_edit_edited_label
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.theme.locationPin
@@ -80,6 +86,8 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 /** Test tag on the clickable like control (the toggle target). */
 const val POST_DETAIL_LIKE_TOGGLE_TAG: String = "postDetailLikeToggle"
@@ -102,6 +110,12 @@ const val POST_DETAIL_BACK_TAG: String = "postDetailBack"
 /** Test tag on the replies-error retry control. */
 const val POST_DETAIL_REPLIES_RETRY_TAG: String = "postDetailRepliesRetry"
 
+/** Test tag on the Edit affordance (shown for the viewer's own post within the 30-min window). */
+const val POST_DETAIL_EDIT_TAG: String = "postDetailEdit"
+
+/** Test tag on the "Diedit" label (opens the "Riwayat edit" history overlay). */
+const val POST_DETAIL_EDITED_LABEL_TAG: String = "postDetailEditedLabel"
+
 /**
  * The post-detail surface ([PostDetailRoute]) — "everything you do on a single post" — opened by tapping
  * a feed card and overlaid on the tab bar via the ROOT back stack (design D1). Renders, all under
@@ -118,18 +132,23 @@ const val POST_DETAIL_REPLIES_RETRY_TAG: String = "postDetailRepliesRetry"
  *    NO list re-fetch; a 429 surfaces the reply-cap upsell; an `InvalidContent`/network/post-gone failure
  *    shows the generic retryable banner).
  *
- * The screen is navigation-free (design Decision 6): it holds NO back-stack reference; its back affordance
- * invokes the hoisted [onBack]. The header is built SOLELY from the [route] payload — there is NO
- * single-post by-id GET (none exists; design D2); the only outbound calls are to the like + reply
- * sub-resources. PII discipline: no `author_id` and no coordinate is rendered (the route carries no
- * coordinate, and [ReplyUi] drops `authorId`); this screen never `println`s/logs.
+ * The screen holds NO back-stack reference (design Decision 6): its back affordance invokes the hoisted
+ * [onBack] and its Edit affordance the hoisted [onEditPost]. The header content is freshened by a
+ * `single-post-read` GET on each resume (`mobile-post-editing`) — which also drives the "Diedit" label
+ * (`editedAt`) and the Edit affordance gate (`isAuthor`); a freshness failure degrades silently to the
+ * [route] payload. The replies + like state use the like + reply sub-resources. PII discipline: no
+ * `author_id` and no coordinate is rendered (the refresh exposes only a boolean `isAuthor`, never the
+ * author UUID; the [route] carries no coordinate, and [ReplyUi] drops `authorId`); this screen never
+ * `println`s/logs.
  */
 @Composable
 fun PostDetailScreen(
     route: PostDetailRoute,
     onBack: () -> Unit,
+    onEditPost: (postId: String, content: String) -> Unit = { _, _ -> },
 ) {
     val flow = koinInject<PostDetailFlow>()
+    val editFlow = koinInject<PostEditFlow>()
     val scope = rememberCoroutineScope()
 
     // Like state: initial liked from the nav arg; count + last outcome (for the cap upsell) are live.
@@ -152,6 +171,37 @@ fun PostDetailScreen(
     var replyContent by remember { mutableStateOf("") }
     var replyInFlight by remember { mutableStateOf(false) }
     var replyOutcome by remember { mutableStateOf<ReplyPostOutcome?>(null) }
+
+    // mobile-post-editing: a single-post-read refresh on each resume (first open AND the return from the
+    // edit screen — the revealed entry goes RESUMED) freshens the displayed content + reads `editedAt` (the
+    // "Diedit" label) + `isAuthor` (the edit-affordance gate). A failure degrades silently (Unavailable):
+    // the header keeps its nav-payload content and the label/affordance stay hidden.
+    var displayedContent by remember { mutableStateOf(route.content) }
+    var editedAtIso by remember { mutableStateOf<String?>(null) }
+    var isAuthor by remember { mutableStateOf(false) }
+    var historyOpen by remember { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        scope.launch {
+            when (val refresh = editFlow.refreshPost(route.postId)) {
+                is PostRefreshOutcome.Loaded -> {
+                    displayedContent = refresh.content
+                    editedAtIso = refresh.editedAt
+                    isAuthor = refresh.isAuthor
+                }
+                PostRefreshOutcome.Unavailable -> Unit
+            }
+        }
+    }
+    // The Edit affordance shows for the viewer's OWN post (server-authoritative `isAuthor`) AND within the
+    // 30-minute window (a client hint from `createdAt`; a clock-skew boundary is caught by the backend 409).
+    val createdAtMillis =
+        remember(route.createdAtIso) {
+            runCatching { Instant.parse(route.createdAtIso).toEpochMilliseconds() }.getOrNull()
+        }
+    val editEligible =
+        isAuthor &&
+            createdAtMillis != null &&
+            isWithinEditWindow(createdAtMillis, Clock.System.now().toEpochMilliseconds())
 
     // The replies first-page load + retry + load-more live in the ViewModel (loads once on construction).
     // The like count is fetched once on entry (no single-post GET); degrades to null when unavailable.
@@ -245,74 +295,88 @@ fun PostDetailScreen(
         }
     }
 
-    Scaffold(
-        topBar = { BackBar(onBack = onBack) },
-        bottomBar = {
-            ReplyComposer(
-                content = replyContent,
-                onContentChange = { replyContent = it },
-                inFlight = replyInFlight,
-                banner = replyBanner(replyOutcome),
-                onSubmit = onSubmitReply,
-                focusRequester = replyFocusRequester,
-            )
-        },
-    ) { padding ->
-        // Everything scrolls in one LazyColumn (header + like row + the replies states/list + the
-        // load-more footer); the reply composer is the fixed bottom bar. The replies retry calls the VM,
-        // so the retry control works even though its item is replaced by the Loading item on re-load.
-        val listState = rememberLazyListState()
-        // Replies load-more scroll-end trigger: the LoadMoreController guards make an eager fire (short
-        // list / not-yet-loaded / end-reached / during the initial load) a no-op, and the end-relative
-        // threshold keys off the list tail (the footer), AFTER the post header + like-row items.
-        LoadMoreOnScrollEnd(listState = listState, onLoadMore = viewModel::onLoadMore)
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                PostHeader(
-                    content = route.content,
-                    cityName = route.cityName,
-                    createdAtIso = route.createdAtIso,
-                    authorUsername = route.authorUsername,
-                    authorDisplayName = route.authorDisplayName,
-                    modifier = Modifier.fillMaxWidth(),
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                BackBar(
+                    onBack = onBack,
+                    editEligible = editEligible,
+                    onEdit = { onEditPost(route.postId, displayedContent) },
                 )
-            }
-            item {
-                LikeRow(
-                    liked = liked,
-                    likeCount = likeCount,
-                    replyCount = replyCount,
-                    likeInFlight = likeInFlight,
-                    banner = likeBanner(likeOutcome),
-                    onToggleLike = onToggleLike,
-                    modifier = Modifier.fillMaxWidth(),
+            },
+            bottomBar = {
+                ReplyComposer(
+                    content = replyContent,
+                    onContentChange = { replyContent = it },
+                    inFlight = replyInFlight,
+                    banner = replyBanner(replyOutcome),
+                    onSubmit = onSubmitReply,
+                    focusRequester = replyFocusRequester,
                 )
+            },
+        ) { padding ->
+            // Everything scrolls in one LazyColumn (header + like row + the replies states/list + the
+            // load-more footer); the reply composer is the fixed bottom bar. The replies retry calls the VM,
+            // so the retry control works even though its item is replaced by the Loading item on re-load.
+            val listState = rememberLazyListState()
+            // Replies load-more scroll-end trigger: the LoadMoreController guards make an eager fire (short
+            // list / not-yet-loaded / end-reached / during the initial load) a no-op, and the end-relative
+            // threshold keys off the list tail (the footer), AFTER the post header + like-row items.
+            LoadMoreOnScrollEnd(listState = listState, onLoadMore = viewModel::onLoadMore)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    PostHeader(
+                        content = displayedContent,
+                        cityName = route.cityName,
+                        createdAtIso = route.createdAtIso,
+                        editedAtIso = editedAtIso,
+                        onEditedLabelClick = { historyOpen = true },
+                        authorUsername = route.authorUsername,
+                        authorDisplayName = route.authorDisplayName,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                item {
+                    LikeRow(
+                        liked = liked,
+                        likeCount = likeCount,
+                        replyCount = replyCount,
+                        likeInFlight = likeInFlight,
+                        banner = likeBanner(likeOutcome),
+                        onToggleLike = onToggleLike,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                when (val repliesState = repliesUiState(repliesOutcome, repliesInFlight)) {
+                    RepliesUiState.Loading -> item { RepliesLoading() }
+                    RepliesUiState.Empty -> item { RepliesEmpty() }
+                    RepliesUiState.Error -> item { RepliesError(onRetry = reloadReplies) }
+                    is RepliesUiState.Content ->
+                        items(
+                            items = repliesState.replies,
+                            key = { it.id },
+                            contentType = { "reply" },
+                        ) { reply -> ReplyCard(reply) }
+                }
+                // Replies load-more footer: spinner while a page loads, non-destructive retry on error,
+                // nothing at end / during the initial load (mobile-design-system § load-more pattern).
+                item(key = "loadMoreFooter", contentType = "footer") {
+                    LoadMoreFooter(
+                        isLoadingMore = isLoadingMore,
+                        loadMoreError = loadMoreError,
+                        onRetry = viewModel::onRetryLoadMore,
+                    )
+                }
             }
-            when (val repliesState = repliesUiState(repliesOutcome, repliesInFlight)) {
-                RepliesUiState.Loading -> item { RepliesLoading() }
-                RepliesUiState.Empty -> item { RepliesEmpty() }
-                RepliesUiState.Error -> item { RepliesError(onRetry = reloadReplies) }
-                is RepliesUiState.Content ->
-                    items(
-                        items = repliesState.replies,
-                        key = { it.id },
-                        contentType = { "reply" },
-                    ) { reply -> ReplyCard(reply) }
-            }
-            // Replies load-more footer: spinner while a page loads, non-destructive retry on error,
-            // nothing at end / during the initial load (mobile-design-system § load-more pattern).
-            item(key = "loadMoreFooter", contentType = "footer") {
-                LoadMoreFooter(
-                    isLoadingMore = isLoadingMore,
-                    loadMoreError = loadMoreError,
-                    onRetry = viewModel::onRetryLoadMore,
-                )
-            }
+        }
+        // mobile-post-editing: the screen-local "Riwayat edit" overlay (NOT a NavKey) over the detail.
+        if (historyOpen) {
+            EditHistorySheet(postId = route.postId, onDismiss = { historyOpen = false })
         }
     }
 }
@@ -320,7 +384,11 @@ fun PostDetailScreen(
 /** The back/close affordance (the detail overlays the feed via the root stack, so "Tutup" = close it).
  *  Invokes the hoisted [onBack] — the screen holds no back-stack reference. */
 @Composable
-private fun BackBar(onBack: () -> Unit) {
+private fun BackBar(
+    onBack: () -> Unit,
+    editEligible: Boolean,
+    onEdit: () -> Unit,
+) {
     // This screen owns its Scaffold (root-stack overlay), so its custom bars must
     // apply their own system-bar insets — a bare Row in the topBar slot rendered
     // under the status bar (2026-06-10 audit, finding 06-#4).
@@ -330,9 +398,18 @@ private fun BackBar(onBack: () -> Unit) {
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         TextButton(onClick = onBack, modifier = Modifier.testTag(POST_DETAIL_BACK_TAG)) {
             Text(text = stringResource(Res.string.cta_close))
+        }
+        // mobile-post-editing: the Edit affordance — own post within the 30-min window. Reactively gated:
+        // tapping opens the editor; a Free user hits the 403 → "Aktifkan Premium" upsell there (design D2).
+        if (editEligible) {
+            TextButton(onClick = onEdit, modifier = Modifier.testTag(POST_DETAIL_EDIT_TAG)) {
+                Text(text = stringResource(Res.string.cta_edit_post))
+            }
         }
     }
 }
@@ -348,6 +425,8 @@ private fun PostHeader(
     content: String,
     cityName: String,
     createdAtIso: String,
+    editedAtIso: String?,
+    onEditedLabelClick: () -> Unit,
     authorUsername: String,
     authorDisplayName: String,
     modifier: Modifier = Modifier,
@@ -404,6 +483,20 @@ private fun PostHeader(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp),
         )
+        // mobile-post-editing: the "Diedit [tanggal]" label — shown iff the single-post-read projection
+        // reports an edit (editedAt present); tapping opens the "Riwayat edit" history overlay.
+        if (editedAtIso != null) {
+            Text(
+                text = stringResource(Res.string.post_edit_edited_label, postDateLabel(editedAtIso)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier =
+                    Modifier
+                        .padding(top = 4.dp)
+                        .clickable(onClick = onEditedLabelClick)
+                        .testTag(POST_DETAIL_EDITED_LABEL_TAG),
+            )
+        }
     }
 }
 

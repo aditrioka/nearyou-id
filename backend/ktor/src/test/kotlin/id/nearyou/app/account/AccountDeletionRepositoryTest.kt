@@ -22,7 +22,7 @@ private fun hikari(): HikariDataSource {
             jdbcUrl = url
             username = System.getenv("DB_USER") ?: "postgres"
             password = System.getenv("DB_PASSWORD") ?: "postgres"
-            maximumPoolSize = 4
+            maximumPoolSize = 2
             initializationFailTimeout = -1
         }
     return HikariDataSource(config)
@@ -31,7 +31,8 @@ private fun hikari(): HikariDataSource {
 @Tags("database")
 class AccountDeletionRepositoryTest : StringSpec({
 
-    val dataSource = hikari()
+    // autoClose releases the pool after the spec (CI connection-budget: don't leak a HikariPool).
+    val dataSource = autoClose(hikari())
     val repo = AccountDeletionRepository(dataSource)
 
     fun seedUser(): UUID {

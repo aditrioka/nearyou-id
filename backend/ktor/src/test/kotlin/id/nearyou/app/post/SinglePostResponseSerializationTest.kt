@@ -51,6 +51,44 @@ class SinglePostResponseSerializationTest : StringSpec({
         encoded shouldNotContain "\"replyCount\""
         // distanceM is null in v1 → omitted under explicitNulls = false
         encoded shouldNotContain "distanceM"
+        // editedAt null (never-edited post) → omitted under explicitNulls = false
+        encoded shouldNotContain "editedAt"
+        // isAuthor defaults to false → omitted at its default under encodeDefaults = false (like distanceM);
+        // a non-author single-post-read carries no isAuthor key (the client SinglePostDto defaults it false).
+        encoded shouldNotContain "isAuthor"
+    }
+
+    "6.3 editedAt serializes bare camelCase when present, and binds only from editedAt" {
+        val encoded =
+            json.encodeToString(
+                SinglePostResponse.serializer(),
+                SinglePostResponse(
+                    id = "p1",
+                    authorUsername = "u",
+                    authorDisplayName = "D",
+                    content = "c",
+                    cityName = "Jakarta",
+                    createdAt = "2026-01-01T00:00:00Z",
+                    editedAt = "2026-01-01T00:05:00Z",
+                    likedByViewer = false,
+                    replyCount = 0,
+                    isAuthor = true,
+                ),
+            )
+        // bare camelCase key (like createdAt), NOT snake_case
+        encoded shouldContain "\"editedAt\""
+        encoded shouldNotContain "\"edited_at\""
+        // isAuthor IS serialized when true (non-default) — the author-own case
+        encoded shouldContain "\"isAuthor\":true"
+        // negative guard: a snake_case edited_at decoy does NOT bind — only the camelCase key binds
+        val decoded =
+            json.decodeFromString(
+                SinglePostResponse.serializer(),
+                """{"id":"p1","authorUsername":"u","authorDisplayName":"D","content":"c",""" +
+                    """"city_name":"Jakarta","createdAt":"t","edited_at":"WRONG_SNAKE",""" +
+                    """"editedAt":"2026-01-01T00:05:00Z","liked_by_viewer":false,"reply_count":0}""",
+            )
+        decoded.editedAt shouldBe "2026-01-01T00:05:00Z"
     }
 
     "6.2 negative guard — camelCase cityName does NOT bind (only @SerialName(\"city_name\") binds)" {

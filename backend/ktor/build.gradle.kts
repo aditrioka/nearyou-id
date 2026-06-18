@@ -17,6 +17,8 @@ dependencies {
     implementation(projects.shared.distance)
     implementation(projects.core.domain)
     implementation(projects.core.data)
+    implementation(projects.infra.cloudVision)
+    implementation(projects.infra.cloudflareImages)
     implementation(projects.infra.fcm)
     implementation(projects.infra.oidc)
     implementation(projects.infra.openaiModeration)

@@ -30,6 +30,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
 import id.nearyou.app.data.accountdeletion.deletionDateLabel
+import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.blocked_users_title
 import id.nearyou.resources.generated.resources.consent_title
@@ -51,6 +52,8 @@ import id.nearyou.resources.generated.resources.ic_post_location
 import id.nearyou.resources.generated.resources.ic_privacy_shield
 import id.nearyou.resources.generated.resources.ic_workspace_premium
 import id.nearyou.resources.generated.resources.settings_coming_soon
+import id.nearyou.resources.generated.resources.settings_hide_distance_error
+import id.nearyou.resources.generated.resources.settings_hide_distance_premium_only
 import id.nearyou.resources.generated.resources.settings_logout_body
 import id.nearyou.resources.generated.resources.settings_logout_cancel
 import id.nearyou.resources.generated.resources.settings_logout_confirm
@@ -93,8 +96,10 @@ private const val LEGAL_URL: String = "https://nearyou.id/kebijakan-privasi"
  * the legal row opens [LEGAL_URL], "Keluar" → a confirm dialog → client-side token wipe → [onLoggedOut].
  * **Deferred** rows (Premium/DESIGN — no backend yet) render their mockup chrome but on activation show a
  * non-trapping "Segera hadir" snackbar and perform NO backend write and NO navigation — in particular the
- * "Profil privat"/"Sembunyikan jarak" toggles issue NO privacy-flag write (off the `@allow-privacy-write`
- * surface). All copy via `:shared:resources`, under `NearYouTheme`.
+ * "Profil privat" toggle issues NO privacy-flag write (off the `@allow-privacy-write` surface). The
+ * "Sembunyikan jarak" toggle is now BACKED (the `hide-distance` capability): Premium-gated, wired to
+ * `PATCH /api/v1/user/hide-distance` (a `hide_distance_opt_in` write — NOT a privacy flag). All copy via
+ * `:shared:resources`, under `NearYouTheme`.
  */
 @Composable
 fun SettingsScreen(
@@ -105,13 +110,18 @@ fun SettingsScreen(
     onLoggedOut: () -> Unit,
 ) {
     val tokenStore = koinInject<TokenStore>()
-    val viewModel = viewModel { SettingsViewModel(tokenStore) }
+    val hideDistanceRepository = koinInject<HideDistanceRepository>()
+    val viewModel = viewModel { SettingsViewModel(tokenStore, hideDistanceRepository) }
     val loggedOut by viewModel.loggedOut.collectAsStateWithLifecycle()
+    val hideDistanceChecked by viewModel.hideDistanceChecked.collectAsStateWithLifecycle()
+    val hideDistanceEvent by viewModel.hideDistanceEvent.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     val comingSoonText = stringResource(Res.string.settings_coming_soon)
+    val hideDistanceUpsellText = stringResource(Res.string.settings_hide_distance_premium_only)
+    val hideDistanceErrorText = stringResource(Res.string.settings_hide_distance_error)
     var showLogoutDialog by remember { mutableStateOf(false) }
 
     // account-deletion-tombstone — the "Hapus Akun" + restore-banner state holder, NavEntry-scoped.
@@ -142,6 +152,21 @@ fun SettingsScreen(
         if (deletionCancelError) {
             snackbarHostState.showSnackbar(deleteErrorText)
             accountDeletionVm.consumeCancelError()
+        }
+    }
+
+    // hide-distance one-shot events → a non-trapping snackbar, then cleared (docs/11 §2.2 event-as-state).
+    LaunchedEffect(hideDistanceEvent) {
+        when (hideDistanceEvent) {
+            HideDistanceEvent.Upsell -> {
+                snackbarHostState.showSnackbar(hideDistanceUpsellText)
+                viewModel.onHideDistanceEventShown()
+            }
+            HideDistanceEvent.WriteFailed -> {
+                snackbarHostState.showSnackbar(hideDistanceErrorText)
+                viewModel.onHideDistanceEventShown()
+            }
+            null -> Unit
         }
     }
 
@@ -200,9 +225,10 @@ fun SettingsScreen(
                 onClick = onComingSoon,
             )
 
-            // PRIVASI — the two Premium toggles are deferred + NON-WRITING; the two backed rows navigate.
+            // PRIVASI — "Profil privat" stays deferred + NON-WRITING; "Sembunyikan jarak" is now a backed
+            // Premium toggle; "Privasi & data" + "Pengguna diblokir" navigate.
             SettingsSectionHeader(stringResource(Res.string.settings_section_privacy))
-            // The switch never flips — a deferred toggle issues NO privacy-flag write (off @allow-privacy-write).
+            // "Profil privat": the switch never flips — a deferred toggle issues NO privacy-flag write.
             SettingsRow(
                 icon = Res.drawable.ic_lock,
                 title = stringResource(Res.string.settings_row_private_profile),
@@ -212,14 +238,17 @@ fun SettingsScreen(
                 switchChecked = false,
                 onSwitchChange = { onComingSoon() },
             )
+            // "Sembunyikan jarak" is BACKED (hide-distance capability): a Premium-gated toggle wired to
+            // PATCH /api/v1/user/hide-distance. Free callers get the Premium upsell (no write); the VM
+            // gates on the GET's `premium` flag and reverts on a failed PATCH.
             SettingsRow(
                 icon = Res.drawable.ic_post_location,
                 title = stringResource(Res.string.settings_row_hide_distance),
                 subtitle = stringResource(Res.string.settings_row_hide_distance_sub),
-                onClick = onComingSoon,
+                onClick = { viewModel.onHideDistanceToggle(!hideDistanceChecked) },
                 trailing = SettingsRowTrailing.SwitchControl,
-                switchChecked = false,
-                onSwitchChange = { onComingSoon() },
+                switchChecked = hideDistanceChecked,
+                onSwitchChange = { newValue -> viewModel.onHideDistanceToggle(newValue) },
             )
             SettingsRow(
                 icon = Res.drawable.ic_privacy_shield,

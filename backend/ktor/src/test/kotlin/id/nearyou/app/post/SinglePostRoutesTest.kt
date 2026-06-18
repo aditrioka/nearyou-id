@@ -168,6 +168,30 @@ class SinglePostRoutesTest : StringSpec({
         }
     }
 
+    fun seedEdit(
+        postId: UUID,
+        editedBy: UUID,
+        editedAt: Instant,
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO post_edits (id, post_id, edited_at, content_snapshot, location_snapshot, edited_by)
+                VALUES (?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, UUID.randomUUID())
+                ps.setObject(2, postId)
+                ps.setTimestamp(3, Timestamp.from(editedAt))
+                ps.setString(4, "old content")
+                ps.setDouble(5, 106.8)
+                ps.setDouble(6, -6.2)
+                ps.setObject(7, editedBy)
+                ps.executeUpdate()
+            }
+        }
+    }
+
     fun insertBlock(
         blocker: UUID,
         blocked: UUID,
@@ -188,6 +212,7 @@ class SinglePostRoutesTest : StringSpec({
         dataSource.connection.use { conn ->
             conn.createStatement().use { st ->
                 ids.forEach {
+                    st.executeUpdate("DELETE FROM post_edits WHERE edited_by = '$it'")
                     st.executeUpdate("DELETE FROM post_likes WHERE user_id = '$it'")
                     st.executeUpdate("DELETE FROM post_replies WHERE author_id = '$it'")
                     st.executeUpdate("DELETE FROM posts WHERE author_id = '$it'")
@@ -258,6 +283,7 @@ class SinglePostRoutesTest : StringSpec({
                 o.hasKey("createdAt") shouldBe true
                 o.bool("liked_by_viewer") shouldBe false
                 o.int("reply_count") shouldBe 0
+                o.isAbsentOrNull("isAuthor") shouldBe true // non-author → omitted at default false (client reads false)
             }
         } finally {
             cleanup(author.id, viewer.id)
@@ -303,6 +329,25 @@ class SinglePostRoutesTest : StringSpec({
             withApp {
                 val o = getPost(postId.toString(), viewer.token).second.obj()
                 o.str("city_name") shouldBe ""
+            }
+        } finally {
+            cleanup(author.id, viewer.id)
+        }
+    }
+
+    "5.1 200 — editedAt present (camelCase) for an edited post, absent for an unedited post" {
+        val author = seedUser()
+        val viewer = seedUser()
+        try {
+            val edited = seedPost(author.id, content = "v2")
+            val unedited = seedPost(author.id)
+            seedEdit(edited, author.id, Instant.parse("2026-02-02T03:04:05Z"))
+            withApp {
+                val editedObj = getPost(edited.toString(), viewer.token).second.obj()
+                editedObj.hasKey("editedAt") shouldBe true // bare camelCase, present iff edited
+                editedObj.hasKey("edited_at") shouldBe false // not snake_case
+                val uneditedObj = getPost(unedited.toString(), viewer.token).second.obj()
+                uneditedObj.isAbsentOrNull("editedAt") shouldBe true // omitted under explicitNulls = false
             }
         } finally {
             cleanup(author.id, viewer.id)
@@ -385,6 +430,7 @@ class SinglePostRoutesTest : StringSpec({
                 val o = liveBody.obj()
                 o.str("content") shouldBe "my own post"
                 o.str("authorDisplayName") shouldBe "Hidden Author"
+                o.bool("isAuthor") shouldBe true // the shadow-banned author is reading their OWN post
                 // Own soft-deleted post: still 404 (own-content arm requires deleted_at IS NULL).
                 getPost(ownDeleted.toString(), shadowAuthor.token).first shouldBe HttpStatusCode.NotFound
             }

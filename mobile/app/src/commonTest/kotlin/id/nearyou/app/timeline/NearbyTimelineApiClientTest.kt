@@ -129,6 +129,22 @@ class NearbyTimelineApiClientTest {
         }
 
     @Test
+    fun `a post omitting distanceM parses to null distanceM under hide-distance suppression`() =
+        runTest {
+            // The backend OMITS distanceM (explicitNulls=false) when the hide-distance rule suppresses it.
+            // A non-null DTO field would throw MissingFieldException; nullable-with-default must parse.
+            val body =
+                """{"posts":[{"id":"p1","authorUserId":"a","authorUsername":"u","authorDisplayName":"D",""" +
+                    """"content":"c","latitude":-6.2,"longitude":106.8,""" +
+                    """"city_name":"Jakarta","createdAt":"t","liked_by_viewer":false,"reply_count":0}]}"""
+            val api = NearbyTimelineApiClient(client { respond(body, HttpStatusCode.OK, JSON_HEADERS) })
+
+            val post = assertIsSuccess(api.fetchNearby(-6.2, 106.8, 20000, "s")).posts.first()
+            assertNull(post.distanceM, "omitted distanceM must parse to null, not throw")
+            assertEquals("Jakarta", post.cityName)
+        }
+
+    @Test
     fun `upsell soft and hard parse`() =
         runTest {
             val softApi =

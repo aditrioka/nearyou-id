@@ -73,6 +73,7 @@ class JdbcPostsTimelineRepository(
                    ST_X(p.display_location::geometry) AS lng,
                    ST_Distance(p.display_location, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) AS distance_m,
                    p.city_name,
+                   p.author_hides_distance,
                    p.created_at,
                    (pl.user_id IS NOT NULL) AS liked_by_viewer,
                    c.n AS reply_count
@@ -80,7 +81,8 @@ class JdbcPostsTimelineRepository(
                   (
                       SELECT p.id, p.author_id, u.username AS author_username,
                              u.display_name AS author_display_name, p.content,
-                             p.display_location, p.city_name, p.created_at
+                             p.display_location, p.city_name, p.created_at,
+                             (u.hide_distance_opt_in AND u.subscription_status IN ('premium_active', 'premium_billing_retry')) AS author_hides_distance
                         FROM visible_posts p
                         JOIN users u ON u.id = p.author_id
                        WHERE p.author_id <> ?
@@ -95,7 +97,8 @@ class JdbcPostsTimelineRepository(
                   (
                       SELECT p.id, p.author_id, u.username AS author_username,
                              u.display_name AS author_display_name, p.content,
-                             p.display_location, p.city_name, p.created_at
+                             p.display_location, p.city_name, p.created_at,
+                             (u.hide_distance_opt_in AND u.subscription_status IN ('premium_active', 'premium_billing_retry')) AS author_hides_distance
                         FROM posts p
                         JOIN users u ON u.id = p.author_id
                        WHERE p.author_id = ?
@@ -165,6 +168,7 @@ class JdbcPostsTimelineRepository(
                                 likedByViewer = rs.getBoolean("liked_by_viewer"),
                                 replyCount = rs.getInt("reply_count"),
                                 cityName = rs.getString("city_name"),
+                                authorHidesDistance = rs.getBoolean("author_hides_distance"),
                             )
                     }
                     return out

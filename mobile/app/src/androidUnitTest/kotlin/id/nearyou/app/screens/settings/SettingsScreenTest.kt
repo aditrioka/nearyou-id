@@ -11,6 +11,8 @@ import id.nearyou.app.auth.TokenPair
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
 import id.nearyou.app.data.accountdeletion.FakeAccountDeletionFlow
+import id.nearyou.app.hidedistance.HideDistanceRepository
+import id.nearyou.app.hidedistance.HideDistanceState
 import id.nearyou.app.theme.NearYouTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.runner.RunWith
@@ -30,8 +32,27 @@ private const val TITLE = "Pengaturan"
 private const val PRIVACY_DATA = "Privasi & data"
 private const val BLOCKED = "Pengguna diblokir"
 private const val PRIVATE_PROFILE = "Profil privat"
+private const val HIDE_DISTANCE = "Sembunyikan jarak"
+private const val HIDE_DISTANCE_UPSELL = "Fitur Premium. Aktifkan Premium untuk menyembunyikan jarak."
+private const val HIDE_DISTANCE_ERROR = "Gagal memperbarui pengaturan. Coba lagi."
 private const val GANTI_USERNAME = "Ganti username"
 private const val COMING_SOON = "Segera hadir"
+
+/** A configurable [HideDistanceRepository] fake: seeds the toggle state and records write calls. */
+private class FakeHideDistanceRepository(
+    private val initial: HideDistanceState? = null,
+    private val writeSucceeds: Boolean = true,
+) : HideDistanceRepository {
+    val setCalls = mutableListOf<Boolean>()
+
+    override suspend fun loadState(): HideDistanceState? = initial
+
+    override suspend fun setHideDistance(value: Boolean): Boolean {
+        setCalls += value
+        return writeSucceeds
+    }
+}
+
 private const val LOGOUT_ROW = "Keluar"
 private const val LOGOUT_DIALOG_TITLE = "Keluar dari akun?"
 private const val LOGOUT_CONFIRM = "Ya, keluar"
@@ -50,7 +71,7 @@ private const val LOGOUT_CANCEL = "Batal"
 class SettingsScreenTest {
     private lateinit var tokenStore: InMemoryTokenStore
 
-    private fun installKoin() {
+    private fun installKoin(hideDistance: HideDistanceRepository = FakeHideDistanceRepository()) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         tokenStore = InMemoryTokenStore()
         startKoin {
@@ -60,6 +81,7 @@ class SettingsScreenTest {
                     // account-deletion-tombstone: SettingsScreen now resolves the deletion flow.
                     // Default fake → NotPending status (no banner), so the existing assertions hold.
                     single<AccountDeletionFlow> { FakeAccountDeletionFlow() }
+                    single<HideDistanceRepository> { hideDistance }
                 },
             )
         }
@@ -224,6 +246,57 @@ class SettingsScreenTest {
             onNodeWithText(LOGOUT_CANCEL).performClick()
             assertEquals(0, loggedOut)
             assertEquals("at", runBlocking { tokenStore.read() }?.accessToken, "cancel leaves the session intact")
+        }
+    }
+
+    @Test
+    fun hideDistance_premiumToggle_issuesSingleWrite() {
+        val fake = FakeHideDistanceRepository(initial = HideDistanceState(hideDistance = false, premium = true))
+        installKoin(fake)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle() // let the init GET (loadState) settle so premium=true before the tap
+            onNodeWithText(HIDE_DISTANCE).performScrollTo().performClick()
+            waitUntil { fake.setCalls.isNotEmpty() }
+            assertEquals(listOf(true), fake.setCalls)
+        }
+    }
+
+    @Test
+    fun hideDistance_freeToggle_showsUpsell_andWritesNothing() {
+        val fake = FakeHideDistanceRepository(initial = HideDistanceState(hideDistance = false, premium = false))
+        installKoin(fake)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            onNodeWithText(HIDE_DISTANCE).performScrollTo().performClick()
+            waitUntil { onAllNodesWithText(HIDE_DISTANCE_UPSELL).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(HIDE_DISTANCE_UPSELL).assertExists()
+            assertEquals(emptyList(), fake.setCalls) // a Free caller issues NO write
+        }
+    }
+
+    @Test
+    fun hideDistance_failedWrite_surfacesErrorAndAttemptedOnce() {
+        val fake =
+            FakeHideDistanceRepository(
+                initial = HideDistanceState(hideDistance = false, premium = true),
+                writeSucceeds = false,
+            )
+        installKoin(fake)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            onNodeWithText(HIDE_DISTANCE).performScrollTo().performClick()
+            waitUntil { onAllNodesWithText(HIDE_DISTANCE_ERROR).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(HIDE_DISTANCE_ERROR).assertExists() // the toggle reverts; the error is the observable signal
+            assertEquals(listOf(true), fake.setCalls)
         }
     }
 }

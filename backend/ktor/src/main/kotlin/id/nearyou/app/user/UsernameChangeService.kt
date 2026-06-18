@@ -11,6 +11,7 @@ import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.ReportTargetType
+import id.nearyou.data.repository.UsernameFlagOverrideRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,6 +37,16 @@ import javax.sql.DataSource
  * (anti-probing). Premium status is the principal claim (no `FROM users` read).
  * Cooldown is DB-authoritative on `username_last_changed_at` (design D3).
  *
+ * **Admin override coupling** (`admin-premium-username-oversight`): on a moderation
+ * hit the gate FIRST consults `username_flag_overrides` for a non-consumed
+ * `(user_id, lowercased candidate)` approval. A match SKIPS the rejection (the admin
+ * pre-approved this exact handle) and the candidate proceeds; the override is then
+ * CONSUMED via a conditional, rows-affected-gated UPDATE inside the `FOR UPDATE`
+ * change transaction, re-validated under the lock (consume of 0 rows ⇒ a concurrent
+ * same-user change already spent it ⇒ re-moderate, so the override grants at most one
+ * pass). Absent a match, the moderation hit rejects upfront and re-opens the standing
+ * `username_flagged` queue row with the flagged candidate in `notes` (Decision 6).
+ *
  * Mirrors `SearchService` (gate-ordered `Result`) and `CreatePostService` (the
  * single-transaction `connection.use { autoCommit=false … }` shape on the
  * pool-bounded dispatcher, docs/11 §3.2).
@@ -46,6 +57,7 @@ class UsernameChangeService(
     private val reserved: ReservedUsernameRepository,
     private val history: UsernameHistoryRepository,
     private val moderationQueue: ModerationQueueRepository,
+    private val flagOverrides: UsernameFlagOverrideRepository,
     private val textModerator: TextModerator,
     private val notificationEmitter: NotificationEmitter,
     private val remoteConfig: RemoteConfig,
@@ -113,19 +125,34 @@ class UsernameChangeService(
         }
 
         // Moderation — outside any DB lock (does Redis/Remote-Config I/O). Any hit
-        // (profanity Reject OR UU-ITE Flag) rejects upfront + leaves a standing
-        // username_flagged queue row (docs/06 § Premium Username Moderation).
+        // (profanity Reject OR UU-ITE Flag) rejects upfront + re-opens a standing
+        // username_flagged queue row (docs/06 § Premium Username Moderation), EXCEPT
+        // when the admin has pre-approved this exact candidate: a non-consumed
+        // username_flag_overrides row for (user_id, lc) skips the rejection and lets
+        // the candidate proceed (admin-premium-username-oversight Decision 2). The
+        // override is consumed under the FOR UPDATE lock below, not here, so the
+        // skip is re-validated atomically (the one-shot holds even under a same-user
+        // race).
         val verdict = withContext(dbDispatcher) { textModerator.moderate(candidate) }
-        if (verdict is Verdict.Reject || verdict is Verdict.Flag) {
-            withContext(dbDispatcher) {
-                dataSource.connection.use { conn ->
-                    moderationQueue.upsertUsernameFlaggedRow(conn, ReportTargetType.USER, userId)
+        val moderationHit = verdict is Verdict.Reject || verdict is Verdict.Flag
+        var viaOverride = false
+        if (moderationHit) {
+            val approved =
+                withContext(dbDispatcher) {
+                    dataSource.connection.use { conn -> flagOverrides.findUnconsumed(conn, userId, lc) }
                 }
+            if (approved) {
+                viaOverride = true
+            } else {
+                withContext(dbDispatcher) {
+                    dataSource.connection.use { conn -> upsertFlaggedRow(conn, userId, candidate) }
+                }
+                return ChangeResult.Moderated
             }
-            return ChangeResult.Moderated
         }
 
-        // Race-safe commit — FOR UPDATE lock → re-validate → write → notify.
+        // Race-safe commit — FOR UPDATE lock → re-validate → (consume override) →
+        // write → notify.
         val result =
             withContext(dbDispatcher) {
                 dataSource.connection.use { conn ->
@@ -143,6 +170,19 @@ class UsernameChangeService(
                         if (collides(conn, lc)) {
                             conn.rollback()
                             return@use ChangeResult.Unavailable
+                        }
+                        // Override re-validation under the lock: the conditional,
+                        // rows-affected-gated consume is what enforces the one-shot.
+                        // Zero rows ⇒ a concurrent same-user change already spent the
+                        // override ⇒ re-moderate; still-flagged ⇒ this attempt loses,
+                        // so roll back the change and fall through to the standard
+                        // moderation reject (re-open the standing flag) OUTSIDE the lock.
+                        if (viaOverride && flagOverrides.consume(conn, userId, lc) == 0) {
+                            val reverdict = textModerator.moderate(candidate)
+                            if (reverdict is Verdict.Reject || reverdict is Verdict.Flag) {
+                                conn.rollback()
+                                return@use ChangeResult.Moderated
+                            }
                         }
                         val oldUsername = locked.username
                         users.updateUsername(conn, userId, candidate)
@@ -179,6 +219,16 @@ class UsernameChangeService(
                     }
                 }
             }
+
+        // A concurrent-race loser whose override was already spent and whose candidate
+        // is still moderation-flagged re-opens the standing flag, exactly like the
+        // pre-lock reject path (the row write is independent of the rolled-back change
+        // transaction). Done OUTSIDE the lock — the FOR UPDATE block already rolled back.
+        if (viaOverride && result is ChangeResult.Moderated) {
+            withContext(dbDispatcher) {
+                dataSource.connection.use { conn -> upsertFlaggedRow(conn, userId, candidate) }
+            }
+        }
 
         // Only failed attempts count — release the slot acquired above on success.
         if (result is ChangeResult.Success) {
@@ -225,6 +275,20 @@ class UsernameChangeService(
             )
             true
         }
+
+    /**
+     * Re-open the standing `username_flagged` queue row with the latest flagged
+     * candidate in `notes` (Decision 6). Runs on its own connection (independent of
+     * any change transaction) so it commits whether reached from the pre-lock reject
+     * path or the post-lock concurrent-race-loser path.
+     */
+    private fun upsertFlaggedRow(
+        conn: java.sql.Connection,
+        userId: UUID,
+        candidate: String,
+    ) {
+        moderationQueue.upsertUsernameFlaggedRow(conn, ReportTargetType.USER, userId, candidate)
+    }
 
     /** Reserved + active-release-hold + currently-taken collision, all LOWER-matched. */
     private fun collides(

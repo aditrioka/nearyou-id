@@ -5,7 +5,7 @@ The account-hard-delete-worker capability is the internal Cloud-Scheduler worker
 ## Requirements
 ### Requirement: deletion_log schema (append-only)
 
-Migration `V24__deletion_requests.sql` (alongside `deletion_requests`) SHALL create an append-only `deletion_log` table recording every executed hard-delete, so the Pre-Launch backup-restore reconciliation test ("no tombstoned user resurrected") has a queryable source of truth:
+Migration `V27__deletion_requests.sql` (alongside `deletion_requests`) SHALL create an append-only `deletion_log` table recording every executed hard-delete, so the Pre-Launch backup-restore reconciliation test ("no tombstoned user resurrected") has a queryable source of truth:
 
 ```sql
 CREATE TABLE deletion_log (
@@ -103,7 +103,7 @@ This worker is the "tombstone / hard-delete worker (separate future change)" tha
 
 ### Requirement: Tombstoned authors' content surfaces in feeds rendered as "Akun Dihapus"
 
-A tombstoned (hard-deleted) author's non-hidden, non-soft-deleted **posts** SHALL remain visible in the post-listing read surfaces — the Nearby, Following, and Global timelines and post detail — with the author identity rendered as the server-set placeholder (`display_name = 'Akun Dihapus'`, `username = deleted_user_…`; the identity join reads raw `users`, since `visible_posts` already excludes shadow-banned authors). The shadow-ban, post-soft-delete, and bidirectional-block predicates on those surfaces MUST continue to apply (`visible_posts` V24 is the view-level mechanism; the timeline + single-post identity join switches from `visible_users` to `users`). Profile read, search, and active-user metrics are deliberately NOT relaxed — a tombstoned user stays a `404` profile, non-discoverable in search, and uncounted as active. **Reply lists and reply/like counters are out of this surfacing's scope (design D10):** a tombstoned replier's reply is RETAINED in the DB but filtered from the public reply list + `reply_count` by the unchanged `visible_users` contributor-filter, exactly as a shadow-banned replier is — account deletion changes neither.
+A tombstoned (hard-deleted) author's non-hidden, non-soft-deleted **posts** SHALL remain visible in the post-listing read surfaces — the Nearby, Following, and Global timelines and post detail — with the author identity rendered as the server-set placeholder (`display_name = 'Akun Dihapus'`, `username = deleted_user_…`; the identity join reads raw `users`, since `visible_posts` already excludes shadow-banned authors). The shadow-ban, post-soft-delete, and bidirectional-block predicates on those surfaces MUST continue to apply (`visible_posts` V28 is the view-level mechanism; the timeline + single-post identity join switches from `visible_users` to `users`). Profile read, search, and active-user metrics are deliberately NOT relaxed — a tombstoned user stays a `404` profile, non-discoverable in search, and uncounted as active. **Reply lists and reply/like counters are out of this surfacing's scope (design D10):** a tombstoned replier's reply is RETAINED in the DB but filtered from the public reply list + `reply_count` by the unchanged `visible_users` contributor-filter, exactly as a shadow-banned replier is — account deletion changes neither.
 
 #### Scenario: A tombstoned author's post appears in each feed surface, anonymized
 - **WHEN** an author with a visible post is hard-deleted, and a viewer loads the **Nearby**, **Following**, and **Global** timelines that would include that post
@@ -123,10 +123,10 @@ A tombstoned (hard-deleted) author's non-hidden, non-soft-deleted **posts** SHAL
 
 #### Scenario: Relaxing the author-deletion exclusion does not weaken viewer block suppression
 - **WHEN** viewer V has blocked a (non-deleted) author A, and a separate tombstoned author T also has posts in the same feed
-- **THEN** A's posts stay suppressed for V (the bidirectional `user_blocks` NOT-IN join is intact) AND T's posts surface anonymized — the V24 author-deletion relaxation did not drop the block predicate
+- **THEN** A's posts stay suppressed for V (the bidirectional `user_blocks` NOT-IN join is intact) AND T's posts surface anonymized — the V28 author-deletion relaxation did not drop the block predicate
 
 #### Scenario: The shadow-ban self-visibility arm is unaffected by the relaxation
-- **WHEN** a shadow-banned (NOT deleted) author loads their own Nearby/Global feed after V24
+- **WHEN** a shadow-banned (NOT deleted) author loads their own Nearby/Global feed after V28
 - **THEN** they still see their own posts (the `shadow-ban-feed-self-visibility` UNION self-arm is byte-identical post-relaxation)
 
 #### Scenario: A tombstoned replier is excluded from reply_count, like a shadow-banned one

@@ -39,21 +39,28 @@ class JdbcSinglePostRepository(
         //  - LEFT JOIN LATERAL reply counter with the shadow-ban exclusion (JOIN visible_users);
         //    viewer-block exclusion DELIBERATELY NOT applied (public viewer-independent counter,
         //    the documented post-replies-v8 Decision 5 tradeoff).
+        //  - LEFT JOIN LATERAL MAX(post_edits.edited_at) for `edited_at` (mobile-post-editing
+        //    "Diedit" label), keyed on the RESOLVED p.id so an invisible/blocked post yields no
+        //    edit-existence signal; post_edits is in neither lint rule's pattern and lives in THIS
+        //    same literal so the four block tokens stay co-located (BlockExclusionJoinRule integrity).
         //  - No display_location / coordinates projected at all (no-PII; design Decision 2).
-        //  - No author UUID projected (no-PII).
+        //  - p.author_id is SELECTed only to compute the per-viewer is_author flag in Kotlin (the
+        //    mobile-post-editing edit affordance); it is NEVER projected into the row/response (no-PII).
         val sql =
             """
             SELECT p.id,
+                   p.author_id,
                    p.author_username,
                    p.author_display_name,
                    p.content,
                    p.city_name,
                    p.created_at,
                    (pl.user_id IS NOT NULL) AS liked_by_viewer,
-                   c.n AS reply_count
+                   c.n AS reply_count,
+                   e.edited_at AS edited_at
               FROM (
                   (
-                      SELECT p.id, u.username AS author_username,
+                      SELECT p.id, p.author_id, u.username AS author_username,
                              u.display_name AS author_display_name, p.content,
                              p.city_name, p.created_at
                         FROM visible_posts p
@@ -64,7 +71,7 @@ class JdbcSinglePostRepository(
                   )
                   UNION ALL
                   (
-                      SELECT p.id, u.username AS author_username,
+                      SELECT p.id, p.author_id, u.username AS author_username,
                              u.display_name AS author_display_name, p.content,
                              p.city_name, p.created_at
                         FROM posts p
@@ -83,6 +90,11 @@ class JdbcSinglePostRepository(
                    WHERE pr.post_id = p.id
                      AND pr.deleted_at IS NULL
               ) c ON TRUE
+              LEFT JOIN LATERAL (
+                  SELECT MAX(pe.edited_at) AS edited_at
+                    FROM post_edits pe
+                   WHERE pe.post_id = p.id
+              ) e ON TRUE
             """.trimIndent()
         dataSource.connection.use { conn ->
             conn.prepareStatement(sql).use { ps ->
@@ -97,6 +109,9 @@ class JdbcSinglePostRepository(
                     return if (rs.next()) {
                         SinglePostRow(
                             id = rs.getObject("id", UUID::class.java),
+                            // author_id is read ONLY to compute the per-viewer authorship flag (the
+                            // mobile-post-editing edit affordance); it is NEVER projected to the response (no-PII).
+                            isAuthor = rs.getObject("author_id", UUID::class.java) == viewerId,
                             authorUsername = rs.getString("author_username"),
                             authorDisplayName = rs.getString("author_display_name"),
                             content = rs.getString("content"),
@@ -104,6 +119,7 @@ class JdbcSinglePostRepository(
                             createdAt = rs.getTimestamp("created_at").toInstant(),
                             likedByViewer = rs.getBoolean("liked_by_viewer"),
                             replyCount = rs.getInt("reply_count"),
+                            editedAt = rs.getTimestamp("edited_at")?.toInstant(),
                         )
                     } else {
                         null

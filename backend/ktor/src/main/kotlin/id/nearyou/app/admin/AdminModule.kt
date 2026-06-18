@@ -17,6 +17,7 @@ import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import id.nearyou.app.admin.ratelimit.GraceExpediteActionRateLimiter
 import id.nearyou.app.admin.ratelimit.ReservedUsernameActionRateLimiter
+import id.nearyou.app.admin.ratelimit.UsernameOversightActionRateLimiter
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
 import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
@@ -35,10 +36,15 @@ import id.nearyou.app.admin.routes.adminReportResolution
 import id.nearyou.app.admin.routes.adminReservedUsernames
 import id.nearyou.app.admin.routes.adminSubscriptionGrace
 import id.nearyou.app.admin.routes.adminUserModeration
+import id.nearyou.app.admin.routes.adminUsernameOversight
 import id.nearyou.app.admin.subscriptiongrace.SubscriptionGraceRepository
 import id.nearyou.app.admin.usermanagement.UserProfileRepository
+import id.nearyou.app.admin.usernameoversight.UsernameOversightRepository
+import id.nearyou.app.admin.usernameoversight.UsernameOversightService
 import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
+import id.nearyou.app.infra.repo.JdbcUsernameFlagOverrideRepository
+import id.nearyou.data.repository.UsernameFlagOverrideRepository
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.application.install
@@ -96,6 +102,13 @@ fun Application.admin(
     // uses the system clock; tests inject a fixed instant for a deterministic
     // classification boundary.
     privacyFlipsClock: () -> Instant = Instant::now,
+    // The SHARED one-shot per-candidate username-override store (admin-premium-
+    // username-oversight): the SAME repo the `PATCH /api/v1/user/username` gate
+    // consults/consumes — the admin accept side writes approvals through it
+    // (upsertApproval). Production passes the single instance constructed in
+    // Application.module(); standalone admin wiring (tests) defaults to a fresh
+    // JDBC binding (stateless above the connection seam — safe to re-instantiate).
+    usernameFlagOverrideRepository: UsernameFlagOverrideRepository = JdbcUsernameFlagOverrideRepository(),
 ) {
     val adminUserRepository = AdminUserRepository(dataSource)
     val sessionRepository = SessionRepository(dataSource)
@@ -109,6 +122,16 @@ fun Application.admin(
     val reservedUsernameActionRateLimiter = ReservedUsernameActionRateLimiter(dataSource)
     val reservedUsernamesRepository =
         ReservedUsernamesRepository(dataSource, auditLogger, reservedUsernameActionRateLimiter)
+    val usernameOversightRateLimiter = UsernameOversightActionRateLimiter(dataSource)
+    val usernameOversightRepository = UsernameOversightRepository(dataSource)
+    val usernameOversightService =
+        UsernameOversightService(
+            dataSource = dataSource,
+            repository = usernameOversightRepository,
+            flagOverrides = usernameFlagOverrideRepository,
+            rateLimiter = usernameOversightRateLimiter,
+            auditLogger = auditLogger,
+        )
     val userModerationRepository =
         UserModerationRepository(dataSource, auditLogger, destructiveActionRateLimiter)
     val userProfileRepository = UserProfileRepository(dataSource)
@@ -228,6 +251,12 @@ fun Application.admin(
                 adminReservedUsernames(
                     reservedUsernamesRepository,
                     reservedUsernameActionRateLimiter,
+                    auditLogger,
+                    layout,
+                )
+                adminUsernameOversight(
+                    usernameOversightRepository,
+                    usernameOversightService,
                     auditLogger,
                     layout,
                 )

@@ -19,7 +19,7 @@ Two tokens, one primary key pair:
 
 **Third-Party Auth migration path** (~2-3 days when MAU >10k makes it affordable): enable Third-Party Auth in Supabase Dashboard, point at the existing JWKS URL, swap WSS token generation from HS256 to RS256 (same key pair as REST). Zero REST refactor.
 
-**Secrets** (GCP Secret Manager): `ktor-rsa-private-key` (kid rotation via versions), `supabase-jwt-secret`, `apns-key-p8`, `firebase-admin-sa`, `openai-api-key`, `invite-code-secret`, `revenuecat-webhook-secret`(+`-hmac-secret`), `resend-api-key`, `jitter-secret` (256-bit), `backup-age-private-key`, `admin-app-db-connection-string`, `admin-session-cookie-signing-key` (optional). DESIGN-reserved: `csam-archive-aes-key`, `cf-worker-csam-secret`, `content-moderation-fallback-list`. Staging mirrors the list with a `staging-*` prefix.
+**Secrets** (GCP Secret Manager): `ktor-rsa-private-key` (kid rotation via versions), `supabase-jwt-secret`, `apns-key-p8`, `firebase-admin-sa`, `openai-api-key`, `invite-code-secret`, `revenuecat-webhook-secret`(+`-hmac-secret`), `resend-api-key`, `jitter-secret` (256-bit), `backup-age-private-key`, `admin-app-db-connection-string`, `admin-session-cookie-signing-key` (optional), `cloudflare-images-api-token`, `cloudflare-images-account-id`, `cloudflare-images-account-hash`, `gcp-vision-sa` (the last four added by `premium-image-upload-pipeline`; `:infra:cloudflare-images` + `:infra:cloud-vision` fail soft when unset, so the slots are operator-provisioned at the Month-6 launch). DESIGN-reserved: `csam-archive-aes-key`, `cf-worker-csam-secret`, `content-moderation-fallback-list`. Staging mirrors the list with a `staging-*` prefix.
 
 **HS256 incident rotation**: new Supabase JWT secret → Dashboard update (Realtime sessions kicked within ~20 min) → GCP slot update → rolling Ktor deploy → audit-log pre-rotation refresh tokens.
 
@@ -309,7 +309,7 @@ CREATE TABLE posts (
     actual_location GEOGRAPHY(POINT, 4326) NOT NULL,
     city_name TEXT,
     city_match_type VARCHAR(16),
-    image_id TEXT,
+    image_id TEXT, -- Cloudflare image id; owner-validated against image_uploads on attach (V26)
     content_tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED,
     is_auto_hidden BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -323,6 +323,8 @@ CREATE INDEX posts_content_tsv_idx ON posts USING GIN(content_tsv);
 CREATE INDEX posts_content_trgm_idx ON posts USING GIN(content gin_trgm_ops);
 CREATE INDEX posts_author_idx ON posts(author_id, created_at DESC) WHERE deleted_at IS NULL;
 ```
+
+**`image_uploads` ownership ledger** (V26, `premium-image-upload-pipeline`): one row per image stored in Cloudflare Images — `cf_image_id TEXT PRIMARY KEY`, `uploader_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`, `created_at`, `safe_search_adult|violence|racy TEXT` (the Vision `Likelihood` enum name), `status TEXT CHECK (status IN ('uploaded','attached'))`. Binds each Cloudflare image to its uploader so `POST /api/v1/posts` can authorize the `image_id` attach (the otherwise-free-text `posts.image_id`); also the future linkage point for the deferred CSAM subsystem + orphan cleanup. Daily quota/throttle live in Redis (rate-limit infra), not a count on this table. Indexed `(uploader_user_id, created_at DESC)`.
 
 ### Jitter Generation (HMAC-based, non-reversible)
 
@@ -352,17 +354,19 @@ display_location = offset_by_bearing(actual_location, bearing_radians, distance_
 
 ### Distance Floor + Rounding + Fuzz Order (`renderDistance`)
 
+The shared `:shared:distance` module exposes a PURE formatter — `DistanceRenderer.render(distanceMeters: Double): String` — consumed by both the Ktor backend and the mobile app:
+
 ```kotlin
-fun renderDistance(viewer: Location, post: Post, hideDistance: Boolean): String {
-    if (hideDistance) return ""
-    val fuzzedMeters = haversine(viewer, post.displayLocation)
-    val flooredMeters = max(fuzzedMeters, 5_000.0)
+fun render(distanceMeters: Double): String {
+    val flooredMeters = max(distanceMeters, 5_000.0)
     val roundedKm = (flooredMeters / 1_000.0).roundToInt()
     return "${roundedKm}km"
 }
 ```
 
-Order matters: fuzz first (crypto jitter) → floor second (UX/privacy) → round to nearest 1km last (display). Examples: actual 4.5km → fuzz 4.8km → floor 5km → "5km" (fuzz doesn't leak). Actual 7.4km → fuzz 7.3km → floor unchanged → "7km". Actual 7.6km → fuzz 7.7km → floor unchanged → "8km".
+The input is an ALREADY-FUZZED distance (measured against `display_location`, never `actual_location`); fuzzing lives in `JitterEngine`, NOT the renderer — `render` must not alter its input (`openspec/specs/distance-rendering`). Order across the pipeline: fuzz first (crypto jitter) → measure against `display_location` → floor at 5km (UX/privacy) → round to nearest 1km (display). Examples: actual 4.5km → fuzz 4.8km → floor 5km → "5km" (fuzz doesn't leak); actual 7.4km → fuzz 7.3km → "7km"; actual 7.6km → fuzz 7.7km → "8km".
+
+**Hide Distance (Premium) is server-side field omission, NOT a renderer parameter** — the earlier `renderDistance(viewer, post, hideDistance)` sketch is superseded by the `hide-distance` capability. When the symmetric author-OR-viewer hide rule suppresses a post's distance for a viewer, the Nearby read path OMITS the `distanceM` field from the response (the renderer is simply not invoked for that post); `render` stays pure. See `openspec/specs/hide-distance` + `docs/01` § Hide Distance Mechanics.
 
 ### Post Edit History (Race-Safe Temporal Versioning)
 
@@ -1130,7 +1134,8 @@ Server-side fetch via Firebase Admin SDK, cached with TTL 5 minutes in Redis.
 
 **Reserved / DESIGN** (referenced in specs; consumer not yet shipped):
 
-- `image_upload_enabled` (boolean, default FALSE): gate for Month 6 image-upload launch
+- `image_upload_enabled` (boolean, default FALSE): gate for Month 6 image-upload launch. Read server-side via a Redis-cached flag read with a **30s** per-flag short-TTL override (docs/11 §3.3), fail-closed to FALSE (`premium-image-upload-pipeline`).
+- `premium_image_upload_cap_override` (integer, default 50): daily image-upload cap override (the `premium_like_cap_override` precedent), read uncached; registered in `FeatureFlagCatalog` as an `IntRange`.
 - `attestation_mode` (enum `enforce` | `warn` | `off`, default `enforce`) + `attestation_bypass_google_ids_sha256` (list): QA bypass
 - `force_update_min_version` (string): force-upgrade floor for the mobile app
 - `perspective_api_enabled` (boolean, default TRUE): kill switch for Layer 3 toxicity classifier. Flag name retains historical "perspective" branding from the original spec; the underlying vendor is now OpenAI Moderation (`omni-moderation-latest`) after Perspective announced sunset end-of-2026.
