@@ -126,7 +126,7 @@ Redis Streams provide: message persistence within the stream retention window; c
 | `:infra:cloudflare-images` | DESIGN | Image upload feature — Cloudflare Images (`img.nearyou.id`) + CSAM webhook handler |
 | `:infra:revenuecat` | DESIGN | Premium subscription billing (webhook signature verify) |
 | `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27) |
-| `:infra:sentry` | SCAFFOLD NEXT | Follow-up `infra-sentry-kmp-module-isation` (split from Mobile #1 if scaffold scope grows; see [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority menu Mobile #1) |
+| `:infra:sentry` | shipped | `mobile-sentry-crash-reporting` ([PR #299](https://github.com/aditrioka/nearyou-id/pull/299)) — `CrashReporter` interface + `SentryCrashReporter` androidMain/iosMain actuals + `NoOpCrashReporter` default + `PiiScrubber`. Consumed by `:mobile:app` via Koin. |
 | `:infra:amplitude` | DESIGN | Consent-gated analytics HTTP client |
 | `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
 | `:infra:remote-config` | DECISION NEEDED | DB-backed feature flags already operational (`premium_*_cap_override`); a separate Firebase Remote Config module may be redundant or complementary — needs explicit decision before scaffolding |
@@ -383,11 +383,19 @@ OTel SDK in Ktor (auto-instrument: HTTP server, HTTP client, Postgres JDBC, Redi
 Mobile crash reporting (Android + iOS) via the Sentry KMP SDK; backend errors via Sentry Java; unified dashboard for correlation. Setup via the `:infra:sentry` module:
 
 ```kotlin
-expect object SentryProvider {
-    fun init(dsn: String, environment: String)
-    fun captureException(t: Throwable, context: Map<String, Any>)
-    fun setUser(userId: String, username: String?)
+// §2.5 pattern: a commonMain interface + Koin platform actuals — NOT `expect object`
+// (`expect class`/`object` is still Beta, reserved for top-level functions). Shipped as
+// `:infra:sentry`'s CrashReporter (mobile-sentry-crash-reporting, PR #299).
+interface CrashReporter {
+    fun init(config: CrashReporterConfig)            // dsn + environment + release; blank dsn no-ops
+    fun captureException(throwable: Throwable, context: Map<String, String> = emptyMap())
+    fun setUser(id: String)                          // OPAQUE id only (the JWT `sub`)
+    fun clearUser()
+    fun addBreadcrumb(breadcrumb: Breadcrumb)         // coordinate-free, pre-redacted strings only
+    fun close()
 }
+// androidMain/iosMain bind SentryCrashReporter actuals via Koin; NoOpCrashReporter is the
+// blank-dsn / consent-declined / headless default.
 ```
 
 **Symbol / mapping upload (CI step, mandatory)**: Android — Gradle task `sentry-cli upload-proguard` + `uploadSentrySymbolsDebug/Release`; iOS — Xcode build phase `sentry-cli upload-dsym` or Fastlane integration; backend — no symbol upload (Kotlin JVM stack traces readable).
