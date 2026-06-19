@@ -46,6 +46,8 @@ import id.nearyou.app.followlist.FollowListRepository
 import id.nearyou.app.hidedistance.DefaultHideDistanceRepository
 import id.nearyou.app.hidedistance.HideDistanceApiClient
 import id.nearyou.app.hidedistance.HideDistanceRepository
+import id.nearyou.app.infra.revenuecat.PurchaseController
+import id.nearyou.app.infra.revenuecat.RevenueCatPurchaseController
 import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.infra.sentry.CrashReporterConfig
 import id.nearyou.app.infra.sentry.SentryCrashReporter
@@ -113,6 +115,10 @@ val mobileModule =
         // SDK is fenced inside :infra:sentry). Init runs at process startup in initKoin#startCrashReporting
         // (opt-out default ON, consent-gated, blank-DSN no-op).
         single<CrashReporter> { SentryCrashReporter() }
+        // mobile-paywall-screen — the RevenueCat-backed PurchaseController (single commonMain binding; the
+        // purchases-kmp SDK is fenced inside :infra:revenuecat, invariant #16). Configured at startup via
+        // configureRevenueCat; until then fetchOfferings fail-softs to Unavailable (the Unconfigured paywall).
+        single<PurchaseController> { RevenueCatPurchaseController() }
         // mobile-crash-reporting — the start/stop lifecycle, shared by startup init (initKoin) and the
         // runtime consent toggle (ConsentSettingsViewModel). Config resolved from the flavor seam.
         single {

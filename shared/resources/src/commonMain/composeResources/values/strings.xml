@@ -364,6 +364,32 @@
     <string name="follow_list_load_more_failed">Gagal memuat. Ketuk untuk coba lagi.</string>
     <string name="profile_followers_open_cd">Lihat daftar pengikut</string>
     <string name="profile_following_open_cd">Lihat daftar yang diikuti</string>
+    <!-- mobile-paywall-screen (frame 17). Hero title is constant; the subheadline is tailored to the
+         entry-context (PaywallEntry). Benefits = the Month-1 set, features-available-now (NO image upload
+         per docs/03 § Paywall & Premium Disclosure). The CTA reuses cta_activate_premium; the close
+         affordance + error/unavailable retry reuse cta_close / cta_retry. The disclosure clause is the
+         verbatim docs/01-Business.md § Pricing & Payment line. Savings takes a pre-formatted "27%" string
+         (sidesteps the cross-platform %%-literal gotcha); per-day takes the formatted price. -->
+    <string name="paywall_title">NearYouID Premium</string>
+    <string name="paywall_subhead_like_cap">Like, balas &amp; posting tanpa batas</string>
+    <string name="paywall_subhead_search">Cari postingan di seluruh Indonesia</string>
+    <string name="paywall_subhead_default">Buka semua fitur Premium</string>
+    <string name="paywall_benefit_unlimited">Post, balasan &amp; like tanpa batas</string>
+    <string name="paywall_benefit_radius">Radius Sekitar 10/20/50/100 km</string>
+    <string name="paywall_benefit_hide_distance">Sembunyikan jarak (nama kota tetap tampil)</string>
+    <string name="paywall_benefit_username">Username kustom · 1× per 30 hari</string>
+    <string name="paywall_benefit_search_edit">Pencarian postingan · edit post 30 menit</string>
+    <string name="paywall_benefit_no_ads">Tanpa iklan · badge + tenure Premium</string>
+    <string name="paywall_period_weekly">Mingguan</string>
+    <string name="paywall_period_monthly">Bulanan</string>
+    <string name="paywall_period_yearly">Tahunan</string>
+    <string name="paywall_per_day">%1$s/hari</string>
+    <string name="paywall_savings">Hemat %1$s</string>
+    <string name="paywall_best_value">Paling hemat</string>
+    <string name="paywall_disclosure">Fitur Premium dapat berubah atau ditambahkan seiring waktu.</string>
+    <string name="paywall_unavailable_title">Premium belum tersedia</string>
+    <string name="paywall_unavailable_body">Fitur Premium akan segera hadir. Coba lagi nanti.</string>
+    <string name="paywall_purchase_error">Pembayaran gagal. Coba lagi.</string>
     <!-- mobile-premium-username: the Ganti Username surface (docs/03-UX-Design.md §107-148), consuming the
          SHIPPED PATCH /api/v1/user/username + GET /api/v1/username/check. Error/session states REUSE
          signin_error_network / cta_retry / timeline_session_redirect; the Premium-gate CTA REUSES

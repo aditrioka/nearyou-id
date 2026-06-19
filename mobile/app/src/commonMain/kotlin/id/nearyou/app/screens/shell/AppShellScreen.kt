@@ -119,6 +119,7 @@ fun AppShellScreen(
     onOpenSearch: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit = { _, _ -> },
+    onActivatePremium: () -> Unit = {},
 ) {
     val flow = koinInject<NotificationsFlow>()
     var selectedSection by rememberSaveable { mutableStateOf(Section.Home) }
@@ -199,6 +200,7 @@ fun AppShellScreen(
                         onOpenPost = onOpenPost,
                         onOpenPostReply = onOpenPostReply,
                         onOpenProfile = onOpenProfile,
+                        onActivatePremium = onActivatePremium,
                     )
                 Section.Notifikasi -> {
                     NotificationsScreen()

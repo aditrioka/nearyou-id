@@ -90,6 +90,7 @@ fun FollowingTimelineScreen(
     onOpenPost: (FollowingTimelinePost) -> Unit = {},
     onOpenPostReply: (FollowingTimelinePost) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
+    onActivatePremium: () -> Unit = {},
 ) {
     val flow = koinInject<FollowingTimelineFlow>()
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
@@ -131,13 +132,17 @@ fun FollowingTimelineScreen(
     )
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18) — same one-shot wiring as Nearby/Global;
-    // the Premium CTA is the v1 dismiss-only placeholder (paywall deferred, issue #235).
+    // the Premium CTA dismisses AND pushes PaywallRoute(LIKE_CAP) via the host (mobile-paywall-screen #235).
     likeCapRetryAfterSeconds?.let { retryAfterSeconds ->
         DailyCapUpsellDialog(
             retryAfterSeconds = retryAfterSeconds,
             body = { countdown -> stringResource(Res.string.post_detail_likes_cap_upsell, countdown) },
             onDismiss = viewModel::onLikeCapDialogDismissed,
-            onActivatePremium = viewModel::onLikeCapDialogDismissed,
+            // mobile-paywall-screen (#235): dismiss the dialog AND push PaywallRoute(LIKE_CAP) via the host.
+            onActivatePremium = {
+                viewModel.onLikeCapDialogDismissed()
+                onActivatePremium()
+            },
         )
     }
 }

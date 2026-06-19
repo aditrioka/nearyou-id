@@ -3,9 +3,7 @@
 ## Purpose
 
 The mobile **Cari** (search) surface in `:mobile:app` — the consumer for the shipped, frozen `premium-search` endpoint (`GET /api/v1/search?q=<query>&offset=<n>`), closing the discovery half of the authenticated core loop with zero backend work. A parameterless `SearchRoute` (root-stack push, reached from the Home brand app bar's search action icon) hosts a navigation-free `SearchScreen`: an M3 search input + result list over the `mobile-design-system` substrate, behind a `SearchRepository`/`SearchFlow` seam whose sealed `SearchOutcome` maps every HTTP status the endpoint enforces to exactly one state — results (with `next_offset` "Lihat lebih banyak" load-more), a Free-tier upsell on `403`, the rate-limit modal on `429`, a kill-switch state on `503`, plus idle / loading / empty / error / session-expired. A client-side `2..100` query guard + 500 ms debounce mirrors the backend bound; the result card renders only display fields (never the `author_id` UUID or `rank` score). Mirrors the proven `mobile-global-timeline` / `mobile-post-detail` data seam.
-
 ## Requirements
-
 ### Requirement: SearchRoute is a parameterless serializable NavKey pushed onto the root back stack
 
 The change SHALL introduce a `SearchRoute` `NavKey` (in `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/NavKeys.kt`) that is a parameterless `@Serializable data object` (the search query is entered IN the screen, so — unlike `PostDetailRoute` — the route carries NO payload and declares no properties). It SHALL be registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (so the back stack is saveable on Kotlin/Native per `mobile-app-scaffold` § "Back stack uses serializable NavKey routes"). `SearchRoute` SHALL be reached by appending it to the **root** navigation back stack (above `HomeRoute`, overlaying the section `NavigationBar`) — mirroring the post-composer FAB's and `PostDetailRoute`'s root-stack push, and deliberately NOT using a per-tab `NavDisplay` back stack.
@@ -232,7 +230,7 @@ A search result card SHALL be tappable: it SHALL invoke a hoisted `onOpenPost(..
 
 ### Requirement: The Premium gate renders the Free-tier upsell panel reactively on 403
 
-While the search outcome is `PremiumGate` (the reactive `403 premium_required` gate), `SearchScreen` SHALL render a Free-tier upsell panel: an explanatory body via `stringResource` (e.g. `search_premium_gate_body`) describing that search is a Premium feature, and a primary CTA via `stringResource` (e.g. `search_premium_gate_cta`, "Aktifkan Premium"). The CTA is a v1 informational placeholder: activating it invokes a hoisted callback whose v1 host wiring performs no navigation (no paywall screen exists — Phase 4 / DESIGN-status billing); a `follow-up` GitHub issue SHALL track routing it to the paywall. The gate panel SHALL NOT issue any further search request while shown.
+While the search outcome is `PremiumGate` (the reactive `403 premium_required` gate), `SearchScreen` SHALL render a Free-tier upsell panel: an explanatory body via `stringResource` (e.g. `search_premium_gate_body`) describing that search is a Premium feature, and a primary CTA via `stringResource` (e.g. `search_premium_gate_cta`, "Aktifkan Premium"). The CTA SHALL invoke a hoisted `onActivatePremium` callback that the host (the `appEntryProvider` call site) wires to push `PaywallRoute(entry = PaywallEntry.SEARCH_GATE)` onto the root back stack (the `mobile-paywall` capability — mockup frame 17, `docs/03-UX-Design.md` § Paywall & Premium Disclosure). `SearchScreen` SHALL remain navigation-free — it holds no back-stack reference; navigation is delivered only via the hoisted callback. The gate panel SHALL NOT issue any further search request while shown. (This resolves the v1 informational-placeholder state: the CTA is no longer a no-op. GitHub issue [#254](https://github.com/aditrioka/nearyou-id/issues/254) is addressed by the change introducing this behavior. The `429` rate-limit state is unaffected — it is a Premium-tier limit, so a user who reaches it is already Premium and is shown a countdown/retry, never a paywall CTA.)
 
 #### Scenario: 403 renders the upsell panel with the Premium CTA
 
@@ -240,11 +238,11 @@ While the search outcome is `PremiumGate` (the reactive `403 premium_required` g
 - **WHEN** `SearchScreen` renders
 - **THEN** the rendered tree contains the upsell body (`search_premium_gate_body`) AND a CTA labelled `stringResource(Res.string.search_premium_gate_cta)`
 
-#### Scenario: The upsell CTA performs no navigation in v1
+#### Scenario: The upsell CTA pushes PaywallRoute with the search-gate entry-context
 
-- **GIVEN** the upsell panel composed over a test root back stack (or with a recording CTA callback)
+- **GIVEN** the upsell panel composed over a test root back stack (or the `appEntryProvider` call site over a test root back stack)
 - **WHEN** the "Aktifkan Premium" CTA is activated
-- **THEN** no route is appended to the back stack (the v1 placeholder is a no-op / dismiss) AND a `follow-up` issue tracks the paywall destination
+- **THEN** a `PaywallRoute(entry = PaywallEntry.SEARCH_GATE)` is appended to the root back stack AND `SearchScreen` holds no back-stack reference (navigation is delivered via the hoisted `onActivatePremium` callback)
 
 ### Requirement: The rate-limit state renders the docs/03 modal with a live countdown
 
@@ -302,11 +300,18 @@ The change SHALL ship: (1) a Robolectric `SearchScreenTest` (`mobile/app/src/and
 - **WHEN** inspecting `mobile/app/build.gradle.kts`
 - **THEN** the Release-variant exclude block lists `**/SearchScreenTest*` alongside the existing `*ScreenTest` exclusions AND `:mobile:app:testDevReleaseUnitTest` passes
 
-### Requirement: Autocomplete, proactive upsell, and paywall navigation are explicitly deferred
+### Requirement: Autocomplete and proactive upsell are explicitly deferred
 
-This change SHALL NOT implement: (a) username autocomplete / typeahead (`docs/03-UX-Design.md:241` — requires a NEW backend autocomplete endpoint that is not shipped); (b) a proactive "upsell on tap before typing" surface (`docs/03-UX-Design.md:240` — requires a client-held `subscription_status`; the reactive-on-`403` `PremiumGate` is the v1 surface); (c) routing the Premium-gate / rate-limit upsell CTA to a real paywall screen (Phase 4 / DESIGN-status billing). Each deferral SHALL be recorded as a `tasks.md` note AND a `follow-up` GitHub issue (NOT silently dropped).
+This change SHALL NOT implement: (a) username autocomplete / typeahead (`docs/03-UX-Design.md:241` — requires a NEW backend autocomplete endpoint that is not shipped); (b) a proactive "upsell on tap before typing" surface (`docs/03-UX-Design.md:240` — requires a global, app-wide client-held subscription/entitlement signal plus a loading/fallback design for the pre-load window; the reactive-on-`403` `PremiumGate` is the v1 surface). The entitlement seam that the proactive upsell needs (the `PurchaseController` / RevenueCat `CustomerInfo` entitlement) is delivered by the `mobile-paywall` capability in this change, but the proactive behavior itself is NOT built here. **Paywall navigation is NO LONGER deferred** — the Premium-gate CTA now routes to `PaywallRoute` per the § "The Premium gate renders the Free-tier upsell panel reactively on 403" requirement, so it is removed from this deferral list. Each remaining deferral SHALL be recorded as a `tasks.md` note AND a `follow-up` GitHub issue (NOT silently dropped); the proactive-upsell follow-up is GitHub issue [#253](https://github.com/aditrioka/nearyou-id/issues/253).
 
-#### Scenario: The deferrals are tracked, not silent
+#### Scenario: The remaining deferrals are tracked, not silent
 
 - **WHEN** inspecting `tasks.md` and the change's follow-up issues
-- **THEN** the autocomplete, proactive-upsell, and paywall-navigation deferrals are each recorded with a `follow-up` GitHub issue reference AND the v1 search surface functions without them (reactive gate, submit/debounce search, informational upsell)
+- **THEN** the autocomplete and proactive-upsell deferrals are each recorded with a `follow-up` GitHub issue reference (proactive upsell = [#253](https://github.com/aditrioka/nearyou-id/issues/253)) AND paywall navigation is NOT listed as a deferral (it is implemented) AND the v1 search surface functions (reactive gate, submit/debounce search, an upsell CTA that now routes to the paywall)
+
+#### Scenario: Search opens to Idle for all viewers (the proactive gate is not built)
+
+- **GIVEN** a Free viewer opening the Cari surface with no query yet
+- **WHEN** `SearchScreen` first renders
+- **THEN** it shows the Idle prompt (the § "Screen state mapping" Idle state) AND does NOT short-circuit to the `PremiumGate` upsell before a query is issued — the gate appears only reactively on a `403` response
+

@@ -9,7 +9,7 @@ The mobile app SHALL ship a shared daily-cap upsell dialog composable (file: `mo
 
 - **Title**: `stringResource(Res.string.cap_dialog_title)` — NEW string "Batas harian tercapai" (the frame-18 title; deliberately cap-generic because the frame's caption declares the same modal pattern for the future post/reply/chat caps).
 - **Body**: a caller-supplied, already-formatted string — the parameterization is the reuse seam for those future caps. The LIKE instantiation (this change's only consumer) supplies `stringResource(Res.string.post_detail_likes_cap_upsell)` — the existing key whose value is the **verbatim** `docs/03-UX-Design.md:187` modal body ("Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam %1$s.") — formatted with the live countdown string (§ "The countdown derives from Retry-After and ticks to the reset").
-- **Confirm button** (right): a filled `Button` labelled `stringResource(Res.string.cta_activate_premium)` — NEW string "Aktifkan Premium" (the docs/03:187 primary CTA), invoking a hoisted `onActivatePremium` callback (§ "Premium CTA navigation is deferred").
+- **Confirm button** (right): a filled `Button` labelled `stringResource(Res.string.cta_activate_premium)` — NEW string "Aktifkan Premium" (the docs/03:187 primary CTA), invoking a hoisted `onActivatePremium` callback (§ "Premium CTA navigates to the paywall").
 - **Dismiss button** (left): a `TextButton` labelled `stringResource(Res.string.cta_close)` — the EXISTING "Tutup" key (the docs/03:187 secondary CTA), invoking a hoisted `onDismiss` callback. The dialog's `onDismissRequest` (scrim tap / back) SHALL behave as the dismiss button.
 
 No hardcoded UI string literals SHALL appear in the component source (Compose Multiplatform Resources only); colors/typography SHALL come from `NearYouTheme` tokens (no literals); the component SHALL render correctly under both light and dark schemes. The component holds no navigation reference and no rate-limit state of its own — show/hide is owned by the host surface's state.
@@ -70,21 +70,6 @@ The post-detail cap **banner**'s coarse hour treatment (`post_detail_reset_hours
 - **WHEN** the final simulated minute elapses
 - **THEN** `onDismiss` is invoked (the dialog closes itself — the cap has reset)
 
-### Requirement: Premium CTA navigation is deferred
-
-Tapping "Aktifkan Premium" SHALL invoke the hoisted `onActivatePremium` callback; in this change every host surface SHALL wire that callback to dismiss the dialog ONLY (the operator-authorized placeholder — no paywall screen exists). The CTA MUST NOT push a route, mutate any back stack, or perform any navigation side-effect in this change (no dead navigation). GitHub issue [#235](https://github.com/aditrioka/nearyou-id/issues/235) `mobile-paywall-screen` (label `follow-up`) tracks the paywall destination; the future paywall change SHALL MODIFY this requirement to navigate to the paywall (mockup frame 17, `docs/03-UX-Design.md` § Paywall & Premium Disclosure).
-
-#### Scenario: The Premium CTA invokes the hoisted callback and the v1 wiring only dismisses
-
-- **GIVEN** the dialog shown on a feed surface with the v1 wiring
-- **WHEN** the "Aktifkan Premium" button is tapped
-- **THEN** `onActivatePremium` fires exactly once AND the dialog is dismissed AND no `PostDetailRoute`/paywall/other entry is appended to any back stack (no navigation side-effect)
-
-#### Scenario: Follow-up issue tracks the paywall deferral
-
-- **WHEN** inspecting the project's open GitHub issues (label `follow-up`)
-- **THEN** GitHub issue [#235](https://github.com/aditrioka/nearyou-id/issues/235) (label `follow-up`) tracks `mobile-paywall-screen`, including rewiring this CTA
-
 ### Requirement: Test coverage for the dialog and countdown
 
 The change SHALL ship: (1) a Robolectric `DailyCapUpsellDialogTest` (`mobile/app/src/androidUnitTest/...`, using the v2 ComposeUiTest API per docs/11 § 2.7) covering the verbatim like-body render with both CTAs, the scrim/back dismissal, the minute tick-down, the zero auto-dismiss, and the CTA/dismiss callback routing — ADDED to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (the established `*ScreenTest`-style exclusion; verify `:mobile:app:testDevReleaseUnitTest` still passes); (2) commonTest coverage for the pure countdown formatter (hours+minutes vs minutes-only split, round-up boundaries, the 51540 → "14 j 19 mnt" frame-18 fixture).
@@ -98,4 +83,25 @@ The change SHALL ship: (1) a Robolectric `DailyCapUpsellDialogTest` (`mobile/app
 
 - **WHEN** inspecting `mobile/app/build.gradle.kts`
 - **THEN** the Release-variant `tasks.withType<Test>()` exclude block lists the dialog test alongside the existing `*ScreenTest` exclusions AND `:mobile:app:testDevReleaseUnitTest` passes
+
+### Requirement: Premium CTA navigates to the paywall
+
+Tapping "Aktifkan Premium" SHALL invoke the hoisted `onActivatePremium` callback; every host surface SHALL wire that callback to push `PaywallRoute(entry = PaywallEntry.LIKE_CAP)` onto the root back stack (the `mobile-paywall` capability — mockup frame 17, `docs/03-UX-Design.md` § Paywall & Premium Disclosure) AND dismiss the dialog. The `DailyCapUpsellDialog` component itself SHALL remain navigation-free: it holds no back-stack reference and performs NO navigation side-effect of its own — it only invokes the hoisted `onActivatePremium` and `onDismiss`. The navigation is owned by the host surface (the feed / post-detail surface that showed the dialog), keeping the component a pure, reusable presentation piece. This resolves the v1 dismiss-only placeholder: the CTA is no longer a dead-end, and GitHub issue [#235](https://github.com/aditrioka/nearyou-id/issues/235) `mobile-paywall-screen` (the former `follow-up`) is closed by the change that introduces this behavior.
+
+#### Scenario: The Premium CTA invokes the hoisted callback and the host pushes the paywall
+
+- **GIVEN** the dialog shown on a feed surface whose host wires `onActivatePremium` over a test root back stack
+- **WHEN** the "Aktifkan Premium" button is tapped
+- **THEN** `onActivatePremium` fires exactly once AND the host appends `PaywallRoute(entry = PaywallEntry.LIKE_CAP)` to the root back stack AND the dialog is dismissed
+
+#### Scenario: The dialog component itself holds no navigation reference
+
+- **WHEN** inspecting `DailyCapUpsellDialog.kt`
+- **THEN** the component holds no back-stack reference and performs no navigation itself — it only invokes the hoisted `onActivatePremium` / `onDismiss` (navigation is the host's responsibility)
+
+#### Scenario: Scrim/back dismissal still behaves as Tutup and does not navigate
+
+- **GIVEN** the dialog composed with recording `onDismiss` / `onActivatePremium` callbacks over a test root back stack
+- **WHEN** the dialog's `onDismissRequest` fires (scrim tap / back)
+- **THEN** `onDismiss` is invoked exactly once AND `onActivatePremium` is not invoked AND no `PaywallRoute` is appended to the back stack
 

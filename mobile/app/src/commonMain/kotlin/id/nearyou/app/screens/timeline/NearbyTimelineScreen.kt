@@ -107,6 +107,7 @@ fun NearbyTimelineScreen(
     onOpenPost: (NearbyTimelinePost) -> Unit = {},
     onOpenPostReply: (NearbyTimelinePost) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
+    onActivatePremium: () -> Unit = {},
 ) {
     val controller = koinInject<LocationPermissionController>()
     val gate = remember { LocationGate(controller) }
@@ -140,6 +141,7 @@ fun NearbyTimelineScreen(
                 onOpenPost = onOpenPost,
                 onOpenPostReply = onOpenPostReply,
                 onOpenProfile = onOpenProfile,
+                onActivatePremium = onActivatePremium,
             )
     }
 }
@@ -161,6 +163,7 @@ private fun NearbyFeed(
     onOpenPost: (NearbyTimelinePost) -> Unit,
     onOpenPostReply: (NearbyTimelinePost) -> Unit,
     onOpenProfile: (authorUserId: String) -> Unit,
+    onActivatePremium: () -> Unit,
 ) {
     val flow = koinInject<NearbyTimelineFlow>()
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
@@ -206,14 +209,18 @@ private fun NearbyFeed(
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18): shown while the one-shot cap
     // state is non-null. The body is the verbatim docs/03:187 modal copy formatted with the live
-    // ticking countdown. The Premium CTA is the v1 dismiss-only placeholder — the paywall destination
-    // is the deferred requirement tracked by issue #235.
+    // ticking countdown. The Premium CTA dismisses the dialog AND pushes the paywall via the host
+    // (mobile-paywall-screen #235); the dialog component itself stays navigation-free.
     likeCapRetryAfterSeconds?.let { retryAfterSeconds ->
         DailyCapUpsellDialog(
             retryAfterSeconds = retryAfterSeconds,
             body = { countdown -> stringResource(Res.string.post_detail_likes_cap_upsell, countdown) },
             onDismiss = viewModel::onLikeCapDialogDismissed,
-            onActivatePremium = viewModel::onLikeCapDialogDismissed,
+            // mobile-paywall-screen (#235): dismiss the dialog AND push PaywallRoute(LIKE_CAP) via the host.
+            onActivatePremium = {
+                viewModel.onLikeCapDialogDismissed()
+                onActivatePremium()
+            },
         )
     }
 }

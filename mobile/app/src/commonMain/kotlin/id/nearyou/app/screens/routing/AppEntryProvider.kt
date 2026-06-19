@@ -10,6 +10,7 @@ import id.nearyou.app.screens.chat.ChatThreadScreen
 import id.nearyou.app.screens.chat.ConversationListScreen
 import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.followlist.FollowListScreen
+import id.nearyou.app.screens.paywall.PaywallScreen
 import id.nearyou.app.screens.post.EditPostScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
@@ -129,6 +130,9 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 // tabbed list onto the root stack at the tapped count's tab. The self ProfileScreen resolves
                 // its own userId from the session and supplies it here; the route carries only userId + tab.
                 onOpenFollowList = { followUserId, tab -> backStack.add(FollowListRoute(followUserId, tab)) },
+                // mobile-paywall-screen (#235): the like-cap upsell dialog's "Aktifkan Premium" CTA (threaded
+                // from the dialog → timeline screens → HomeScreen → here) pushes the paywall onto the root stack.
+                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.LIKE_CAP)) },
             )
         }
         entry<AgeGateRoute> {
@@ -249,6 +253,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // (mobile-search § "A result tap opens PostDetailRoute with documented default fields").
             SearchScreen(
                 onBack = { backStack.removeLastOrNull() },
+                // mobile-paywall-screen (#254): the 403 Premium-gate CTA pushes the paywall.
+                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.SEARCH_GATE)) },
                 onOpenPost = { hit ->
                     backStack.add(
                         PostDetailRoute(
@@ -266,6 +272,17 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 },
             )
         }
+        entry<PaywallRoute> { route ->
+            // The Premium paywall (mobile-paywall, frame 17). `removeLastOrNull()` is size-safe:
+            // PaywallRoute is only ever appended ATOP the surface that opened it (the cap dialog, the
+            // search Premium gate, or the username gate), so popping returns there. `route.entry` tailors
+            // only the hero subheadline; on a confirmed purchase the screen pops itself (onPurchaseComplete
+            // defaults to onClose) and the underlying surface re-evaluates its gate on next action (design D5).
+            PaywallScreen(
+                entry = route.entry,
+                onClose = { backStack.removeLastOrNull() },
+            )
+        }
         entry<UsernameCustomizationRoute> {
             // The Ganti Username surface (mobile-premium-username). `removeLastOrNull()` is size-safe:
             // UsernameCustomizationRoute is only ever appended ATOP HomeRoute (the Settings "Ganti
@@ -276,10 +293,10 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             UsernameCustomizationScreen(
                 onBack = { backStack.removeLastOrNull() },
                 onChanged = { backStack.removeLastOrNull() },
-                // TODO(#309): backStack.add(PaywallRoute) once mobile-paywall-screen lands the route
-                // (design D8 — the gate CTA is a documented no-op until then; this change sequences
-                // its squash-merge behind #309).
-                onActivatePremium = {},
+                // mobile-premium-username § "The Premium gate ... routes to the paywall": the call site
+                // pushes PaywallRoute with the USERNAME entry-context — the reserved entry mobile-paywall-screen
+                // (#309) introduced for exactly this cross-change hook (fulfils that change's TODO(#309)).
+                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.USERNAME)) },
             )
         }
     }

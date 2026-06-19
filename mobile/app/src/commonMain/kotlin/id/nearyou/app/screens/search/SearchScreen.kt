@@ -108,6 +108,7 @@ const val SEARCH_PREMIUM_CTA_TAG: String = "searchPremiumCta"
 fun SearchScreen(
     onBack: () -> Unit,
     onOpenPost: (SearchHit) -> Unit = {},
+    onActivatePremium: () -> Unit = {},
 ) {
     val flow = koinInject<SearchFlow>()
     val viewModel = viewModel { SearchViewModel(flow) }
@@ -145,7 +146,7 @@ fun SearchScreen(
                 is SearchUiState.EmptyResults ->
                     CenteredMessage(stringResource(Res.string.search_empty_results, state.query))
                 SearchUiState.Error -> ErrorState(onRetry = viewModel::retry)
-                SearchUiState.PremiumGate -> PremiumGateState()
+                SearchUiState.PremiumGate -> PremiumGateState(onActivatePremium = onActivatePremium)
                 is SearchUiState.RateLimited ->
                     RateLimitedState(retryAfterSeconds = state.retryAfterSeconds, onRetry = viewModel::retry)
                 SearchUiState.Disabled -> CenteredMessage(stringResource(Res.string.search_disabled))
@@ -311,11 +312,12 @@ private fun ErrorState(onRetry: () -> Unit) {
 
 /**
  * The Free-tier upsell panel (the reactive 403 gate). An informational body + an "Aktifkan Premium" CTA
- * that is a v1 placeholder (no paywall destination — Phase 4 billing; the deferred requirement is tracked
- * by a follow-up issue), so its click is a no-op (the panel just communicates the gate).
+ * that invokes the hoisted [onActivatePremium]; the host (`appEntryProvider`) pushes
+ * `PaywallRoute(SEARCH_GATE)` (mobile-paywall-screen, #254). The panel itself holds no back-stack
+ * reference — `SearchScreen` stays navigation-free.
  */
 @Composable
-private fun PremiumGateState() {
+private fun PremiumGateState(onActivatePremium: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier.padding(24.dp),
@@ -328,8 +330,8 @@ private fun PremiumGateState() {
                 textAlign = TextAlign.Center,
             )
             Button(
-                // v1 placeholder: no paywall screen exists yet (Phase 4) — the CTA performs no navigation.
-                onClick = {},
+                // mobile-paywall-screen (#254): the CTA now pushes PaywallRoute(SEARCH_GATE) via the host.
+                onClick = onActivatePremium,
                 modifier = Modifier.padding(top = 16.dp).testTag(SEARCH_PREMIUM_CTA_TAG),
             ) {
                 Text(text = stringResource(Res.string.cta_activate_premium))

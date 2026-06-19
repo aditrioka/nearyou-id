@@ -58,6 +58,12 @@ if (includeMobile.toBoolean()) {
     // is mobile-only and MUST stay gated — it cannot be configured in the
     // JDK-only Docker builder.
     include(":infra:supabase-realtime")
+    // mobile-paywall-screen — :infra:revenuecat is a mobile-only KMP module (androidTarget + iOS,
+    // no JVM target; applies the Android library plugin), consumed solely by :mobile:app (the paywall
+    // PurchaseController seam). The backend subscription contract is owned by :backend:ktor's webhook
+    // (#291), NOT this module. Mobile-gated like :infra:sentry / :infra:supabase-realtime so the
+    // JDK-only backend Docker builder excludes it (it can't be configured/COPY'd without the Android SDK).
+    include(":infra:revenuecat")
 }
 include(":backend:ktor")
 include(":shared:tmp")

@@ -3,6 +3,7 @@ package id.nearyou.app.screens.home
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -24,10 +25,13 @@ import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.FakeCreatePostFlow
 import id.nearyou.app.post.FakePostDetailFlow
 import id.nearyou.app.post.FakePostEditFlow
+import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.routing.HomeRoute
+import id.nearyou.app.screens.routing.PaywallEntry
+import id.nearyou.app.screens.routing.PaywallRoute
 import id.nearyou.app.screens.routing.PostCreationRoute
 import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.screens.routing.TestNavHost
@@ -49,6 +53,9 @@ import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.timeline.fakeFollowingPost
 import id.nearyou.app.timeline.fakeGlobalPost
 import id.nearyou.app.timeline.fakeNearbyPost
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
+import id.nearyou.app.ui.components.POST_CARD_LIKE_ACTION_TAG
 import id.nearyou.app.ui.components.POST_CARD_REPLY_ACTION_TAG
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
@@ -104,6 +111,7 @@ class HomeTabHostScreenTest {
             FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "FOLLOWING_POST")), null, null),
         globalOutcome: GlobalTimelineOutcome =
             GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "GLOBAL_POST")), null, null),
+        likeOutcome: LikeOutcome = LikeOutcome.Liked,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         nearbyFake = FakeNearbyTimelineFlow(nearbyOutcome)
@@ -115,7 +123,7 @@ class HomeTabHostScreenTest {
                     single<NearbyTimelineFlow> { nearbyFake }
                     single<FollowingTimelineFlow> { followingFake }
                     single<GlobalTimelineFlow> { globalFake }
-                    single<LikeFlow> { FakeLikeFlow() }
+                    single<LikeFlow> { FakeLikeFlow(likeOutcome) }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
@@ -378,6 +386,27 @@ class HomeTabHostScreenTest {
             assertEquals("Raka Pratama", top.authorDisplayName)
             // mobile-inline-post-actions — the whole-card open keeps the autofocus flag at its default.
             assertEquals(false, top.focusReplyComposer, "a whole-card open pushes focusReplyComposer = false")
+        }
+    }
+
+    // mobile-paywall-screen (#235) — the like-cap upsell dialog's "Aktifkan Premium" CTA, threaded
+    // dialog → timeline screen → HomeScreen → AppShellScreen → appEntryProvider, pushes
+    // PaywallRoute(entry = LIKE_CAP) onto the root stack (the host-push half of the MODIFIED cap-dialog
+    // scenario; the screen-level callback firing is covered by NearbyTimelineScreenTest).
+    @Test
+    fun capDialogPremiumCta_pushesPaywallRouteLikeCapOntoRootStack() {
+        installKoin(likeOutcome = LikeOutcome.RateLimited(retryAfterSeconds = 1_140))
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(HomeRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).onFirst().performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
+            val top = backStack.last()
+            assertTrue(top is PaywallRoute, "the cap-dialog CTA pushes PaywallRoute (was: ${backStack.toList()})")
+            assertEquals(PaywallEntry.LIKE_CAP, top.entry, "the cap-dialog entry-context is LIKE_CAP")
         }
     }
 

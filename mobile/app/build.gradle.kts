@@ -79,6 +79,16 @@ kotlin {
             linkOnly = true
             extraOpts += listOf("-compiler-option", "-fmodules")
         }
+        // mobile-paywall-screen — the native RevenueCat iOS framework REQUIRED by the purchases-kmp SDK
+        // (fenced in :infra:revenuecat; its iOS klib's SPM cinterop links against RevenueCat/purchases-ios).
+        // linkOnly = true: the :infra:revenuecat klib owns the Kotlin bindings, so the Pod supplies ONLY
+        // the framework binary at link time (no duplicate cinterop). -fmodules for the modular headers.
+        // Version pinned to the purchases-kmp 3.0.6 upstream (libs.versions.toml § revenuecat-ios = 5.77.0).
+        pod("RevenueCat") {
+            version = libs.versions.revenuecat.ios.get()
+            linkOnly = true
+            extraOpts += listOf("-compiler-option", "-fmodules")
+        }
     }
 
     sourceSets {
@@ -137,6 +147,10 @@ kotlin {
             // Sentry KMP SDK is an `implementation`-scoped transitive dep of :infra:sentry, so it NEVER
             // reaches the app's compile classpath (invariant #16).
             implementation(projects.infra.sentry)
+            // mobile-paywall-screen — the vendor-FREE PurchaseController seam + domain models. The
+            // RevenueCat purchases-kmp SDK is an `implementation`-scoped transitive dep of
+            // :infra:revenuecat, so it NEVER reaches the app's compile classpath (invariant #16).
+            implementation(projects.infra.revenuecat)
             // Mobile #3 — Ktor KMP client + serialization + datetime for token expiration.
             implementation(libs.ktor.kmp.clientCore)
             implementation(libs.ktor.kmp.clientContentNegotiation)
@@ -226,6 +240,9 @@ android {
             // not a secret) + environment tag. Empty until the operator provisions it (task 1.3); an
             // empty DSN makes init no-op. Overridable via -PdevSentryDsn=.
             buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("devSentryDsn") as String?) ?: ""}\"")
+            // mobile-paywall-screen — RevenueCat publishable client key (ships in the binary; not a
+            // secret). Blank in dev (no RevenueCat locally) → configure skipped → paywall Unconfigured.
+            buildConfigField("String", "REVENUECAT_PUBLIC_KEY", "\"${(project.findProperty("devRevenueCatPublicKey") as String?) ?: ""}\"")
             buildConfigField("String", "SENTRY_ENVIRONMENT", "\"dev\"")
         }
         create("staging") {
@@ -259,6 +276,13 @@ android {
             // mobile-sentry-crash-reporting — staging Sentry DSN (operator-supplied; empty → init no-ops).
             // Overridable via -PstagingSentryDsn=.
             buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("stagingSentryDsn") as String?) ?: ""}\"")
+            // mobile-paywall-screen — RevenueCat Test Store publishable key (staging-revenuecat-test-api-key
+            // slot, PR #319). Blank by default; CI injects via -PstagingRevenueCatPublicKey for the live path.
+            buildConfigField(
+                "String",
+                "REVENUECAT_PUBLIC_KEY",
+                "\"${(project.findProperty("stagingRevenueCatPublicKey") as String?) ?: ""}\"",
+            )
             buildConfigField("String", "SENTRY_ENVIRONMENT", "\"staging\"")
         }
         create("production") {
@@ -270,6 +294,9 @@ android {
             // mobile-sentry-crash-reporting — production Sentry DSN (operator-supplied; empty → init no-ops).
             // Overridable via -PprodSentryDsn=.
             buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("prodSentryDsn") as String?) ?: ""}\"")
+            // mobile-paywall-screen — production RevenueCat publishable key. Blank until the prod twin is
+            // provisioned (needs Apple/Google dev accounts); CI injects via -PprodRevenueCatPublicKey.
+            buildConfigField("String", "REVENUECAT_PUBLIC_KEY", "\"${(project.findProperty("prodRevenueCatPublicKey") as String?) ?: ""}\"")
             buildConfigField("String", "SENTRY_ENVIRONMENT", "\"production\"")
         }
     }
@@ -362,6 +389,7 @@ tasks.withType<Test>().configureEach {
             "**/ConversationListScreenTest*",
             "**/ChatThreadScreenTest*",
             "**/SearchScreenTest*",
+            "**/PaywallScreenTest*",
             "**/UsernameCustomizationScreenTest*",
         )
     }
