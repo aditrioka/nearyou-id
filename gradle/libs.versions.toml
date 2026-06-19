@@ -23,6 +23,9 @@ playServicesLocation = "21.3.0"
 composeMultiplatform = "1.11.1"
 detekt = "1.23.8"
 firebase-admin = "9.8.0"
+# premium-image-upload-pipeline — Google Cloud Vision SDK (Safe Search upfront moderation),
+# fenced in :infra:cloud-vision. Pinned after a dated re-check 2026-06-16 (latest stable 3.x).
+google-cloud-vision = "3.89.0"
 # mobile-fcm-token-registration — Firebase Android BoM (co-versions firebase-messaging on the device).
 # Pinned at apply (2026-06-13); the dated pre-implementation library re-check (tasks.md 1.1) confirms /
 # bumps this. The BoM manages the firebase-messaging artifact version; no per-artifact pin.
@@ -282,6 +285,7 @@ password4j = { module = "com.password4j:password4j", version.ref = "password4j" 
 samstevens-totp = { module = "dev.samstevens.totp:totp", version.ref = "samstevens-totp" }
 
 firebase-admin = { module = "com.google.firebase:firebase-admin", version.ref = "firebase-admin" }
+google-cloud-vision = { module = "com.google.cloud:google-cloud-vision", version.ref = "google-cloud-vision" }
 # mobile-fcm-token-registration — Android FCM client SDK, version managed by the Firebase BoM (no version.ref).
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }

@@ -488,6 +488,7 @@ private class FakeRemoteConfigPublisher(
                 "perspective_api_enabled" to "false",
                 "premium_username_customization_enabled" to "true",
                 "premium_like_cap_override" to "false",
+                "premium_image_upload_cap_override" to "50",
                 "moderation_match_threshold" to "3",
                 "moderation_profanity_list" to "[\"a\",\"b\"]",
                 "moderation_uu_ite_list" to "[\"x\"]",

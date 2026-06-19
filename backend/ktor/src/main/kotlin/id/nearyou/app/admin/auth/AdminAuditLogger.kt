@@ -589,6 +589,39 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a rejected-identifier manual CLEAR (`admin-rejected-
+     * identifiers-clear-action`). Joins the caller's [conn] so the audit INSERT
+     * commits atomically with the `rejected_identifiers` DELETE. [beforeState]
+     * records the cleared `{identifier_hash, identifier_type, reason, rejected_at}`;
+     * `after_state` is null (the row is gone — the audit trail is the retained
+     * record). [reason] is the admin-supplied support justification. `adminId` is
+     * the acting human admin; this same `action_type` row is also the rate-limit
+     * ledger entry counted by [id.nearyou.app.admin.ratelimit.RejectedIdentifierClearRateLimiter].
+     */
+    fun logRejectedIdentifierCleared(
+        conn: Connection,
+        adminId: UUID,
+        rejectedIdentifierId: UUID,
+        reason: String,
+        beforeState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "rejected_identifier_cleared",
+            adminId = adminId,
+            targetType = "rejected_identifier",
+            targetId = rejectedIdentifierId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = null,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Own-connection audit write for the standalone login / logout / CSRF
      * events — opens, writes, and (via `use`) closes its own connection.
      * There is nothing to be atomic against on those paths, so each is a

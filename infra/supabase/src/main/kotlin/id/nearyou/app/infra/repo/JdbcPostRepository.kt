@@ -21,11 +21,13 @@ class JdbcPostRepository : PostRepository {
             INSERT INTO posts (
                 id, author_id, content,
                 display_location,
-                actual_location
+                actual_location,
+                image_id
             ) VALUES (
                 ?, ?, ?,
                 ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
-                ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography
+                ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
+                ?
             )
             """.trimIndent(),
         ).use { ps ->
@@ -37,6 +39,8 @@ class JdbcPostRepository : PostRepository {
             ps.setDouble(5, row.displayLat)
             ps.setDouble(6, row.actualLng)
             ps.setDouble(7, row.actualLat)
+            // Nullable Cloudflare image id; setString(null) writes SQL NULL (text-only post).
+            ps.setString(8, row.imageId)
             ps.executeUpdate()
         }
         return row.id

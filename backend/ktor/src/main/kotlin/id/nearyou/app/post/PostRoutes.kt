@@ -12,6 +12,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -22,6 +23,8 @@ data class CreatePostRequestDto(
     val content: String? = null,
     val latitude: Double,
     val longitude: Double,
+    // Optional Cloudflare image id from a prior POST /api/v1/images (premium-image-upload-pipeline).
+    @SerialName("image_id") val imageId: String? = null,
 )
 
 fun Application.postRoutes(service: CreatePostService) {
@@ -56,6 +59,7 @@ fun Application.postRoutes(service: CreatePostService) {
                         latitude = req.latitude,
                         longitude = req.longitude,
                         subscriptionStatus = principal.subscriptionStatus,
+                        imageId = req.imageId,
                     )
                 // Manual JSON build: the app-wide ContentNegotiation has `explicitNulls = false`
                 // (so optional nulls stay out of wire format), but the post-creation spec

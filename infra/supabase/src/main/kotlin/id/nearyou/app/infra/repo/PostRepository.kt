@@ -17,6 +17,10 @@ data class NewPostRow(
     val actualLng: Double,
     val displayLat: Double,
     val displayLng: Double,
+    // Optional Cloudflare image id (premium-image-upload-pipeline). Validated as
+    // caller-owned + flipped to 'attached' in the same tx by CreatePostService;
+    // null for a text-only post.
+    val imageId: String? = null,
 )
 
 /**
