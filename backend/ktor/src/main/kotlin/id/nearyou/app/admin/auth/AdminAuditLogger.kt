@@ -393,6 +393,46 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a hard-delete-queue MANUAL EXPEDITE (`admin-hard-delete-queue`
+     * capability): `POST /admin/deletion-requests/{id}/expedite` advancing a
+     * pending `deletion_requests` row's `scheduled_hard_delete_at` to `NOW()` so
+     * the existing daily worker erases the account on its next run. Joins the
+     * caller's [conn] so this audit INSERT + the rate-limit COUNT read the same
+     * ledger snapshot and the deadline advance + audit row commit atomically inside
+     * the expedite transaction (the atomicity requirement). `target_type =
+     * 'deletion_request'`, `target_id` = the deletion-request id. Unlike the
+     * subscription-grace expedite (a no-op), this action MUTATES — so [beforeState]
+     * / [afterState] carry DIFFERING `scheduled_hard_delete_at` values (the prior
+     * future deadline → `NOW()`) plus the affected `user_id`; the route itself never
+     * tombstones or cascades (the worker does). The mandatory [reason] is the
+     * operator justification. `adminId` is the acting human admin, never the
+     * `system` sentinel.
+     */
+    fun logDeletionRequestExpedited(
+        conn: Connection,
+        adminId: UUID,
+        deletionRequestId: UUID,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "deletion_request_expedited",
+            adminId = adminId,
+            targetType = "deletion_request",
+            targetId = deletionRequestId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a feature-flag publish (`admin-feature-flags` capability):
      * exactly one immutable row per applied Server-template parameter write.
      * Joins the caller's [conn] so the rate-limit COUNT and this INSERT read +
