@@ -1,11 +1,11 @@
 ## 1. Substrate re-check + module scaffolds
 
 - [x] 1.1 **Pre-implementation library re-check (MUST — new pin)**: dated `WebSearch` confirming `aws.sdk.kotlin:s3` is still the canonical R2/S3 JVM client + its current stable version (`"aws-sdk-kotlin s3 R2 <current-month-year>"`); record the one-line evidence note in the first apply commit / design.md Decision D1. If a materially-better option surfaces, STOP and surface via `AskUserQuestion`.
-- [ ] 1.2 Pin `aws.sdk.kotlin:s3` in `gradle/libs.versions.toml` (typesafe `libs.*` alias; version from 1.1) + add a `docs/09-Versions.md` Decisions-Log row (first AWS SDK on the classpath; rationale; next review 2026-Q3).
-- [ ] 1.3 Scaffold `:infra:r2` module (`include(":infra:r2")` in `settings.gradle.kts`; `build.gradle.kts` JVM target). The `ObjectStore` interface lives **inside this module** (the `:infra:cloudflare-images` `ImageStore` precedent), NOT `:core`. Confirm Resend needs **no** pin (raw Ktor client reuses existing client coordinates).
-- [ ] 1.4 Scaffold `:infra:resend` module (`include(":infra:resend")`; raw Ktor client + kotlinx.serialization, no new pin).
-- [ ] 1.5 Add both modules to `dev/module-descriptions.txt` (one line each) + run `dev/scripts/sync-readme.sh --write`.
-- [ ] 1.6 Add `Dockerfile` builder COPY blocks for `:infra:r2` + `:infra:resend` (both backend-included, non-gated) + run `dev/scripts/check-dockerfile-module-copies.sh` (a missing COPY breaks every staging/prod image build while CI stays green).
+- [x] 1.2 Pin `aws.sdk.kotlin:s3` in `gradle/libs.versions.toml` (typesafe `libs.*` alias; version from 1.1) + add a `docs/09-Versions.md` Decisions-Log row (first AWS SDK on the classpath; rationale; next review 2026-Q3).
+- [x] 1.3 Scaffold `:infra:r2` module (`include(":infra:r2")` in `settings.gradle.kts`; `build.gradle.kts` JVM target). The `ObjectStore` interface lives **inside this module** (the `:infra:cloudflare-images` `ImageStore` precedent), NOT `:core`. Confirm Resend needs **no** pin (raw Ktor client reuses existing client coordinates).
+- [x] 1.4 Scaffold `:infra:resend` module (`include(":infra:resend")`; raw Ktor client + kotlinx.serialization, no new pin).
+- [x] 1.5 Add both modules to `dev/module-descriptions.txt` (one line each) + run `dev/scripts/sync-readme.sh --write`.
+- [x] 1.6 Add `Dockerfile` builder COPY blocks for `:infra:r2` + `:infra:resend` (both backend-included, non-gated) + run `dev/scripts/check-dockerfile-module-copies.sh` (a missing COPY breaks every staging/prod image build while CI stays green).
 
 ## 2. Schema (V29)
 
@@ -15,18 +15,18 @@
 
 ## 3. `:infra:r2` — ObjectStore over R2
 
-- [ ] 3.1 Define the vendor-neutral `ObjectStore` interface (`put` / `presignedGetUrl(key, ttl)` / `delete`) **in `:infra:r2`** (package `id.nearyou.app.infra.r2`, the `ImageStore` precedent); `:backend:ktor` imports it from there.
-- [ ] 3.2 Implement `R2ObjectStore` in `:infra:r2` via `aws.sdk.kotlin:s3` pointed at the R2 S3 endpoint (`https://<account_id>.r2.cloudflarestorage.com`); `presignedGetUrl` via the coroutine `presignGetObject` extension (24h TTL, within R2's 7-day max).
-- [ ] 3.3 Resolve all R2 credentials via `secretKey(env, name)` (slots `r2-account-id`, `r2-access-key-id`, `r2-secret-access-key`, `r2-export-bucket`); never direct env reads.
-- [ ] 3.4 Implement `NoOpObjectStore` + Koin wiring that binds it when creds are unset (boot never fails; consumer maps to soft failure).
-- [ ] 3.5 Confirm no `aws.sdk.kotlin.*` / `aws.smithy.*` import escapes `:infra:r2`.
+- [x] 3.1 Define the vendor-neutral `ObjectStore` interface (`put` / `presignedGetUrl(key, ttl)` / `delete`) **in `:infra:r2`** (package `id.nearyou.app.infra.r2`, the `ImageStore` precedent); `:backend:ktor` imports it from there.
+- [x] 3.2 Implement `R2ObjectStore` in `:infra:r2` via `aws.sdk.kotlin:s3` pointed at the R2 S3 endpoint (`https://<account_id>.r2.cloudflarestorage.com`); `presignedGetUrl` via the coroutine `presignGetObject` extension (24h TTL, within R2's 7-day max).
+- [x] 3.3 Resolve all R2 credentials via `secretKey(env, name)` (slots `r2-account-id`, `r2-access-key-id`, `r2-secret-access-key`, `r2-export-bucket`); never direct env reads.
+- [x] 3.4 Implement `NoOpObjectStore` + Koin wiring that binds it when creds are unset (boot never fails; consumer maps to soft failure).
+- [x] 3.5 Confirm no `aws.sdk.kotlin.*` / `aws.smithy.*` import escapes `:infra:r2`.
 
 ## 4. `:infra:resend` — EmailSender over Resend
 
-- [ ] 4.1 Define the vendor-neutral `EmailSender` interface (`send(to, template, idempotencyKey)`) + an `EmailTemplate` type **in `:infra:resend`** (package `id.nearyou.app.infra.resend`), NOT `:core`.
-- [ ] 4.2 Implement `ResendEmailSender` in `:infra:resend` via a raw Ktor client `POST /emails`; set the `Idempotency-Key` header; 3-attempt exponential backoff on 5xx; API key via `secretKey(env, name)` (`resend-api-key`).
+- [x] 4.1 Define the vendor-neutral `EmailSender` interface (`send(to, template, idempotencyKey)`) + an `EmailTemplate` type **in `:infra:resend`** (package `id.nearyou.app.infra.resend`), NOT `:core`.
+- [x] 4.2 Implement `ResendEmailSender` in `:infra:resend` via a raw Ktor client `POST /emails`; set the `Idempotency-Key` header; 3-attempt exponential backoff on 5xx; API key via `secretKey(env, name)` (`resend-api-key`).
 - [ ] 4.3 Add the "data export ready" email template (HTML + text, Bahasa Indonesia) under `/backend/email-templates/`; **ready-email** copy per docs/06 §380 ("Data export kamu siap diunduh") + the signed link. (The docs/03 §260 "Export akan dikirim… dalam 7 hari… berlaku 24 jam…" copy is the in-app request-confirmation shown by the deferred mobile entry, NOT this email.)
-- [ ] 4.4 Implement `NoOpEmailSender` + Koin wiring binding it when the key is unset; ensure no log line emits the recipient address or body (no-PII-in-logs).
+- [x] 4.4 Implement `NoOpEmailSender` + Koin wiring binding it when the key is unset; ensure no log line emits the recipient address or body (no-PII-in-logs).
 
 ## 5. Export gather + packaging (Service + Repository)
 
@@ -59,8 +59,8 @@
 - [ ] 8.8 Scope matrix (vs docs/06 §350): archive contains all canonical Included categories; chat = sent+received with peer id **hashed**; posts carry own `actual_location`; out-of-scope categories absent (reports-received, attestation, admin-audit, CSAM, `rejected_identifiers`); **shadow-ban stealth** — a shadow-banned user's export reveals no shadow-ban; no raw peer identifier leaks.
 - [ ] 8.9 Notification: row has `type='data_export_ready'` + `body_data {signed_url, expires_at}` + NULL target; no `notifications` CHECK migration present.
 - [ ] 8.10 Expiry: ready carries 24h deadline; past-deadline status reads `expired` + no fresh durable URL.
-- [ ] 8.11 `:infra:r2`: stored object retrievable via signed URL within TTL; URL rejected after TTL; no vendor import outside `:infra:r2`; creds via `secretKey`; boot with R2 unconfigured → no-op bound + graceful degrade. (Integration leg against a local S3-compatible mock; unit leg for URL/expiry structure + no-op.)
-- [ ] 8.12 `:infra:resend`: send issues `POST /emails` with rendered template + `Idempotency-Key`; 5xx retried 3× w/ backoff; same idempotency key → one delivery; the worker derives the canonical key `SHA256(user_id + 'data_export_ready' + timestamp_minute)`; boot with key unset → no-op + no throw; recipient/body never logged. (Ktor `MockEngine` for the REST leg.)
+- [x] 8.11 `:infra:r2`: stored object retrievable via signed URL within TTL; URL rejected after TTL; no vendor import outside `:infra:r2`; creds via `secretKey`; boot with R2 unconfigured → no-op bound + graceful degrade. (Integration leg against a local S3-compatible mock; unit leg for URL/expiry structure + no-op.)
+- [x] 8.12 `:infra:resend`: send issues `POST /emails` with rendered template + `Idempotency-Key`; 5xx retried 3× w/ backoff; same idempotency key → one delivery; the worker derives the canonical key `SHA256(user_id + 'data_export_ready' + timestamp_minute)`; boot with key unset → no-op + no throw; recipient/body never logged. (Ktor `MockEngine` for the REST leg.)
 - [ ] 8.13 Peer-hash determinism + secrecy: `HMAC-SHA256(export-peer-hash-secret, peer_id)` is stable for a given (secret, peer) and differs under a different secret (non-correlatable across exports); never emits a raw id or a bare `SHA256`.
 - [ ] 8.14 Deferred guards (negative): enumerate mounted routes — no new `/admin/*` route (only `/api/v1/account/export` + `/internal/data-export-worker`); confirm `:mobile:app` is untouched by this change.
 - [ ] 8.15 Run the full local gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (+ the new infra modules' tests) green on fresh DB containers.
