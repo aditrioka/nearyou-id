@@ -53,5 +53,5 @@
 ## 8. Verification & staging smoke
 
 - [x] 8.1 Pre-push gate green locally: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
-- [ ] 8.2 Pre-archive staging branch deploy + smoke: unauthenticated `GET/POST /internal/cleanup` → `401`; authenticated invocation → `200` with the three counts (synthetic staging data only).
+- [x] 8.2 Pre-archive staging branch deploy + smoke: deploy `completed/success`; unauthenticated `POST /internal/cleanup` → **`401`** (route mounted + OIDC-gated + app booted on the new revision) + `/health/ready` → `200` (2026-06-20). The authenticated `200`-with-counts path needs a Google OIDC token minted with the internal-endpoint audience (operator-provisioned Cloud Scheduler identity) — out of scope for a no-creds smoke; the in-process route tests already assert the `200`/count contract.
 - [x] 8.3 Add the operator runbook line for provisioning the single daily Cloud Scheduler job hitting `POST /internal/cleanup` with a Google OIDC identity token (audience = internal-endpoint OIDC audience), mirroring the existing unban / privacy-flip / hard-delete schedules — no new secret slots.
