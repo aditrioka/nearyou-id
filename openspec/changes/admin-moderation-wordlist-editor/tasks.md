@@ -25,7 +25,7 @@
 ## 5. Routes
 
 - [ ] 5.1 Add `GET /admin/feature-flags/wordlists/{list}` behind the admin session middleware: validate `{list}`, fetch current list + version + etag, render the editor (read-only render writes nothing); any authenticated role may view; unknown `{list}` → 404; write controls disabled for `moderator` and when write-unconfigured.
-- [ ] 5.2 Add `POST /admin/feature-flags/wordlists/{list}`: owner/admin role-gate → CSRF check (`admin_csrf_violation` on mismatch) → rate-limit → service publish orchestration; HTMX render + plain-`GET` fallback; surface the import report, the diff, stale-version retry, and the empty-list/validation errors inline.
+- [ ] 5.2 Add `POST /admin/feature-flags/wordlists/{list}`: CSRF check first (`admin_csrf_violation` on mismatch) → owner/admin role-gate → rate-limit → service publish orchestration (CSRF-before-role matches the `admin-reserved-usernames-editor` precedent, so a token-less write is logged regardless of role); HTMX render + plain-`GET` fallback; surface the import report, the diff, stale-version retry, and the empty-list/validation errors inline.
 - [ ] 5.3 Mount the routes alongside `AdminFeatureFlagsRoute` (route stays thin; logic in the service).
 
 ## 6. Templates (Pebble + HTMX, docs/11 § 3.6)
@@ -36,12 +36,13 @@
 
 ## 7. Tests (`:backend:ktor`, `@Tags("database")` route tests; service unit tests)
 
-- [ ] 7.1 Service: normalization (lowercase id-locale + diacritic preserved, dedup, blank dropped, over-length rejected, over-cap rejected); diff counts; empty-list guard; CSV import report (duplicates + `#`/blank skipped).
+- [ ] 7.1 Service: normalization (lowercase id-locale + diacritic preserved, dedup, blank dropped, over-length rejected, over-cap rejected — the over-cap test MAY use a lowered injected cap rather than constructing 10001 entries); case+diacritic-collision dedup ("Anjïng"+"anjïng" → one); add-single treats a leading-`#` value as a literal keyword (the `#`-strip is CSV-import-only); diff counts (incl. a staged removal of an absent entry not incrementing removed); empty-list guard; CSV import report (duplicates + `#`/blank skipped, incl. the all-skipped → "0 added" benign case).
 - [ ] 7.2 Route GET: authenticated render shows current entries + version; read-only render writes nothing; unauthenticated → redirect; unknown `{list}` → 404; moderator GET renders read-only (no write controls).
-- [ ] 7.3 Route POST happy path: owner/admin valid publish → publishes + exactly one `moderation_wordlist_edited` audit row with diff summary; no-op rejected (no publish/no audit); blank reason rejected.
+- [ ] 7.3 Route POST happy path: owner/admin valid publish → publishes + exactly one `moderation_wordlist_edited` audit row with diff summary; no-op rejected (no publish/no audit) — including the post-normalization no-op where a staged edit that *looks* changed normalizes back to the current list; blank reason rejected.
 - [ ] 7.4 Route POST guards: moderator write → 403 (no publish/no audit); CSRF missing → 403 (no publish); CSRF mismatch → 403 + `admin_csrf_violation`; empty-list publish rejected (no publish/no audit); stale-etag → StaleVersion rejected (no overwrite/no audit); write-unconfigured (NoOp publisher) → read-only render + write fails safely (no publish/no audit/no 500); rendered entries HTML-escaped (metacharacter entry).
 - [ ] 7.5 Rate limit: 11th write in trailing hour rejected (no publish/no audit); 10th succeeds; wordlist bucket independent of the 5/hour feature-flag-toggle bucket (exhausting one does not consume the other).
 - [ ] 7.6 `admin-feature-flags` surface regression: the feature-flags page renders the two lists with an edit affordance and `moderation_match_threshold` inline-editable; the feature-flags single-flag write path has no inline list-content mutation.
+- [ ] 7.7 Scope boundary ("mutates only the Server template"): a publish invokes the Server-template publish seam for the named parameter only (verify via the `RemoteConfigPublisher` mock-spy — exactly one `publishServerStringList` for the target `{list}` param) AND performs no write to the repo `*.default.txt` fallback files nor the `content-moderation-fallback-list` Secret Manager slot.
 
 ## 8. Spec + docs sync
 

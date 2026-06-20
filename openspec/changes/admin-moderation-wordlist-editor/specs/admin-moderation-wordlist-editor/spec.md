@@ -36,6 +36,10 @@ The editor SHALL render the list's current entries (searchable/filterable, suita
 - **WHEN** an admin stages two additions and one removal
 - **THEN** the preview shows added = 2, removed = 1, and the resulting total = current count + 1
 
+#### Scenario: Staging removal of an absent entry does not change the diff
+- **WHEN** an admin stages removal of an entry that is not present in the current list
+- **THEN** the removed count reflects only entries actually present (the phantom removal does not increment removed nor alter the resulting total)
+
 ### Requirement: A staged publish writes the new list to the Server template with a mandatory reason and exactly one audit row
 
 A state-changing write SHALL target a single list, carry the resulting entries and a non-blank free-text `reason`, and on success publish the new list to the Remote Config **Server** template and write exactly one immutable `admin_actions_log` row with `action_type = 'moderation_wordlist_edited'`, a diff summary (the affected list, before/after entry counts, added/removed counts, and the before/after template version) in `before_state`/`after_state`, and the supplied `reason`. The audit row and the publish SHALL be consistent — a write that does not publish MUST NOT leave an audit row.
@@ -51,6 +55,10 @@ A state-changing write SHALL target a single list, carry the resulting entries a
 #### Scenario: A no-op write (resulting list unchanged) is rejected without publish or audit
 - **WHEN** an admin submits a staged edit whose normalized resulting list is identical to the current Server-template list
 - **THEN** the write is rejected as a no-op AND no publish occurs AND no `admin_actions_log` row is written
+
+#### Scenario: A staged edit that normalizes back to the current list is a no-op
+- **WHEN** an admin stages additions that all collapse under normalization to entries already present (e.g. adds `"Anjing"` when `"anjing"` is already in the list)
+- **THEN** the normalized resulting list equals the current list AND the write is rejected as a no-op with no publish and no audit row
 
 ### Requirement: A publish that would leave a list empty is rejected
 
@@ -76,6 +84,14 @@ Before diffing or publishing, every entry SHALL be trimmed, lowercased using the
 - **WHEN** an admin's staged additions include the same keyword twice (or a keyword already present after normalization)
 - **THEN** the resulting list contains that keyword exactly once
 
+#### Scenario: Case and diacritic collisions dedup to one entry
+- **WHEN** an admin's staged additions include `"Anjïng"` and `"anjïng"`
+- **THEN** both normalize to `"anjïng"` (id-locale lowercase, diacritic preserved) AND the resulting list contains that entry exactly once
+
+#### Scenario: A leading-# entry via add-single is a literal keyword
+- **WHEN** an admin adds the single entry `"#promo"` via the add-single control (not the bulk-CSV import)
+- **THEN** it is normalized to the literal keyword `"#promo"` — the `#`-comment-line stripping applies to bulk-CSV import only, not to add-single
+
 #### Scenario: A blank entry is dropped
 - **WHEN** an admin submits an add containing only whitespace
 - **THEN** the blank entry is not added to the list
@@ -100,12 +116,16 @@ The bulk import SHALL accept newline- or comma-separated entries, normalize them
 - **WHEN** an admin imports content containing `# header`, a blank line, and 2 keyword lines
 - **THEN** only the 2 keyword lines are staged AND the report shows the `#` comment line and the blank line skipped
 
+#### Scenario: An import that adds no new entries reports zero added
+- **WHEN** an admin imports content whose lines are all duplicates of existing entries, comment lines, or blanks
+- **THEN** the import stages nothing AND the report shows 0 added (a benign empty import, not an error)
+
 ### Requirement: Wordlist writes are role-gated to owner/admin
 
 Wordlist publishes SHALL require the acting admin to hold the `owner` or `admin` role. A `moderator` (or any lesser role) attempting a write SHALL be rejected with `403`, with no publish and no `moderation_wordlist_edited` audit row. Viewing the editor (GET) remains available to any authenticated admin role.
 
 #### Scenario: A moderator write is rejected
-- **WHEN** an admin holding only the `moderator` role submits a wordlist publish
+- **WHEN** an admin holding only the `moderator` role submits a wordlist publish with a valid CSRF token
 - **THEN** the response is `403` AND no publish occurs AND no `moderation_wordlist_edited` audit row is written
 
 #### Scenario: An owner or admin write is permitted
@@ -118,11 +138,15 @@ Wordlist publishes SHALL require the acting admin to hold the `owner` or `admin`
 
 ### Requirement: Wordlist writes are CSRF-protected
 
-Every wordlist publish SHALL require a valid `X-CSRF-Token` matching the session's `csrf_token_hash`. A missing or mismatched token SHALL return `403`, perform no publish, and (on mismatch) write an `admin_csrf_violation` audit row per the established admin CSRF contract. This `admin_csrf_violation` security-audit row is the one intended exception to the "no audit row on rejection" rule the other write gates (role, rate-limit, validation, stale-version, empty-list) follow.
+Every wordlist publish SHALL require a valid `X-CSRF-Token` matching the session's `csrf_token_hash`. A missing or mismatched token SHALL return `403`, perform no publish, and (on mismatch) write an `admin_csrf_violation` audit row per the established admin CSRF contract. This `admin_csrf_violation` security-audit row is the one intended exception to the "no audit row on rejection" rule the other write gates (role, rate-limit, validation, stale-version, empty-list) follow. The CSRF check SHALL be evaluated **before** the role check (matching the shipped admin write-gate order, e.g. `admin-reserved-usernames-editor`), so a state-changing request lacking a valid token is recorded as `admin_csrf_violation` regardless of the caller's role.
 
 #### Scenario: A write without a CSRF token is rejected
 - **WHEN** a wordlist publish arrives without an `X-CSRF-Token` header
 - **THEN** the response is `403` AND no Remote Config publish occurs
+
+#### Scenario: A token-less write is CSRF-rejected even from a non-write role
+- **WHEN** a `moderator` submits a wordlist publish with a mismatched `X-CSRF-Token`
+- **THEN** the CSRF check (evaluated before the role check) returns `403` AND writes an `admin_csrf_violation` audit row AND no wordlist publish occurs
 
 #### Scenario: A write with a mismatched CSRF token is rejected and audited
 - **WHEN** a wordlist publish arrives with an `X-CSRF-Token` that does not match the session
