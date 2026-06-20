@@ -62,7 +62,7 @@ The report reason enum, the sealed `ReportOutcome`, the report submission call, 
 
 ### Requirement: Timeline-card report entry point is deferred
 
-This capability SHALL NOT add a report affordance to the shared timeline post card (`PostCard`) or modify the `mobile-post-card` spec — the timeline-card report entry point is deferred so this change stays footprint-disjoint from the in-flight `image-attached-posts` change ([#354](https://github.com/aditrioka/nearyou-id/pull/354)), which currently owns `PostCard`. A `follow-up` GitHub issue SHALL track the deferred timeline-card report kebab as the MODIFY hook for a future change.
+This capability SHALL NOT add a report affordance to the shared timeline post card (`PostCard`) or modify the `mobile-post-card` spec — the timeline-card report entry point is deferred so this change stays footprint-disjoint from the in-flight `image-attached-posts` change ([#354](https://github.com/aditrioka/nearyou-id/pull/354)), which currently owns `PostCard`. GitHub issue [#363](https://github.com/aditrioka/nearyou-id/issues/363) (label `follow-up`) tracks the deferred timeline-card report kebab as the MODIFY hook for a future change.
 
 #### Scenario: No report affordance is added to the timeline card
 - **WHEN** inspecting the shared `PostCard` composable and the `mobile-post-card` spec
@@ -70,11 +70,11 @@ This capability SHALL NOT add a report affordance to the shared timeline post ca
 
 #### Scenario: Follow-up issue tracks the timeline-card deferral
 - **WHEN** inspecting the project's open GitHub issues (label `follow-up`)
-- **THEN** an issue tracks the deferred timeline-card report kebab
+- **THEN** GitHub issue [#363](https://github.com/aditrioka/nearyou-id/issues/363) tracks the deferred timeline-card report kebab
 
 ### Requirement: Chat-message report is deferred
 
-This capability SHALL NOT add a report affordance for chat messages (`target_type = "chat_message"`); chat-message reporting is a separate chat-surface change. A `follow-up` GitHub issue SHALL track it.
+This capability SHALL NOT add a report affordance for chat messages (`target_type = "chat_message"`); chat-message reporting is a separate chat-surface change. GitHub issue [#364](https://github.com/aditrioka/nearyou-id/issues/364) (label `follow-up`) tracks it.
 
 #### Scenario: No chat-message report affordance is added
 - **WHEN** inspecting the chat screens and this change's diff
@@ -82,7 +82,7 @@ This capability SHALL NOT add a report affordance for chat messages (`target_typ
 
 #### Scenario: Follow-up issue tracks the chat-message deferral
 - **WHEN** inspecting the project's open GitHub issues (label `follow-up`)
-- **THEN** an issue tracks chat-message reporting
+- **THEN** GitHub issue [#364](https://github.com/aditrioka/nearyou-id/issues/364) tracks chat-message reporting
 
 ### Requirement: Reporting one's own reply is permitted without a client guard
 

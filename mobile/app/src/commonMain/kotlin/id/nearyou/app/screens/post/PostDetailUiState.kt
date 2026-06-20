@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.post
 
+import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.RepliesOutcome
 import id.nearyou.app.post.ReplyDto
@@ -147,3 +148,48 @@ fun replyBanner(outcome: ReplyPostOutcome?): PostDetailBanner? =
 fun resetHours(retryAfterSeconds: Long): Int = maxOf(1, ceil(retryAfterSeconds.toDouble() / SECONDS_PER_HOUR).toInt())
 
 private const val SECONDS_PER_HOUR: Double = 3600.0
+
+/**
+ * Which content the post-detail report dialog is currently targeting (mobile-content-report). A nullable
+ * `ReportTarget?` on the VM drives the dialog: null = no dialog; [Post] = the post-header report (the post
+ * id is held by the VM); [Reply] = a per-reply report carrying ONLY the reply [Reply.replyId] (the report
+ * `target_id`). NO author identity is ever modelled here — the reply target is the reply id alone (the
+ * `mobile-post-detail` PII contract; `author_id` is intentionally dropped and never sent/rendered).
+ */
+sealed interface ReportTarget {
+    data object Post : ReportTarget
+
+    data class Reply(val replyId: String) : ReportTarget
+}
+
+/**
+ * The user-facing one-shot report-result message keys for the post-detail surface (each maps to a
+ * `:shared:resources` string at the screen). Held as a nullable VM field cleared via
+ * `onReportMessageShown()` — NOT a `Channel`/`SharedFlow` event bus (docs/11 § 2.2). UNLIKE the profile
+ * surface, [Submitted] AND [Duplicate] both map to [SUCCESS] (anti-enumeration — `docs/03`:234: a reporter
+ * learns nothing about a prior report), so there is deliberately NO distinct "already reported" key here.
+ */
+enum class PostDetailReportMessage {
+    /** Report 204 (Submitted) OR 409 duplicate_report (Duplicate) → the SAME "report submitted" success copy. */
+    SUCCESS,
+
+    /** Report 429 → the report rate-limit copy. */
+    RATE_LIMITED,
+
+    /** A report network/transport failure → a generic retryable "try again" copy. */
+    FAILED,
+}
+
+/**
+ * Maps a [ReportOutcome] to its one-shot post-detail message (the anti-enumeration mapping, design D3):
+ * [ReportOutcome.Submitted] AND [ReportOutcome.Duplicate] → [PostDetailReportMessage.SUCCESS] (identical —
+ * no "already reported" wording); [ReportOutcome.RateLimited] → [PostDetailReportMessage.RATE_LIMITED];
+ * [ReportOutcome.NetworkError] → [PostDetailReportMessage.FAILED]. Pure + exhaustive (no wildcard) so the
+ * mapping is unit-testable without a backend.
+ */
+fun postDetailReportMessage(outcome: ReportOutcome): PostDetailReportMessage =
+    when (outcome) {
+        ReportOutcome.Submitted, ReportOutcome.Duplicate -> PostDetailReportMessage.SUCCESS
+        is ReportOutcome.RateLimited -> PostDetailReportMessage.RATE_LIMITED
+        ReportOutcome.NetworkError -> PostDetailReportMessage.FAILED
+    }

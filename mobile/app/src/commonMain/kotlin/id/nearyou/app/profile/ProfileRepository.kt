@@ -1,11 +1,21 @@
 package id.nearyou.app.profile
 
+import id.nearyou.app.data.report.ReportOutcome
+import id.nearyou.app.data.report.ReportReasonCategory
+import id.nearyou.app.data.report.ReportSubmitter
+import id.nearyou.app.data.report.ReportTargetType
+
 /**
  * Orchestrates the profile read + the follow / block / report actions: delegates to [profileApiClient]
- * and maps each low-level `*ApiResult` to EXACTLY one member of its sealed outcome, keyed on the HTTP
- * **status** (+ the parsed `error.code` where the backend distinguishes by code — the constant 404
- * `user_not_found` and the 409 `duplicate_report`), with no generic "failed" wildcard. A stateless Koin
- * singleton: every method takes the target [userId] explicitly (so `single<ProfileFlow> { … }` is safe).
+ * (and, for report, the shared [reportSubmitter]) and maps each low-level `*ApiResult` to EXACTLY one
+ * member of its sealed outcome, keyed on the HTTP **status** (+ the parsed `error.code` where the backend
+ * distinguishes by code — the constant 404 `user_not_found`), with no generic "failed" wildcard. A
+ * stateless Koin singleton: every method takes the target [userId] explicitly (so
+ * `single<ProfileFlow> { … }` is safe).
+ *
+ * Report submission delegates to the shared [reportSubmitter] (`data/report/` — mobile-content-report),
+ * so the user/post/reply report-submission mapping lives in exactly ONE place; the profile surface fixes
+ * the target to [ReportTargetType.USER].
  *
  * PII discipline: the [diagnosticLog] sink carries only the HTTP `status` + `errorCode` primitives —
  * never a body, the `userId`, or a coordinate (these endpoints carry no coordinate at all); the
@@ -13,6 +23,7 @@ package id.nearyou.app.profile
  */
 class ProfileRepository(
     private val profileApiClient: ProfileApiClient,
+    private val reportSubmitter: ReportSubmitter,
     // Diagnostic sink for non-user-facing error detail (status + error code only). MUST NOT carry
     // tokens, bodies, the userId, or coordinates.
     private val diagnosticLog: (status: Int, errorCode: String?) -> Unit = { _, _ -> },
@@ -59,20 +70,7 @@ class ProfileRepository(
         userId: String,
         reasonCategory: ReportReasonCategory,
         note: String?,
-    ): ReportOutcome =
-        when (val result = profileApiClient.report(userId, reasonCategory.toWire(), note)) {
-            ActionApiResult.NoContent -> ReportOutcome.Submitted
-            is ActionApiResult.NetworkError -> ReportOutcome.NetworkError
-            is ActionApiResult.HttpError ->
-                when {
-                    result.status == 409 && result.errorCode == DUPLICATE_REPORT -> ReportOutcome.Duplicate
-                    result.status == 429 -> ReportOutcome.RateLimited(result.retryAfterSeconds ?: 0L)
-                    else -> {
-                        diagnosticLog(result.status, result.errorCode)
-                        ReportOutcome.NetworkError
-                    }
-                }
-        }
+    ): ReportOutcome = reportSubmitter.submit(ReportTargetType.USER, userId, reasonCategory, note)
 
     /** Maps a non-200 profile read. The constant `404 user_not_found` (every cause) → the single
      *  [ProfileOutcome.NotFound]; `5xx` + any other unenumerated status → the retryable
@@ -108,12 +106,6 @@ class ProfileRepository(
                 FollowToggleOutcome.NetworkError
             }
         }
-
-    private companion object {
-        // The SHIPPED reports duplicate error code (ReportRoutes.kt + reports-spec requirement); NOT the
-        // stale `reports.duplicate` in that spec's purpose line.
-        const val DUPLICATE_REPORT = "duplicate_report"
-    }
 }
 
 private fun UserProfileResponse.toDomain(): UserProfile =

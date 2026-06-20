@@ -1,13 +1,16 @@
-package id.nearyou.app.profile
+package id.nearyou.app.data.report
 
 /**
- * The six **user-facing** report reason categories the profile reason picker exposes
+ * The six **user-facing** report reason categories the shared report reason picker exposes
  * (`docs/03-UX-Design.md` § Report UX), each mapped to its SHIPPED wire `reason_category` value
  * (`reports` spec enum). The wire also defines `self_harm` and `csam_suspected`, but those are
  * internal/automated classifications and are deliberately NOT user-pickable — they have no entry here.
  *
  * [wireValue] is the exact `reason_category` string the backend validates; [toWire] is the pure,
- * exhaustively-testable mapping the repository sends. Do NOT add `self_harm` / `csam_suspected`.
+ * exhaustively-testable mapping the submitter sends. Do NOT add `self_harm` / `csam_suspected`.
+ *
+ * Relocated from `id.nearyou.app.profile` into the shared `data/report/` seam (mobile-content-report) so
+ * BOTH the profile (user report) and post-detail (post/reply report) surfaces consume one enum.
  */
 enum class ReportReasonCategory(val wireValue: String) {
     /** "Spam" → `spam`. */
@@ -29,5 +32,5 @@ enum class ReportReasonCategory(val wireValue: String) {
     OTHER("other"),
 }
 
-/** The wire `reason_category` value for this picker category (pure; the repository sends it verbatim). */
+/** The wire `reason_category` value for this picker category (pure; the submitter sends it verbatim). */
 fun ReportReasonCategory.toWire(): String = wireValue
