@@ -1,6 +1,6 @@
 ## 1. Substrate re-check + module scaffolds
 
-- [ ] 1.1 **Pre-implementation library re-check (MUST — new pin)**: dated `WebSearch` confirming `aws.sdk.kotlin:s3` is still the canonical R2/S3 JVM client + its current stable version (`"aws-sdk-kotlin s3 R2 <current-month-year>"`); record the one-line evidence note in the first apply commit / design.md Decision D1. If a materially-better option surfaces, STOP and surface via `AskUserQuestion`.
+- [x] 1.1 **Pre-implementation library re-check (MUST — new pin)**: dated `WebSearch` confirming `aws.sdk.kotlin:s3` is still the canonical R2/S3 JVM client + its current stable version (`"aws-sdk-kotlin s3 R2 <current-month-year>"`); record the one-line evidence note in the first apply commit / design.md Decision D1. If a materially-better option surfaces, STOP and surface via `AskUserQuestion`.
 - [ ] 1.2 Pin `aws.sdk.kotlin:s3` in `gradle/libs.versions.toml` (typesafe `libs.*` alias; version from 1.1) + add a `docs/09-Versions.md` Decisions-Log row (first AWS SDK on the classpath; rationale; next review 2026-Q3).
 - [ ] 1.3 Scaffold `:infra:r2` module (`include(":infra:r2")` in `settings.gradle.kts`; `build.gradle.kts` JVM target). The `ObjectStore` interface lives **inside this module** (the `:infra:cloudflare-images` `ImageStore` precedent), NOT `:core`. Confirm Resend needs **no** pin (raw Ktor client reuses existing client coordinates).
 - [ ] 1.4 Scaffold `:infra:resend` module (`include(":infra:resend")`; raw Ktor client + kotlinx.serialization, no new pin).
@@ -9,8 +9,8 @@
 
 ## 2. Schema (V29)
 
-- [ ] 2.1 Add `V29__data_export_requests.sql` exactly per `specs/account-data-export/spec.md` § data_export_requests schema (table + the 3 indexes; both partial `WHERE`s `NOW()`-free).
-- [ ] 2.2 Add the canonical **Data Export Requests Schema** section to `docs/05-Implementation.md` (schema home), matching the migration verbatim (sibling to § Deletion Requests Schema).
+- [x] 2.1 Add `V29__data_export_requests.sql` exactly per `specs/account-data-export/spec.md` § data_export_requests schema (table + the 3 indexes; both partial `WHERE`s `NOW()`-free).
+- [x] 2.2 Add the canonical **Data Export Requests Schema** section to `docs/05-Implementation.md` (schema home), matching the migration verbatim (sibling to § Deletion Requests Schema).
 - [ ] 2.3 Verify the migration applies cleanly (fresh DB + `migrate-supabase-parity` shape) and `flyway validate` passes; confirm **no** `notifications` CHECK change.
 
 ## 3. `:infra:r2` — ObjectStore over R2

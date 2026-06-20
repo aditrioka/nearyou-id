@@ -635,6 +635,45 @@ CREATE INDEX deletion_requests_immediate_idx
 
 ---
 
+## Data Export Requests Schema
+
+Backs the UU-PDP data-portability producer (`account-data-export`, V29). The trigger endpoint `POST /api/v1/account/export` enqueues a `pending` row; the OIDC worker `/internal/data-export-worker` gathers the § Data Export Scope Matrix (`06-Security-Privacy.md`), packs a JSON+CSV ZIP, uploads to R2, and transitions the row through its lifecycle. The export-ready signal reuses the existing `data_export_ready` notification (V10 catalog, `body_data {signed_url, expires_at}`) — no `notifications` change.
+
+```sql
+CREATE TABLE data_export_requests (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status              VARCHAR(16) NOT NULL DEFAULT 'pending' CHECK (status IN (
+                            'pending', 'processing', 'ready', 'expired', 'failed'
+                        )),
+    requested_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at          TIMESTAMPTZ,
+    completed_at        TIMESTAMPTZ,
+    r2_object_key       TEXT,
+    download_expires_at TIMESTAMPTZ,
+    attempt_count       INT NOT NULL DEFAULT 0,
+    error               TEXT
+);
+
+CREATE INDEX data_export_requests_pending_idx
+    ON data_export_requests(requested_at)
+    WHERE status = 'pending';
+
+CREATE UNIQUE INDEX data_export_requests_one_active_idx
+    ON data_export_requests(user_id)
+    WHERE status IN ('pending', 'processing');
+
+CREATE INDEX data_export_requests_user_recent_idx
+    ON data_export_requests(user_id, requested_at DESC);
+```
+
+- **Status state machine**: `pending` → `processing` (worker claims via an optimistic `UPDATE … WHERE status='pending'` affected-rows guard, so concurrent worker invocations never double-process) → `ready` (archive uploaded, 24h signed URL issued, `data_export_ready` notification emitted, best-effort Resend email sent) → `expired` (derived once `download_expires_at` passes) | `failed` (gather/upload error after retries; `attempt_count++`).
+- **Structural idempotency**: `data_export_requests_one_active_idx` permits only one `pending|processing` row per user — a second enqueue raises a unique-violation the route maps to "return the existing request". A `ready`/`expired`/`failed` row does NOT block a fresh request.
+- **Delivery**: the in-app `data_export_ready` notification is the **durable** channel; the Resend email is best-effort and a send failure on an already-`ready` export does NOT revert it. Signed-URL TTL 24h; an R2 object-lifecycle rule deletes the export object after the window.
+- Both partial-index `WHERE` clauses filter on `status` only — `NOW()`-free (the partial-index invariant).
+
+---
+
 ## Admin Users Schema
 
 ```sql
