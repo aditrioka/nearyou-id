@@ -62,6 +62,11 @@ The system SHALL permit at most one `pending` appeal per user. A submission whil
 - **WHEN** A `POST`s `/api/v1/appeals`
 - **THEN** the response is HTTP 201 and a new `pending` appeal row is created
 
+#### Scenario: Concurrent submissions race the one-pending guard
+- **GIVEN** caller A has no pending appeal and issues two submissions that race past the application-level pre-check
+- **WHEN** both reach the `appeals_one_pending_per_user` partial-unique index
+- **THEN** exactly one succeeds with HTTP 201 and the other is mapped to HTTP 409 `appeal_already_pending` (the unique-violation is caught and translated, never surfaced as a 5xx)
+
 ### Requirement: Submission rate limit
 
 The submission endpoint SHALL rate-limit per user via the canonical Redis hash-tag key shape `{scope:rate_appeal_day}:{user:<user_id>}` (the shipped `{scope:rate_*_day}:{user:…}` two-segment family required by `RedisHashTagRule`; `_day` = fixed-window marker) using the shared `computeTTLToNextReset` helper (no hardcoded reset math). Exceeding the daily cap MUST return HTTP 429 with the time-to-reset surfaced.

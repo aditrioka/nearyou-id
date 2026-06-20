@@ -33,7 +33,7 @@ The screen SHALL map each `AppealOutcome` to a distinct, non-crashing UI state: 
 
 #### Scenario: Already-pending appeal surfaces the existing status
 - **GIVEN** the user already has a pending appeal
-- **WHEN** the user opens the appeal screen (or submits)
+- **WHEN** the user opens the appeal screen (which fetches the own-appeal-status on entry, before showing the form)
 - **THEN** the screen shows the existing pending status rather than an empty form or an error
 
 #### Scenario: Rate-limited submission shows a try-later state
