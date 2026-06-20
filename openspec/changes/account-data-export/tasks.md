@@ -11,7 +11,7 @@
 
 - [x] 2.1 Add `V29__data_export_requests.sql` exactly per `specs/account-data-export/spec.md` § data_export_requests schema (table + the 3 indexes; both partial `WHERE`s `NOW()`-free).
 - [x] 2.2 Add the canonical **Data Export Requests Schema** section to `docs/05-Implementation.md` (schema home), matching the migration verbatim (sibling to § Deletion Requests Schema).
-- [ ] 2.3 Verify the migration applies cleanly (fresh DB + `migrate-supabase-parity` shape) and `flyway validate` passes; confirm **no** `notifications` CHECK change.
+- [x] 2.3 Verify the migration applies cleanly (fresh DB + `migrate-supabase-parity` shape) and `flyway validate` passes; confirm **no** `notifications` CHECK change.
 
 ## 3. `:infra:r2` — ObjectStore over R2
 
