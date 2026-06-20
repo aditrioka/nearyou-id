@@ -85,7 +85,7 @@ class SinglePostApiClientTest {
         }
 
     @Test
-    fun `fetchFullPost does NOT bind the snake fields from all-camelCase keys (regression guard)`() =
+    fun `fetchFullPost does NOT bind the snake fields from all-camelCase keys - regression guard`() =
         runTest {
             val api = SinglePostApiClient(client { respond(ALL_CAMEL_CASE_BODY, HttpStatusCode.OK, JSON_HEADERS) })
 
