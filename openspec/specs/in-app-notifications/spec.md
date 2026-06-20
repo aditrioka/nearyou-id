@@ -322,14 +322,6 @@ The `chat_message` `body_data` SHALL NOT carry `embedded_post_id`, `embedded_pos
 - **WHEN** Alice subsequently queries `GET /api/v1/notifications`
 - **THEN** the returned `body_data.preview` for the original `chat_message` notification row is still `"halo Alice"` (frozen at emit time, not regenerated on read)
 
-### Requirement: 90-day retention documented (enforcement deferred)
-
-The V10 migration SHALL include a `COMMENT ON TABLE notifications IS 'Per-user notification feed; 90-day retention policy; purge worker lands in the Phase 3.5 admin-panel change.'` The admin-panel worker change will implement the DELETE. V10 itself does NOT include a purge worker.
-
-#### Scenario: Retention comment present after V10
-- **WHEN** querying `obj_description('public.notifications'::regclass, 'pg_class')`
-- **THEN** the returned comment contains both the phrases `90-day` AND `purge`
-
 ### Requirement: chat_message_redacted emit site and body_data shape
 
 The `chat_message_redacted` notification type (already present in the V10 `type` CHECK catalog as a reserved emit site) SHALL be written by the `admin-chat-message-redaction` capability when an admin applies a chat-message redaction. Per the canonical V10 event-type catalog ([`docs/05-Implementation.md`](../../../../docs/05-Implementation.md) § Notifications Schema), each row SHALL have:
@@ -362,4 +354,12 @@ This adds the `chat_message_redacted` shape to the catalog (which until now defi
 #### Scenario: Admin-originated redaction notification is not FCM-pushed
 - **WHEN** a `chat_message_redacted` notification is written
 - **THEN** it appears in the recipients' in-app `GET /api/v1/notifications` feed AND no FCM push is dispatched for it (matching the shipped admin `account_action_applied` behavior)
+
+### Requirement: 90-day retention documented (enforcement shipped in scheduled-retention-cleanup)
+
+The V10 migration SHALL include a `COMMENT ON TABLE notifications IS 'Per-user notification feed; 90-day retention policy; purge worker lands in the Phase 3.5 admin-panel change.'` (the historical V10 comment is immutable and retained as-is). Enforcement is now implemented by the [`scheduled-retention-cleanup`](../../specs/scheduled-retention-cleanup/spec.md) worker (`POST /internal/cleanup`), which executes `DELETE FROM notifications WHERE created_at < NOW() - INTERVAL '90 days'` on its scheduled run. V10 itself does NOT include a purge worker.
+
+#### Scenario: Retention comment present after V10
+- **WHEN** querying `obj_description('public.notifications'::regclass, 'pg_class')`
+- **THEN** the returned comment contains both the phrases `90-day` AND `purge`
 
