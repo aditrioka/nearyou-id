@@ -7,6 +7,7 @@ import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
+import id.nearyou.app.image.imageDeliveryUrls
 import id.nearyou.app.infra.repo.JdbcPostsTimelineRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.post.LocationOutOfBoundsException
@@ -240,7 +241,9 @@ class NearbyTimelineServiceTest : StringSpec({
                     }
                 }
                 install(Authentication) { configureUserJwt(keys, users, java.time.Instant::now) }
-                timelineRoutes(service, rateLimiter)
+                // Unconfigured delivery-URL builder (null config) — this spec does not assert imageUrl;
+                // the image-attached-posts surfacing is covered by ImageUrlSurfacingTest.
+                timelineRoutes(service, rateLimiter, imageDeliveryUrls(null))
             }
             block()
         }
