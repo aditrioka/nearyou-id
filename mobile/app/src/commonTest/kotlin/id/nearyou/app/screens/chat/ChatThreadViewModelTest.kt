@@ -336,10 +336,10 @@ class ChatThreadViewModelTest {
         }
 
     @Test
-    fun reportPathSendsOnlyMessageIdAndLogsNoSenderOrContent() =
+    fun reportPathSendsOnlyMessageIdAndAddsNoDiagnosticLog() =
         test {
             val loggedLines = mutableListOf<String>()
-            val submitter = FakeReportSubmitter(ReportOutcome.Submitted)
+            val submitter = FakeReportSubmitter(ReportOutcome.NetworkError)
             val flow = FakeChatFlow(listOf(ChatThreadOutcome.Loaded(listOf(dto(MSG_ID, sender = OTHER)), null)))
             val viewModel =
                 ChatThreadViewModel(
@@ -353,13 +353,40 @@ class ChatThreadViewModelTest {
                     diagnosticLog = { loggedLines += it },
                 )
             advanceUntilIdle()
+            // Snapshot any (non-report) log lines from init/realtime, then isolate the report action's
+            // contribution — a NetworkError report exercises the failure branch (the most likely place a
+            // future regression would add a leaky log line).
+            val logsBeforeReport = loggedLines.size
             viewModel.onReportMessageClicked(MSG_ID)
             viewModel.onReportSubmitted(ReportReasonCategory.HARASSMENT, note = "secret note")
             advanceUntilIdle()
             // PII discipline: the report carries ONLY the message id as target_id (never the sender id),
-            // and nothing on the report path logs the sender id or the note/message content.
+            // routes the note to the submitter (the wire reason_note) — and the report path itself emits
+            // ZERO diagnostic log lines, so it cannot leak the sender id, the note, or any content. The
+            // count-delta assertion is non-vacuous: any log call added on the report path fails it.
+            assertEquals(ReportTargetType.CHAT_MESSAGE, submitter.lastTarget)
+            assertEquals(MSG_ID, submitter.lastTargetId, "target_id is the message id, never the sender id")
+            assertEquals("secret note", submitter.lastNote, "the note is routed to the wire submitter")
+            assertEquals(ChatReportMessage.FAILED, viewModel.reportMessage.value)
+            assertEquals(logsBeforeReport, loggedLines.size, "the report path adds no diagnostic log line")
+            assertTrue(loggedLines.none { it.contains(OTHER) || it.contains("secret note") })
+        }
+
+    @Test
+    fun reportProceedsForAnyReceivedMessageWithNoClientBlockGuard() =
+        test {
+            // The chat thread carries no per-message block signal; reporting a received message — even from
+            // a sender the viewer has blocked or who is shadow-banned — proceeds (the client applies NO
+            // block-exclusion guard on the report path; reports spec). Only the message id is sent.
+            val submitter = FakeReportSubmitter(ReportOutcome.Submitted)
+            val viewModel = loadedVm(submitter, sender = OTHER)
+            advanceUntilIdle()
+            viewModel.onReportMessageClicked(MSG_ID)
+            viewModel.onReportSubmitted(ReportReasonCategory.HARASSMENT, note = null)
+            advanceUntilIdle()
+            assertEquals(1, submitter.submitCount, "the report proceeds (no client block guard)")
+            assertEquals(ReportTargetType.CHAT_MESSAGE, submitter.lastTarget)
             assertEquals(MSG_ID, submitter.lastTargetId)
-            assertTrue(loggedLines.none { it.contains(OTHER) }, "no sender id is logged")
-            assertTrue(loggedLines.none { it.contains("secret note") }, "no note/message content is logged")
+            assertEquals(ChatReportMessage.SUCCESS, viewModel.reportMessage.value)
         }
 }
