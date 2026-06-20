@@ -31,20 +31,24 @@
 
 ## 6. Tests
 
-- [ ] 6.1 Refresh-token sweep (DB-tagged route/repository test): expired-by-`expires_at` row deleted; stale-by-`last_used_at` row deleted; revoked-and-expired row deleted; still-valid recent token survives (one row just inside the window survives, one just past is deleted). New pool must `autoClose(hikari())` size 2 (CI connection budget).
+- [ ] 6.1 Refresh-token sweep (DB-tagged route/repository test): expired-by-`expires_at` row deleted; stale-by-`last_used_at` row deleted; revoked-and-expired row deleted; still-valid recent token survives; **never-used token (`last_used_at IS NULL`) survives when `expires_at` is future, deleted when `expires_at` past** (locks the nullable-`last_used_at` NULL-comparison semantics). Use one row just inside the window and one just past; the strict `<` boundary is intentional — do NOT add an exact-`NOW()`-equality assertion (timing-flaky). New pool must `autoClose(hikari())` size 2 (CI connection budget).
 - [ ] 6.2 Notifications purge: 91-day-old row purged; 89-day-old survives; a `type='data_export_ready'` row >90d purged (type-agnostic). Truncate seed timestamps to micros (`truncatedTo(MICROS)`) or compare DB-read-to-DB-read to avoid the macOS-vs-Linux-CI clock false-fail.
 - [ ] 6.3 FCM stale sweep: 31-day-stale token deleted; 29-day token survives.
-- [ ] 6.4 Endpoint contract: a run with eligible rows in all three tables returns `200` with the three correct counts; full idempotency re-run returns all-zero counts.
+- [ ] 6.4 Endpoint contract: a run with eligible rows in all three tables returns `200` with the three correct counts; a cold run against empty tables returns `200` with all counts `0`; full idempotency re-run (immediately after a run that deleted everything eligible) returns all-zero counts.
 - [ ] 6.5 Structured-log assertion: exactly one `event=retention_cleanup` INFO line with the three counts + duration.
 - [ ] 6.6 OIDC gate: unauthenticated `POST /internal/cleanup` → `401` and zero deletions; sibling-non-capture test (a `/internal/revenuecat-webhook` request is NOT `401`'d by this gate) mirroring the `privacy-flip-worker` scenario.
 - [ ] 6.7 Classified-500: a simulated DB timeout/connection failure yields `500` with `error ∈ {timeout, connection_refused, unknown}` and no raw exception text in the body.
 - [ ] 6.8 Deferred negative-guards: an expired-unconsumed `admin_webauthn_challenges` row is left untouched by the worker; a resolved `moderation_queue` row (and a resolved `reports` row) older than one year is left untouched (assert the worker deletes nothing from those tables).
 - [ ] 6.9 Any test that creates `notifications` / token rows cleans up after itself (per-test `afterTest` delete by a unique seed prefix) so it does not pollute sibling suites in the full multi-spec gate.
 
-## 7. Docs reconciliation (canonical-doc alignment, same PR)
+## 7. Docs & spec reconciliation (canonical alignment, same PR)
 
 - [ ] 7.1 Annotate `docs/05-Implementation.md` §112 (refresh tokens), §582 (notifications), §1120 (FCM tokens) with a `> **Status: shipped** (scheduled-retention-cleanup, 2026-06)` note pointing at `POST /internal/cleanup`, mirroring the existing privacy-flip-worker "Status: shipped" annotation at §241. Do NOT renumber any section (the §-numeric coordinates are frozen historical IDs).
-- [ ] 7.2 In those notes, record the single-daily cadence (design D2) as the as-built behavior so docs no longer imply a separate weekly schedule. File a `follow-up` issue each for the two deferred sweeps (WebAuthn-challenge cleanup; moderation/reports 1-year archival), labelled `follow-up` + `backend`.
+- [ ] 7.2 In the §112 note specifically, record the two explicit amendments (design D2): the sweep merges §112's two daily/weekly queries into one idempotent `OR` `DELETE` run daily, AND it also reaps revoked rows (`revoked_at` not in §112's wording). State the single-daily cadence in the §582/§1120 notes too so docs no longer imply a separate weekly schedule.
+- [ ] 7.3 **Fix the stale hard-delete references** — `docs/06-Security-Privacy.md` §386 ("Hard delete worker: Cloud Scheduler calls `/internal/cleanup` daily … reads `deletion_requests`") + §415, and `docs/08-Roadmap-Risk.md` Phase 3.5 item 6: repoint each to the **shipped** route `/internal/account-hard-delete-worker` so `/internal/cleanup` is no longer (mis)attributed to the hard-delete worker now that this change owns it for retention sweeps.
+- [ ] 7.4 Annotate `docs/04-Architecture.md` §463 (the "scheduled-cleanup `/internal/cleanup` job below is also DESIGN" sentence) + §482 (the "DESIGN: weekly `/internal/cleanup` job" FCM stale-token bullet) as **shipped** by this change (the FCM stale sweep is no longer DESIGN-only).
+- [ ] 7.5 File a `follow-up` issue each for the two deferred sweeps (WebAuthn-challenge cleanup; moderation/reports 1-year archival), labelled `follow-up` + `backend`.
+- [ ] 7.6 At `/opsx:archive`, ensure the new `openspec/specs/scheduled-retention-cleanup/spec.md` gets a real `## Purpose` (not the "TBD - created by archiving" placeholder — the known archive footgun); after archive, grep `openspec/specs` for any `TBD - created by archiving` + run `openspec validate --specs`. Confirm the two MODIFIED/RENAMED deltas (`fcm-token-registration`, `in-app-notifications`) merged cleanly into their canonical specs.
 
 ## 8. Verification & staging smoke
 

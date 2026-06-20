@@ -20,6 +20,10 @@ The system SHALL, on each `POST /internal/cleanup` invocation, delete from `refr
 - **WHEN** the worker runs AND a `refresh_tokens` row has `expires_at` in the future AND `last_used_at` within the last 90 days
 - **THEN** that row is NOT deleted AND it is NOT counted in `refresh_tokens_deleted`
 
+#### Scenario: A never-used token is governed only by its expiry (nullable last_used_at)
+- **WHEN** the worker runs AND a `refresh_tokens` row has `last_used_at IS NULL` (never used)
+- **THEN** the `last_used_at` stale predicate does NOT match it (a `NULL` comparison is not true), so it is deleted only if `expires_at` is more than one day in the past — a never-used row with `expires_at` still in the future survives, and a never-used row whose `expires_at` has passed is deleted via the expiry branch
+
 ### Requirement: Scheduled notifications retention purge
 
 The system SHALL, on each `POST /internal/cleanup` invocation, delete from `notifications` every row whose `created_at < NOW() - INTERVAL '90 days'`, per `docs/05` §582. The purge SHALL be type-agnostic — no notification `type` is exempted — and SHALL NOT be filtered by `read_at`.
