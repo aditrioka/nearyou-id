@@ -53,30 +53,37 @@ fun Route.retentionCleanupRoutes(
     route("/cleanup") {
         install(InternalEndpointAuth) { verifier = oidcVerifier }
         post {
-            val result =
-                try {
-                    worker.execute()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    val classification = classifyHandlerError(e)
-                    logger.warn(
-                        "event=retention_cleanup_failed classification={} error_class={}",
-                        classification,
-                        e::class.simpleName,
-                        e,
-                    )
-                    call.respond(HttpStatusCode.InternalServerError, ErrorResponse(error = classification))
-                    return@post
-                }
-            call.respond(
-                HttpStatusCode.OK,
-                RetentionCleanupResponse(
-                    refreshTokensDeleted = result.refreshTokensDeleted,
-                    notificationsDeleted = result.notificationsDeleted,
-                    fcmTokensDeleted = result.fcmTokensDeleted,
-                ),
-            )
+            handleRetentionCleanup(worker)
         }
+    }
+}
+
+private suspend fun io.ktor.server.routing.RoutingContext.handleRetentionCleanup(worker: RetentionCleanupWorker) {
+    run {
+        val result =
+            try {
+                worker.execute()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val classification = classifyHandlerError(e)
+                logger.warn(
+                    "event=retention_cleanup_failed classification={} error_class={}",
+                    classification,
+                    e::class.simpleName,
+                    e,
+                )
+                call.respond(HttpStatusCode.InternalServerError, ErrorResponse(error = classification))
+                return@run
+            }
+
+        call.respond(
+            HttpStatusCode.OK,
+            RetentionCleanupResponse(
+                refreshTokensDeleted = result.refreshTokensDeleted,
+                notificationsDeleted = result.notificationsDeleted,
+                fcmTokensDeleted = result.fcmTokensDeleted,
+            ),
+        )
     }
 }

@@ -53,6 +53,7 @@ import org.slf4j.LoggerFactory
 import java.security.KeyPairGenerator
 import java.security.interfaces.RSAPrivateKey
 import java.security.interfaces.RSAPublicKey
+import java.sql.SQLTimeoutException
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import ch.qos.logback.classic.Logger as LogbackLogger
@@ -324,6 +325,36 @@ class RetentionCleanupRoutesTest : StringSpec({
             }
         } finally {
             brokenDs.close()
+        }
+    }
+
+    "sanitized 500 with error=timeout when a sweep throws SQLTimeoutException" {
+        val token = rcSignedJwt(privKey, pubKey)
+        // A stub repository whose first sweep throws SQLTimeoutException, which
+        // classifyHandlerError maps deterministically to "timeout". Proves the
+        // timeout classification branch (the existing 500 test only exercises
+        // connection-refused) and that the raw exception text never leaks.
+        val timeoutMarker = "rc-raw-timeout-detail-should-not-leak"
+        val timeoutWorker =
+            RetentionCleanupWorker(
+                object : RetentionCleanupRepository {
+                    override suspend fun deleteExpiredAndStaleRefreshTokens(): Int = throw SQLTimeoutException(timeoutMarker)
+
+                    override suspend fun purgeOldNotifications(): Int = error("not reached")
+
+                    override suspend fun deleteStaleFcmTokens(): Int = error("not reached")
+                },
+            )
+        withRoute(customWorker = timeoutWorker) {
+            val resp =
+                client.post("/internal/cleanup") {
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                }
+            resp.status shouldBe HttpStatusCode.InternalServerError
+            val body = resp.bodyAsText()
+            body shouldContain "\"error\":\"timeout\""
+            body shouldNotContain timeoutMarker
+            body shouldNotContain "SQLTimeoutException"
         }
     }
 })

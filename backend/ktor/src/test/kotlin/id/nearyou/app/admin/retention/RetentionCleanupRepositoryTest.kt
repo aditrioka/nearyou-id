@@ -14,6 +14,8 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import java.sql.SQLException
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -249,6 +251,82 @@ class RetentionCleanupRepositoryTest : StringSpec({
             result.refreshTokensDeleted shouldBeGreaterThanOrEqual 1
             result.notificationsDeleted shouldBeGreaterThanOrEqual 1
             result.fcmTokensDeleted shouldBeGreaterThanOrEqual 1
+        } finally {
+            cleanup(dataSource, listOf(u))
+        }
+    }
+
+    // ----- Idempotency: a re-run does not re-count already-reclaimed rows -----
+
+    "two back-to-back runs reclaim the seeded rows once, then zero" {
+        // First clear every currently-eligible row so the post-seed counts are
+        // exact (mirrors the route suite's determinism trick; Kotest runs specs
+        // single-fork-sequentially, so nothing ages in the sub-second gap).
+        worker.execute()
+        val t = tag()
+        val u = seedUser(dataSource, t)
+        seedRefreshToken(
+            dataSource,
+            u,
+            t,
+            expiresAt = Instant.now().minus(2, ChronoUnit.DAYS),
+            lastUsedAt = Instant.now().minus(1, ChronoUnit.DAYS),
+        )
+        seedNotification(dataSource, u, createdAt = Instant.now().minus(91, ChronoUnit.DAYS))
+        seedFcmToken(dataSource, u, t, lastSeenAt = Instant.now().minus(31, ChronoUnit.DAYS))
+        try {
+            // First run reclaims exactly the N=1-per-table we just seeded.
+            val first = worker.execute()
+            first.refreshTokensDeleted shouldBe 1
+            first.notificationsDeleted shouldBe 1
+            first.fcmTokensDeleted shouldBe 1
+            // Immediate re-run: the same rows are gone, nothing newly aged → all zero
+            // (proves the threshold DELETEs do not re-count already-reclaimed rows).
+            val second = worker.execute()
+            second.refreshTokensDeleted shouldBe 0
+            second.notificationsDeleted shouldBe 0
+            second.fcmTokensDeleted shouldBe 0
+        } finally {
+            cleanup(dataSource, listOf(u))
+        }
+    }
+
+    // ----- Sweep-failure isolation (spec/design D4: an independent statement per sweep) -----
+
+    "a later sweep's failure does not roll back an earlier sweep's committed deletes" {
+        val t = tag()
+        val u = seedUser(dataSource, t)
+        val tok =
+            seedRefreshToken(
+                dataSource,
+                u,
+                t,
+                expiresAt = Instant.now().minus(2, ChronoUnit.DAYS),
+                lastUsedAt = Instant.now().minus(1, ChronoUnit.DAYS),
+            )
+        // Sweep 1 (refresh tokens) delegates to the REAL JDBC repo, so it commits
+        // on its own auto-commit connection; sweep 2 (notifications) throws. D4
+        // requires sweep 1's reclaimed rows to survive sweep 2's failure.
+        val failAfterFirstSweep =
+            object : RetentionCleanupRepository {
+                override suspend fun deleteExpiredAndStaleRefreshTokens(): Int = repository.deleteExpiredAndStaleRefreshTokens()
+
+                override suspend fun purgeOldNotifications(): Int = throw SQLException("simulated notifications-sweep failure")
+
+                override suspend fun deleteStaleFcmTokens(): Int = error("not reached — sweep 2 failed first")
+            }
+        val failingWorker = RetentionCleanupWorker(failAfterFirstSweep)
+        try {
+            var thrown: Throwable? = null
+            try {
+                failingWorker.execute()
+            } catch (e: SQLException) {
+                thrown = e
+            }
+            // The notifications-sweep exception propagated out of execute().
+            thrown shouldNotBe null
+            // Fresh DB read: the refresh-token sweep committed before sweep 2 blew up.
+            refreshTokenExists(dataSource, tok) shouldBe false
         } finally {
             cleanup(dataSource, listOf(u))
         }
