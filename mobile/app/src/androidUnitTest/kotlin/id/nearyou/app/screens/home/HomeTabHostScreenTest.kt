@@ -17,6 +17,8 @@ import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.image.FakeImagePicker
 import id.nearyou.app.image.FakeImageUploadRepository
 import id.nearyou.app.image.ImagePicker
@@ -147,9 +149,11 @@ class HomeTabHostScreenTest {
                     single<NotificationsFlow> { FakeNotificationsFlow() }
                     single { fakeFcmTokenRegistrar() }
                     // A card tap appends PostDetailRoute, whose screen injects the PostDetailFlow seam +
-                    // (mobile-post-editing) the PostEditFlow seam for its refresh-on-resume + "Riwayat edit".
+                    // (mobile-post-editing) the PostEditFlow seam for its refresh-on-resume + "Riwayat edit"
+                    // + (mobile-content-report) the ReportSubmitter seam for the post/reply report dialog.
                     single<PostDetailFlow> { FakePostDetailFlow() }
                     single<PostEditFlow> { FakePostEditFlow() }
+                    single<ReportSubmitter> { FakeReportSubmitter() }
                 },
             )
         }

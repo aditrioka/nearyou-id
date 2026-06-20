@@ -35,6 +35,8 @@ import id.nearyou.app.data.block.BlockedUsersRepository
 import id.nearyou.app.data.consent.ConsentSnapshotStore
 import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.data.report.ReportApiClient
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.diagnostics.CompositeDiagnosticSink
 import id.nearyou.app.diagnostics.ConsoleDiagnosticSink
 import id.nearyou.app.diagnostics.CrashReportingController
@@ -346,16 +348,34 @@ val mobileModule =
         // duplicate status→LikeOutcome mapping).
         single<LikeFlow> { get<PostDetailRepository>() }
 
+        // mobile-content-report — the shared report-submission seam (data/report/), consumed by BOTH the
+        // profile (user report) and post-detail (post/reply report) surfaces. ReportApiClient wraps the
+        // SHIPPED POST /api/v1/reports over the shared (bearer-authed) HttpClient (NO new client, NO
+        // X-Session-Id — reports is not session-soft-capped); ReportSubmitter holds the single
+        // status→ReportOutcome mapping (relocated from ProfileRepository.report). The (status, errorCode)
+        // sink shape is adapted onto the shared string DiagnosticSink (coordinate-free by construction —
+        // an Int + a server error-code enum), matching the CreatePost/PostDetail/Profile wiring.
+        single { ReportApiClient(get()) }
+        single {
+            val sink = get<DiagnosticSink>()
+            ReportSubmitter(
+                get(),
+                diagnosticLog = { status, errorCode -> sink.log("report_error: status=$status code=$errorCode") },
+            )
+        }
+
         // mobile-profile — the profile surface graph (read + follow/block/report). Reuses the shared
         // HttpClient (Bearer via the Auth plugin; NO X-Session-Id — none of these endpoints are
-        // session-soft-capped). ProfileRepository is bound behind the ProfileFlow seam so a
-        // FakeProfileFlow drives the screen/VM tests (the concrete stays resolvable). SelfUserIdProvider
-        // decodes the access token's `sub` from the TokenStore so the Profil section resolves the self id.
+        // session-soft-capped) + the shared ReportSubmitter above (report submission). ProfileRepository
+        // is bound behind the ProfileFlow seam so a FakeProfileFlow drives the screen/VM tests (the
+        // concrete stays resolvable). SelfUserIdProvider decodes the access token's `sub` from the
+        // TokenStore so the Profil section resolves the self id.
         single { ProfileApiClient(get()) }
         single {
             val sink = get<DiagnosticSink>()
             ProfileRepository(
                 get(),
+                reportSubmitter = get(),
                 diagnosticLog = { status, errorCode -> sink.log("profile_error: status=$status code=$errorCode") },
             )
         }

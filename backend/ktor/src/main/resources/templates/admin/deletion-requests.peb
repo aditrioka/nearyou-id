@@ -1,0 +1,50 @@
+{% extends "layout.peb" %}
+
+{% block title %}Hard Delete Queue — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Hard Delete Queue</h2>
+<p class="pg-sub">deletion_requests — accounts awaiting scheduled hard-delete (UU PDP right-to-erasure). Expedite advances the deadline so the next daily worker run erases the account; the hard delete is IRREVERSIBLE (cascade per the retention matrix).</p>
+
+{# Read list over pending `deletion_requests` + a per-row manual "expedite" write
+   that advances the deadline. Every value is autoescaped; `username` is
+   user-controlled free text, so escaping is load-bearing here (and in the
+   /admin/users?q= deep-link href). #}
+
+{# Filter form. hx-get swaps only the #deletion-requests-table fragment;
+   method=GET means it also works as plain navigation when JS is unavailable. #}
+<div class="filterbar">
+    <input type="checkbox" id="filters-toggle" class="filters-toggle" aria-label="Toggle filters">
+    <label for="filters-toggle" class="btn tonal sm filters-label">Filters</label>
+    <span class="filters-chips">{% for f in filters %}{% if f.value is not empty %}<span class="pill">{{ f.key }}: {{ f.value }}</span>{% endif %}{% endfor %}</span>
+    <form class="filters"
+          hx-get="/admin/deletion-requests"
+          hx-target="#deletion-requests-table"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          method="GET">
+        <label class="field">
+            <span>User (username or ID)</span>
+            <input type="text" name="q" value="{{ filters.q | default('') }}" placeholder="username or UUID">
+        </label>
+        <label class="field">
+            <span>Source</span>
+            <select name="source">
+                <option value="">All</option>
+                <option value="user"{% if filters.source == 'user' %} selected{% endif %}>user</option>
+                <option value="admin"{% if filters.source == 'admin' %} selected{% endif %}>admin</option>
+                <option value="apple_s2s_consent_revoked"{% if filters.source == 'apple_s2s_consent_revoked' %} selected{% endif %}>apple_s2s_consent_revoked</option>
+                <option value="apple_s2s_account_delete"{% if filters.source == 'apple_s2s_account_delete' %} selected{% endif %}>apple_s2s_account_delete</option>
+            </select>
+        </label>
+        <button type="submit" class="btn filled">Filter</button>
+    </form>
+</div>
+
+{% include "deletion-requests-table.peb" %}
+
+<div class="banner warn">
+    <span class="ms">warning</span>
+    <span>Expedite requires a reason and a confirmation, and writes an audit-log row. Hard delete is irreversible: it cascades per the retention matrix (the reporter's reports are removed too; the user already holds a copy via Data Export before deletion).</span>
+</div>
+{% endblock %}

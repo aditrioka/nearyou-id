@@ -1,5 +1,9 @@
 package id.nearyou.app.screens.post
 
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportOutcome
+import id.nearyou.app.data.report.ReportReasonCategory
+import id.nearyou.app.data.report.ReportTargetType
 import id.nearyou.app.post.FakePostDetailFlow
 import id.nearyou.app.post.RepliesOutcome
 import id.nearyou.app.post.fakeReply
@@ -13,6 +17,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -49,7 +54,7 @@ class PostDetailViewModelTest {
     @Test
     fun init_loadsRepliesOnce_andExposesOutcome() {
         val fake = FakePostDetailFlow(repliesOutcome = loaded(null, "r1"))
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 2)
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 2, reportSubmitter = FakeReportSubmitter())
         assertEquals(1, fake.loadRepliesCount, "the first replies page loads exactly once on construction")
         assertEquals(listOf("r1"), viewModel.replyIds())
         assertFalse(viewModel.repliesInFlight.value, "repliesInFlight clears after the first load")
@@ -63,7 +68,7 @@ class PostDetailViewModelTest {
                 repliesOutcome = loaded("c1", "r1"),
                 loadMoreRepliesPages = listOf(loaded("c2", "r2")),
             )
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0)
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
 
         viewModel.onLoadMore()
 
@@ -74,7 +79,7 @@ class PostDetailViewModelTest {
     @Test
     fun onLoadMore_whenEndReached_isNoOp() {
         val fake = FakePostDetailFlow(repliesOutcome = loaded(null, "r1"))
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0)
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
 
         viewModel.onLoadMore()
 
@@ -88,7 +93,7 @@ class PostDetailViewModelTest {
                 repliesOutcome = loaded("c1", "r1"),
                 loadMoreRepliesPages = listOf(RepliesOutcome.NetworkError),
             )
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0)
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
 
         viewModel.onLoadMore()
 
@@ -99,7 +104,7 @@ class PostDetailViewModelTest {
     @Test
     fun onReplyPosted_prepends_bumpsCount_withoutRefetch() {
         val fake = FakePostDetailFlow(repliesOutcome = loaded("c1", "r1"))
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 2)
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 2, reportSubmitter = FakeReportSubmitter())
 
         viewModel.onReplyPosted(fakeReply(id = "rNew"))
 
@@ -115,7 +120,7 @@ class PostDetailViewModelTest {
                 repliesOutcome = loaded("c1", "r1"),
                 loadMoreRepliesPages = listOf(loaded("c2", "r2")),
             )
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0)
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
         viewModel.onLoadMore()
 
         viewModel.onReplyPosted(fakeReply(id = "rNew"))
@@ -134,7 +139,7 @@ class PostDetailViewModelTest {
                 repliesOutcome = RepliesOutcome.NetworkError,
                 secondRepliesOutcome = loaded(null, "rNew"),
             )
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0)
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
 
         viewModel.onReplyPosted(fakeReply(id = "rNew"))
 
@@ -149,12 +154,112 @@ class PostDetailViewModelTest {
                 repliesOutcome = loaded("c1", "r1"),
                 loadMoreRepliesPages = listOf(RepliesOutcome.NetworkError),
             )
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0)
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
         viewModel.onLoadMore()
         assertTrue(viewModel.loadMoreError.value)
 
         viewModel.reloadReplies()
 
         assertFalse(viewModel.loadMoreError.value, "a reload resets the load-more footer state")
+    }
+
+    // ---- mobile-content-report: the report dialog target + outcome→message mapping ----
+
+    private fun vm(reportSubmitter: FakeReportSubmitter): PostDetailViewModel =
+        PostDetailViewModel(
+            FakePostDetailFlow(repliesOutcome = loaded(null, "r1")),
+            postId = "p1",
+            initialReplyCount = 2,
+            reportSubmitter = reportSubmitter,
+        )
+
+    @Test
+    fun onReportPostClicked_setsPostTarget_andSubmitsThePostId() {
+        val submitter = FakeReportSubmitter(ReportOutcome.Submitted)
+        val viewModel = vm(submitter)
+        viewModel.onReportPostClicked()
+        assertEquals(ReportTarget.Post, viewModel.reportTarget.value, "the post report dialog targets the post")
+
+        viewModel.onReportSubmitted(ReportReasonCategory.SPAM, note = null)
+
+        assertNull(viewModel.reportTarget.value, "submitting dismisses the dialog")
+        assertEquals(ReportTargetType.POST, submitter.lastTarget)
+        assertEquals("p1", submitter.lastTargetId, "the post report target_id is the post id")
+        assertEquals(ReportReasonCategory.SPAM, submitter.lastCategory)
+    }
+
+    @Test
+    fun onReportReplyClicked_setsReplyTarget_andSubmitsTheReplyIdOnly() {
+        val submitter = FakeReportSubmitter(ReportOutcome.Submitted)
+        val viewModel = vm(submitter)
+        viewModel.onReportReplyClicked("r1")
+        assertEquals(ReportTarget.Reply("r1"), viewModel.reportTarget.value)
+
+        viewModel.onReportSubmitted(ReportReasonCategory.HARASSMENT, note = "spam")
+
+        assertEquals(ReportTargetType.REPLY, submitter.lastTarget)
+        assertEquals("r1", submitter.lastTargetId, "the reply report target_id is the reply id")
+        assertEquals("spam", submitter.lastNote)
+    }
+
+    @Test
+    fun onReportDialogDismissed_clearsTheTarget_withoutSubmitting() {
+        val submitter = FakeReportSubmitter()
+        val viewModel = vm(submitter)
+        viewModel.onReportReplyClicked("r1")
+
+        viewModel.onReportDialogDismissed()
+
+        assertNull(viewModel.reportTarget.value)
+        assertEquals(0, submitter.submitCount, "dismiss issues no submission")
+    }
+
+    @Test
+    fun reportSubmitted_maps_andTheMessageClearsAfterShown() {
+        // Submitted → SUCCESS, and the one-shot clears after onReportMessageShown() (no recompose re-fire).
+        val viewModel = vm(FakeReportSubmitter(ReportOutcome.Submitted))
+        viewModel.onReportPostClicked()
+        viewModel.onReportSubmitted(ReportReasonCategory.SPAM, note = null)
+        assertEquals(PostDetailReportMessage.SUCCESS, viewModel.reportMessage.value)
+
+        viewModel.onReportMessageShown()
+        assertNull(viewModel.reportMessage.value, "the one-shot message clears after being shown")
+    }
+
+    @Test
+    fun reportDuplicate_mapsToTheSameSuccessMessage_asSubmitted() {
+        // Anti-enumeration (design D3): Duplicate is INDISTINGUISHABLE from Submitted on this surface.
+        val submitter = FakeReportSubmitter(ReportOutcome.Duplicate)
+        val viewModel = vm(submitter)
+        viewModel.onReportPostClicked()
+
+        viewModel.onReportSubmitted(ReportReasonCategory.SPAM, note = null)
+
+        assertEquals(
+            PostDetailReportMessage.SUCCESS,
+            viewModel.reportMessage.value,
+            "Duplicate maps to the SAME success message as Submitted (no 'already reported' wording)",
+        )
+        assertEquals(1, submitter.submitCount, "the Duplicate path fires exactly one submission (no retry)")
+    }
+
+    @Test
+    fun reportRateLimited_mapsToRateLimitMessage() {
+        val viewModel = vm(FakeReportSubmitter(ReportOutcome.RateLimited(retryAfterSeconds = 60)))
+        viewModel.onReportPostClicked()
+
+        viewModel.onReportSubmitted(ReportReasonCategory.OTHER, note = null)
+
+        assertEquals(PostDetailReportMessage.RATE_LIMITED, viewModel.reportMessage.value)
+    }
+
+    @Test
+    fun reportNetworkError_mapsToFailedMessage() {
+        val viewModel = vm(FakeReportSubmitter(ReportOutcome.NetworkError))
+        viewModel.onReportReplyClicked("r1")
+
+        viewModel.onReportSubmitted(ReportReasonCategory.OTHER, note = null)
+
+        assertEquals(PostDetailReportMessage.FAILED, viewModel.reportMessage.value)
     }
 }

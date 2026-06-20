@@ -326,6 +326,11 @@
     <string name="cta_block">Blokir</string>
     <string name="profile_block_success_toast">Pengguna telah diblokir</string>
     <string name="profile_report_reason_title">Laporkan pengguna ini</string>
+    <!-- mobile-content-report: the post/reply report dialog titles (the post-detail surface). The reason
+         picker + note + outcome copy are the SHIPPED profile report strings, reused verbatim; only the
+         dialog title differs per target. -->
+    <string name="report_title_post">Laporkan postingan ini</string>
+    <string name="report_title_reply">Laporkan balasan ini</string>
     <string name="report_reason_spam">Spam</string>
     <string name="report_reason_hate_speech_sara">Ujaran kebencian (SARA)</string>
     <string name="report_reason_harassment">Pelecehan</string>

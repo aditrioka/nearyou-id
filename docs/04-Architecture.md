@@ -460,7 +460,7 @@ ENTRYPOINT ["/backup.sh"]
 
 ## Push Notification Infrastructure
 
-> **Status (2026-05-07).** Server-side push dispatch is **shipped** (`infra/fcm/` — `FcmDispatcher` 414 LOC + composite + payload builders + 6 tests, 1,292 test LOC), as are FCM token registration (V14 + `POST /api/v1/user/fcm-token` in `user/FcmTokenRoutes.kt`) and token cleanup-on-send. **Client-side handling is the spec source for mobile push scaffolding** — the Android preference-check, iOS NSE, App Group setup, body rewrite, and batching below are the contracts the future mobile-push change will implement (change-by-change menu: [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority). The scheduled-cleanup `/internal/cleanup` job below is also DESIGN — only the immediate on-send cleanup ships today.
+> **Status (2026-05-07).** Server-side push dispatch is **shipped** (`infra/fcm/` — `FcmDispatcher` 414 LOC + composite + payload builders + 6 tests, 1,292 test LOC), as are FCM token registration (V14 + `POST /api/v1/user/fcm-token` in `user/FcmTokenRoutes.kt`) and token cleanup-on-send. **Client-side handling is the spec source for mobile push scaffolding** — the Android preference-check, iOS NSE, App Group setup, body rewrite, and batching below are the contracts the future mobile-push change will implement (change-by-change menu: [`openspec/project.md`](../openspec/project.md) § Mobile + Admin Scaffolding Priority). The scheduled-cleanup `/internal/cleanup` job below is now **shipped** (`scheduled-retention-cleanup`, 2026-06) — both the immediate on-send cleanup and the daily scheduled stale sweep ship today.
 
 ### Platform-Specific Delivery Mode
 
@@ -479,7 +479,7 @@ Client must re-register when: the app first opens after install; the FCM token-r
 ### Token Cleanup (Two Complementary Paths)
 
 - **Expired tokens (immediate)**: when an FCM send returns 404/410 (UNREGISTERED or INVALID_ARGUMENT), the specific `(user_id, platform, token)` row is deleted on the spot.
-- **Stale tokens (scheduled)** — DESIGN: weekly `/internal/cleanup` job deletes `WHERE last_seen_at < NOW() - INTERVAL '30 days'`, guarding against tokens that stopped being re-registered without an explicit expiration event.
+- **Stale tokens (scheduled)** — **SHIPPED** (`scheduled-retention-cleanup`, 2026-06): the daily `/internal/cleanup` job deletes `WHERE last_seen_at < NOW() - INTERVAL '30 days'`, guarding against tokens that stopped being re-registered without an explicit expiration event. (Daily rather than weekly — equally correct for an idempotent threshold DELETE; design D2.)
 
 ### Per-Conversation Batching
 

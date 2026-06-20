@@ -9,6 +9,9 @@ import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.admin
 import id.nearyou.app.admin.privacyFlipWorkerRoute
+import id.nearyou.app.admin.retention.JdbcRetentionCleanupRepository
+import id.nearyou.app.admin.retention.RetentionCleanupWorker
+import id.nearyou.app.admin.retention.retentionCleanupRoutes
 import id.nearyou.app.admin.unbanWorkerRoute
 import id.nearyou.app.auth.installAuth
 import id.nearyou.app.auth.jwks.jwksRoutes
@@ -413,6 +416,10 @@ fun Application.module() {
     val accountDeletionRepository = AccountDeletionRepository(dataSource, dbDispatchers.db)
     val accountDeletionService = AccountDeletionService(accountDeletionRepository)
     val accountHardDeleteWorker = AccountHardDeleteWorker(dataSource, dbDispatchers.db)
+    // scheduled-retention-cleanup: daily Cloud-Scheduler worker (→ /internal/cleanup)
+    // running the three retention sweeps (refresh_tokens / notifications / user_fcm_tokens).
+    val retentionCleanupRepository = JdbcRetentionCleanupRepository(dataSource, dbDispatchers.db)
+    val retentionCleanupWorker = RetentionCleanupWorker(retentionCleanupRepository)
 
     val reservedUsernames: ReservedUsernameRepository = JdbcReservedUsernameRepository(dataSource)
     // Real username_history binding (premium-username-customization) — shared by
@@ -1079,6 +1086,7 @@ fun Application.module() {
                 single { accountDeletionRepository }
                 single { accountDeletionService }
                 single { accountHardDeleteWorker }
+                single { retentionCleanupWorker }
             },
         )
     }
@@ -1128,6 +1136,7 @@ fun Application.module() {
             unbanWorkerRoute(suspensionUnbanWorker, oidcTokenVerifier)
             privacyFlipWorkerRoute(privacyFlipWorker, oidcTokenVerifier)
             accountHardDeleteWorkerRoute(accountHardDeleteWorker, oidcTokenVerifier)
+            retentionCleanupRoutes(retentionCleanupWorker, oidcTokenVerifier)
         }
     }
 
