@@ -125,18 +125,29 @@ class ReferralGrantRepository {
         }
 
     /**
-     * The recipient's current (furthest-future) entitlement end, for stacking.
-     * `MAX(entitlement_end)` over the user's `subscription_events`; NULL when they
-     * have never had a window — the caller floors with `NOW()` (fresh week).
+     * The recipient's current (furthest-future) entitlement end, for stacking. The
+     * `GREATEST` of the paid/echoed window (`subscription_events`) AND this worker's own
+     * already-written promo grants (`granted_entitlements`). Including the latter matters
+     * when one user earns TWO grants in a single run (e.g. an invitee who also hits their
+     * 5th-referral inviter milestone): the second grant must stack off the first's ledger
+     * row, since the first's RevenueCat `GRANT` echo (which writes `subscription_events`)
+     * has not arrived yet. NULL when the user has never had a window — the caller floors
+     * with `NOW()` (fresh week). `GREATEST` ignores NULL operands in PostgreSQL.
      */
     fun currentEntitlementEnd(
         conn: Connection,
         userId: UUID,
     ): Instant? =
         conn.prepareStatement(
-            "SELECT MAX(entitlement_end) FROM subscription_events WHERE user_id = ?",
+            """
+            SELECT GREATEST(
+                (SELECT MAX(entitlement_end) FROM subscription_events WHERE user_id = ?),
+                (SELECT MAX(entitlement_end) FROM granted_entitlements WHERE user_id = ?)
+            )
+            """.trimIndent(),
         ).use { ps ->
             ps.setObject(1, userId)
+            ps.setObject(2, userId)
             ps.executeQuery().use { rs ->
                 if (rs.next()) rs.getObject(1, OffsetDateTime::class.java)?.toInstant() else null
             }

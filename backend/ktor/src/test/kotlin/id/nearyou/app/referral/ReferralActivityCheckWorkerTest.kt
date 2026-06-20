@@ -6,6 +6,7 @@ import id.nearyou.app.infra.revenuecatapi.GrantRequest
 import id.nearyou.app.infra.revenuecatapi.GrantResult
 import id.nearyou.app.infra.revenuecatapi.NoOpReferralEntitlementGranter
 import id.nearyou.app.infra.revenuecatapi.ReferralEntitlementGranter
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldHaveSize
@@ -197,7 +198,12 @@ class ReferralActivityCheckWorkerTest : StringSpec({
     fun ticketStatus(id: UUID): String =
         query("SELECT status FROM referral_tickets WHERE id = ?", { it.setObject(1, id) }) { it.getString(1) }
 
-    fun grantCount(): Int = query("SELECT COUNT(*) FROM granted_entitlements") { it.getInt(1) }
+    // Scoped to this spec's users (rgw%) so a future spec leaving granted_entitlements
+    // rows can't pollute the "no grant" assertions (granted_entitlements is mine-only today).
+    fun grantCount(): Int =
+        query(
+            "SELECT COUNT(*) FROM granted_entitlements ge JOIN users u ON ge.user_id = u.id WHERE u.username LIKE 'rgw%'",
+        ) { it.getInt(1) }
 
     fun grantCountFor(
         userId: UUID,
@@ -351,6 +357,36 @@ class ReferralActivityCheckWorkerTest : StringSpec({
         end shouldBe now.plus(Duration.ofDays(7))
     }
 
+    "a second grant for the same user in one run stacks off the first granted_entitlements row" {
+        // U is both an invitee (own ticket) AND an inviter hitting their 5th referral in the
+        // SAME run. The inviter grant must stack off U's just-written invitee grant (whose
+        // RevenueCat echo has not arrived) — i.e. currentEntitlementEnd reads granted_entitlements,
+        // not only subscription_events. U's invitee ticket is oldest → granted first.
+        val u = seedUser()
+        val uInviter = seedUser()
+        seedPosts(u, 2)
+        seedTicket(uInviter, u, createdAt = now.minus(Duration.ofDays(20)))
+        repeat(5) { i ->
+            val invitee = seedUser()
+            seedPosts(invitee, 2)
+            seedTicket(u, invitee, createdAt = now.minus(Duration.ofDays((10 - i).toLong())))
+        }
+
+        worker(FakeGranter()).execute()
+
+        fun grantEnd(role: String): Instant =
+            query(
+                "SELECT entitlement_end FROM granted_entitlements WHERE user_id = ? AND grant_role = ?",
+                { ps ->
+                    ps.setObject(1, u)
+                    ps.setString(2, role)
+                },
+            ) { it.getObject(1, OffsetDateTime::class.java).toInstant() }
+
+        grantEnd("invitee") shouldBe now.plus(Duration.ofDays(7))
+        grantEnd("inviter") shouldBe now.plus(Duration.ofDays(14)) // stacked off the invitee grant
+    }
+
     // ---------- 6.6 invitee idempotency ----------
     "re-running the worker over a granted ticket creates no second invitee grant" {
         val inviter = seedUser()
@@ -444,6 +480,51 @@ class ReferralActivityCheckWorkerTest : StringSpec({
             insertInviterGrant(t1) shouldBe true
             insertInviterGrant(t2) shouldBe false // partial-unique index blocks the second inviter row
         }
+    }
+
+    "the grant_role CHECK rejects an out-of-vocabulary value" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        val ticket = seedTicket(inviter, invitee)
+        shouldThrow<java.sql.SQLException> {
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "INSERT INTO granted_entitlements " +
+                        "(referral_ticket_id, user_id, grant_role, entitlement_start, entitlement_end, dedup_key) " +
+                        "VALUES (?, ?, 'sponsor', ?, ?, ?)",
+                ).use { ps ->
+                    ps.setObject(1, ticket)
+                    ps.setObject(2, invitee)
+                    ps.setObject(3, ts(now))
+                    ps.setObject(4, ts(now.plus(Duration.ofDays(7))))
+                    ps.setString(5, "$ticket:sponsor")
+                    ps.executeUpdate()
+                }
+            }
+        }
+    }
+
+    "a user hard-delete cascades their granted_entitlements rows" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        seedTicket(inviter, invitee)
+        worker(FakeGranter()).execute()
+        grantCountFor(invitee, "invitee") shouldBe 1
+
+        // Delete the invitee's posts (RESTRICT FK) then the invitee row; the granted_entitlements
+        // row cascades via the user_id (and referral_ticket_id) ON DELETE CASCADE FKs.
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("DELETE FROM posts WHERE author_id = ?").use { ps ->
+                ps.setObject(1, invitee)
+                ps.executeUpdate()
+            }
+            conn.prepareStatement("DELETE FROM users WHERE id = ?").use { ps ->
+                ps.setObject(1, invitee)
+                ps.executeUpdate()
+            }
+        }
+        grantCountFor(invitee, "invitee") shouldBe 0
     }
 
     // ---------- 6.11 fail-soft (key unset) ----------
