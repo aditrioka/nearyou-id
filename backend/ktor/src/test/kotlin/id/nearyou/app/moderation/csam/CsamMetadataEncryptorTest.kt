@@ -45,6 +45,15 @@ class CsamMetadataEncryptorTest : StringSpec({
         encryptor.encrypt(plaintext, imageHash) shouldBe null
     }
 
+    "7.10 fail-soft — a PROVISIONED-but-malformed key (wrong length) makes encrypt degrade to null, NOT throw" {
+        // A crypto misconfig (e.g. a 16-byte key from bad Base64) MUST NOT block the
+        // safety-critical takedown: AesGcmCipher's require(key.size == 32) throws, and the
+        // encryptor catches it → null blob. The takedown proceeds; only the blob degrades.
+        val encryptor = CsamMetadataEncryptor { ByteArray(16) { it.toByte() } }
+
+        encryptor.encrypt(plaintext, imageHash) shouldBe null
+    }
+
     "7.10 fail-soft — decrypt throws when the key slot is unprovisioned (admin read path requires the key)" {
         val encryptor = CsamMetadataEncryptor { null }
         // Construct a valid ciphertext with a provisioned key first.

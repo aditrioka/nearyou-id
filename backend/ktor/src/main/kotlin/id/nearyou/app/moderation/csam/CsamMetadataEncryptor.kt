@@ -1,6 +1,7 @@
 package id.nearyou.app.moderation.csam
 
 import id.nearyou.app.admin.auth.AesGcmCipher
+import org.slf4j.LoggerFactory
 
 /**
  * Fail-soft AES-256-GCM encryptor for `csam_detection_archive.encrypted_metadata`
@@ -36,7 +37,17 @@ class CsamMetadataEncryptor(
         imageHash: String,
     ): ByteArray? {
         val key = keyProvider() ?: return null
-        return AesGcmCipher.encrypt(plaintext, key, imageHash.toByteArray(Charsets.UTF_8))
+        return try {
+            AesGcmCipher.encrypt(plaintext, key, imageHash.toByteArray(Charsets.UTF_8))
+        } catch (e: Exception) {
+            // Fail-soft also covers a PROVISIONED-but-MALFORMED key (wrong length / bad
+            // Base64 → AesGcmCipher's `require(key.size == 32)`): a crypto misconfig MUST
+            // NOT block the safety-critical takedown (design D4). Degrade to a null blob +
+            // WARN; the plaintext Kominfo essentials still persist. The decrypt read path
+            // stays strict (a misconfig surfaces there, where there is no takedown to gate).
+            log.warn("event=csam_metadata_encrypt_failed error_class={}", e::class.simpleName)
+            null
+        }
     }
 
     /**
@@ -50,5 +61,9 @@ class CsamMetadataEncryptor(
     ): ByteArray {
         val key = keyProvider() ?: error("csam-archive-aes-key is not provisioned; cannot decrypt")
         return AesGcmCipher.decrypt(ciphertext, key, imageHash.toByteArray(Charsets.UTF_8))
+    }
+
+    private companion object {
+        private val log = LoggerFactory.getLogger(CsamMetadataEncryptor::class.java)
     }
 }
