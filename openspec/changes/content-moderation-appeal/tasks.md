@@ -1,7 +1,7 @@
 ## 1. Schema (Flyway V31)
 
-- [ ] 1.1 **Re-verify the next-free Flyway version at implementation start** (in-flight siblings hold V29×2 + V30; parallel collisions are a known risk) — rename `V31__appeals.sql` if a sibling has merged a higher version since proposal.
-- [ ] 1.2 Write `V31__appeals.sql`: `appeals` table per design D4 (columns + CHECKs + FKs: `user_id … ON DELETE CASCADE`, `reviewed_by … ON DELETE SET NULL`), the partial-unique `appeals_one_pending_per_user` index, and the partial `appeals_pending_created_idx` index. No `NOW()` in any partial-index predicate.
+- [x] 1.1 **Re-verify the next-free Flyway version at implementation start** (in-flight siblings hold V29×2 + V30; parallel collisions are a known risk) — rename `V31__appeals.sql` if a sibling has merged a higher version since proposal.
+- [x] 1.2 Write `V31__appeals.sql`: `appeals` table per design D4 (columns + CHECKs + FKs: `user_id … ON DELETE CASCADE`, `reviewed_by … ON DELETE SET NULL`), the partial-unique `appeals_one_pending_per_user` index, and the partial `appeals_pending_created_idx` index. No `NOW()` in any partial-index predicate.
 - [ ] 1.3 Add the migration test (schema accepts a valid row; rejects >1000-char `appeal_text`; one-pending partial-unique enforced; `reviewed_by` SET NULL on admin delete) under `@Tags("database")`.
 
 ## 2. Auth — ban-exempt realm (MODIFIED auth-jwt) + appeal token (MODIFIED auth-signin)
