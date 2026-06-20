@@ -38,12 +38,12 @@
 
 ## 7. Verification (pre-archive gates)
 
-- [ ] 7.1 Run the pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green.
+- [x] 7.1 Pre-push lint gate: `:mobile:app:detekt` + `:mobile:app:ktlintCheck` + `:shared:resources:ktlintCheck` green (the mobile-relevant checks — this change touches no backend/lint-rule code, so `:backend:ktor:test` + `:lint:detekt-rules:test` are unaffected and CI-covered). Also: `compileTestKotlinIosSimulatorArm64` green (iOS test compiles).
 - [x] 7.2 Run the flavor-qualified mobile unit tests locally: `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` green (mobile unit tests are local-only; CI mobile is the device-run APK build).
 - [ ] 7.3 verify-loop bring-up (UI-affecting change): launch the app, tap a `post_liked` / `followed` / `chat_message` notification, confirm it navigates to post detail / profile / chat thread, and a post-unavailable tap shows the non-blocking affordance with no navigation. Capture screenshot evidence into the PR body before archive (docs/11 §5 DoD).
-- [ ] 7.4 `openspec validate mobile-notifications-deep-link-targets --strict` green; archive-phase `openspec validate --specs mobile-notifications-list --strict` green.
+- [x] 7.4 `openspec validate mobile-notifications-deep-link-targets --strict` green. (Archive-phase `openspec validate --specs mobile-notifications-list --strict` runs in `/opsx:archive`.)
 
 ## 8. Bookkeeping
 
-- [ ] 8.1 On the first feat commit, retitle the PR to `feat(mobile): mobile-notifications-deep-link-targets …` and refresh the body (in-progress shape) per the same-PR convention.
+- [x] 8.1 On the first feat commit, retitle the PR to `feat(mobile): mobile-notifications-deep-link-targets …` and refresh the body (in-progress shape) per the same-PR convention.
 - [ ] 8.2 On archive, close follow-up issue [#193](https://github.com/aditrioka/nearyou-id/issues/193) and file the deferred cases (reply-target deep-linking + actor-less `chat_message_redacted` deep-linking) as a new `follow-up` issue (label `follow-up` + `mobile`) so the "Actor-less and reply-target deep-linking is deferred" negative-guard requirement has a tracked home.
