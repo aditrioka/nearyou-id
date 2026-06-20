@@ -881,6 +881,50 @@ class AdminUserModerationRouteTest : StringSpec({
         UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_shadow_banned") shouldHaveSize 0
     }
 
+    "shadow-ban: wrong CSRF token → 403, not shadow-banned, no audit row" {
+        val admin = seedAdmin(role = "moderator")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/shadow-ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, "wrong-token-value")
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        UserModerationTestSupport.loadUser(dataSource, uid).isShadowBanned shouldBe false
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_shadow_banned") shouldHaveSize 0
+    }
+
+    "shadow-ban: non-UUID id (owner + valid CSRF) → 400 (not 500)" {
+        val admin = seedAdmin(role = "owner")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/not-a-uuid/shadow-ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldNotBe HttpStatusCode.InternalServerError
+            res.status shouldBe HttpStatusCode.BadRequest
+        }
+    }
+
+    "shadow-unban: non-UUID id (moderator + valid CSRF) → 400 (not 500)" {
+        val admin = seedAdmin(role = "moderator")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/not-a-uuid/shadow-unban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldNotBe HttpStatusCode.InternalServerError
+            res.status shouldBe HttpStatusCode.BadRequest
+        }
+    }
+
     "shadow-unban: moderator + valid CSRF → 303 and the shadow ban is lifted" {
         val admin = seedAdmin(role = "moderator")
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)

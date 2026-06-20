@@ -176,6 +176,29 @@ class SignInFlowTest : StringSpec({
         }
     }
 
+    "refresh allows an active account → 200 with a new token pair (D8 regression: healthy path unaffected)" {
+        val sub = "google-refresh-active-guard"
+        val user = userRow(googleIdHash = sha256Hex(sub))
+        setup(InMemoryUsers(listOf(user)), StaticVerifier(sub)) { _ ->
+            val client = createClient { install(ClientCN) { json() } }
+            val signin: TokenPairResponse =
+                client.post("/api/v1/auth/signin") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SignInRequest(provider = "google", idToken = "ok"))
+                }.body()
+
+            val response =
+                client.post("/api/v1/auth/refresh") {
+                    contentType(ContentType.Application.Json)
+                    setBody(RefreshRequest(refreshToken = signin.refreshToken))
+                }
+            response.status shouldBe HttpStatusCode.OK
+            val refreshed: TokenPairResponse = response.body()
+            refreshed.refreshToken shouldNotBe signin.refreshToken
+            refreshed.expiresIn shouldBe 900L
+        }
+    }
+
     "refresh denies a permanently-banned account → 403 account_banned, no new access token" {
         val sub = "google-refresh-banned"
         val user = userRow(googleIdHash = sha256Hex(sub))

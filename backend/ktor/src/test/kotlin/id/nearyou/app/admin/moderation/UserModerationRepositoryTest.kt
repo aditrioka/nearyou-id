@@ -572,6 +572,17 @@ class UserModerationRepositoryTest : StringSpec({
         parseSuspendedUntil(audit.afterStateJson).shouldBeNull()
     }
 
+    "ban: a null user_agent records NULL user_agent (ip still recorded)" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+
+        repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = null)
+
+        val audit = UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned").single()
+        audit.userAgent.shouldBeNull()
+        audit.ip shouldBe ip
+    }
+
     "ban: inserts one sanitized account_action_applied notification; free-text reason absent" {
         val admin = seedAdmin()
         val uid = seedUser(isBanned = false)
