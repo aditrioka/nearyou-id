@@ -92,10 +92,10 @@ An authenticated read `GET /api/v1/account/export` SHALL report the caller's lat
 
 ### Requirement: The export worker packages and delivers the export
 
-An OIDC-authed internal endpoint `POST /internal/data-export-run` (verified per `internal-endpoint-auth`, invoked by Cloud Scheduler) SHALL process pending exports. For each claimed request the worker SHALL: optimistically claim the row (`UPDATE … SET status='processing', started_at=NOW() WHERE id=? AND status='pending'`, proceeding only if a row was affected — so concurrent invocations never double-process); gather the caller's data per the scope matrix; serialize it to a single archive (ZIP of JSON + CSV files per the scope-matrix Format column + a manifest + a Bahasa-Indonesia README); upload the archive to object storage; obtain a signed GET URL with a 24-hour TTL; set `status='ready'`, `r2_object_key`, `completed_at=NOW()`, `download_expires_at=NOW()+INTERVAL '24 hours'`; emit a `data_export_ready` notification; and send the Resend delivery email. A request that cannot be processed (object storage or email unconfigured/erroring after retries) MUST be set to `status='failed'` with a non-PII `error`, never crashing the worker. An invalid/absent OIDC token MUST be rejected per `internal-endpoint-auth` (no processing).
+An OIDC-authed internal endpoint `POST /internal/data-export-worker` (verified per `internal-endpoint-auth`, invoked by Cloud Scheduler) SHALL process pending exports. For each claimed request the worker SHALL: optimistically claim the row (`UPDATE … SET status='processing', started_at=NOW() WHERE id=? AND status='pending'`, proceeding only if a row was affected — so concurrent invocations never double-process); gather the caller's data per the scope matrix; serialize it to a single archive (ZIP of JSON + CSV files per the scope-matrix Format column + a manifest + a Bahasa-Indonesia README); upload the archive to object storage; obtain a signed GET URL with a 24-hour TTL; set `status='ready'`, `r2_object_key`, `completed_at=NOW()`, `download_expires_at=NOW()+INTERVAL '24 hours'`; emit the `data_export_ready` notification (the **durable** delivery channel); and **then** send the best-effort Resend email. A request whose gather or upload cannot complete after retries MUST be set to `status='failed'` with a non-PII `error` and `attempt_count` incremented, never crashing the worker and never leaving a partial `ready`. Because the in-app notification is the durable delivery, a Resend failure on an **already-`ready`** export does NOT revert it to `failed` (the notification already carries the signed URL) — the email failure is logged (no PII) and independently retryable. An invalid/absent OIDC token MUST be rejected per `internal-endpoint-auth` (no processing).
 
 #### Scenario: Worker rejects an unauthenticated invocation
-- **WHEN** `POST /internal/data-export-run` is called without a valid Google-OIDC bearer token
+- **WHEN** `POST /internal/data-export-worker` is called without a valid Google-OIDC bearer token
 - **THEN** the request is rejected (`401`/`403`) and no export is processed
 
 #### Scenario: Pending export is processed end-to-end
@@ -106,9 +106,13 @@ An OIDC-authed internal endpoint `POST /internal/data-export-run` (verified per 
 - **WHEN** two worker invocations run against the same single `pending` request
 - **THEN** exactly one claims it (transitions it to `processing`) and produces exactly one archive/notification/email; the other claims nothing for that row
 
-#### Scenario: Fail-soft when delivery substrate is unconfigured
-- **WHEN** the worker processes a request while object storage (or email) is unconfigured/erroring after retries
-- **THEN** the request is set to `status='failed'` with a non-PII `error` AND the worker does not crash AND no partial/broken `ready` state is left
+#### Scenario: Fail-soft when object storage is unavailable (nothing delivered)
+- **WHEN** the worker processes a request while object storage is unconfigured/erroring after retries (Resend may be healthy)
+- **THEN** the request is set to `status='failed'` with a non-PII `error` and `attempt_count` incremented, the worker does not crash, and NO `ready` state, signed URL, notification, or email is produced
+
+#### Scenario: Email failure after a ready export does not break delivery
+- **WHEN** the archive uploads successfully, the export is set `ready`, and the `data_export_ready` notification is emitted, but the subsequent Resend email fails after retries (e.g. Resend unconfigured while R2 is healthy)
+- **THEN** the export REMAINS `ready` (the in-app notification is the durable channel carrying the signed URL), the email failure is logged without PII and is independently retryable, and the request is NOT reverted to `failed`
 
 ### Requirement: Export scope matrix matches the canonical Data Export Scope Matrix
 
@@ -116,9 +120,11 @@ The export archive — a ZIP of **JSON + CSV** files per the canonical Format co
 
 **Included** (the requester's own data): user profile (name/bio/username, current state — JSON); username change history (own — CSV: old + new + changed_at); date of birth (JSON); hashed Google/Apple ID (JSON, self-reference); analytics-consent history (JSON); posts active (CSV — incl. the user's own `actual_location`, `city_name`, timestamp); posts soft-deleted in grace (CSV, marked `deleted_at`); post edit history (own — CSV, all versions); likes given (CSV); replies given (CSV); follow list (CSV, peer id hashed); block list (CSV, blocked id hashed); chat messages **sent and received** (CSV: conversation_id + content + timestamp + **peer_id hashed**); reports submitted by the user (CSV: target hashed + reason + timestamp); notifications received (CSV: type + target + timestamp + read state); moderation actions applied to the user (CSV: action_type + timestamp, admin_id omitted); session history (CSV: fingerprint, IP — 90-day window only); premium subscription history (CSV: tier + start/end + source paid|referral).
 
-**Excluded** (MUST NOT appear): reports received about the user (affects third parties), attestation verdicts, admin audit log about the user, CSAM detection archive, `rejected_identifiers` hash, and — overriding the "moderation actions applied" inclusion — any **shadow-ban** status or shadow-ban moderation entry (the shadow-ban stealth invariant wins: the export MUST NOT reveal that the user is shadow-banned). Every included peer reference is a one-way hash, so no other user's identity is exposed.
+**Excluded** (MUST NOT appear): reports received about the user (affects third parties), attestation verdicts, admin audit log about the user, CSAM detection archive, `rejected_identifiers` hash, the `users.is_shadow_banned` column itself, and — overriding the "moderation actions applied" inclusion — any **shadow-ban** status or shadow-ban moderation entry (the shadow-ban stealth invariant wins: the export MUST NOT reveal that the user is shadow-banned).
 
-Scope-matrix reads are own-content raw reads — they intentionally read the user's real data, including the user's own `actual_location` (NOT the HMAC-fuzzed `display_location`) and the user's own block list — so the repository sites carry the own-content allowlist annotations (`@AllowRawPostsRead` / `@AllowMissingBlockJoin`, plus the sanctioned own-`actual_location` read).
+Every included peer reference (follow / block / chat / report target) MUST be a **server-keyed HMAC** — `HMAC-SHA256(export-peer-hash-secret, peer_id)`, the secret resolved via `secretKey(env, name)` (the invite-code-HMAC precedent) — NOT a bare digest of the raw id. A bare `SHA256(uuid)` is brute-forceable over enumerable user ids AND identical across every user's export, which would let two colluding users confirm a shared counterparty; the keyed HMAC makes peer references non-reversible and non-correlatable across exports, so no other user's identity is exposed.
+
+Scope-matrix reads are own-content raw reads — they intentionally read the user's real data, including the user's own `actual_location` (NOT the HMAC-fuzzed `display_location`) and the user's own block list — so the repository sites carry the own-content allowlist annotations: `@AllowRawPostsRead`, `@AllowMissingBlockJoin`, and **`@AllowActualLocationRead`** for the own-`actual_location` read (the specific token `CoordinateJitterRule` requires to exempt a non-admin `actual_location` read — naming only the first two would fail the detekt lane).
 
 #### Scenario: Archive contains the canonical Included categories
 - **WHEN** a user's export archive is produced
@@ -138,11 +144,15 @@ Scope-matrix reads are own-content raw reads — they intentionally read the use
 
 #### Scenario: Shadow-ban stealth is preserved
 - **WHEN** a shadow-banned user requests and receives an export
-- **THEN** neither the moderation-actions file nor any other file reveals the shadow-ban (the stealth invariant overrides the "moderation actions applied" inclusion)
+- **THEN** no file reveals the shadow-ban — the moderation-actions file omits any shadow-ban entry AND the profile file omits the `is_shadow_banned` column (the stealth invariant overrides the "moderation actions applied" inclusion)
 
 #### Scenario: No other user's personal data leaks into the archive
 - **WHEN** user A's export is produced while user B also has data
 - **THEN** no raw identifier or content of B appears (peer references are hashed; only A's own messages within A's own conversations are present)
+
+#### Scenario: Peer ids are keyed-HMAC hashed, not bare digests
+- **WHEN** the follow / block / chat / report peer references in the archive are inspected
+- **THEN** each is a keyed HMAC (`HMAC-SHA256(export-peer-hash-secret, peer_id)`) — never a raw id and never a bare `SHA256` of the id — so it is neither reversible by id-enumeration nor identical to the same peer's hash in another user's export
 
 ### Requirement: Delivery reuses the shipped data_export_ready notification (no notifications migration)
 
@@ -174,7 +184,7 @@ This change is the user-facing export **producer** only. It SHALL NOT add any `/
 
 #### Scenario: No admin route added here
 - **WHEN** the routes introduced by this change are enumerated
-- **THEN** none is mounted under `/admin/*` (the only new routes are `POST`/`GET /api/v1/account/export` and `POST /internal/data-export-run`)
+- **THEN** none is mounted under `/admin/*` (the only new routes are `POST`/`GET /api/v1/account/export` and `POST /internal/data-export-worker`)
 
 #### Scenario: Deferred admin surface is tracked
 - **WHEN** the change is delivered
