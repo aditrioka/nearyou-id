@@ -1,0 +1,47 @@
+## 1. Pre-flight
+
+- [ ] 1.1 Confirm no substrate change: this reuses the existing Ktor client, NavKeys, and `SinglePostApiClient` — no `gradle/libs.versions.toml` edit, so the pre-implementation library re-check is N/A (note it in the first feat commit body).
+- [ ] 1.2 Re-confirm the destination NavKeys + the shell's hoisted callback signatures are unchanged on the branch base (`PostDetailRoute`, `ProfileRoute(userId)`, `ChatThreadRoute(conversationId, …)`, `AppShellScreen.onOpenPost/onOpenProfile`, `PostDetailTarget`).
+
+## 2. Full-projection single-post fetch (data layer — design D2)
+
+- [ ] 2.1 Extend `post/SinglePostApiClient.kt` with a full-projection read of `GET /api/v1/posts/{postId}`: a new `@Serializable` DTO decoding the bare-camelCase shipped wire (`id`, `authorUsername`, `authorDisplayName`, `content`, `cityName`, `createdAt`, `likedByViewer`, `replyCount` — NO author UUID / coordinate), distinct from the existing minimal `SinglePostDto` (leave that untouched).
+- [ ] 2.2 Add a `fetchFullPost(postId)` method returning a sealed result (`Success(PostDetailTarget)` / `Unavailable`): map the full-projection DTO → `PostDetailTarget(distanceM = null, …)`; `200` → `Success`, `404`/non-200/IO → `Unavailable`; rethrow `CancellationException`; never log (no-PII). Mirror the existing `SinglePostApiResult` discipline.
+- [ ] 2.3 Wire/confirm Koin: `SinglePostApiClient` is available to the `NotificationsViewModel` seam (binding in `di/MobileModule.kt`); keep a test seam (interface/fake) so commonTest can drive `Success`/`Unavailable` without a backend.
+
+## 3. NotificationsViewModel — per-type resolution + nav events (design D3, D4, D6)
+
+- [ ] 3.1 Add a pure resolver mapping `(type, target_type, target_id, actor_user_id, body_data)` → a typed nav intent: `Post(target_id)`, `Profile(actor_user_id)`, `ChatThread(conversation_id)`, or `None` (reply-target + informational + unknown/missing-field). Unit-testable, PII-free.
+- [ ] 3.2 On row tap: keep the unchanged optimistic mark-read; independently resolve the nav intent. For `Post`, run `fetchFullPost(target_id)` with a per-tap "resolving" indicator (supersede/cancel an in-flight resolution when another row is tapped) → `Success` sets the consumed-once `pendingNavTarget` to `OpenPost(PostDetailTarget)`; `Unavailable` sets a transient non-blocking "Postingan tidak tersedia" affordance and sets NO nav target (the row is still marked read).
+- [ ] 3.3 For `Profile` / `ChatThread`, set `pendingNavTarget` to `OpenProfile(userId)` / `OpenChatThread(conversationId)` with no fetch. Expose `pendingNavTarget` as a **nullable, consumed-once field on the `StateFlow` UiState** cleared by a VM `onNavConsumed()` callback — the established `EditPostUiState` one-shot-signal pattern; **NO `Channel`/`SharedFlow`** (forbidden by docs/11 § 2.2) — so navigation does not re-fire on recomposition.
+- [ ] 3.4 Keep `NotificationsUiState` Compose-free and PII-free (no `actor_user_id`/`target_id`/`conversation_id` in state or diagnostics); the transient unavailable affordance carries no PII.
+
+## 4. NotificationsScreen — hoisted callbacks + collect events + unavailable affordance (spec: hoisted-callbacks requirement)
+
+- [ ] 4.1 Add `onOpenPost: (PostDetailTarget) -> Unit`, `onOpenProfile: (userId: String) -> Unit`, `onOpenChatThread: (conversationId: String) -> Unit` params to `NotificationsScreen` (default no-op for test ergonomics); keep the screen navigation-free.
+- [ ] 4.2 Observe the VM's nullable `pendingNavTarget`; on a non-null value invoke the matching hoisted callback (`onOpenPost`/`onOpenProfile`/`onOpenChatThread`) exactly once, then call `onNavConsumed()` to clear it (so it does not re-fire on recomposition) — the `PostDetailScreen` consumed-marker precedent.
+- [ ] 4.3 Render the per-tap resolving indicator on the tapped row and the transient non-blocking "Postingan tidak tersedia" affordance; all copy via `stringResource(Res.string.*)` (no hardcoded UI strings) — add the new string(s) to `:shared:resources`.
+
+## 5. Shell + AppEntryProvider wiring (spec: hoisted-callbacks requirement; design D3)
+
+- [ ] 5.1 In `screens/shell/AppShellScreen.kt`, stop invoking `NotificationsScreen()` bare: forward the existing `onOpenPost` / `onOpenProfile`, and pass a new `onOpenChatThread` callback.
+- [ ] 5.2 In `screens/routing/AppEntryProvider.kt`, wire the notifications `onOpenChatThread(conversationId)` to a `ChatThreadRoute(conversationId)` root-stack push (reuse the chat-list row's existing push seam); confirm `onOpenPost`/`onOpenProfile` reuse the shipped `PostDetailRoute`/`ProfileRoute` pushes. Declare NO new `NavKey`.
+
+## 6. Tests (docs/11 §5 DoD)
+
+- [ ] 6.1 `SinglePostApiClient` full-projection MockEngine test: path `/api/v1/posts/{id}`, bare-camelCase parse → `PostDetailTarget(distanceM = null)`, `200`→`Success`, `404`/`500`/IO→`Unavailable`, `CancellationException` rethrown; assert the minimal projection is undisturbed.
+- [ ] 6.2 commonTest `NotificationsViewModel` nav-resolution tests over `FakeNotificationsFlow` + a fake full-projection fetch: each type → correct intent; `Post` success → `OpenPost` event; `Post` `Unavailable` → unavailable affordance + no event + row still marked read; `followed`/`message` → `OpenProfile`/`OpenChatThread` with no fetch; reply-target + informational + unknown/missing-`conversation_id` → no event; mark-read still fires on every tap.
+- [ ] 6.3 Robolectric `NotificationsScreenTest` (androidUnitTest): per-type tap → callback assertions (post→`onOpenPost`, followed→`onOpenProfile`, chat→`onOpenChatThread`, informational + reply-target → no callback), 404 → unavailable affordance + no callback, the no-UUID-in-tree PII assertion still holds, one-shot nav fires once across recomposition. Add the test to the Release-variant test-exclude list in `mobile/app/build.gradle.kts` (the `*ScreenTest` convention).
+- [ ] 6.4 iOS flow test under `mobile/app/src/iosTest/...` mirroring the existing notifications iOS flow test (Kotlin/Native-legal function names) exercising a post-target tap → nav callback on the simulator.
+
+## 7. Verification (pre-archive gates)
+
+- [ ] 7.1 Run the pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green.
+- [ ] 7.2 Run the flavor-qualified mobile unit tests locally: `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` green (mobile unit tests are local-only; CI mobile is the device-run APK build).
+- [ ] 7.3 verify-loop bring-up (UI-affecting change): launch the app, tap a `post_liked` / `followed` / `chat_message` notification, confirm it navigates to post detail / profile / chat thread, and a post-unavailable tap shows the non-blocking affordance with no navigation. Capture screenshot evidence into the PR body before archive (docs/11 §5 DoD).
+- [ ] 7.4 `openspec validate mobile-notifications-deep-link-targets --strict` green; archive-phase `openspec validate --specs mobile-notifications-list --strict` green.
+
+## 8. Bookkeeping
+
+- [ ] 8.1 On the first feat commit, retitle the PR to `feat(mobile): mobile-notifications-deep-link-targets …` and refresh the body (in-progress shape) per the same-PR convention.
+- [ ] 8.2 On archive, close follow-up issue [#193](https://github.com/aditrioka/nearyou-id/issues/193) and file the `reply-target deep-linking` deferral as a new `follow-up` issue (label `follow-up` + `mobile`) so the negative-guard requirement has a tracked home.
