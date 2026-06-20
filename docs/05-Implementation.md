@@ -111,6 +111,8 @@ CREATE INDEX refresh_tokens_expires_idx ON refresh_tokens (expires_at) WHERE rev
 
 Cleanup (Cloud Scheduler `/internal/cleanup`): daily `WHERE expires_at < NOW() - INTERVAL '1 day'`; weekly `WHERE last_used_at < NOW() - INTERVAL '90 days'`. Rotated token deleted immediately on successful rotation.
 
+> **Status: shipped** (`scheduled-retention-cleanup`, 2026-06; no migration — table + `refresh_tokens_expires_idx` in V2). The `POST /internal/cleanup` worker (OIDC-gated on its own subtree, mirrors `PrivacyFlipWorker`) runs this sweep. Two deliberate amendments of the wording above (design D2): (1) the daily expired-by-`expires_at` query and the (formerly weekly) stale-by-`last_used_at` query are merged into ONE idempotent run, `DELETE FROM refresh_tokens WHERE expires_at < NOW() - INTERVAL '1 day' OR last_used_at < NOW() - INTERVAL '90 days'`, executed **daily** (running an idempotent threshold DELETE daily rather than weekly is equally correct and removes a second Scheduler job); (2) the sweep is NOT filtered by `revoked_at`, so a revoked row past either threshold is reaped too. `last_used_at` is nullable — a never-used token (`last_used_at IS NULL`) is governed solely by the `expires_at` branch (a NULL comparison is UNKNOWN, never true).
+
 Instant global revocation: JWT carries `token_version`; every authenticated request compares JWT vs DB. Redis cache TTL 5 min, explicit invalidation on increment; Redis down → direct DB query + circuit breaker alert.
 
 ### Revocation Latency per Use Case
@@ -580,6 +582,8 @@ CREATE INDEX notifications_user_all_idx
 ```
 
 `body_data` stores type-specific JSON (excerpts, billing grace end date, etc.). Retention: 90 days auto-purge via `/internal/cleanup`. Delivered via FCM push in parallel; the DB row is the source of truth for the in-app list.
+
+> **Status: shipped** (`scheduled-retention-cleanup`, 2026-06; no migration — `notifications_user_all_idx` in V10 serves it). The `POST /internal/cleanup` worker runs `DELETE FROM notifications WHERE created_at < NOW() - INTERVAL '90 days'` (type-agnostic — no `type` exempted, not filtered by `read_at`) on a **single daily** schedule (design D2 — all sweeps share one Scheduler job; no separate weekly job).
 
 **Event type catalog** (V10 shipped this; table amended 2026-04-24, PR [#24](https://github.com/aditrioka/nearyou-id/pull/24)): canonical addressing is `(target_type, target_id)` on the outer row — that column pair is what deep-links route to; outer `(target_type='post', target_id=<post_id>)` answers "which post". `body_data` carries only what the outer pair can't supply: excerpts, secondary entity IDs (`reply_id`, since target points at the parent), status strings, timestamps, `reason` for auto-hide copy. Do NOT duplicate `target_id` inside `body_data`. For `chat_message_redacted`, target_id is the redacted message; `conversation_id` lets the client route without a second fetch. See `V10__notifications.sql` + `NotificationWritePathTest.kt` for shipped shapes.
 
@@ -1118,6 +1122,8 @@ Token / app_version length CHECKs are defense-in-depth against a malformed clien
 ### Endpoint + Cleanup
 
 `POST /api/v1/user/fcm-token` with `{ token, platform, app_version }`. Upsert on `(user_id, platform, token)` unique; **`last_seen_at = NOW()` updated on every call** (authoritative freshness signal). Expired (on send: FCM 404/410) → immediate row delete. Stale (weekly via `/internal/cleanup`) → delete `WHERE last_seen_at < NOW() - INTERVAL '30 days'`.
+
+> **Status: shipped** (`scheduled-retention-cleanup`, 2026-06; no migration — `user_fcm_tokens_last_seen_idx` in V14 serves it). The `POST /internal/cleanup` worker runs the stale sweep `DELETE FROM user_fcm_tokens WHERE last_seen_at < NOW() - INTERVAL '30 days'` on a **single daily** schedule (design D2 — daily rather than weekly, equally correct for an idempotent threshold DELETE; all sweeps share one Scheduler job). The immediate on-send 404/410 single-token delete is owned by `fcm-push-dispatch`, not this worker.
 
 ---
 
