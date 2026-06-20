@@ -116,6 +116,12 @@ Each of `POST /admin/users/{id}/ban`, `/shadow-ban`, and `/shadow-unban` SHALL r
 - **WHEN** the client sends `POST /admin/users/{id}/shadow-ban` with an incorrect `_csrf` value
 - **THEN** the request SHALL be rejected AND no `users` row SHALL be mutated AND no `admin_actions_log` row SHALL be written
 
+#### Scenario: CSRF is checked before the role gate
+
+- **GIVEN** an authenticated `read_only` session (which the role gate would reject) presenting a missing/wrong CSRF token AND an eligible target
+- **WHEN** the client sends `POST /admin/users/{id}/ban`
+- **THEN** the request SHALL be rejected as a CSRF violation (the CSRF gate runs before the role gate) AND no `users` row SHALL be mutated AND no `admin_actions_log` row SHALL be written
+
 ### Requirement: A malformed path identifier on the new action routes is handled safely
 
 The system SHALL tolerate a malformed `{id}` path segment on `POST /admin/users/{id}/ban`, `/shadow-ban`, and `/shadow-unban` without a 500 and without any state change. A `{id}` that does not parse as a UUID SHALL be rejected with an inline error / 4xx response (NOT a 500), SHALL NOT mutate any `users` row, and SHALL NOT write any `admin_actions_log` row.
