@@ -1,0 +1,87 @@
+{# Swappable hard-delete-queue fragment. Rendered standalone for HTMX requests
+   (HX-Request: true) and {% include %}d by deletion-requests.peb for full-page
+   navigation. The #deletion-requests-table id is the hx-target swapped in place.
+
+   Every value is Pebble-autoescaped on output — NO `raw` filter on any value.
+   Escaping is LOAD-BEARING: `username` is user-controlled free text, and it is
+   also interpolated into the /admin/users?q= deep-link href (attribute/URL
+   context — the route URL-encodes the href value too).
+
+   CSRF on the per-row expedite form: the full-page (no-JS) render carries
+   `csrfToken` so the `_csrf` hidden field populates; the HTMX-fragment render
+   omits it (the layout's htmx:configRequest hook adds the X-CSRF-Token header
+   from the meta tag). #}
+<div id="deletion-requests-table">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+{% if quotaCap is not null %}
+    <p class="quota-chip">Expedite actions this hour: {{ quotaUsed }}/{{ quotaCap }}</p>
+{% endif %}
+{# Total pending hard-delete — the operational signal (a spike means a
+   mass-deletion or webhook problem). #}
+<div class="summary">
+    <p class="summary-total">Pending hard-delete: {{ total }}</p>
+</div>
+{% if hasRows %}
+    <div class="tbl-wrap">
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Requested (UTC)</th>
+                <th>Scheduled hard-delete (UTC)</th>
+                <th>Countdown</th>
+                <th>Expedite</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td>
+                    <a href="{{ row.usersLink }}">{{ row.username }}</a>
+                    <span class="code">{{ row.userIdShort }}</span>
+                    <span class="st info">{{ row.source }}</span>
+                </td>
+                <td>{{ row.requestedAt }}</td>
+                <td>{{ row.scheduledAt }}</td>
+                <td><span class="st {{ row.countdownClass }}">{{ row.countdown }}</span></td>
+                <td>
+                {% if row.expedited %}
+                    <span class="st ok">Expedited</span>
+                    <span class="muted">by {{ row.expeditedBy }} · {{ row.expeditedAt }}</span>
+                {% elseif row.dueNow %}
+                    <span class="muted">Due — worker will erase</span>
+                {% else %}
+                    <form class="expedite"
+                          action="{{ row.expediteAction }}"
+                          method="POST"
+                          hx-post="{{ row.expediteAction }}"
+                          hx-target="#deletion-requests-table"
+                          hx-swap="outerHTML"
+                          hx-confirm="Expedite is irreversible — this account will be hard-deleted on the next worker run (≤24h). Continue?">
+                        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                        <input type="text" name="reason" maxlength="200" placeholder="Reason (required)" required aria-label="Expedite reason">
+                        <button type="submit" class="btn dangert sm"><span class="ms">bolt</span>Expedite now</button>
+                    </form>
+                {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if nextUrl is not null %}
+    <div class="pager">
+        <a class="pagination-next"
+           href="{{ nextUrl }}"
+           hx-get="{{ nextUrl }}"
+           hx-target="#deletion-requests-table"
+           hx-swap="outerHTML"
+           hx-push-url="true">Next</a>
+    </div>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No accounts are pending hard-delete that match the current filters.</p>
+{% endif %}
+</div>

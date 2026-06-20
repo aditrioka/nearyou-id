@@ -3,7 +3,6 @@
 ## Purpose
 
 The fcm-token-registration capability defines the `POST /api/v1/user/fcm-token` endpoint and the `user_fcm_tokens` table that store device push tokens for every signed-in user. The endpoint upserts on `(user_id, platform, token)` and refreshes `last_seen_at` on every call so freshness drives both the on-send-failure prune and the future weekly cleanup worker. The `platform` column is constrained to `'android' | 'ios'` and DB-level CHECKs cap token + app_version length as defense-in-depth; raw tokens are never written to logs because they are device-addressed credentials. The UNIQUE per-`(user_id, platform, token)` triple supports both multi-device users and family-shared devices across users.
-
 ## Requirements
 ### Requirement: `user_fcm_tokens` table SHALL store device-scoped FCM push tokens with a UNIQUE `(user_id, platform, token)` constraint
 
@@ -31,7 +30,7 @@ The UNIQUE constraint MUST be `(user_id, platform, token)` — NOT `(token)` alo
 
 The `ON DELETE CASCADE` from `users(id)` MUST cascade-delete all `user_fcm_tokens` rows when a user is hard-deleted.
 
-The `last_seen_at` column SHALL be the authoritative freshness signal consumed by the deferred Phase 3.5 stale-cleanup worker (`/internal/cleanup` weekly DELETE WHERE `last_seen_at < NOW() - INTERVAL '30 days'`). Any code path that creates or updates a `user_fcm_tokens` row MUST set `last_seen_at = NOW()`.
+The `last_seen_at` column SHALL be the authoritative freshness signal consumed by the `scheduled-retention-cleanup` stale-cleanup worker (`/internal/cleanup` daily DELETE WHERE `last_seen_at < NOW() - INTERVAL '30 days'`). Any code path that creates or updates a `user_fcm_tokens` row MUST set `last_seen_at = NOW()`.
 
 #### Scenario: Migration creates the table with the canonical column set
 - **WHEN** Flyway migration `V14__user_fcm_tokens.sql` is applied
@@ -187,9 +186,9 @@ The `user_fcm_tokens` schema introduced by this change MUST be designed such tha
 
    The UNIQUE index on `(user_id, platform, token)` introduced by `fcm-token-registration` MUST make this DELETE a single index-lookup operation; the additional `last_seen_at` filter is applied to the matched row in-memory after the index seek, no separate index needed. This is the on-send-failure GC path per [`docs/05-Implementation.md:1399`](docs/05-Implementation.md). The contract was originally booked as "Phase 2 on-send-failure delete (deferred)" by the V14 fcm-token-registration change; the `fcm-push-dispatch` change now owns it AND has narrowed the trigger codes (UNREGISTERED + SENDER_ID_MISMATCH only) AND added the race guard.
 
-2. **Phase 3.5 stale-cleanup worker (still deferred)** — on a weekly schedule via `/internal/cleanup` (OIDC-authed Cloud Scheduler call), the future worker SHALL execute `DELETE FROM user_fcm_tokens WHERE last_seen_at < NOW() - INTERVAL '30 days'`. The `user_fcm_tokens_last_seen_idx` index on `last_seen_at` introduced by `fcm-token-registration` MUST make this DELETE an index-range scan (NOT a full-table scan). This is the long-tail backstop per [`docs/05-Implementation.md:1400`](docs/05-Implementation.md). Phase 3.5 admin-panel territory; remains deferred.
+2. **Stale-cleanup worker (owned by [`scheduled-retention-cleanup`](../../specs/scheduled-retention-cleanup/spec.md))** — on a daily schedule via `/internal/cleanup` (OIDC-authed Cloud Scheduler call), the worker SHALL execute `DELETE FROM user_fcm_tokens WHERE last_seen_at < NOW() - INTERVAL '30 days'`. The `user_fcm_tokens_last_seen_idx` index on `last_seen_at` introduced by `fcm-token-registration` MUST make this DELETE an index-range scan (NOT a full-table scan). This is the long-tail backstop per [`docs/05-Implementation.md:1400`](docs/05-Implementation.md). The contract was originally booked as "Phase 3.5 stale-cleanup (deferred)" by the V14 fcm-token-registration change; the `scheduled-retention-cleanup` change now owns it (running daily rather than weekly — equally correct for an idempotent threshold DELETE).
 
-This requirement constrains the schema design so both GC paths are efficient. The first contract's owner is now `fcm-push-dispatch`; the second's owner is the future Phase 3.5 stale-cleanup-worker change.
+This requirement constrains the schema design so both GC paths are efficient. The first contract's owner is `fcm-push-dispatch`; the second's owner is `scheduled-retention-cleanup`.
 
 #### Scenario: Schema supports the on-send-prune shape (now owned by fcm-push-dispatch, narrowed triggers + race-guard)
 
@@ -201,8 +200,8 @@ This requirement constrains the schema design so both GC paths are efficient. Th
 - **WHEN** the FcmDispatcher attempts to prune a token whose `last_seen_at` was bumped between the dispatcher's read-time and the FCM error response (a re-registration race)
 - **THEN** the DELETE returns 0 rows affected (predicate `last_seen_at <= :dispatch_started_at` does not match the now-fresh row) AND the row persists, preserving the freshly-re-registered token
 
-#### Scenario: Schema supports the deferred stale-cleanup shape
+#### Scenario: Schema supports the stale-cleanup shape (now owned by scheduled-retention-cleanup)
 
-- **WHEN** a future change implements the Phase 3.5 weekly `DELETE FROM user_fcm_tokens WHERE last_seen_at < NOW() - INTERVAL '30 days'`
+- **WHEN** the `scheduled-retention-cleanup` worker implements the `DELETE FROM user_fcm_tokens WHERE last_seen_at < NOW() - INTERVAL '30 days'`
 - **THEN** the DELETE uses the `user_fcm_tokens_last_seen_idx` index on `last_seen_at` (range scan, no full-table scan)
 

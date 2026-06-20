@@ -3,12 +3,12 @@ package id.nearyou.app.screens.profile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.report.ReportOutcome
+import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.profile.BlockOutcome
 import id.nearyou.app.profile.FollowToggleOutcome
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
-import id.nearyou.app.profile.ReportOutcome
-import id.nearyou.app.profile.ReportReasonCategory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow

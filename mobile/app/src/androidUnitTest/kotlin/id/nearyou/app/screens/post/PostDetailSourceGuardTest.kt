@@ -20,9 +20,10 @@ private fun String.stripComments(): String {
  *
  * Covers: no-hardcoded-UI-strings on the screen; the screen holds no back-stack reference; `PostDetailRoute`
  * declares no coordinate; the never-widen-logging discipline (`HttpClientFactory` stays `LogLevel.HEADERS`;
- * the clients + repository never `println`/log); no block/report affordance; the replies cursor drives
- * load-more (a `cursor=`-bearing request IS issued); and deferral bookkeeping (tracked as `follow-up`
- * GitHub issues: block/report #200, inline-card #201, by-id #202; replies infinite-scroll #188 is implemented).
+ * the clients + repository never `println`/log); no BLOCK affordance (report now ships via
+ * mobile-content-report — only block stays deferred); the replies cursor drives load-more (a `cursor=`-bearing
+ * request IS issued); and deferral bookkeeping (tracked as `follow-up` GitHub issues: block #200 — report
+ * half now shipped, inline-card #201, by-id #202; replies infinite-scroll #188 is implemented).
  */
 class PostDetailSourceGuardTest {
     private val repoRoot: File = findRepoRoot()
@@ -58,11 +59,13 @@ class PostDetailSourceGuardTest {
         assertTrue(screen.contains("onBack"), "the screen takes navigation via the hoisted onBack lambda")
     }
 
+    // mobile-content-report ships the post/reply report affordance, so "Laporkan" + the report overflow
+    // (DropdownMenu) are now expected in the screen; only the BLOCK affordance stays deferred
+    // (mobile-post-detail "Block kebab action is deferred"). This guard now asserts the block half only.
     @Test
-    fun postDetailScreen_hasNoBlockOrReportAffordance() {
-        for (forbidden in listOf("Blokir", "Laporkan", "DropdownMenu", "MoreVert", "kebab")) {
-            assertFalse(screen.contains(forbidden), "PostDetailScreen must have no block/report affordance ($forbidden)")
-        }
+    fun postDetailScreen_hasNoBlockAffordance() {
+        assertFalse(screen.contains("Blokir"), "PostDetailScreen must have no block affordance (Blokir) — block stays deferred")
+        assertFalse(screen.contains("BlockConfirm"), "no block-confirmation dialog (block stays deferred)")
     }
 
     @Test

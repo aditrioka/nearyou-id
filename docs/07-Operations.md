@@ -42,8 +42,8 @@ Direct SQL console access is never exposed to admin users — every administrati
 
 - **Report Queue** — **PARTIALLY SHIPPED**. Triage viewer (Admin #6 `admin-report-queue`): `GET /admin/reports` — `reports` plus one representative `moderation_queue` row (`LEFT JOIN LATERAL`); keyset-paginated newest-first; composable parameterized filters (status / target_type / reason_category / trigger / `from`–`to` date range); HTML-escaped HTMX render + plain-`GET` fallback; per-row deep-link to the `/admin/users` suspend/unban surface (offending user resolved by `target_type`). In-row resolution (SHIPPED, `admin-report-queue-resolution-actions`): `POST /admin/reports/{id}/resolve` (decision `actioned`/`dismissed` — bookkeeping) + `POST /admin/moderation-queue/{id}/resolve` applying the named enforcement atomically — **Hide/Dismiss** = `is_auto_hidden` toggle on post/reply; **Suspend** = the shipped 7-day suspend; **Ban** = permanent, owner/admin tier only; **Shadow ban** = `is_shadow_banned`, no user notification (stealth invariant) — CSRF + role-gated, one immutable `admin_actions_log` row per action, idempotent re-resolution. **Still DESIGN**: the "post has edit history" prioritization filter ([#191](https://github.com/aditrioka/nearyou-id/issues/191) `admin-report-queue-has-edit-history-filter`, label `follow-up`).
 - **User Management**: search by username/ID hash, profile + history, actions (warning, suspend 7 days via `suspended_until`, ban, shadow ban, unban). No direct username editing (handled per Premium Username Change Oversight below).
-- **Hard Delete Queue**: reads `deletion_requests` with imminent scheduled hard-delete; 30-day countdown, manual expedite, audit log
-- **Data Export Queue**: async job trigger, download link via in-app notif + Resend email. The user-facing **producer** is **SHIPPED** (`account-data-export`): `POST`/`GET /api/v1/account/export` + the OIDC `/internal/data-export-worker` gathers the § Data Export Scope Matrix (`06-Security-Privacy.md`), packs a JSON+CSV ZIP, uploads to R2 (24h signed URL), and delivers via the `data_export_ready` notification + Resend email (`data_export_requests` table, V29). The **admin monitoring/trigger surface** here is DEFERRED to [#361](https://github.com/aditrioka/nearyou-id/issues/361) (the producer adds no `/admin/*` route).
+- **Hard Delete Queue** — **SHIPPED** (`admin-hard-delete-queue`, frame 15): `GET /admin/deletion-requests` — read-only, keyset-paginated **soonest-deadline-first**, `q` (username/UUID) + `source`-filterable list of accounts pending hard-delete (`deletion_requests` rows with `executed_at IS NULL AND cancelled_at IS NULL`), with a per-row countdown to the scheduled deadline; served by the existing `deletion_requests_scheduled_idx` partial index (no migration); HTML-escaped HTMX render + plain-`GET` fallback; identity-only PII (username deep-links to `/admin/users?q=`; the `users` JOIN tolerates a soft-deleted target, FK-guaranteed present via `ON DELETE CASCADE`). Plus a manual **expedite** write (`POST /admin/deletion-requests/{id}/expedite`; `owner`/`admin` + CSRF-gated, **required reason**, `hx-confirm` guard, rate-limited **10/admin/hour** on a distinct counter independent of the 20/hour destructive budget): it advances `scheduled_hard_delete_at` to `NOW()` so the **existing daily hard-delete worker** erases the account on its next run — the admin *schedules*, the worker *executes* (no synchronous tombstone/cascade in the route) — and writes one immutable `deletion_request_expedited` audit row, all in one transaction; rejected (no mutation, no audit row) for any already-executed / cancelled / already-due / unknown target. For UU PDP right-to-erasure oversight + support "delete me now" requests.
+- **Data Export Queue**: async job trigger, download link via in-app notif + Resend email. The user-facing **producer** is **SHIPPED** (`account-data-export`): `POST`/`GET /api/v1/account/export` + the OIDC `/internal/data-export-worker` gathers the § Data Export Scope Matrix (`06-Security-Privacy.md`), packs a JSON+CSV ZIP, uploads to R2 (24h signed URL), and delivers via the `data_export_ready` notification + Resend email (`data_export_requests` table, V30). The **admin monitoring/trigger surface** here is DEFERRED to [#361](https://github.com/aditrioka/nearyou-id/issues/361) (the producer adds no `/admin/*` route).
 - **Operational Dashboard**: DAU/MAU, posts/hour, signups/hour, reports/hour, top 10 active cities, error rate (Sentry widget), anomaly spike alert, DB size trend, subscription source breakdown (paid vs referral), Realtime cost per MAU, refresh token reuse detection log, attestation failure rate, **CSAM detection events**, **Amplitude funnel embed**, health check status, RevenueCat webhook signature fail count, email delivery rate (Resend), `rejected_identifiers` insert rate, age gate rejection rate
 - **Moderation Actions Log**: immutable, retained 1 year, filter by admin/target/action. Reads `admin_actions_log`.
 - **Post Edit History**: full access via post detail page (reads `post_edits`)
@@ -135,6 +135,31 @@ gcloud run services update-traffic <service> \
 ```
 
 Precedent: `health-check-endpoints` (PR #54) § 11.5 negative-smoke hit this on the broken-Redis revision sequence; recovery from `00049-bsx` to `00053-n6v` required the `--to-latest` release.
+
+### Internal worker schedules (Cloud Scheduler)
+
+Every `/internal/*` job worker is **inert until a Cloud Scheduler job invokes it** — the route mounts at deploy time but nothing calls it on a cadence until the operator provisions the schedule. Each job authenticates with a **Google OIDC identity token** whose `audience` matches the internal-endpoint OIDC audience (`INTERNAL_OIDC_AUDIENCE`, the service URL); no new secret slots are required — the schedule reuses the existing OIDC audience binding.
+
+| Worker | Endpoint | Cadence |
+|--------|----------|---------|
+| Suspension unban | `POST /internal/unban-worker` | daily |
+| Privacy flip | `POST /internal/privacy-flip-worker` | hourly |
+| Account hard delete | `POST /internal/account-hard-delete-worker` | daily |
+| **Retention cleanup** (`scheduled-retention-cleanup`) | `POST /internal/cleanup` | **daily** |
+
+The **retention cleanup** job runs all three retention sweeps (refresh tokens, notifications, stale FCM tokens) on **one** daily schedule (design D2 — a single Scheduler job, not a daily+weekly split). Provision it like the sibling workers:
+
+```bash
+gcloud scheduler jobs create http retention-cleanup \
+    --location=<region> \
+    --schedule="0 3 * * *" \
+    --uri="https://<service-host>/internal/cleanup" \
+    --http-method=POST \
+    --oidc-service-account-email=<scheduler-invoker-sa> \
+    --oidc-token-audience="$INTERNAL_OIDC_AUDIENCE"
+```
+
+Rollback: pause or delete the job (`gcloud scheduler jobs pause|delete retention-cleanup`) and the worker goes inert. No schema to undo; the deleted rows were already past their written retention window.
 
 ---
 
