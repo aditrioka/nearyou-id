@@ -39,10 +39,23 @@ class PeerIdHasher(
          * `export-peer-hash-secret` slot is unset. Non-sensitive (it never guards a
          * real export — staging/prod resolve a provisioned secret); its only job is to
          * make the keyed-HMAC deterministic in unit tests.
+         *
+         * ⚠️ **PROD LAUNCH-GATE**: unlike R2/Resend (which fail CLOSED to a NoOp when
+         * un-provisioned), peer hashing fails OPEN here — a blank/absent secret degrades to
+         * this PUBLIC key, making exported peer hashes correlatable across users. This is
+         * acceptable pre-prod (synthetic data only) but is a HARD blocker for the production
+         * tag-deploy: prod MUST provision `export-peer-hash-secret` in Secret Manager before
+         * the data-export worker handles any real user's data. Tracked in
+         * `docs/10-Setup-Checklist.md` § 4.2.
          */
         const val DEV_DEFAULT_SECRET = "nearyou-dev-export-peer-hash-secret"
 
-        /** Builds a hasher from a resolved secret string, or the dev default when blank/absent. */
+        /**
+         * Builds a hasher from a resolved secret string, or the dev default when blank/absent.
+         *
+         * ⚠️ A blank/absent secret falls back to the PUBLIC [DEV_DEFAULT_SECRET] (fail-open) —
+         * prod MUST provision `export-peer-hash-secret`; see the [DEV_DEFAULT_SECRET] KDoc.
+         */
         fun fromSecret(secret: String?): PeerIdHasher {
             val material = secret?.takeIf { it.isNotBlank() } ?: DEV_DEFAULT_SECRET
             return PeerIdHasher(material.toByteArray(Charsets.UTF_8))

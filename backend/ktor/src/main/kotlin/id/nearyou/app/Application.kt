@@ -99,6 +99,7 @@ import id.nearyou.app.infra.otel.httpClientWithOtel
 import id.nearyou.app.infra.otel.installKtorServerTelemetry
 import id.nearyou.app.infra.r2.ObjectStore
 import id.nearyou.app.infra.r2.R2Config
+import id.nearyou.app.infra.r2.R2ObjectStore
 import id.nearyou.app.infra.r2.objectStore
 import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.redis.NoOpRedisStringCache
@@ -143,6 +144,7 @@ import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.infra.resend.EmailSender
 import id.nearyou.app.infra.resend.ResendConfig
+import id.nearyou.app.infra.resend.ResendEmailSender
 import id.nearyou.app.infra.resend.emailSender
 import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
 import id.nearyou.app.infra.supabase.realtime.SupabaseBroadcastChatClient
@@ -439,6 +441,13 @@ fun Application.module() {
         emailSender(
             ResendConfig(apiKey = secrets.resolve(secretKey(ktorEnv, "resend-api-key")).orEmpty()),
         )
+    // Graceful-stop: release the R2 S3 client's HTTP engine + the Resend Ktor client's
+    // connection pool on SIGTERM/deploy (mirrors the OTel `ApplicationStopped` hook above).
+    // NoOp bindings have no `close()`, so the `as?` casts no-op for them.
+    monitor.subscribe(ApplicationStopped) {
+        (objectStore as? R2ObjectStore)?.close()
+        (emailSender as? ResendEmailSender)?.close()
+    }
     // Server-keyed peer-id HMAC for the scope-matrix gather (dev/test default when the slot is
     // un-provisioned, so offline gather works; staging/prod resolve a real secret).
     val peerIdHasher = PeerIdHasher.fromSecret(secrets.resolve(secretKey(ktorEnv, "export-peer-hash-secret")))

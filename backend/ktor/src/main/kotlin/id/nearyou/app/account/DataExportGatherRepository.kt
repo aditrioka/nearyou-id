@@ -361,6 +361,8 @@ class DataExportGatherRepository(
                         add(
                             ChatMessageExportRow(
                                 conversationId = UUID.fromString(rs.getString("conversation_id")),
+                                // `""` only for a degenerate single-participant conversation (the
+                                // LEFT JOIN found no active peer) — unreachable in the 1:1 product.
                                 peerIdHash = peerId?.let { peerIdHasher.hash(it) } ?: "",
                                 direction = if (rs.getString("sender_id") == userId.toString()) "sent" else "received",
                                 content = rs.getString("content"),
@@ -401,9 +403,10 @@ class DataExportGatherRepository(
         }
 
     // Moderation actions APPLIED to the user (admin_actions_log, target_type='user').
-    // Shadow-ban stealth: exclude the moderation_queue_resolved rows that resolved to
-    // 'shadow_ban_author' (after_state->>'resolution'), plus a belt-and-suspenders guard
-    // against any action_type that names a shadow-ban. admin_id is NOT selected.
+    // Shadow-ban stealth: the load-bearing exclusion is the target_type='user' predicate —
+    // a shadow-ban is logged under target_type='moderation_queue', never 'user', so it is
+    // already out of scope here. The after_state->>'resolution' <> 'shadow_ban_author' and
+    // action_type NOT ILIKE '%shadow_ban%' clauses are belt-and-suspenders. admin_id is NOT selected.
     private fun gatherModerationActions(
         conn: Connection,
         userId: UUID,
@@ -567,7 +570,9 @@ class DataExportGatherRepository(
               JOIN conversation_participants me
                 ON me.conversation_id = cm.conversation_id AND me.user_id = ?
               LEFT JOIN conversation_participants peer
-                ON peer.conversation_id = cm.conversation_id AND peer.user_id <> ?
+                ON peer.conversation_id = cm.conversation_id
+               AND peer.user_id <> ?
+               AND peer.left_at IS NULL
              ORDER BY cm.created_at ASC
             """
 

@@ -37,6 +37,10 @@ class ResendEmailSender(
 ) : EmailSender {
     private val log = LoggerFactory.getLogger(ResendEmailSender::class.java)
     private val json = Json { ignoreUnknownKeys = true }
+
+    // Owns (and so must close) the HTTP engine only when none was injected. Tests pass a
+    // MockEngine they manage; closing that here would yank an engine the caller still owns.
+    private val ownsEngine: Boolean = engine == null
     private val client: HttpClient = if (engine != null) HttpClient(engine) else HttpClient(Apache5)
 
     override fun isConfigured(): Boolean = true
@@ -111,6 +115,15 @@ class ResendEmailSender(
             idempotencyKey,
         )
         return SendResult.Failed("HTTP $lastStatus after $MAX_ATTEMPTS attempts")
+    }
+
+    /**
+     * Releases the underlying Ktor [HttpClient] (and its Apache5 engine) — call from the
+     * application-stop hook so the connection pool drains on graceful shutdown. No-ops when an
+     * engine was injected (test path): the caller owns that engine and is responsible for it.
+     */
+    fun close() {
+        if (ownsEngine) client.close()
     }
 
     private fun parseMessageId(body: String): String =

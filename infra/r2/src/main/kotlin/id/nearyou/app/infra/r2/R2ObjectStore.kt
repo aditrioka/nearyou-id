@@ -93,6 +93,11 @@ class R2ObjectStore(
         return presigned.url.toString()
     }
 
+    /**
+     * Deletes the object at [key]. NOTE: the data-export path does NOT call this — exported
+     * archives are reaped by the R2 bucket's 24h object-lifecycle rule, not an app-driven
+     * delete (so the absence of a delete call on that path is by design, not missing wire-up).
+     */
     override suspend fun delete(key: String) {
         client.deleteObject(
             DeleteObjectRequest {

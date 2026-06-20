@@ -37,7 +37,9 @@ sealed interface SendResult {
  *
  * [isConfigured] reports whether the Resend API key is present; an unconfigured
  * environment fails soft ([NoOpEmailSender]) — boot succeeds and [send] returns
- * [SendResult.Skipped].
+ * [SendResult.Skipped]. Callers MAY pre-gate on [isConfigured], OR rely on the fail-soft
+ * behavior directly (the sole consumer takes the latter path: it calls [send] unconditionally
+ * and handles the [SendResult.Skipped] branch, no pre-gate).
  */
 interface EmailSender {
     fun isConfigured(): Boolean

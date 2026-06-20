@@ -28,7 +28,6 @@ import java.security.interfaces.RSAPrivateKey
 import java.security.interfaces.RSAPublicKey
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.Date as UtilDate
 
 private const val TEST_AUDIENCE = "https://api-staging.nearyou.id"
@@ -70,7 +69,9 @@ private fun signedJwt(
  * spec scenario "Worker rejects an unauthenticated invocation" / task 8.4). Mirrors the
  * [id.nearyou.app.admin.UnbanWorkerRouteTest] gate cases. No DB tag: a recording fake
  * [DataExportWorker] subtype is impossible (final class), so we use a worker over a never-touched
- * DataSource and assert that the 401 paths never invoke it (executeCount stays 0).
+ * DataSource — each rejected case asserts the specific error code in the 401/403 body, which is
+ * what proves the gate rejected BEFORE any dispatch (the worker's DataSource is unreachable, so a
+ * dispatch would surface as a 500, not the asserted 401/403).
  */
 class DataExportWorkerRouteTest : StringSpec({
 
@@ -81,13 +82,11 @@ class DataExportWorkerRouteTest : StringSpec({
             jwkProvider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pubKey))),
         )
 
-    val executeCount = AtomicInteger(0)
-
-    // A worker whose execute() is observable but whose DataSource is never used on the 401 path
-    // (the OIDC gate rejects before dispatch). On the 200 path, execute() runs against an
-    // unreachable DataSource — but the route catches the resulting exception and returns a
-    // sanitized 500, which still proves the gate ADMITTED the request (auth passed).
-    fun countingWorker(): DataExportWorker =
+    // A worker whose DataSource is never used on the 401/403 path (the OIDC gate rejects before
+    // dispatch). On the admitted path, execute() runs against an unreachable DataSource — but the
+    // route catches the resulting exception and returns a sanitized 500, which still proves the
+    // gate ADMITTED the request (auth passed).
+    fun buildWorker(): DataExportWorker =
         DataExportWorker(
             dataSource = UnusedDataSource,
             requests = DataExportRequestRepository(UnusedDataSource),
@@ -125,7 +124,7 @@ class DataExportWorkerRouteTest : StringSpec({
                 }
                 routing {
                     route("/internal") {
-                        dataExportWorkerRoute(countingWorker(), verifier)
+                        dataExportWorkerRoute(buildWorker(), verifier)
                     }
                 }
             }
@@ -138,7 +137,6 @@ class DataExportWorkerRouteTest : StringSpec({
             val resp = client.post("/internal/data-export-worker")
             resp.status shouldBe HttpStatusCode.Unauthorized
             resp.bodyAsText() shouldContain "missing_authorization"
-            executeCount.get() shouldBe 0
         }
     }
 
@@ -150,7 +148,6 @@ class DataExportWorkerRouteTest : StringSpec({
                 }
             resp.status shouldBe HttpStatusCode.Unauthorized
             resp.bodyAsText() shouldContain "invalid_scheme"
-            executeCount.get() shouldBe 0
         }
     }
 
@@ -162,7 +159,6 @@ class DataExportWorkerRouteTest : StringSpec({
                 }
             resp.status shouldBe HttpStatusCode.Unauthorized
             resp.bodyAsText() shouldContain "invalid_token"
-            executeCount.get() shouldBe 0
         }
     }
 
@@ -176,7 +172,6 @@ class DataExportWorkerRouteTest : StringSpec({
                 }
             resp.status shouldBe HttpStatusCode.Unauthorized
             resp.bodyAsText() shouldContain "invalid_token"
-            executeCount.get() shouldBe 0
         }
     }
 
@@ -189,7 +184,6 @@ class DataExportWorkerRouteTest : StringSpec({
                 }
             resp.status shouldBe HttpStatusCode.Unauthorized
             resp.bodyAsText() shouldContain "audience_mismatch"
-            executeCount.get() shouldBe 0
         }
     }
 
@@ -202,7 +196,6 @@ class DataExportWorkerRouteTest : StringSpec({
                 }
             resp.status shouldBe HttpStatusCode.Unauthorized
             resp.bodyAsText() shouldContain "expired_token"
-            executeCount.get() shouldBe 0
         }
     }
 

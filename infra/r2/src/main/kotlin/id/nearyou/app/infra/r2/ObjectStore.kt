@@ -15,13 +15,16 @@ import kotlin.time.Duration
  * environment fails soft (the `NoOpImageModerator` / `NoOpImageStore` precedent): the
  * factory binds [NoOpObjectStore], application boot does not fail, and the consuming
  * worker degrades gracefully (mapping the unconfigured outcome to a soft `failed`,
- * never a crash). Callers gate destructive/URL-producing paths on [isConfigured] first.
+ * never a crash). Callers MAY pre-gate on [isConfigured], OR rely on the fail-soft
+ * behavior directly: on [NoOpObjectStore] [put] / [delete] no-op and [presignedGetUrl]
+ * throws [ObjectStoreUnconfiguredException] (the sole consumer takes the latter path —
+ * it catches the exception and maps it to a soft `failed`, no pre-gate).
  */
 interface ObjectStore {
     /** Whether the R2 credentials are present (real store) vs. fail-soft no-op. */
     fun isConfigured(): Boolean
 
-    /** Uploads [bytes] under [key] with the given [contentType]. Gate on [isConfigured] first. */
+    /** Uploads [bytes] under [key] with the given [contentType]. No-ops on the unconfigured no-op store. */
     suspend fun put(
         key: String,
         bytes: ByteArray,
