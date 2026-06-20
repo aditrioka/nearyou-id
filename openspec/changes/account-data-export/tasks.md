@@ -45,24 +45,24 @@
 - [x] 7.2 Per request: gather (§5) → upload to `ObjectStore` → `presignedGetUrl(24h)` → set `ready` + `r2_object_key` + `download_expires_at` → emit `data_export_ready` notification (`body_data {signed_url, expires_at}`, NULL target, via the existing `NotificationEmitter`) → `EmailSender.send` (idempotency key `SHA256(user_id+'data_export_ready'+timestamp_minute)`).
 - [x] 7.3 Fail-soft: on object-storage/email error after retries set `status='failed'` + non-PII `error` + `attempt_count++`; never crash the worker; never leave a partial `ready`.
 - [ ] 7.4 Register the Cloud Scheduler job spec for `/internal/data-export-worker` (deploy config; mirrors the existing worker scheduler entries).
-- [ ] 7.5 Observability: give the worker the same OTel span-attribute treatment as the shipped workers + extend `InternalEndpointSpanAttributeTest` (or equivalent) to cover `/internal/data-export-worker` (no forbidden span attributes; no PII in attrs).
+- [x] 7.5 Observability: give the worker the same OTel span-attribute treatment as the shipped workers + extend `InternalEndpointSpanAttributeTest` (or equivalent) to cover `/internal/data-export-worker` (no forbidden span attributes; no PII in attrs).
 
 ## 8. Tests (one per spec scenario — no compression)
 
-- [ ] 8.1 Schema: table+indexes exist; `status` CHECK rejects unknown; one-active partial-unique forbids 2nd active row; non-active row doesn't block a new request; partial-index predicates `NOW()`-free.
-- [ ] 8.2 Request endpoint: first request → `202` pending; re-request while active → existing returned (no 2nd row); re-request after ready/expired/failed → new row; unauth → `401`; own-data-only (cannot enqueue another user's export).
-- [ ] 8.3 Status endpoint: pending status; ready status + `download_expires_at`; no-export state; no cross-user leak.
-- [ ] 8.4 Worker auth: invalid/absent OIDC → `401`/`403`, no processing.
-- [ ] 8.5 Worker happy path: pending → ready + `r2_object_key` + `download_expires_at ≈ NOW()+24h` + `data_export_ready` notification row + one email sent.
-- [ ] 8.6 Worker concurrency: two invocations on one pending request → exactly one claims/produces; the other claims nothing.
-- [ ] 8.7 Worker fail-soft (two independent cases): (a) **object storage unavailable** → `status='failed'` + `attempt_count ≥ 1` + non-PII error, no crash, no `ready`/notification/email; (b) **upload OK but Resend fails** after retries → export stays `ready` (the in-app notification delivered the link), email failure logged (no PII), NOT reverted to `failed`.
-- [ ] 8.8 Scope matrix (vs docs/06 §350): archive contains all canonical Included categories; chat = sent+received with peer id **hashed**; posts carry own `actual_location`; out-of-scope categories absent (reports-received, attestation, admin-audit, CSAM, `rejected_identifiers`); **shadow-ban stealth** — a shadow-banned user's export reveals no shadow-ban; no raw peer identifier leaks.
-- [ ] 8.9 Notification: row has `type='data_export_ready'` + `body_data {signed_url, expires_at}` + NULL target; no `notifications` CHECK migration present.
-- [ ] 8.10 Expiry: ready carries 24h deadline; past-deadline status reads `expired` + no fresh durable URL.
+- [x] 8.1 Schema: table+indexes exist; `status` CHECK rejects unknown; one-active partial-unique forbids 2nd active row; non-active row doesn't block a new request; partial-index predicates `NOW()`-free.
+- [x] 8.2 Request endpoint: first request → `202` pending; re-request while active → existing returned (no 2nd row); re-request after ready/expired/failed → new row; unauth → `401`; own-data-only (cannot enqueue another user's export).
+- [x] 8.3 Status endpoint: pending status; ready status + `download_expires_at`; no-export state; no cross-user leak.
+- [x] 8.4 Worker auth: invalid/absent OIDC → `401`/`403`, no processing.
+- [x] 8.5 Worker happy path: pending → ready + `r2_object_key` + `download_expires_at ≈ NOW()+24h` + `data_export_ready` notification row + one email sent.
+- [x] 8.6 Worker concurrency: two invocations on one pending request → exactly one claims/produces; the other claims nothing.
+- [x] 8.7 Worker fail-soft (two independent cases): (a) **object storage unavailable** → `status='failed'` + `attempt_count ≥ 1` + non-PII error, no crash, no `ready`/notification/email; (b) **upload OK but Resend fails** after retries → export stays `ready` (the in-app notification delivered the link), email failure logged (no PII), NOT reverted to `failed`.
+- [x] 8.8 Scope matrix (vs docs/06 §350): archive contains all canonical Included categories; chat = sent+received with peer id **hashed**; posts carry own `actual_location`; out-of-scope categories absent (reports-received, attestation, admin-audit, CSAM, `rejected_identifiers`); **shadow-ban stealth** — a shadow-banned user's export reveals no shadow-ban; no raw peer identifier leaks.
+- [x] 8.9 Notification: row has `type='data_export_ready'` + `body_data {signed_url, expires_at}` + NULL target; no `notifications` CHECK migration present.
+- [x] 8.10 Expiry: ready carries 24h deadline; past-deadline status reads `expired` + no fresh durable URL.
 - [x] 8.11 `:infra:r2`: stored object retrievable via signed URL within TTL; URL rejected after TTL; no vendor import outside `:infra:r2`; creds via `secretKey`; boot with R2 unconfigured → no-op bound + graceful degrade. (Integration leg against a local S3-compatible mock; unit leg for URL/expiry structure + no-op.)
 - [x] 8.12 `:infra:resend`: send issues `POST /emails` with rendered template + `Idempotency-Key`; 5xx retried 3× w/ backoff; same idempotency key → one delivery; the worker derives the canonical key `SHA256(user_id + 'data_export_ready' + timestamp_minute)`; boot with key unset → no-op + no throw; recipient/body never logged. (Ktor `MockEngine` for the REST leg.)
-- [ ] 8.13 Peer-hash determinism + secrecy: `HMAC-SHA256(export-peer-hash-secret, peer_id)` is stable for a given (secret, peer) and differs under a different secret (non-correlatable across exports); never emits a raw id or a bare `SHA256`.
-- [ ] 8.14 Deferred guards (negative): enumerate mounted routes — no new `/admin/*` route (only `/api/v1/account/export` + `/internal/data-export-worker`); confirm `:mobile:app` is untouched by this change.
+- [x] 8.13 Peer-hash determinism + secrecy: `HMAC-SHA256(export-peer-hash-secret, peer_id)` is stable for a given (secret, peer) and differs under a different secret (non-correlatable across exports); never emits a raw id or a bare `SHA256`.
+- [x] 8.14 Deferred guards (negative): enumerate mounted routes — no new `/admin/*` route (only `/api/v1/account/export` + `/internal/data-export-worker`); confirm `:mobile:app` is untouched by this change.
 - [ ] 8.15 Run the full local gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (+ the new infra modules' tests) green on fresh DB containers.
 
 ## 9. Docs + deferred follow-ups
