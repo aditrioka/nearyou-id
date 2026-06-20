@@ -31,9 +31,9 @@ The mobile app SHALL ship `ImageUploadApiClient` (file: `mobile/app/src/commonMa
 
 #### Scenario: 201 parses image id and delivery URL
 
-- **GIVEN** a `MockEngine` returning `201 {"image_id":"abc","delivery_url":"https://img.nearyou.id/abc/public"}`
+- **GIVEN** a `MockEngine` returning `201 {"image_id":"abc","delivery_url":"https://img.nearyou.id/acct123/abc/public"}` (the real 4-segment `<base>/<accountHash>/<image_id>/public` shape the server emits)
 - **WHEN** `upload(...)` runs
-- **THEN** the result carries `image_id = "abc"` AND `delivery_url = "https://img.nearyou.id/abc/public"`
+- **THEN** the result carries `image_id = "abc"` AND `delivery_url = "https://img.nearyou.id/acct123/abc/public"` (the client treats the delivery URL as opaque — it never reconstructs the path)
 
 #### Scenario: CancellationException is rethrown, not swallowed
 
