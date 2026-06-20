@@ -2,25 +2,25 @@
 
 ### Requirement: The chat thread exposes a report affordance on the other party's messages
 
-The `:mobile:app` 1:1 chat thread (`screens/chat/ChatThreadScreen.kt`, `MessageBubble`) SHALL expose a report ("Laporkan") affordance reached by **long-pressing a received message bubble** — long-press being the chat-surface idiom (the bubble has no kebab; `docs/06` § Report System names chat-message reporting as canonical, `docs/03` § Report UX lists the kebab idiom only for post/reply/profile). The affordance SHALL be presented ONLY for messages where `senderId != viewerId` (the other party's messages — mirroring the post `!isAuthor` gate) AND that are not already redacted (`redactedAt == null`). Activating it SHALL open the shared `ui/components/ReportDialog` (the six user-facing reason categories + optional ≤200-code-point note from `mobile-content-report`). All new UI strings (the menu label, content descriptions) SHALL come from `:shared:resources` Compose Multiplatform Resources — no hardcoded UI string literal SHALL appear in the chat report path.
+The `:mobile:app` 1:1 chat thread (`screens/chat/ChatThreadScreen.kt`, `MessageBubble`) SHALL expose a report ("Laporkan") affordance reached by **long-pressing a received message bubble** — long-press being the chat-surface idiom (the bubble has no kebab; `docs/06` § Report System names chat-message reporting as canonical, `docs/03` § Report UX lists the kebab idiom only for post/reply/profile). The affordance SHALL be presented ONLY for the other party's, non-redacted messages, computed on the rendered `ChatMessageRow` as **`isReportable = !isOwn && !isRedacted`**. The chat row `ChatMessageRow` deliberately carries `isOwn` / `isRedacted` and **DROPS the raw `senderId`** for PII discipline; `isOwn` is derived at projection time from `senderId == viewerId` against the `ChatMessageDto`, and `senderId` itself SHALL NOT be re-threaded onto the row, the affordance, the menu, or any log (the `!isOwn` gate is the row-level realization of the conceptual "other party's message" / post `!isAuthor` gate). Activating it SHALL open the shared `ui/components/ReportDialog` (the six user-facing reason categories + optional ≤200-code-point note from `mobile-content-report`). All new UI strings (the menu label, content descriptions) SHALL come from `:shared:resources` Compose Multiplatform Resources — no hardcoded UI string literal SHALL appear in the chat report path.
 
 #### Scenario: Long-pressing a received message reveals the report affordance
 
-- **GIVEN** a chat thread rendering a message whose `senderId != viewerId` and `redactedAt == null`
+- **GIVEN** a chat thread rendering a row where `isReportable` is true (`!isOwn && !isRedacted`)
 - **WHEN** the message bubble is long-pressed
 - **THEN** a "Laporkan" affordance (sourced via `stringResource`) is shown
 
 #### Scenario: One's own (sent) message exposes no report affordance
 
-- **GIVEN** a chat thread rendering a message whose `senderId == viewerId`
+- **GIVEN** a chat thread rendering a row where `isOwn` is true (the viewer's own / sent message, including an optimistic send)
 - **WHEN** the message bubble is long-pressed
-- **THEN** no "Laporkan" affordance is shown for that message
+- **THEN** no "Laporkan" affordance is shown for that row (`isReportable` is false)
 
 #### Scenario: A redacted message exposes no report affordance
 
-- **GIVEN** a received message with `redactedAt != null` (already moderated)
+- **GIVEN** a chat thread rendering a row where `isRedacted` is true (already moderated)
 - **WHEN** the message bubble is long-pressed
-- **THEN** no "Laporkan" affordance is shown for that message
+- **THEN** no "Laporkan" affordance is shown for that row (`isReportable` is false)
 
 #### Scenario: Activating the affordance opens the shared report dialog
 
@@ -121,19 +121,24 @@ This capability SHALL be mobile-only: it SHALL add no Flyway migration, no `db/m
 
 ### Requirement: Test coverage for the chat-message-report capability
 
-The change SHALL ship: (1) `commonTest` for the `CHAT_MESSAGE.wire` mapping, the chat report outcome→UI-state mapping (Submitted/Duplicate→success, RateLimited→message, NetworkError→retry, one-shot clear), and the affordance-visibility projection (`senderId != viewerId` AND not redacted); (2) a Robolectric `ChatThreadScreenTest` path exercising long-press → "Laporkan" → `ReportDialog` → pick category + submit → success message, AND asserting NO affordance on own/sent messages and on redacted messages — ADDED to the Release-variant `*ScreenTest` test-exclude list and passing under `:mobile:app:testDevReleaseUnitTest`; (3) an `iosTest` flow test mirroring the existing chat iOS flow test, with Kotlin/Native-legal test function names (`commonTest`/Kotest does not run on Native).
+The change SHALL ship: (1) `commonTest` for the `CHAT_MESSAGE.wire` mapping, the chat report outcome→UI-state mapping (Submitted/Duplicate→success, RateLimited→message, NetworkError→retry, one-shot clear), and the affordance-visibility projection `isReportable = !isOwn && !isRedacted` (own → false, including an **optimistic-own** send row; redacted → false; received non-redacted → true); (2) a Robolectric `ChatThreadScreenTest` path exercising long-press → "Laporkan" → `ReportDialog` → pick category + submit → success message, AND asserting NO affordance on own/sent messages and on redacted messages — ADDED to the Release-variant `*ScreenTest` test-exclude list and passing under `:mobile:app:testDevReleaseUnitTest`; (3) an `iosTest` flow test mirroring **`PostDetailFlowIosTest`** (there is no pre-existing chat iOS flow test to copy), with Kotlin/Native-legal test function names (`commonTest`/Kotest does not run on Native); (4) an `androidUnitTest` Koin-resolution test (a `ChatReportKoinResolutionTest`, per the established `*KoinResolutionTest` pattern) asserting `ChatThreadViewModel` resolves with its `ReportSubmitter` dependency satisfied; (5) a PII source-scan verification (a structural test, or a `LogLevel`-is-body-free assertion) that no `senderId` / message body / bearer token is logged on the chat report path. The pre-existing `ReportTargetTypeTest` — which currently asserts chat_message is **absent** — SHALL be updated to expect the four members (or the apply step's CI red-fails on it).
 
 #### Scenario: Mapping and projection tests exist and are discoverable
 
 - **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest`
-- **THEN** the `CHAT_MESSAGE.wire` mapping test, the outcome→state mapping test, and the affordance-visibility projection test are discovered AND each documented mapping/state corresponds to at least one `@Test`
+- **THEN** the `CHAT_MESSAGE.wire` mapping test, the outcome→state mapping test, and the affordance-visibility projection test (covering own / optimistic-own / redacted / received) are discovered AND each documented mapping/state corresponds to at least one `@Test`
 
 #### Scenario: The new screen test is excluded from the Release variant
 
 - **WHEN** inspecting `mobile/app/build.gradle.kts`
 - **THEN** the new chat report screen test is listed in the Release-variant `*ScreenTest` exclude block AND `:mobile:app:testDevReleaseUnitTest` passes
 
+#### Scenario: The Koin-resolution and PII-scan tests are present
+
+- **WHEN** inspecting the `androidUnitTest` / `commonTest` sources
+- **THEN** a Koin-resolution test asserting `ChatThreadViewModel` resolves `ReportSubmitter` exists AND a PII source-scan / body-free-`LogLevel` verification for the chat report path exists
+
 #### Scenario: An iOS flow test exercises the chat report path
 
 - **WHEN** inspecting `mobile/app/src/iosTest/...`
-- **THEN** a chat report flow test exists (long-press a received message → report → success) with Kotlin/Native-legal test function names
+- **THEN** a chat report flow test (modeled on `PostDetailFlowIosTest`) exists (long-press a received message → report → success) with Kotlin/Native-legal test function names
