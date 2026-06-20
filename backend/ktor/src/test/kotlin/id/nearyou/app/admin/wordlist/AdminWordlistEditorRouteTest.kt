@@ -177,8 +177,13 @@ class AdminWordlistEditorRouteTest : StringSpec({
             rows shouldHaveSize 1
             rows[0].targetType shouldBe "moderation_wordlist"
             rows[0].reason shouldBe "add c for launch"
+            // before_state diff summary: list + count of the prior list (design D3)
+            rows[0].beforeState!! shouldContain "moderation_profanity_list"
+            rows[0].beforeState!! shouldContain "count"
+            // after_state diff summary: added/removed counts + the changed-entry samples
             rows[0].afterState!! shouldContain "added"
-            rows[0].afterState!! shouldContain "moderation_profanity_list"
+            rows[0].afterState!! shouldContain "added_sample"
+            rows[0].afterState!! shouldContain "\"c\"" // the added entry appears in the sample
         }
     }
 
@@ -417,6 +422,109 @@ class AdminWordlistEditorRouteTest : StringSpec({
                 setBody(formBody("entries" to "a\nb\nc", "reason" to "independent", "etag" to fake.etag))
             }
             fake.publishedKeys shouldBe listOf("moderation_profanity_list")
+        }
+    }
+
+    "the published value is entry-normalized (id-locale lowercase, diacritics preserved)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val fake = FakeWordlistPublisher(profanity = listOf("x"))
+        AdminAuthTestSupport.withAdminApp(dataSource, remoteConfigPublisher = fake) { client ->
+            client.post("/admin/feature-flags/wordlists/profanity") {
+                header(HttpHeaders.Cookie, cookie(token))
+                header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                contentType(ContentType.Application.FormUrlEncoded)
+                setBody(formBody("entries" to "ANJÏNG\nBabi", "reason" to "normalize", "etag" to fake.etag))
+            }
+            // published value is lowercased (id-locale) with the diacritic preserved
+            RemoteConfigStringList.decode(fake["moderation_profanity_list"])!! shouldBe listOf("anjïng", "babi")
+        }
+    }
+
+    "an over-length entry is rejected at the route (BadRequest, no publish, no audit)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val fake = FakeWordlistPublisher(profanity = listOf("a", "b"))
+        AdminAuthTestSupport.withAdminApp(dataSource, remoteConfigPublisher = fake) { client ->
+            val tooLong = "x".repeat(101)
+            val res =
+                client.post("/admin/feature-flags/wordlists/profanity") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(formBody("entries" to "a\nb\n$tooLong", "reason" to "too long", "etag" to fake.etag))
+                }
+            res.status shouldBe HttpStatusCode.BadRequest
+            fake.publishedKeys.shouldBeEmpty()
+            wordlistAuditRows(admin.id).shouldBeEmpty()
+        }
+    }
+
+    // ============================ preview endpoint (no publish) ==============================
+
+    "POST /preview renders the staged diff without publishing or auditing" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val fake = FakeWordlistPublisher(profanity = listOf("a", "b", "c"))
+        AdminAuthTestSupport.withAdminApp(dataSource, remoteConfigPublisher = fake) { client ->
+            // remove "a", add "d" + "e" → added 2, removed 1, resulting 4
+            val res =
+                client.post("/admin/feature-flags/wordlists/profanity/preview") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(formBody("entries" to "b\nc\nd\ne"))
+                }
+            res.status shouldBe HttpStatusCode.OK
+            val body = res.bodyAsText()
+            body shouldContain "Staged changes"
+            body shouldContain "resulting total"
+            fake.publishedKeys.shouldBeEmpty()
+            wordlistAuditRows(admin.id).shouldBeEmpty()
+        }
+    }
+
+    "POST /preview surfaces the bulk-import report" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val fake = FakeWordlistPublisher(profanity = listOf("a", "b"))
+        AdminAuthTestSupport.withAdminApp(dataSource, remoteConfigPublisher = fake) { client ->
+            // import c + d (new) and a (dup of current) → 2 added, 1 duplicate skipped
+            val body =
+                client.post("/admin/feature-flags/wordlists/profanity/preview") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(formBody("entries" to "a\nb", "import" to "c\nd\na"))
+                }.bodyAsText()
+            body shouldContain "2 added"
+            body shouldContain "duplicates skipped"
+            fake.publishedKeys.shouldBeEmpty()
+        }
+    }
+
+    "POST /preview with no CSRF token is 403" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource, remoteConfigPublisher = FakeWordlistPublisher()) { client ->
+            client.post("/admin/feature-flags/wordlists/profanity/preview") {
+                header(HttpHeaders.Cookie, cookie(token))
+                contentType(ContentType.Application.FormUrlEncoded)
+                setBody(formBody("entries" to "a\nb"))
+            }.status shouldBe HttpStatusCode.Forbidden
+        }
+    }
+
+    "POST /preview as a moderator is 403 (owner/admin only)" {
+        val admin = seedAdmin(role = "moderator")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource, remoteConfigPublisher = FakeWordlistPublisher()) { client ->
+            client.post("/admin/feature-flags/wordlists/profanity/preview") {
+                header(HttpHeaders.Cookie, cookie(token))
+                header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                contentType(ContentType.Application.FormUrlEncoded)
+                setBody(formBody("entries" to "a\nb"))
+            }.status shouldBe HttpStatusCode.Forbidden
         }
     }
 

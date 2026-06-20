@@ -43,12 +43,20 @@ object WordlistNormalizer {
     fun parseImport(text: String): ImportParse {
         var commentOrBlankSkipped = 0
         val out = mutableListOf<String>()
-        for (token in text.split('\n', ',')) {
-            val t = token.trim()
-            when {
-                t.isEmpty() -> commentOrBlankSkipped++
-                t.startsWith("#") -> commentOrBlankSkipped++
-                else -> out += normalizeEntry(t)
+        for (line in text.lineSequence()) {
+            val trimmedLine = line.trim()
+            // Comment + blank detection is LINE-oriented: a leading-`#` line is a
+            // comment in full, so `# foo, bar` is skipped entirely (NOT split on the
+            // comma into a stray `bar` keyword).
+            if (trimmedLine.isEmpty() || trimmedLine.startsWith("#")) {
+                commentOrBlankSkipped++
+                continue
+            }
+            // Within a non-comment line, commas separate entries (single-column
+            // lists are one-per-line; comma-separated is the convenience form).
+            for (token in trimmedLine.split(',')) {
+                val t = token.trim()
+                if (t.isNotEmpty()) out += normalizeEntry(t)
             }
         }
         return ImportParse(entries = out.distinct(), commentOrBlankSkipped = commentOrBlankSkipped)

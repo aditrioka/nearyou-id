@@ -25,6 +25,13 @@ class RemoteConfigStringListTest : StringSpec({
         RemoteConfigStringList.encode(emptyList()) shouldBe "[]"
     }
 
+    "encode safely escapes entries containing quotes / backslashes / newlines (no JSON injection)" {
+        val nasty = listOf("""a"b""", """c\d""", "e\nf")
+        val encoded = RemoteConfigStringList.encode(nasty)
+        // valid JSON, escaped — and round-trips back to the exact originals
+        RemoteConfigStringList.decode(encoded)!!.shouldContainExactly("""a"b""", """c\d""", "e\nf")
+    }
+
     "decode returns null for null / blank / malformed / non-array values" {
         RemoteConfigStringList.decode(null).shouldBeNull()
         RemoteConfigStringList.decode("   ").shouldBeNull()

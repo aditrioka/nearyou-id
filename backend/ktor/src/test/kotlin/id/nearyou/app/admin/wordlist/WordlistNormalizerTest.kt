@@ -39,6 +39,13 @@ class WordlistNormalizerTest : StringSpec({
         parsed.commentOrBlankSkipped shouldBe 3 // "# header", blank, "# note"
     }
 
+    "parseImport treats a # comment as line-oriented (a comma in a comment does not leak a keyword)" {
+        // "# foo, bar" is a comment LINE in full — the comma must NOT promote "bar" to a keyword
+        val parsed = WordlistNormalizer.parseImport("# foo, bar\nreal")
+        parsed.entries.shouldContainExactly("real")
+        parsed.commentOrBlankSkipped shouldBe 1
+    }
+
     "stage merges entries + add-single + import and dedups across all three" {
         val result = WordlistNormalizer.stage(entriesText = "a\nb", addText = "c", importText = "d,b")
         result.shouldBeInstanceOf<StageResult.Valid>()

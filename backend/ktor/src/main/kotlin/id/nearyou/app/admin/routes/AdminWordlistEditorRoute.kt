@@ -124,11 +124,13 @@ private suspend fun ApplicationCall.respondEditor(
     message: String? = null,
     status: HttpStatusCode = HttpStatusCode.OK,
 ) {
-    val role = principal<AdminPrincipal>()?.role
-    val canWrite = state.writeAvailable && role in AdminRoleGate.OWNER_ADMIN_ROLES
+    val principal = principal<AdminPrincipal>()
+    val canWrite = state.writeAvailable && principal?.role in AdminRoleGate.OWNER_ADMIN_ROLES
     val entries = preview?.staged ?: state.entries
     val isHtmx = request.headers["HX-Request"] == "true"
-    val quotaUsed = principal<AdminPrincipal>()?.let { service.quotaUsed(it.adminId) } ?: 0
+    // Only a writer's quota chip is meaningful — skip the COUNT query on read-only /
+    // moderator / write-unconfigured renders.
+    val quotaUsed = if (canWrite && principal != null) service.quotaUsed(principal.adminId) else 0
 
     val model =
         buildMap<String, Any> {
