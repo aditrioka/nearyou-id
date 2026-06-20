@@ -63,7 +63,7 @@
 - [x] 8.12 `:infra:resend`: send issues `POST /emails` with rendered template + `Idempotency-Key`; 5xx retried 3× w/ backoff; same idempotency key → one delivery; the worker derives the canonical key `SHA256(user_id + 'data_export_ready' + timestamp_minute)`; boot with key unset → no-op + no throw; recipient/body never logged. (Ktor `MockEngine` for the REST leg.)
 - [x] 8.13 Peer-hash determinism + secrecy: `HMAC-SHA256(export-peer-hash-secret, peer_id)` is stable for a given (secret, peer) and differs under a different secret (non-correlatable across exports); never emits a raw id or a bare `SHA256`.
 - [x] 8.14 Deferred guards (negative): enumerate mounted routes — no new `/admin/*` route (only `/api/v1/account/export` + `/internal/data-export-worker`); confirm `:mobile:app` is untouched by this change.
-- [ ] 8.15 Run the full local gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (+ the new infra modules' tests) green on fresh DB containers.
+- [x] 8.15 Run the full local gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (+ the new infra modules' tests) green on fresh DB containers.
 
 ## 9. Docs + deferred follow-ups
 
