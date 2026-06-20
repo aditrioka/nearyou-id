@@ -30,6 +30,14 @@ class ImageStoreTest : StringSpec({
         respond(content = body, status = status, headers = headersOf(HttpHeaders.ContentType, "application/json"))
     }
 
+    "deliveryUrl builds the shared 4-segment shape and tolerates a trailing slash on the base" {
+        // The single source of truth reused by the upload path AND the read-path surfacing
+        // (image-attached-posts) — both must emit <base>/<accountHash>/<imageId>/public.
+        config.deliveryUrl("img-1") shouldBe "https://img-staging.nearyou.id/hashABC/img-1/public"
+        config.copy(deliveryBaseUrl = "https://img.nearyou.id/").deliveryUrl("abc") shouldBe
+            "https://img.nearyou.id/hashABC/abc/public"
+    }
+
     "factory returns NoOp when config is null" {
         imageStore(null).isConfigured().shouldBeFalse()
     }
