@@ -79,14 +79,16 @@ class AdminDeletionQueueRouteTest : StringSpec({
     "6.1 — authenticated GET lists a pending request with source + countdown + base layout" {
         val admin = seedAdmin()
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
-        seedRequest("pamit_dulu", source = "user")
+        seedRequest("pamit_dulu", source = "apple_s2s_consent_revoked")
 
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             val res = client.get("/admin/deletion-requests") { header(HttpHeaders.Cookie, cookie(token)) }
             res.status shouldBe HttpStatusCode.OK
             val body = res.bodyAsText()
             body shouldContain "pamit_dulu"
-            body shouldContain "user" // the source badge
+            // distinctive source value proves the source badge rendered (not the
+            // shell's generic "user" markup); the countdown renders the urgency pill.
+            body shouldContain "apple_s2s_consent_revoked"
             body shouldContain "days" // the countdown (~30 days out)
             body shouldContain "<header>"
             body shouldContain "<nav>"
@@ -489,6 +491,36 @@ class AdminDeletionQueueRouteTest : StringSpec({
                 setBody("reason=ghost")
             }.bodyAsText() shouldContain "no longer pending"
             DeletionQueueTestSupport.countExpeditesFor(dataSource, unknown) shouldBe 0
+        }
+    }
+
+    "6.1 — countdown renders the urgency pill (amber pend for imminent, Due-now for a past deadline)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        seedRequest("imminent_row", scheduledHardDeleteAt = Instant.now().plusSeconds(20 * 3600L)) // < 1 day → pend
+        // a past-but-still-pending deadline (un-executed) still lists, as "Due now".
+        seedRequest("overdue_row", scheduledHardDeleteAt = Instant.now().minusSeconds(3600L))
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body = client.get("/admin/deletion-requests") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            body shouldContain "st pend" // the amber urgency pill rendered
+            body shouldContain "Due now" // the past-deadline countdown label
+            body shouldContain "Due — worker will erase" // due rows offer no expedite control
+        }
+    }
+
+    "6.2 — a malformed cursor decodes to the first page (no 500)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        seedRequest("cursor_safe")
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.get("/admin/deletion-requests?cursor=not-a-real-cursor%21%21") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                }
+            res.status shouldBe HttpStatusCode.OK // malformed cursor → first page, never 500
+            res.bodyAsText() shouldContain "cursor_safe"
         }
     }
 

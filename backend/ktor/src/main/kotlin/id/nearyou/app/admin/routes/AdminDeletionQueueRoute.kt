@@ -237,7 +237,11 @@ private fun countdownLabel(
 private fun countdownClass(
     now: Instant,
     deadline: Instant,
-): String = if (Duration.between(now, deadline).toDays() <= IMMINENT_DAYS) "pend" else "neut"
+): String =
+    // Full-duration comparison (NOT Duration.toDays(), which truncates and would
+    // widen the band to ~4 days): a deadline within exactly IMMINENT_DAYS — or
+    // already due/past — is amber `pend`.
+    if (Duration.between(now, deadline) <= Duration.ofDays(IMMINENT_DAYS)) "pend" else "neut"
 
 private const val HX_REQUEST = "HX-Request"
 private const val REASON_FIELD = "reason"
