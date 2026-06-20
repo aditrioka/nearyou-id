@@ -61,5 +61,5 @@
 - [x] 8.1 Local gates green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
 - [x] 8.2 `openspec validate csam-detection-webhook-and-archive --strict` green.
 - [ ] 8.3 Pre-archive staging branch deploy (`gh workflow run deploy-staging.yml --ref csam-detection-webhook-and-archive`) + smoke: unauthenticated `POST /internal/csam-webhook` is rejected (not 200); unauthenticated `POST /internal/csam-archive-purge` → `401` (routes mount + auth-gate; endpoints are internal + dark).
-- [ ] 8.4 Launch-readiness note (NOT a deploy gate now): document that `csam-archive-aes-key` must be provisioned AND the zone-level CF CSAM Scanning Tool enabled **before** `image_upload_enabled` flips TRUE (restates `premium-image-upload/spec.md:147`).
-- [ ] 8.5 PR body refreshed at the apply boundary (retitle `feat(backend): csam-detection-webhook-and-archive — …`); capability deltas + test counts current before archive.
+- [x] 8.4 Launch-readiness note (NOT a deploy gate now): document that `csam-archive-aes-key` must be provisioned AND the zone-level CF CSAM Scanning Tool enabled **before** `image_upload_enabled` flips TRUE (restates `premium-image-upload/spec.md:147`).
+- [x] 8.5 PR body refreshed at the apply boundary (retitle `feat(backend): csam-detection-webhook-and-archive — …`); capability deltas + test counts current before archive.
