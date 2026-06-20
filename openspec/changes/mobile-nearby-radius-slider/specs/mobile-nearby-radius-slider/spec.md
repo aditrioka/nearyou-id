@@ -14,7 +14,7 @@ The Nearby surface SHALL present a discrete 4-position radius control with posit
 
 ### Requirement: Free tier is anchored to 20 km with a Premium upsell
 
-For a Free viewer, the radius control SHALL remain anchored at 20 km: any attempt to select a non-20 km position SHALL snap the control back to 20 km AND surface the Premium upsell (reusing `DailyCapUpsellDialog` / the `paywall` route, mirroring `mobile-search`'s Free upsell). A Free viewer's effective `radius_m` SHALL therefore always be `20000` — a non-20 km value SHALL NOT be issued to the backend from a Free session.
+For a Free viewer, the radius control SHALL remain anchored at 20 km: any attempt to select a non-20 km position SHALL snap the control back to 20 km AND surface the Premium upsell. The upsell SHALL reuse an established Free-upsell surface — either the inline `DailyCapUpsellDialog` (the daily/like-cap dialog idiom) or the `PaywallRoute` panel that `mobile-search` pushes for its Free gate — with the final surface resolved against the mockup at implementation (NOT, as an earlier draft mis-stated, `DailyCapUpsellDialog` "mirroring mobile-search" — those are two distinct surfaces). A Free viewer's effective `radius_m` SHALL therefore always be `20000` — a non-20 km value SHALL NOT be issued to the backend from a Free session. A viewer whose tier reads as **not Premium** (`is_premium = false`, i.e. `subscription_status != premium_active` per `user-profile-read` — this includes a grace-period `premium_billing_retry` user, by design Decision 6) SHALL be treated as Free here.
 
 #### Scenario: Free drag snaps back and upsells
 - **GIVEN** a Free viewer (`isPremiumKnown = false`) on the Nearby surface
@@ -25,6 +25,11 @@ For a Free viewer, the radius control SHALL remain anchored at 20 km: any attemp
 - **GIVEN** a Free viewer
 - **WHEN** any radius interaction occurs
 - **THEN** every Nearby fetch issued in that session carries `radius_m=20000`
+
+#### Scenario: Grace-period user is client-anchored to 20 km (Decision 6)
+- **GIVEN** a viewer whose `subscription_status = premium_billing_retry` (so the wire `is_premium = false` and `isPremiumKnown = false`), even though the backend would admit a wider radius for that tier
+- **WHEN** the viewer drags the radius control to 50 km
+- **THEN** the control returns to 20 km AND the Premium upsell is shown AND no `radius_m=50000` fetch is issued (the client is conservative; the server stays authoritative — the wider radius is simply never requested)
 
 ### Requirement: Premium tier selects freely
 
@@ -37,7 +42,7 @@ For a Premium viewer (`isPremiumKnown = true` via the self-`isPremium` read; `is
 
 ### Requirement: On-entry tier resolution and reactive 403 backstop
 
-The radius gate SHALL follow the on-entry self-`isPremium` read idiom (mirroring `SearchViewModel` / `UsernameCustomizationViewModel`): an `isPremiumKnown: Boolean?` that is `null` (Resolving) until the self-profile read resolves it. Until tier is known, the control SHALL behave as Free (anchored at 20 km). As a server-authoritative backstop, a Nearby fetch that returns HTTP 403 `radius_premium_only` SHALL be mapped to the SAME Premium upsell surface as the client-side snap-back (never surfaced as a raw error), and the control SHALL revert to 20 km.
+The radius gate SHALL follow the on-entry self-`isPremium` read idiom — an `isPremiumKnown: Boolean?` that is `null` (Resolving) until the self-profile read resolves it (mirroring `UsernameCustomizationViewModel`, which is the on-entry `isPremiumKnown` precedent; `SearchViewModel` supplies the reactive-403 backstop half). Until tier is known, the control SHALL behave as Free (anchored at 20 km). As a server-authoritative backstop, a Nearby fetch that returns HTTP 403 `radius_premium_only` SHALL be mapped to the SAME Premium upsell surface as the client-side snap-back (never surfaced as a raw error), and the control SHALL revert to 20 km. This 403 handling SHALL be owned by the **ViewModel layer** reading the parsed `error.code` from the fetch result; it SHALL NOT introduce a new `NearbyTimelineOutcome` member — the `mobile-nearby-timeline` status→outcome mapping (401 → `SessionExpired`, other non-2xx → the retryable `Error`/`NetworkError` fallback) is unchanged, and the `radius_premium_only` upsell is a ViewModel-level interpretation layered above it.
 
 #### Scenario: Pre-resolution behaves as Free
 - **GIVEN** `isPremiumKnown = null` (tier not yet resolved)
@@ -48,6 +53,10 @@ The radius gate SHALL follow the on-entry self-`isPremium` read idiom (mirroring
 - **GIVEN** a Nearby fetch issued at a non-20 km radius
 - **WHEN** the backend responds HTTP 403 with `error.code = "radius_premium_only"`
 - **THEN** the Premium upsell is shown (the same surface as the client snap-back) AND the control reverts to 20 km AND no raw error state is rendered
+
+#### Scenario: The 403 backstop adds no new NearbyTimelineOutcome member
+- **WHEN** inspecting the `radius_premium_only` handling and the `NearbyTimelineOutcome` type
+- **THEN** the 403 is interpreted in the ViewModel from the parsed `error.code` AND `NearbyTimelineOutcome` gains no new member for it (the `mobile-nearby-timeline` status→outcome mapping is untouched)
 
 ### Requirement: Selected radius threads through fetch and load-more; a new selection reloads the first page
 

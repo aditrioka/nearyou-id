@@ -51,11 +51,11 @@ The backend radius gate admits `premium_active` **OR** `premium_billing_retry` (
 
 This change consumes the canonical patterns; it introduces **no** new pattern, so no `docs/11` § Pattern Registry amendment is required.
 
-- **Mobile state holder (§2.2):** `NearbyTimelineViewModel` `StateFlow` + a pure Compose-free projection for the gate/selection decision (mirrors `nearbyTimelineUiState` / `AgeGateUiState`; the `isPremiumKnown: Boolean?` Resolving→known idiom from `SearchViewModel` / `UsernameCustomizationViewModel`).
+- **Mobile state holder (§2.2):** `NearbyTimelineViewModel` `StateFlow` + a pure Compose-free projection for the gate/selection decision (mirrors `nearbyTimelineUiState` / `AgeGateUiState`; the on-entry `isPremiumKnown: Boolean?` Resolving→known idiom is `UsernameCustomizationViewModel`'s, and the reactive-403 backstop is `SearchViewModel`'s — this change uses both halves).
 - **Navigation (§2.3):** Navigation 3 — the slider lives on the existing Nearby surface; the upsell reuses the existing `paywall` route. No new nav substrate.
 - **Mobile data layer (§2.6):** the existing status-driven `NearbyTimelineRepository` / `NearbyTimelineFlow` / `NearbyTimelineApiClient` seam — the selected radius threads through unchanged interfaces (`NEARBY_RADIUS_M` generalized to a parameter).
 - **Backend layering (§3.1):** route → service. The gate is a route-level concern (reads the principal, shapes the 400/403); set membership is the service's domain rule.
-- **Reuse-first (§4):** the upsell reuses `ui/components/DailyCapUpsellDialog` + `screens/paywall/`; the premium server-gate reuses the `premium-search` 403 precedent; the tier read reuses the `hide-distance` `principal.subscriptionStatus` precedent (`premium_active` OR `premium_billing_retry`).
+- **Reuse-first (§4):** the upsell reuses one of the two established Free-upsell surfaces — the inline `ui/components/DailyCapUpsellDialog` (the daily/like-cap dialog idiom) or the `screens/paywall/` `PaywallRoute` panel `mobile-search` pushes (these are distinct surfaces; pick at apply per the mockup — Open Question below); the premium server-gate reuses the `premium-search` Free→403 precedent; the tier read reuses the `hide-distance` `principal.subscriptionStatus` precedent (`premium_active` OR `premium_billing_retry`).
 - **UI substrate:** Material 3 `Slider` (already on the classpath via `mobile-design-system`); strings via `Res.string.*`.
 
 ## Risks / Trade-offs
@@ -74,4 +74,4 @@ This change consumes the canonical patterns; it introduces **no** new pattern, s
 ## Open Questions
 
 - **Slider affordance for Free users:** does the Free slider render all 4 positions (and bounce back) or render visibly locked with a Premium lock icon on 10/50/100 km? Leaning: render all 4, bounce non-20 km back + upsell (matches `docs/02`:151 "sliding bounces back"). Final affordance confirmed against `dev/mockups/nearyou-screens-mockup.html` at apply (mockup-measure per `docs/11` §2.8).
-- **Upsell surface choice:** `DailyCapUpsellDialog` (inline dialog) vs routing to the full `paywall` screen for the radius upsell. Leaning: the inline `DailyCapUpsellDialog` (lighter, keeps the user on Nearby), matching the daily-cap upsell idiom; confirm against the mockup.
+- **Upsell surface choice:** the inline `DailyCapUpsellDialog` (the daily/like-cap dialog idiom) vs the full-screen `PaywallRoute` panel that `mobile-search` pushes for its Free gate (`SearchScreen` `PremiumGateState` → `PaywallRoute(SEARCH_GATE)`). These are two distinct existing surfaces — the radius upsell reuses one, not a new one. Leaning: the inline `DailyCapUpsellDialog` (lighter, keeps the user on Nearby — a radius snap-back is a momentary correction, not a hard screen-entry gate like search); confirm against `dev/mockups/nearyou-screens-mockup.html` at apply.

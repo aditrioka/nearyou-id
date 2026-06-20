@@ -10,8 +10,10 @@
 - [ ] 2.1 Out-of-set radius (`50`, `15000`, `200000`) → 400 `radius_out_of_bounds`; each of `{10000,20000,50000,100000}` passes the bounds check (Premium caller).
 - [ ] 2.2 Free principal at `20000` admitted (no 403); Free at `10000`/`50000`/`100000` → 403 `radius_premium_only`.
 - [ ] 2.3 Premium principal (`premium_active` and `premium_billing_retry`) at any set member → not tier-rejected.
-- [ ] 2.4 Quota-safety: a `radius_premium_only` 403 (and a `radius_out_of_bounds` 400) does NOT increment the Free rolling/session read counters (gate runs ahead of the limiter pre-check).
+- [ ] 2.4 Quota-safety: assert BOTH arms — a `radius_premium_only` 403 AND a `radius_out_of_bounds` 400 each leave the Free rolling/session read counters unincremented (gate runs ahead of the limiter pre-check; use the existing `StatementCounter`/`SpyRateLimiter` harness in `TimelineReadRateLimitTest.kt`).
 - [ ] 2.5 Tier gate issues zero `users`-table SELECTs (assert against the no-`users`-SELECT invariant, mirroring the existing timeline-read-rate-limit test approach).
+- [ ] 2.6 **Migrate the existing inverted radius-bounds test** — `NearbyTimelineServiceTest.kt` (the `"radius bounds — 50 … and 100000 … rejected; 100 and 50000 accepted"` test, ~L497) asserts `radius_m=100000`→400 and `radius_m=100`→200, both of which this change INVERTS (100000 is now a valid set member; 100 is now 400 `radius_out_of_bounds`). Update/replace it to match the discrete set so the suite does not hard-fail on the new code.
+- [ ] 2.7 Assert the `radius_premium_only` 403 response body matches the existing `respondError` envelope (`error.code` / `error.message`), mirroring the `location_out_of_bounds` body assertion in the existing route test (pairs with task 1.4).
 
 ## 3. Mobile — radius slider + gate + upsell (`mobile-nearby-radius-slider`)
 
@@ -25,9 +27,10 @@
 
 ## 4. Mobile — tests (`mobile-nearby-radius-slider` + `mobile-nearby-timeline`)
 
-- [ ] 4.1 `commonTest` projection test: Free snap-back, Premium select, Resolving-as-Free, 403→upsell — each path ≥1 `@Test`.
-- [ ] 4.2 `NearbyTimelineApiClient`/repository test: first-page fetch carries the selected `radius_m` (default `20000`; non-default `50000`); load-more reuses the selected radius; a new selection issues a fresh first-page (no `cursor`).
+- [ ] 4.1 `commonTest` projection test: Free snap-back, Premium select, Resolving-as-Free, **grace-period (`premium_billing_retry` / `is_premium=false`) snapped to 20 km despite server-permit (Decision 6)**, and 403→upsell — each path ≥1 `@Test`.
+- [ ] 4.2 `NearbyTimelineApiClient`/repository test: first-page fetch carries the selected `radius_m` (default `20000`; non-default `50000`); the **load-more (second) page** specifically carries the non-default selected `radius_m=50000` (not just page 1); selecting a NEW radius issues a fresh first-page with NO `cursor` (not a load-more append).
 - [ ] 4.3 Robolectric `*ScreenTest`: renders the 4-position control + asserts the Free upsell surface; add the new `*ScreenTest` to the `mobile/app/build.gradle.kts` Release-variant test-exclude block.
+- [ ] 4.4 Assert the `radius_premium_only` 403 backstop is owned by the ViewModel (parsed `error.code` → upsell + revert to 20 km) and adds NO new `NearbyTimelineOutcome` member (the `mobile-nearby-timeline` status→outcome mapping stays unchanged).
 
 ## 5. Verification, evidence, and PR hygiene
 
