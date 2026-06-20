@@ -67,12 +67,14 @@
 
 ## 9. Docs + deferred follow-ups
 
-- [ ] 9.1 Update `docs/07-Operations.md` § Core Features → "Data Export Queue": note the user-facing producer SHIPPED (this change) + the admin monitoring/trigger surface deferred (link the follow-up).
-- [ ] 9.2 File a `follow-up` issue (labels `follow-up` + `admin`): **admin Data Export Queue** surface to be built on `data_export_requests` (async trigger view + status list + download deep-link).
-- [ ] 9.3 File a `follow-up` issue (labels `follow-up` + `mobile`): mobile Settings **"Unduh Data Saya"** entry (row + confirm dialog + status banner) calling the shipped endpoints.
-- [ ] 9.4 Resolve the remaining design.md Open Questions: mobile-entry defer-vs-fold (Phase D review); export-row retention cadence (note or follow-up). (Scope matrix + chat inclusion already resolved against docs/06 §350.)
+- [x] 9.1 Update `docs/07-Operations.md` § Core Features → "Data Export Queue": note the user-facing producer SHIPPED (this change) + the admin monitoring/trigger surface deferred (link the follow-up).
+- [x] 9.2 File a `follow-up` issue (labels `follow-up` + `admin`): **admin Data Export Queue** surface to be built on `data_export_requests` (async trigger view + status list + download deep-link).
+- [x] 9.3 File a `follow-up` issue (labels `follow-up` + `mobile`): mobile Settings **"Unduh Data Saya"** entry (row + confirm dialog + status banner) calling the shipped endpoints.
+- [x] 9.4 Resolve the remaining design.md Open Questions: mobile-entry defer-vs-fold (Phase D review); export-row retention cadence (note or follow-up). (Scope matrix + chat inclusion already resolved against docs/06 §350.)
 
 ## 10. Staging deploy + smoke (deploy tasks stay unchecked until infra provisioned)
+
+- [ ] 10.0 **MERGE-GATE — V29 Flyway collision**: `V29__data_export_requests.sql` collides with in-flight `V29__csam_detection_archive` (PR #358) and possibly other in-flight migration-bearing PRs (#353 referral, #354 image, #355, #360). CI passes in isolation (CI builds a fresh DB from this branch only); the collision only fails `migrate-supabase-parity` at merge-to-`main` if a sibling V29 lands first. **Before merge**: `git fetch origin main`, take the next free `V<N>`, `git mv` the migration + update refs (docs/05 § Data Export Requests Schema, the spec schema block, the V29 mentions in design/proposal). Additive + not yet applied to real staging/prod → renumber is safe (the documented parallel-session Flyway-collision fix).
 
 - [ ] 10.1 Provision staging secret slots (`r2-*`, `resend-api-key`, `export-peer-hash-secret`) + the R2 export bucket with a 24h object-lifecycle rule; grant the Cloud Run runtime SA `secretAccessor`.
 - [ ] 10.2 Manual branch deploy (`gh workflow run deploy-staging.yml --ref account-data-export`) + `dev/scripts/smoke-account-data-export.sh`: request export → worker run → status `ready` → notification present → email delivered → signed URL downloads the archive → past-TTL reads `expired`.
