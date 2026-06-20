@@ -130,6 +130,7 @@ import id.nearyou.app.infra.repo.ReservedUsernameRepository
 import id.nearyou.app.infra.repo.SinglePostRepository
 import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
+import id.nearyou.app.infra.revenuecatapi.referralEntitlementGranter
 import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
 import id.nearyou.app.infra.supabase.realtime.SupabaseBroadcastChatClient
 import id.nearyou.app.moderation.CachingLayer3ConfigLoader
@@ -157,9 +158,12 @@ import id.nearyou.app.post.PostReadService
 import id.nearyou.app.post.postEditRoutes
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.post.singlePostRoutes
+import id.nearyou.app.referral.ReferralActivityCheckWorker
+import id.nearyou.app.referral.ReferralGrantRepository
 import id.nearyou.app.referral.ReferralRepository
 import id.nearyou.app.referral.ReferralService
 import id.nearyou.app.referral.ReferralTicketRateLimiter
+import id.nearyou.app.referral.referralActivityCheckRoute
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
 import id.nearyou.app.search.searchRoutes
@@ -831,6 +835,14 @@ fun Application.module() {
             dispatcher = notificationDispatcher,
             dbDispatcher = dbDispatchers.db,
         )
+    val referralGrantRepository = ReferralGrantRepository()
+    val referralActivityCheckWorker =
+        ReferralActivityCheckWorker(
+            dataSource = dataSource,
+            repository = referralGrantRepository,
+            granter = referralEntitlementGranter(secrets.resolve(secretKey(ktorEnv, "revenuecat-secret-api-key"))),
+            dbDispatcher = dbDispatchers.db,
+        )
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
     val replyService =
         ReplyService(
@@ -1122,6 +1134,7 @@ fun Application.module() {
             unbanWorkerRoute(suspensionUnbanWorker, oidcTokenVerifier)
             privacyFlipWorkerRoute(privacyFlipWorker, oidcTokenVerifier)
             accountHardDeleteWorkerRoute(accountHardDeleteWorker, oidcTokenVerifier)
+            referralActivityCheckRoute(referralActivityCheckWorker, oidcTokenVerifier)
         }
     }
 
