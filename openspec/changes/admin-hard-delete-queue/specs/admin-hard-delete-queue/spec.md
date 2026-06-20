@@ -2,7 +2,7 @@
 
 ### Requirement: Authenticated GET /admin/deletion-requests lists accounts pending hard-delete
 
-The system SHALL serve an authenticated admin page at `GET /admin/deletion-requests` (admin board frame 15) rendering a table of every `deletion_requests` row with `executed_at IS NULL AND cancelled_at IS NULL` — the pending-deletion population awaiting the daily hard-delete worker. The query SHALL be served by the existing partial index `deletion_requests_scheduled_idx` (`ON deletion_requests(scheduled_hard_delete_at) WHERE executed_at IS NULL AND cancelled_at IS NULL`) with **no new migration**. Each row SHALL carry the target user's identity (username, with a deep-link to `/admin/users?q=<username>`), the `requested_at` timestamp (UTC), the `scheduled_hard_delete_at` timestamp (UTC), a computed **countdown** to the scheduled deadline (which MAY read as "due now"/past for `apple_s2s_account_delete` rows scheduled at `NOW()`), and the request `source`. The username SHALL be sourced via a JOIN to `users` that tolerates a soft-deleted (`deleted_at IS NOT NULL`) user row — the pending-deletion population is typically already soft-deleted, so the list SHALL NOT filter on `users.deleted_at`; if the `users` row is unexpectedly absent the row SHALL still render (showing the `user_id` without a username) rather than being dropped. Any authenticated admin role (read need not be `owner`/`admin`) SHALL be able to view the page. The page SHALL render with no rows (an empty-state) when no deletions are pending, never erroring.
+The system SHALL serve an authenticated admin page at `GET /admin/deletion-requests` (admin board frame 15) rendering a table of every `deletion_requests` row with `executed_at IS NULL AND cancelled_at IS NULL` — the pending-deletion population awaiting the daily hard-delete worker. The query SHALL be served by the existing partial index `deletion_requests_scheduled_idx` (`ON deletion_requests(scheduled_hard_delete_at) WHERE executed_at IS NULL AND cancelled_at IS NULL`) with **no new migration**. Each row SHALL carry the target user's identity (username, with a deep-link to `/admin/users?q=<username>`), the `requested_at` timestamp (UTC), the `scheduled_hard_delete_at` timestamp (UTC), a computed **countdown** to the scheduled deadline (which MAY read as "due now"/past for an immediate-schedule row, e.g. a future `apple_s2s_account_delete` row scheduled at `NOW()` once that downstream source produces rows), and the request `source`. The username SHALL be sourced via a JOIN to `users`. Because `deletion_requests.user_id` references `users(id)` **`ON DELETE CASCADE`**, a non-executed request's `users` row is FK-guaranteed to still exist (the worker hard-deletes the `users` row and the `deletion_requests` row together), so the JOIN always resolves a username — no absent-user fallback is required. The target user is typically **soft-deleted** (`users.deleted_at IS NOT NULL`) during the grace window, so the list SHALL NOT filter on `users.deleted_at` (a `deleted_at`-based filter would hide the intended population). Any authenticated admin role (read need not be `owner`/`admin`) SHALL be able to view the page. The page SHALL render with no rows (an empty-state) when no deletions are pending, never erroring.
 
 #### Scenario: Pending-deletion accounts are listed
 
@@ -106,9 +106,24 @@ The system SHALL expose `POST /admin/deletion-requests/{id}/expedite` as a suppo
 - **WHEN** an admin expedites a pending request that is still in the future (a prior expedite did not occur) twice
 - **THEN** each actionable expedite SHALL write its own append-only `admin_actions_log` row AND no prior row SHALL be UPDATEd or DELETEd
 
+### Requirement: Manual expedite is atomic — the deadline advance, the rate-limit count, and the audit row commit or roll back together
+
+A successful expedite's three effects — the guarded `UPDATE deletion_requests` (deadline advance), the trailing-hour rate-limit count read against `admin_actions_log`, and the immutable audit-row insert — SHALL execute within a **single JDBC transaction** so they commit or roll back as a unit. If any step fails (the rate-limit count is at/over cap, the audit insert fails, or the connection drops mid-action), the deadline advance SHALL NOT persist — the `deletion_requests` row SHALL retain its original `scheduled_hard_delete_at`. The system SHALL NOT leave a state in which the deadline was advanced but no audit row exists, nor one in which an audit row exists but the deadline was not advanced. This mirrors the `admin-rejected-identifiers-clear-action` atomicity guarantee (the irreversible mutation and its audit/rate-limit ledger are one transaction).
+
+#### Scenario: A rate-limit rejection rolls back the deadline advance
+
+- **GIVEN** an admin already at the expedite cap for the trailing hour
+- **WHEN** that admin attempts an expedite against a pending future request
+- **THEN** the request's `scheduled_hard_delete_at` SHALL be unchanged (no deadline advance persists) AND no `admin_actions_log` row SHALL be written
+
+#### Scenario: An audit-write failure rolls back the deadline advance
+
+- **WHEN** the guarded `UPDATE` advances the deadline but the subsequent `admin_actions_log` insert fails within the same transaction
+- **THEN** the transaction SHALL roll back AND the request's `scheduled_hard_delete_at` SHALL retain its original future value (no orphaned deadline advance without an audit row)
+
 ### Requirement: Manual expedite is role-gated to owner/admin and CSRF-protected
 
-The expedite write SHALL be restricted to admins whose role is `owner` or `admin`; a read-only admin role SHALL NOT be able to expedite. Every expedite request SHALL carry an `X-CSRF-Token` matching the acting session's `admin_sessions.csrf_token_hash`; a missing or mismatched token SHALL return 403, perform no mutation, and write an `admin_csrf_violation` audit entry (no `deletion_request_expedited` row is written for the rejected attempt).
+The expedite write SHALL be restricted to admins whose role is `owner` or `admin`; a read-only admin role SHALL NOT be able to expedite. Every expedite request SHALL carry an `X-CSRF-Token` matching the acting session's `admin_sessions.csrf_token_hash`; a missing or mismatched token SHALL return 403, perform no mutation, and write an `admin_csrf_violation` audit entry (no `deletion_request_expedited` row is written for the rejected attempt). CSRF validation SHALL precede the role check, so a request bearing a missing or mismatched token is rejected (and audited) as a CSRF violation regardless of the caller's role.
 
 #### Scenario: A read-only admin role cannot expedite
 
@@ -119,6 +134,11 @@ The expedite write SHALL be restricted to admins whose role is `owner` or `admin
 
 - **WHEN** an `owner`/`admin` submits an expedite with a missing or mismatched `X-CSRF-Token`
 - **THEN** the system SHALL return 403, perform no mutation, and write an `admin_csrf_violation` audit entry (and no `deletion_request_expedited` row)
+
+#### Scenario: CSRF rejection precedes the role check
+
+- **WHEN** a read-only (non-`owner`/`admin`) admin submits an expedite with a missing or mismatched `X-CSRF-Token`
+- **THEN** the request SHALL be rejected as a CSRF violation (403 + `admin_csrf_violation` audit) — CSRF validation runs before the role gate — and no mutation SHALL occur
 
 ### Requirement: Manual expedite is rate-limited per admin via a distinct trailing-hour counter
 
@@ -158,7 +178,7 @@ For each listed pending row, the page SHALL indicate whether a manual expedite h
 
 ### Requirement: Manual expedite is rejected for a target outside the pending/future population
 
-An expedite SHALL be valid only against a `deletion_requests` row that is `executed_at IS NULL AND cancelled_at IS NULL AND scheduled_hard_delete_at > NOW()` — a genuinely-future pending deletion. The system SHALL reject an expedite whose `{id}` does not resolve to such a row (an unknown id; an already-executed row; a cancelled row; or a row already due/past, including `apple_s2s_account_delete` rows scheduled at `NOW()` which the worker already catches), performing no mutation and writing no `admin_actions_log` row for the rejected attempt. The guarded `UPDATE … WHERE` matching zero rows IS the rejection (no separate read-then-write race window).
+An expedite SHALL be valid only against a `deletion_requests` row that is `executed_at IS NULL AND cancelled_at IS NULL AND scheduled_hard_delete_at > NOW()` — a genuinely-future pending deletion. The system SHALL reject an expedite whose `{id}` does not resolve to such a row (an unknown id; an already-executed row; a cancelled row; or a row already due/past — any deadline that has arrived, e.g. a future `apple_s2s_account_delete` immediate row scheduled at `NOW()` once that downstream source produces rows, which the worker already catches), performing no mutation and writing no `admin_actions_log` row for the rejected attempt. The guarded `UPDATE … WHERE` matching zero rows IS the rejection (no separate read-then-write race window).
 
 #### Scenario: Expedite of an already-executed or cancelled request is rejected
 
@@ -167,7 +187,7 @@ An expedite SHALL be valid only against a `deletion_requests` row that is `execu
 
 #### Scenario: Expedite of an already-due request is rejected
 
-- **WHEN** an expedite targets a pending row whose `scheduled_hard_delete_at <= NOW()` (already due — e.g. an `apple_s2s_account_delete` immediate row)
+- **WHEN** an expedite targets a pending row whose `scheduled_hard_delete_at <= NOW()` (already due — any row whose deadline has arrived)
 - **THEN** the request SHALL be rejected AND no `admin_actions_log` row SHALL be written (there is nothing to accelerate; the worker already catches it)
 
 #### Scenario: Expedite of an unknown id is rejected
