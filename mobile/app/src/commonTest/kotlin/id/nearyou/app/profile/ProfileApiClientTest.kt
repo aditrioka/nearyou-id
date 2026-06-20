@@ -10,7 +10,6 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlin.coroutines.cancellation.CancellationException
@@ -22,8 +21,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private val JSON_HEADERS = headersOf("Content-Type", "application/json")
-
-private fun OutgoingContent.bodyText(): String = (this as? OutgoingContent.ByteArrayContent)?.bytes()?.decodeToString() ?: ""
 
 class ProfileApiClientTest {
     private fun client(handler: MockRequestHandler): HttpClient =
