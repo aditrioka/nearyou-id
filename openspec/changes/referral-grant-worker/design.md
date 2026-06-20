@@ -17,7 +17,7 @@ This change is the second stage: the worker that runs the activity gate, the `gr
 - Be safe to run concurrently / repeatedly (Cloud Scheduler at-least-once delivery): no double grants.
 
 **Non-Goals:**
-- The login-days, app-sessions, IP-subnet (/24), and recently-seen-identifier gate legs — **no durable data source exists** (refresh-token rotation deletes login history; `session_start` is a consent-gated Amplitude client event). Captured as explicit negative-guard requirements; a follow-up MODIFIES them once login-history tracking lands.
+- The login-days, app-sessions, 90-day-windowed device-fingerprint, IP-subnet (/24), and recently-seen-identifier gate legs — **no durable data source exists** (refresh-token rotation deletes login history; `session_start` is a consent-gated Amplitude client event). Captured as explicit negative-guard requirements; a follow-up MODIFIES them once login-history tracking lands.
 - Building that login-history tracking infrastructure.
 - Any mobile surface (the invite-code entry in Settings already exists from ticket creation; grant outcomes surface through the existing premium-status read path).
 - Mandatory-production webhook signing, the grace-elapse worker (owned elsewhere).
