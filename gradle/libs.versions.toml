@@ -132,7 +132,7 @@ revenuecat-ios = "5.77.0"
 # on Maven Central (coil-compose + coil-network-ktor3 release in lockstep); full CMP target set incl. iOS.
 # Coil 3.x does NOT auto-register a network fetcher (unlike Coil 2) — KtorNetworkFetcherFactory is added
 # explicitly via SingletonImageLoader.setSafe at app init (App.kt). Image bytes are never logged (D6).
-coil = "3.5.0"
+coil = "3.4.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
