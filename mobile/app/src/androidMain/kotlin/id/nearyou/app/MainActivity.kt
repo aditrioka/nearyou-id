@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import id.nearyou.app.auth.CurrentActivityHolder
 import id.nearyou.app.di.initKoin
+import id.nearyou.app.image.ImagePickerRequestBridge
 import id.nearyou.app.location.LocationPermissionRequestBridge
 import id.nearyou.app.notifications.NotificationPermissionRequestBridge
 import org.koin.android.ext.koin.androidContext
@@ -22,6 +23,9 @@ class MainActivity : ComponentActivity() {
         get() = KoinPlatformTools.defaultContext().get().get()
 
     private val notificationPermissionBridge: NotificationPermissionRequestBridge
+        get() = KoinPlatformTools.defaultContext().get().get()
+
+    private val imagePickerBridge: ImagePickerRequestBridge
         get() = KoinPlatformTools.defaultContext().get().get()
 
     // Registered as a field initializer (before STARTED, as ActivityResultContracts requires); the
@@ -40,6 +44,15 @@ class MainActivity : ComponentActivity() {
             notificationPermissionBridge.onResult(granted)
         }
 
+    // The Android Photo Picker (PickVisualMedia) Activity-result launcher (image-attached-posts Phase 4)
+    // — same Activity-result seam as the permission launchers; the composer's image-attach flow drives
+    // it via the Koin-singleton bridge. The result is the picked content Uri (or null on cancel). The
+    // Photo Picker requires NO storage permission.
+    private val imagePickerLauncher =
+        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            imagePickerBridge.onResult(uri)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -55,6 +68,8 @@ class MainActivity : ComponentActivity() {
         locationPermissionBridge.launcher = locationPermissionLauncher
         // Same for the notification-permission bridge (mobile-chat-screen task 9.4).
         notificationPermissionBridge.launcher = notificationPermissionLauncher
+        // Same for the Photo Picker bridge (image-attached-posts Phase 4).
+        imagePickerBridge.launcher = imagePickerLauncher
 
         setContent {
             App()
@@ -84,6 +99,9 @@ class MainActivity : ComponentActivity() {
         }
         if (notificationPermissionBridge.launcher === notificationPermissionLauncher) {
             notificationPermissionBridge.launcher = null
+        }
+        if (imagePickerBridge.launcher === imagePickerLauncher) {
+            imagePickerBridge.launcher = null
         }
         super.onDestroy()
     }

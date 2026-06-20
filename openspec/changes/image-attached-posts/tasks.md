@@ -20,15 +20,15 @@
 
 ## 4. Mobile image picker + compression seam (§2.5)
 
-- [ ] 4.1 commonMain `interface ImagePicker { suspend fun pick(): PickedImage? }` + `PickedImage(bytes, mime)` in `id/nearyou/app/image/`.
-- [ ] 4.2 Android actual: `ActivityResultContracts.PickVisualMedia` + `Bitmap` re-encode loop to ≤5 MB; bind in the Android Koin platform module (no business logic in androidMain).
-- [ ] 4.3 iOS actual: `PHPickerViewController` + ImageIO/`UIImage` downscale to ≤5 MB; bind in the iOS Koin platform module. Add explicit `import platform.<Framework>.<symbol>` for any ObjC category members (docs/11 §2.5 K/N caveat).
+- [x] 4.1 commonMain `interface ImagePicker { suspend fun pick(): PickedImage? }` + `PickedImage(bytes, mime)` in `id/nearyou/app/image/`.
+- [x] 4.2 Android actual: `ActivityResultContracts.PickVisualMedia` + `Bitmap` re-encode loop to ≤5 MB; bind in the Android Koin platform module (no business logic in androidMain).
+- [x] 4.3 iOS actual: `PHPickerViewController` + ImageIO/`UIImage` downscale to ≤5 MB; bind in the iOS Koin platform module. Add explicit `import platform.<Framework>.<symbol>` for any ObjC category members (docs/11 §2.5 K/N caveat).
 
 ## 5. Mobile upload data layer (§2.6)
 
 - [x] 5.1 `ImageUploadApiClient`: multipart `POST /api/v1/images` via `MultiPartFormDataContent` on the shared `HttpClient` (Auth plugin owns Bearer + refresh; no ad-hoc client); parse `201 {image_id, delivery_url}`; rethrow `CancellationException`.
 - [x] 5.2 `ImageUploadRepository` + sealed `ImageUploadOutcome` (`Success`/`PremiumRequired`/`FeatureDisabled`/`QuotaExceeded`/`Throttled`/`ModerationRejected`/`TooLarge`/`Unavailable`/`Network` — all 9 members); map the exact HTTP status + `error.code` per `ImageRoutes.kt` (incl. `503 image_upload_unavailable` → `Unavailable`); exhaustive `when` (no `else`).
-- [ ] 5.3 Koin wiring for `ImagePicker`-consumer, `ImageUploadApiClient`, `ImageUploadRepository`.
+- [x] 5.3 Koin wiring for `ImagePicker`-consumer, `ImageUploadApiClient`, `ImageUploadRepository`.
 
 ## 6. Mobile compose-with-image authoring (gating + submit + strings)
 
@@ -42,7 +42,7 @@
 - [ ] 7.1 Mobile commonTest: attach affordance Premium-gated (Premium opens picker; Free upsold, picker not invoked); `image_id` present in body only when attached; remove clears attachment; CTA disabled during upload; each `ImageUploadOutcome` → UI state; no hardcoded strings.
 - [x] 7.2 Mobile commonTest: `PostCard` + `PostDetailScreen` render an image when `imageUrl` present and are unchanged when null (negative guard); `PostDetailRoute` decodes a pre-`imageUrl` payload with `imageUrl = null` (back-compat).
 - [x] 7.3 `ImageUploadApiClient` + `ImageUploadRepository` MockEngine tests: multipart `POST /api/v1/images`; 201 parse (4-segment `<base>/<accountHash>/<image_id>/public` body); `CancellationException` rethrown; and a status→outcome table covering ALL mapped branches — `422 image_rejected`→`ModerationRejected`, `403 image_upload_disabled`→`FeatureDisabled` vs `403 premium_required`→`PremiumRequired`, `429 image_upload_throttled`→`Throttled` vs `429 image_upload_quota_exceeded`→`QuotaExceeded`, `413 image_too_large`→`TooLarge`, **`503 image_upload_unavailable`→`Unavailable`**, transport→`Network` (the spec's "every outcome is a declared sealed member" exhaustiveness scenario has an explicit test home here).
-- [ ] 7.4 `ImagePicker` actual tests: cancelled selection → `null` (no upload attempted); a returned `PickedImage` satisfies the ≤5 MB size guard + `image/*` mime (exercise the Android `Bitmap` re-encode loop via Robolectric; iOS via the simulator test).
+- [x] 7.4 `ImagePicker` actual tests: cancelled selection → `null` (no upload attempted); a returned `PickedImage` satisfies the ≤5 MB size guard + `image/*` mime (exercise the Android `Bitmap` re-encode loop via Robolectric; iOS via the simulator test).
 - [ ] 7.5 iOS: `:mobile:app:iosSimulatorArm64Test` (or at minimum `linkDebugFrameworkIosSimulatorArm64`) for the PHPicker/ImageIO actual.
 - [ ] 7.6 Backend `:backend:ktor:test`: **all 5 read surfaces** — Nearby, Following, Global, single-post, and post-detail responses — carry `imageUrl` (built 4-segment URL) for an image post and `null` for a text-only post; an image-bearing post is excluded under shadow-ban/block exactly as a text-only post; a viewer reading their OWN shadow-banned image post via the self-arm still sees their `imageUrl` (two-arm UNION self-arm projection, per task 2.2).
 - [ ] 7.7 Local gates green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`.
