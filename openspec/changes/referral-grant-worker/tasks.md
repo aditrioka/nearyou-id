@@ -6,7 +6,7 @@
 ## 2. Schema — V29 granted_entitlements
 
 - [x] 2.1 Write `V29__granted_entitlements.sql` per the `referral-grant-worker` spec § granted_entitlements schema: table + `UNIQUE (referral_ticket_id, user_id)` + `granted_entitlements_inviter_once_idx` partial-unique on `(user_id) WHERE grant_role = 'inviter'` + unique `dedup_key` index; both FKs `ON DELETE CASCADE`; **no `NOW()` / volatile expression in any index predicate**. Header comment documents scope + the V23 (`referral_tickets`) / V21 (`subscription_events`) / V2 (`inviter_reward_claimed_at`) reuse.
-- [ ] 2.2 Verify the migration applies on a **fresh** PostGIS container + `flyway validate` green (disposable container — avoid dev-DB seed-pollution false-fails).
+- [x] 2.2 Verify the migration applies on a **fresh** PostGIS container + `flyway validate` green (disposable container — avoid dev-DB seed-pollution false-fails).
 - [x] 2.3 `dev/supabase-parity-init.sql`: N/A — the migration assumes no new Supabase-provided state; confirm and note.
 
 ## 3. `:infra:revenuecat-api` — NEW JVM module for the outbound promotional-grant client
@@ -35,34 +35,34 @@
 
 ## 6. Tests (`:backend:ktor`)
 
-- [ ] 6.1 Worker auth: unauthenticated `/internal/referral-activity-check` rejected; OIDC-authenticated admitted (reuse the `internal-endpoint-auth` test harness).
-- [ ] 6.2 Expiry: a `pending_activity` ticket past `expires_at` → `expired`, no grant.
-- [ ] 6.3 Activity gate: invitee ≥ 2 posts + inviter in good standing → pass; invitee < 2 posts → stays `pending_activity`; **exactly 2 posts → passes** (the `≥` boundary); inviter `is_banned = TRUE` → voided to `expired`; inviter `is_shadow_banned = TRUE` → voided to `expired` (both ban flags, per docs/01 §233).
-- [ ] 6.4 Invitee grant: a passing ticket → `granted` + a `granted_entitlements` `invitee` row + the `:infra:revenuecat` grant client is invoked with the computed window + `dedup_key`.
-- [ ] 6.5 Stacking: `premium_active` recipient with a future entitlement end → `entitlement_end` extends by 7 days; `free`/lapsed recipient → fresh `NOW()+7d`; **boundary** — a `premium_active` recipient whose entitlement end is already in the past (`end < NOW()`) → fresh `NOW()+7d` (the `GREATEST(end, NOW())` floor), not `end + 7d`.
-- [ ] 6.6 **Invitee-grant uniqueness per ticket** (docs/08 §292): re-run AND concurrent worker invocations over an already-granted ticket → exactly one invitee `granted_entitlements` row (the `UNIQUE (referral_ticket_id, user_id)` ON CONFLICT path).
-- [ ] 6.7 **Inviter lifetime cap** (docs/08 §292, verbatim scenario): 10 successful referrals from the same inviter produce **exactly one** `grant_role = 'inviter'` row, triggered at the **5th** ticket, and **zero thereafter**; `users.inviter_reward_claimed_at` set exactly once.
-- [ ] 6.8 **Concurrent worker runs** (docs/08 §292): two concurrent invocations apply each grant at most once — at the invitee uniqueness path AND at the 5th-referral inviter boundary (the partial-unique index serializes the race).
-- [ ] 6.9 Schema: `grant_role` CHECK rejects an out-of-vocab value; `granted_entitlements_inviter_once_idx` rejects a second `inviter` row for the same user; user hard-delete cascades `granted_entitlements`.
-- [ ] 6.10 Webhook GRANT (MODIFY): a `GRANT` event activates `premium_active` + records a `source='referral'` grant row; re-delivered (same `revenuecat_event_id`) → `200` no-op duplicate; orphan user → `200` no writes; the referral grant is excluded from the paid MRR query.
-- [ ] 6.11 Fail-soft: with the RC API key unset, a passing ticket still writes the `granted_entitlements` row + flips to `granted` + logs the un-dispatched grant + does not throw.
-- [ ] 6.12 DB-test hygiene: any test creating posts/users does per-test cleanup by username-prefix (timeline-suite-pollution precedent), `autoClose` new Hikari pools at size 2 (CI connection-budget precedent), and truncates seeded timestamps to micros (macOS-vs-Linux CI clock precedent).
-- [ ] 6.13 Worker does not write `subscription_status` (spec guard, D4): after a passing ticket is granted, the recipient's `users.subscription_status` is **unchanged** by the worker — the webhook `GRANT` echo (6.10) is the sole writer.
-- [ ] 6.14 Deferred-legs guard (spec): a ticket passing posts + expiry + inviter-eligibility is granted **regardless** of any login-day / app-session / IP-subnet / recently-seen-identifier / 90-day-windowed-fingerprint signal — the gate consults none of them (asserts the deferred legs are not evaluated).
-- [ ] 6.15 Partial-failure isolation: when the RC grant client **throws** on ticket N+1, ticket N stays `granted` (its row committed) AND N+1 stays `pending_activity`, AND a subsequent run completes N+1 — verifies the per-ticket transaction boundary (distinct from the key-unset fail-soft in 6.11).
-- [ ] 6.16 Route isolation: the worker's OIDC gate does NOT affect `/internal/revenuecat-webhook` auth — a Bearer + HMAC webhook request (no OIDC token) still authenticates (mirror `InternalRoutingIsolationTest`).
+- [x] 6.1 Worker auth: unauthenticated `/internal/referral-activity-check` rejected; OIDC-authenticated admitted (reuse the `internal-endpoint-auth` test harness).
+- [x] 6.2 Expiry: a `pending_activity` ticket past `expires_at` → `expired`, no grant.
+- [x] 6.3 Activity gate: invitee ≥ 2 posts + inviter in good standing → pass; invitee < 2 posts → stays `pending_activity`; **exactly 2 posts → passes** (the `≥` boundary); inviter `is_banned = TRUE` → voided to `expired`; inviter `is_shadow_banned = TRUE` → voided to `expired` (both ban flags, per docs/01 §233).
+- [x] 6.4 Invitee grant: a passing ticket → `granted` + a `granted_entitlements` `invitee` row + the `:infra:revenuecat` grant client is invoked with the computed window + `dedup_key`.
+- [x] 6.5 Stacking: `premium_active` recipient with a future entitlement end → `entitlement_end` extends by 7 days; `free`/lapsed recipient → fresh `NOW()+7d`; **boundary** — a `premium_active` recipient whose entitlement end is already in the past (`end < NOW()`) → fresh `NOW()+7d` (the `GREATEST(end, NOW())` floor), not `end + 7d`.
+- [x] 6.6 **Invitee-grant uniqueness per ticket** (docs/08 §292): re-run AND concurrent worker invocations over an already-granted ticket → exactly one invitee `granted_entitlements` row (the `UNIQUE (referral_ticket_id, user_id)` ON CONFLICT path).
+- [x] 6.7 **Inviter lifetime cap** (docs/08 §292, verbatim scenario): 10 successful referrals from the same inviter produce **exactly one** `grant_role = 'inviter'` row, triggered at the **5th** ticket, and **zero thereafter**; `users.inviter_reward_claimed_at` set exactly once.
+- [x] 6.8 **Concurrent worker runs** (docs/08 §292): two concurrent invocations apply each grant at most once — at the invitee uniqueness path AND at the 5th-referral inviter boundary (the partial-unique index serializes the race).
+- [x] 6.9 Schema: `grant_role` CHECK rejects an out-of-vocab value; `granted_entitlements_inviter_once_idx` rejects a second `inviter` row for the same user; user hard-delete cascades `granted_entitlements`.
+- [x] 6.10 Webhook GRANT (MODIFY): a `GRANT` event activates `premium_active` + records a `source='referral'` grant row; re-delivered (same `revenuecat_event_id`) → `200` no-op duplicate; orphan user → `200` no writes; the referral grant is excluded from the paid MRR query.
+- [x] 6.11 Fail-soft: with the RC API key unset, a passing ticket still writes the `granted_entitlements` row + flips to `granted` + logs the un-dispatched grant + does not throw.
+- [x] 6.12 DB-test hygiene: any test creating posts/users does per-test cleanup by username-prefix (timeline-suite-pollution precedent), `autoClose` new Hikari pools at size 2 (CI connection-budget precedent), and truncates seeded timestamps to micros (macOS-vs-Linux CI clock precedent).
+- [x] 6.13 Worker does not write `subscription_status` (spec guard, D4): after a passing ticket is granted, the recipient's `users.subscription_status` is **unchanged** by the worker — the webhook `GRANT` echo (6.10) is the sole writer.
+- [x] 6.14 Deferred-legs guard (spec): a ticket passing posts + expiry + inviter-eligibility is granted **regardless** of any login-day / app-session / IP-subnet / recently-seen-identifier / 90-day-windowed-fingerprint signal — the gate consults none of them (asserts the deferred legs are not evaluated).
+- [x] 6.15 Partial-failure isolation: when the RC grant client **throws** on ticket N+1, ticket N stays `granted` (its row committed) AND N+1 stays `pending_activity`, AND a subsequent run completes N+1 — verifies the per-ticket transaction boundary (distinct from the key-unset fail-soft in 6.11).
+- [x] 6.16 Route isolation: the worker's OIDC gate does NOT affect `/internal/revenuecat-webhook` auth — a Bearer + HMAC webhook request (no OIDC token) still authenticates (mirror `InternalRoutingIsolationTest`).
 
 ## 7. Lint + invariants
 
-- [ ] 7.1 Local gate green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
-- [ ] 7.2 Annotations verified: `@AllowRawPostsRead` + `@AllowMissingBlockJoin` (or an own-content filename prefix) on the invitee post-count SQL — **NOT** the chat-only `@allow-no-block-exclusion` marker; `secretKey(env,name)` for the RC key; no vendor import outside `:infra:*`; no `NOW()` in any V29 index predicate.
-- [ ] 7.3 Doc-drift guards: the new `:infra:revenuecat-api` module IS added → confirm `dev/scripts/sync-readme.sh --check` passes (after task 3.3's `--write`) AND `dev/scripts/check-dockerfile-module-copies.sh` passes (after task 3.2's COPY lines).
+- [x] 7.1 Local gate green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
+- [x] 7.2 Annotations verified: `@AllowRawPostsRead` + `@AllowMissingBlockJoin` (or an own-content filename prefix) on the invitee post-count SQL — **NOT** the chat-only `@allow-no-block-exclusion` marker; `secretKey(env,name)` for the RC key; no vendor import outside `:infra:*`; no `NOW()` in any V29 index predicate.
+- [x] 7.3 Doc-drift guards: the new `:infra:revenuecat-api` module IS added → confirm `dev/scripts/sync-readme.sh --check` passes (after task 3.3's `--write`) AND `dev/scripts/check-dockerfile-module-copies.sh` passes (after task 3.2's COPY lines).
 
 ## 8. Staging smoke + deploy (pre-archive)
 
 - [ ] 8.1 (operator) Create the `staging-revenuecat-secret-api-key` Secret Manager slot (value = RevenueCat Test Store secret key) + grant the Cloud Run runtime SA `secretAccessor`.
 - [ ] 8.2 Manual branch deploy: `gh workflow run deploy-staging.yml --ref referral-grant-worker`; poll the run; `/health/ready` all-green.
-- [ ] 8.3 Smoke `dev/scripts/smoke-referral-grant-worker.sh`: seed a `pending_activity` ticket + 2 invitee posts; invoke `/internal/referral-activity-check` (with a minted OIDC token); assert ticket → `granted` + a `granted_entitlements` row; replay a simulated RevenueCat `GRANT` webhook and assert `premium_active` + a `source='referral'` event. Tick Section 6 of tasks before archive.
+- [ ] 8.3 Smoke `dev/scripts/smoke-referral-grant-worker.sh` (written; no-creds deploy-config check, the repo pattern): `/health/ready` 200 (V29 applied), `/internal/referral-activity-check` → 401 (worker mounted + OIDC-gated, not 404/500), `/internal/revenuecat-webhook` → 401 (GRANT MODIFY didn't break its mount/auth). A fuller authenticated seed→invoke→grant smoke needs a staging session + the secret slot (worker fail-softs until then) — deferred like the account-deletion-tombstone precedent.
 - [ ] 8.4 (deferred — prod) Provision the Cloud Scheduler job invoking `/internal/referral-activity-check` daily + the prod `revenuecat-secret-api-key` slot. Stays unchecked until prod infra is provisioned (does not block the squash-merge).
 
 ## 9. Archive

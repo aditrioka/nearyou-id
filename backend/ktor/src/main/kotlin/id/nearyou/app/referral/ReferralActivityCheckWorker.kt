@@ -3,6 +3,7 @@ package id.nearyou.app.referral
 import id.nearyou.app.infra.revenuecatapi.GrantRequest
 import id.nearyou.app.infra.revenuecatapi.GrantResult
 import id.nearyou.app.infra.revenuecatapi.ReferralEntitlementGranter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -145,16 +146,29 @@ class ReferralActivityCheckWorker(
         return buildGrant(conn, ticket, ticket.inviterId, ROLE_INVITER, now)
     }
 
+    /**
+     * Dispatch is best-effort and never fatal: the grant is already committed to the
+     * ledger, so a dispatch failure (a [GrantResult.Failed] or even an unexpected
+     * throw from a misbehaving client) is logged and the batch continues — a
+     * reconciliation follow-up retries un-echoed grants. Cancellation propagates.
+     */
     private suspend fun dispatch(payload: DispatchPayload) {
         val result =
-            granter.grant(
-                GrantRequest(
-                    appUserId = payload.recipientId.toString(),
-                    entitlementId = ENTITLEMENT_ID,
-                    endTimeMs = payload.end.toEpochMilli(),
-                    dedupKey = payload.dedupKey,
-                ),
-            )
+            try {
+                granter.grant(
+                    GrantRequest(
+                        appUserId = payload.recipientId.toString(),
+                        entitlementId = ENTITLEMENT_ID,
+                        endTimeMs = payload.end.toEpochMilli(),
+                        dedupKey = payload.dedupKey,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.warn("event=referral_grant_dispatch_error dedup_key={} error={}", payload.dedupKey, e.message, e)
+                return
+            }
         when (result) {
             GrantResult.Dispatched -> Unit
             GrantResult.NotConfigured ->

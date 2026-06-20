@@ -93,7 +93,7 @@ class ReferralGrantRepository {
         conn.prepareStatement(
             """
             SELECT COUNT(*) FROM posts
-             WHERE author_user_id = ?
+             WHERE author_id = ?
                AND created_at >= ?
             """.trimIndent(),
         ).use { ps ->
