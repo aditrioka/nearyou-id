@@ -1,0 +1,62 @@
+## 1. Pre-implementation gates
+
+- [ ] 1.1 **Dated RevenueCat API re-check** (design D3 + Open Questions): confirm via a current-dated `WebSearch` the canonical **v1** promotional-entitlement grant endpoint (`POST /v1/subscribers/{app_user_id}/entitlements/{entitlement_id}/promotional`), its auth (project **secret** API key), and the duration shape (`duration` enum vs absolute `end_time_ms`) needed for extend-by-7-days stacking. Record the verdict in the first feat commit body. If v2 has since matured to cover stacking, or v1 differs from the design assumption, STOP and surface via `AskUserQuestion` (apply-phase design-revision re-check rule, project.md).
+- [ ] 1.2 **Re-confirm the free Flyway version** at apply time: `git fetch origin main` and check the highest `V<N>__` — a sibling change may have taken **V29** since proposal. If so, renumber to the next free version + bump every doc/spec reference (parallel-session Flyway-collision precedent).
+
+## 2. Schema — V29 granted_entitlements
+
+- [ ] 2.1 Write `V29__granted_entitlements.sql` per the `referral-grant-worker` spec § granted_entitlements schema: table + `UNIQUE (referral_ticket_id, user_id)` + `granted_entitlements_inviter_once_idx` partial-unique on `(user_id) WHERE grant_role = 'inviter'` + unique `dedup_key` index; both FKs `ON DELETE CASCADE`; **no `NOW()` / volatile expression in any index predicate**. Header comment documents scope + the V23 (`referral_tickets`) / V21 (`subscription_events`) / V2 (`inviter_reward_claimed_at`) reuse.
+- [ ] 2.2 Verify the migration applies on a **fresh** PostGIS container + `flyway validate` green (disposable container — avoid dev-DB seed-pollution false-fails).
+- [ ] 2.3 `dev/supabase-parity-init.sql`: N/A — the migration assumes no new Supabase-provided state; confirm and note.
+
+## 3. `:infra:revenuecat` — outbound promotional-grant client
+
+- [ ] 3.1 Define the grant seam interface (e.g. `ReferralEntitlementGranter`) on the `:infra:revenuecat` API surface — the abstraction the worker depends on; **no RevenueCat vendor type may appear in `:backend:ktor`** (vendor-SDK-isolation invariant).
+- [ ] 3.2 Implement the v1 promotional-entitlement client (raw Ktor client — RevenueCat has no JVM SDK, the `:infra:cloudflare-images` no-SDK precedent); read the secret API key **only** via `secretKey(env, "revenuecat-secret-api-key")`; send the `dedup_key`; accept the pre-computed absolute entitlement window from the caller.
+- [ ] 3.3 Fail-soft `NoOp` implementation when the API key is unset (`NoOpImageModerator` precedent): logs the un-dispatched grant, returns a no-op result, never throws.
+- [ ] 3.4 Koin wiring: bind the interface to the live client when the key is present, the NoOp otherwise.
+
+## 4. Worker — route + service + repository (`:backend:ktor`)
+
+- [ ] 4.1 Repository (JDBC, docs/11 §3.2): pending-ticket scan (`status='pending_activity'`); expire (`UPDATE … SET status='expired' WHERE expires_at < NOW()`); invitee authored-post count over `[ticket.created_at, NOW()]` (**raw `FROM posts` self-count** — annotate `@AllowRawPostsRead` + the `@allow-no-block-exclusion` chat-token comment on the SQL-holding property: an engagement signal, not a visibility-sensitive read); per-inviter `granted` ticket count; `granted_entitlements` insert `ON CONFLICT DO NOTHING`; `inviter_reward_claimed_at` set.
+- [ ] 4.2 Service: two-pass algorithm (expire → evaluate → grant); activity gate (posts ≥ 2 AND inviter `is_banned = FALSE` AND `is_shadow_banned = FALSE` — docs/01 §233 "shadow or hard"; banned-by-either-flag inviter → void to `expired`); stacking window `GREATEST(current_entitlement_end, NOW()) + INTERVAL '7 days'`; 5th-`granted`-referral inviter grant + sentinel; **per-ticket DB transaction** (not one batch tx); RevenueCat dispatch via the `:infra:revenuecat` client **outside** the DB tx (idempotent via `dedup_key`).
+- [ ] 4.3 Route: `POST /internal/referral-activity-check` mounted under the existing `/internal/*` OIDC middleware (the `privacy-flip-worker` route precedent); returns the `{expired, granted, pending}` summary JSON.
+- [ ] 4.4 Resolve a recipient's current entitlement end for the stacking computation from `subscription_status` / latest effective `subscription_events`.
+
+## 5. Webhook GRANT handler — MODIFY `subscription-billing-webhook`
+
+- [ ] 5.1 Replace the `GRANT` no-op branch: in one transaction, record `subscription_events(event_type='grant', source='referral', revenuecat_event_id, entitlement_start/end)` + set `users.subscription_status='premium_active'`; idempotent via the existing `revenuecat_event_id UNIQUE`; orphan app-user id → `200` + WARN + no writes.
+- [ ] 5.2 Regression-guard the existing paid-path scenarios (initial_purchase / renewal / billing_issue / expiration / cancellation / privacy-flip scheduling) — no behavior change to them.
+
+## 6. Tests (`:backend:ktor`)
+
+- [ ] 6.1 Worker auth: unauthenticated `/internal/referral-activity-check` rejected; OIDC-authenticated admitted (reuse the `internal-endpoint-auth` test harness).
+- [ ] 6.2 Expiry: a `pending_activity` ticket past `expires_at` → `expired`, no grant.
+- [ ] 6.3 Activity gate: invitee ≥ 2 posts + inviter in good standing → pass; invitee < 2 posts → stays `pending_activity`; inviter `is_banned = TRUE` → voided to `expired`; inviter `is_shadow_banned = TRUE` → voided to `expired` (both ban flags, per docs/01 §233).
+- [ ] 6.4 Invitee grant: a passing ticket → `granted` + a `granted_entitlements` `invitee` row + the `:infra:revenuecat` grant client is invoked with the computed window + `dedup_key`.
+- [ ] 6.5 Stacking: `premium_active` recipient → `entitlement_end` extends by 7 days; `free`/lapsed recipient → fresh `NOW()+7d`.
+- [ ] 6.6 **Invitee-grant uniqueness per ticket** (docs/08 §292): re-run AND concurrent worker invocations over an already-granted ticket → exactly one invitee `granted_entitlements` row (the `UNIQUE (referral_ticket_id, user_id)` ON CONFLICT path).
+- [ ] 6.7 **Inviter lifetime cap** (docs/08 §292, verbatim scenario): 10 successful referrals from the same inviter produce **exactly one** `grant_role = 'inviter'` row, triggered at the **5th** ticket, and **zero thereafter**; `users.inviter_reward_claimed_at` set exactly once.
+- [ ] 6.8 **Concurrent worker runs** (docs/08 §292): two concurrent invocations apply each grant at most once — at the invitee uniqueness path AND at the 5th-referral inviter boundary (the partial-unique index serializes the race).
+- [ ] 6.9 Schema: `grant_role` CHECK rejects an out-of-vocab value; `granted_entitlements_inviter_once_idx` rejects a second `inviter` row for the same user; user hard-delete cascades `granted_entitlements`.
+- [ ] 6.10 Webhook GRANT (MODIFY): a `GRANT` event activates `premium_active` + records a `source='referral'` grant row; re-delivered (same `revenuecat_event_id`) → `200` no-op duplicate; orphan user → `200` no writes; the referral grant is excluded from the paid MRR query.
+- [ ] 6.11 Fail-soft: with the RC API key unset, a passing ticket still writes the `granted_entitlements` row + flips to `granted` + logs the un-dispatched grant + does not throw.
+- [ ] 6.12 DB-test hygiene: any test creating posts/users does per-test cleanup by username-prefix (timeline-suite-pollution precedent), `autoClose` new Hikari pools at size 2 (CI connection-budget precedent), and truncates seeded timestamps to micros (macOS-vs-Linux CI clock precedent).
+
+## 7. Lint + invariants
+
+- [ ] 7.1 Local gate green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
+- [ ] 7.2 Annotations verified: `@AllowRawPostsRead` + `@allow-no-block-exclusion` on the invitee post-count SQL; `secretKey(env,name)` for the RC key; no vendor import outside `:infra:*`; no `NOW()` in any V29 index predicate.
+- [ ] 7.3 Doc-drift guards: no new module added (`:infra:revenuecat` already exists) → `sync-readme.sh` + `check-dockerfile-module-copies.sh` are N/A; confirm both report clean.
+
+## 8. Staging smoke + deploy (pre-archive)
+
+- [ ] 8.1 (operator) Create the `staging-revenuecat-secret-api-key` Secret Manager slot (value = RevenueCat Test Store secret key) + grant the Cloud Run runtime SA `secretAccessor`.
+- [ ] 8.2 Manual branch deploy: `gh workflow run deploy-staging.yml --ref referral-grant-worker`; poll the run; `/health/ready` all-green.
+- [ ] 8.3 Smoke `dev/scripts/smoke-referral-grant-worker.sh`: seed a `pending_activity` ticket + 2 invitee posts; invoke `/internal/referral-activity-check` (with a minted OIDC token); assert ticket → `granted` + a `granted_entitlements` row; replay a simulated RevenueCat `GRANT` webhook and assert `premium_active` + a `source='referral'` event. Tick Section 6 of tasks before archive.
+- [ ] 8.4 (deferred — prod) Provision the Cloud Scheduler job invoking `/internal/referral-activity-check` daily + the prod `revenuecat-secret-api-key` slot. Stays unchecked until prod infra is provisioned (does not block the squash-merge).
+
+## 9. Archive
+
+- [ ] 9.1 `openspec validate referral-grant-worker --strict` green before the squash-merge.
+- [ ] 9.2 `openspec archive referral-grant-worker` + spec sync (`referral-grant-worker` added; `subscription-billing-webhook` + `referral-ticket-creation` updated); `openspec validate --specs referral-grant-worker subscription-billing-webhook referral-ticket-creation --strict` green.
