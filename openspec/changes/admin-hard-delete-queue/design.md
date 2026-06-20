@@ -59,7 +59,7 @@ Builds on existing Pattern-Registry patterns only — **backend layering** (Rout
 - **Race: the worker executes (or the user cancels) the row between render and expedite.** → The guarded `UPDATE … WHERE executed_at IS NULL AND cancelled_at IS NULL AND scheduled_hard_delete_at > NOW()` matches 0 rows → reported as "no longer pending", no audit row, no mutation (D1/D7).
 - **Double-expedite noise.** → The already-expedited indicator (read-side LEFT JOIN to the latest `deletion_request_expedited` row) plus the `scheduled_hard_delete_at > NOW()` guard: a second expedite finds the deadline already at/below `NOW()` → rejected as already-due.
 - **`apple_s2s_account_delete` rows are scheduled at `NOW()` (no grace).** → They appear in the list (Countdown "due now") but expedite rejects them (already-due) — there is nothing to accelerate; the worker already catches them.
-- **Soft-deleted user JOIN.** → Tolerated by D3 (render id without username if the `users` row is unexpectedly absent); no 5xx.
+- **Soft-deleted user JOIN.** → Tolerated by D3: the listed user is typically soft-deleted (`deleted_at IS NOT NULL`) but the `users` row is still present (FK `ON DELETE CASCADE` keeps it until the worker hard-deletes both rows together), so the JOIN always resolves a username; the list applies no `deleted_at` filter and never 5xx's.
 
 ## Migration Plan
 
