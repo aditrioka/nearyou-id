@@ -40,21 +40,21 @@
 
 ## 7. Tests (one per spec scenario — no coverage compression)
 
-- [ ] 7.1 Archive schema: plaintext `image_hash`/`ncmec_reference`/`cf_match_id`, no image bytes; `UNIQUE(image_hash)` collapses duplicates; partial `UNIQUE(cf_match_id)` allows multiple NULL, rejects duplicate non-NULL.
-- [ ] 7.2 Preservation: archive row survives the uploader's `users`-row hard-delete (no cascade).
-- [ ] 7.3 ON CONFLICT enrich: admin_manual row (cf_match_id NULL) later enriched by a cf_worker detection of the same `image_hash` → `cf_match_id` filled, `source` stays `admin_manual`, `created_at` unchanged, no second row.
-- [ ] 7.4 Admin-trigger E2E takedown (seed the uploader with **≥2 posts** — the matched one + a benign one — so the cascade is actually exercised, not vacuously true): matched post tombstoned, uploader banned + `token_version` bumped, the benign other post also `deleted_at`-set, one archive row (`source='admin_manual'`, `expires_at = +90d`, `kominfo_reported_at` NULL), `moderation_queue` `csam_detected` (`target_type='post'`) row, audit rows present.
-- [ ] 7.5 CF-Worker E2E takedown (the fully-exercisable path) with a simulated match payload → same end state, `source='cf_worker'`, audit under the `system` sentinel.
-- [ ] 7.6 Idempotent re-trigger: second invocation → no second archive row, no destructive re-ban, success.
-- [ ] 7.7 Ledger miss: unknown `image_id` + valid `image_hash` → archive written, success, no throw.
-- [ ] 7.8 Malformed payload (missing `image_hash`) → `400`, no mutation.
-- [ ] 7.9 Audit attribution: admin_manual → acting admin id; cf_worker → system sentinel id.
-- [ ] 7.10 Encryption: round-trip when key set; takedown proceeds + plaintext essentials written + `encrypted_metadata = NULL` when key unset; decrypted metadata contains no image bytes.
-- [ ] 7.11 Purge worker: expired+reported purged; expired+unreported preserved; within-window preserved.
-- [ ] 7.12 Auth (internal-endpoint-auth delta): OIDC token alone does NOT authorize `/internal/csam-webhook`; CF-Worker path needs both Bearer+HMAC (missing/invalid HMAC rejected); CF-Worker path rate-limited >100/hr/IP; admin-internal path needs session+CSRF; **read-only admin role rejected even with valid session+CSRF, `owner`/`admin` admitted** (docs/08:324); **CSRF token captured from session S1 replayed on a request bound to session S2 is rejected** (docs/08:324); `/internal/csam-archive-purge` rejects a request without a valid OIDC token (`401`).
-- [ ] 7.13 `moderation_queue` accepts `trigger = 'csam_detected'` (enum already at V9) and the enqueue is idempotent on `(target_type, target_id, trigger)`.
-- [ ] 7.14 Negative: the diff introduces no admin route reading/decrypting `csam_detection_archive` and no endpoint writing `kominfo_report_id`/`kominfo_reported_at` (deferred-scope guard).
-- [ ] 7.15 Test pools `autoClose(hikari())` + size 2 (CI `max_connections` budget); timestamp assertions truncated to micros (macOS/Linux clock-resolution parity).
+- [x] 7.1 Archive schema: plaintext `image_hash`/`ncmec_reference`/`cf_match_id`, no image bytes; `UNIQUE(image_hash)` collapses duplicates; partial `UNIQUE(cf_match_id)` allows multiple NULL, rejects duplicate non-NULL.
+- [x] 7.2 Preservation: archive row survives the uploader's `users`-row hard-delete (no cascade).
+- [x] 7.3 ON CONFLICT enrich: admin_manual row (cf_match_id NULL) later enriched by a cf_worker detection of the same `image_hash` → `cf_match_id` filled, `source` stays `admin_manual`, `created_at` unchanged, no second row.
+- [x] 7.4 Admin-trigger E2E takedown (seed the uploader with **≥2 posts** — the matched one + a benign one — so the cascade is actually exercised, not vacuously true): matched post tombstoned, uploader banned + `token_version` bumped, the benign other post also `deleted_at`-set, one archive row (`source='admin_manual'`, `expires_at = +90d`, `kominfo_reported_at` NULL), `moderation_queue` `csam_detected` (`target_type='post'`) row, audit rows present.
+- [x] 7.5 CF-Worker E2E takedown (the fully-exercisable path) with a simulated match payload → same end state, `source='cf_worker'`, audit under the `system` sentinel.
+- [x] 7.6 Idempotent re-trigger: second invocation → no second archive row, no destructive re-ban, success.
+- [x] 7.7 Ledger miss: unknown `image_id` + valid `image_hash` → archive written, success, no throw.
+- [x] 7.8 Malformed payload (missing `image_hash`) → `400`, no mutation.
+- [x] 7.9 Audit attribution: admin_manual → acting admin id; cf_worker → system sentinel id.
+- [x] 7.10 Encryption: round-trip when key set; takedown proceeds + plaintext essentials written + `encrypted_metadata = NULL` when key unset; decrypted metadata contains no image bytes.
+- [x] 7.11 Purge worker: expired+reported purged; expired+unreported preserved; within-window preserved.
+- [x] 7.12 Auth (internal-endpoint-auth delta): OIDC token alone does NOT authorize `/internal/csam-webhook`; CF-Worker path needs both Bearer+HMAC (missing/invalid HMAC rejected); CF-Worker path rate-limited >100/hr/IP; admin-internal path needs session+CSRF; **read-only admin role rejected even with valid session+CSRF, `owner`/`admin` admitted** (docs/08:324); **CSRF token captured from session S1 replayed on a request bound to session S2 is rejected** (docs/08:324); `/internal/csam-archive-purge` rejects a request without a valid OIDC token (`401`).
+- [x] 7.13 `moderation_queue` accepts `trigger = 'csam_detected'` (enum already at V9) and the enqueue is idempotent on `(target_type, target_id, trigger)`.
+- [x] 7.14 Negative: the diff introduces no admin route reading/decrypting `csam_detection_archive` and no endpoint writing `kominfo_report_id`/`kominfo_reported_at` (deferred-scope guard).
+- [x] 7.15 Test pools `autoClose(hikari())` + size 2 (CI `max_connections` budget); timestamp assertions truncated to micros (macOS/Linux clock-resolution parity).
 
 ## 8. Verification + pre-archive
 
