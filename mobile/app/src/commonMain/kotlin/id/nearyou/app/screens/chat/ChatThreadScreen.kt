@@ -1,5 +1,7 @@
 package id.nearyou.app.screens.chat
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,8 +21,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,11 +49,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.SendOutcome
 import id.nearyou.app.chat.ViewerIdProvider
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionStatus
 import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.screens.routing.ChatThreadRoute
+import id.nearyou.app.ui.components.ReportDialog
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
 import id.nearyou.resources.generated.resources.chat_message_redacted
@@ -57,11 +65,16 @@ import id.nearyou.resources.generated.resources.chat_thread_input_placeholder
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.notif_permission_rationale
+import id.nearyou.resources.generated.resources.profile_report_action
+import id.nearyou.resources.generated.resources.profile_report_rate_limited
+import id.nearyou.resources.generated.resources.profile_report_success_toast
+import id.nearyou.resources.generated.resources.report_title_chat_message
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.generated.resources.timeline_session_redirect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
@@ -82,6 +95,12 @@ const val CHAT_THREAD_REDACTED_TAG: String = "chatThreadRedacted"
 
 /** Test tag on the back affordance. */
 const val CHAT_THREAD_BACK_TAG: String = "chatThreadBack"
+
+/** Test tag on the long-press "Laporkan" menu item (mobile-chat-message-report). */
+const val CHAT_MESSAGE_REPORT_ITEM_TAG: String = "chatMessageReportItem"
+
+/** Test tag on the shared report dialog when opened from the chat thread. */
+const val CHAT_REPORT_DIALOG_TAG: String = "chatReportDialog"
 
 /**
  * The chat-thread surface ([ChatThreadRoute], mockup frame 5) — overlaid on the section shell via the
@@ -108,20 +127,37 @@ fun ChatThreadScreen(
     val flow = koinInject<ChatFlow>()
     val subscriber = koinInject<ChatRealtimeSubscriber>()
     val viewerIdProvider = koinInject<ViewerIdProvider>()
+    val reportSubmitter = koinInject<ReportSubmitter>()
     val notificationController = koinInject<NotificationPermissionController>()
     val notificationOneShot = koinInject<NotificationPromptOneShot>()
 
     val viewModel =
-        viewModel { ChatThreadViewModel(route.conversationId, flow, subscriber, viewerIdProvider) }
+        viewModel {
+            ChatThreadViewModel(route.conversationId, flow, subscriber, viewerIdProvider, reportSubmitter)
+        }
     val rows by viewModel.rows.collectAsStateWithLifecycle()
     val historyOutcome by viewModel.historyOutcome.collectAsStateWithLifecycle()
     val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
     val sendOutcome by viewModel.sendOutcome.collectAsStateWithLifecycle()
     val sendInFlight by viewModel.sendInFlight.collectAsStateWithLifecycle()
+    val reportTargetMessageId by viewModel.reportTargetMessageId.collectAsStateWithLifecycle()
+    val reportMessage by viewModel.reportMessage.collectAsStateWithLifecycle()
 
     var input by rememberSaveable { mutableStateOf("") }
     var showNotifRationale by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // mobile-chat-message-report: one-shot report-result snackbar (mirrors the post-detail posture). The
+    // text is resolved at composition (a @Composable call); the effect shows it once then clears the
+    // one-shot so it does not re-fire on recomposition / config change.
+    val reportMessageText = reportMessage?.let { stringResource(it.resource()) }
+    LaunchedEffect(reportMessage) {
+        if (reportMessageText != null) {
+            snackbarHostState.showSnackbar(reportMessageText)
+            viewModel.onReportMessageShown()
+        }
+    }
 
     // First-send notification-permission prompt (task 9.4): on a successful send, if the per-process
     // one-shot is unclaimed AND the OS status is NOT_DETERMINED, show the rationale → then the prompt.
@@ -147,18 +183,36 @@ fun ChatThreadScreen(
         )
     }
 
-    ChatThreadContent(
-        partnerDisplayName = route.partnerDisplayName.ifBlank { stringResource(Res.string.chat_account_deleted) },
-        uiState = remember(historyOutcome, isInitialLoad, rows) { chatThreadUiState(historyOutcome, isInitialLoad, rows) },
-        sendBar = remember(sendOutcome, sendInFlight) { sendBarState(sendOutcome, sendInFlight) },
-        input = input,
-        onInputChange = { input = it },
-        canSend = canSubmitChat(input) && !sendInFlight,
-        onSend = { viewModel.send(input) },
-        onRetryHistory = viewModel::retry,
-        onLoadOlder = viewModel::loadOlder,
-        onBack = onBack,
-    )
+    Box(modifier = Modifier.fillMaxSize()) {
+        ChatThreadContent(
+            partnerDisplayName = route.partnerDisplayName.ifBlank { stringResource(Res.string.chat_account_deleted) },
+            uiState = remember(historyOutcome, isInitialLoad, rows) { chatThreadUiState(historyOutcome, isInitialLoad, rows) },
+            sendBar = remember(sendOutcome, sendInFlight) { sendBarState(sendOutcome, sendInFlight) },
+            input = input,
+            onInputChange = { input = it },
+            canSend = canSubmitChat(input) && !sendInFlight,
+            onSend = { viewModel.send(input) },
+            onRetryHistory = viewModel::retry,
+            onLoadOlder = viewModel::loadOlder,
+            onReportMessage = viewModel::onReportMessageClicked,
+            onBack = onBack,
+        )
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+        )
+    }
+
+    // mobile-chat-message-report: the shared report dialog, opened by the long-press "Laporkan" on a
+    // received message. Submission goes through the shared ReportSubmitter (target_type = chat_message).
+    if (reportTargetMessageId != null) {
+        ReportDialog(
+            title = Res.string.report_title_chat_message,
+            onSubmit = viewModel::onReportSubmitted,
+            onDismiss = viewModel::onReportDialogDismissed,
+            testTag = CHAT_REPORT_DIALOG_TAG,
+        )
+    }
 }
 
 @Composable
@@ -172,6 +226,7 @@ private fun ChatThreadContent(
     onSend: () -> Unit,
     onRetryHistory: () -> Unit,
     onLoadOlder: () -> Unit,
+    onReportMessage: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
@@ -182,7 +237,7 @@ private fun ChatThreadContent(
                 ChatThreadUiState.Error -> ThreadErrorState(onRetry = onRetryHistory)
                 ChatThreadUiState.SessionRedirect ->
                     CenteredThreadState(stringResource(Res.string.timeline_session_redirect), spinner = false)
-                is ChatThreadUiState.Content -> MessageList(uiState.rows, onLoadOlder)
+                is ChatThreadUiState.Content -> MessageList(uiState.rows, onLoadOlder, onReportMessage)
             }
         }
         if (sendBar == SendBarState.Blocked) {
@@ -222,6 +277,7 @@ private fun ChatThreadTopBar(
 private fun MessageList(
     rows: List<ChatMessageRow>,
     onLoadOlder: () -> Unit,
+    onReportMessage: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
     // Load-older when the user scrolls to the very top (index 0 visible).
@@ -242,16 +298,19 @@ private fun MessageList(
     ) {
         items(items = rows, key = { it.id }, contentType = { "message" }) { row ->
             // Realtime/optimistic rows animate in (mobile-design-system motion).
-            MessageBubble(row = row, modifier = Modifier.animateItem())
+            MessageBubble(row = row, onReport = onReportMessage, modifier = Modifier.animateItem())
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
     row: ChatMessageRow,
+    onReport: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
     val alignment = if (row.isOwn) Alignment.CenterEnd else Alignment.CenterStart
     val bubbleColor =
         if (row.isOwn) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
@@ -261,7 +320,19 @@ private fun MessageBubble(
         Surface(
             color = if (row.isRedacted) MaterialTheme.colorScheme.surfaceVariant else bubbleColor,
             shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.widthIn(max = 280.dp),
+            // Long-press opens the "Laporkan" menu — ONLY for a reportable (other-party, non-redacted)
+            // message. The gate is `row.isReportable`; `senderId` never reaches this row (PII discipline).
+            modifier =
+                Modifier.widthIn(max = 280.dp).then(
+                    if (row.isReportable) {
+                        Modifier.combinedClickable(
+                            onClick = {},
+                            onLongClick = { menuExpanded = true },
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
             if (row.isRedacted) {
                 Text(
@@ -276,6 +347,18 @@ private fun MessageBubble(
                     style = MaterialTheme.typography.bodyMedium,
                     color = onBubbleColor,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
+        }
+        if (row.isReportable) {
+            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.profile_report_action)) },
+                    onClick = {
+                        menuExpanded = false
+                        onReport(row.id)
+                    },
+                    modifier = Modifier.testTag(CHAT_MESSAGE_REPORT_ITEM_TAG),
                 )
             }
         }
@@ -373,3 +456,12 @@ private fun ThreadErrorState(onRetry: () -> Unit) {
         }
     }
 }
+
+/** Maps the one-shot [ChatReportMessage] to its `:shared:resources` string. Submitted AND Duplicate share
+ *  [profile_report_success_toast] (anti-enumeration, design D4); rate-limit + failure reuse existing copy. */
+private fun ChatReportMessage.resource(): StringResource =
+    when (this) {
+        ChatReportMessage.SUCCESS -> Res.string.profile_report_success_toast
+        ChatReportMessage.RATE_LIMITED -> Res.string.profile_report_rate_limited
+        ChatReportMessage.FAILED -> Res.string.signin_error_network
+    }

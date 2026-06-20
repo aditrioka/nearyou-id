@@ -7,6 +7,11 @@ import id.nearyou.app.chat.FakeChatFlow
 import id.nearyou.app.chat.FakeChatRealtimeSubscriber
 import id.nearyou.app.chat.SendOutcome
 import id.nearyou.app.chat.ViewerIdProvider
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportOutcome
+import id.nearyou.app.data.report.ReportReasonCategory
+import id.nearyou.app.data.report.ReportSubmitter
+import id.nearyou.app.data.report.ReportTargetType
 import id.nearyou.app.infra.supabaserealtime.ChatMessageInbound
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -60,11 +65,13 @@ class ChatThreadViewModelTest {
     private fun vm(
         flow: FakeChatFlow,
         subscriber: FakeChatRealtimeSubscriber,
+        reportSubmitter: ReportSubmitter = FakeReportSubmitter(),
     ) = ChatThreadViewModel(
         conversationId = CONV,
         flow = flow,
         chatRealtimeSubscriber = subscriber,
         viewerIdProvider = ViewerIdProvider { VIEWER },
+        reportSubmitter = reportSubmitter,
         nowIso = { "2026-06-01T12:00:00Z" },
         resubscribeDelayMillis = 3000L,
     )
@@ -219,5 +226,140 @@ class ChatThreadViewModelTest {
             advanceUntilIdle()
             assertEquals(SendOutcome.Blocked, viewModel.sendOutcome.value)
             assertTrue(viewModel.rows.value.isEmpty(), "a blocked send drops the optimistic bubble")
+        }
+
+    // --- mobile-chat-message-report ---
+
+    private fun loadedVm(
+        submitter: ReportSubmitter = FakeReportSubmitter(),
+        sender: String = OTHER,
+    ): ChatThreadViewModel {
+        val flow = FakeChatFlow(listOf(ChatThreadOutcome.Loaded(listOf(dto(MSG_ID, sender = sender)), null)))
+        return vm(flow, FakeChatRealtimeSubscriber(), submitter)
+    }
+
+    @Test
+    fun onReportMessageClickedSetsTarget() =
+        test {
+            val viewModel = loadedVm()
+            advanceUntilIdle()
+            assertNull(viewModel.reportTargetMessageId.value)
+            viewModel.onReportMessageClicked(MSG_ID)
+            assertEquals(MSG_ID, viewModel.reportTargetMessageId.value)
+        }
+
+    @Test
+    fun onReportSubmittedSendsChatMessageTargetAndMapsSubmittedToSuccess() =
+        test {
+            val submitter = FakeReportSubmitter(ReportOutcome.Submitted)
+            val viewModel = loadedVm(submitter)
+            advanceUntilIdle()
+            viewModel.onReportMessageClicked(MSG_ID)
+            viewModel.onReportSubmitted(ReportReasonCategory.HARASSMENT, note = "x")
+            advanceUntilIdle()
+            assertEquals(1, submitter.submitCount)
+            assertEquals(ReportTargetType.CHAT_MESSAGE, submitter.lastTarget)
+            assertEquals(MSG_ID, submitter.lastTargetId)
+            assertEquals(ReportReasonCategory.HARASSMENT, submitter.lastCategory)
+            assertEquals("x", submitter.lastNote)
+            assertEquals(ChatReportMessage.SUCCESS, viewModel.reportMessage.value)
+            assertNull(viewModel.reportTargetMessageId.value, "the dialog closes on submit")
+        }
+
+    @Test
+    fun duplicateMapsToSuccessAntiEnumeration() =
+        test {
+            val viewModel = loadedVm(FakeReportSubmitter(ReportOutcome.Duplicate))
+            advanceUntilIdle()
+            viewModel.onReportMessageClicked(MSG_ID)
+            viewModel.onReportSubmitted(ReportReasonCategory.SPAM, note = null)
+            advanceUntilIdle()
+            assertEquals(ChatReportMessage.SUCCESS, viewModel.reportMessage.value)
+        }
+
+    @Test
+    fun rateLimitedMapsToRateLimited() =
+        test {
+            val viewModel = loadedVm(FakeReportSubmitter(ReportOutcome.RateLimited(retryAfterSeconds = 60)))
+            advanceUntilIdle()
+            viewModel.onReportMessageClicked(MSG_ID)
+            viewModel.onReportSubmitted(ReportReasonCategory.SPAM, note = null)
+            advanceUntilIdle()
+            assertEquals(ChatReportMessage.RATE_LIMITED, viewModel.reportMessage.value)
+        }
+
+    @Test
+    fun networkErrorMapsToFailed() =
+        test {
+            val viewModel = loadedVm(FakeReportSubmitter(ReportOutcome.NetworkError))
+            advanceUntilIdle()
+            viewModel.onReportMessageClicked(MSG_ID)
+            viewModel.onReportSubmitted(ReportReasonCategory.SPAM, note = null)
+            advanceUntilIdle()
+            assertEquals(ChatReportMessage.FAILED, viewModel.reportMessage.value)
+        }
+
+    @Test
+    fun onReportSubmittedWithNoTargetIsNoOp() =
+        test {
+            val submitter = FakeReportSubmitter(ReportOutcome.Submitted)
+            val viewModel = loadedVm(submitter)
+            advanceUntilIdle()
+            // No onReportMessageClicked first → defensive no-op.
+            viewModel.onReportSubmitted(ReportReasonCategory.SPAM, note = null)
+            advanceUntilIdle()
+            assertEquals(0, submitter.submitCount, "no target → no submission")
+            assertNull(viewModel.reportMessage.value)
+        }
+
+    @Test
+    fun onReportDialogDismissedClearsTarget() =
+        test {
+            val viewModel = loadedVm()
+            advanceUntilIdle()
+            viewModel.onReportMessageClicked(MSG_ID)
+            viewModel.onReportDialogDismissed()
+            assertNull(viewModel.reportTargetMessageId.value)
+        }
+
+    @Test
+    fun onReportMessageShownClearsOneShot() =
+        test {
+            val viewModel = loadedVm(FakeReportSubmitter(ReportOutcome.Submitted))
+            advanceUntilIdle()
+            viewModel.onReportMessageClicked(MSG_ID)
+            viewModel.onReportSubmitted(ReportReasonCategory.SPAM, note = null)
+            advanceUntilIdle()
+            assertEquals(ChatReportMessage.SUCCESS, viewModel.reportMessage.value)
+            viewModel.onReportMessageShown()
+            assertNull(viewModel.reportMessage.value)
+        }
+
+    @Test
+    fun reportPathSendsOnlyMessageIdAndLogsNoSenderOrContent() =
+        test {
+            val loggedLines = mutableListOf<String>()
+            val submitter = FakeReportSubmitter(ReportOutcome.Submitted)
+            val flow = FakeChatFlow(listOf(ChatThreadOutcome.Loaded(listOf(dto(MSG_ID, sender = OTHER)), null)))
+            val viewModel =
+                ChatThreadViewModel(
+                    conversationId = CONV,
+                    flow = flow,
+                    chatRealtimeSubscriber = FakeChatRealtimeSubscriber(),
+                    viewerIdProvider = ViewerIdProvider { VIEWER },
+                    reportSubmitter = submitter,
+                    nowIso = { "2026-06-01T12:00:00Z" },
+                    resubscribeDelayMillis = 3000L,
+                    diagnosticLog = { loggedLines += it },
+                )
+            advanceUntilIdle()
+            viewModel.onReportMessageClicked(MSG_ID)
+            viewModel.onReportSubmitted(ReportReasonCategory.HARASSMENT, note = "secret note")
+            advanceUntilIdle()
+            // PII discipline: the report carries ONLY the message id as target_id (never the sender id),
+            // and nothing on the report path logs the sender id or the note/message content.
+            assertEquals(MSG_ID, submitter.lastTargetId)
+            assertTrue(loggedLines.none { it.contains(OTHER) }, "no sender id is logged")
+            assertTrue(loggedLines.none { it.contains("secret note") }, "no note/message content is logged")
         }
 }

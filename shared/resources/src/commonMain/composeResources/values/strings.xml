@@ -307,6 +307,9 @@
          dialog title differs per target. -->
     <string name="report_title_post">Laporkan postingan ini</string>
     <string name="report_title_reply">Laporkan balasan ini</string>
+    <!-- mobile-chat-message-report: the 1:1 chat-message report dialog title (the chat-thread surface,
+         long-press "Laporkan"). Reuses the same reason picker + note + outcome copy as post/reply. -->
+    <string name="report_title_chat_message">Laporkan pesan ini</string>
     <string name="report_reason_spam">Spam</string>
     <string name="report_reason_hate_speech_sara">Ujaran kebencian (SARA)</string>
     <string name="report_reason_harassment">Pelecehan</string>
