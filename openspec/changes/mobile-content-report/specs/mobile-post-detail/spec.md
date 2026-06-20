@@ -39,7 +39,7 @@ This spec SHALL NOT add any **block** affordance (post or reply kebab "Blokir") 
 
 ### Requirement: Each reply row exposes a report affordance
 
-Each reply row in `PostDetailScreen` SHALL expose a "Laporkan" report affordance that opens the shared report dialog (`mobile-content-report`) targeting `target_type = "reply"`, `target_id = <the reply id>`. The affordance SHALL NOT render or rely on reply author identity — the reply wire carries `author_id` but it is never rendered and never used to gate the affordance; only the reply `id` is used as `target_id`. The "Reply card renders no author identity" requirement is preserved (no author UUID appears in the rendered tree).
+Each reply row in `PostDetailScreen` SHALL expose a "Laporkan" report affordance that opens the shared report dialog (`mobile-content-report`) targeting `target_type = "reply"`, `target_id = <the reply id>`. The affordance SHALL NOT render or rely on reply author identity — the reply wire carries `author_id` but it is never rendered and never used to gate the affordance; only the reply `id` is used as `target_id`. The "No author identifier or coordinate is rendered or logged" requirement is preserved (no author UUID appears in the rendered tree, logs, or the report request).
 
 #### Scenario: Reply row exposes a report affordance
 - **WHEN** a reply card renders

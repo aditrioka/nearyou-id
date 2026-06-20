@@ -18,11 +18,12 @@
 ## 3. Tests
 
 - [ ] 3.1 `commonTest`: relocated `ReportReasonCategory.toWire` mapping + the post/reply `target_type` selection (post→`post`, reply→`reply`).
-- [ ] 3.2 `commonTest`: report submission outcome→UI-state mapping (`Submitted`/`Duplicate`→success message, `RateLimited`→message, `NetworkError`→retry, one-shot field cleared after `onReportResultShown()`).
-- [ ] 3.3 Robolectric `PostDetailScreenTest` additions: report affordance present on a non-authored post; absent on the viewer's own post; reply-row report affordance present; dialog submit → success-message path (via a fake report seam).
-- [ ] 3.4 Robolectric report-dialog component test: the six categories shown (no `self_harm`/`csam_suspected`), optional-note bound at 200 code points, submit emits the selected wire `reason_category`.
+- [ ] 3.2 `commonTest`: report submission outcome→UI-state mapping (`Submitted`/`Duplicate`→success message, `RateLimited`→message, `NetworkError`→retry, one-shot field cleared after `onReportResultShown()`). Assert the anti-enumeration contract explicitly: the `Duplicate`-path message string **equals** the `Submitted`-path string AND the `Duplicate` path fires no retry/second submission.
+- [ ] 3.3 Robolectric `PostDetailScreenTest` additions: report affordance present on a non-authored post; absent on the viewer's own post; reply-row report affordance present **on both a non-authored and a viewer-authored reply** (ungated by authorship — locks design D4); dialog submit → success-message path (via a fake report seam). Assert the reply-report request carries `target_id = <reply id>` only AND no rendered node / diagnostic log / request field contains the reply `author_id` UUID (PII negative-guard).
+- [ ] 3.4 Robolectric report-dialog component test: the six categories shown (no `self_harm`/`csam_suspected`), optional-note bound at 200 **code points** (include a multi-byte/non-BMP boundary case — e.g. 200 emoji ≠ 400 UTF-16 units, mirroring the reply composer's 280-code-point precedent), submit emits the selected wire `reason_category`.
 - [ ] 3.5 Add the new `*ScreenTest` class(es) to the Release-variant `*ScreenTest` exclude in `mobile/app/build.gradle.kts`; verify `:mobile:app:testDevReleaseUnitTest` passes.
 - [ ] 3.6 Re-run the full mobile unit gate (`:mobile:app:testDevDebugUnitTest` + `:mobile:app:testStagingDebugUnitTest`) — all green, profile tests included.
+- [ ] 3.7 Flip the now-stale negative-guard test `header_showsContentAndPostedFrom_andNoBlockReportAffordance` (`PostDetailScreenTest`, ~line 325): the `Blokir`-absent assertion stays (block remains deferred), but the `Laporkan`-absent assertion (line 333) is now incorrect (report ships) — remove it (report-affordance presence is covered by 3.3) and rename the test to a block-only guard, matching the renamed `mobile-post-detail` "Block kebab action is deferred" requirement.
 
 ## 4. Deferrals, follow-ups, and verification
 

@@ -86,7 +86,7 @@ This capability SHALL NOT add a report affordance for chat messages (`target_typ
 
 ### Requirement: Reporting one's own reply is permitted without a client guard
 
-Because reply rows intentionally drop `author_id` (the `mobile-post-detail` PII-discipline contract), the client cannot determine reply authorship and SHALL NOT gate the reply report affordance by authorship. The backend `self_report_rejected` guard fires only for `target_type = "user"`, so a self-report of one's own reply is accepted as a (harmless, rare) report and is NOT specially handled in v1. The client SHALL NOT send `author_id` to enable such a gate (that would regress PII discipline).
+Because reply rows never render `author_id` (the `mobile-post-detail` PII-discipline contract — the wire carries it but it is never surfaced), the client cannot determine reply authorship and SHALL NOT gate the reply report affordance by authorship. The backend `self_report_rejected` guard fires only for `target_type = "user"`, so a self-report of one's own reply is accepted as a (harmless, rare) report and is NOT specially handled in v1. The client SHALL NOT send `author_id` to enable such a gate (that would regress PII discipline). Abuse is bounded by the shipped 10/hour report rate limit and by auto-hide requiring 3 **distinct** reporters — a self-report can neither hide one's own content nor exceed the rate cap.
 
 #### Scenario: Reply report affordance is present regardless of authorship
 - **WHEN** the viewer's own reply and another user's reply are both rendered
