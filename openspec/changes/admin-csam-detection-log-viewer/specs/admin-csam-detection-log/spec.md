@@ -2,7 +2,7 @@
 
 ### Requirement: CSAM detection-log viewer
 
-The Admin Panel SHALL serve a read-only CSAM detection-log at `GET /admin/csam`, listing `csam_detection_archive` rows keyset-paginated newest-first over `(created_at, id)`. It SHALL support composable filters — `source` (`cf_worker` | `admin_manual`), Kominfo status (`pending` = `kominfo_reported_at IS NULL`, `filed` = `kominfo_reported_at IS NOT NULL`), and a UTC `from`–`to` `created_at` range — and SHALL render an HTML-escaped HTMX fragment when requested via HTMX and a full page on a plain `GET`. Any authenticated admin role MAY read. The surface SHALL display only scalar columns (`image_hash`, `source`, archive/enforcement state, Kominfo status, unblock indicator, timestamps); it SHALL NOT render, fetch, proxy, or link to image bytes or the image's content URL. It SHALL be served by the existing V29 indexes and add no migration.
+The Admin Panel SHALL serve a read-only CSAM detection-log at `GET /admin/csam`, listing `csam_detection_archive` rows keyset-paginated newest-first over `(created_at, id)`. It SHALL support composable filters — `source` (`cf_worker` | `admin_manual`), Kominfo status (`pending` = `kominfo_reported_at IS NULL`, `filed` = `kominfo_reported_at IS NOT NULL`), and a UTC `from`–`to` `created_at` range — and SHALL render an HTML-escaped HTMX fragment when requested via HTMX and a full page on a plain `GET`. Any authenticated admin role MAY read. The surface SHALL display only scalar columns (`image_hash`, `source`, archive/enforcement state, Kominfo status, unblock indicator, timestamps); it SHALL NOT render, fetch, proxy, or link to image bytes or the image's content URL. It SHALL add no migration; the newest-first listing is an ordered scan over the deliberately low-volume archive (one row per matched image) — no matching `(created_at, id)` index exists and none is added, which is acceptable at CSAM-event cardinality and revisited only if volume grows. All rendered values (rows and reflected filter inputs) SHALL be HTML-escaped.
 
 #### Scenario: Newest-first listing
 - **WHEN** an authenticated admin opens `GET /admin/csam` with no filters
@@ -20,9 +20,17 @@ The Admin Panel SHALL serve a read-only CSAM detection-log at `GET /admin/csam`,
 - **WHEN** the admin applies a `from`–`to` UTC range
 - **THEN** only rows whose `created_at` falls within the inclusive range are listed
 
-#### Scenario: Keyset pagination
-- **WHEN** the result set exceeds one page and the admin requests the next page with the returned cursor
-- **THEN** the following rows after the cursor are returned with no duplicates and no skipped rows
+#### Scenario: Keyset pagination is stable across inserts
+- **WHEN** the result set exceeds one page, a newer archive row is inserted between the admin's first-page and next-page requests, and the admin requests the next page with the returned `(created_at, id)` cursor
+- **THEN** the rows after the cursor are returned with no duplicates and no skipped rows (the new newest row does not shift the cursor window)
+
+#### Scenario: Composable filters combine
+- **WHEN** the admin applies `source`, Kominfo status, and a date range together
+- **THEN** only rows satisfying ALL three predicates are listed (the filters are ANDed, not last-wins)
+
+#### Scenario: Filter inputs are HTML-escaped
+- **WHEN** a filter value containing HTML metacharacters (e.g. `<script>` or a quote) is reflected back into the rendered page or fragment
+- **THEN** it is HTML-escaped in the response and not emitted as live markup
 
 #### Scenario: Plain-GET fallback without HTMX
 - **WHEN** `GET /admin/csam` is requested without the HTMX request header
@@ -38,7 +46,7 @@ The Admin Panel SHALL serve a read-only CSAM detection-log at `GET /admin/csam`,
 
 ### Requirement: Admin-triggered CSAM takedown (MVP path)
 
-The Admin Panel SHALL let an `owner`/`admin` admin invoke the shipped fixed-policy CSAM takedown by submitting the matched `image_id` and `image_hash` (from Cloudflare's email) to `POST /admin/csam/takedown`. The route SHALL require a valid same-session CSRF token and the `owner`/`admin` role; it SHALL reject any other admin role with 403. It SHALL invoke `CsamDetectionService.handleDetection` in-process with `source = ADMIN_MANUAL` and `actorAdminId` = the acting admin, SHALL be idempotent (re-invocation converges with no duplicate ban or cascade), and SHALL return the `actioned`/`archived` outcome as an HTML fragment. Both `image_id` and `image_hash` SHALL be required. The takedown SHALL count against the shared 20/hour-per-admin destructive rate-limit budget. The takedown's own audit row is written by the service.
+The Admin Panel SHALL let an `owner`/`admin` admin invoke the shipped fixed-policy CSAM takedown by submitting the matched `image_id` and `image_hash` (from Cloudflare's email) to `POST /admin/csam/takedown`. The route SHALL require a valid same-session CSRF token and the `owner`/`admin` role; it SHALL reject any other admin role with 403. It SHALL invoke `CsamDetectionService.handleDetection` in-process with `source = ADMIN_MANUAL` and `actorAdminId` = the acting admin, SHALL be idempotent (re-invocation converges with no duplicate ban, cascade, or archive row), and SHALL return the `actioned`/`archived` outcome as an HTML fragment. Both `image_id` and `image_hash` SHALL be required. The takedown SHALL be gated by a **route-level pre-flight check against the shared 20/hour-per-admin destructive budget** (read from the `admin_actions_log` trail before invoking the service): because the service owns its own transaction and writes its own audit row, this check is pre-flight rather than in-transaction — an accepted, slightly-looser placement for this rare, high-severity action, using the same shared destructive limiter as suspend/ban/redact (no second limiter). The takedown's own audit row is written by the service.
 
 #### Scenario: Owner/admin invokes takedown on a live upload
 - **WHEN** an `owner`/`admin` admin submits a valid `image_id`+`image_hash` for an image with an `image_uploads` ledger row
@@ -63,6 +71,10 @@ The Admin Panel SHALL let an `owner`/`admin` admin invoke the shipped fixed-poli
 #### Scenario: Missing required field rejected
 - **WHEN** `POST /admin/csam/takedown` is submitted with a blank `image_id` or blank `image_hash`
 - **THEN** the request is rejected with a validation error and no takedown occurs
+
+#### Scenario: Takedown rejected when over the destructive budget
+- **WHEN** an `owner`/`admin` admin has reached the shared 20/hour destructive cap and submits another `POST /admin/csam/takedown`
+- **THEN** the pre-flight check rejects the request (rate-limited) before the service is invoked, and no takedown occurs
 
 ### Requirement: Kominfo report tracking
 
@@ -90,19 +102,19 @@ The Admin Panel SHALL let an `owner`/`admin` admin record the Kominfo filing for
 
 ### Requirement: Audit-logged metadata decrypt
 
-The Admin Panel SHALL let an `owner`/`admin` admin decrypt a single archive row's AES-256-GCM `encrypted_metadata` on demand at `POST /admin/csam/{id}/decrypt`, returning the plaintext metadata (uploader id, affected post id, source, cascade count — never image bytes) as an HTML fragment. It SHALL require the `owner`/`admin` role and a valid same-session CSRF token, SHALL write one `admin_actions_log` row with `action_type = csam_metadata_decrypted` on every decrypt attempt, and SHALL be rate-limited on a dedicated per-admin counter off the audit-trail limiter. It SHALL be fail-soft: when the `csam-archive-aes-key` is unprovisioned or the row's `encrypted_metadata` is NULL, it SHALL return a graceful "metadata unavailable" fragment (never a 500) and still write the audit row.
+The Admin Panel SHALL let an `owner`/`admin` admin decrypt a single archive row's AES-256-GCM `encrypted_metadata` on demand at `POST /admin/csam/{id}/decrypt`, returning the plaintext metadata (the uploader's pseudonymous internal user id, affected post id, source, cascade count — never image bytes) as an HTML fragment. It SHALL require the `owner`/`admin` role and a valid same-session CSRF token. It SHALL write exactly one `admin_actions_log` row with `action_type = csam_metadata_decrypted` on every **authorized** decrypt invocation — i.e. once the `owner`/`admin` + CSRF gate has passed — including the fail-soft cases below; an authZ/CSRF rejection (403) SHALL NOT write a `csam_metadata_decrypted` row (so a denied actor neither pollutes the ledger nor consumes the counter). It SHALL be rate-limited on a dedicated per-admin counter off the audit-trail limiter. It SHALL be fail-soft: when the `csam-archive-aes-key` is unprovisioned or the row's `encrypted_metadata` is NULL, it SHALL return a graceful "metadata unavailable" fragment (never a 500) and still write the (authorized) decrypt-attempt audit row.
 
 #### Scenario: Owner/admin decrypts metadata
 - **WHEN** an `owner`/`admin` admin decrypts a row whose `encrypted_metadata` and key are present
 - **THEN** the plaintext metadata fragment is returned (no image bytes) and one `csam_metadata_decrypted` audit row is written
 
 #### Scenario: Key unprovisioned fails soft
-- **WHEN** an admin decrypts a row while `csam-archive-aes-key` is unset (or `encrypted_metadata` is NULL)
-- **THEN** a graceful "metadata unavailable" fragment is returned with no 500, and the decrypt-attempt audit row is still written
+- **WHEN** an `owner`/`admin` admin decrypts a row while `csam-archive-aes-key` is unset, and separately when the row's `encrypted_metadata` is NULL
+- **THEN** in each case a graceful "metadata unavailable" fragment is returned with no 500, and exactly one `csam_metadata_decrypted` audit row is written for the (authorized) attempt
 
 #### Scenario: Read-only admin rejected from decrypt
 - **WHEN** an admin whose role is not `owner`/`admin` submits a decrypt
-- **THEN** the request is rejected with 403 and no decryption occurs
+- **THEN** the request is rejected with 403, no decryption occurs, and no `csam_metadata_decrypted` audit row is written
 
 #### Scenario: Decrypted output contains no image bytes
 - **WHEN** a decrypt fragment is rendered
