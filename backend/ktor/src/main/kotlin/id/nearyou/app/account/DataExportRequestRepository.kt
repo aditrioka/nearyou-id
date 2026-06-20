@@ -45,7 +45,7 @@ data class ClaimedExportRequest(
 )
 
 /**
- * JDBC for the `data_export_requests` lifecycle (V29) — the portability twin of
+ * JDBC for the `data_export_requests` lifecycle (V30) — the portability twin of
  * [AccountDeletionRepository]. Own-account writes: the `userId` is always the verified
  * JWT `sub` of the caller (the routes accept no `user_id` param → no IDOR surface). The
  * table is not a `visible_*` view nor a block/shadow-ban-protected table, so no

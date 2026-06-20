@@ -30,7 +30,7 @@ private fun hikari(): HikariDataSource {
 }
 
 /**
- * DB-tagged tests for the `data_export_requests` schema (V29) + the lifecycle JDBC in
+ * DB-tagged tests for the `data_export_requests` schema (V30) + the lifecycle JDBC in
  * [DataExportRequestRepository] (capability `account-data-export`).
  *
  * Covers tasks/spec scenarios:

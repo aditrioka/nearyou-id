@@ -1,4 +1,9 @@
--- V29: data export request lifecycle (account-data-export).
+-- V30: data export request lifecycle (account-data-export).
+--
+-- Renumbered V29 → V30 (2026-06-20): V29 was a 3-way collision across in-flight
+-- branches (csam-detection-webhook-and-archive #358, referral-grant-worker #353,
+-- this change #356). By PR-number order among the V29 cohort this change is the
+-- middle claimant → V30. Re-verify at merge; bump again if V30 also collides.
 --
 -- `data_export_requests` — verbatim from docs/05-Implementation.md § Data Export
 -- Requests Schema. Backs the UU-PDP data-portability producer: the trigger endpoint

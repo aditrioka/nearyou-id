@@ -1,5 +1,8 @@
 package id.nearyou.app.account
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import id.nearyou.app.infra.r2.ObjectStore
@@ -18,6 +21,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.slf4j.LoggerFactory
 import java.io.ByteArrayInputStream
 import java.sql.Date
 import java.sql.Timestamp
@@ -29,6 +33,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipInputStream
+import ch.qos.logback.classic.Logger as LogbackLogger
 import kotlin.time.Duration as KtDuration
 
 private fun hikari(): HikariDataSource {
@@ -376,6 +381,27 @@ class DataExportWorkerTest : StringSpec({
         return out
     }
 
+    /**
+     * Captures the worker logger's events for the duration of [block] so a test can assert what
+     * the worker did (or did NOT) log. Mirrors the idiom in
+     * [id.nearyou.app.admin.PrivacyFlipWorkerRouteTest].
+     */
+    fun withLogCapture(block: (ListAppender<ILoggingEvent>) -> Unit) {
+        val logger = LoggerFactory.getLogger("id.nearyou.app.account.DataExportWorker") as LogbackLogger
+        val appender = ListAppender<ILoggingEvent>()
+        appender.start()
+        logger.addAppender(appender)
+        val previous = logger.level
+        logger.level = Level.TRACE
+        try {
+            block(appender)
+        } finally {
+            logger.detachAppender(appender)
+            logger.level = previous
+            appender.stop()
+        }
+    }
+
     // ---- 8.5 / 8.9 happy path --------------------------------------------
 
     "8.5 happy path: pending → ready + key + ~24h deadline + notification + one email" {
@@ -489,19 +515,33 @@ class DataExportWorkerTest : StringSpec({
         email.sends.size shouldBe 0
     }
 
-    "8.7b upload OK but EmailSender fails → stays READY (notification emitted), NOT reverted" {
+    "8.7b upload OK but EmailSender fails → stays READY (notification emitted), NOT reverted; failure log carries no PII" {
         val store = CapturingObjectStore()
         val email = RecordingEmailSender(SendResult.Failed("smtp_5xx"))
-        val uid = seedUser()
+        // Distinctive recipient so we can prove it never appears in the failure log line.
+        val recipient = "secret.recipient.8b7@example.com"
+        val uid = seedUser(emailAddr = recipient)
         val reqId = seedPendingRequest(uid)
 
-        val result = runBlocking { worker(store, email).execute() }
+        withLogCapture { appender ->
+            val result = runBlocking { worker(store, email).execute() }
 
-        // The email failed, but the export is the in-app-notification-durable channel → READY.
-        result.readyCount shouldBe 1
-        statusOf(reqId) shouldBe "ready"
-        notificationCount(uid) shouldBe 1
-        email.sends.size shouldBe 1 // attempted, returned Failed; the worker does not revert
+            // The email failed, but the export is the in-app-notification-durable channel → READY.
+            result.readyCount shouldBe 1
+            statusOf(reqId) shouldBe "ready"
+            notificationCount(uid) shouldBe 1
+            email.sends.size shouldBe 1 // attempted, returned Failed; the worker does not revert
+
+            // The failure path must have logged (proves we exercised the email branch)…
+            val lines = appender.list.map { it.formattedMessage }
+            lines.any { it.contains("event=data_export_email_failed") } shouldBe true
+            // …but NO log line may leak PII: not the recipient address, and not the signed download
+            // URL (the CapturingObjectStore presigns a fake.r2.example host — its presence in any
+            // log line would mean the URL leaked).
+            lines.none { it.contains(recipient) } shouldBe true
+            lines.none { it.contains("fake.r2.example") } shouldBe true
+            lines.none { it.contains("?sig=") } shouldBe true
+        }
     }
 
     // ---- 8.8 scope matrix -------------------------------------------------

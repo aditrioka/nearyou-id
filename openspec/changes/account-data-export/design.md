@@ -58,7 +58,7 @@ The included/excluded set is **the canonical Data Export Scope Matrix (docs/06 �
 - **Shadow-ban stealth invariant OVERRIDES** the "moderation actions applied" inclusion — the export MUST NOT reveal a shadow-ban, and the profile file MUST omit the `is_shadow_banned` column itself (critical CLAUDE.md invariant; wins over the canonical matrix row).
 - Reads are own-content raw reads → `@AllowRawPostsRead`, `@AllowMissingBlockJoin`, and `@AllowActualLocationRead`.
 
-### D6 — `data_export_requests` schema (V29)
+### D6 — `data_export_requests` schema (V30)
 ```sql
 CREATE TABLE data_export_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -110,7 +110,7 @@ Builds on, without deviating from: **backend layering** (Route → Service → R
 
 ## Migration Plan
 
-1. **V29** `data_export_requests` (+ 3 indexes) — additive, forward-only, no backfill. No `notifications` CHECK change.
+1. **V30** `data_export_requests` (+ 3 indexes) — additive, forward-only, no backfill. No `notifications` CHECK change.
 2. New modules `:infra:r2` + `:infra:resend` → update `settings.gradle.kts`, `gradle/libs.versions.toml` (R2 pin only), `dev/module-descriptions.txt` + `sync-readme.sh --write`, **and the `Dockerfile` builder COPY blocks** (both are backend-included, non-mobile-gated — a missing COPY breaks every staging/prod image build while CI stays green; run `dev/scripts/check-dockerfile-module-copies.sh`).
 3. Secrets via `secretKey(env, name)`: `r2-account-id` / `r2-access-key-id` / `r2-secret-access-key` / `r2-export-bucket` + `resend-api-key` + `export-peer-hash-secret` (the peer-id HMAC key) (staging slots first; prod at Pre-Launch). Fail-soft means unprovisioned R2/Resend slots don't block boot; the peer-hash secret has a dev/test default so unit gather works offline.
 4. Operator: create the R2 export bucket + a 24h object-lifecycle rule; create the Cloud Scheduler job for `/internal/data-export-worker`; provision the Resend domain/template. Staging-first per the deploy convention.

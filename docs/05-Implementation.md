@@ -637,7 +637,7 @@ CREATE INDEX deletion_requests_immediate_idx
 
 ## Data Export Requests Schema
 
-Backs the UU-PDP data-portability producer (`account-data-export`, V29). The trigger endpoint `POST /api/v1/account/export` enqueues a `pending` row; the OIDC worker `/internal/data-export-worker` gathers the § Data Export Scope Matrix (`06-Security-Privacy.md`), packs a JSON+CSV ZIP, uploads to R2, and transitions the row through its lifecycle. The export-ready signal reuses the existing `data_export_ready` notification (V10 catalog, `body_data {signed_url, expires_at}`) — no `notifications` change.
+Backs the UU-PDP data-portability producer (`account-data-export`, V30). The trigger endpoint `POST /api/v1/account/export` enqueues a `pending` row; the OIDC worker `/internal/data-export-worker` gathers the § Data Export Scope Matrix (`06-Security-Privacy.md`), packs a JSON+CSV ZIP, uploads to R2, and transitions the row through its lifecycle. The export-ready signal reuses the existing `data_export_ready` notification (V10 catalog, `body_data {signed_url, expires_at}`) — no `notifications` change.
 
 ```sql
 CREATE TABLE data_export_requests (

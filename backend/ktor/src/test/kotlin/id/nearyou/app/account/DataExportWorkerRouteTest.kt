@@ -201,16 +201,19 @@ class DataExportWorkerRouteTest : StringSpec({
 
     "8.4 a valid OIDC token is ADMITTED past the gate (worker dispatched)" {
         // With a valid token the gate admits the request and execute() runs. The fake worker's
-        // DataSource is unreachable, so the route maps the failure to a sanitized 500 — but a
-        // 500 (not a 401) proves auth PASSED. The key assertion is "not 401/403".
+        // DataSource is unreachable, so the route catches the dispatch failure and maps it to a
+        // sanitized 500 (DataExportWorkerRoute's catch-all). Asserting the status is EXACTLY 500
+        // (not merely "not 401/403") is the stronger proof the gate ADMITTED and dispatch ran:
+        // a 401/403 would mean the gate rejected; only an admitted request reaching execute()
+        // produces this sanitized 500. The DB-backed admit happy-path (200 + a real ready export)
+        // is covered by DataExportWorkerTest 8.5.
         val token = signedJwt(privKey, pubKey)
         withRoute {
             val resp =
                 client.post("/internal/data-export-worker") {
                     header(HttpHeaders.Authorization, "Bearer $token")
                 }
-            (resp.status == HttpStatusCode.Unauthorized) shouldBe false
-            (resp.status == HttpStatusCode.Forbidden) shouldBe false
+            resp.status shouldBe HttpStatusCode.InternalServerError
         }
     }
 })

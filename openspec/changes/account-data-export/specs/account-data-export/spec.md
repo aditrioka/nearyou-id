@@ -2,7 +2,7 @@
 
 ### Requirement: data_export_requests schema
 
-Migration `V29__data_export_requests.sql` SHALL create the `data_export_requests` table and its three indexes (the migration number MAY be renumbered above V28 at rebase if a concurrent change lands first):
+Migration `V30__data_export_requests.sql` SHALL create the `data_export_requests` table and its three indexes (the migration number MAY be renumbered above V28 at rebase if a concurrent change lands first):
 
 ```sql
 CREATE TABLE data_export_requests (
