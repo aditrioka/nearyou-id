@@ -46,8 +46,9 @@ class FakeNotificationsFlow(
         ),
     private val partnerResolution: PartnerResolution =
         PartnerResolution.Resolved(username = "budi", displayName = "Budi"),
-    /** When `resolvePostTarget`'s call count reaches this, it suspends forever (the supersede/cancel test). */
-    private val resolvePostSuspendFromCall: Int = Int.MAX_VALUE,
+    /** When non-null, the `resolvePostTarget` call with THIS 1-based index suspends forever (the
+     *  supersede/cancel test taps a second row while the first resolution is in flight). */
+    private val suspendResolveOnCall: Int? = null,
     loadMorePages: List<NotificationsOutcome> = emptyList(),
 ) : NotificationsFlow {
     var loadInvocationCount: Int = 0
@@ -103,7 +104,7 @@ class FakeNotificationsFlow(
 
     override suspend fun resolvePostTarget(postId: String): PostTargetResolution {
         resolvePostTargetIds += postId
-        if (resolvePostTargetIds.size >= resolvePostSuspendFromCall) awaitCancellation()
+        if (resolvePostTargetIds.size == suspendResolveOnCall) awaitCancellation()
         return postTargetResolution
     }
 
