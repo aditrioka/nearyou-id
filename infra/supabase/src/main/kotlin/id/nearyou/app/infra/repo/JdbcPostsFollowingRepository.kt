@@ -73,6 +73,7 @@ class JdbcPostsFollowingRepository(
                            ST_Y(p.display_location::geometry) AS lat,
                            ST_X(p.display_location::geometry) AS lng,
                            p.city_name,
+                           p.image_id,
                            p.created_at,
                            (pl.user_id IS NOT NULL) AS liked_by_viewer,
                            c.n AS reply_count
@@ -126,6 +127,7 @@ class JdbcPostsFollowingRepository(
                                 likedByViewer = rs.getBoolean("liked_by_viewer"),
                                 replyCount = rs.getInt("reply_count"),
                                 cityName = rs.getString("city_name"),
+                                imageId = rs.getString("image_id"),
                             )
                     }
                     return out

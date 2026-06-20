@@ -33,6 +33,11 @@ data class SinglePostRow(
     // Most-recent post_edits.edited_at (NULL ⇒ never edited). Derived from the resolved post row, so an
     // invisible/blocked post never yields an edit-existence signal. Defaulted for non-DB construction.
     val editedAt: Instant? = null,
+    // Cloudflare image id of an attached image (`posts.image_id`), or null for a text-only post
+    // (image-attached-posts). Projected in BOTH UNION arms so an author reads their own image on the
+    // self arm. The route maps it to the public delivery URL via the shared builder; the raw id never
+    // reaches the wire. Defaulted for non-DB construction.
+    val imageId: String? = null,
 )
 
 interface SinglePostRepository {

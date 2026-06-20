@@ -25,6 +25,12 @@ data class TimelineRow(
     // (which carry no distance) and existing constructors are unaffected. Combined with the
     // viewer's preference by `effectiveDistanceMeters` to decide Nearby distance suppression.
     val authorHidesDistance: Boolean = false,
+    // Cloudflare image id of an attached image (`posts.image_id`), or null for a text-only post
+    // (image-attached-posts). Projected in BOTH UNION arms (visible + own-content self arm) so an
+    // author's own image surfaces on their self-arm read. Defaulted null so existing constructors
+    // are unaffected. The route maps this to the public delivery URL via the shared builder; the
+    // raw id never reaches the wire.
+    val imageId: String? = null,
 )
 
 interface PostsTimelineRepository {
