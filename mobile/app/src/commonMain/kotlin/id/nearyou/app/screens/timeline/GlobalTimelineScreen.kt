@@ -346,6 +346,7 @@ private fun GlobalTimelinePost.toCardModel(): PostCardModel =
         createdAt = createdAt,
         likedByViewer = likedByViewer,
         replyCount = replyCount,
+        imageUrl = imageUrl,
     )
 
 @Composable

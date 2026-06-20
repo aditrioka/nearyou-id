@@ -37,8 +37,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -48,6 +50,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil3.compose.AsyncImage
 import id.nearyou.app.post.LikeCountOutcome
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.PostDetailFlow
@@ -79,6 +82,7 @@ import id.nearyou.resources.generated.resources.post_detail_reply_counter
 import id.nearyou.resources.generated.resources.post_detail_reply_placeholder
 import id.nearyou.resources.generated.resources.post_detail_reset_hours
 import id.nearyou.resources.generated.resources.post_edit_edited_label
+import id.nearyou.resources.generated.resources.post_image_alt
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.theme.locationPin
@@ -115,6 +119,10 @@ const val POST_DETAIL_EDIT_TAG: String = "postDetailEdit"
 
 /** Test tag on the "Diedit" label (opens the "Riwayat edit" history overlay). */
 const val POST_DETAIL_EDITED_LABEL_TAG: String = "postDetailEditedLabel"
+
+/** Test tag on the attached-image node (`image-attached-posts`) — present only when the route carries a
+ *  non-null `imageUrl`, so a test can assert the image renders when supplied and is absent when null. */
+const val POST_DETAIL_IMAGE_TAG: String = "postDetailImage"
 
 /**
  * The post-detail surface ([PostDetailRoute]) — "everything you do on a single post" — opened by tapping
@@ -338,6 +346,7 @@ fun PostDetailScreen(
                         onEditedLabelClick = { historyOpen = true },
                         authorUsername = route.authorUsername,
                         authorDisplayName = route.authorDisplayName,
+                        imageUrl = route.imageUrl,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -429,6 +438,7 @@ private fun PostHeader(
     onEditedLabelClick: () -> Unit,
     authorUsername: String,
     authorDisplayName: String,
+    imageUrl: String?,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -471,6 +481,23 @@ private fun PostHeader(
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
+        // image-attached-posts: the attached image BELOW the content (same Coil AsyncImage pattern as the
+        // shared card), rendered ONLY when the route payload carries a non-null imageUrl — supplied by the
+        // tapped feed card, so detail needs no by-id re-fetch (design D4/D6). Loads on on-screen render
+        // (no preload) and fails gracefully to nothing (no error chrome); the alt text is resource-backed.
+        if (imageUrl != null) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = stringResource(Res.string.post_image_alt),
+                contentScale = ContentScale.FillWidth,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .clip(MaterialTheme.shapes.medium)
+                        .testTag(POST_DETAIL_IMAGE_TAG),
+            )
+        }
         val postedFrom =
             if (cityName.isEmpty()) {
                 stringResource(Res.string.post_detail_posted_from_no_city, postDateLabel(createdAtIso))

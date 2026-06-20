@@ -209,6 +209,9 @@ data class PostDetailTarget(
     // Author DISPLAY identity (mobile-timeline-card-redesign) — display data, never the author UUID.
     val authorUsername: String,
     val authorDisplayName: String,
+    // image-attached-posts: the tapped card's public image URL, carried into PostDetailRoute so detail
+    // renders the image with no by-id re-fetch (null = text-only). NOT a coordinate — safe to serialize.
+    val imageUrl: String?,
 )
 
 private fun NearbyTimelinePost.toTarget(): PostDetailTarget =
@@ -222,6 +225,7 @@ private fun NearbyTimelinePost.toTarget(): PostDetailTarget =
         replyCount = replyCount,
         authorUsername = authorUsername,
         authorDisplayName = authorDisplayName,
+        imageUrl = imageUrl,
     )
 
 private fun GlobalTimelinePost.toTarget(): PostDetailTarget =
@@ -236,6 +240,7 @@ private fun GlobalTimelinePost.toTarget(): PostDetailTarget =
         replyCount = replyCount,
         authorUsername = authorUsername,
         authorDisplayName = authorDisplayName,
+        imageUrl = imageUrl,
     )
 
 private fun FollowingTimelinePost.toTarget(): PostDetailTarget =
@@ -250,4 +255,5 @@ private fun FollowingTimelinePost.toTarget(): PostDetailTarget =
         replyCount = replyCount,
         authorUsername = authorUsername,
         authorDisplayName = authorDisplayName,
+        imageUrl = imageUrl,
     )

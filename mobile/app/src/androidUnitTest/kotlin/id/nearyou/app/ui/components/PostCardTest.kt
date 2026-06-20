@@ -52,6 +52,7 @@ class PostCardTest {
         createdAt: String = "2026-05-31T10:00:00Z",
         likedByViewer: Boolean = false,
         replyCount: Int = 4,
+        imageUrl: String? = null,
     ) = PostCardModel(
         id = "p1",
         authorUsername = authorUsername,
@@ -62,6 +63,7 @@ class PostCardTest {
         createdAt = createdAt,
         likedByViewer = likedByViewer,
         replyCount = replyCount,
+        imageUrl = imageUrl,
     )
 
     /** Composes the card under [NearYouTheme] with recording-or-no-op callbacks. */
@@ -234,5 +236,30 @@ class PostCardTest {
             setContent { Card(model = model(), darkTheme = true) }
             onNodeWithText("Raka Pratama").assertIsDisplayed()
             onNodeWithText("@raka.jkt").assertIsDisplayed()
+        }
+
+    // image-attached-posts — the attached image renders below the content when imageUrl is non-null and is
+    // ABSENT (the card byte-identical to the pre-image baseline) when null (spec § "Card renders the
+    // attached image when imageUrl is present, and nothing when absent"). The actual bytes never decode in
+    // Robolectric (no network/GPU) — this asserts the AsyncImage NODE is composed/omitted by the imageUrl
+    // guard, which is the spec's behavioral contract; real decode is an emulator/device verify.
+
+    @Test
+    fun attachedImageRendersWhenImageUrlPresent_withResourceAltText() =
+        runComposeUiTest {
+            setContent { Card(model = model(imageUrl = "https://img.example/abc/p1/public")) }
+            // The image node exists below the content and carries the resource-backed alt text
+            // (post_image_alt) as a non-empty contentDescription (never a literal/null).
+            onNodeWithTag(POST_CARD_IMAGE_TAG, useUnmergedTree = true)
+                .assertExists()
+                .assertContentDescriptionEquals("Gambar pada postingan")
+        }
+
+    @Test
+    fun noImageElementWhenImageUrlNull() =
+        runComposeUiTest {
+            setContent { Card(model = model(imageUrl = null)) }
+            // The no-image card renders NO image element — unchanged from the pre-image baseline.
+            onNodeWithTag(POST_CARD_IMAGE_TAG, useUnmergedTree = true).assertDoesNotExist()
         }
 }

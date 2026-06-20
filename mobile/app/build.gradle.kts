@@ -123,6 +123,12 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.androidx.lifecycle.viewmodelNavigation3)
+            // image-attached-posts (D5) — Coil 3 AsyncImage (read-path post image) + the Ktor-backed
+            // network fetcher (reuses the existing Ktor stack — no new networking lib). The fetcher is
+            // registered once at app init via SingletonImageLoader.setSafe (App.kt); images are public
+            // (no Bearer), so this does NOT reuse the auth HttpClient (D6).
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.ktor3)
             implementation(libs.koin.core)
             implementation(libs.koin.compose)
             implementation(libs.koin.composeViewmodel)

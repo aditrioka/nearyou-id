@@ -99,6 +99,13 @@ data object ConsentRoute : NavKey
  * the whole-card open pushes the default `false` (today's behavior). Defaulted so payloads serialized
  * BEFORE this change still decode — the same compatibility precedent as the identity fields. A boolean
  * intent flag, no PII.
+ *
+ * [imageUrl] (added by `image-attached-posts`) is the public, coordinate-independent image delivery URL
+ * the detail screen renders below the content (Coil `AsyncImage`) — supplied by the tapped feed card so
+ * detail needs no by-id re-fetch (design D4/D6). A public URL, NOT PII (the same "no coordinate / no
+ * author UUID in nav args" discipline holds). Defaulted to `null` so a back stack serialized BEFORE this
+ * change still decodes on process-death restore (a detail reached without a card-supplied `imageUrl`
+ * simply renders no image — the same graceful constraint the screen already has for its other fields).
  */
 @Serializable
 data class PostDetailRoute(
@@ -112,6 +119,7 @@ data class PostDetailRoute(
     val authorUsername: String = "",
     val authorDisplayName: String = "",
     val focusReplyComposer: Boolean = false,
+    val imageUrl: String? = null,
 ) : NavKey
 
 /**

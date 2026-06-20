@@ -220,6 +220,11 @@
     <string name="post_card_action_like">Suka</string>
     <string name="post_card_like_state_liked">Disukai</string>
     <string name="post_card_like_state_not_liked">Belum disukai</string>
+    <!-- image-attached-posts: the accessibility alt-text for the attached post image — the
+         contentDescription on the Coil AsyncImage in BOTH the shared card and post detail (the
+         CMP-Resources-only invariant: never a hardcoded literal/null). The post text carries the
+         meaning, so a generic non-empty label suffices. FLAGGED FOR UX REVIEW. -->
+    <string name="post_image_alt">Gambar pada postingan</string>
     <!-- mobile-cap-upsell-dialog (mockup frame 18): the shared daily-cap upsell M3 AlertDialog. The
          title is cap-GENERIC ("Batas harian tercapai") because the frame's caption declares the same
          modal pattern for the future post/reply/chat caps; the like body REUSES

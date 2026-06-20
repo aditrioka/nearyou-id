@@ -1,9 +1,9 @@
 ## 1. Pre-flight: verification, mockups, substrate re-check
 
 - [x] 1.0 Runtime sanity check: confirm `visible_posts.image_id` is live on a current schema (`SELECT image_id FROM visible_posts LIMIT 1` against a freshly-migrated DB) BEFORE any read query relies on it — fail loudly if a future migration enumerated the view columns (design D4). [Verified 2026-06-20 against the dev DB (V28): `visible_posts.image_id` live; full read-path manual-verified in dev — single-post (visible + self arm) + global timeline surface the 4-segment `imageUrl`, text-only posts omit it.]
-- [ ] 1.1 Apply-time dated library re-check (project.md § Pre-implementation library re-check, MUST): fresh `WebSearch` for Coil 3 KMP currency (e.g. `"Coil 3 Compose Multiplatform <current-month-year> stable"`); drop a one-line evidence note in the first feat commit body. If a materially-better loader surfaced since propose-time, STOP and surface via `AskUserQuestion`.
+- [x] 1.1 Apply-time dated library re-check (project.md § Pre-implementation library re-check, MUST): fresh `WebSearch` for Coil 3 KMP currency (e.g. `"Coil 3 Compose Multiplatform <current-month-year> stable"`); drop a one-line evidence note in the first feat commit body. If a materially-better loader surfaced since propose-time, STOP and surface via `AskUserQuestion`.
 - [ ] 1.2 Consult mockups + generate measurement annexes (docs/11 §2.8): composer = frame 6 (`nearyou-screens-mockup.html`), post card = frames 1 + 19, post detail frame. Render each + run `dev/scripts/mockup-measure.sh` for the image affordance, thumbnail/preview, and in-card image spacing/tokens.
-- [ ] 1.3 Pin Coil 3 (+ Ktor network backend) in `gradle/libs.versions.toml`; wire the dependency into `:mobile:app` (commonMain). Confirm the pin does not regress the existing Ktor version alignment.
+- [x] 1.3 Pin Coil 3 (+ Ktor network backend) in `gradle/libs.versions.toml`; wire the dependency into `:mobile:app` (commonMain). Confirm the pin does not regress the existing Ktor version alignment.
 
 ## 2. Backend read-path image surfacing (no migration)
 
@@ -14,9 +14,9 @@
 
 ## 3. Mobile read-path rendering (PostCard + detail)
 
-- [ ] 3.1 Extend the shared `PostCard` model with `imageUrl: String?`; render a Coil 3 `AsyncImage` below the content when non-null, with aspect-ratio placeholder + graceful failure (no error chrome) and no scroll preload (on-screen load only). No image element when null.
-- [ ] 3.2 Thread `imageUrl` from the timeline DTOs → card model in Nearby + Global (and Following) feed mapping.
-- [ ] 3.3 Add `imageUrl: String? = null` to `PostDetailRoute` (defaulted; registered in the polymorphic `SerializersModule`); render the image on `PostDetailScreen` below the content; thread `imageUrl` from the feed card tap into the route payload.
+- [x] 3.1 Extend the shared `PostCard` model with `imageUrl: String?`; render a Coil 3 `AsyncImage` below the content when non-null, with aspect-ratio placeholder + graceful failure (no error chrome) and no scroll preload (on-screen load only). No image element when null.
+- [x] 3.2 Thread `imageUrl` from the timeline DTOs → card model in Nearby + Global (and Following) feed mapping.
+- [x] 3.3 Add `imageUrl: String? = null` to `PostDetailRoute` (defaulted; registered in the polymorphic `SerializersModule`); render the image on `PostDetailScreen` below the content; thread `imageUrl` from the feed card tap into the route payload.
 
 ## 4. Mobile image picker + compression seam (§2.5)
 
@@ -40,7 +40,7 @@
 ## 7. Tests (Definition of Done, docs/11 §5)
 
 - [ ] 7.1 Mobile commonTest: attach affordance Premium-gated (Premium opens picker; Free upsold, picker not invoked); `image_id` present in body only when attached; remove clears attachment; CTA disabled during upload; each `ImageUploadOutcome` → UI state; no hardcoded strings.
-- [ ] 7.2 Mobile commonTest: `PostCard` + `PostDetailScreen` render an image when `imageUrl` present and are unchanged when null (negative guard); `PostDetailRoute` decodes a pre-`imageUrl` payload with `imageUrl = null` (back-compat).
+- [x] 7.2 Mobile commonTest: `PostCard` + `PostDetailScreen` render an image when `imageUrl` present and are unchanged when null (negative guard); `PostDetailRoute` decodes a pre-`imageUrl` payload with `imageUrl = null` (back-compat).
 - [ ] 7.3 `ImageUploadApiClient` + `ImageUploadRepository` MockEngine tests: multipart `POST /api/v1/images`; 201 parse (4-segment `<base>/<accountHash>/<image_id>/public` body); `CancellationException` rethrown; and a status→outcome table covering ALL mapped branches — `422 image_rejected`→`ModerationRejected`, `403 image_upload_disabled`→`FeatureDisabled` vs `403 premium_required`→`PremiumRequired`, `429 image_upload_throttled`→`Throttled` vs `429 image_upload_quota_exceeded`→`QuotaExceeded`, `413 image_too_large`→`TooLarge`, **`503 image_upload_unavailable`→`Unavailable`**, transport→`Network` (the spec's "every outcome is a declared sealed member" exhaustiveness scenario has an explicit test home here).
 - [ ] 7.4 `ImagePicker` actual tests: cancelled selection → `null` (no upload attempted); a returned `PickedImage` satisfies the ≤5 MB size guard + `image/*` mime (exercise the Android `Bitmap` re-encode loop via Robolectric; iOS via the simulator test).
 - [ ] 7.5 iOS: `:mobile:app:iosSimulatorArm64Test` (or at minimum `linkDebugFrameworkIosSimulatorArm64`) for the PHPicker/ImageIO actual.

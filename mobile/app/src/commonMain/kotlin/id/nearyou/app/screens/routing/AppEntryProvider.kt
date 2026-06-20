@@ -92,6 +92,9 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                             replyCount = target.replyCount,
                             authorUsername = target.authorUsername,
                             authorDisplayName = target.authorDisplayName,
+                            // image-attached-posts: carry the tapped card's image URL so detail renders it
+                            // with no by-id re-fetch (null = text-only).
+                            imageUrl = target.imageUrl,
                         ),
                     )
                 },
@@ -111,6 +114,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                             authorUsername = target.authorUsername,
                             authorDisplayName = target.authorDisplayName,
                             focusReplyComposer = true,
+                            // image-attached-posts: same image URL carry-through as the whole-card open.
+                            imageUrl = target.imageUrl,
                         ),
                     )
                 },
