@@ -179,6 +179,10 @@
     <string name="notif_post_auto_hidden">Postingan kamu disembunyikan otomatis</string>
     <string name="notif_chat_message">Pesan baru</string>
     <string name="notif_generic">Notifikasi baru</string>
+    <!-- mobile-notifications-deep-link-targets: the non-blocking affordance shown when a tapped post
+         notification's target no longer resolves (deleted / blocked / shadow-banned / auto-hidden — the
+         single-post-read endpoint collapses all to one 404). No navigation occurs; the row is still read. -->
+    <string name="notifications_post_unavailable">Postingan tidak tersedia</string>
 
     <!-- mobile-post-detail-screen. `post_detail_posted_from` mirrors docs/03-UX-Design.md:14
          ("Diposting dari {city}, {relative_time}"); the like/reply cap-upsell copy parallels the

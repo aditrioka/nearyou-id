@@ -113,6 +113,8 @@ import org.koin.compose.koinInject
 fun AppShellScreen(
     onOpenComposer: () -> Unit,
     onOpenChat: () -> Unit = {},
+    onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit =
+        { _, _, _ -> },
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
@@ -203,7 +205,13 @@ fun AppShellScreen(
                         onActivatePremium = onActivatePremium,
                     )
                 Section.Notifikasi -> {
-                    NotificationsScreen()
+                    // Deep-link tap-through (mobile-notifications-deep-link-targets): forward the shell's
+                    // already-hoisted post/profile pushes + a chat-thread push (wired in appEntryProvider).
+                    NotificationsScreen(
+                        onOpenPost = onOpenPost,
+                        onOpenProfile = onOpenProfile,
+                        onOpenChatThread = onOpenChatThread,
+                    )
                     // Refresh the badge once when leaving Notifikasi (the user likely read some). One-shot,
                     // not a live subscription — onDispose fires when the section body leaves composition.
                     DisposableEffect(Unit) {

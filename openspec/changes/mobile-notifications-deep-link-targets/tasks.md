@@ -19,14 +19,14 @@
 
 ## 4. NotificationsScreen — hoisted callbacks + collect events + unavailable affordance (spec: hoisted-callbacks requirement)
 
-- [ ] 4.1 Add `onOpenPost: (PostDetailTarget) -> Unit`, `onOpenProfile: (userId: String) -> Unit`, `onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit` params to `NotificationsScreen` (default no-op for test ergonomics); keep the screen navigation-free.
-- [ ] 4.2 Observe the VM's nullable `pendingNavTarget`; on a non-null value invoke the matching hoisted callback (`onOpenPost`/`onOpenProfile`/`onOpenChatThread`) exactly once, then call `onNavConsumed()` to clear it (so it does not re-fire on recomposition) — the `PostDetailScreen` consumed-marker precedent.
-- [ ] 4.3 Render the per-tap resolving indicator on the tapped row and the transient non-blocking "Postingan tidak tersedia" affordance; all copy via `stringResource(Res.string.*)` (no hardcoded UI strings) — add the new string(s) to `:shared:resources`.
+- [x] 4.1 Add `onOpenPost: (PostDetailTarget) -> Unit`, `onOpenProfile: (userId: String) -> Unit`, `onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit` params to `NotificationsScreen` (default no-op for test ergonomics); keep the screen navigation-free.
+- [x] 4.2 Observe the VM's nullable `pendingNavTarget`; on a non-null value invoke the matching hoisted callback (`onOpenPost`/`onOpenProfile`/`onOpenChatThread`) exactly once, then call `onNavConsumed()` to clear it (so it does not re-fire on recomposition) — the `PostDetailScreen` consumed-marker precedent.
+- [x] 4.3 Render the per-tap resolving indicator on the tapped row and the transient non-blocking "Postingan tidak tersedia" affordance; all copy via `stringResource(Res.string.*)` (no hardcoded UI strings) — add the new string(s) to `:shared:resources`.
 
 ## 5. Shell + AppEntryProvider wiring (spec: hoisted-callbacks requirement; design D3)
 
-- [ ] 5.1 In `screens/shell/AppShellScreen.kt`, stop invoking `NotificationsScreen()` bare: forward the existing `onOpenPost` / `onOpenProfile`, and pass a new `onOpenChatThread` callback.
-- [ ] 5.2 In `screens/routing/AppEntryProvider.kt`, wire the notifications `onOpenChatThread(conversationId, partnerUsername, partnerDisplayName)` to a `ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName)` root-stack push (reuse the chat-list row's existing push seam); confirm `onOpenPost`/`onOpenProfile` reuse the shipped `PostDetailRoute`/`ProfileRoute` pushes. Declare NO new `NavKey`.
+- [x] 5.1 In `screens/shell/AppShellScreen.kt`, stop invoking `NotificationsScreen()` bare: forward the existing `onOpenPost` / `onOpenProfile`, and pass a new `onOpenChatThread` callback.
+- [x] 5.2 In `screens/routing/AppEntryProvider.kt`, wire the notifications `onOpenChatThread(conversationId, partnerUsername, partnerDisplayName)` to a `ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName)` root-stack push (reuse the chat-list row's existing push seam); confirm `onOpenPost`/`onOpenProfile` reuse the shipped `PostDetailRoute`/`ProfileRoute` pushes. Declare NO new `NavKey`.
 
 ## 6. Tests (docs/11 §5 DoD)
 
