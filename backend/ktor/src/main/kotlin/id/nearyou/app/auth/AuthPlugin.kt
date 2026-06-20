@@ -2,11 +2,13 @@ package id.nearyou.app.auth
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import id.nearyou.app.auth.jwt.APPEAL_TOKEN_SCOPE
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.infra.repo.UserRow
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.AuthenticationConfig
@@ -21,6 +23,15 @@ import java.time.Instant
 import java.util.UUID
 
 const val AUTH_PROVIDER_USER = "user-jwt"
+
+// content-moderation-appeal: a dedicated ban-exempt realm mounted ONLY on the appeal
+// routes. It runs the same signature + token_version + soft-delete checks as the user
+// realm and populates the same UserPrincipal, but does NOT apply the is_banned /
+// suspended_until 403 short-circuit — so an actioned user can contest the action
+// (auth-jwt § "Banned and suspended users blocked" carve-out). It accepts any `scope`
+// (a normal-token caller authenticates and is then handled by the route, e.g. a
+// non-banned caller gets 409 no_actionable_moderation).
+const val AUTH_PROVIDER_APPEAL = "appeal-jwt"
 
 val AuthFailureKey = AttributeKey<String>("auth.failure_code")
 
@@ -67,6 +78,7 @@ fun Application.installAuth(
 ) {
     install(Authentication) {
         configureUserJwt(keys, users, nowProvider, dbDispatcher)
+        configureAppealJwt(keys, users, nowProvider, dbDispatcher)
     }
 }
 
@@ -83,97 +95,155 @@ internal fun AuthenticationConfig.configureUserJwt(
         verifier(verifier)
 
         validate { credential: JWTCredential ->
-            val tokenVersion = credential.payload.getClaim("token_version").asInt()
-            val sub = credential.payload.subject
-            if (tokenVersion == null || sub == null) {
-                this.attributes.put(AuthFailureKey, "token_revoked")
-                return@validate null
-            }
-            val userId =
-                runCatching { UUID.fromString(sub) }.getOrElse {
-                    this.attributes.put(AuthFailureKey, "token_revoked")
-                    return@validate null
-                }
-            // Blocking JDBC hops to the pool-bounded dispatcher — this runs on EVERY
-            // authenticated request and must never occupy a Netty call thread (docs/11 §3.2).
-            val user = withContext(dbDispatcher) { users.findById(userId) }
-            when {
-                user == null -> {
-                    this.attributes.put(AuthFailureKey, "token_revoked")
-                    null
-                }
-                user.deletedAt != null -> {
-                    // Soft-deleted accounts are terminal. Deletion flows bump
-                    // token_version, but a missed bump must not leave a live session
-                    // (defense-in-depth; the account-deletion flow ships later).
-                    this.attributes.put(AuthFailureKey, "token_revoked")
-                    null
-                }
-                user.tokenVersion != tokenVersion -> {
-                    this.attributes.put(AuthFailureKey, "token_revoked")
-                    null
-                }
-                user.isBanned -> {
-                    this.attributes.put(AuthFailureKey, "account_banned")
-                    null
-                }
-                user.isSuspendedAt(nowProvider()) -> {
-                    this.attributes.put(AuthFailureKey, "account_suspended")
-                    null
-                }
-                else -> {
-                    // Per `observability-otel-foundation` capability spec § "Mandatory
-                    // span attributes": when a request is authenticated against a
-                    // `UserPrincipal`-backed identity, the active Ktor server span
-                    // gets a `user.id` attribute set to the SHA-256-truncated form
-                    // (16 hex chars). The raw UUID is NEVER set; `:infra:otel`'s
-                    // `UserIdHasher` is the only sanctioned anonymization path.
-                    // /internal/* requests authenticated by Cloud Scheduler OIDC do
-                    // NOT pass through this plugin — they get `service.account.id`
-                    // via the mirror writer at `InternalEndpointAuth.kt`. Contract
-                    // shipped by the `internal-endpoint-auth-otel-attributes`
-                    // capability; the server-span-level mutual exclusion with
-                    // `user.id` is enforced structurally via route-scoped plugin
-                    // installation. See `openspec/specs/internal-endpoint-auth/spec.md`
-                    // § "Requirement: /internal server spans carry service.account.id".
-                    try {
-                        io.opentelemetry.api.trace.Span.current()
-                            .setAttribute("user.id", id.nearyou.app.infra.otel.UserIdHasher.hash(user.id))
-                    } catch (_: Throwable) {
-                        // Span recording failure MUST NOT block authentication —
-                        // observability is a side-effect surface. Per spec
-                        // § "Span recording failure does not block dispatch".
-                    }
-                    UserPrincipal(
-                        userId = user.id,
-                        tokenVersion = user.tokenVersion,
-                        subscriptionStatus = user.subscriptionStatus,
-                        isShadowBanned = user.isShadowBanned,
-                        hideDistanceOptIn = user.hideDistanceOptIn,
-                    )
-                }
-            }
+            // The user realm enforces the ban gates AND rejects the limited appeal token
+            // (scope=appeal) so it can never reach a normal authenticated route.
+            resolvePrincipal(
+                credential = credential,
+                users = users,
+                nowProvider = nowProvider,
+                dbDispatcher = dbDispatcher,
+                enforceBanGates = true,
+                rejectAppealScope = true,
+            )
         }
 
-        challenge { _, _ ->
-            val code = call.attributes.getOrNull(AuthFailureKey) ?: "token_revoked"
-            val status =
-                when (code) {
-                    "account_banned", "account_suspended" -> HttpStatusCode.Forbidden
-                    else -> HttpStatusCode.Unauthorized
-                }
-            call.respond(
-                status,
-                mapOf(
-                    "error" to
-                        mapOf(
-                            "code" to code,
-                            "message" to authMessageFor(code),
-                        ),
-                ),
+        challenge { _, _ -> call.respondAuthChallenge() }
+    }
+}
+
+// content-moderation-appeal: the ban-exempt appeal realm. Same identity validation as
+// the user realm, but the ban gates are NOT enforced and the appeal scope is accepted —
+// see AUTH_PROVIDER_APPEAL. Mounted only on the appeal-submission + own-appeal-status
+// routes (the `content-moderation-appeal` capability).
+internal fun AuthenticationConfig.configureAppealJwt(
+    keys: RsaKeyLoader,
+    users: UserRepository,
+    nowProvider: () -> Instant,
+    dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) {
+    jwt(AUTH_PROVIDER_APPEAL) {
+        val verifier = JWT.require(Algorithm.RSA256(keys.publicKey, keys.privateKey)).build()
+        verifier(verifier)
+
+        validate { credential: JWTCredential ->
+            resolvePrincipal(
+                credential = credential,
+                users = users,
+                nowProvider = nowProvider,
+                dbDispatcher = dbDispatcher,
+                enforceBanGates = false,
+                rejectAppealScope = false,
+            )
+        }
+
+        challenge { _, _ -> call.respondAuthChallenge() }
+    }
+}
+
+/**
+ * Shared validation for both the user realm and the ban-exempt appeal realm. Performs
+ * the signature-verified credential's `token_version` revocation check, the
+ * unknown/soft-deleted-subject check, and (when [enforceBanGates]) the `is_banned` /
+ * `suspended_until` 403 short-circuit. The single `users` row SELECT populates the
+ * entire [UserPrincipal] (auth-jwt § "Single auth-time `users` row SELECT").
+ *
+ * The realms differ ONLY in [enforceBanGates] (the appeal realm relaxes the ban gate so
+ * an actioned user can appeal) and [rejectAppealScope] (the user realm rejects the
+ * limited `scope = "appeal"` token so it never reaches a normal route).
+ */
+private suspend fun ApplicationCall.resolvePrincipal(
+    credential: JWTCredential,
+    users: UserRepository,
+    nowProvider: () -> Instant,
+    dbDispatcher: CoroutineDispatcher,
+    enforceBanGates: Boolean,
+    rejectAppealScope: Boolean,
+): UserPrincipal? {
+    // Scope confinement (auth-jwt § "Limited-scope tokens are confined to the appeal
+    // realm"): the user realm rejects a scope=appeal token; the appeal realm passes
+    // rejectAppealScope=false and accepts any scope.
+    if (rejectAppealScope && credential.payload.getClaim("scope").asString() == APPEAL_TOKEN_SCOPE) {
+        attributes.put(AuthFailureKey, "token_revoked")
+        return null
+    }
+    val tokenVersion = credential.payload.getClaim("token_version").asInt()
+    val sub = credential.payload.subject
+    if (tokenVersion == null || sub == null) {
+        attributes.put(AuthFailureKey, "token_revoked")
+        return null
+    }
+    val userId =
+        runCatching { UUID.fromString(sub) }.getOrElse {
+            attributes.put(AuthFailureKey, "token_revoked")
+            return null
+        }
+    // Blocking JDBC hops to the pool-bounded dispatcher — this runs on EVERY
+    // authenticated request and must never occupy a Netty call thread (docs/11 §3.2).
+    val user = withContext(dbDispatcher) { users.findById(userId) }
+    return when {
+        user == null -> {
+            attributes.put(AuthFailureKey, "token_revoked")
+            null
+        }
+        user.deletedAt != null -> {
+            // Soft-deleted accounts are terminal. Deletion flows bump token_version,
+            // but a missed bump must not leave a live session (defense-in-depth). This
+            // gate is retained on BOTH realms — only the ban gate is relaxed for appeals.
+            attributes.put(AuthFailureKey, "token_revoked")
+            null
+        }
+        user.tokenVersion != tokenVersion -> {
+            attributes.put(AuthFailureKey, "token_revoked")
+            null
+        }
+        enforceBanGates && user.isBanned -> {
+            attributes.put(AuthFailureKey, "account_banned")
+            null
+        }
+        enforceBanGates && user.isSuspendedAt(nowProvider()) -> {
+            attributes.put(AuthFailureKey, "account_suspended")
+            null
+        }
+        else -> {
+            // Per `observability-otel-foundation` capability spec § "Mandatory span
+            // attributes": authenticated requests set `user.id` on the active server span
+            // to the SHA-256-truncated form (16 hex chars). The raw UUID is NEVER set;
+            // `:infra:otel`'s `UserIdHasher` is the only sanctioned anonymization path.
+            try {
+                io.opentelemetry.api.trace.Span.current()
+                    .setAttribute("user.id", id.nearyou.app.infra.otel.UserIdHasher.hash(user.id))
+            } catch (_: Throwable) {
+                // Span recording failure MUST NOT block authentication — observability is
+                // a side-effect surface. Per spec § "Span recording failure does not block dispatch".
+            }
+            UserPrincipal(
+                userId = user.id,
+                tokenVersion = user.tokenVersion,
+                subscriptionStatus = user.subscriptionStatus,
+                isShadowBanned = user.isShadowBanned,
+                hideDistanceOptIn = user.hideDistanceOptIn,
             )
         }
     }
+}
+
+private suspend fun ApplicationCall.respondAuthChallenge() {
+    val code = attributes.getOrNull(AuthFailureKey) ?: "token_revoked"
+    val status =
+        when (code) {
+            "account_banned", "account_suspended" -> HttpStatusCode.Forbidden
+            else -> HttpStatusCode.Unauthorized
+        }
+    respond(
+        status,
+        mapOf(
+            "error" to
+                mapOf(
+                    "code" to code,
+                    "message" to authMessageFor(code),
+                ),
+        ),
+    )
 }
 
 private fun UserRow.isSuspendedAt(now: Instant): Boolean = suspendedUntil?.isAfter(now) == true

@@ -61,6 +61,15 @@ data class ApiError(val error: Envelope) {
     data class Envelope(val code: String, val message: String)
 }
 
+// content-moderation-appeal: the banned/suspended sign-in 403 carries the limited-scope
+// appeal token alongside the error envelope, so the actioned user has a credential for
+// the ban-exempt appeal realm (auth-signin § "Banned user blocked at sign-in").
+@Serializable
+data class BannedSignInResponse(
+    val error: ApiError.Envelope,
+    @SerialName("appeal_token") val appealToken: String,
+)
+
 private fun errorBody(
     code: String,
     message: String,
@@ -126,7 +135,16 @@ fun Application.authRoutes(
                 return@post
             }
             if (user.isBanned) {
-                call.respond(HttpStatusCode.Forbidden, errorBody("account_banned", "Account is banned."))
+                // content-moderation-appeal: NO normal access/refresh token is issued (no
+                // refresh_tokens row), but the 403 carries a limited-scope appeal token
+                // (scope=appeal, current token_version, ≤1h) so the actioned user can reach
+                // the ban-exempt appeal realm to contest the action. A suspended user is
+                // is_banned=TRUE, so this path covers suspension + permanent ban alike.
+                val appealToken = jwtIssuer.issueAppealToken(user.id, user.tokenVersion)
+                call.respond(
+                    HttpStatusCode.Forbidden,
+                    BannedSignInResponse(ApiError.Envelope("account_banned", "Account is banned."), appealToken),
+                )
                 return@post
             }
             val access = jwtIssuer.issueAccessToken(user.id, user.tokenVersion)
