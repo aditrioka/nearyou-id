@@ -130,12 +130,12 @@ The worker SHALL dispatch promotional-entitlement grants via a client in `:infra
 
 ### Requirement: Deferred activity-gate legs are not evaluated
 
-The worker SHALL NOT evaluate the ≥ 3-login-days engagement leg, the ≥ 5-app-sessions engagement leg (docs/01 §212), the IP-subnet (/24) overlap check, or the recently-seen Google/Apple identifier check (docs/01 §213 item 3). These legs require durable login-history data that does not exist today (refresh-token rotation deletes login history; `session_start` is a consent-gated client analytics event). They are deferred to a follow-up change that ships login-history tracking and MODIFIES this requirement to add them. The implemented gate is posts + expiry + inviter-eligibility; the residual abuse surface is bounded by the signup-time `device_fingerprint_hash` collision check and the per-inviter ≤ 3/7-day burst limit already enforced by `referral-ticket-creation`.
+The worker SHALL NOT evaluate the ≥ 3-login-days engagement leg, the ≥ 5-app-sessions engagement leg (docs/01 §212), the 90-day-windowed device-fingerprint historical check, the IP-subnet (/24) overlap check, or the recently-seen Google/Apple identifier check (docs/01 §213 item 3 — the exact set docs/05 §1186 enumerates as deferred). These legs require durable login-history / fingerprint-history data that does not exist today (refresh-token rotation deletes login history; `session_start` is a consent-gated client analytics event). They are deferred to a follow-up change that ships that tracking and MODIFIES this requirement to add them. The implemented gate is posts + expiry + inviter-eligibility; the residual abuse surface is bounded by the **exact-equality** `device_fingerprint_hash` collision check already applied at signup (a point-in-time check — distinct from, and weaker than, the deferred 90-day-windowed historical variant) and the per-inviter ≤ 3/7-day burst limit, both already enforced by `referral-ticket-creation`.
 
 #### Scenario: Login-day and app-session legs are not consulted
 - **WHEN** the worker evaluates a ticket's activity gate
 - **THEN** it does not read or require any login-day count or app-session count (those legs are deferred)
 
-#### Scenario: IP-subnet and identifier legs are not consulted
+#### Scenario: Historical-fingerprint, IP-subnet, and identifier legs are not consulted
 - **WHEN** the worker evaluates a ticket's anti-collision posture
-- **THEN** it does not perform an IP-subnet (/24) overlap check or a recently-seen-identifier check (those legs are deferred)
+- **THEN** it does not perform a 90-day-windowed device-fingerprint historical check, an IP-subnet (/24) overlap check, or a recently-seen-identifier check (those legs are deferred; only the signup-time exact-equality fingerprint check already ran)
