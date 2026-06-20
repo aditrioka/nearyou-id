@@ -12,7 +12,7 @@ Constraints: admin module is exempt from the `visible_*`/block-join lint; `admin
 - Add `ban` (permanent), `shadow-ban`, and `shadow-unban` as first-class `/admin/users/{id}/…` actions with the same safety contract as the shipped suspend/unban (CSRF, role-gate, malformed-id safety, atomic audit, human-attributed).
 - Exactly one ban / shadow-ban behavior across the report-queue and user-page entry points (reuse/extract the shipped helpers).
 - Count the two new destructive actions toward the existing per-admin rate-limit cap.
-- Surface the controls on the profile page, redlined to the admin mockup, with `hx-confirm` on every destructive action.
+- Surface the controls on the profile page (CSRF-protected plain POST forms matching the page's existing no-JS suspend/warn/unban pattern), redlined to the admin mockup.
 - Make a permanent ban actually session-terminating within ~15 min by closing the `POST /api/v1/auth/refresh` account-state gap (D8).
 
 **Non-Goals:**

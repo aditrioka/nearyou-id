@@ -10,7 +10,7 @@ The admin user-moderation surface can suspend (7-day), unban, and warn — but a
   - `POST /admin/users/{id}/shadow-unban` — **un-shadow-ban** (`is_shadow_banned = FALSE`), restorative companion that closes the reversal gap, all write roles, **not** rate-limited, no notification, audit `user_shadow_unbanned`.
 - **Reuse the shipped enforcement helpers** (`applyPermanentBan` / `applyShadowBan` / `insertBanNotification` from the report-queue path) so there is exactly **one** ban / shadow-ban behavior across both entry points — no divergent second implementation.
 - **Extend the destructive-action rate-limit set**: count `user_banned` + `user_shadow_banned` toward the per-admin 20/hour cap; `user_shadow_unbanned` is restorative and is **not** counted (mirrors `unban`).
-- **Surface the new controls** on the `/admin/users/{id}` profile page (`hx-confirm` on every destructive action), reflecting current `is_banned` / `is_shadow_banned` state, redlined to the admin mockup board.
+- **Surface the new controls** on the `/admin/users/{id}` profile page (CSRF-protected plain POST forms matching the page's existing suspend/warn/unban pattern), reflecting current `is_banned` / `is_shadow_banned` state, redlined to the admin mockup board.
 - **Close the refresh-path enforcement gap** so a permanent ban actually takes effect within ≤15 min (one access-token TTL) instead of being bypassable for up to 30 days: `POST /api/v1/auth/refresh` re-checks account state and denies a banned (or soft-deleted) owner a new access token, mirroring the per-request `AuthPlugin` gate it currently skips. This also closes the same pre-existing bypass for time-bound suspensions. (Surfaced by the proposal-phase security-lens review; operator chose to fix it in-scope rather than defer.)
 - **No Flyway migration** — `admin_actions_log.action_type` is a free `VARCHAR(64)` and the `is_banned` / `suspended_until` / `is_shadow_banned` columns already exist.
 
@@ -22,7 +22,7 @@ The admin user-moderation surface can suspend (7-day), unban, and warn — but a
 ### Modified Capabilities
 - `admin-user-moderation`: ADD three state-changing actions (permanent ban, shadow ban, un-shadow-ban) — routes, role-gating, CSRF, eligibility guards, atomic audit (+ ban notification), and the new `user_banned` / `user_shadow_banned` / `user_shadow_unbanned` audit action types.
 - `admin-destructive-action-rate-limit`: MODIFY the destructive set to additionally count `user_banned` + `user_shadow_banned` (direct-`action_type` arm); `user_shadow_unbanned` stays uncounted.
-- `admin-user-management`: MODIFY the `/admin/users/{id}` profile page to surface the ban / shadow-ban / shadow-unban controls (state-reflecting, `hx-confirm`).
+- `admin-user-management`: MODIFY the `/admin/users/{id}` profile page to surface the ban / shadow-ban / shadow-unban controls (state-reflecting, CSRF-protected plain POST forms).
 - `auth-session`: ADD a refresh-endpoint account-state guard so `POST /api/v1/auth/refresh` denies a banned / soft-deleted owner a new access token (closes the permanent-ban refresh bypass; also covers suspension).
 
 ## Impact

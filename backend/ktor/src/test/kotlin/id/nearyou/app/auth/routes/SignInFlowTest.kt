@@ -176,6 +176,77 @@ class SignInFlowTest : StringSpec({
         }
     }
 
+    "refresh denies a permanently-banned account → 403 account_banned, no new access token" {
+        val sub = "google-refresh-banned"
+        val user = userRow(googleIdHash = sha256Hex(sub))
+        val users = InMemoryUsers(listOf(user))
+        setup(users, StaticVerifier(sub)) { _ ->
+            val client = createClient { install(ClientCN) { json() } }
+            val signin: TokenPairResponse =
+                client.post("/api/v1/auth/signin") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SignInRequest(provider = "google", idToken = "ok"))
+                }.body()
+            // The account is permanently banned AFTER a valid session exists.
+            users.rows[user.id] = users.rows[user.id]!!.copy(isBanned = true, suspendedUntil = null)
+
+            val response =
+                client.post("/api/v1/auth/refresh") {
+                    contentType(ContentType.Application.Json)
+                    setBody(RefreshRequest(refreshToken = signin.refreshToken))
+                }
+            response.status shouldBe HttpStatusCode.Forbidden
+            response.bodyAsText() shouldContain "account_banned"
+        }
+    }
+
+    "refresh denies an actively-suspended account → 403 account_banned" {
+        val sub = "google-refresh-suspended"
+        val user = userRow(googleIdHash = sha256Hex(sub))
+        val users = InMemoryUsers(listOf(user))
+        setup(users, StaticVerifier(sub)) { _ ->
+            val client = createClient { install(ClientCN) { json() } }
+            val signin: TokenPairResponse =
+                client.post("/api/v1/auth/signin") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SignInRequest(provider = "google", idToken = "ok"))
+                }.body()
+            // A 7-day suspension is is_banned = TRUE with a future suspended_until.
+            users.rows[user.id] = users.rows[user.id]!!.copy(isBanned = true, suspendedUntil = now.plusSeconds(7 * 24 * 3600))
+
+            val response =
+                client.post("/api/v1/auth/refresh") {
+                    contentType(ContentType.Application.Json)
+                    setBody(RefreshRequest(refreshToken = signin.refreshToken))
+                }
+            response.status shouldBe HttpStatusCode.Forbidden
+            response.bodyAsText() shouldContain "account_banned"
+        }
+    }
+
+    "refresh denies a soft-deleted account → 401 token_revoked" {
+        val sub = "google-refresh-deleted"
+        val user = userRow(googleIdHash = sha256Hex(sub))
+        val users = InMemoryUsers(listOf(user))
+        setup(users, StaticVerifier(sub)) { _ ->
+            val client = createClient { install(ClientCN) { json() } }
+            val signin: TokenPairResponse =
+                client.post("/api/v1/auth/signin") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SignInRequest(provider = "google", idToken = "ok"))
+                }.body()
+            users.rows[user.id] = users.rows[user.id]!!.copy(deletedAt = now)
+
+            val response =
+                client.post("/api/v1/auth/refresh") {
+                    contentType(ContentType.Application.Json)
+                    setBody(RefreshRequest(refreshToken = signin.refreshToken))
+                }
+            response.status shouldBe HttpStatusCode.Unauthorized
+            response.bodyAsText() shouldContain "token_revoked"
+        }
+    }
+
     "logout-all bumps token_version" {
         val sub = "google-logout"
         val user = userRow(googleIdHash = sha256Hex(sub))

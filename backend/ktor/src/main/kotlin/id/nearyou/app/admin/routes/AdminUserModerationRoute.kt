@@ -4,6 +4,9 @@ import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
 import id.nearyou.app.admin.auth.AdminRoleGate
+import id.nearyou.app.admin.moderation.BanOutcome
+import id.nearyou.app.admin.moderation.ShadowBanOutcome
+import id.nearyou.app.admin.moderation.ShadowUnbanOutcome
 import id.nearyou.app.admin.moderation.SuspendOutcome
 import id.nearyou.app.admin.moderation.UnbanOutcome
 import id.nearyou.app.admin.moderation.UserModerationRepository
@@ -271,6 +274,193 @@ fun Route.adminUserModeration(
                 )
         }
     }
+
+    // POST /admin/users/{id}/ban — permanent ban (admin-user-moderation).
+    // CSRF → owner/admin gate (the higher-trust tier per the admin mockup; a
+    // moderator/read_only 403s before any write) → parse {id} → repo.permanentBan.
+    // One user_banned audit row + one sanitized account_action_applied
+    // notification; sets is_banned=TRUE, suspended_until=NULL. Enforces the
+    // destructive-action cap.
+    post("/users/{id}/ban") {
+        if (!AdminCsrfGate.validateCsrf(call, auditLogger)) return@post
+        if (!AdminRoleGate.requireOwnerOrAdmin(call)) return@post
+        val targetId =
+            call.parseTargetId() ?: run {
+                call.respondModeration(
+                    layout,
+                    q = null,
+                    user = null,
+                    message = MSG_INVALID_ID,
+                    status = HttpStatusCode.BadRequest,
+                )
+                return@post
+            }
+        val reason = call.readReason()
+        val principal =
+            call.principal<AdminPrincipal>() ?: run {
+                call.respond(HttpStatusCode.Forbidden)
+                return@post
+            }
+
+        val outcome =
+            repo.permanentBan(
+                targetId = targetId,
+                actingAdminId = principal.adminId,
+                reason = reason,
+                ip = call.clientIp,
+                userAgent = call.request.headers[HttpHeaders.UserAgent],
+            )
+        when (outcome) {
+            BanOutcome.Applied -> call.respondActionRedirect(targetId)
+            BanOutcome.RejectedSoftDeleted ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = repo.lookup(targetId.toString()),
+                    message = MSG_BAN_REJECTED_SOFT_DELETED,
+                )
+            BanOutcome.NoOpAlreadyBanned ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = repo.lookup(targetId.toString()),
+                    message = MSG_BAN_NOOP_ALREADY_BANNED,
+                )
+            BanOutcome.RateLimited ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = repo.lookup(targetId.toString()),
+                    message = MSG_RATE_LIMITED,
+                )
+            BanOutcome.NotFound ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = null,
+                    message = MSG_USER_NOT_FOUND,
+                )
+        }
+    }
+
+    // POST /admin/users/{id}/shadow-ban — shadow ban (admin-user-moderation).
+    // CSRF → write-role gate (all write roles per the admin mockup) → parse {id}
+    // → repo.shadowBan. One user_shadow_banned audit row; sets
+    // is_shadow_banned=TRUE; NO notification (invisible by design). Enforces the
+    // destructive-action cap.
+    post("/users/{id}/shadow-ban") {
+        if (!AdminCsrfGate.validateCsrf(call, auditLogger)) return@post
+        if (!AdminRoleGate.requireWriteRole(call)) return@post
+        val targetId =
+            call.parseTargetId() ?: run {
+                call.respondModeration(
+                    layout,
+                    q = null,
+                    user = null,
+                    message = MSG_INVALID_ID,
+                    status = HttpStatusCode.BadRequest,
+                )
+                return@post
+            }
+        val reason = call.readReason()
+        val principal =
+            call.principal<AdminPrincipal>() ?: run {
+                call.respond(HttpStatusCode.Forbidden)
+                return@post
+            }
+
+        val outcome =
+            repo.shadowBan(
+                targetId = targetId,
+                actingAdminId = principal.adminId,
+                reason = reason,
+                ip = call.clientIp,
+                userAgent = call.request.headers[HttpHeaders.UserAgent],
+            )
+        when (outcome) {
+            ShadowBanOutcome.Applied -> call.respondActionRedirect(targetId)
+            ShadowBanOutcome.RejectedSoftDeleted ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = repo.lookup(targetId.toString()),
+                    message = MSG_SHADOW_BAN_REJECTED_SOFT_DELETED,
+                )
+            ShadowBanOutcome.NoOpAlreadyShadowBanned ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = repo.lookup(targetId.toString()),
+                    message = MSG_SHADOW_BAN_NOOP_ALREADY,
+                )
+            ShadowBanOutcome.RateLimited ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = repo.lookup(targetId.toString()),
+                    message = MSG_RATE_LIMITED,
+                )
+            ShadowBanOutcome.NotFound ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = null,
+                    message = MSG_USER_NOT_FOUND,
+                )
+        }
+    }
+
+    // POST /admin/users/{id}/shadow-unban — lift a shadow ban (restorative;
+    // admin-user-moderation). CSRF → write-role gate → parse {id} →
+    // repo.shadowUnban. One user_shadow_unbanned audit row; sets
+    // is_shadow_banned=FALSE; NO notification; NOT rate-limited (restorative).
+    post("/users/{id}/shadow-unban") {
+        if (!AdminCsrfGate.validateCsrf(call, auditLogger)) return@post
+        if (!AdminRoleGate.requireWriteRole(call)) return@post
+        val targetId =
+            call.parseTargetId() ?: run {
+                call.respondModeration(
+                    layout,
+                    q = null,
+                    user = null,
+                    message = MSG_INVALID_ID,
+                    status = HttpStatusCode.BadRequest,
+                )
+                return@post
+            }
+        val reason = call.readReason()
+        val principal =
+            call.principal<AdminPrincipal>() ?: run {
+                call.respond(HttpStatusCode.Forbidden)
+                return@post
+            }
+
+        val outcome =
+            repo.shadowUnban(
+                targetId = targetId,
+                actingAdminId = principal.adminId,
+                reason = reason,
+                ip = call.clientIp,
+                userAgent = call.request.headers[HttpHeaders.UserAgent],
+            )
+        when (outcome) {
+            ShadowUnbanOutcome.Applied -> call.respondActionRedirect(targetId)
+            ShadowUnbanOutcome.NoOpNotShadowBanned ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = repo.lookup(targetId.toString()),
+                    message = MSG_SHADOW_UNBAN_NOOP_NOT_SHADOW_BANNED,
+                )
+            ShadowUnbanOutcome.NotFound ->
+                call.respondModeration(
+                    layout,
+                    q = targetId.toString(),
+                    user = null,
+                    message = MSG_USER_NOT_FOUND,
+                )
+        }
+    }
 }
 
 /** Parse the `{id}` path segment as a UUID; null when malformed (→ 400, no
@@ -406,6 +596,10 @@ private fun UserProfile.toProfileViewMap(): Map<String, Any> {
         "isBanned" to isBanned,
         "suspendedUntil" to suspendedUntilDisplay,
         "isShadowBanned" to isShadowBanned,
+        // True only for a PERMANENT ban (is_banned with no expiry) — the ban
+        // control is hidden when already permanently banned (a time-bound
+        // suspension is still escalatable to permanent, so it does NOT set this).
+        "isPermanentlyBanned" to (isBanned && suspendedUntil == null),
         "statusLabel" to statusLabel,
     )
 }
@@ -465,5 +659,10 @@ private const val MSG_UNBAN_NOOP_NOT_BANNED = "User is not banned. No change mad
 private const val MSG_UNBAN_FORBIDDEN_PERMANENT_BAN =
     "Lifting a permanent ban requires owner or admin role."
 private const val MSG_WARN_TARGET_DELETED = "Cannot warn a deleted account."
+private const val MSG_BAN_REJECTED_SOFT_DELETED = "Cannot ban a deleted account."
+private const val MSG_BAN_NOOP_ALREADY_BANNED = "User is already permanently banned. No change made."
+private const val MSG_SHADOW_BAN_REJECTED_SOFT_DELETED = "Cannot shadow-ban a deleted account."
+private const val MSG_SHADOW_BAN_NOOP_ALREADY = "User is already shadow-banned. No change made."
+private const val MSG_SHADOW_UNBAN_NOOP_NOT_SHADOW_BANNED = "User is not shadow-banned. No change made."
 private const val MSG_RATE_LIMITED =
     "Destructive-action quota exceeded (20/hour). Try again later. No change made."
