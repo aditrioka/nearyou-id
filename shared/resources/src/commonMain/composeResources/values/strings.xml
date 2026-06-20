@@ -87,6 +87,25 @@
          phrasing over frame 6's bare "(±5 km)"). -->
     <string name="post_create_location_chip">Lokasi saat ini</string>
     <string name="post_create_privacy_note">Lokasi kamu disamarkan hingga ±5 km sebelum tampil ke pengguna lain</string>
+    <!-- image-attached-posts (Phase 6, mockup frame 6 image button): the Premium image-attach affordance,
+         the in-composer preview + remove control, the upload-in-progress state, and the user message for
+         EACH of the 9 ImageUploadOutcome members (Success carries no message — it shows the thumbnail).
+         Derived Bahasa Indonesia copy consistent with the composer register; FLAGGED FOR UX REVIEW.
+         post_image_alt (the rendered alt-text, Phase 3) is reused for the preview — not duplicated here. -->
+    <string name="post_create_attach_image">Tambah gambar</string>
+    <string name="post_create_attach_image_cd">Tambah gambar ke postingan</string>
+    <string name="post_create_image_uploading">Mengunggah gambar…</string>
+    <string name="post_create_image_remove_cd">Hapus gambar</string>
+    <!-- ImageUploadOutcome → user message. PremiumRequired routes to the paywall, so its copy is a brief
+         in-line note alongside the upsell route; the rest are terminal in-composer states. -->
+    <string name="post_create_image_error_premium_required">Unggah gambar hanya untuk pengguna Premium.</string>
+    <string name="post_create_image_error_feature_disabled">Unggah gambar belum tersedia. Coba lagi nanti.</string>
+    <string name="post_create_image_error_quota_exceeded">Kuota unggah gambar harian kamu habis. Coba lagi setelah reset harian.</string>
+    <string name="post_create_image_error_throttled">Terlalu sering mengunggah. Tunggu sebentar lalu coba lagi.</string>
+    <string name="post_create_image_error_moderation_rejected">Gambar ini tidak dapat diunggah. Pilih gambar lain.</string>
+    <string name="post_create_image_error_too_large">Ukuran gambar terlalu besar. Pilih gambar lain.</string>
+    <string name="post_create_image_error_unavailable">Gagal mengunggah gambar. Coba lagi nanti.</string>
+    <string name="post_create_image_error_network">Tidak bisa mengunggah gambar. Periksa koneksi internet kamu.</string>
 
     <!-- mobile-post-editing: the Premium post-editing UI (edit own post within 30 min) + the "Diedit" label
          + the "Riwayat edit" history. cta_activate_premium / signin_error_network / cta_retry / cta_close /

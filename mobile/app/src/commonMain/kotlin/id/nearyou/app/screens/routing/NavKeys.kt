@@ -225,15 +225,16 @@ data class ChatThreadRoute(
  * The gated surface that opened the paywall — drives the contextual hero headline on the
  * [id.nearyou.app.screens.paywall.PaywallScreen]. A non-PII enum carried by [PaywallRoute] (safe to
  * serialize into the iOS-persisted back stack). This change wires [LIKE_CAP] (the daily-cap upsell
- * dialog) and [SEARCH_GATE] (the search `403` Premium gate); [USERNAME] is a reserved-but-unwired
- * forward-compat value for the in-flight premium-username-customization (#301), which adds its own
- * entry point — this change does NOT navigate to the paywall from a username surface.
+ * dialog) and [SEARCH_GATE] (the search `403` Premium gate); [USERNAME] is the premium-username
+ * customization gate; [IMAGE_ATTACH] (image-attached-posts) is the composer's proactive Premium
+ * image-attach gate — a Free viewer who taps the attach affordance is routed here.
  */
 @Serializable
 enum class PaywallEntry {
     LIKE_CAP,
     SEARCH_GATE,
     USERNAME,
+    IMAGE_ATTACH,
 }
 
 /**

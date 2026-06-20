@@ -32,14 +32,14 @@
 
 ## 6. Mobile compose-with-image authoring (gating + submit + strings)
 
-- [ ] 6.1 `PostCreationScreen`: render the Premium image-attach affordance (mockup frame 6 image button); Premium → `ImagePicker.pick()`, Free → shared cap-upsell/paywall (no picker). No new Remote Config client.
-- [ ] 6.2 Upload-then-attach flow: in-progress state → thumbnail preview + remove affordance; disable "Posting" CTA while upload in flight; map each `ImageUploadOutcome` to a UI state; never submit a post referencing a failed/missing image.
-- [ ] 6.3 `PostCreationApiClient` request DTO: add optional `@SerialName("image_id") val imageId: String? = null`; include only when attached; text-only body byte-identical to pre-change.
-- [ ] 6.4 New Bahasa Indonesia strings in `:shared:resources` for the attach affordance, preview/remove, upload progress, each of the 9 `ImageUploadOutcome` states, and the **image `contentDescription`/alt-text** rendered in the card + detail (`Res.string.*`); no hardcoded literals.
+- [x] 6.1 `PostCreationScreen`: render the Premium image-attach affordance (mockup frame 6 image button); Premium → `ImagePicker.pick()`, Free → shared cap-upsell/paywall (no picker). No new Remote Config client.
+- [x] 6.2 Upload-then-attach flow: in-progress state → thumbnail preview + remove affordance; disable "Posting" CTA while upload in flight; map each `ImageUploadOutcome` to a UI state; never submit a post referencing a failed/missing image.
+- [x] 6.3 `PostCreationApiClient` request DTO: add optional `@SerialName("image_id") val imageId: String? = null`; include only when attached; text-only body byte-identical to pre-change.
+- [x] 6.4 New Bahasa Indonesia strings in `:shared:resources` for the attach affordance, preview/remove, upload progress, each of the 9 `ImageUploadOutcome` states, and the **image `contentDescription`/alt-text** rendered in the card + detail (`Res.string.*`); no hardcoded literals.
 
 ## 7. Tests (Definition of Done, docs/11 §5)
 
-- [ ] 7.1 Mobile commonTest: attach affordance Premium-gated (Premium opens picker; Free upsold, picker not invoked); `image_id` present in body only when attached; remove clears attachment; CTA disabled during upload; each `ImageUploadOutcome` → UI state; no hardcoded strings.
+- [x] 7.1 Mobile commonTest: attach affordance Premium-gated (Premium opens picker; Free upsold, picker not invoked); `image_id` present in body only when attached; remove clears attachment; CTA disabled during upload; each `ImageUploadOutcome` → UI state; no hardcoded strings.
 - [x] 7.2 Mobile commonTest: `PostCard` + `PostDetailScreen` render an image when `imageUrl` present and are unchanged when null (negative guard); `PostDetailRoute` decodes a pre-`imageUrl` payload with `imageUrl = null` (back-compat).
 - [x] 7.3 `ImageUploadApiClient` + `ImageUploadRepository` MockEngine tests: multipart `POST /api/v1/images`; 201 parse (4-segment `<base>/<accountHash>/<image_id>/public` body); `CancellationException` rethrown; and a status→outcome table covering ALL mapped branches — `422 image_rejected`→`ModerationRejected`, `403 image_upload_disabled`→`FeatureDisabled` vs `403 premium_required`→`PremiumRequired`, `429 image_upload_throttled`→`Throttled` vs `429 image_upload_quota_exceeded`→`QuotaExceeded`, `413 image_too_large`→`TooLarge`, **`503 image_upload_unavailable`→`Unavailable`**, transport→`Network` (the spec's "every outcome is a declared sealed member" exhaustiveness scenario has an explicit test home here).
 - [x] 7.4 `ImagePicker` actual tests: cancelled selection → `null` (no upload attempted); a returned `PickedImage` satisfies the ≤5 MB size guard + `image/*` mime (exercise the Android `Bitmap` re-encode loop via Robolectric; iOS via the simulator test).

@@ -39,11 +39,24 @@ sealed interface ImageUploadOutcome {
 }
 
 /**
+ * The image-upload orchestration seam consumed by the composer's `PostCreationViewModel` (docs/11 §2.6:
+ * ViewModels depend on the seam, never [ImageUploadApiClient] directly). The production binding is
+ * [ImageUploadRepository]; commonTest substitutes a `FakeImageUploadRepository` so the composer's
+ * two-step submit is drivable without a backend or device — mirroring `CreatePostFlow` / `ProfileFlow`.
+ */
+interface ImageUploader {
+    suspend fun upload(
+        bytes: ByteArray,
+        mime: String,
+    ): ImageUploadOutcome
+}
+
+/**
  * Orchestrates an image upload: call `POST /api/v1/images` → map the shipped backend's HTTP **status +
  * `error.code`** envelope (`ImageRoutes.kt`) to exactly one [ImageUploadOutcome]. There is no generic
- * "upload failed" fallthrough. ViewModels consume THIS repository, never [ImageUploadApiClient] directly
- * (docs/11 §2.6). The Bearer + terminal 401 are owned by the shipped `Auth` plugin upstream — this
- * repository MUST NOT reimplement token refresh / re-route.
+ * "upload failed" fallthrough. ViewModels consume the [ImageUploader] seam (bound to this repository),
+ * never [ImageUploadApiClient] directly (docs/11 §2.6). The Bearer + terminal 401 are owned by the shipped
+ * `Auth` plugin upstream — this repository MUST NOT reimplement token refresh / re-route.
  *
  * The two `403`s (`image_upload_disabled` vs `premium_required`) and the two `429`s
  * (`image_upload_throttled` vs `image_upload_quota_exceeded`) are disambiguated by `error.code`, NOT
@@ -57,8 +70,8 @@ class ImageUploadRepository(
     // Diagnostic sink for non-user-facing error detail (status + error code only — NEVER the image
     // bytes). Wired to the real coordinate-free DiagnosticSink in Koin; no-op default for tests.
     private val diagnosticLog: (status: Int, errorCode: String?) -> Unit = { _, _ -> },
-) {
-    suspend fun upload(
+) : ImageUploader {
+    override suspend fun upload(
         bytes: ByteArray,
         mime: String,
     ): ImageUploadOutcome =

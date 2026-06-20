@@ -14,8 +14,13 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.image.FakeImagePicker
+import id.nearyou.app.image.FakeImageUploadRepository
+import id.nearyou.app.image.ImagePicker
+import id.nearyou.app.image.ImageUploader
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -28,6 +33,8 @@ import id.nearyou.app.post.FakePostEditFlow
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostEditFlow
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.PaywallEntry
@@ -40,6 +47,7 @@ import id.nearyou.app.screens.timeline.GLOBAL_POST_CARD_TAG
 import id.nearyou.app.screens.timeline.GLOBAL_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.NEARBY_POST_CARD_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
+import id.nearyou.app.screens.username.FakeSelfUserIdProvider
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeFollowingTimelineFlow
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
@@ -127,8 +135,13 @@ class HomeTabHostScreenTest {
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
-                    // The FAB appends PostCreationRoute, whose screen injects the CreatePostFlow seam.
+                    // The FAB appends PostCreationRoute, whose screen injects the CreatePostFlow seam plus
+                    // (image-attached-posts) the image-attach + Premium-gate seams.
                     single<CreatePostFlow> { FakeCreatePostFlow() }
+                    single<ImagePicker> { FakeImagePicker() }
+                    single<ImageUploader> { FakeImageUploadRepository() }
+                    single<ProfileFlow> { FakeProfileFlow() }
+                    single<SelfUserIdProvider> { FakeSelfUserIdProvider("self-id") }
                     // The TestNavHost(HomeRoute) cases compose the AppShellScreen section shell, whose unread
                     // badge injects a NotificationsFlow (empty/0 fake — the badge is exercised in AppShellScreenTest).
                     single<NotificationsFlow> { FakeNotificationsFlow() }

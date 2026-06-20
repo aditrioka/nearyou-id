@@ -4,7 +4,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
-import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -12,7 +12,12 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.InMemoryTokenStore
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.image.FakeImagePicker
+import id.nearyou.app.image.FakeImageUploadRepository
+import id.nearyou.app.image.ImagePicker
+import id.nearyou.app.image.ImageUploader
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -22,6 +27,10 @@ import id.nearyou.app.post.CreatePostRepository
 import id.nearyou.app.post.FakeCreatePostFlow
 import id.nearyou.app.post.PostCreationApiClient
 import id.nearyou.app.post.PostCreationOutcome
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.profile.ProfileOutcome
+import id.nearyou.app.screens.username.FakeSelfUserIdProvider
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.StubLocationProvider
 import id.nearyou.resources.generated.resources.Res
@@ -72,6 +81,9 @@ private const val RETRY = "Coba lagi"
 private const val LOCATION_CHIP = "Lokasi saat ini"
 private const val PRIVACY_NOTE = "Lokasi kamu disamarkan hingga ±5 km sebelum tampil ke pengguna lain"
 
+// image-attached-posts: the attach affordance label.
+private const val ATTACH_IMAGE = "Tambah gambar"
+
 // A 201 create body that ECHOES the author's actual coordinate — the minimal CreatedPostDto reads
 // only `id`, so neither -6.21 nor 106.85 must ever reach the rendered tree (PII discipline).
 private const val ECHO_COORD_201_BODY =
@@ -99,14 +111,30 @@ private const val ECHO_COORD_201_BODY =
 class PostCreationScreenTest {
     private lateinit var fakeController: FakeLocationPermissionController
 
-    private fun installKoin(flow: CreatePostFlow) {
+    /**
+     * Installs the composer's full Koin graph. The image-attach deps default to a Premium viewer + a
+     * no-image FakeImagePicker + a success FakeImageUploadRepository (the gating/render tests don't exercise
+     * the upload path); tests that exercise gating pass an explicit [isPremium] / [imagePicker].
+     */
+    private fun installKoin(
+        flow: CreatePostFlow,
+        isPremium: Boolean = true,
+        imagePicker: ImagePicker = FakeImagePicker(),
+        uploader: ImageUploader = FakeImageUploadRepository(),
+    ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fakeController = FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
+        val profile =
+            FakeProfileFlow.sampleProfile(userId = "self-id", isSelf = true).copy(isPremium = isPremium)
         startKoin {
             modules(
                 module {
                     single { flow }
                     single<LocationPermissionController> { fakeController }
+                    single { imagePicker }
+                    single { uploader }
+                    single<ProfileFlow> { FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(profile)) }
+                    single<SelfUserIdProvider> { FakeSelfUserIdProvider("self-id") }
                 },
             )
         }
@@ -130,12 +158,15 @@ class PostCreationScreenTest {
     }
 
     // mobile-mockup-visual-conformance § "Location chip and privacy note are rendered with static
-    // copy only" + § "Counter renders in the bottom composer bar" + § "No attachment toolbar".
+    // copy only" + § "Counter renders in the bottom composer bar"; image-attached-posts § "A Premium
+    // image-attach affordance is rendered" (REPLACES the prior no-attachment-toolbar negative guard).
     @Test
-    fun chipAndPrivacyNote_renderStaticCopy_counterInBottomBar_noAttachmentToolbar() {
+    fun chipAndPrivacyNote_renderStaticCopy_counterInBottomBar_imageAttachAffordancePresent() {
         installKoin(FakeCreatePostFlow())
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}) } } }
+            // The attach affordance appears once the on-entry Premium gate resolves — wait for it.
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_ATTACH_IMAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
             // Chip + note render the static catalog copy (no coordinate/city — the only location
             // strings on screen are these two fixed values).
             onNodeWithText(LOCATION_CHIP).assertExists()
@@ -150,15 +181,10 @@ class PostCreationScreenTest {
                 "the counter must sit in the bottom composer bar, below the privacy note " +
                     "(counterTop=$counterTop, noteBottom=$noteBottom)",
             )
-            // Negative guard: no attachment toolbar (media is deferred to the media roadmap
-            // phase). Structural, not name-based: the ONLY clickable affordances on the composer
-            // are the content field and the Posting CTA — any toolbar icon-button would add one.
-            val clickables = onAllNodes(hasClickAction()).fetchSemanticsNodes()
-            assertTrue(
-                clickables.size <= 2,
-                "unexpected extra clickable affordance(s) on the composer — attachment toolbar " +
-                    "is deferred (found ${clickables.size} clickable nodes)",
-            )
+            // image-attached-posts: the composer now SURFACES the image-attach affordance (the activated
+            // mockup frame 6 image button) — its label + the test-tagged trigger are present.
+            onNodeWithTag(POST_ATTACH_IMAGE_TAG).assertExists()
+            onNodeWithText(ATTACH_IMAGE).assertExists()
         }
     }
 
@@ -277,6 +303,10 @@ class PostCreationScreenTest {
     fun success_doesNotRenderTheEchoedActualCoordinate() {
         // Drives the REAL repository over a MockEngine whose 201 echoes the author's actual
         // coordinate; the minimal CreatedPostDto reads only `id`, so the echo must never render.
+        // The real submit runs on viewModelScope (a real coroutine + MockEngine, async w.r.t. compose
+        // idle), so poll the CAPTURED request path directly (the PostDetailScreenTest real-repo idiom),
+        // NOT a post-response callback — then assert the echoed coordinate is absent from the tree.
+        val captured = mutableListOf<String>()
         val mockHttp =
             HttpClientFactory.create(
                 installTimeouts = false,
@@ -284,7 +314,8 @@ class PostCreationScreenTest {
                 tokenStore = InMemoryTokenStore(),
                 sessionInvalidator = SessionInvalidator(InMemoryTokenStore()),
                 engine =
-                    MockEngine {
+                    MockEngine { request ->
+                        captured.add(request.url.encodedPath)
                         respond(ECHO_COORD_201_BODY, HttpStatusCode.Created, headersOf("Content-Type", "application/json"))
                     },
                 installLogging = false,
@@ -292,25 +323,79 @@ class PostCreationScreenTest {
             )
         val granted = FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
         val repository = CreatePostRepository(PostCreationApiClient(mockHttp), StubLocationProvider(), granted)
+        val profile = FakeProfileFlow.sampleProfile(userId = "self-id", isSelf = true).copy(isPremium = true)
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         startKoin {
             modules(
                 module {
                     single<CreatePostFlow> { repository }
                     single<LocationPermissionController> { granted }
+                    // The composer's image-attach deps (the create path under test doesn't touch them).
+                    single<ImagePicker> { FakeImagePicker() }
+                    single<ImageUploader> { FakeImageUploadRepository() }
+                    single<ProfileFlow> { FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(profile)) }
+                    single<SelfUserIdProvider> { FakeSelfUserIdProvider("self-id") }
                 },
             )
         }
-        var popped = false
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = { popped = true }) } } }
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}) } } }
             onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
             onNodeWithText(CTA_POST).performClick()
-            // The REAL repository's submit is an async network call (not synchronous like the fake),
-            // so waitForIdle may return before the success pop callback fires — wait for the callback.
-            waitUntil(timeoutMillis = 5_000) { popped }
+            // Poll the captured request (generous ceiling for batch Robolectric CPU contention, #228) —
+            // proves the real DTO round-trip (the 201 echoes the coordinate) actually fired.
+            waitUntil(timeoutMillis = 30_000) { captured.contains("/api/v1/posts") }
+            waitForIdle()
+            // The echoed actual coordinate must NEVER reach the rendered tree (CreatedPostDto reads only id).
             onNodeWithText("-6.21", substring = true).assertDoesNotExist()
             onNodeWithText("106.85", substring = true).assertDoesNotExist()
+        }
+    }
+
+    // ---- image-attached-posts: the composer image-attach gate (Premium → picker; Free → upsell) ----
+
+    @Test
+    fun premiumViewer_tappingAttach_invokesThePicker() {
+        val picker = FakeImagePicker()
+        installKoin(FakeCreatePostFlow(), isPremium = true, imagePicker = picker)
+        var activatedPremium = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme { PostCreationScreen(onPostCreated = {}, onActivatePremium = { activatedPremium++ }) }
+                }
+            }
+            // The affordance appears only once the on-entry Premium gate resolves — waiting for it makes the
+            // subsequent tap deterministically dispatch the Premium branch (the ProfileScreenTest idiom for
+            // VM async state).
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_ATTACH_IMAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_ATTACH_IMAGE_TAG).performScrollTo().performClick()
+            waitForIdle()
+            assertEquals(
+                1,
+                picker.pickInvocationCount,
+                "a Premium viewer's attach invokes the OS picker (activatedPremium=$activatedPremium)",
+            )
+            assertEquals(0, activatedPremium, "a Premium viewer is NOT routed to the paywall")
+        }
+    }
+
+    @Test
+    fun freeViewer_tappingAttach_isUpsold_andPickerNotInvoked() {
+        val picker = FakeImagePicker()
+        installKoin(FakeCreatePostFlow(), isPremium = false, imagePicker = picker)
+        var activatedPremium = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme { PostCreationScreen(onPostCreated = {}, onActivatePremium = { activatedPremium++ }) }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_ATTACH_IMAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_ATTACH_IMAGE_TAG).performScrollTo().performClick()
+            waitForIdle()
+            assertEquals(0, picker.pickInvocationCount, "a Free viewer's attach must NOT invoke the picker")
+            assertEquals(1, activatedPremium, "a Free viewer is routed to the shared paywall")
         }
     }
 

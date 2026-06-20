@@ -158,7 +158,13 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // ATOP HomeRoute (the home-surface FAB), so popping it leaves HomeRoute — never an empty stack
             // (which NavDisplay would reject). No defensive size guard is added, so a future misuse that
             // makes PostCreationRoute the sole entry fails loudly rather than silently no-op'ing.
-            PostCreationScreen(onPostCreated = { backStack.removeLastOrNull() })
+            PostCreationScreen(
+                onPostCreated = { backStack.removeLastOrNull() },
+                // image-attached-posts: a Free viewer tapping the image-attach affordance routes to the
+                // shared paywall (the IMAGE_ATTACH entry-context tailors the hero), the SearchScreen /
+                // username-gate mechanism. The composer holds no back-stack reference.
+                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.IMAGE_ATTACH)) },
+            )
         }
         entry<PostDetailRoute> { route ->
             // `removeLastOrNull()` is size-safe: PostDetailRoute is only ever appended ATOP HomeRoute

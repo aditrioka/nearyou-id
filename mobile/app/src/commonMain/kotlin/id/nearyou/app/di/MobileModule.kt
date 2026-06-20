@@ -48,6 +48,7 @@ import id.nearyou.app.hidedistance.HideDistanceApiClient
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.image.ImageUploadApiClient
 import id.nearyou.app.image.ImageUploadRepository
+import id.nearyou.app.image.ImageUploader
 import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.infra.revenuecat.RevenueCatPurchaseController
 import id.nearyou.app.infra.sentry.CrashReporter
@@ -431,6 +432,10 @@ val mobileModule =
                 diagnosticLog = { status, errorCode -> sink.log("image_upload_error: status=$status code=$errorCode") },
             )
         }
+        // image-attached-posts (Phase 6) — the composer ViewModel consumes the ImageUploader seam (bound to
+        // the repository above), never the ApiClient (docs/11 §2.6). A FakeImageUploadRepository drives the
+        // composer tests through the seam (the concrete stays resolvable).
+        single<ImageUploader> { get<ImageUploadRepository>() }
 
         // mobile-premium-username-customization — the Ganti Username data seam over the SHIPPED, FROZEN
         // PATCH /api/v1/user/username + GET /api/v1/username/check endpoints (Bearer attached by the Auth

@@ -86,6 +86,40 @@ class PostCreationApiClientTest {
         assertFalse(wire.contains("\"lng\":"), wire)
     }
 
+    // image-attached-posts: image_id is included ONLY when an image is attached, and a text-only body is
+    // byte-identical to the pre-change body (the default-null image_id is omitted by the shared Json).
+    @Test
+    fun `createPost includes snake_case image_id only when an image is attached`() =
+        runTest {
+            var withImageBody = ""
+            var textOnlyBody = ""
+            val api =
+                PostCreationApiClient(
+                    client { request ->
+                        // Capture both bodies in sequence (the first call attaches an image; the second does not).
+                        val body = request.body.bodyText()
+                        if (body.contains("img-abc")) withImageBody = body else textOnlyBody = body
+                        respond("""{"id":"p1"}""", HttpStatusCode.Created, JSON_HEADERS)
+                    },
+                )
+            api.createPost(content = "halo", lat = -6.2, lng = 106.8, imageId = "img-abc")
+            api.createPost(content = "halo", lat = -6.2, lng = 106.8)
+
+            // The attached body carries the snake_case image_id wire key + value.
+            assertTrue(withImageBody.contains("\"image_id\":\"img-abc\""), "image_id must be present + snake_case: $withImageBody")
+            // The text-only body OMITS image_id entirely (byte-identical to the pre-change body).
+            assertFalse(textOnlyBody.contains("image_id"), "a text-only post must omit image_id: $textOnlyBody")
+        }
+
+    @Test
+    fun `request DTO omits image_id for a text-only post and includes it when attached`() {
+        val textOnly = Json.encodeToString(CreatePostRequestDto.serializer(), CreatePostRequestDto("halo", -6.2, 106.8))
+        assertFalse(textOnly.contains("image_id"), "a default-null image_id must be omitted: $textOnly")
+        val withImage =
+            Json.encodeToString(CreatePostRequestDto.serializer(), CreatePostRequestDto("halo", -6.2, 106.8, imageId = "abc"))
+        assertTrue(withImage.contains("\"image_id\":\"abc\""), "an attached image_id must serialize snake_case: $withImage")
+    }
+
     @Test
     fun `201 parses the id and tolerates the snake_case distance_m and created_at`() =
         runTest {
