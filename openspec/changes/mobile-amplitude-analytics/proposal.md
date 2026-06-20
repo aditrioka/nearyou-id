@@ -1,0 +1,41 @@
+## Why
+
+The mobile analytics-consent screen (`mobile-analytics-consent`, [#157](https://github.com/aditrioka/nearyou-id/pull/157)) collects a per-user `analytics` toggle that today controls **nothing** — its own spec states "*no tracking SDK reads `analytics_consent` in this change*." The crash-consent sibling was wired by `:infra:sentry` (`mobile-sentry-crash-reporting`, [#299](https://github.com/aditrioka/nearyou-id/pull/299)); the **analytics** half still dangles. This change supplies the missing consumer — a consent-gated Amplitude product-analytics tracker — closing the loop and satisfying the Pre-Launch requirement "*Analytics consent suppression tested — Amplitude opt-out silent*" (`docs/08` § Pre-Launch).
+
+A reliable consent gate needs a consent value that survives cold starts. Today the only client-side signal — the `ConsentSnapshotStore` — is **in-memory** (lost on process death) and written only by the **Settings** screen (not onboarding); there is no consent-read endpoint and sign-in/profile responses omit consent. Gating on it as-is would suppress for almost every user. So this change also lands the **durable consent persistence** that `mobile-crash-reporting` and `mobile-settings` already anticipate "consuming the same `ConsentSnapshotStore` seam" via issue [#198](https://github.com/aditrioka/nearyou-id/issues/198) — resolving #198 as the prerequisite that lets the tracker (and the crash gate) gate reliably.
+
+## What Changes
+
+- **New `:infra:amplitude` module** mirroring `:infra:sentry`'s structure: an `AnalyticsTracker` interface in `commonMain` (the vendor-free seam), a `NoOpAnalyticsTracker` default, and an `AmplitudeAnalyticsTracker` implementation that is an **Amplitude HTTP V2 API wrapper** over the already-pinned Ktor client (`docs/04` § Amplitude: "KMP integration via an HTTP API wrapper") — **no vendor SDK, no expect/actual in the transport, goal of zero new library pins**. Fail-soft: network/HTTP errors never crash or block the caller.
+- **Durable consent snapshot (resolves #198)** — replace `InMemoryConsentSnapshotStore` with a durable `ConsentSnapshotStore` via a platform `expect/actual` binding (Android DataStore / iOS `NSUserDefaults` — the same no-new-pin storage family backing `SecureTokenStore`), and make the **onboarding** `ConsentScreen` also persist the snapshot on its PATCH `200` (today only Settings does). Write semantics are unchanged — the persisted triple remains the server-echoed `200` body, **never a client guess** (`mobile-settings` hard requirement). The crash gate inherits durable cross-process decline for free (the resolution `mobile-crash-reporting` anticipated).
+- **Consent gate** — a `ConsentGatedAnalyticsTracker` decorator in `:mobile:app` reads `ConsentSnapshotStore.read()?.analytics` and **silently suppresses** (no-op, no HTTP request) when analytics is `FALSE` or the snapshot is absent (defaults to `false`). Consent is re-checked on every event fire, so a Settings toggle applies immediately to future events (`docs/06`: "Toggles apply immediately to future events").
+- **Identify + user properties** — `subscription_status`, `platform`, `install_date_bucket` (week-level only, for privacy), `city_name_at_last_post` (`docs/04` § Amplitude).
+- **Foundational event slice** wired at existing mobile call sites — `signup_completed` + core timeline (`post_created`, `post_viewed` = post-detail open, `post_liked`). All **post-authentication** (a `user_id` is always present), so no `device_id` seam is needed. The full taxonomy, the pre-auth `app_opened` event, and backend-fired security events are **explicitly deferred** (see below).
+- **Koin wiring** mirroring Sentry — `single<AnalyticsTracker> { ConsentGatedAnalyticsTracker(delegate = <amplitude-or-noop>, …) }` + an `amplitudeConfig` (API key + ingestion endpoint) like `sentryConfig`; operator-supplied key (blank in dev → `NoOp`).
+- **Module gating + docs** — `:infra:amplitude` included inside the `if (includeMobile.toBoolean())` block in `settings.gradle.kts` (like `:infra:sentry`): mobile-targeted, no JVM/backend target, therefore **no `Dockerfile` COPY** (avoids the docker-copy-vs-settings deploy footgun). Adds a `dev/module-descriptions.txt` entry + regenerates the README module list.
+
+**Explicitly deferred** (each captured as a real spec requirement with a tracking scenario, then filed as `follow-up` issues at apply time):
+- The pre-auth `app_opened` event + the `device_id` seam it requires (anonymous→identified onboarding-funnel stitching).
+- Full event taxonomy — premium (`paywall_viewed`, `subscription_purchased`, …), chat (`chat_opened`, `chat_message_sent`, …), moderation (`user_blocked`, `user_reported`).
+- Backend-fired security events (`csam_detected`, `refresh_token_reused`, `attestation_failed`, webhook-signature-fail) — would require `:infra:amplitude` to gain a JVM target + `Dockerfile` COPY; deferring keeps this change mobile-only.
+- The Amplitude funnel/dashboard embed in the admin operational dashboard (`docs/07` § Operational Dashboard).
+
+## Capabilities
+
+### New Capabilities
+- `mobile-amplitude-analytics`: a consent-gated mobile product-analytics tracker — the `AnalyticsTracker` seam, the Amplitude HTTP V2 wrapper, the silent-suppress-when-consent-off contract, identify/user-properties, a foundational post-auth event slice, and the deferral boundary for the remaining taxonomy + backend events.
+
+### Modified Capabilities
+- `mobile-analytics-consent`: the onboarding `ConsentScreen` now persists the submitted consent to the (now durable) `ConsentSnapshotStore` on PATCH `200`; the deferred "reliable consent persistence" requirement ([#198](https://github.com/aditrioka/nearyou-id/issues/198)) is resolved by durable cross-session persistence; the "no tracking SDK reads `analytics_consent`" best-effort rationale is refreshed (the tracker now gates on the durable snapshot).
+- `mobile-crash-reporting`: the absent-snapshot scenario's "before durable consent persistence lands via #198" framing is updated — durable persistence has landed, so a prior crash decline now survives process death (the opt-out default still applies only when the snapshot is genuinely absent).
+- `mobile-settings`: the "durable cross-session persistence hardening remains OUT of scope (#198)" clause is updated — durable persistence is now in scope; the write-on-`200`-echo (server-acknowledged, not client-guess) semantics are unchanged.
+
+## Impact
+
+- **New module**: `:infra:amplitude` (mobile-gated; Android + iOS targets).
+- **`:mobile:app`**: durable `ConsentSnapshotStore` `expect/actual` (replacing `InMemoryConsentSnapshotStore`); onboarding snapshot write; `ConsentGatedAnalyticsTracker` decorator; Koin wiring + `amplitudeConfig`; `AnalyticsTracker` call sites at the foundational events. iosMain gains the `NSUserDefaults` actual → the `linkDebugFrameworkIosSimulatorArm64` gate applies.
+- **`gradle/libs.versions.toml`**: goal of **zero new pins** (reuse the pinned Ktor client + `kotlinx.serialization` + the DataStore family already on the classpath for `SecureTokenStore`); WebSearch (2026-06-20) confirms the HTTP V2 wrapper is canonical, so no SDK pin is introduced.
+- **Docs**: `dev/module-descriptions.txt` + README autogen (`dev/scripts/sync-readme.sh`).
+- **No Flyway migration** (uses the existing `users.analytics_consent` JSONB via the shipped `PATCH /api/v1/user/consent` + the durable `ConsentSnapshotStore`). **No backend route changes.** Disjoint from all five in-flight backend PRs ([#353](https://github.com/aditrioka/nearyou-id/pull/353)/[#354](https://github.com/aditrioka/nearyou-id/pull/354)/[#356](https://github.com/aditrioka/nearyou-id/pull/356)/[#358](https://github.com/aditrioka/nearyou-id/pull/358)/[#360](https://github.com/aditrioka/nearyou-id/pull/360)).
+- **Resolves** [#198](https://github.com/aditrioka/nearyou-id/issues/198) (`mobile-analytics-consent-persist-hardening`) — close at apply. **Does not** touch the separate [#199](https://github.com/aditrioka/nearyou-id/issues/199) RootRouter consent re-gate (stays deferred).
+- **Operator setup** (no code dependency): an Amplitude project + ingestion API key, delivered to the mobile build like the Sentry DSN; absent key → `NoOp` (app builds + runs).
