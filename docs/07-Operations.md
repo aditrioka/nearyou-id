@@ -136,6 +136,31 @@ gcloud run services update-traffic <service> \
 
 Precedent: `health-check-endpoints` (PR #54) § 11.5 negative-smoke hit this on the broken-Redis revision sequence; recovery from `00049-bsx` to `00053-n6v` required the `--to-latest` release.
 
+### Internal worker schedules (Cloud Scheduler)
+
+Every `/internal/*` job worker is **inert until a Cloud Scheduler job invokes it** — the route mounts at deploy time but nothing calls it on a cadence until the operator provisions the schedule. Each job authenticates with a **Google OIDC identity token** whose `audience` matches the internal-endpoint OIDC audience (`INTERNAL_OIDC_AUDIENCE`, the service URL); no new secret slots are required — the schedule reuses the existing OIDC audience binding.
+
+| Worker | Endpoint | Cadence |
+|--------|----------|---------|
+| Suspension unban | `POST /internal/unban-worker` | daily |
+| Privacy flip | `POST /internal/privacy-flip-worker` | hourly |
+| Account hard delete | `POST /internal/account-hard-delete-worker` | daily |
+| **Retention cleanup** (`scheduled-retention-cleanup`) | `POST /internal/cleanup` | **daily** |
+
+The **retention cleanup** job runs all three retention sweeps (refresh tokens, notifications, stale FCM tokens) on **one** daily schedule (design D2 — a single Scheduler job, not a daily+weekly split). Provision it like the sibling workers:
+
+```bash
+gcloud scheduler jobs create http retention-cleanup \
+    --location=<region> \
+    --schedule="0 3 * * *" \
+    --uri="https://<service-host>/internal/cleanup" \
+    --http-method=POST \
+    --oidc-service-account-email=<scheduler-invoker-sa> \
+    --oidc-token-audience="$INTERNAL_OIDC_AUDIENCE"
+```
+
+Rollback: pause or delete the job (`gcloud scheduler jobs pause|delete retention-cleanup`) and the worker goes inert. No schema to undo; the deleted rows were already past their written retention window.
+
 ---
 
 ## Secret Management Runbook
