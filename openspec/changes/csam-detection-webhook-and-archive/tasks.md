@@ -12,31 +12,31 @@
 
 ## 3. AES-256-GCM encryption helper
 
-- [ ] 3.1 Add a JDK `javax.crypto` AES-256-GCM helper (alongside the existing HMAC/jitter crypto utilities — no `:infra:*` module, no `libs.versions.toml` change) reading the key via `secretKey(env, "csam-archive-aes-key")`.
-- [ ] 3.2 Make it **fail-soft**: a missing/unprovisioned key slot returns a NoOp encryptor (encrypt → `null` ciphertext) without throwing, mirroring `:infra:cloud-vision`/`:infra:cloudflare-images`.
-- [ ] 3.3 Provide the matching decrypt (used only by the deferred admin viewer + by round-trip tests here); encrypt and decrypt round-trip byte-for-byte with the same key.
+- [x] 3.1 Add a JDK `javax.crypto` AES-256-GCM helper (alongside the existing HMAC/jitter crypto utilities — no `:infra:*` module, no `libs.versions.toml` change) reading the key via `secretKey(env, "csam-archive-aes-key")`.
+- [x] 3.2 Make it **fail-soft**: a missing/unprovisioned key slot returns a NoOp encryptor (encrypt → `null` ciphertext) without throwing, mirroring `:infra:cloud-vision`/`:infra:cloudflare-images`.
+- [x] 3.3 Provide the matching decrypt (used only by the deferred admin viewer + by round-trip tests here); encrypt and decrypt round-trip byte-for-byte with the same key.
 
 ## 4. Archive repository
 
-- [ ] 4.1 `CsamArchiveRepository.archive(...)` — `INSERT ... ON CONFLICT (image_hash) DO UPDATE` that **enriches** `cf_match_id` (and other newly-supplied NULLs) **without** resetting `source`/`created_at`; set `expires_at = created_at + INTERVAL '90 days'`, `kominfo_reported_at = NULL`.
-- [ ] 4.2 `CsamArchiveRepository.purgeExpiredReported()` — `DELETE WHERE expires_at < NOW() AND kominfo_reported_at IS NOT NULL` (NOW() in a DELETE WHERE is allowed; only partial-INDEX WHERE forbids it).
-- [ ] 4.3 Uploader/post resolution helper over the `image_uploads` ledger (`cf_image_id → uploader_user_id`); the resolution **reads** (`FROM image_uploads` → `users`/`posts`) carry `@AllowMissingBlockJoin("<reason>")` (`BlockExclusionJoinRule`, internal-worker no-viewer path — annotate the SQL-holding property). The ban/tombstone **writes** need NO lint annotation (`RawFromPostsRule` is `FROM posts`-reads-only, inert on writes + on `users`; the `ReportResolutionRepository` `UPDATE users SET is_banned` precedent carries none).
+- [x] 4.1 `CsamArchiveRepository.archive(...)` — `INSERT ... ON CONFLICT (image_hash) DO UPDATE` that **enriches** `cf_match_id` (and other newly-supplied NULLs) **without** resetting `source`/`created_at`; set `expires_at = created_at + INTERVAL '90 days'`, `kominfo_reported_at = NULL`.
+- [x] 4.2 `CsamArchiveRepository.purgeExpiredReported()` — `DELETE WHERE expires_at < NOW() AND kominfo_reported_at IS NOT NULL` (NOW() in a DELETE WHERE is allowed; only partial-INDEX WHERE forbids it).
+- [x] 4.3 Uploader/post resolution helper over the `image_uploads` ledger (`cf_image_id → uploader_user_id`); the resolution **reads** (`FROM image_uploads` → `users`/`posts`) carry `@AllowMissingBlockJoin("<reason>")` (`BlockExclusionJoinRule`, internal-worker no-viewer path — annotate the SQL-holding property). The ban/tombstone **writes** need NO lint annotation (`RawFromPostsRule` is `FROM posts`-reads-only, inert on writes + on `users`; the `ReportResolutionRepository` `UPDATE users SET is_banned` precedent carries none).
 
 ## 5. Takedown service (atomic)
 
-- [ ] 5.1 `CsamService.handleDetection(...)` runs the fixed-policy sequence in **one transaction**: resolve uploader+post via the ledger → tombstone the affected post (`posts.deleted_at`) → permanent-ban uploader (`is_banned = TRUE`, `suspended_until` NULL, `token_version + 1`) → cascade-tombstone the uploader's other posts → archive (plaintext essentials + AES-GCM `encrypted_metadata`, with the uploader id captured **synchronously into the encrypted blob within this tx** — the `image_uploads` ledger row is `ON DELETE CASCADE` to users, so it is gone after the uploader's hard-delete and MUST NOT be re-resolved later) → enqueue `moderation_queue` `trigger = 'csam_detected'`, `target_type = 'post'`, `ON CONFLICT (target_type, target_id, trigger) DO NOTHING`.
-- [ ] 5.2 Idempotency: re-trigger for an already-actioned image creates no second archive row (UNIQUE) and does not destructively re-ban; converges + returns success.
-- [ ] 5.3 Ledger-miss resilience: when `image_id` has no ledger row, still archive the match metadata (Kominfo record) and return success without throwing; skip only the uploader-dependent steps.
-- [ ] 5.4 Audit attribution: write immutable `admin_actions_log` rows per mutation — `cf_worker` source → `system` sentinel admin id (`system-actor`); `admin_manual` source → the acting admin's id.
+- [x] 5.1 `CsamService.handleDetection(...)` runs the fixed-policy sequence in **one transaction**: resolve uploader+post via the ledger → tombstone the affected post (`posts.deleted_at`) → permanent-ban uploader (`is_banned = TRUE`, `suspended_until` NULL, `token_version + 1`) → cascade-tombstone the uploader's other posts → archive (plaintext essentials + AES-GCM `encrypted_metadata`, with the uploader id captured **synchronously into the encrypted blob within this tx** — the `image_uploads` ledger row is `ON DELETE CASCADE` to users, so it is gone after the uploader's hard-delete and MUST NOT be re-resolved later) → enqueue `moderation_queue` `trigger = 'csam_detected'`, `target_type = 'post'`, `ON CONFLICT (target_type, target_id, trigger) DO NOTHING`.
+- [x] 5.2 Idempotency: re-trigger for an already-actioned image creates no second archive row (UNIQUE) and does not destructively re-ban; converges + returns success.
+- [x] 5.3 Ledger-miss resilience: when `image_id` has no ledger row, still archive the match metadata (Kominfo record) and return success without throwing; skip only the uploader-dependent steps.
+- [x] 5.4 Audit attribution: write immutable `admin_actions_log` rows per mutation — `cf_worker` source → `system` sentinel admin id (`system-actor`); `admin_manual` source → the acting admin's id.
 
 ## 6. Routes + auth
 
-- [ ] 6.1 `POST /internal/csam-webhook` — mount **outside** the `InternalEndpointAuth` OIDC plugin (vendor-webhook opt-out seam, RevenueCat/Apple-S2S precedent); parse/validate the payload (reject missing `image_hash` → `400`).
-- [ ] 6.2 Admin-internal auth path — reuse the existing `/admin/*` `AdminCsrfGate` + admin-session seam (`__Host-admin_session` cookie + `csrf_token_hash`; do NOT hand-roll a second CSRF check); require a valid admin session + matching CSRF token AND role-gate to `owner`/`admin` (read-only admin rejected, parity with destructive admin actions); reject a CSRF token bound to a different session.
-- [ ] 6.3 CF-Worker auth path — verify **both** a `Bearer` token and an `HMAC-SHA256` body signature keyed by `secretKey(env, "cf-worker-csam-secret")`; reject if either is missing/invalid.
-- [ ] 6.4 CF-Worker rate limit — 100/hour per `clientIp` via `tryAcquireByKey` on key `{scope:csam_webhook}:{ip:<clientIp>}` (two-segment hash-tag; `clientIp` request-context value, never raw `X-Forwarded-For`).
-- [ ] 6.5 `POST /internal/csam-archive-purge` — mount **inside** the OIDC plugin (ordinary scheduled worker); call `purgeExpiredReported()`.
-- [ ] 6.6 Koin DI wiring (service/repository/encryptor/rate-limiter) + register both routes; one shared `Json`, bounded JDBC dispatcher, StatusPages envelope (per docs/11 §3).
+- [x] 6.1 `POST /internal/csam-webhook` — mount **outside** the `InternalEndpointAuth` OIDC plugin (vendor-webhook opt-out seam, RevenueCat/Apple-S2S precedent); parse/validate the payload (reject missing `image_hash` → `400`).
+- [x] 6.2 Admin-internal auth path — reuse the existing `/admin/*` `AdminCsrfGate` + admin-session seam (`__Host-admin_session` cookie + `csrf_token_hash`; do NOT hand-roll a second CSRF check); require a valid admin session + matching CSRF token AND role-gate to `owner`/`admin` (read-only admin rejected, parity with destructive admin actions); reject a CSRF token bound to a different session.
+- [x] 6.3 CF-Worker auth path — verify **both** a `Bearer` token and an `HMAC-SHA256` body signature keyed by `secretKey(env, "cf-worker-csam-secret")`; reject if either is missing/invalid.
+- [x] 6.4 CF-Worker rate limit — 100/hour per `clientIp` via `tryAcquireByKey` on key `{scope:csam_webhook}:{ip:<clientIp>}` (two-segment hash-tag; `clientIp` request-context value, never raw `X-Forwarded-For`).
+- [x] 6.5 `POST /internal/csam-archive-purge` — mount **inside** the OIDC plugin (ordinary scheduled worker); call `purgeExpiredReported()`.
+- [x] 6.6 Koin DI wiring (service/repository/encryptor/rate-limiter) + register both routes; one shared `Json`, bounded JDBC dispatcher, StatusPages envelope (per docs/11 §3).
 
 ## 7. Tests (one per spec scenario — no coverage compression)
 
