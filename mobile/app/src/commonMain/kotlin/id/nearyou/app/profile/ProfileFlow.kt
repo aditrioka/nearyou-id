@@ -1,5 +1,8 @@
 package id.nearyou.app.profile
 
+import id.nearyou.app.data.report.ReportOutcome
+import id.nearyou.app.data.report.ReportReasonCategory
+
 /**
  * The display + action model of a user profile (the domain projection the screen renders). Compose-free
  * and PII-safe-by-rendering: [userId] is retained ONLY as the follow/block/report action target and the
@@ -66,22 +69,6 @@ sealed interface BlockOutcome {
     data class RateLimited(val retryAfterSeconds: Long) : BlockOutcome
 
     data object NetworkError : BlockOutcome
-}
-
-/**
- * A report maps to EXACTLY one member. `204` → [Submitted]; `409 duplicate_report` → [Duplicate] (the
- * SHIPPED code — NOT the stale `reports.duplicate` in the reports-spec purpose line); `429` →
- * [RateLimited]; `5xx`/transport/any other → [NetworkError]. (`self_report_rejected` is unreachable — no
- * kebab on the self read.)
- */
-sealed interface ReportOutcome {
-    data object Submitted : ReportOutcome
-
-    data object Duplicate : ReportOutcome
-
-    data class RateLimited(val retryAfterSeconds: Long) : ReportOutcome
-
-    data object NetworkError : ReportOutcome
 }
 
 /**
