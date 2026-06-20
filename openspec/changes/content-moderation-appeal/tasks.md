@@ -6,9 +6,9 @@
 
 ## 2. Auth — ban-exempt realm (MODIFIED auth-jwt) + appeal token (MODIFIED auth-signin)
 
-- [ ] 2.1 Factor the auth-jwt validate logic so the per-request `users`-row SELECT + `token_version` + soft-delete (`deleted_at`) checks are reused; add a dedicated named "appeal" realm that skips ONLY the `is_banned` / `suspended_until` 403 short-circuit (design D1), keeping the `token_version` + soft-delete + signature gates.
-- [ ] 2.2 Confine limited tokens: every standard (non-appeal) realm MUST reject a token bearing `scope = "appeal"` with 401 `token_revoked` (design D2). Standard realm's `is_banned`/`suspended_until` behavior otherwise unchanged.
-- [ ] 2.3 MODIFY the sign-in path (`auth-signin`): a banned/suspended sign-in (currently 403 `account_banned`, no tokens) additionally returns a limited-scope `appeal_token` (RS256; `sub`; current `token_version`; `scope = "appeal"`; ≤1h TTL) in the 403 body — NO normal access/refresh token, no `refresh_tokens` row (design D2). Reuse the existing RS256 issuance.
+- [x] 2.1 Factor the auth-jwt validate logic so the per-request `users`-row SELECT + `token_version` + soft-delete (`deleted_at`) checks are reused; add a dedicated named "appeal" realm that skips ONLY the `is_banned` / `suspended_until` 403 short-circuit (design D1), keeping the `token_version` + soft-delete + signature gates.
+- [x] 2.2 Confine limited tokens: every standard (non-appeal) realm MUST reject a token bearing `scope = "appeal"` with 401 `token_revoked` (design D2). Standard realm's `is_banned`/`suspended_until` behavior otherwise unchanged.
+- [x] 2.3 MODIFY the sign-in path (`auth-signin`): a banned/suspended sign-in (currently 403 `account_banned`, no tokens) additionally returns a limited-scope `appeal_token` (RS256; `sub`; current `token_version`; `scope = "appeal"`; ≤1h TTL) in the 403 body — NO normal access/refresh token, no `refresh_tokens` row (design D2). Reuse the existing RS256 issuance.
 - [ ] 2.4 Tests: appeal-realm route authenticates a banned subject holding a valid appeal token; stale `token_version` → 401 `token_revoked`; no-token/invalid-sig → 401, no principal; soft-deleted subject → 401; a `scope = "appeal"` token on a standard route → 401 `token_revoked`; sign-in for a banned user returns an `appeal_token` + inserts no `refresh_tokens` row; sign-in for a non-banned user is unchanged (200 + normal tokens).
 
 ## 3. Backend — appeal capability (`appeal` package)
