@@ -40,7 +40,7 @@ The backend SHALL expose `POST /internal/csam-webhook` which, on a verified invo
 3. **Permanently ban the uploader** — set `users.is_banned = TRUE`, leave `suspended_until` NULL (permanent), and increment `users.token_version` (invalidating live sessions).
 4. **Cascade-tombstone the uploader's other posts** — set `deleted_at` on all of the uploader's remaining posts (abundance of caution).
 5. **Archive** the match metadata into `csam_detection_archive` (plaintext essentials + AES-256-GCM `encrypted_metadata`), with `expires_at = created_at + 90 days` and `kominfo_reported_at = NULL` (pending).
-6. **Enqueue admin awareness** — insert a `moderation_queue` row with `trigger = 'csam_detected'` (the enum value reserved at V9; no schema change) for the affected target.
+6. **Enqueue admin awareness** — insert a `moderation_queue` row with `trigger = 'csam_detected'` (the enum value reserved at V9; no schema change) for the affected post (`target_type = 'post'`, `target_id` = the affected post id), idempotent via the `(target_type, target_id, trigger)` UNIQUE (`ON CONFLICT DO NOTHING`).
 
 The endpoint SHALL be **idempotent**: a re-trigger for an already-actioned image MUST NOT create duplicate archive rows, re-ban an already-banned user destructively, or error — it converges on the same end state and returns success.
 
@@ -50,7 +50,7 @@ The endpoint SHALL be **idempotent**: a re-trigger for an already-actioned image
 
 #### Scenario: Re-trigger is idempotent
 - **WHEN** `POST /internal/csam-webhook` is invoked twice for the same matched image
-- **THEN** the second invocation creates no second `csam_detection_archive` row (UNIQUE(image_hash)), leaves the already-banned uploader banned (no destructive re-ban), and returns success
+- **THEN** the second invocation creates no second `csam_detection_archive` row (UNIQUE(image_hash)), enqueues no duplicate `moderation_queue` row (the `(target_type, target_id, 'csam_detected')` UNIQUE / `ON CONFLICT DO NOTHING` collapses it), leaves the already-banned uploader banned (no destructive re-ban), and returns success
 
 #### Scenario: Matched image not resolvable in the ledger
 - **WHEN** the matched `image_id` has no `image_uploads` row (already-cleaned or stale) AND the request still carries a valid `image_hash`
