@@ -23,7 +23,7 @@ Referral ticket creation shipped (`referral-ticket-creation`, V23, [PR #327](htt
 ## Impact
 
 - **`:backend:ktor`** — new referral worker route + service + repository (docs/11 §3 backend layering); MODIFY the RevenueCat webhook `GRANT` branch; the worker mounts under the existing `/internal/*` OIDC middleware.
-- **`:infra:revenuecat`** — add the outbound Granted Entitlements API client (a new outbound surface on the existing module; no vendor SDK import escapes `:infra:*`).
+- **`:infra:revenuecat-api`** (NEW JVM module) — the outbound RevenueCat v1 promotional-grant REST client (raw Ktor client behind a `ReferralEntitlementGranter` interface + fail-soft NoOp; mirrors `:infra:cloud-vision`). *Apply-time correction:* the existing `:infra:revenuecat` is a mobile-only KMP module, so the backend client needs its own JVM module — adds a `settings.gradle.kts` include + Dockerfile COPY + README sync.
 - **DB** — one Flyway migration **V29** (`granted_entitlements` + `granted_entitlements_inviter_once_idx` partial-unique). Reuses `referral_tickets` (V23, whose `granted`/`expired` status values + scan indexes are already reserved), `subscription_events` (V21, `source` already accepts `'referral'`), and `users.inviter_reward_claimed_at` (V2 sentinel).
 - **Secrets** — a RevenueCat REST API key slot, read via the `secretKey(env, name)` helper only.
 - **Ops** — a new Cloud Scheduler job invoking `/internal/referral-activity-check` (prod provisioning task; does not block the squash-merge).

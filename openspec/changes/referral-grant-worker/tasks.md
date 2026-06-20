@@ -9,12 +9,17 @@
 - [ ] 2.2 Verify the migration applies on a **fresh** PostGIS container + `flyway validate` green (disposable container — avoid dev-DB seed-pollution false-fails).
 - [ ] 2.3 `dev/supabase-parity-init.sql`: N/A — the migration assumes no new Supabase-provided state; confirm and note.
 
-## 3. `:infra:revenuecat` — outbound promotional-grant client
+## 3. `:infra:revenuecat-api` — NEW JVM module for the outbound promotional-grant client
 
-- [ ] 3.1 Define the grant seam interface (e.g. `ReferralEntitlementGranter`) on the `:infra:revenuecat` API surface — the abstraction the worker depends on; **no RevenueCat vendor type may appear in `:backend:ktor`** (vendor-SDK-isolation invariant).
-- [ ] 3.2 Implement the v1 promotional-entitlement client (raw Ktor client — RevenueCat has no JVM SDK, the `:infra:cloudflare-images` no-SDK precedent); read the secret API key **only** via `secretKey(env, "revenuecat-secret-api-key")`; send the `dedup_key`; accept the pre-computed absolute entitlement window from the caller.
-- [ ] 3.3 Fail-soft `NoOp` implementation when the API key is unset (`NoOpImageModerator` precedent): logs the un-dispatched grant, returns a no-op result, never throws.
-- [ ] 3.4 Koin wiring: bind the interface to the live client when the key is present, the NoOp otherwise.
+> **Apply-time correction (operator-approved 2026-06-20):** design originally targeted `:infra:revenuecat`, but that is a mobile-only KMP module (#309 paywall SDK, no JVM target) → the backend can't depend on it, and `VendorSdkLeakageScan` forbids the client in `:backend:ktor`. A backend outbound vendor REST client is a JVM `:infra:*` module (the `:infra:cloud-vision` / `:infra:cloudflare-images` / `:infra:openai-moderation` precedent).
+
+- [ ] 3.1 Scaffold the new JVM module mirroring `:infra:cloud-vision`: `infra/revenuecat-api/build.gradle.kts` (`id("nearyou.kotlin.jvm")` + `nearyou.detekt` + kotlinxSerialization; deps `ktor.clientCore` + `ktor.clientApache5` + `kotlinx.serialization.json` + `slf4j.api`; test deps `kotest` + `ktor.clientMock`). Add `include(":infra:revenuecat-api")` to `settings.gradle.kts` **outside** the `includeMobile` block (backend, non-gated).
+- [ ] 3.2 Dockerfile COPY lines (mirror cloud-vision): `COPY infra/revenuecat-api/build.gradle.kts …` + `COPY infra/revenuecat-api/src …`; run `dev/scripts/check-dockerfile-module-copies.sh` — a non-gated backend `include()` missing from the Dockerfile breaks every staging/prod deploy silently while CI stays green.
+- [ ] 3.3 README sync: add a one-line entry to `dev/module-descriptions.txt`, run `dev/scripts/sync-readme.sh --write`.
+- [ ] 3.4 Define the vendor-free seam interface `ReferralEntitlementGranter` in the module (the worker depends on this; **no RevenueCat vendor/HTTP-client symbol in `:backend:ktor`**); backend depends via the type-safe accessor `projects.infra.revenuecatApi`.
+- [ ] 3.5 Implement the live v1 client (raw Ktor client; `POST /v1/subscribers/{app_user_id}/entitlements/{entitlement_id}/promotional`, secret API key via `secretKey(env, "revenuecat-secret-api-key")`, absolute `end_time_ms`, `dedup_key`; entitlement id `premium`).
+- [ ] 3.6 Fail-soft `NoOpReferralEntitlementGranter` when the API key is unset (`NoOpImageModerator` precedent): logs the un-dispatched grant, returns a no-op result, never throws.
+- [ ] 3.7 Wire into `Application.kt` (imperative construction — the app uses no Koin): live client when the key resolves, NoOp otherwise.
 
 ## 4. Worker — route + service + repository (`:backend:ktor`)
 
@@ -51,7 +56,7 @@
 
 - [ ] 7.1 Local gate green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
 - [ ] 7.2 Annotations verified: `@AllowRawPostsRead` + `@AllowMissingBlockJoin` (or an own-content filename prefix) on the invitee post-count SQL — **NOT** the chat-only `@allow-no-block-exclusion` marker; `secretKey(env,name)` for the RC key; no vendor import outside `:infra:*`; no `NOW()` in any V29 index predicate.
-- [ ] 7.3 Doc-drift guards: no new module added (`:infra:revenuecat` already exists) → `sync-readme.sh` + `check-dockerfile-module-copies.sh` are N/A; confirm both report clean.
+- [ ] 7.3 Doc-drift guards: the new `:infra:revenuecat-api` module IS added → confirm `dev/scripts/sync-readme.sh --check` passes (after task 3.3's `--write`) AND `dev/scripts/check-dockerfile-module-copies.sh` passes (after task 3.2's COPY lines).
 
 ## 8. Staging smoke + deploy (pre-archive)
 

@@ -114,11 +114,11 @@ A Flyway migration SHALL create the `granted_entitlements` table with: `id UUID 
 
 ### Requirement: Grant dispatch goes through the :infra:revenuecat client and fails soft
 
-The worker SHALL dispatch promotional-entitlement grants via a client in `:infra:revenuecat` (no RevenueCat vendor type imported in `:backend:ktor`); the RevenueCat secret API key SHALL be read only through the `secretKey(env, name)` helper. When the API key is unset (an un-provisioned environment), the client SHALL fail soft — the worker still writes the `granted_entitlements` ledger and flips the ticket to `granted`, logs the un-dispatched grant, and does not throw (the `NoOpImageModerator` precedent). The worker SHALL NOT write `users.subscription_status`; that column is applied by the `subscription-billing-webhook` capability's `GRANT` handler when RevenueCat echoes the grant.
+The worker SHALL dispatch promotional-entitlement grants via a client in `:infra:revenuecat-api` (no RevenueCat vendor type imported in `:backend:ktor`); the RevenueCat secret API key SHALL be read only through the `secretKey(env, name)` helper. When the API key is unset (an un-provisioned environment), the client SHALL fail soft — the worker still writes the `granted_entitlements` ledger and flips the ticket to `granted`, logs the un-dispatched grant, and does not throw (the `NoOpImageModerator` precedent). The worker SHALL NOT write `users.subscription_status`; that column is applied by the `subscription-billing-webhook` capability's `GRANT` handler when RevenueCat echoes the grant.
 
 #### Scenario: Grant is dispatched through the infra client
 - **WHEN** a grant is effected with a configured RevenueCat API key
-- **THEN** the promotional-entitlement grant is sent through the `:infra:revenuecat` client (no vendor type appears in `:backend:ktor`) AND the key was read via `secretKey(env, name)`
+- **THEN** the promotional-entitlement grant is sent through the `:infra:revenuecat-api` client (no vendor type appears in `:backend:ktor`) AND the key was read via `secretKey(env, name)`
 
 #### Scenario: Unset API key fails soft to ledger-only
 - **WHEN** a grant is effected in an environment where the RevenueCat API key is unset
