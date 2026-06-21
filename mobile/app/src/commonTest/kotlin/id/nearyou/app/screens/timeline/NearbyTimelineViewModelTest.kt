@@ -335,6 +335,26 @@ class NearbyTimelineViewModelTest {
         // The 403 is interpreted in the VM; the outcome stays a normal Loaded (the 20 km re-fetch).
         assertTrue(viewModel.outcome.value is NearbyTimelineOutcome.Loaded, "no new NearbyTimelineOutcome member; the 20 km re-fetch lands")
     }
+
+    @Test
+    fun loadMore_reusesTheSelectedNonDefaultRadius() {
+        // A Premium selection at 50 km whose first page carries a cursor, so a load-more is possible.
+        val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
+        fake.changeRadiusResult =
+            RadiusChangeResult.Loaded(
+                NearbyTimelineOutcome.Loaded(
+                    posts = listOf(fakeNearbyPost(id = "p1")),
+                    nextCursor = "c1",
+                    upsell = null,
+                    anchor = LatLng(-6.2, 106.8),
+                ),
+            )
+        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), premiumProfile(), FakeSelfUserId("self"))
+        viewModel.selectRadius(50_000)
+        assertEquals(50_000, viewModel.selectedRadiusM.value, "the Premium 50 km selection is adopted")
+        viewModel.onLoadMore()
+        assertEquals(listOf(50_000), fake.loadMoreRadii, "load-more reuses the selected 50 km radius, not the 20 km default")
+    }
 }
 
 /** Minimal shared commonTest [SelfUserIdProvider] (the `screens.username` fixture is package-private).

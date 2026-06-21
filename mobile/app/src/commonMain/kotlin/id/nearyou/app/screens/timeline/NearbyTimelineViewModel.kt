@@ -198,7 +198,10 @@ class NearbyTimelineViewModel(
      *  radius (re)loads page 1; a Free/unknown viewer choosing a Premium-only radius keeps 20 km AND
      *  raises the upsell one-shot (no fetch issued). */
     fun selectRadius(radiusM: Int) {
-        // The slider is inert during the initial load or an in-flight reload (one fetch at a time).
+        // The slider is inert during the initial load or an in-flight reload (one fetch at a time). The
+        // guard is race-free because viewModelScope dispatches Dispatchers.Main.immediate: changeRadiusAndReload
+        // sets _isRefreshing = true synchronously (before the first suspension) so a second rapid selectRadius
+        // sees it set — the same reentrancy discipline reload() relies on.
         if (_isInitialLoad.value || _isRefreshing.value) return
         when (val decision = radiusSelectionDecision(_isPremiumKnown.value, radiusM)) {
             is RadiusSelectionDecision.Apply -> {
