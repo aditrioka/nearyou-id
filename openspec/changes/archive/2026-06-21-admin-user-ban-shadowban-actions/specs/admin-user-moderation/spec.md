@@ -204,7 +204,7 @@ A successful permanent ban SHALL insert exactly one `account_action_applied` not
 - **WHEN** the client sends `POST /admin/users/{id}/shadow-unban`
 - **THEN** NO notification SHALL be inserted for the target
 
-### Requirement: The state change, its audit row, and its notification commit atomically
+### Requirement: Each new action's state change, audit row, and notification commit atomically
 
 Each new action's `users` update, its `admin_actions_log` row, and (for permanent ban) its notification SHALL commit together in one transaction. If the audit insert (or, for ban, the notification insert) fails, the `users` update SHALL roll back so no partial state is observable.
 
