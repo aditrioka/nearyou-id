@@ -239,7 +239,7 @@ class ResendEmailSenderTest : StringSpec({
 
     // emailSenderModule binds NoOp when the slot is unset/blank (boot-safe), real sender when set.
     "emailSenderModule binds NoOp when the resend-api-key slot is blank" {
-        val mod = emailSenderModule(env = "dev") { _ -> null }
+        val mod = emailSenderModule { _ -> null }
         val app = org.koin.core.context.startKoin { modules(mod) }
         try {
             app.koin.get<EmailSender>().isConfigured().shouldBeFalse()
@@ -248,12 +248,13 @@ class ResendEmailSenderTest : StringSpec({
         }
     }
 
-    "emailSenderModule binds a configured sender when the slot resolves; slot names match secretKey convention" {
-        // dev env → slot `resend-api-key`; staging → `staging-resend-api-key` (mirrors secretKey).
-        resendApiKeySlot("dev") shouldBe "resend-api-key"
-        resendApiKeySlot("staging") shouldBe "staging-resend-api-key"
+    "emailSenderModule resolves the UNPREFIXED base slot name and binds a configured sender" {
+        // Resolves the unprefixed logical name `resend-api-key` (env var RESEND_API_KEY);
+        // the env-specific Secret Manager slot (`staging-resend-api-key`) is mapped onto that
+        // env var by the deploy `--set-secrets`, NOT composed in code.
+        ResendConfig.SLOT_API_KEY shouldBe "resend-api-key"
 
-        val mod = emailSenderModule(env = "dev") { slot -> if (slot == "resend-api-key") "re_live_key" else null }
+        val mod = emailSenderModule { slot -> if (slot == "resend-api-key") "re_live_key" else null }
         val app = org.koin.core.context.startKoin { modules(mod) }
         try {
             app.koin.get<EmailSender>().isConfigured().shouldBeTrue()

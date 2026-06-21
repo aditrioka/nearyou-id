@@ -18,8 +18,9 @@ import kotlin.time.Duration.Companion.hours
  *   (no throw) and `presignedGetUrl` raises the defined [ObjectStoreUnconfiguredException]
  *   (a defined "unconfigured" outcome, not an unhandled crash).
  * - "Credentials resolved via the secret helper" — [R2Config.fromSecrets] reads every
- *   credential through the injected `resolveSecret` lambda using the env-namespaced slot
- *   names ([r2SecretSlot]); unset slots → blank → `isComplete()` false → no-op binding.
+ *   credential through the injected `resolveSecret` lambda using the UNPREFIXED base slot
+ *   names (the env-specific Secret Manager slot is wired by the deploy `--set-secrets`,
+ *   not composed in code); unset slots → blank → `isComplete()` false → no-op binding.
  *
  * Deferred to the parent's integration tests (need a local S3 mock — e.g. LocalStack /
  * MinIO / s3mock — exercising a real [R2ObjectStore] against an S3 endpoint), since they
@@ -81,7 +82,7 @@ class R2ObjectStoreTest : StringSpec({
 
     // --- config resolution via the secret helper ---
 
-    "fromSecrets reads every credential through the resolver using base slot names (non-staging)" {
+    "fromSecrets reads every credential through the resolver using the UNPREFIXED base slot names" {
         val seen = mutableListOf<String>()
         val resolver: (String) -> String? = { slot ->
             seen += slot
@@ -93,40 +94,18 @@ class R2ObjectStoreTest : StringSpec({
             )[slot]
         }
 
-        val config = R2Config.fromSecrets("production", resolver)
+        val config = R2Config.fromSecrets(resolver)
 
         config shouldBe R2Config(accountId = "acct", accessKeyId = "ak", secretAccessKey = "sk", bucket = "bkt")
         config.isComplete().shouldBeTrue()
+        // Resolves the UNPREFIXED names — the env-specific Secret Manager slot (`staging-…`) is
+        // mapped onto these env vars by the deploy `--set-secrets`, NOT composed in code.
         seen shouldBe listOf("r2-account-id", "r2-access-key-id", "r2-secret-access-key", "r2-export-bucket")
     }
 
-    "fromSecrets applies the staging slot prefix (mirrors secretKey)" {
-        val seen = mutableListOf<String>()
-        val resolver: (String) -> String? = { slot ->
-            seen += slot
-            null
-        }
-
-        R2Config.fromSecrets("staging", resolver)
-
-        seen shouldBe
-            listOf(
-                "staging-r2-account-id",
-                "staging-r2-access-key-id",
-                "staging-r2-secret-access-key",
-                "staging-r2-export-bucket",
-            )
-    }
-
     "fromSecrets yields an incomplete config when slots are unset (fail-soft path)" {
-        val config = R2Config.fromSecrets("dev") { null }
+        val config = R2Config.fromSecrets { null }
         config.isComplete().shouldBeFalse()
         objectStore(config).isConfigured().shouldBeFalse()
-    }
-
-    "r2SecretSlot prefixes only in staging" {
-        r2SecretSlot("staging", "r2-account-id") shouldBe "staging-r2-account-id"
-        r2SecretSlot("production", "r2-account-id") shouldBe "r2-account-id"
-        r2SecretSlot("dev", "r2-account-id") shouldBe "r2-account-id"
     }
 })

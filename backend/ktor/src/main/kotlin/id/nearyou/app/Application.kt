@@ -443,10 +443,16 @@ fun Application.module() {
     // ktorEnv is declared here (the earliest secret-slot-deriving consumer) and reused
     // throughout the file below (moderation pipeline, FCM, chat-realtime, image delivery).
     val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
-    val objectStore: ObjectStore = objectStore(R2Config.fromSecrets(ktorEnv, secrets::resolve))
+    val objectStore: ObjectStore = objectStore(R2Config.fromSecrets(secrets::resolve))
     val emailSender: EmailSender =
         emailSender(
-            ResendConfig(apiKey = secrets.resolve(secretKey(ktorEnv, "resend-api-key")).orEmpty()),
+            ResendConfig(
+                apiKey = secrets.resolve("resend-api-key").orEmpty(),
+                // Staging recipient guard (docs/10 §3.9): redirect ALL mail to Resend's
+                // always-delivered test inbox so a synthetic/stale staging user can't email a
+                // real address. Null in production → real recipient.
+                recipientOverride = if (ktorEnv == "staging") "delivered@resend.dev" else null,
+            ),
         )
     // Graceful-stop: release the R2 S3 client's HTTP engine + the Resend Ktor client's
     // connection pool on SIGTERM/deploy (mirrors the OTel `ApplicationStopped` hook above).
@@ -457,7 +463,7 @@ fun Application.module() {
     }
     // Server-keyed peer-id HMAC for the scope-matrix gather (dev/test default when the slot is
     // un-provisioned, so offline gather works; staging/prod resolve a real secret).
-    val peerIdHasher = PeerIdHasher.fromSecret(secrets.resolve(secretKey(ktorEnv, "export-peer-hash-secret")))
+    val peerIdHasher = PeerIdHasher.fromSecret(secrets.resolve("export-peer-hash-secret"))
     val dataExportRequestRepository = DataExportRequestRepository(dataSource, dbDispatchers.db)
     val dataExportGatherRepository = DataExportGatherRepository(dataSource, peerIdHasher, dbDispatchers.db)
     val dataExportArchiveService = DataExportArchiveService()

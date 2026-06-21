@@ -7,6 +7,14 @@ package id.nearyou.app.infra.r2
  * Slot names (design D6 / migration plan step 3):
  * `r2-account-id`, `r2-access-key-id`, `r2-secret-access-key`, `r2-export-bucket`.
  *
+ * These are the UNPREFIXED logical names passed to `resolveSecret`. The env-namespaced
+ * Secret Manager slot (`staging-<name>` in staging) is selected by the **deploy** —
+ * `deploy-staging.yml --set-secrets="R2_ACCOUNT_ID=staging-r2-account-id:latest,…"` maps
+ * the staging slot onto the unprefixed env var that [EnvVarSecretResolver] reads
+ * (`r2-account-id` → `R2_ACCOUNT_ID`). Resolution in code is env-agnostic; mirrors the
+ * canonical `secrets.resolve("redis-url")` / RevenueCat `secrets.resolve(SECRET_BEARER)`
+ * convention (NOT `secrets.resolve(secretKey(env, …))`).
+ *
  * [isComplete] is the blank-aware guard the Koin factory uses to fall back to
  * [NoOpObjectStore] when any credential is unset (dev/test/un-provisioned staging).
  */
@@ -21,43 +29,29 @@ data class R2Config(
             secretAccessKey.isNotBlank() && bucket.isNotBlank()
 
     companion object {
-        /** Secret slot base names — mirror `secretKey(env, name)` (see [r2SecretSlot]). */
+        /** Secret slot base names — the UNPREFIXED logical names passed to `resolveSecret`. */
         const val SLOT_ACCOUNT_ID: String = "r2-account-id"
         const val SLOT_ACCESS_KEY_ID: String = "r2-access-key-id"
         const val SLOT_SECRET_ACCESS_KEY: String = "r2-secret-access-key"
         const val SLOT_BUCKET: String = "r2-export-bucket"
 
         /**
-         * Builds an [R2Config] by resolving each slot through [resolveSecret].
-         *
-         * [env] selects the slot prefix locally — mirroring `secretKey(env, name)`
-         * (`staging-<name>` in staging, `<name>` otherwise) — so this module does NOT
-         * import the `secretKey()` helper from `:backend:ktor` (a circular dependency;
-         * the `:infra:redis` `redisUrlSlot` precedent). Unresolved slots become blank,
-         * so [isComplete] is false and the factory binds the fail-soft no-op.
+         * Builds an [R2Config] by resolving each slot through [resolveSecret] using the
+         * UNPREFIXED base names. The env-specific Secret Manager slot is wired by the deploy
+         * (`--set-secrets`), NOT composed here — so this module never needs `env` nor the
+         * `secretKey()` helper from `:backend:ktor` (which would be a circular dependency).
+         * Unresolved slots become blank, so [isComplete] is false and the factory binds the
+         * fail-soft no-op.
          *
          * [resolveSecret] is the secret-resolution lambda; production passes
          * `secrets::resolve` from the `:backend:ktor` `SecretResolver`. Tests pass a fake.
          */
-        fun fromSecrets(
-            env: String,
-            resolveSecret: (String) -> String?,
-        ): R2Config =
+        fun fromSecrets(resolveSecret: (String) -> String?): R2Config =
             R2Config(
-                accountId = resolveSecret(r2SecretSlot(env, SLOT_ACCOUNT_ID)).orEmpty(),
-                accessKeyId = resolveSecret(r2SecretSlot(env, SLOT_ACCESS_KEY_ID)).orEmpty(),
-                secretAccessKey = resolveSecret(r2SecretSlot(env, SLOT_SECRET_ACCESS_KEY)).orEmpty(),
-                bucket = resolveSecret(r2SecretSlot(env, SLOT_BUCKET)).orEmpty(),
+                accountId = resolveSecret(SLOT_ACCOUNT_ID).orEmpty(),
+                accessKeyId = resolveSecret(SLOT_ACCESS_KEY_ID).orEmpty(),
+                secretAccessKey = resolveSecret(SLOT_SECRET_ACCESS_KEY).orEmpty(),
+                bucket = resolveSecret(SLOT_BUCKET).orEmpty(),
             )
     }
 }
-
-/**
- * Env-namespaced slot name — `staging-<name>` in staging, `<name>` otherwise. Mirrors
- * `secretKey(env, name)` without importing it from `:backend:ktor` (avoids the circular
- * dependency; the `:infra:redis` `redisUrlSlot` precedent).
- */
-internal fun r2SecretSlot(
-    env: String,
-    name: String,
-): String = if (env == "staging") "staging-$name" else name

@@ -50,10 +50,14 @@ class ResendEmailSender(
         template: EmailTemplate,
         idempotencyKey: String,
     ): SendResult {
+        // Staging recipient guard (docs/10 §3.9): when configured, EVERY send is redirected to
+        // the test inbox so a stale/synthetic user row can never email a real address. No PII
+        // logged either way (the recipient is never logged).
+        val effectiveTo = config.recipientOverride ?: to
         val payload =
             ResendSendRequest(
                 from = config.fromAddress,
-                to = to,
+                to = effectiveTo,
                 subject = template.subject,
                 html = template.htmlBody,
                 text = template.textBody,

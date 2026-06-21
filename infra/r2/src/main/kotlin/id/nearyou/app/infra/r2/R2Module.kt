@@ -23,22 +23,18 @@ fun objectStore(config: R2Config?): ObjectStore =
  * Koin module exposing a singleton [ObjectStore], bound to [R2ObjectStore] when the R2
  * secret slots are present, else [NoOpObjectStore] (the fail-soft, boot-safe default).
  *
- * Like `:infra:redis`'s `redisKoinModule`, the slot prefix is derived locally from [env]
- * (via [R2Config.fromSecrets] → [r2SecretSlot]) so this module does NOT depend on the
- * `secretKey()` helper in `:backend:ktor` (which would be a circular dependency).
+ * [R2Config.fromSecrets] resolves the UNPREFIXED base slot names; the env-specific Secret
+ * Manager slot is wired by the deploy (`--set-secrets`), so this module needs neither `env`
+ * nor the `secretKey()` helper in `:backend:ktor` (which would be a circular dependency).
  * [resolveSecret] is the secret-resolution lambda; production passes `secrets::resolve`
  * from the `:backend:ktor` `SecretResolver` chain, tests pass a fake closure.
  *
  * Production may instead wire `objectStore(...)` inline in `Application.kt` (the
- * cloudflare-images precedent); this module is offered for the same focused-binding DI
- * style as `redisKoinModule`.
+ * cloudflare-images precedent); this module is offered for a focused-binding DI style.
  */
-fun objectStoreModule(
-    env: String,
-    resolveSecret: (String) -> String?,
-): Module =
+fun objectStoreModule(resolveSecret: (String) -> String?): Module =
     module {
         single<ObjectStore> {
-            objectStore(R2Config.fromSecrets(env, resolveSecret))
+            objectStore(R2Config.fromSecrets(resolveSecret))
         }
     }
