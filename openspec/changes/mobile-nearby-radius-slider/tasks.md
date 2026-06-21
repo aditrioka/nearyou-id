@@ -34,7 +34,7 @@
 
 ## 5. Verification, evidence, and PR hygiene
 
-- [ ] 5.1 Gates green locally: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`.
+- [x] 5.1 Gates green locally: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`.
 - [ ] 5.2 UI bring-up via `verify-loop` (context-routed: local emulator/iOS sim screenshots, or cloud device-run) — Free snap-back+upsell and a Premium 50 km/100 km selection observed running; screenshot evidence in the PR body (DoD #3).
 - [ ] 5.3 Runtime-impacting backend: pre-archive staging branch-deploy smoke of `GET /api/v1/timeline/nearby` at each of the 4 radii for a Free vs Premium principal (Free non-20km → 403, Premium → 200) (DoD #4).
 - [ ] 5.4 Keep the PR title/body current at each phase boundary; on archive, run `openspec validate mobile-nearby-radius-slider --strict` clean and move the change under `archive/`.
