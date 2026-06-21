@@ -109,6 +109,22 @@ class ReportSubmitterTest {
             // A blank note is normalized to null → the reason_note key is omitted from the body.
             assertEquals(false, body.contains("reason_note"), "a blank note is omitted from the wire; body=$body")
         }
+
+    @Test
+    fun `a chat message report posts target_type chat_message and the message id`() =
+        runTest {
+            // mobile-chat-message-report: the chat thread submits CHAT_MESSAGE; the shared submitter must
+            // put the shipped wire string + the message id (NEVER a sender id) on the POST body.
+            var body = ""
+            val outcome =
+                submitter { request ->
+                    body = request.body.bodyText()
+                    respond("", HttpStatusCode.NoContent)
+                }.submit(ReportTargetType.CHAT_MESSAGE, "msg-1", ReportReasonCategory.HARASSMENT, null)
+            assertEquals(ReportOutcome.Submitted, outcome)
+            assertEquals(true, body.contains(""""target_type":"chat_message""""), "wire target_type; body=$body")
+            assertEquals(true, body.contains(""""target_id":"msg-1""""), "wire target_id; body=$body")
+        }
 }
 
 private fun io.ktor.http.content.OutgoingContent.bodyText(): String =
