@@ -218,6 +218,19 @@ class NearbyTimelineServiceTest : StringSpec({
         }
     }
 
+    fun setSubscriptionStatus(
+        userId: UUID,
+        subscriptionStatus: String,
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("UPDATE users SET subscription_status = ? WHERE id = ?").use { ps ->
+                ps.setString(1, subscriptionStatus)
+                ps.setObject(2, userId)
+                ps.executeUpdate()
+            }
+        }
+    }
+
     suspend fun withTimeline(block: suspend io.ktor.server.testing.ApplicationTestBuilder.() -> Unit) {
         testApplication {
             application {
@@ -259,7 +272,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
@@ -306,7 +319,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
@@ -343,7 +356,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val client = createClient { install(ClientCN) { json() } }
                 val r1 =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                         header(HttpHeaders.Authorization, "Bearer $vt")
                     }
                 r1.status shouldBe HttpStatusCode.OK
@@ -351,7 +364,7 @@ class NearbyTimelineServiceTest : StringSpec({
                 b1["posts"]!!.jsonArray shouldHaveSize 30
                 val cursor = b1["nextCursor"]!!.jsonPrimitive.content
                 val r2 =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000&cursor=$cursor") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000&cursor=$cursor") {
                         header(HttpHeaders.Authorization, "Bearer $vt")
                     }
                 r2.status shouldBe HttpStatusCode.OK
@@ -376,7 +389,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=1000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val ids =
@@ -400,7 +413,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val ids =
@@ -431,7 +444,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $ta")
                         }
                 val ids =
@@ -461,7 +474,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $ta")
                         }
                 val ids =
@@ -481,7 +494,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=40.0&lng=-74.0&radius_m=1000") {
+                        .get("/api/v1/timeline/nearby?lat=40.0&lng=-74.0&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.BadRequest
@@ -494,28 +507,26 @@ class NearbyTimelineServiceTest : StringSpec({
         }
     }
 
-    "radius bounds — 50 (too small) and 100000 (too large) rejected; 100 and 50000 accepted" {
+    "radius bounds — only the discrete {10,20,50,100} km set is accepted; others are 400 radius_out_of_bounds" {
         val (viewer, vt) = seedUser()
         try {
             withTimeline {
                 val client = createClient { install(ClientCN) { json() } }
-                val tooSmall =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=50") {
-                        header(HttpHeaders.Authorization, "Bearer $vt")
-                    }
-                tooSmall.status shouldBe HttpStatusCode.BadRequest
-                Json.parseToJsonElement(tooSmall.bodyAsText())
-                    .jsonObject["error"]!!.jsonObject["code"]!!
-                    .jsonPrimitive.content shouldBe "radius_out_of_bounds"
-                val tooLarge =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=100000") {
-                        header(HttpHeaders.Authorization, "Bearer $vt")
-                    }
-                tooLarge.status shouldBe HttpStatusCode.BadRequest
-                client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=100") {
-                    header(HttpHeaders.Authorization, "Bearer $vt")
-                }.status shouldBe HttpStatusCode.OK
-                client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=50000") {
+                // Below the set (50), an in-range non-member (15000), and above the set (200000)
+                // all → 400 radius_out_of_bounds. (Pins the discrete-set replacement of the prior
+                // continuous [100, 50000] range: 100 is now rejected, 100000 is now in-set.)
+                listOf(50, 15000, 200000).forEach { bad ->
+                    val resp =
+                        client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=$bad") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                    resp.status shouldBe HttpStatusCode.BadRequest
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["error"]!!.jsonObject["code"]!!
+                        .jsonPrimitive.content shouldBe "radius_out_of_bounds"
+                }
+                // The Free-allowed set member (20 km) clears both the bounds + tier checks.
+                client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                     header(HttpHeaders.Authorization, "Bearer $vt")
                 }.status shouldBe HttpStatusCode.OK
             }
@@ -524,10 +535,61 @@ class NearbyTimelineServiceTest : StringSpec({
         }
     }
 
+    "radius premium gate — Free viewer: 20 km admitted, other set members 403 radius_premium_only" {
+        val (viewer, vt) = seedUser() // Free by default (subscription_status defaults to free)
+        try {
+            withTimeline {
+                val client = createClient { install(ClientCN) { json() } }
+                // Free at the default 20 km → admitted (not tier-rejected).
+                client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
+                    header(HttpHeaders.Authorization, "Bearer $vt")
+                }.status shouldBe HttpStatusCode.OK
+                // Free at any Premium-only set member (incl. the smallest, 10 km — no
+                // "smaller-is-fine" exception, design Decision 3) → 403 with the
+                // radius_premium_only respondError envelope (task 2.7 body shape).
+                listOf(10000, 50000, 100000).forEach { premiumRadius ->
+                    val resp =
+                        client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=$premiumRadius") {
+                            header(HttpHeaders.Authorization, "Bearer $vt")
+                        }
+                    resp.status shouldBe HttpStatusCode.Forbidden
+                    Json.parseToJsonElement(resp.bodyAsText())
+                        .jsonObject["error"]!!.jsonObject["code"]!!
+                        .jsonPrimitive.content shouldBe "radius_premium_only"
+                }
+            }
+        } finally {
+            cleanup(viewer)
+        }
+    }
+
+    "radius premium gate — Premium (premium_active + premium_billing_retry) may use any set member" {
+        val (active, at) = seedUser()
+        val (grace, gt) = seedUser()
+        try {
+            setSubscriptionStatus(active, "premium_active")
+            setSubscriptionStatus(grace, "premium_billing_retry")
+            withTimeline {
+                val client = createClient { install(ClientCN) { json() } }
+                listOf(10000, 20000, 50000, 100000).forEach { r ->
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=$r") {
+                        header(HttpHeaders.Authorization, "Bearer $at")
+                    }.status shouldBe HttpStatusCode.OK
+                }
+                // The 7-day billing-retry grace counts as Premium for the radius gate (hide-distance predicate).
+                client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=100000") {
+                    header(HttpHeaders.Authorization, "Bearer $gt")
+                }.status shouldBe HttpStatusCode.OK
+            }
+        } finally {
+            cleanup(active, grace)
+        }
+    }
+
     "auth required — 401 without JWT" {
         withTimeline {
             createClient { install(ClientCN) { json() } }
-                .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=1000")
+                .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000")
                 .status shouldBe HttpStatusCode.Unauthorized
         }
     }
@@ -547,7 +609,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val post =
@@ -570,7 +632,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val post =
@@ -604,7 +666,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
@@ -637,14 +699,14 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val client = createClient { install(ClientCN) { json() } }
                 val r1 =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                         header(HttpHeaders.Authorization, "Bearer $vt")
                     }
                 val b1 = Json.parseToJsonElement(r1.bodyAsText()).jsonObject
                 b1["posts"]!!.jsonArray shouldHaveSize 30
                 val cursor = b1["nextCursor"]!!.jsonPrimitive.content
                 val r2 =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000&cursor=$cursor") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000&cursor=$cursor") {
                         header(HttpHeaders.Authorization, "Bearer $vt")
                     }
                 val b2 = Json.parseToJsonElement(r2.bodyAsText()).jsonObject
@@ -664,7 +726,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=1000&cursor=not-a-real-cursor") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000&cursor=not-a-real-cursor") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.BadRequest
@@ -687,7 +749,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
@@ -711,7 +773,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
@@ -737,7 +799,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
@@ -763,7 +825,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
@@ -791,7 +853,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
@@ -814,7 +876,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
@@ -839,7 +901,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
@@ -902,7 +964,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val arr = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["posts"]!!.jsonArray
@@ -925,7 +987,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val post =
@@ -952,7 +1014,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-10.5&lng=105.0&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-10.5&lng=105.0&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 val post =
@@ -1018,7 +1080,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $at")
                         }
                 resp.status shouldBe HttpStatusCode.OK
@@ -1048,7 +1110,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $ot")
                         }
                 val ids =
@@ -1076,24 +1138,24 @@ class NearbyTimelineServiceTest : StringSpec({
                         .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 // While banned: the author sees the post (self arm); the second user does not.
                 val bannedAuthor =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                         header(HttpHeaders.Authorization, "Bearer $at")
                     }
                 postIds(bannedAuthor.bodyAsText()).contains(p.toString()) shouldBe true
                 val bannedOther =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                         header(HttpHeaders.Authorization, "Bearer $ot")
                     }
                 postIds(bannedOther.bodyAsText()).contains(p.toString()) shouldBe false
                 // Flip the flag back — no other state change required.
                 setShadowBanned(author, false)
                 val restoredAuthor =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                         header(HttpHeaders.Authorization, "Bearer $at")
                     }
                 postIds(restoredAuthor.bodyAsText()).contains(p.toString()) shouldBe true
                 val restoredOther =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                         header(HttpHeaders.Authorization, "Bearer $ot")
                     }
                 postIds(restoredOther.bodyAsText()).contains(p.toString()) shouldBe true
@@ -1114,7 +1176,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $at")
                         }
                 val ids =
@@ -1140,12 +1202,12 @@ class NearbyTimelineServiceTest : StringSpec({
                     Json.parseToJsonElement(body).jsonObject["posts"]!!.jsonArray
                         .map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
                 val authorResp =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                         header(HttpHeaders.Authorization, "Bearer $at")
                     }
                 postIds(authorResp.bodyAsText()).contains(p.toString()) shouldBe true
                 val otherResp =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                         header(HttpHeaders.Authorization, "Bearer $ot")
                     }
                 postIds(otherResp.bodyAsText()).contains(p.toString()) shouldBe false
@@ -1175,7 +1237,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val client = createClient { install(ClientCN) { json() } }
                 val r1 =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                         header(HttpHeaders.Authorization, "Bearer $vt")
                     }
                 r1.status shouldBe HttpStatusCode.OK
@@ -1183,7 +1245,7 @@ class NearbyTimelineServiceTest : StringSpec({
                 b1["posts"]!!.jsonArray shouldHaveSize 30
                 val cursor = b1["nextCursor"]!!.jsonPrimitive.content
                 val r2 =
-                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000&cursor=$cursor") {
+                    client.get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000&cursor=$cursor") {
                         header(HttpHeaders.Authorization, "Bearer $vt")
                     }
                 r2.status shouldBe HttpStatusCode.OK
@@ -1219,7 +1281,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $at")
                         }
                 val post =
@@ -1245,7 +1307,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
@@ -1276,7 +1338,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
@@ -1298,7 +1360,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
@@ -1325,7 +1387,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
@@ -1350,7 +1412,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
@@ -1379,7 +1441,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
@@ -1404,7 +1466,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
@@ -1430,7 +1492,7 @@ class NearbyTimelineServiceTest : StringSpec({
             withTimeline {
                 val resp =
                     createClient { install(ClientCN) { json() } }
-                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+                        .get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK

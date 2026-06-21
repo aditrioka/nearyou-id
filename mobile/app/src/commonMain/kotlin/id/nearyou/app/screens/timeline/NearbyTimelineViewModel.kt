@@ -2,10 +2,15 @@ package id.nearyou.app.screens.timeline
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.profile.ProfileOutcome
+import id.nearyou.app.timeline.NEARBY_RADIUS_M
 import id.nearyou.app.timeline.NearbyPostDto
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
+import id.nearyou.app.timeline.RadiusChangeResult
 import id.nearyou.app.ui.timeline.InlineLikeController
 import id.nearyou.app.ui.timeline.LoadMoreController
 import id.nearyou.app.ui.timeline.LoadMorePage
@@ -43,6 +48,8 @@ import kotlin.coroutines.cancellation.CancellationException
 class NearbyTimelineViewModel(
     private val flow: NearbyTimelineFlow,
     likeFlow: LikeFlow,
+    private val profileFlow: ProfileFlow,
+    private val selfUserIdProvider: SelfUserIdProvider,
 ) : ViewModel() {
     private val _outcome = MutableStateFlow<NearbyTimelineOutcome?>(null)
     val outcome: StateFlow<NearbyTimelineOutcome?> = _outcome.asStateFlow()
@@ -52,6 +59,22 @@ class NearbyTimelineViewModel(
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    // mobile-nearby-radius-slider: the selected Nearby radius (default 20 km — the Free anchor). In-session
+    // only (resets on cold start; no local-preference seam — design Decision 2). Drives every fetch.
+    private val _selectedRadiusM = MutableStateFlow(NEARBY_RADIUS_M)
+    val selectedRadiusM: StateFlow<Int> = _selectedRadiusM.asStateFlow()
+
+    // The on-entry self-`isPremium` resolution (null = Resolving, mirrors UsernameCustomizationViewModel).
+    // Until known, the gate behaves as Free (anchored at 20 km).
+    private val _isPremiumKnown = MutableStateFlow<Boolean?>(null)
+    val isPremiumKnown: StateFlow<Boolean?> = _isPremiumKnown.asStateFlow()
+
+    // One-shot signal that the Premium radius upsell should be shown (Free non-20km drag OR the
+    // radius_premium_only 403 backstop). Mirrors the like-cap one-shot (docs/11 §2.2); the screen
+    // shows the upsell then calls [onRadiusUpsellShown]. No new NearbyTimelineOutcome member (task 4.4).
+    private val _radiusUpsell = MutableStateFlow(false)
+    val radiusUpsell: StateFlow<Boolean> = _radiusUpsell.asStateFlow()
 
     // mobile-inline-post-actions: the per-surface instance of the ONE shared inline-like lifecycle
     // (ui/timeline/InlineLikeController) over the extracted LikeFlow seam — the same
@@ -89,7 +112,7 @@ class NearbyTimelineViewModel(
                 if (anchor == null) {
                     LoadMorePage.Failure
                 } else {
-                    when (val outcome = flow.loadMore(cursor, anchor)) {
+                    when (val outcome = flow.loadMore(cursor, anchor, _selectedRadiusM.value)) {
                         is NearbyTimelineOutcome.Loaded -> LoadMorePage.Success(outcome.posts, outcome.nextCursor)
                         else -> LoadMorePage.Failure
                     }
@@ -111,6 +134,7 @@ class NearbyTimelineViewModel(
 
     init {
         load(initial = true)
+        resolvePremiumOnEntry()
     }
 
     /** Scroll-end trigger from the screen — appends the next page (no-op during initial/refresh or at end). */
@@ -153,7 +177,7 @@ class NearbyTimelineViewModel(
             // screen keeps rendering Content). The initial load keeps isInitialLoad = true (skeleton).
             if (!initial) _isRefreshing.value = true
             try {
-                _outcome.value = flow.loadFirstPage()
+                _outcome.value = flow.loadFirstPage(_selectedRadiusM.value)
             } catch (cancellation: CancellationException) {
                 // Never swallow cancellation — let structured concurrency unwind (mirrors AuthApiClient).
                 throw cancellation
@@ -165,6 +189,72 @@ class NearbyTimelineViewModel(
                 // After the first outcome arrives the screen leaves the skeleton for good; subsequent
                 // reloads toggle isRefreshing only.
                 _isInitialLoad.value = false
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    /** Slider selection from the screen. The pure [radiusSelectionDecision] decides: a Premium-permitted
+     *  radius (re)loads page 1; a Free/unknown viewer choosing a Premium-only radius keeps 20 km AND
+     *  raises the upsell one-shot (no fetch issued). */
+    fun selectRadius(radiusM: Int) {
+        // The slider is inert during the initial load or an in-flight reload (one fetch at a time).
+        if (_isInitialLoad.value || _isRefreshing.value) return
+        when (val decision = radiusSelectionDecision(_isPremiumKnown.value, radiusM)) {
+            is RadiusSelectionDecision.Apply -> {
+                if (decision.radiusM == _selectedRadiusM.value) return // no-op when unchanged
+                _selectedRadiusM.value = decision.radiusM
+                changeRadiusAndReload(decision.radiusM)
+            }
+            RadiusSelectionDecision.SnapBackAndUpsell -> _radiusUpsell.value = true
+        }
+    }
+
+    /** The radius-upsell one-shot consumer (docs/11 §2.2): clears the signal after the screen shows it. */
+    fun onRadiusUpsellShown() {
+        _radiusUpsell.value = false
+    }
+
+    /** On-entry self-profile read → seed the Premium gate (mirrors `UsernameCustomizationViewModel`). A
+     *  missing self-id or a read failure degrades **optimistically** to Premium-known so the reactive
+     *  `radius_premium_only` 403 governs (a Free viewer whose read failed is corrected by the server
+     *  backstop → upsell + revert), never an error wall. A successful read seeds the actual tier. */
+    private fun resolvePremiumOnEntry() {
+        viewModelScope.launch {
+            val id = selfUserIdProvider.selfUserId()
+            if (id == null) {
+                _isPremiumKnown.value = true
+                return@launch
+            }
+            _isPremiumKnown.value =
+                when (val outcome = profileFlow.loadProfile(id)) {
+                    is ProfileOutcome.Loaded -> outcome.profile.isPremium
+                    else -> true // NotFound / NetworkError → reactive-403 backstops correctness.
+                }
+        }
+    }
+
+    /** Re-fetch page 1 at the newly-selected [radiusM] via the radius-aware flow. A `radius_premium_only`
+     *  403 (stale-tier backstop) reverts to 20 km, raises the upsell, and re-fetches at 20 km — never a
+     *  raw error. Any other result reuses the frozen outcome mapping. Mirrors [reload]'s refresh discipline. */
+    private fun changeRadiusAndReload(radiusM: Int) {
+        loadMoreController.reset()
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                when (val result = flow.changeRadius(radiusM)) {
+                    is RadiusChangeResult.Loaded -> _outcome.value = result.outcome
+                    RadiusChangeResult.PremiumGated -> {
+                        _selectedRadiusM.value = NEARBY_RADIUS_M
+                        _radiusUpsell.value = true
+                        _outcome.value = flow.loadFirstPage(NEARBY_RADIUS_M)
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                _outcome.value = NearbyTimelineOutcome.NetworkError
+            } finally {
                 _isRefreshing.value = false
             }
         }

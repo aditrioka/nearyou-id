@@ -420,5 +420,14 @@
     <string name="username_confirm_dismiss">Batal</string>
     <string name="username_success_toast">Username berhasil diganti</string>
     <string name="username_premium_gate_body">Ganti username adalah fitur Premium.</string>
+    <!-- mobile-nearby-radius-slider: the Premium-gated 4-position Nearby radius slider (10/20/50/100 km;
+         docs/02-Product.md § Nearby Timeline). The upsell mirrors the search_premium_gate_body /
+         settings_hide_distance_premium_only register; radius_value_km formats each km tick + the selected
+         value (no hardcoded "km" glyph in Kotlin). FLAGGED FOR UX REVIEW. The "Aktifkan Premium" CTA reuses
+         cta_activate_premium and the dismiss reuses cta_close (declared above) — no duplicate-value keys. -->
+    <string name="radius_filter_label">Radius Sekitar</string>
+    <string name="radius_value_km" formatted="true">%1$d km</string>
+    <string name="radius_upsell_title">Radius khusus Premium</string>
+    <string name="radius_upsell_body">Pengguna gratis tetap di 20 km. Aktifkan Premium untuk memilih radius 10, 50, atau 100 km.</string>
 </resources>
 

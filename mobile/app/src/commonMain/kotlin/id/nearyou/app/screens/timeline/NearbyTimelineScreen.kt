@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,13 +17,17 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -31,11 +37,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.LocationConsentModal
 import id.nearyou.app.location.LocationGate
 import id.nearyou.app.location.LocationGateUiState
 import id.nearyou.app.location.LocationPermissionController
+import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
@@ -43,12 +51,15 @@ import id.nearyou.app.ui.components.LoadMoreFooter
 import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.app.ui.components.PostCard
 import id.nearyou.app.ui.components.PostCardModel
+import id.nearyou.app.ui.components.RadiusPremiumUpsellDialog
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
+import id.nearyou.resources.generated.resources.radius_filter_label
+import id.nearyou.resources.generated.resources.radius_value_km
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_empty_nearby
 import id.nearyou.resources.generated.resources.timeline_limit_hard
@@ -58,6 +69,7 @@ import id.nearyou.resources.generated.resources.timeline_session_redirect
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import kotlin.math.roundToInt
 
 /** Test tag on the scrollable surface — lets the screen test target a pull-to-refresh swipe AND lets
  *  the tab host detect "the Nearby feed is on screen" from ANY state (the redundant header is gone).
@@ -68,6 +80,9 @@ const val NEARBY_TIMELINE_LIST_TAG: String = "nearbyTimelineList"
 
 /** Test tag on each post card — lets the screen test target the open-detail tap. */
 const val NEARBY_POST_CARD_TAG: String = "nearbyPostCard"
+
+/** Test tag on the radius slider (mobile-nearby-radius-slider) — lets the screen test drag/assert it. */
+const val NEARBY_RADIUS_SLIDER_TAG: String = "nearbyRadiusSlider"
 
 /**
  * The first product surface — the authenticated Nearby feed, gated on a granted location permission
@@ -170,42 +185,61 @@ private fun NearbyFeed(
     // PostDetailRepository singleton post-detail uses; resolved here and handed to the VM's
     // shared InlineLikeController instance.
     val likeFlow = koinInject<LikeFlow>()
-    val viewModel = viewModel { NearbyTimelineViewModel(flow, likeFlow) }
+    // mobile-nearby-radius-slider: the self-profile read seam for the on-entry Premium gate (the same
+    // ProfileFlow + SelfUserIdProvider UsernameCustomizationViewModel uses for its isPremium resolution).
+    val profileFlow = koinInject<ProfileFlow>()
+    val selfUserIdProvider = koinInject<SelfUserIdProvider>()
+    val viewModel = viewModel { NearbyTimelineViewModel(flow, likeFlow, profileFlow, selfUserIdProvider) }
     val outcome by viewModel.outcome.collectAsStateWithLifecycle()
     val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val likeCapRetryAfterSeconds by viewModel.likeCapRetryAfterSeconds.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val loadMoreError by viewModel.loadMoreError.collectAsStateWithLifecycle()
+    // mobile-nearby-radius-slider: the selected radius drives the slider thumb; the upsell one-shot drives
+    // both the snap-back re-sync (in the selector) and the Premium upsell dialog (below).
+    val selectedRadiusM by viewModel.selectedRadiusM.collectAsStateWithLifecycle()
+    val radiusUpsell by viewModel.radiusUpsell.collectAsStateWithLifecycle()
 
-    NearbyTimelineContent(
-        // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
-        // list stays mounted). The refresh spinner is conveyed by isRefreshing, NOT by this projection.
-        uiState = remember(outcome, isInitialLoad) { nearbyTimelineUiState(outcome, isInitialLoad) },
-        isRefreshing = isRefreshing,
-        // Load-more (infinite scroll): the footer flags + the scroll-end/retry callbacks. The shared
-        // LoadMoreController appends pages into the retained Loaded outcome, reusing the page-1 anchor.
-        isLoadingMore = isLoadingMore,
-        loadMoreError = loadMoreError,
-        onLoadMore = viewModel::onLoadMore,
-        onRetryLoadMore = viewModel::onRetryLoadMore,
-        // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload path).
-        onRefresh = viewModel::reload,
-        onRetry = viewModel::reload,
-        // The empty-state "lihat Global" CTA — a host-level tab-switch callback (the tab host selects
-        // the Global tab), NOT a back-stack reference, so the screen stays navigation-free.
-        onSeeGlobal = onSeeGlobal,
-        onOpenPost = onOpenPost,
-        // Inline like: the tapped card's CURRENT likedByViewer drives the direction (both directions
-        // valid — false → POST, true → DELETE). The optimistic flip + outcome handling live in the
-        // shared controller inside the VM.
-        onToggleLike = { post -> viewModel.toggleLike(post.id, post.likedByViewer) },
-        // Reply shortcut: hoisted to the tab host, which pushes PostDetailRoute(focusReplyComposer = true).
-        onReplyShortcut = onOpenPostReply,
-        // Identity tap → author profile: resolve the author UUID from the VM's raw DTO outcome (never on
-        // the PII-free card model) and hand it to the hoisted onOpenProfile (mobile-profile).
-        onOpenProfile = { post -> viewModel.authorUserIdForPost(post.id)?.let(onOpenProfile) },
-    )
+    Column(modifier = Modifier.fillMaxSize()) {
+        // The 4-position radius control above the feed (Premium-gated). Free sliding bounces back to 20 km
+        // + raises the upsell; Premium picks any of 10/20/50/100 km, re-fetching page 1 at the new radius.
+        NearbyRadiusSelector(
+            selectedRadiusM = selectedRadiusM,
+            radiusUpsell = radiusUpsell,
+            onSelect = viewModel::selectRadius,
+        )
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            NearbyTimelineContent(
+                // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
+                // list stays mounted). The refresh spinner is conveyed by isRefreshing, NOT by this projection.
+                uiState = remember(outcome, isInitialLoad) { nearbyTimelineUiState(outcome, isInitialLoad) },
+                isRefreshing = isRefreshing,
+                // Load-more (infinite scroll): the footer flags + the scroll-end/retry callbacks. The shared
+                // LoadMoreController appends pages into the retained Loaded outcome, reusing the page-1 anchor.
+                isLoadingMore = isLoadingMore,
+                loadMoreError = loadMoreError,
+                onLoadMore = viewModel::onLoadMore,
+                onRetryLoadMore = viewModel::onRetryLoadMore,
+                // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload path).
+                onRefresh = viewModel::reload,
+                onRetry = viewModel::reload,
+                // The empty-state "lihat Global" CTA — a host-level tab-switch callback (the tab host selects
+                // the Global tab), NOT a back-stack reference, so the screen stays navigation-free.
+                onSeeGlobal = onSeeGlobal,
+                onOpenPost = onOpenPost,
+                // Inline like: the tapped card's CURRENT likedByViewer drives the direction (both directions
+                // valid — false → POST, true → DELETE). The optimistic flip + outcome handling live in the
+                // shared controller inside the VM.
+                onToggleLike = { post -> viewModel.toggleLike(post.id, post.likedByViewer) },
+                // Reply shortcut: hoisted to the tab host, which pushes PostDetailRoute(focusReplyComposer = true).
+                onReplyShortcut = onOpenPostReply,
+                // Identity tap → author profile: resolve the author UUID from the VM's raw DTO outcome (never on
+                // the PII-free card model) and hand it to the hoisted onOpenProfile (mobile-profile).
+                onOpenProfile = { post -> viewModel.authorUserIdForPost(post.id)?.let(onOpenProfile) },
+            )
+        }
+    }
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18): shown while the one-shot cap
     // state is non-null. The body is the verbatim docs/03:187 modal copy formatted with the live
@@ -221,6 +255,68 @@ private fun NearbyFeed(
                 viewModel.onLikeCapDialogDismissed()
                 onActivatePremium()
             },
+        )
+    }
+
+    // mobile-nearby-radius-slider: the Premium radius upsell (one-shot). Raised when a Free viewer drags
+    // to a Premium-only radius (the slider has already snapped back to 20 km) OR on a `radius_premium_only`
+    // 403 backstop. "Aktifkan Premium" pushes the paywall via the host; both CTAs clear the one-shot.
+    if (radiusUpsell) {
+        RadiusPremiumUpsellDialog(
+            onDismiss = viewModel::onRadiusUpsellShown,
+            onActivatePremium = {
+                viewModel.onRadiusUpsellShown()
+                onActivatePremium()
+            },
+        )
+    }
+}
+
+/**
+ * The 4-position Nearby radius slider (`mobile-nearby-radius-slider`): an M3 [Slider] over
+ * [NEARBY_RADIUS_POSITIONS_M] with a "Radius Sekitar … km" label that updates live as the thumb drags.
+ * The thumb is driven by the VM's [selectedRadiusM]; on release [onSelect] commits the snapped position.
+ * A Free viewer's drag is rejected by the VM (radius stays 20 km + [radiusUpsell] fires), so the thumb
+ * bounces back — the [LaunchedEffect] re-syncs it to the permitted position whenever the selection OR the
+ * upsell signal changes (a rejected attempt doesn't move [selectedRadiusM], so [radiusUpsell] is the
+ * second re-sync trigger). All copy via `stringResource`.
+ */
+@Composable
+private fun NearbyRadiusSelector(
+    selectedRadiusM: Int,
+    radiusUpsell: Boolean,
+    onSelect: (Int) -> Unit,
+) {
+    val positions = NEARBY_RADIUS_POSITIONS_M
+    val selectedIndex = positions.indexOf(selectedRadiusM).coerceAtLeast(0)
+    var sliderPosition by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
+    LaunchedEffect(selectedRadiusM, radiusUpsell) {
+        sliderPosition = positions.indexOf(selectedRadiusM).coerceAtLeast(0).toFloat()
+    }
+    val displayKm = positions[sliderPosition.roundToInt().coerceIn(0, positions.lastIndex)] / 1000
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(Res.string.radius_filter_label),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = stringResource(Res.string.radius_value_km, displayKm),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        Slider(
+            value = sliderPosition,
+            onValueChange = { sliderPosition = it },
+            onValueChangeFinished = {
+                onSelect(positions[sliderPosition.roundToInt().coerceIn(0, positions.lastIndex)])
+            },
+            valueRange = 0f..positions.lastIndex.toFloat(),
+            steps = positions.size - 2,
+            modifier = Modifier.fillMaxWidth().testTag(NEARBY_RADIUS_SLIDER_TAG),
         )
     }
 }

@@ -14,8 +14,10 @@ import java.util.UUID
  * page with `next_cursor`. The repository owns the SQL; this service owns shape and bounds.
  *
  * Bounds policy mirrors `post-creation`: same envelope constants, same error code
- * `location_out_of_bounds`. Radius bounds are timeline-specific (100 m floor matches the
- * jitter band; 50 km ceiling matches docs §15 to prevent nation-wide scans).
+ * `location_out_of_bounds`. Radius is a discrete Premium-gated set (the 10/20/50/100 km
+ * slider per `mobile-nearby-radius-slider`); a value not in `ALLOWED_RADII_M` is
+ * `radius_out_of_bounds`. The Free-vs-Premium tier gate (Free → only `FREE_RADIUS_M`) is
+ * enforced at the route (it owns the auth principal), not here.
  */
 class NearbyTimelineService(
     private val timeline: PostsTimelineRepository,
@@ -32,7 +34,7 @@ class NearbyTimelineService(
         if (viewerLat !in LAT_MIN..LAT_MAX || viewerLng !in LNG_MIN..LNG_MAX) {
             throw LocationOutOfBoundsException(viewerLat, viewerLng)
         }
-        if (radiusMeters !in RADIUS_MIN..RADIUS_MAX) {
+        if (radiusMeters !in ALLOWED_RADII_M) {
             throw RadiusOutOfBoundsException(radiusMeters)
         }
         val rows =
@@ -58,8 +60,19 @@ class NearbyTimelineService(
 
     companion object {
         const val PAGE_SIZE: Int = 30
-        const val RADIUS_MIN: Int = 100
-        const val RADIUS_MAX: Int = 50_000
+
+        /**
+         * The discrete Nearby filter positions in metres — the 10/20/50/100 km slider per
+         * `docs/02-Product.md` § Nearby Timeline (`mobile-nearby-radius-slider`). Replaces the
+         * former continuous `[100, 50000]` range; a radius not in this set is `radius_out_of_bounds`.
+         */
+        val ALLOWED_RADII_M: Set<Int> = setOf(10_000, 20_000, 50_000, 100_000)
+
+        /**
+         * The single radius a Free viewer may use. Every other `ALLOWED_RADII_M` member is
+         * Premium-only (`docs/01-Business.md`:22 — "Free 20km fixed"); the route enforces the gate.
+         */
+        const val FREE_RADIUS_M: Int = 20_000
 
         // Envelope constants mirror post-creation (id.nearyou.app.post.CreatePostService)
         // intentionally — kept duplicated rather than centralized so each capability
@@ -78,7 +91,7 @@ data class NearbyPage(
 )
 
 class RadiusOutOfBoundsException(val radius: Int) :
-    RuntimeException("radius $radius outside [${NearbyTimelineService.RADIUS_MIN}, ${NearbyTimelineService.RADIUS_MAX}]")
+    RuntimeException("radius $radius not in allowed set ${NearbyTimelineService.ALLOWED_RADII_M}")
 
 /**
  * Pure hide-distance decision (hide-distance capability). The Nearby distance NUMBER is shown
