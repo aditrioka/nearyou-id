@@ -16,6 +16,9 @@ import id.nearyou.app.account.dataExportWorkerRoute
 import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.admin
+import id.nearyou.app.admin.auth.AdminAuditLogger
+import id.nearyou.app.admin.auth.AdminUserRepository
+import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.privacyFlipWorkerRoute
 import id.nearyou.app.admin.retention.JdbcRetentionCleanupRepository
 import id.nearyou.app.admin.retention.RetentionCleanupWorker
@@ -162,6 +165,11 @@ import id.nearyou.app.moderation.ModerationListLoader
 import id.nearyou.app.moderation.ReportRateLimiter
 import id.nearyou.app.moderation.ReportService
 import id.nearyou.app.moderation.TextModerator
+import id.nearyou.app.moderation.csam.CsamDetectionService
+import id.nearyou.app.moderation.csam.CsamMetadataEncryptor
+import id.nearyou.app.moderation.csam.CsamRepository
+import id.nearyou.app.moderation.csam.csamArchivePurgeRoute
+import id.nearyou.app.moderation.csam.csamWebhookRoutes
 import id.nearyou.app.moderation.reportRoutes
 import id.nearyou.app.notifications.DbNotificationEmitter
 import id.nearyou.app.notifications.NoopNotificationDispatcher
@@ -1162,6 +1170,33 @@ fun Application.module() {
     realtimeRoutes(realtimeIssuer)
     appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())
     revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)
+
+    // --- CSAM detection (csam-detection capability) ---
+    // The AES key for `csam_detection_archive.encrypted_metadata` is FAIL-SOFT: the
+    // slot is operator-provisioned at the Month-6 image launch, so a missing key
+    // degrades encryption to a no-op (the safety-critical takedown is never blocked).
+    // The admin-session repos reuse the admin-auth seam (stateless above the connection
+    // seam, safe to re-instantiate — AdminModule precedent) for the admin-internal path.
+    val csamRepository = CsamRepository(dataSource)
+    val csamMetadataEncryptor =
+        CsamMetadataEncryptor { secrets.resolve("csam-archive-aes-key")?.let { Base64.getDecoder().decode(it) } }
+    val csamDetectionService =
+        CsamDetectionService(
+            dataSource = dataSource,
+            dbDispatcher = dbDispatchers.db,
+            csamRepository = csamRepository,
+            moderationQueueRepository = moderationQueueRepository,
+            encryptor = csamMetadataEncryptor,
+            auditLogger = AdminAuditLogger(dataSource),
+        )
+    csamWebhookRoutes(
+        service = csamDetectionService,
+        sessionRepository = SessionRepository(dataSource),
+        adminUserRepository = AdminUserRepository(dataSource),
+        rateLimiter = rateLimiter,
+        secrets = secrets,
+        env = ktorEnv,
+    )
     postRoutes(createPostService)
     imageRoutes(imageUploadService)
     singlePostRoutes(postReadService)
@@ -1199,6 +1234,7 @@ fun Application.module() {
             unbanWorkerRoute(suspensionUnbanWorker, oidcTokenVerifier)
             privacyFlipWorkerRoute(privacyFlipWorker, oidcTokenVerifier)
             accountHardDeleteWorkerRoute(accountHardDeleteWorker, oidcTokenVerifier)
+            csamArchivePurgeRoute(csamDetectionService, oidcTokenVerifier)
             dataExportWorkerRoute(dataExportWorker, oidcTokenVerifier)
             retentionCleanupRoutes(retentionCleanupWorker, oidcTokenVerifier)
         }

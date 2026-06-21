@@ -84,4 +84,22 @@ interface ModerationQueueRepository {
         targetId: UUID,
         candidate: String,
     ): Boolean
+
+    /**
+     * `INSERT INTO moderation_queue (target_type, target_id, trigger) VALUES
+     * (?, ?, 'csam_detected') ON CONFLICT (target_type, target_id, trigger)
+     * DO NOTHING`. Written by the `csam-detection` takedown for admin awareness of a
+     * CSAM match (`targetType = POST`, the tombstoned post). Idempotent — a re-trigger
+     * for the same post is a silent no-op, so the queue does not flood on repeated
+     * webhook invocations. Returns `true` when a new row was inserted, `false` when
+     * the ON CONFLICT branch fired.
+     *
+     * Caller MUST execute this in the takedown transaction so a rollback also rolls
+     * back the queue row.
+     */
+    fun upsertCsamDetectedRow(
+        conn: Connection,
+        targetType: ReportTargetType,
+        targetId: UUID,
+    ): Boolean
 }

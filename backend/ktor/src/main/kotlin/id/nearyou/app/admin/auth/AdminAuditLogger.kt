@@ -452,6 +452,42 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a CSAM takedown (`csam-detection` capability): the
+     * `POST /internal/csam-webhook` fixed-policy action — tombstone the affected post,
+     * permanent-ban the uploader + bump `token_version`, cascade-tombstone the
+     * uploader's other posts, and write the AES-256-GCM `csam_detection_archive` row.
+     * Joins the caller's [conn] so this audit INSERT commits atomically inside the ONE
+     * takedown transaction (mirrors [logModerationQueueResolved] / [logChatRedaction]).
+     * `target_type = 'user'`, `target_id` = the offending uploader. [beforeState]/
+     * [afterState] capture the full effect (ban transition, posts tombstoned, archive
+     * source) — the sensitive uploader detail lives only in the encrypted archive blob,
+     * never echoed here. [adminId] is the acting human admin on the admin-manual path,
+     * or the `system` sentinel (`system-actor`) on the CF-Worker path.
+     */
+    fun logCsamTakedown(
+        conn: Connection,
+        adminId: UUID,
+        uploaderId: UUID,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "csam_takedown",
+            adminId = adminId,
+            targetType = "user",
+            targetId = uploaderId.toString(),
+            reason = null,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a subscription-grace MANUAL EXPEDITE
      * (`admin-subscription-grace-monitor` capability): `POST
      * /admin/subscriptions/grace/{user_id}/expedite` recording a support-desk
