@@ -40,7 +40,7 @@
 
 - [x] 7.1 Pre-push lint gate: `:mobile:app:detekt` + `:mobile:app:ktlintCheck` + `:shared:resources:ktlintCheck` green (the mobile-relevant checks — this change touches no backend/lint-rule code, so `:backend:ktor:test` + `:lint:detekt-rules:test` are unaffected and CI-covered). Also: `compileTestKotlinIosSimulatorArm64` green (iOS test compiles).
 - [x] 7.2 Run the flavor-qualified mobile unit tests locally: `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` green (mobile unit tests are local-only; CI mobile is the device-run APK build).
-- [ ] 7.3 verify-loop bring-up (UI-affecting change): launch the app, tap a `post_liked` / `followed` / `chat_message` notification, confirm it navigates to post detail / profile / chat thread, and a post-unavailable tap shows the non-blocking affordance with no navigation. Capture screenshot evidence into the PR body before archive (docs/11 §5 DoD).
+- [x] 7.3 verify-loop bring-up (UI-affecting change): launch the app, tap a `post_liked` / `followed` / `chat_message` notification, confirm it navigates to post detail / profile / chat thread, and a post-unavailable tap shows the non-blocking affordance with no navigation. Capture screenshot evidence into the PR body before archive (docs/11 §5 DoD).
 - [x] 7.4 `openspec validate mobile-notifications-deep-link-targets --strict` green. (Archive-phase `openspec validate --specs mobile-notifications-list --strict` runs in `/opsx:archive`.)
 
 ## 8. Bookkeeping
