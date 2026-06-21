@@ -111,10 +111,10 @@ class SignInFlowTest : StringSpec({
         }
     }
 
-    "banned user → 403 account_banned" {
+    "banned user → 403 account_banned with a limited appeal_token and NO refresh row" {
         val sub = "google-banned"
         val user = userRow(googleIdHash = sha256Hex(sub), isBanned = true)
-        setup(InMemoryUsers(listOf(user)), StaticVerifier(sub)) { _ ->
+        setup(InMemoryUsers(listOf(user)), StaticVerifier(sub)) { tokens ->
             val client = createClient { install(ClientCN) { json() } }
             val response =
                 client.post("/api/v1/auth/signin") {
@@ -122,7 +122,13 @@ class SignInFlowTest : StringSpec({
                     setBody(SignInRequest(provider = "google", idToken = "ok"))
                 }
             response.status shouldBe HttpStatusCode.Forbidden
-            response.bodyAsText() shouldContain "account_banned"
+            val body = response.bodyAsText()
+            body shouldContain "account_banned"
+            // content-moderation-appeal: the 403 carries the limited appeal token so the
+            // actioned user can reach the ban-exempt appeal realm …
+            body shouldContain "appeal_token"
+            // … and NO normal access/refresh token is issued (no refresh_tokens row).
+            tokens.rows.size shouldBe 0
         }
     }
 

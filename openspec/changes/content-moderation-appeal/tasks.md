@@ -2,14 +2,14 @@
 
 - [x] 1.1 **Re-verify the next-free Flyway version at implementation start** (in-flight siblings hold V29×2 + V30; parallel collisions are a known risk) — rename `V31__appeals.sql` if a sibling has merged a higher version since proposal.
 - [x] 1.2 Write `V31__appeals.sql`: `appeals` table per design D4 (columns + CHECKs + FKs: `user_id … ON DELETE CASCADE`, `reviewed_by … ON DELETE SET NULL`), the partial-unique `appeals_one_pending_per_user` index, and the partial `appeals_pending_created_idx` index. No `NOW()` in any partial-index predicate.
-- [ ] 1.3 Add the migration test (schema accepts a valid row; rejects >1000-char `appeal_text`; one-pending partial-unique enforced; `reviewed_by` SET NULL on admin delete) under `@Tags("database")`.
+- [x] 1.3 Add the migration test (schema accepts a valid row; rejects >1000-char `appeal_text`; one-pending partial-unique enforced; `reviewed_by` SET NULL on admin delete) under `@Tags("database")`. — `AppealsSchemaTest` (6 tests, green on fresh PostGIS).
 
 ## 2. Auth — ban-exempt realm (MODIFIED auth-jwt) + appeal token (MODIFIED auth-signin)
 
 - [x] 2.1 Factor the auth-jwt validate logic so the per-request `users`-row SELECT + `token_version` + soft-delete (`deleted_at`) checks are reused; add a dedicated named "appeal" realm that skips ONLY the `is_banned` / `suspended_until` 403 short-circuit (design D1), keeping the `token_version` + soft-delete + signature gates.
 - [x] 2.2 Confine limited tokens: every standard (non-appeal) realm MUST reject a token bearing `scope = "appeal"` with 401 `token_revoked` (design D2). Standard realm's `is_banned`/`suspended_until` behavior otherwise unchanged.
 - [x] 2.3 MODIFY the sign-in path (`auth-signin`): a banned/suspended sign-in (currently 403 `account_banned`, no tokens) additionally returns a limited-scope `appeal_token` (RS256; `sub`; current `token_version`; `scope = "appeal"`; ≤1h TTL) in the 403 body — NO normal access/refresh token, no `refresh_tokens` row (design D2). Reuse the existing RS256 issuance.
-- [ ] 2.4 Tests: appeal-realm route authenticates a banned subject holding a valid appeal token; stale `token_version` → 401 `token_revoked`; no-token/invalid-sig → 401, no principal; soft-deleted subject → 401; a `scope = "appeal"` token on a standard route → 401 `token_revoked`; sign-in for a banned user returns an `appeal_token` + inserts no `refresh_tokens` row; sign-in for a non-banned user is unchanged (200 + normal tokens).
+- [x] 2.4 Tests: appeal-realm route authenticates a banned subject holding a valid appeal token; stale `token_version` → 401 `token_revoked`; no-token/invalid-sig → 401, no principal; soft-deleted subject → 401; a `scope = "appeal"` token on a standard route → 401 `token_revoked`; sign-in for a banned user returns an `appeal_token` + inserts no `refresh_tokens` row; sign-in for a non-banned user is unchanged (200 + normal tokens). — `AppealEndpointsTest` (banned-reaches-realm via the 201 cases, stale-token→401, scope-confinement→401 + normal-token→200) + `SignInFlowTest` (banned→403 with `appeal_token` + 0 refresh rows; non-banned happy path unchanged).
 
 ## 3. Backend — appeal capability (`appeal` package)
 
@@ -17,7 +17,7 @@
 - [x] 3.2 `AppealService`: eligibility (`is_banned = TRUE`, else the uniform `no_actionable_moderation` outcome — identical for shadow-banned-only and normal users, design D3), one-pending guard, server-derived `action_type`, transaction boundary.
 - [x] 3.3 Per-user submission rate-limit via the canonical Redis key `{scope:rate_appeal_day}:{user:<user_id>}` (RedisHashTagRule two-segment shape) + `computeTTLToNextReset` (design D5).
 - [x] 3.4 `AppealRoutes` mounted under the appeal realm: `POST /api/v1/appeals` (length guard ≤1000 before DB; 201 on success; 409 `no_actionable_moderation` / `appeal_already_pending`; 429 on rate-limit) + own-appeal-status GET (latest status, empty result when none). DTOs colocated.
-- [ ] 3.5 Tests: suspended → 201 (`action_type='suspension'`); permanent-ban → 201 (`action_type='permanent_ban'`); normal user → 409 `no_actionable_moderation`; shadow-banned-only → identical 409 (byte-for-byte, no state leak); second pending → 409 `appeal_already_pending`; **concurrent submissions race the partial-unique → exactly one 201 + one 409 `appeal_already_pending` (violation mapped, never 5xx)**; client `action_type` ignored; rate-limit → 429; own-status pending/decided/none.
+- [x] 3.5 Tests: suspended → 201 (`action_type='suspension'`); permanent-ban → 201 (`action_type='permanent_ban'`); normal user → 409 `no_actionable_moderation`; shadow-banned-only → identical 409 (byte-for-byte, no state leak); second pending → 409 `appeal_already_pending`; **concurrent submissions race the partial-unique → exactly one 201 + one 409 `appeal_already_pending` (violation mapped, never 5xx)**; client `action_type` ignored; rate-limit → 429; own-status pending/decided/none. — `AppealEndpointsTest` (10 tests; concurrent race asserted at the repo `insertPending` seam — one `Inserted` + one `PendingConflict`).
 
 ## 4. Admin — appeals-review surface (`admin-appeal-review`)
 
