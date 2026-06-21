@@ -1,11 +1,11 @@
 ## 1. Pre-implementation gates
 
 - [x] 1.1 **Dated RevenueCat API re-check** (design D3 + Open Questions): confirm via a current-dated `WebSearch` the canonical **v1** promotional-entitlement grant endpoint (`POST /v1/subscribers/{app_user_id}/entitlements/{entitlement_id}/promotional`), its auth (project **secret** API key), and the duration shape (`duration` enum vs absolute `end_time_ms`) needed for extend-by-7-days stacking. Record the verdict in the first feat commit body. If v2 has since matured to cover stacking, or v1 differs from the design assumption, STOP and surface via `AskUserQuestion` (apply-phase design-revision re-check rule, project.md).
-- [x] 1.2 **Re-confirm the free Flyway version** at apply time: `git fetch origin main` and check the highest `V<N>__` — a sibling change may have taken **V29** since proposal. If so, renumber to the next free version + bump every doc/spec reference (parallel-session Flyway-collision precedent).
+- [x] 1.2 **Re-confirm the free Flyway version** at apply time: `git fetch origin main` and check the highest `V<N>__` — a sibling change may have taken **V32** since proposal. If so, renumber to the next free version + bump every doc/spec reference (parallel-session Flyway-collision precedent).
 
-## 2. Schema — V29 granted_entitlements
+## 2. Schema — V32 granted_entitlements
 
-- [x] 2.1 Write `V29__granted_entitlements.sql` per the `referral-grant-worker` spec § granted_entitlements schema: table + `UNIQUE (referral_ticket_id, user_id)` + `granted_entitlements_inviter_once_idx` partial-unique on `(user_id) WHERE grant_role = 'inviter'` + unique `dedup_key` index; both FKs `ON DELETE CASCADE`; **no `NOW()` / volatile expression in any index predicate**. Header comment documents scope + the V23 (`referral_tickets`) / V21 (`subscription_events`) / V2 (`inviter_reward_claimed_at`) reuse.
+- [x] 2.1 Write `V32__granted_entitlements.sql` per the `referral-grant-worker` spec § granted_entitlements schema: table + `UNIQUE (referral_ticket_id, user_id)` + `granted_entitlements_inviter_once_idx` partial-unique on `(user_id) WHERE grant_role = 'inviter'` + unique `dedup_key` index; both FKs `ON DELETE CASCADE`; **no `NOW()` / volatile expression in any index predicate**. Header comment documents scope + the V23 (`referral_tickets`) / V21 (`subscription_events`) / V2 (`inviter_reward_claimed_at`) reuse.
 - [x] 2.2 Verify the migration applies on a **fresh** PostGIS container + `flyway validate` green (disposable container — avoid dev-DB seed-pollution false-fails).
 - [x] 2.3 `dev/supabase-parity-init.sql`: N/A — the migration assumes no new Supabase-provided state; confirm and note.
 
@@ -55,14 +55,14 @@
 ## 7. Lint + invariants
 
 - [x] 7.1 Local gate green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
-- [x] 7.2 Annotations verified: `@AllowRawPostsRead` + `@AllowMissingBlockJoin` (or an own-content filename prefix) on the invitee post-count SQL — **NOT** the chat-only `@allow-no-block-exclusion` marker; `secretKey(env,name)` for the RC key; no vendor import outside `:infra:*`; no `NOW()` in any V29 index predicate.
+- [x] 7.2 Annotations verified: `@AllowRawPostsRead` + `@AllowMissingBlockJoin` (or an own-content filename prefix) on the invitee post-count SQL — **NOT** the chat-only `@allow-no-block-exclusion` marker; `secretKey(env,name)` for the RC key; no vendor import outside `:infra:*`; no `NOW()` in any V32 index predicate.
 - [x] 7.3 Doc-drift guards: the new `:infra:revenuecat-api` module IS added → confirm `dev/scripts/sync-readme.sh --check` passes (after task 3.3's `--write`) AND `dev/scripts/check-dockerfile-module-copies.sh` passes (after task 3.2's COPY lines).
 
 ## 8. Staging smoke + deploy (pre-archive)
 
 - [ ] 8.1 (operator) Create the `staging-revenuecat-secret-api-key` Secret Manager slot (value = RevenueCat Test Store secret key) + grant the Cloud Run runtime SA `secretAccessor`.
 - [ ] 8.2 Manual branch deploy: `gh workflow run deploy-staging.yml --ref referral-grant-worker`; poll the run; `/health/ready` all-green.
-- [ ] 8.3 Smoke `dev/scripts/smoke-referral-grant-worker.sh` (written; no-creds deploy-config check, the repo pattern): `/health/ready` 200 (V29 applied), `/internal/referral-activity-check` → 401 (worker mounted + OIDC-gated, not 404/500), `/internal/revenuecat-webhook` → 401 (GRANT MODIFY didn't break its mount/auth). A fuller authenticated seed→invoke→grant smoke needs a staging session + the secret slot (worker fail-softs until then) — deferred like the account-deletion-tombstone precedent.
+- [ ] 8.3 Smoke `dev/scripts/smoke-referral-grant-worker.sh` (written; no-creds deploy-config check, the repo pattern): `/health/ready` 200 (V32 applied), `/internal/referral-activity-check` → 401 (worker mounted + OIDC-gated, not 404/500), `/internal/revenuecat-webhook` → 401 (GRANT MODIFY didn't break its mount/auth). A fuller authenticated seed→invoke→grant smoke needs a staging session + the secret slot (worker fail-softs until then) — deferred like the account-deletion-tombstone precedent.
 - [ ] 8.4 (deferred — prod) Provision the Cloud Scheduler job invoking `/internal/referral-activity-check` daily + the prod `revenuecat-secret-api-key` slot. Stays unchecked until prod infra is provisioned (does not block the squash-merge).
 
 ## 9. Archive

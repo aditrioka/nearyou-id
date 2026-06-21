@@ -4,7 +4,7 @@ Referral ticket creation shipped (`referral-ticket-creation`, V23, [PR #327](htt
 
 ## What Changes
 
-- **NEW `granted_entitlements` table (V29)** — the per-grant ledger that also enforces idempotency and the inviter lifetime cap at the DB level.
+- **NEW `granted_entitlements` table (V32)** — the per-grant ledger that also enforces idempotency and the inviter lifetime cap at the DB level.
 - **NEW `/internal/referral-activity-check` worker** — a daily Cloud-Scheduler-invoked, OIDC-gated endpoint that scans `pending_activity` tickets, expires stale ones, runs the activity gate, flips successful tickets to `granted`, and dispatches grants. Reuses the `/internal/*` OIDC worker pattern (`privacy-flip-worker` [PR #321](https://github.com/aditrioka/nearyou-id/pull/321) precedent).
 - **NEW grant dispatch via the RevenueCat Granted Entitlements API** — each grant is 1 week of Premium with native RevenueCat stacking (extend the current period by 1 week if the recipient is `premium_active`; a fresh 1-week trial if `free`/lapsed), recorded as a `subscription_events(source = 'referral', event_type = 'grant')` row.
 - **Invitee reward**: one grant per invitee, tied to their own registration ticket. **Inviter reward**: exactly one per inviter lifetime, fired at the confirmed **5th** successful referral — enforced two ways (the existing `users.inviter_reward_claimed_at` sentinel + a `granted_entitlements` partial-unique index on `grant_role = 'inviter'`).
@@ -24,7 +24,7 @@ Referral ticket creation shipped (`referral-ticket-creation`, V23, [PR #327](htt
 
 - **`:backend:ktor`** — new referral worker route + service + repository (docs/11 §3 backend layering); MODIFY the RevenueCat webhook `GRANT` branch; the worker mounts under the existing `/internal/*` OIDC middleware.
 - **`:infra:revenuecat-api`** (NEW JVM module) — the outbound RevenueCat v1 promotional-grant REST client (raw Ktor client behind a `ReferralEntitlementGranter` interface + fail-soft NoOp; mirrors `:infra:cloud-vision`). *Apply-time correction:* the existing `:infra:revenuecat` is a mobile-only KMP module, so the backend client needs its own JVM module — adds a `settings.gradle.kts` include + Dockerfile COPY + README sync.
-- **DB** — one Flyway migration **V29** (`granted_entitlements` + `granted_entitlements_inviter_once_idx` partial-unique). Reuses `referral_tickets` (V23, whose `granted`/`expired` status values + scan indexes are already reserved), `subscription_events` (V21, `source` already accepts `'referral'`), and `users.inviter_reward_claimed_at` (V2 sentinel).
+- **DB** — one Flyway migration **V32** (`granted_entitlements` + `granted_entitlements_inviter_once_idx` partial-unique). Reuses `referral_tickets` (V23, whose `granted`/`expired` status values + scan indexes are already reserved), `subscription_events` (V21, `source` already accepts `'referral'`), and `users.inviter_reward_claimed_at` (V2 sentinel).
 - **Secrets** — a RevenueCat REST API key slot, read via the `secretKey(env, name)` helper only.
 - **Ops** — a new Cloud Scheduler job invoking `/internal/referral-activity-check` (prod provisioning task; does not block the squash-merge).
 - **No mobile surface** — backend-only; nothing in `:mobile:app` changes.

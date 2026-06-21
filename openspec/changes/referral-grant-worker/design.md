@@ -33,7 +33,7 @@ A single daily Cloud-Scheduler-invoked endpoint under the existing `/internal/*`
 
 *Audit trail:* the worker deliberately writes **no** per-grant `admin_actions_log` row (unlike the `privacy-flip-worker` precedent it otherwise mirrors). A referral grant is a system *reward*, already ledgered in `granted_entitlements` + `subscription_events(source='referral')`, not an admin action *against* a user — so the moderation-shaped audit trail does not apply; the two ledgers are the authoritative record.
 
-### D2 — `granted_entitlements` ledger is the idempotency + lifetime-cap authority (V29)
+### D2 — `granted_entitlements` ledger is the idempotency + lifetime-cap authority (V32)
 ```
 granted_entitlements (
   id                 UUID PK DEFAULT gen_random_uuid(),
@@ -91,10 +91,10 @@ The worker calls the RC promotional API and writes the `granted_entitlements` le
 
 ## Migration Plan
 
-1. **V29** `granted_entitlements` migration (forward-only; new table + indexes, no backfill — there are no historical grants). Reuses existing `referral_tickets`/`users` columns.
+1. **V32** `granted_entitlements` migration (forward-only; new table + indexes, no backfill — there are no historical grants). Reuses existing `referral_tickets`/`users` columns.
 2. Ship the worker mounted but inert until Cloud Scheduler is wired — it is safe to deploy ahead of the schedule (it only runs when invoked, and an empty/all-pending scan is a no-op for non-activity tickets).
 3. MODIFY the webhook `GRANT` branch (no schema change — `subscription_events` already supports it).
-4. **Rollback**: the worker is additive; disabling the Cloud Scheduler job halts all grants with no data corruption. The V29 table is orphaned-but-harmless if the worker is reverted. `subscription_status` is never written by this change directly, so a revert cannot leave a user wrongly Premium beyond what RC already granted.
+4. **Rollback**: the worker is additive; disabling the Cloud Scheduler job halts all grants with no data corruption. The V32 table is orphaned-but-harmless if the worker is reverted. `subscription_status` is never written by this change directly, so a revert cannot leave a user wrongly Premium beyond what RC already granted.
 5. **Prod provisioning** (post-squash, non-blocking): create the Cloud Scheduler job + the `revenuecat-secret-api-key` Secret Manager slot (staging slot for the branch smoke).
 
 ## Open Questions

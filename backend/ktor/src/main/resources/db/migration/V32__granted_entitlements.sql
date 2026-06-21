@@ -1,4 +1,4 @@
--- V29: granted_entitlements — the referral funnel's grant ledger + DB-level
+-- V32: granted_entitlements — the referral funnel's grant ledger + DB-level
 -- idempotency / lifetime-cap authority.
 --
 -- Backs the Phase-4 `referral-grant-worker` change (docs/08 #9/#21/#23): the

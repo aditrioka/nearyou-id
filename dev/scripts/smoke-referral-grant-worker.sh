@@ -4,7 +4,7 @@
 # No-creds smoke: confirms the new worker route is MOUNTED + correctly gated after the
 # branch deploy. `/internal/referral-activity-check` requires Google OIDC → 401 (a 404
 # would mean the route didn't deploy; a 200/500 would mean the gate is missing or the
-# handler crashed at boot). `/health/ready` 200 confirms the app booted + the V29
+# handler crashed at boot). `/health/ready` 200 confirms the app booted + the V32
 # granted_entitlements migration applied (deploy runs Flyway). The RevenueCat GRANT echo
 # is the existing `/internal/revenuecat-webhook` (vendor Bearer-gated) — re-checked here
 # so the §5 GRANT-handler MODIFY didn't break its mount/auth.
@@ -33,8 +33,8 @@ check() {
 }
 
 echo "== referral-grant-worker smoke @ $BASE =="
-# App boots + DB reachable (the V29 granted_entitlements migration applied on deploy).
-check GET  /health/ready                     200 "health ready (V29 applied)"
+# App boots + DB reachable (the V32 granted_entitlements migration applied on deploy).
+check GET  /health/ready                     200 "health ready (V32 applied)"
 # New activity-check worker mounted + OIDC-gated (no Google OIDC token → 401, not 404).
 check POST /internal/referral-activity-check 401 "activity-check worker OIDC-gated"
 # Existing RevenueCat webhook still mounted + vendor-Bearer-gated (GRANT MODIFY intact).
