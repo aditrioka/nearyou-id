@@ -72,6 +72,54 @@
                 <button type="submit" class="btn outl sm">Unban</button>
                 <p class="hint">Lifting a permanent ban requires owner or admin role.</p>
             </form>
+
+            {# Permanent ban — owner/admin only (the higher-trust tier), and only
+               when the user is not already permanently banned (a time-bound
+               suspension is still escalatable to permanent). #}
+            {% if (adminRole == "owner" or adminRole == "admin") and not profile.isPermanentlyBanned %}
+            <form class="action-ban cardlet"
+                  action="/admin/users/{{ profile.id }}/ban"
+                  method="POST">
+                <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                <h4>Permanent ban</h4>
+                <label class="field">
+                    <span>Reason (optional, audit-only)</span>
+                    <input type="text" name="reason" placeholder="e.g. repeat severe violations">
+                </label>
+                <button type="submit" class="btn dangert sm">Permanently ban</button>
+                <p class="hint">Permanent, no automatic unban. Owner/admin only.</p>
+            </form>
+            {% endif %}
+
+            {# Shadow ban — all write roles; offered only when not already
+               shadow-banned (mutually exclusive with un-shadow-ban below). #}
+            {% if not profile.isShadowBanned %}
+            <form class="action-shadow-ban cardlet"
+                  action="/admin/users/{{ profile.id }}/shadow-ban"
+                  method="POST">
+                <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                <h4>Shadow ban</h4>
+                <label class="field">
+                    <span>Reason (optional, audit-only)</span>
+                    <input type="text" name="reason" placeholder="e.g. spam ring — silent">
+                </label>
+                <button type="submit" class="btn dangert sm">Shadow ban</button>
+                <p class="hint">Invisible to the user; no notification.</p>
+            </form>
+            {% else %}
+            <form class="action-shadow-unban cardlet"
+                  action="/admin/users/{{ profile.id }}/shadow-unban"
+                  method="POST">
+                <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                <h4>Lift shadow ban</h4>
+                <label class="field">
+                    <span>Reason (optional, audit-only)</span>
+                    <input type="text" name="reason" placeholder="e.g. false positive">
+                </label>
+                <button type="submit" class="btn outl sm">Un-shadow-ban</button>
+                <p class="hint">Restorative; not rate-limited.</p>
+            </form>
+            {% endif %}
         </div>
     </section>
 

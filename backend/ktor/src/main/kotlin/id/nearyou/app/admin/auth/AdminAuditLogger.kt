@@ -247,6 +247,104 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a successful admin-initiated standalone PERMANENT BAN
+     * (`admin-user-moderation` capability). Joins the caller's [conn] so the
+     * audit INSERT commits atomically with the `users` UPDATE + the sanitized
+     * ban notification in the `UserModerationRepository.permanentBan`
+     * transaction. The free-text [reason] is stored here (audit-only) and is
+     * NEVER echoed to the banned user. `adminId` is the acting human admin,
+     * never the `system` sentinel.
+     */
+    fun logUserBanned(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "user_banned",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a successful admin-initiated standalone SHADOW BAN
+     * (`admin-user-moderation` capability). Joins the caller's [conn] for
+     * atomicity with the `is_shadow_banned = TRUE` UPDATE; a shadow ban is
+     * invisible to the offender, so no notification accompanies it. The free-text
+     * [reason] is audit-only. `adminId` is the acting human admin, never the
+     * `system` sentinel.
+     */
+    fun logUserShadowBanned(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "user_shadow_banned",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a successful admin-initiated UN-SHADOW-BAN
+     * (`admin-user-moderation` capability) — the restorative reversal of a shadow
+     * ban. Joins the caller's [conn] for atomicity with the `is_shadow_banned =
+     * FALSE` UPDATE; no notification (the reversal is silent, mirroring the
+     * stealth shadow ban). Restorative, so it is NOT in the
+     * `admin-destructive-action-rate-limit` destructive set. `adminId` is the
+     * acting human admin, never the `system` sentinel.
+     */
+    fun logUserShadowUnbanned(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "user_shadow_unbanned",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a report-status resolution (`admin-report-queue-resolution-
      * actions` capability): `POST /admin/reports/{id}/resolve` transitioning a
      * `reports` row `pending → actioned | dismissed`. Joins the caller's [conn]
