@@ -32,9 +32,10 @@ private const val RETRY = "Coba lagi"
 private const val COPY_POST_LIKED = "Seseorang menyukai postingan kamu"
 
 /**
- * iOS counterpart to the Robolectric `NotificationsScreenTest` — the notifications screen run natively on
- * the iOS simulator (task 12.9). Covers the four fetch states + the type-keyed copy/excerpt + mark-read on
- * tap, reusing the commonTest fakes. The pull-to-refresh swipe is left to the Android suite (gesture-timing
+ * iOS counterpart to the Robolectric `NotificationsScreenTest` (+ `NotificationsScreenNavTest` for the
+ * deep-link tap) — the notifications screen run natively on the iOS simulator (task 12.9). Covers the four
+ * fetch states + the type-keyed copy/excerpt + mark-read on tap + a post-target deep-link tap → onOpenPost,
+ * reusing the commonTest fakes. The pull-to-refresh swipe is left to the Android suite (gesture-timing
  * flakiness). See `id.nearyou.app.screens.auth.SignInFlowIosTest` for the v1-API + iosTest-placement
  * rationale; uses kotlin.test `@Test` with K/N-legal fn names (no `,()#`).
  */

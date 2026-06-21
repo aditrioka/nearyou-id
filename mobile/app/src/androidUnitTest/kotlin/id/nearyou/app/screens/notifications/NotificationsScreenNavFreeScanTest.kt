@@ -22,7 +22,7 @@ private fun String.stripComments(): String {
  * (deep-linking is now SHIPPED, just hoisted). Needles are assembled from fragments AND the scanned source
  * is comment-stripped, so neither the screen's own KDoc nor this guard's source trips it. Runs in every
  * variant (NOT a Compose UI test). The positive per-type navigation behavior is asserted by
- * `NotificationsScreenTest`.
+ * `NotificationsScreenNavTest` (Robolectric) + `NotificationsViewModelNavTest`.
  */
 class NotificationsScreenNavFreeScanTest {
     // Assembled (not contiguous literals): a Nav3 back-stack handle, a route key, and #159's post-detail
