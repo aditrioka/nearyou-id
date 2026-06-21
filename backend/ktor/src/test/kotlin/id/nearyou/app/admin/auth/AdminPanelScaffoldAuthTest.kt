@@ -60,20 +60,21 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "data-icon=\"group\""
             body shouldContain "data-icon=\"block\""
             body shouldContain "data-icon=\"timer\""
+            body shouldContain "data-icon=\"auto_delete\""
             body shouldContain "data-icon=\"receipt_long\""
             body shouldContain "data-icon=\"toggle_on\""
             body shouldContain "data-icon=\"badge\""
             body shouldContain "data-icon=\"alternate_email\""
             body shouldContain "data-icon=\"credit_card\""
-            // EXACTLY eleven nav items, under their six group headings: the new
+            // EXACTLY twelve nav items, under their six group headings: the new
             // Premium group holds Subscription grace (admin-subscription-grace-
             // monitor); the Konfigurasi group holds Feature flags (admin-feature-
             // flag-editor) + Reserved usernames (admin-reserved-usernames-editor)
             // + Username oversight (admin-premium-username-oversight); the
-            // Lifecycle group + Privacy flips shipped with admin-privacy-flip-
-            // monitor; the Block registry item under Anti-abuse shipped with
-            // admin-block-registry.
-            Regex("class=\"nitem").findAll(body).count() shouldBe 11
+            // Lifecycle group holds Privacy flips (admin-privacy-flip-monitor) +
+            // Hard delete queue (admin-hard-delete-queue); the Block registry item
+            // under Anti-abuse shipped with admin-block-registry.
+            Regex("class=\"nitem").findAll(body).count() shouldBe 12
             body shouldContain "Moderasi"
             body shouldContain "Anti-abuse &amp; keamanan"
             body shouldContain "Lifecycle"

@@ -1,12 +1,12 @@
 ## 1. Pre-flight (apply-time re-checks)
 
-- [x] 1.1 Re-confirm the next free Flyway version at apply time (4 parallel sessions are racing #353/#354/#355/#356): `ls backend/ktor/src/main/resources/db/migration | sed -E 's/V([0-9]+)__.*/\1/' | sort -n | tail -1` → use `V<max+1>`; this change assumes **V29** but `git mv` to the next free `V<N>` (+ bump in-file/docs refs) if a sibling merged first.
+- [x] 1.1 Re-confirm the next free Flyway version at apply time (4 parallel sessions are racing #353/#354/#355/#356): `ls backend/ktor/src/main/resources/db/migration | sed -E 's/V([0-9]+)__.*/\1/' | sort -n | tail -1` → use `V<max+1>`; this change assumes **V31** but `git mv` to the next free `V<N>` (+ bump in-file/docs refs) if a sibling merged first.
 - [x] 1.2 Reconciliation note (no edit unless confirmed): verify `openspec/specs/premium-image-upload/spec.md:143-151` ("CSAM subsystem deferred / no `/internal/csam-webhook` exists") is scoped "introduced by **this** change" (= #325) and stays true — default is **leave untouched** (avoids archive-conflict with `image-attached-posts` #354). Only touch it if the B.3 pass concludes a surgical `MODIFIED` is required.
 - [x] 1.3 Confirm `docs/11` § Pattern Registry needs **no amendment** (this change introduces no new pattern for a listed concern — design.md § Standards conformance). External-data sanity check is **N/A** (no OSM/BPS/CC-BY source).
 
 ## 2. Migration — `csam_detection_archive` table
 
-- [x] 2.1 Create `V29__csam_detection_archive.sql` (or the re-confirmed `V<N>`): `image_hash TEXT NOT NULL UNIQUE`, `cf_match_id TEXT`, `ncmec_reference TEXT`, `source TEXT NOT NULL CHECK (source IN ('admin_manual','cf_worker'))`, `encrypted_metadata BYTEA`, `kominfo_report_id TEXT`, `kominfo_reported_at TIMESTAMPTZ`, `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`, `expires_at TIMESTAMPTZ NOT NULL`. **No FK to `users`** (legal-preservation: survives the uploader's hard-delete).
+- [x] 2.1 Create `V31__csam_detection_archive.sql` (or the re-confirmed `V<N>`): `image_hash TEXT NOT NULL UNIQUE`, `cf_match_id TEXT`, `ncmec_reference TEXT`, `source TEXT NOT NULL CHECK (source IN ('admin_manual','cf_worker'))`, `encrypted_metadata BYTEA`, `kominfo_report_id TEXT`, `kominfo_reported_at TIMESTAMPTZ`, `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`, `expires_at TIMESTAMPTZ NOT NULL`. **No FK to `users`** (legal-preservation: survives the uploader's hard-delete).
 - [x] 2.2 Add the partial `UNIQUE` index on `cf_match_id` `WHERE cf_match_id IS NOT NULL` (immutable predicate — partial-index-clean, no `NOW()`).
 - [x] 2.3 Add a header comment (mirroring the V26 style) linking back to this change + the `image_uploads` ledger; confirm the migration applies cleanly against the parity-init Postgres (CI `migrate-supabase-parity`).
 

@@ -247,6 +247,104 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a successful admin-initiated standalone PERMANENT BAN
+     * (`admin-user-moderation` capability). Joins the caller's [conn] so the
+     * audit INSERT commits atomically with the `users` UPDATE + the sanitized
+     * ban notification in the `UserModerationRepository.permanentBan`
+     * transaction. The free-text [reason] is stored here (audit-only) and is
+     * NEVER echoed to the banned user. `adminId` is the acting human admin,
+     * never the `system` sentinel.
+     */
+    fun logUserBanned(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "user_banned",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a successful admin-initiated standalone SHADOW BAN
+     * (`admin-user-moderation` capability). Joins the caller's [conn] for
+     * atomicity with the `is_shadow_banned = TRUE` UPDATE; a shadow ban is
+     * invisible to the offender, so no notification accompanies it. The free-text
+     * [reason] is audit-only. `adminId` is the acting human admin, never the
+     * `system` sentinel.
+     */
+    fun logUserShadowBanned(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "user_shadow_banned",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a successful admin-initiated UN-SHADOW-BAN
+     * (`admin-user-moderation` capability) — the restorative reversal of a shadow
+     * ban. Joins the caller's [conn] for atomicity with the `is_shadow_banned =
+     * FALSE` UPDATE; no notification (the reversal is silent, mirroring the
+     * stealth shadow ban). Restorative, so it is NOT in the
+     * `admin-destructive-action-rate-limit` destructive set. `adminId` is the
+     * acting human admin, never the `system` sentinel.
+     */
+    fun logUserShadowUnbanned(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "user_shadow_unbanned",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a report-status resolution (`admin-report-queue-resolution-
      * actions` capability): `POST /admin/reports/{id}/resolve` transitioning a
      * `reports` row `pending → actioned | dismissed`. Joins the caller's [conn]
@@ -429,6 +527,46 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a hard-delete-queue MANUAL EXPEDITE (`admin-hard-delete-queue`
+     * capability): `POST /admin/deletion-requests/{id}/expedite` advancing a
+     * pending `deletion_requests` row's `scheduled_hard_delete_at` to `NOW()` so
+     * the existing daily worker erases the account on its next run. Joins the
+     * caller's [conn] so this audit INSERT + the rate-limit COUNT read the same
+     * ledger snapshot and the deadline advance + audit row commit atomically inside
+     * the expedite transaction (the atomicity requirement). `target_type =
+     * 'deletion_request'`, `target_id` = the deletion-request id. Unlike the
+     * subscription-grace expedite (a no-op), this action MUTATES — so [beforeState]
+     * / [afterState] carry DIFFERING `scheduled_hard_delete_at` values (the prior
+     * future deadline → `NOW()`) plus the affected `user_id`; the route itself never
+     * tombstones or cascades (the worker does). The mandatory [reason] is the
+     * operator justification. `adminId` is the acting human admin, never the
+     * `system` sentinel.
+     */
+    fun logDeletionRequestExpedited(
+        conn: Connection,
+        adminId: UUID,
+        deletionRequestId: UUID,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "deletion_request_expedited",
+            adminId = adminId,
+            targetType = "deletion_request",
+            targetId = deletionRequestId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a feature-flag publish (`admin-feature-flags` capability):
      * exactly one immutable row per applied Server-template parameter write.
      * Joins the caller's [conn] so the rate-limit COUNT and this INSERT read +
@@ -456,6 +594,44 @@ class AdminAuditLogger(
             adminId = adminId,
             targetType = "feature_flag",
             targetId = parameterName,
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a moderation WORDLIST EDIT (`admin-moderation-wordlist-editor`
+     * capability): exactly one immutable row per applied Server-template wordlist
+     * publish. Joins the caller's [conn] so the rate-limit COUNT and this INSERT
+     * read + append the same ledger snapshot on one connection (the count can't
+     * drift from the ledger it gates — design D2). `action_type =
+     * 'moderation_wordlist_edited'`, `target_type = 'moderation_wordlist'`,
+     * `target_id` = the list parameter name (`moderation_profanity_list` /
+     * `moderation_uu_ite_list`); [beforeState]/[afterState] carry a DIFF SUMMARY
+     * (counts + added/removed + bounded changed-entry samples + version pointer —
+     * design D3), NOT the full 300+ entry arrays (recoverable from Remote Config
+     * version history). [reason] is the mandatory operator-supplied free text.
+     * `adminId` is the acting human admin, never the `system` sentinel.
+     */
+    fun logModerationWordlistEdited(
+        conn: Connection,
+        adminId: UUID,
+        listParameterName: String,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "moderation_wordlist_edited",
+            adminId = adminId,
+            targetType = "moderation_wordlist",
+            targetId = listParameterName,
             reason = reason,
             beforeState = beforeState,
             afterState = afterState,

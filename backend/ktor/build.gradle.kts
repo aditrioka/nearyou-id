@@ -23,8 +23,10 @@ dependencies {
     implementation(projects.infra.oidc)
     implementation(projects.infra.openaiModeration)
     implementation(projects.infra.otel)
+    implementation(projects.infra.r2)
     implementation(projects.infra.redis)
     implementation(projects.infra.remoteConfig)
+    implementation(projects.infra.resend)
     implementation(projects.infra.supabase)
 
     implementation(libs.logback)

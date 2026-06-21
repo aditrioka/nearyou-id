@@ -18,12 +18,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,6 +53,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.post.LikeCountOutcome
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.PostDetailFlow
@@ -58,12 +64,14 @@ import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.LoadMoreFooter
 import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
+import id.nearyou.app.ui.components.ReportDialog
 import id.nearyou.app.ui.components.postDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_edit_post
 import id.nearyou.resources.generated.resources.cta_reply
 import id.nearyou.resources.generated.resources.cta_retry
+import id.nearyou.resources.generated.resources.ic_more_vert
 import id.nearyou.resources.generated.resources.ic_post_like
 import id.nearyou.resources.generated.resources.ic_post_like_filled
 import id.nearyou.resources.generated.resources.ic_post_reply
@@ -79,10 +87,17 @@ import id.nearyou.resources.generated.resources.post_detail_reply_counter
 import id.nearyou.resources.generated.resources.post_detail_reply_placeholder
 import id.nearyou.resources.generated.resources.post_detail_reset_hours
 import id.nearyou.resources.generated.resources.post_edit_edited_label
+import id.nearyou.resources.generated.resources.profile_actions_menu_description
+import id.nearyou.resources.generated.resources.profile_report_action
+import id.nearyou.resources.generated.resources.profile_report_rate_limited
+import id.nearyou.resources.generated.resources.profile_report_success_toast
+import id.nearyou.resources.generated.resources.report_title_post
+import id.nearyou.resources.generated.resources.report_title_reply
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.theme.locationPin
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -115,6 +130,15 @@ const val POST_DETAIL_EDIT_TAG: String = "postDetailEdit"
 
 /** Test tag on the "Diedit" label (opens the "Riwayat edit" history overlay). */
 const val POST_DETAIL_EDITED_LABEL_TAG: String = "postDetailEditedLabel"
+
+/** Test tag on the post-header report affordance (shown only for a non-authored post). */
+const val POST_DETAIL_REPORT_POST_TAG: String = "postDetailReportPost"
+
+/** Test tag on a reply row's report affordance (present on every reply, ungated by authorship). */
+const val POST_DETAIL_REPORT_REPLY_TAG: String = "postDetailReportReply"
+
+/** Test tag on the shared report dialog when opened from the post-detail surface. */
+const val POST_DETAIL_REPORT_DIALOG_TAG: String = "postDetailReportDialog"
 
 /**
  * The post-detail surface ([PostDetailRoute]) — "everything you do on a single post" — opened by tapping
@@ -149,6 +173,7 @@ fun PostDetailScreen(
 ) {
     val flow = koinInject<PostDetailFlow>()
     val editFlow = koinInject<PostEditFlow>()
+    val reportSubmitter = koinInject<ReportSubmitter>()
     val scope = rememberCoroutineScope()
 
     // Like state: initial liked from the nav arg; count + last outcome (for the cap upsell) are live.
@@ -160,12 +185,15 @@ fun PostDetailScreen(
     // Replies list + cursor paging + the header reply count are held in PostDetailViewModel (design D5,
     // mirrors the timeline-VM migration #167) so the loaded replies + load-more state survive
     // recomposition + config change. The like + composer state stay composition-local (noted follow-up).
-    val viewModel = viewModel { PostDetailViewModel(flow, route.postId, route.replyCount) }
+    val viewModel = viewModel { PostDetailViewModel(flow, route.postId, route.replyCount, reportSubmitter) }
     val repliesOutcome by viewModel.repliesOutcome.collectAsStateWithLifecycle()
     val repliesInFlight by viewModel.repliesInFlight.collectAsStateWithLifecycle()
     val replyCount by viewModel.replyCount.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val loadMoreError by viewModel.loadMoreError.collectAsStateWithLifecycle()
+    // mobile-content-report: the report dialog target + the one-shot result message.
+    val reportTarget by viewModel.reportTarget.collectAsStateWithLifecycle()
+    val reportMessage by viewModel.reportMessage.collectAsStateWithLifecycle()
 
     // Composer state.
     var replyContent by remember { mutableStateOf("") }
@@ -295,6 +323,16 @@ fun PostDetailScreen(
         }
     }
 
+    // mobile-content-report: the one-shot report-result message → a snackbar (resolved + cleared once).
+    val snackbarHostState = remember { SnackbarHostState() }
+    val reportMessageText = reportMessage?.let { stringResource(it.resource()) }
+    LaunchedEffect(reportMessage) {
+        if (reportMessageText != null) {
+            snackbarHostState.showSnackbar(reportMessageText)
+            viewModel.onReportMessageShown()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
@@ -302,6 +340,10 @@ fun PostDetailScreen(
                     onBack = onBack,
                     editEligible = editEligible,
                     onEdit = { onEditPost(route.postId, displayedContent) },
+                    // mobile-content-report: the post-header report affordance shows only for a
+                    // non-authored post (server-authoritative `isAuthor`, the same gate as Edit).
+                    reportEligible = !isAuthor,
+                    onReportPost = viewModel::onReportPostClicked,
                 )
             },
             bottomBar = {
@@ -314,6 +356,7 @@ fun PostDetailScreen(
                     focusRequester = replyFocusRequester,
                 )
             },
+            snackbarHost = { SnackbarHost(snackbarHostState) },
         ) { padding ->
             // Everything scrolls in one LazyColumn (header + like row + the replies states/list + the
             // load-more footer); the reply composer is the fixed bottom bar. The replies retry calls the VM,
@@ -361,7 +404,11 @@ fun PostDetailScreen(
                             items = repliesState.replies,
                             key = { it.id },
                             contentType = { "reply" },
-                        ) { reply -> ReplyCard(reply) }
+                        ) { reply ->
+                            // mobile-content-report: each reply row carries a report affordance targeting
+                            // the reply id ONLY (ungated by authorship — author_id is dropped).
+                            ReplyCard(reply = reply, onReport = { viewModel.onReportReplyClicked(reply.id) })
+                        }
                 }
                 // Replies load-more footer: spinner while a page loads, non-destructive retry on error,
                 // nothing at end / during the initial load (mobile-design-system § load-more pattern).
@@ -373,6 +420,19 @@ fun PostDetailScreen(
                     )
                 }
             }
+            // mobile-content-report: the shared report dialog over the detail — the title differs by target
+            // (post vs reply); submission + outcome→message mapping live in the VM. NO author identity is
+            // passed (the reply target carries only the reply id). Hosted inside the Scaffold content (the
+            // AlertDialog is a Dialog window, so z-order is unaffected) — NOT as a sibling of the Scaffold,
+            // which triggered an infinite measure loop in the LazyColumn host.
+            reportTarget?.let { target ->
+                ReportDialog(
+                    title = target.titleResource(),
+                    testTag = POST_DETAIL_REPORT_DIALOG_TAG,
+                    onSubmit = viewModel::onReportSubmitted,
+                    onDismiss = viewModel::onReportDialogDismissed,
+                )
+            }
         }
         // mobile-post-editing: the screen-local "Riwayat edit" overlay (NOT a NavKey) over the detail.
         if (historyOpen) {
@@ -381,13 +441,34 @@ fun PostDetailScreen(
     }
 }
 
+/** The report-dialog title per target: a post vs a reply (mobile-content-report). */
+private fun ReportTarget.titleResource(): StringResource =
+    when (this) {
+        ReportTarget.Post -> Res.string.report_title_post
+        is ReportTarget.Reply -> Res.string.report_title_reply
+    }
+
+/** Maps the one-shot [PostDetailReportMessage] to its `:shared:resources` string. Submitted AND Duplicate
+ *  share [profile_report_success_toast] (anti-enumeration); rate-limit + failure reuse existing copy. */
+private fun PostDetailReportMessage.resource(): StringResource =
+    when (this) {
+        PostDetailReportMessage.SUCCESS -> Res.string.profile_report_success_toast
+        PostDetailReportMessage.RATE_LIMITED -> Res.string.profile_report_rate_limited
+        PostDetailReportMessage.FAILED -> Res.string.signin_error_network
+    }
+
 /** The back/close affordance (the detail overlays the feed via the root stack, so "Tutup" = close it).
- *  Invokes the hoisted [onBack] — the screen holds no back-stack reference. */
+ *  Invokes the hoisted [onBack] — the screen holds no back-stack reference. The trailing slot carries the
+ *  mobile-post-editing Edit affordance (own post within the window) OR the mobile-content-report report
+ *  affordance (a non-authored post). The two are mutually exclusive on authorship (a non-author is never
+ *  edit-eligible), so they never co-occur. */
 @Composable
 private fun BackBar(
     onBack: () -> Unit,
     editEligible: Boolean,
     onEdit: () -> Unit,
+    reportEligible: Boolean,
+    onReportPost: () -> Unit,
 ) {
     // This screen owns its Scaffold (root-stack overlay), so its custom bars must
     // apply their own system-bar insets — a bare Row in the topBar slot rendered
@@ -410,6 +491,37 @@ private fun BackBar(
             TextButton(onClick = onEdit, modifier = Modifier.testTag(POST_DETAIL_EDIT_TAG)) {
                 Text(text = stringResource(Res.string.cta_edit_post))
             }
+        } else if (reportEligible) {
+            // mobile-content-report: the post-header report affordance for a non-authored post — an
+            // overflow kebab mirroring the profile ProfileActionsMenu treatment (a single "Laporkan" item).
+            PostReportMenu(onReportPost = onReportPost)
+        }
+    }
+}
+
+/** The post-header report overflow (a non-authored post). A kebab opening a single "Laporkan" item —
+ *  mirrors the profile `ProfileActionsMenu` so the report entry point reads the same across surfaces. */
+@Composable
+private fun PostReportMenu(onReportPost: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.testTag(POST_DETAIL_REPORT_POST_TAG),
+        ) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_more_vert),
+                contentDescription = stringResource(Res.string.profile_actions_menu_description),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.profile_report_action)) },
+                onClick = {
+                    expanded = false
+                    onReportPost()
+                },
+            )
         }
     }
 }
@@ -578,23 +690,61 @@ private fun LikeRow(
     }
 }
 
-/** A single reply card — `content` + the `created_at` date treatment ONLY. NO author identity (the
- *  PII-free [ReplyUi] carries no `authorId`); a viewer's-own auto-hidden reply renders identically (the
- *  flag is parsed but not surfaced in v1). */
+/** A single reply card — `content` + the `created_at` date treatment + a trailing report affordance. NO
+ *  author identity (the PII-free [ReplyUi] carries no `authorId`); a viewer's-own auto-hidden reply renders
+ *  identically (the flag is parsed but not surfaced in v1). [onReport] opens the shared report dialog for
+ *  THIS reply (the VM targets the reply id only — mobile-content-report); the affordance is ungated by
+ *  authorship (author_id is dropped, so own-vs-other is unknowable client-side). */
 @Composable
-private fun ReplyCard(reply: ReplyUi) {
+private fun ReplyCard(
+    reply: ReplyUi,
+    onReport: () -> Unit,
+) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-            Text(
-                text = reply.content,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = reply.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = postDateLabel(reply.createdAt),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            ReplyReportMenu(onReport = onReport)
+        }
+    }
+}
+
+/** A reply row's report overflow — a kebab opening a single "Laporkan" item (mirrors the post report
+ *  overflow). The affordance is present on EVERY reply (ungated by authorship). */
+@Composable
+private fun ReplyReportMenu(onReport: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.testTag(POST_DETAIL_REPORT_REPLY_TAG),
+        ) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_more_vert),
+                contentDescription = stringResource(Res.string.profile_actions_menu_description),
             )
-            Text(
-                text = postDateLabel(reply.createdAt),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.profile_report_action)) },
+                onClick = {
+                    expanded = false
+                    onReport()
+                },
             )
         }
     }

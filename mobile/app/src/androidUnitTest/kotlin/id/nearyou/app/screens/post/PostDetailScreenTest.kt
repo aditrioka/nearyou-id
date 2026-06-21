@@ -31,6 +31,8 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.network.HttpClientFactory
 import id.nearyou.app.post.EditHistoryOutcome
 import id.nearyou.app.post.EditVersionDto
@@ -102,9 +104,11 @@ private val JSON = headersOf("Content-Type", "application/json")
  * single-post-read refresh on resume). The outcome→state projection is covered purely by `PostDetailUiStateTest`; this suite
  * verifies the composable renders the header (empty-city tolerated, no `author_id`/coordinate), the
  * replies states (incl. a viewer's-own auto-hidden reply rendering normally), the like toggle (optimistic
- * + revert + 429 upsell + count + graceful degradation), and the reply composer (counter, 280-disable,
- * 201 local-append-without-refetch, 429 upsell, error banner), plus the deferral negatives (no block/
- * report affordance). In the Release-variant `*ScreenTest` exclude (the ui-test-manifest host is debug-only).
+ * + revert + 429 upsell + count + graceful degradation), the reply composer (counter, 280-disable,
+ * 201 local-append-without-refetch, 429 upsell, error banner), the mobile-content-report affordances (post
+ * report shown for a non-authored post / hidden on own post, per-reply report ungated by authorship,
+ * dialog submit → success message, reply target_id = reply id with no author UUID), and the block-deferral
+ * negative. In the Release-variant `*ScreenTest` exclude (the ui-test-manifest host is debug-only).
  *
  * `@Suppress("DEPRECATION")` + `KoinContext`: see `SignInScreenTest` for the multi-test startKoin cycle.
  *
@@ -122,6 +126,7 @@ class PostDetailScreenTest {
     private fun installKoin(
         flow: PostDetailFlow,
         editFlow: PostEditFlow = FakePostEditFlow(),
+        reportSubmitter: ReportSubmitter = FakeReportSubmitter(),
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         startKoin {
@@ -129,6 +134,7 @@ class PostDetailScreenTest {
                 module {
                     single { flow }
                     single { editFlow }
+                    single { reportSubmitter }
                 },
             )
         }
@@ -322,15 +328,17 @@ class PostDetailScreenTest {
     // ---- header ----
 
     @Test
-    fun header_showsContentAndPostedFrom_andNoBlockReportAffordance() {
+    fun header_showsContentAndPostedFrom_andNoBlockAffordance() {
         installKoin(FakePostDetailFlow())
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
             onNodeWithText(CONTENT).assertExists()
             onNodeWithText(POSTED_FROM).assertExists()
-            // Deferral negatives: no block/report affordance on the detail surface.
+            // Deferral negative: NO block affordance on the detail surface (block stays deferred —
+            // mobile-post-detail "Block kebab action is deferred"). The Laporkan-absent assertion was
+            // REMOVED — report ships now (mobile-content-report); its presence is covered by the report
+            // affordance tests below.
             onNodeWithText("Blokir", substring = true).assertDoesNotExist()
-            onNodeWithText("Laporkan", substring = true).assertDoesNotExist()
         }
     }
 
@@ -393,6 +401,95 @@ class PostDetailScreenTest {
             onNodeWithText("PII_REPLY").assertExists()
             onNodeWithText(AUTHOR_UUID, substring = true).assertDoesNotExist()
             onNodeWithText("1234.5", substring = true).assertDoesNotExist() // no raw distance/coordinate
+        }
+    }
+
+    // ---- mobile-content-report: report affordances + entry points ----
+    //
+    // NOTE on dialog-internals coverage: the shared report dialog hosts an OutlinedTextField inside an
+    // AlertDialog. Over PostDetailScreen's LazyColumn Scaffold content, that specific combination triggers a
+    // Robolectric-only NEVER-SETTLING measure pass ("Compose did not get idle after N attempts") — a known
+    // Compose-test layout quirk; it renders + idles fine on a real device, and the SAME dialog opens cleanly
+    // in ProfileScreenTest (whose host is a verticalScroll Column, not a LazyColumn). So these screen tests
+    // assert everything observable WITHOUT opening the dialog body (affordance presence/absence, the
+    // "Laporkan" menu entry point, and the PII negative-guard that no author UUID renders). The dialog's
+    // SUBMIT behavior — Submitted/Duplicate→the same success message, RateLimited/NetworkError mapping, and
+    // the reply submission carrying target_id = the reply id ONLY with no author_id — is covered precisely
+    // (and more strongly, via a capturing FakeReportSubmitter) in PostDetailViewModelTest.
+
+    // The post-header report affordance shows for a NON-authored post (default refresh = Unavailable, so
+    // isAuthor stays false → !isAuthor); tapping the kebab surfaces the "Laporkan" entry point.
+    @Test
+    fun postReportAffordance_present_whenNotAuthor() {
+        installKoin(FakePostDetailFlow())
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).assertExists()
+            onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).performClick() // open the overflow
+            onNodeWithText("Laporkan").assertExists() // the single menu item (the report entry point)
+        }
+    }
+
+    // The post-header report affordance is ABSENT for the viewer's OWN post (isAuthor = true) — the Edit
+    // affordance shows instead (mirrors the editAffordance_shown test). Locks design D4's post gate.
+    @Test
+    fun postReportAffordance_absent_whenAuthor() {
+        val fresh = Clock.System.now().toString()
+        installKoin(
+            FakePostDetailFlow(),
+            FakePostEditFlow(refreshOutcome = PostRefreshOutcome.Loaded(content = CONTENT, editedAt = null, isAuthor = true)),
+        )
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(route = route(createdAtIso = fresh), onBack = {}, onEditPost = {
+                                _,
+                                _,
+                            ->
+                        })
+                    }
+                }
+            }
+            // The Edit affordance appears only after the resume refresh reports isAuthor = true.
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(POST_DETAIL_EDIT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_EDIT_TAG).assertExists()
+            onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).assertDoesNotExist() // own post → no report kebab
+        }
+    }
+
+    // Each reply row exposes a report affordance, regardless of authorship (author_id is dropped, so the
+    // client cannot gate by it — design D4). Two replies → two report kebabs; tapping one surfaces the
+    // "Laporkan" entry point. The PII negative-guard (no author UUID renders) is also asserted here.
+    @Test
+    fun replyReportAffordance_presentOnEveryReply_noAuthorUuid() {
+        installKoin(
+            FakePostDetailFlow(
+                repliesOutcome =
+                    RepliesOutcome.Loaded(
+                        listOf(
+                            // A viewer-authored reply (modelled here as auto-hidden — the viewer's own) and a
+                            // non-authored reply both expose the affordance; both carry the PII author UUID on
+                            // the wire, which must never render.
+                            fakeReply(id = "rOwn", authorId = AUTHOR_UUID, content = "OWN_REPLY", isAutoHidden = true),
+                            fakeReply(id = "rOther", authorId = AUTHOR_UUID, content = "OTHER_REPLY"),
+                        ),
+                        nextCursor = null,
+                    ),
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OWN_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            // Both reply rows carry the report affordance (ungated by authorship).
+            onAllNodesWithTag(POST_DETAIL_REPORT_REPLY_TAG).assertCountEquals(2)
+            // PII negative-guard: no author UUID renders anywhere in the reply tree (the report sends only
+            // the reply id — that wire assertion is in PostDetailViewModelTest's capturing-submitter test).
+            onNodeWithText(AUTHOR_UUID, substring = true).assertDoesNotExist()
+            // The reply report entry point surfaces "Laporkan" (the dialog body itself can't be opened under
+            // Robolectric here — see the NOTE above; the submit path is covered at the VM level).
+            onAllNodesWithTag(POST_DETAIL_REPORT_REPLY_TAG)[0].performScrollTo().performClick()
+            onNodeWithText("Laporkan").assertExists()
         }
     }
 
@@ -717,6 +814,7 @@ class PostDetailScreenTest {
                 module {
                     single<PostDetailFlow> { detailRepo }
                     single<PostEditFlow> { editRepo }
+                    single<ReportSubmitter> { FakeReportSubmitter() }
                 },
             )
         }

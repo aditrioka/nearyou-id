@@ -58,7 +58,10 @@ class UserModerationRepositoryTest : StringSpec({
         suspendedUntil: Instant? = null,
         deletedAt: Instant? = null,
         username: String? = null,
-    ): UUID = UserModerationTestSupport.seedUser(dataSource, isBanned, suspendedUntil, deletedAt, username).also { seededUsers += it }
+        isShadowBanned: Boolean = false,
+    ): UUID =
+        UserModerationTestSupport.seedUser(dataSource, isBanned, suspendedUntil, deletedAt, username, isShadowBanned)
+            .also { seededUsers += it }
 
     fun seedAdmin(role: String = "owner"): UUID = AdminAuthTestSupport.seedAdmin(dataSource, role = role).id.also { seededAdmins += it }
 
@@ -457,12 +460,292 @@ class UserModerationRepositoryTest : StringSpec({
         unbanOutcome(banned, "owner", admin) shouldBe UnbanOutcome.Applied
         UserModerationTestSupport.loadUser(dataSource, banned).isBanned shouldBe false
     }
+
+    // ============================ permanent ban (apply) ========================
+
+    "ban: active user is permanently banned (is_banned=TRUE, suspended_until=NULL)" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+
+        repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe BanOutcome.Applied
+
+        val row = UserModerationTestSupport.loadUser(dataSource, uid)
+        row.isBanned shouldBe true
+        row.suspendedUntil.shouldBeNull()
+    }
+
+    "ban: escalating a future-dated suspension records the prior expiry in before_state" {
+        val admin = seedAdmin()
+        val priorExpiry = Instant.now().plus(2, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MILLIS)
+        val uid = seedUser(isBanned = true, suspendedUntil = priorExpiry)
+
+        repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe BanOutcome.Applied
+
+        val row = UserModerationTestSupport.loadUser(dataSource, uid)
+        row.isBanned shouldBe true
+        row.suspendedUntil.shouldBeNull()
+        val audit = UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned").single()
+        val beforeExpiry = parseSuspendedUntil(audit.beforeStateJson)
+        beforeExpiry.shouldNotBeNull()
+        beforeExpiry.truncatedTo(ChronoUnit.SECONDS) shouldBe priorExpiry.truncatedTo(ChronoUnit.SECONDS)
+    }
+
+    "ban: escalating an elapsed-but-unswept suspension is allowed" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = true, suspendedUntil = Instant.now().minus(1, ChronoUnit.HOURS))
+
+        repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe BanOutcome.Applied
+
+        val row = UserModerationTestSupport.loadUser(dataSource, uid)
+        row.isBanned shouldBe true
+        row.suspendedUntil.shouldBeNull()
+    }
+
+    "ban: token_version is NOT modified (mirrors shipped suspend/report-queue ban)" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        val before = readModFlags(dataSource, uid)
+
+        repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe BanOutcome.Applied
+
+        readModFlags(dataSource, uid).tokenVersion shouldBe before.tokenVersion
+    }
+
+    "ban: a soft-deleted user is rejected — no state change, no audit, no notification" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false, deletedAt = Instant.now().minus(1, ChronoUnit.DAYS))
+
+        repo.permanentBan(uid, admin, reason = "x", ip = ip, userAgent = ua) shouldBe BanOutcome.RejectedSoftDeleted
+
+        UserModerationTestSupport.loadUser(dataSource, uid).isBanned shouldBe false
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid) shouldHaveSize 0
+        UserModerationTestSupport.notificationsForUser(dataSource, uid) shouldHaveSize 0
+    }
+
+    "ban: an already-permanently-banned user is a no-op that writes no audit row" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = true, suspendedUntil = null)
+
+        repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe BanOutcome.NoOpAlreadyBanned
+
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned") shouldHaveSize 0
+    }
+
+    "ban: at the cap a ban is rejected (quota-exceeded), no mutation, no audit" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        seedDestructiveActions(dataSource, admin, 20)
+
+        repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe BanOutcome.RateLimited
+
+        UserModerationTestSupport.loadUser(dataSource, uid).isBanned shouldBe false
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned") shouldHaveSize 0
+    }
+
+    "ban: a standalone ban counts toward the destructive cap" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        seedDestructiveActions(dataSource, admin, 19)
+
+        repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe BanOutcome.Applied
+
+        DestructiveActionRateLimiter(dataSource).countInTrailingHour(admin) shouldBe 20
+    }
+
+    "ban: audit row is user_banned, attributed to the human admin, with before/after state + ip + ua" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+
+        repo.permanentBan(uid, admin, reason = "repeat severe violations", ip = ip, userAgent = ua)
+
+        val audit = UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned").single()
+        audit.actionType shouldBe "user_banned"
+        audit.targetType shouldBe "user"
+        audit.targetId shouldBe uid.toString()
+        audit.reason shouldBe "repeat severe violations"
+        audit.ip shouldBe ip
+        audit.userAgent shouldBe ua
+        audit.adminId shouldBe admin
+        audit.adminId shouldNotBe SuspensionUnbanWorker.SYSTEM_ACTOR_ID
+        parseIsBanned(audit.beforeStateJson) shouldBe false
+        parseIsBanned(audit.afterStateJson) shouldBe true
+        parseSuspendedUntil(audit.afterStateJson).shouldBeNull()
+    }
+
+    "ban: a null user_agent records NULL user_agent (ip still recorded)" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+
+        repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = null)
+
+        val audit = UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned").single()
+        audit.userAgent.shouldBeNull()
+        audit.ip shouldBe ip
+    }
+
+    "ban: inserts one sanitized account_action_applied notification; free-text reason absent" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+
+        repo.permanentBan(uid, admin, reason = "doxxing — see report #9", ip = ip, userAgent = ua)
+
+        val notifs = UserModerationTestSupport.notificationsForUser(dataSource, uid)
+        notifs shouldHaveSize 1
+        val notif = notifs.single()
+        notif.type shouldBe "account_action_applied"
+        notif.actorUserId.shouldBeNull()
+        val body = Json.parseToJsonElement(notif.bodyDataJson!!).jsonObject
+        body["action_type"]!!.jsonPrimitive.content shouldBe "user_banned"
+        body["reason"]!!.jsonPrimitive.content shouldBe "ban"
+        notif.bodyDataJson shouldNotContain "doxxing"
+    }
+
+    "ban: audit-insert failure rolls back the ban (no state change, no audit, no notification)" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        withFailingConstraint(dataSource, "admin_actions_log", "zzz_fail_user_banned_audit", "action_type <> 'user_banned'") {
+            shouldThrow<Exception> { repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = ua) }
+            UserModerationTestSupport.loadUser(dataSource, uid).isBanned shouldBe false
+            UserModerationTestSupport.auditRowsForTarget(dataSource, uid) shouldHaveSize 0
+            UserModerationTestSupport.notificationsForUser(dataSource, uid) shouldHaveSize 0
+        }
+    }
+
+    "ban: notification-insert failure (last write) rolls back the user update AND the audit row" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        withFailingConstraint(dataSource, "notifications", "zzz_fail_ban_notif", "type <> 'account_action_applied'") {
+            shouldThrow<Exception> { repo.permanentBan(uid, admin, reason = null, ip = ip, userAgent = ua) }
+            UserModerationTestSupport.loadUser(dataSource, uid).isBanned shouldBe false
+            UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned") shouldHaveSize 0
+            UserModerationTestSupport.notificationsForUser(dataSource, uid) shouldHaveSize 0
+        }
+    }
+
+    // ============================ shadow ban ===================================
+
+    "shadow-ban: active user is shadow-banned (is_shadow_banned=TRUE, no other column)" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        val before = readModFlags(dataSource, uid)
+
+        repo.shadowBan(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe ShadowBanOutcome.Applied
+
+        val after = readModFlags(dataSource, uid)
+        after.isShadowBanned shouldBe true
+        after.isBanned shouldBe before.isBanned
+        after.suspendedUntil shouldBe before.suspendedUntil
+        after.tokenVersion shouldBe before.tokenVersion
+    }
+
+    "shadow-ban: writes NO notification" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+
+        repo.shadowBan(uid, admin, reason = "spam ring", ip = ip, userAgent = ua) shouldBe ShadowBanOutcome.Applied
+
+        UserModerationTestSupport.notificationsForUser(dataSource, uid) shouldHaveSize 0
+    }
+
+    "shadow-ban: a soft-deleted user is rejected — no state change, no audit" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false, deletedAt = Instant.now().minus(1, ChronoUnit.DAYS))
+
+        repo.shadowBan(uid, admin, reason = "x", ip = ip, userAgent = ua) shouldBe ShadowBanOutcome.RejectedSoftDeleted
+
+        UserModerationTestSupport.loadUser(dataSource, uid).isShadowBanned shouldBe false
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid) shouldHaveSize 0
+    }
+
+    "shadow-ban: an already-shadow-banned user is a no-op that writes no audit row" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false, isShadowBanned = true)
+
+        repo.shadowBan(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe ShadowBanOutcome.NoOpAlreadyShadowBanned
+
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_shadow_banned") shouldHaveSize 0
+    }
+
+    "shadow-ban: at the cap a shadow-ban is rejected (quota-exceeded), no mutation, no audit" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+        seedDestructiveActions(dataSource, admin, 20)
+
+        repo.shadowBan(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe ShadowBanOutcome.RateLimited
+
+        UserModerationTestSupport.loadUser(dataSource, uid).isShadowBanned shouldBe false
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_shadow_banned") shouldHaveSize 0
+    }
+
+    "shadow-ban: audit row is user_shadow_banned with before/after is_shadow_banned, attributed to the human admin" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false)
+
+        repo.shadowBan(uid, admin, reason = "stealth", ip = ip, userAgent = ua)
+
+        val audit = UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_shadow_banned").single()
+        audit.targetType shouldBe "user"
+        audit.targetId shouldBe uid.toString()
+        audit.adminId shouldBe admin
+        audit.adminId shouldNotBe SuspensionUnbanWorker.SYSTEM_ACTOR_ID
+        parseShadowBanned(audit.beforeStateJson) shouldBe false
+        parseShadowBanned(audit.afterStateJson) shouldBe true
+    }
+
+    // ============================ un-shadow-ban ================================
+
+    "shadow-unban: a shadow-banned user is un-shadow-banned (is_shadow_banned=FALSE)" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false, isShadowBanned = true)
+
+        repo.shadowUnban(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe ShadowUnbanOutcome.Applied
+
+        UserModerationTestSupport.loadUser(dataSource, uid).isShadowBanned shouldBe false
+    }
+
+    "shadow-unban: a not-shadow-banned user is a no-op that writes no audit row" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false, isShadowBanned = false)
+
+        repo.shadowUnban(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe ShadowUnbanOutcome.NoOpNotShadowBanned
+
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_shadow_unbanned") shouldHaveSize 0
+    }
+
+    "shadow-unban: a soft-deleted-but-shadow-banned user may be un-shadow-banned; deleted_at unchanged" {
+        val admin = seedAdmin()
+        val deletedAt = Instant.now().minus(2, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MILLIS)
+        val uid = seedUser(isBanned = false, isShadowBanned = true, deletedAt = deletedAt)
+
+        repo.shadowUnban(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe ShadowUnbanOutcome.Applied
+
+        val row = UserModerationTestSupport.loadUser(dataSource, uid)
+        row.isShadowBanned shouldBe false
+        row.deletedAt.shouldNotBeNull()
+        row.deletedAt.truncatedTo(ChronoUnit.SECONDS) shouldBe deletedAt.truncatedTo(ChronoUnit.SECONDS)
+    }
+
+    "shadow-unban: writes NO notification and is NOT counted against the destructive cap (applies at the cap)" {
+        val admin = seedAdmin()
+        val uid = seedUser(isBanned = false, isShadowBanned = true)
+        seedDestructiveActions(dataSource, admin, 20)
+
+        repo.shadowUnban(uid, admin, reason = null, ip = ip, userAgent = ua) shouldBe ShadowUnbanOutcome.Applied
+
+        UserModerationTestSupport.loadUser(dataSource, uid).isShadowBanned shouldBe false
+        UserModerationTestSupport.notificationsForUser(dataSource, uid) shouldHaveSize 0
+        // The restorative action wrote a user_shadow_unbanned row but it is NOT in the destructive set.
+        DestructiveActionRateLimiter(dataSource).countInTrailingHour(admin) shouldBe 20
+    }
 })
 
 private val parseJson = Json { ignoreUnknownKeys = true }
 
 private fun parseIsBanned(stateJson: String?): Boolean =
     parseJson.parseToJsonElement(stateJson!!).jsonObject["is_banned"]!!.jsonPrimitive.content.toBoolean()
+
+private fun parseShadowBanned(stateJson: String?): Boolean =
+    parseJson.parseToJsonElement(stateJson!!).jsonObject["is_shadow_banned"]!!.jsonPrimitive.content.toBoolean()
 
 /** Parse `suspended_until` out of a before/after-state JSON, null when the
  *  JSON value is `null` (or the key is absent). */

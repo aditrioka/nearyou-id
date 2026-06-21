@@ -200,13 +200,13 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 3. Admin login via `admin_users` + Argon2id password + TOTP mandatory (solo admin period)
 4. WebAuthn infrastructure (~5 days of work: backend 1.5d + frontend 1d + enrollment UI 0.5d + recovery path 1d + cross-browser testing 1d). Ready for the second admin hire; TOTP enforced during the solo admin period.
 5. Admin session management via `admin_sessions` with 30-minute idle timeout
-6. Hard delete worker (Cloud Scheduler calls `/internal/cleanup` OIDC-authed) + **deletion log write to R2**; consumes `deletion_requests`
+6. Hard delete worker (Cloud Scheduler calls `/internal/account-hard-delete-worker` OIDC-authed) + **deletion log write to R2**; consumes `deletion_requests` _(SHIPPED as `account-hard-delete-worker`; the `/internal/cleanup` name is now the `scheduled-retention-cleanup` retention sweeps)_
 7. Tombstone + cascade delete worker logic (chat messages preserved, sender tombstoned)
 8. Image lifecycle worker (cascade CF Images on post hard-delete)
-9. Refresh token cleanup worker (expired daily + stale 90-day weekly)
-10. FCM token cleanup worker: stale 30-day weekly + **on-send 404/410 immediate delete path** wired into the FCM send helper
-11. Notifications purge worker (>90 days, weekly)
-12. Moderation queue + reports archival worker (resolved rows >1 year, weekly)
+9. Refresh token cleanup worker (expired daily + stale 90-day) — **SHIPPED** (`scheduled-retention-cleanup`, `/internal/cleanup`; merged into one daily idempotent `OR` sweep, reaps revoked rows too)
+10. FCM token cleanup worker: stale 30-day (**SHIPPED**, `scheduled-retention-cleanup`, daily via `/internal/cleanup`) + **on-send 404/410 immediate delete path** wired into the FCM send helper (shipped in `fcm-push-dispatch`)
+11. Notifications purge worker (>90 days) — **SHIPPED** (`scheduled-retention-cleanup`, daily via `/internal/cleanup`)
+12. Moderation queue + reports archival worker (resolved rows >1 year, weekly) — _deferred follow-up of `scheduled-retention-cleanup` (distinct archival concern; bounded as an out-of-scope requirement)_
 13. **WebAuthn challenge cleanup worker** (weekly, deletes `admin_webauthn_challenges` rows where `expires_at < NOW() - INTERVAL '1 day' AND consumed_at IS NULL`)
 13. **Backup via Cloud Run Jobs**:
     - Container image build (`postgres:alpine` + `age` CLI + `aws-cli` + `jq`)

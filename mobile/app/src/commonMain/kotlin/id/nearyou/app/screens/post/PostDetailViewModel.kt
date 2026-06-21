@@ -2,6 +2,9 @@ package id.nearyou.app.screens.post
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.nearyou.app.data.report.ReportReasonCategory
+import id.nearyou.app.data.report.ReportSubmitter
+import id.nearyou.app.data.report.ReportTargetType
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.RepliesOutcome
 import id.nearyou.app.post.ReplyDto
@@ -19,20 +22,37 @@ import kotlin.coroutines.cancellation.CancellationException
  * initial-load flag, the cursor load-more footer state (via the shared [LoadMoreController]), and the
  * header reply count (bumped on a posted reply). The like state + the reply-composer field state stay
  * composition-local in `PostDetailScreen` (migrating those is a noted follow-up — this change moves only
- * the replies-list + paging state). Resolved via `viewModel { PostDetailViewModel(flow, postId, replyCount) }`
- * keyed to the `PostDetailRoute` entry, so the loaded replies + paging survive recomposition + config change.
+ * the replies-list + paging state). Resolved via
+ * `viewModel { PostDetailViewModel(flow, postId, replyCount, reportSubmitter) }` keyed to the
+ * `PostDetailRoute` entry, so the loaded replies + paging + report state survive recomposition + config change.
  *
  * The optimistic new-reply behavior is preserved: [onReplyPosted] **prepends** the posted reply (the list
  * renders newest-first, so the fresh reply sits at the top of page 1) and bumps the count, with NO re-fetch —
  * appended later pages are undisturbed.
+ *
+ * mobile-content-report adds the report dialog/result state here (it must survive recomposition + config
+ * change): [reportTarget] (which content the dialog targets, null = closed) + [reportMessage] (the one-shot
+ * result), both nullable VM fields cleared via callbacks ([onReportDialogDismissed] / [onReportMessageShown])
+ * — not a `Channel`/`SharedFlow` bus (docs/11 § 2.2). Submission goes through the shared [ReportSubmitter].
  */
 class PostDetailViewModel(
     private val flow: PostDetailFlow,
     private val postId: String,
     initialReplyCount: Int,
+    private val reportSubmitter: ReportSubmitter,
 ) : ViewModel() {
     private val _repliesOutcome = MutableStateFlow<RepliesOutcome?>(null)
     val repliesOutcome: StateFlow<RepliesOutcome?> = _repliesOutcome.asStateFlow()
+
+    // mobile-content-report: which content the report dialog targets (null = no dialog) + the one-shot
+    // report-result message. Both are nullable VM state cleared via a callback (onReportDialogDismissed /
+    // onReportMessageShown) — NOT a Channel/SharedFlow bus (docs/11 § 2.2). The post report target id is
+    // this VM's postId; the reply target id is the reply id ALONE (no author identity — PII discipline).
+    private val _reportTarget = MutableStateFlow<ReportTarget?>(null)
+    val reportTarget: StateFlow<ReportTarget?> = _reportTarget.asStateFlow()
+
+    private val _reportMessage = MutableStateFlow<PostDetailReportMessage?>(null)
+    val reportMessage: StateFlow<PostDetailReportMessage?> = _reportMessage.asStateFlow()
 
     private val _repliesInFlight = MutableStateFlow(true)
     val repliesInFlight: StateFlow<Boolean> = _repliesInFlight.asStateFlow()
@@ -110,5 +130,54 @@ class PostDetailViewModel(
             reloadReplies()
             _replyCount.value += 1
         }
+    }
+
+    /** mobile-content-report: open the report dialog targeting the post (the post-header affordance; the
+     *  screen gates this on `!isAuthor`). The post report `target_id` is this VM's [postId]. */
+    fun onReportPostClicked() {
+        _reportTarget.value = ReportTarget.Post
+    }
+
+    /** mobile-content-report: open the report dialog targeting a reply (the per-reply affordance; ungated
+     *  by authorship — `author_id` is dropped, so authorship is unknowable). Carries ONLY [replyId] (the
+     *  report `target_id`); no author identity is introduced. */
+    fun onReportReplyClicked(replyId: String) {
+        _reportTarget.value = ReportTarget.Reply(replyId)
+    }
+
+    /** Dismiss the report dialog without submitting (clears the target one-shot). */
+    fun onReportDialogDismissed() {
+        _reportTarget.value = null
+    }
+
+    /**
+     * Submit the report for the currently-targeted content via the shared [reportSubmitter]: post →
+     * `target_type = "post"`, `target_id = postId`; reply → `target_type = "reply"`, `target_id =
+     * <reply id>`. Dismisses the dialog, then maps the [ReportOutcome] to the one-shot message
+     * (Submitted AND Duplicate → the SAME success message — anti-enumeration, design D3). A no-op if no
+     * target is set (defensive).
+     */
+    fun onReportSubmitted(
+        category: ReportReasonCategory,
+        note: String?,
+    ) {
+        val target = _reportTarget.value ?: return
+        // Close the dialog immediately (the submission result surfaces as the one-shot message).
+        _reportTarget.value = null
+        val (targetType, targetId) =
+            when (target) {
+                ReportTarget.Post -> ReportTargetType.POST to postId
+                is ReportTarget.Reply -> ReportTargetType.REPLY to target.replyId
+            }
+        viewModelScope.launch {
+            val outcome = reportSubmitter.submit(targetType, targetId, category, note)
+            _reportMessage.value = postDetailReportMessage(outcome)
+        }
+    }
+
+    /** Clears the one-shot [reportMessage] after the screen has shown it (so it does not re-fire on
+     *  recomposition / config change). */
+    fun onReportMessageShown() {
+        _reportMessage.value = null
     }
 }

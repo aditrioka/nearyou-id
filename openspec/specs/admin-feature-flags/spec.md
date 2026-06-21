@@ -3,7 +3,6 @@
 ## Purpose
 
 The `admin-feature-flags` capability is the operator's in-product control surface for Firebase Remote Config flags — `GET /admin/feature-flags` in the admin panel (mockup frame 20). It renders the canonical flag catalog (the `*_enabled` boolean toggles, the `attestation_mode` enum, and the `moderation_match_threshold` integer) with their current **Server-template** values, and applies single-flag writes to the Remote Config Server template via the REST API with `If-Match` ETag optimistic concurrency (the Admin SDK cannot publish the server template the backend reads). Every write is owner/admin-role- and CSRF-gated, rate-limited at 5 per admin per trailing hour (a bucket distinct from the 20/hour destructive-action cap), reason-required, value-validated, and recorded as exactly one immutable `feature_flag_toggled` audit row; the panel degrades to a read-only render when Remote Config write credentials are absent. The two content-moderation wordlist parameters are surfaced read-only — array-content editing is out of scope here (deferred to `admin-moderation-wordlist-editor`).
-
 ## Requirements
 ### Requirement: Authenticated GET /admin/feature-flags renders the Feature Flag Admin panel
 
@@ -157,15 +156,15 @@ When the service is not configured with Remote Config write credentials, the pub
 - **WHEN** a write is submitted while Remote Config write credentials are absent
 - **THEN** the request fails safely with no publish AND no `admin_actions_log` row AND no `500` response
 
-### Requirement: Wordlist array-content editing is out of scope and guarded read-only
+### Requirement: Wordlist content editing is delegated to the dedicated wordlist editor
 
-This capability SHALL NOT expose any endpoint or control that mutates the array *content* of `moderation_profanity_list` or `moderation_uu_ite_list`. Those two lists SHALL be presented read-only (entry count + template version). Editing their content remains out of scope, deferred to the separate `admin-moderation-wordlist-editor` change; the Firebase Console path stays the interim for list content.
+The Feature Flag Admin surface SHALL NOT mutate the array *content* of `moderation_profanity_list` or `moderation_uu_ite_list` through its single-flag write path. Those two lists SHALL be presented as read-only summaries (entry count + template version) **with an edit affordance** that links to the dedicated wordlist editor (`GET /admin/feature-flags/wordlists/{list}`, capability `admin-moderation-wordlist-editor`), which owns content editing. `moderation_match_threshold` remains inline-editable on the Feature Flag Admin surface. The Firebase Console path remains available for the Tier-3 / Tier-4 fallback wordlists, which the editor does not touch.
 
-#### Scenario: No list-content mutation surface exists
-- **WHEN** the Feature Flag Admin surface is exercised
-- **THEN** there is no endpoint or control that adds, removes, or edits entries within `moderation_profanity_list` or `moderation_uu_ite_list`
+#### Scenario: The two wordlists render read-only with an edit affordance
+- **WHEN** the Feature Flag Admin page renders the moderation parameters
+- **THEN** `moderation_profanity_list` and `moderation_uu_ite_list` appear as read-only summaries (count + version) each with an edit affordance linking to `/admin/feature-flags/wordlists/{list}`, while `moderation_match_threshold` remains inline-editable
 
-#### Scenario: The two wordlists render read-only
-- **WHEN** the page renders the moderation parameters
-- **THEN** `moderation_profanity_list` and `moderation_uu_ite_list` appear as read-only summaries (count + version) with no content editor, while `moderation_match_threshold` remains editable
+#### Scenario: The feature-flags single-flag write path does not mutate list content
+- **WHEN** the Feature Flag Admin single-flag write path is exercised
+- **THEN** there is no inline control on that path that adds, removes, or edits entries within `moderation_profanity_list` or `moderation_uu_ite_list` — content edits are performed only via the `admin-moderation-wordlist-editor` routes
 
