@@ -13,6 +13,10 @@ import id.nearyou.app.admin.retention.JdbcRetentionCleanupRepository
 import id.nearyou.app.admin.retention.RetentionCleanupWorker
 import id.nearyou.app.admin.retention.retentionCleanupRoutes
 import id.nearyou.app.admin.unbanWorkerRoute
+import id.nearyou.app.appeal.AppealRateLimiter
+import id.nearyou.app.appeal.AppealService
+import id.nearyou.app.appeal.JdbcAppealRepository
+import id.nearyou.app.appeal.appealRoutes
 import id.nearyou.app.auth.installAuth
 import id.nearyou.app.auth.jwks.jwksRoutes
 import id.nearyou.app.auth.jwt.JwtIssuer
@@ -995,6 +999,17 @@ fun Application.module() {
             rateLimiter = ReferralTicketRateLimiter(rateLimiter = rateLimiter),
             dbDispatcher = dbDispatchers.db,
         )
+    // content-moderation-appeal: ban/suspension appeal submission + own-status read.
+    // The service loads the `users` row itself (the ban-exempt appeal-realm principal
+    // omits ban state) to gate eligibility on is_banned + derive action_type.
+    val appealRepository = JdbcAppealRepository(dataSource, dbDispatchers.db)
+    val appealService =
+        AppealService(
+            users = userRepository,
+            appeals = appealRepository,
+            rateLimiter = AppealRateLimiter(rateLimiter),
+            dbDispatcher = dbDispatchers.db,
+        )
     val signupService =
         SignupService(
             dataSource = dataSource,
@@ -1081,6 +1096,8 @@ fun Application.module() {
                 single { accountDeletionService }
                 single { accountHardDeleteWorker }
                 single { retentionCleanupWorker }
+                single { appealRepository }
+                single { appealService }
             },
         )
     }
@@ -1116,6 +1133,7 @@ fun Application.module() {
     consentRoutes(consentRepository)
     accountRoutes(accountDeletionService)
     hideDistanceRoutes(hideDistanceRepository)
+    appealRoutes(appealService, contentLengthGuard)
 
     // /internal/* — Cloud-Scheduler-invoked job endpoints. The OIDC gate is
     // installed PER JOB SUBTREE inside unbanWorkerRoute (internal-endpoint-auth

@@ -13,10 +13,10 @@
 
 ## 3. Backend — appeal capability (`appeal` package)
 
-- [ ] 3.1 `JdbcAppealRepository`: insert appeal (server-derived `action_type` from the `users` row), read caller's latest appeal, one-pending guard surfaced from the partial-unique violation. Bounded dispatcher; test pool `autoClose(hikari())` + size 2.
-- [ ] 3.2 `AppealService`: eligibility (`is_banned = TRUE`, else the uniform `no_actionable_moderation` outcome — identical for shadow-banned-only and normal users, design D3), one-pending guard, server-derived `action_type`, transaction boundary.
-- [ ] 3.3 Per-user submission rate-limit via the canonical Redis key `{scope:rate_appeal_day}:{user:<user_id>}` (RedisHashTagRule two-segment shape) + `computeTTLToNextReset` (design D5).
-- [ ] 3.4 `AppealRoutes` mounted under the appeal realm: `POST /api/v1/appeals` (length guard ≤1000 before DB; 201 on success; 409 `no_actionable_moderation` / `appeal_already_pending`; 429 on rate-limit) + own-appeal-status GET (latest status, empty result when none). DTOs colocated.
+- [x] 3.1 `JdbcAppealRepository`: insert appeal (server-derived `action_type` from the `users` row), read caller's latest appeal, one-pending guard surfaced from the partial-unique violation. Bounded dispatcher; test pool `autoClose(hikari())` + size 2.
+- [x] 3.2 `AppealService`: eligibility (`is_banned = TRUE`, else the uniform `no_actionable_moderation` outcome — identical for shadow-banned-only and normal users, design D3), one-pending guard, server-derived `action_type`, transaction boundary.
+- [x] 3.3 Per-user submission rate-limit via the canonical Redis key `{scope:rate_appeal_day}:{user:<user_id>}` (RedisHashTagRule two-segment shape) + `computeTTLToNextReset` (design D5).
+- [x] 3.4 `AppealRoutes` mounted under the appeal realm: `POST /api/v1/appeals` (length guard ≤1000 before DB; 201 on success; 409 `no_actionable_moderation` / `appeal_already_pending`; 429 on rate-limit) + own-appeal-status GET (latest status, empty result when none). DTOs colocated.
 - [ ] 3.5 Tests: suspended → 201 (`action_type='suspension'`); permanent-ban → 201 (`action_type='permanent_ban'`); normal user → 409 `no_actionable_moderation`; shadow-banned-only → identical 409 (byte-for-byte, no state leak); second pending → 409 `appeal_already_pending`; **concurrent submissions race the partial-unique → exactly one 201 + one 409 `appeal_already_pending` (violation mapped, never 5xx)**; client `action_type` ignored; rate-limit → 429; own-status pending/decided/none.
 
 ## 4. Admin — appeals-review surface (`admin-appeal-review`)
