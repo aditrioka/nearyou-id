@@ -35,7 +35,7 @@
 
 ## 6. Manual verify-loop bring-up (UI-affecting DoD — docs/11 §5)
 
-- [ ] 6.1 Bring up the app via `verify-loop` (context-routed: local emulator/device or Firebase Test Lab), open a chat thread, long-press a received message, submit a report, and capture screenshots of: the long-press menu, the report dialog, and the success message. Attach to the PR body before archive.
+- [x] 6.1 Bring up the app via `verify-loop` (context-routed: local emulator/device or Firebase Test Lab), open a chat thread, long-press a received message, submit a report, and capture screenshots of: the long-press menu, the report dialog, and the success message. Attach to the PR body before archive. **DONE 2026-06-21** — offline Koin-harness on the `dev` flavor / verify36 emulator drove the full flow; 4 screenshots (thread / long-press "Laporkan" menu / report dialog / success toast) on the `evidence/mobile-chat-message-report` branch @ `184c4cbb`, embedded in the PR body. Confirmed the own message exposes no affordance.
 - [ ] 6.2 Consult chat mockup frames 2 + 5 (measurement annex) for the long-press menu styling and reconcile spacing/typography to tokens.
 
 ## 7. Docs reconciliation
