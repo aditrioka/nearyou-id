@@ -18,8 +18,10 @@ private val logger = LoggerFactory.getLogger("id.nearyou.app.referral.ReferralAc
 @Serializable
 data class ReferralActivityCheckResponse(
     val expired: Int,
+    val voided: Int,
     val granted: Int,
     val pending: Int,
+    val reconciled: Int,
 )
 
 @Serializable
@@ -65,8 +67,10 @@ private suspend fun RoutingContext.handleReferralActivityCheck(worker: ReferralA
         HttpStatusCode.OK,
         ReferralActivityCheckResponse(
             expired = result.expired,
+            voided = result.voided,
             granted = result.granted,
             pending = result.stillPending,
+            reconciled = result.reconciled,
         ),
     )
 }

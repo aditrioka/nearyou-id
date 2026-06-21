@@ -69,3 +69,13 @@
 
 - [ ] 9.1 `openspec validate referral-grant-worker --strict` green before the squash-merge.
 - [ ] 9.2 `openspec archive referral-grant-worker` + spec sync (`referral-grant-worker` added; `subscription-billing-webhook` + `referral-ticket-creation` updated); `openspec validate --specs referral-grant-worker subscription-billing-webhook referral-ticket-creation --strict` green.
+
+## 10. Grant reliability — reconciliation worker (#2) + voided status (#3)
+
+Folded into this PR (operator decision 2026-06-21): close the remaining referral-grant gaps in-PR rather than as a follow-up.
+
+- [x] 10.1 V33 migration `V33__referral_grant_reliability.sql`: `referral_tickets` status CHECK adds `'voided'`; `granted_entitlements` adds nullable `revenuecat_dispatched_at`.
+- [x] 10.2 #3 voided status: `voidTicket` writes `'voided'` (distinct terminal status from TTL `'expired'`); worker result/response split `voided` from `expired`; banned-inviter tests assert `'voided'`; schema CHECK test covers the new value.
+- [x] 10.3 #2 reconciliation: `dispatch()` stamps `revenuecat_dispatched_at` on success; worker pass 3 re-dispatches `revenuecat_dispatched_at IS NULL` grants (bounded by `RECONCILE_LIMIT`, idempotent via `dedup_key`); `markGrantDispatched` + `fetchUndispatchedGrants` repo methods + a reconcile test.
+- [x] 10.4 Spec updated: worker-endpoint (3 passes + voided/reconciled summary), activity-gate (voided), `granted_entitlements` schema (dispatch column), grant-dispatch (reconcile + stamping) requirements + scenarios.
+- [ ] 10.5 #1 (login-history-dependent gate legs) is a SEPARATE change — a PII subsystem (login/IP/fingerprint history) needing UU-PDP integration with data-export/deletion/retention; out of scope here, tracked as a follow-up.

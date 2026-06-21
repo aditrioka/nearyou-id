@@ -17,27 +17,33 @@ import javax.sql.DataSource
 /** Summary of one [ReferralActivityCheckWorker.execute] run (the route's response body). */
 data class ReferralActivityCheckResult(
     val expired: Int,
+    val voided: Int,
     val granted: Int,
     val stillPending: Int,
+    val reconciled: Int,
     val durationMs: Long,
 )
 
 /**
  * Daily `/internal/referral-activity-check` worker (`referral-grant-worker`).
- * Two passes over `referral_tickets` in `pending_activity`:
- *  1. expire stale tickets (`expires_at < NOW()`) — set-based;
+ * Three passes over `referral_tickets`:
+ *  1. expire stale `pending_activity` tickets (`expires_at < NOW()`) — set-based;
  *  2. evaluate each remaining ticket's activity gate (invitee ≥ 2 posts AND the
- *     inviter neither hard- nor shadow-banned), grant on pass.
+ *     inviter neither hard- nor shadow-banned), grant on pass (void on banned inviter);
+ *  3. reconcile — re-dispatch any `granted_entitlements` whose prior-run RevenueCat
+ *     call failed (`revenuecat_dispatched_at IS NULL`), so a transient RC failure
+ *     never silently loses an earned grant.
  *
  * A passing ticket flips to `granted`, the invitee gets a 1-week promotional
  * entitlement (extend-if-active / fresh-if-not), and at the inviter's 5th granted
  * referral the inviter gets the same — exactly once per lifetime, enforced by the
  * `inviter_reward_claimed_at` sentinel + the `granted_entitlements` partial-unique
  * index. The DB writes per ticket are one transaction; the RevenueCat dispatch runs
- * AFTER the commit (idempotent via the ledger), so it never holds a tx across the
- * network and a rolled-back grant is never dispatched. The worker never writes
- * `users.subscription_status` — that is applied by the subscription-billing-webhook
- * `GRANT` echo when RevenueCat reports the promotional grant.
+ * AFTER the commit (idempotent via the ledger + `dedup_key`), stamping
+ * `revenuecat_dispatched_at` on success; so it never holds a tx across the network,
+ * a rolled-back grant is never dispatched, and a failed dispatch is retried by pass 3.
+ * The worker never writes `users.subscription_status` — that is applied by the
+ * subscription-billing-webhook `GRANT` echo when RevenueCat reports the grant.
  *
  * Thread-safe: holds no state across calls.
  */
@@ -65,19 +71,25 @@ class ReferralActivityCheckWorker(
                 }
             }
 
+            // Pass 3 — reconcile: re-dispatch grants whose prior run's RC call failed.
+            val reconciled = reconcileUndispatchedGrants()
+
             val durationMs = (System.nanoTime() - startNanos) / 1_000_000L
             log.info(
-                "event=referral_activity_check expired={} voided={} granted={} pending={} duration_ms={}",
+                "event=referral_activity_check expired={} voided={} granted={} pending={} reconciled={} duration_ms={}",
                 staleExpired,
                 voided,
                 granted,
                 stillPending,
+                reconciled,
                 durationMs,
             )
             ReferralActivityCheckResult(
-                expired = staleExpired + voided,
+                expired = staleExpired,
+                voided = voided,
                 granted = granted,
                 stillPending = stillPending,
+                reconciled = reconciled,
                 durationMs = durationMs,
             )
         }
@@ -149,10 +161,11 @@ class ReferralActivityCheckWorker(
     /**
      * Dispatch is best-effort and never fatal: the grant is already committed to the
      * ledger, so a dispatch failure (a [GrantResult.Failed] or even an unexpected
-     * throw from a misbehaving client) is logged and the batch continues — a
-     * reconciliation follow-up retries un-echoed grants. Cancellation propagates.
+     * throw from a misbehaving client) is logged and the batch continues — pass 3
+     * (reconcile) retries it. On success, stamps `revenuecat_dispatched_at` so reconcile
+     * skips it. Returns true iff RevenueCat accepted the grant. Cancellation propagates.
      */
-    private suspend fun dispatch(payload: DispatchPayload) {
+    private suspend fun dispatch(payload: DispatchPayload): Boolean {
         val result =
             try {
                 granter.grant(
@@ -167,15 +180,37 @@ class ReferralActivityCheckWorker(
                 throw e
             } catch (e: Exception) {
                 log.warn("event=referral_grant_dispatch_error dedup_key={} error={}", payload.dedupKey, e.message, e)
-                return
+                return false
             }
-        when (result) {
-            GrantResult.Dispatched -> Unit
-            GrantResult.NotConfigured ->
+        return when (result) {
+            GrantResult.Dispatched -> {
+                tx { repository.markGrantDispatched(it, payload.dedupKey) }
+                true
+            }
+            GrantResult.NotConfigured -> {
                 log.info("event=referral_grant_not_dispatched reason=unconfigured dedup_key={}", payload.dedupKey)
-            is GrantResult.Failed ->
+                false
+            }
+            is GrantResult.Failed -> {
                 log.warn("event=referral_grant_dispatch_failed dedup_key={} reason={}", payload.dedupKey, result.reason)
+                false
+            }
         }
+    }
+
+    /**
+     * Pass 3 — re-dispatch grants whose RevenueCat call never succeeded
+     * (`revenuecat_dispatched_at IS NULL`), bounded by [RECONCILE_LIMIT]. Returns the
+     * count newly dispatched. Re-dispatch is idempotent (RevenueCat + `dedup_key`); a
+     * still-failing grant stays NULL and is retried next run.
+     */
+    private suspend fun reconcileUndispatchedGrants(): Int {
+        val undispatched = tx { repository.fetchUndispatchedGrants(it, RECONCILE_LIMIT) }
+        var reconciled = 0
+        for (grant in undispatched) {
+            if (dispatch(DispatchPayload(grant.userId, grant.entitlementEnd, grant.dedupKey))) reconciled++
+        }
+        return reconciled
     }
 
     /** `GREATEST(current_end, NOW()) + 7 days` — extend-if-active, fresh-if-not. */
@@ -222,6 +257,7 @@ class ReferralActivityCheckWorker(
         const val ENTITLEMENT_ID = "premium"
         const val ROLE_INVITEE = "invitee"
         const val ROLE_INVITER = "inviter"
+        const val RECONCILE_LIMIT = 500
         val log = LoggerFactory.getLogger(ReferralActivityCheckWorker::class.java)
     }
 }

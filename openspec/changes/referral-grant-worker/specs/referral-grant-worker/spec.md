@@ -2,7 +2,7 @@
 
 ### Requirement: Referral activity-check worker endpoint
 
-The backend SHALL expose `POST /internal/referral-activity-check` under the mandatory `/internal/*` OIDC middleware (Google OIDC ID token verified by `GoogleOidcTokenVerifier` in `:infra:oidc`), invoked daily by Cloud Scheduler. A request lacking a valid Google OIDC bearer token MUST be rejected before any handler logic runs (the `internal-endpoint-auth` contract). On each invocation the worker SHALL process `referral_tickets` rows in `status = 'pending_activity'` (served by the existing `referral_tickets_pending_idx`) in two passes — expiry, then activity evaluation — and return an HTTP `200` summary carrying the counts of tickets expired, granted, and left pending.
+The backend SHALL expose `POST /internal/referral-activity-check` under the mandatory `/internal/*` OIDC middleware (Google OIDC ID token verified by `GoogleOidcTokenVerifier` in `:infra:oidc`), invoked daily by Cloud Scheduler. A request lacking a valid Google OIDC bearer token MUST be rejected before any handler logic runs (the `internal-endpoint-auth` contract). On each invocation the worker SHALL process `referral_tickets` rows in `status = 'pending_activity'` (served by the existing `referral_tickets_pending_idx`) in three passes — expiry, activity evaluation, then reconciliation of grants whose prior-run RevenueCat dispatch failed — and return an HTTP `200` summary carrying the counts of tickets expired, voided, granted, left pending, and grants reconciled.
 
 #### Scenario: Unauthenticated invocation is rejected
 - **WHEN** `POST /internal/referral-activity-check` is called without a valid Google OIDC bearer token
@@ -10,7 +10,7 @@ The backend SHALL expose `POST /internal/referral-activity-check` under the mand
 
 #### Scenario: Authenticated invocation scans pending tickets and returns a summary
 - **WHEN** an OIDC-authenticated invocation runs against a set of `pending_activity` tickets
-- **THEN** the worker evaluates each pending ticket AND returns `200` with a summary of how many were expired, granted, and left pending
+- **THEN** the worker evaluates each pending ticket AND returns `200` with a summary of how many were expired, voided, granted, left pending, and reconciled
 
 ### Requirement: Stale pending tickets expire without a grant
 
@@ -22,7 +22,7 @@ For each `pending_activity` ticket whose `expires_at < NOW()` (the 14-day window
 
 ### Requirement: Activity gate evaluates the durable legs
 
-A not-yet-expired `pending_activity` ticket SHALL pass the activity gate when ALL implemented legs hold: the invitee has authored at least 2 posts within `[ticket.created_at, NOW()]` (counted from the invitee's own authored `posts` — an engagement signal, not a visibility-sensitive read), AND the inviter is in good standing — **neither hard-banned/suspended (`users.is_banned = FALSE`) nor shadow-banned (`users.is_shadow_banned = FALSE`)**, per docs/01 §233 ("inviter ban — shadow or hard — voids all pending tickets"). A ticket that has not yet reached the 2-post threshold SHALL remain `pending_activity` (re-evaluated on the next daily run until it passes or expires). A ticket whose inviter is banned by **either** flag SHALL be voided — set to `status = 'expired'` with no grant.
+A not-yet-expired `pending_activity` ticket SHALL pass the activity gate when ALL implemented legs hold: the invitee has authored at least 2 posts within `[ticket.created_at, NOW()]` (counted from the invitee's own authored `posts` — an engagement signal, not a visibility-sensitive read), AND the inviter is in good standing — **neither hard-banned/suspended (`users.is_banned = FALSE`) nor shadow-banned (`users.is_shadow_banned = FALSE`)**, per docs/01 §233 ("inviter ban — shadow or hard — voids all pending tickets"). A ticket that has not yet reached the 2-post threshold SHALL remain `pending_activity` (re-evaluated on the next daily run until it passes or expires). A ticket whose inviter is banned by **either** flag SHALL be voided — set to the distinct terminal `status = 'voided'` (added by V33; separate from a TTL `'expired'` so analytics can tell a banned-inviter void from a 14-day lapse) with no grant.
 
 #### Scenario: Invitee with two posts and an in-good-standing inviter passes
 - **WHEN** the worker evaluates a non-expired ticket whose invitee has authored ≥ 2 posts since the ticket was created AND whose inviter is neither hard-banned nor shadow-banned
@@ -34,7 +34,7 @@ A not-yet-expired `pending_activity` ticket SHALL pass the activity gate when AL
 
 #### Scenario: A hard-banned or shadow-banned inviter voids the ticket
 - **WHEN** the worker evaluates a ticket whose inviter now has `is_banned = TRUE` OR `is_shadow_banned = TRUE`
-- **THEN** the ticket's `status` becomes `'expired'` AND no grant is dispatched
+- **THEN** the ticket's `status` becomes `'voided'` (the distinct terminal status, not a TTL `'expired'`) AND no grant is dispatched
 
 ### Requirement: A successful ticket grants the invitee one week of Premium
 
@@ -98,7 +98,7 @@ The inviter lifetime cap SHALL be enforced by BOTH the `users.inviter_reward_cla
 
 ### Requirement: granted_entitlements schema
 
-A Flyway migration SHALL create the `granted_entitlements` table with: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`; `referral_ticket_id UUID NOT NULL REFERENCES referral_tickets(id) ON DELETE CASCADE`; `user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE` (the recipient); `grant_role VARCHAR(16) NOT NULL CHECK (grant_role IN ('invitee', 'inviter'))`; `entitlement_start TIMESTAMPTZ NOT NULL`; `entitlement_end TIMESTAMPTZ NOT NULL`; `dedup_key TEXT NOT NULL`; `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`. It SHALL enforce `UNIQUE (referral_ticket_id, user_id)`, a partial-unique index on `(user_id) WHERE grant_role = 'inviter'`, and a unique index on `dedup_key`. No index predicate may contain `NOW()` or any other volatile expression (partial-index immutability invariant).
+A Flyway migration SHALL create the `granted_entitlements` table with: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`; `referral_ticket_id UUID NOT NULL REFERENCES referral_tickets(id) ON DELETE CASCADE`; `user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE` (the recipient); `grant_role VARCHAR(16) NOT NULL CHECK (grant_role IN ('invitee', 'inviter'))`; `entitlement_start TIMESTAMPTZ NOT NULL`; `entitlement_end TIMESTAMPTZ NOT NULL`; `dedup_key TEXT NOT NULL`; `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`. It SHALL enforce `UNIQUE (referral_ticket_id, user_id)`, a partial-unique index on `(user_id) WHERE grant_role = 'inviter'`, and a unique index on `dedup_key`. No index predicate may contain `NOW()` or any other volatile expression (partial-index immutability invariant). A later migration (V33) SHALL add a nullable `revenuecat_dispatched_at TIMESTAMPTZ` column — NULL until the RevenueCat promotional-grant call for that row succeeds — which drives the worker's reconcile pass.
 
 #### Scenario: grant_role vocabulary is constrained
 - **WHEN** a `granted_entitlements` row is inserted with a `grant_role` outside `('invitee', 'inviter')`
@@ -112,9 +112,13 @@ A Flyway migration SHALL create the `granted_entitlements` table with: `id UUID 
 - **WHEN** a user referenced as a `granted_entitlements` recipient (or the ticket's parties) is hard-deleted
 - **THEN** the user's `granted_entitlements` rows are removed by the `ON DELETE CASCADE` FKs
 
+#### Scenario: Dispatch-tracking column starts NULL
+- **WHEN** a `granted_entitlements` row is first inserted (before its RevenueCat dispatch)
+- **THEN** `revenuecat_dispatched_at` is NULL AND is stamped only after the grant is successfully dispatched
+
 ### Requirement: Grant dispatch goes through the :infra:revenuecat client and fails soft
 
-The worker SHALL dispatch promotional-entitlement grants via a client in `:infra:revenuecat-api` (no RevenueCat vendor type imported in `:backend:ktor`); the RevenueCat secret API key SHALL be read only through the `secretKey(env, name)` helper. When the API key is unset (an un-provisioned environment), the client SHALL fail soft — the worker still writes the `granted_entitlements` ledger and flips the ticket to `granted`, logs the un-dispatched grant, and does not throw (the `NoOpImageModerator` precedent). The worker SHALL NOT write `users.subscription_status`; that column is applied by the `subscription-billing-webhook` capability's `GRANT` handler when RevenueCat echoes the grant.
+The worker SHALL dispatch promotional-entitlement grants via a client in `:infra:revenuecat-api` (no RevenueCat vendor type imported in `:backend:ktor`); the RevenueCat secret API key SHALL be read only through the `secretKey(env, name)` helper. When the API key is unset (an un-provisioned environment), the client SHALL fail soft — the worker still writes the `granted_entitlements` ledger and flips the ticket to `granted`, logs the un-dispatched grant, and does not throw (the `NoOpImageModerator` precedent). On a successful dispatch the worker SHALL stamp `granted_entitlements.revenuecat_dispatched_at = NOW()`; a per-run reconcile pass SHALL re-dispatch grants still `revenuecat_dispatched_at IS NULL` (a prior run's dispatch failed after the ledger row committed), bounded per run and idempotent via RevenueCat + `dedup_key`, so a transient RevenueCat failure never silently loses an earned grant. The worker SHALL NOT write `users.subscription_status`; that column is applied by the `subscription-billing-webhook` capability's `GRANT` handler when RevenueCat echoes the grant.
 
 #### Scenario: Grant is dispatched through the infra client
 - **WHEN** a grant is effected with a configured RevenueCat API key
@@ -127,6 +131,10 @@ The worker SHALL dispatch promotional-entitlement grants via a client in `:infra
 #### Scenario: The worker does not write subscription_status
 - **WHEN** the worker effects any grant
 - **THEN** it does not modify `users.subscription_status` (that transition is owned by the webhook `GRANT` handler on RevenueCat's echo)
+
+#### Scenario: A failed dispatch is retried by the reconcile pass
+- **WHEN** a grant's `granted_entitlements` row is committed but its RevenueCat dispatch failed (`revenuecat_dispatched_at IS NULL`)
+- **THEN** a later worker run's reconcile pass re-dispatches it AND, on success, stamps `revenuecat_dispatched_at` so it is not retried again
 
 ### Requirement: Deferred activity-gate legs are not evaluated
 

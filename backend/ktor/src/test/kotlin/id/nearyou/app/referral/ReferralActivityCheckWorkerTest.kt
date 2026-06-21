@@ -279,7 +279,7 @@ class ReferralActivityCheckWorkerTest : StringSpec({
         grantCount() shouldBe 0
     }
 
-    "a hard-banned inviter voids the ticket" {
+    "a hard-banned inviter voids the ticket (distinct 'voided' status, not 'expired')" {
         val inviter = seedUser(isBanned = true)
         val invitee = seedUser()
         seedPosts(invitee, 3)
@@ -287,11 +287,11 @@ class ReferralActivityCheckWorkerTest : StringSpec({
 
         worker(FakeGranter()).execute()
 
-        ticketStatus(ticket) shouldBe "expired"
+        ticketStatus(ticket) shouldBe "voided"
         grantCount() shouldBe 0
     }
 
-    "a shadow-banned inviter voids the ticket" {
+    "a shadow-banned inviter voids the ticket (distinct 'voided' status, not 'expired')" {
         val inviter = seedUser(isShadowBanned = true)
         val invitee = seedUser()
         seedPosts(invitee, 3)
@@ -299,8 +299,44 @@ class ReferralActivityCheckWorkerTest : StringSpec({
 
         worker(FakeGranter()).execute()
 
-        ticketStatus(ticket) shouldBe "expired"
+        ticketStatus(ticket) shouldBe "voided"
         grantCount() shouldBe 0
+    }
+
+    // ---------- reconcile pass (re-dispatch failed grants) ----------
+    "the reconcile pass re-dispatches a grant whose prior RC call failed and stamps it dispatched" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        val ticket = seedTicket(inviter, invitee)
+        // Simulate a prior run: ledger row committed but RC dispatch failed (dispatched_at NULL),
+        // and the ticket already flipped to 'granted' (so pass 2 skips it).
+        dataSource.connection.use { conn ->
+            ReferralGrantRepository().insertGrantIfNew(
+                conn,
+                ticket,
+                invitee,
+                "invitee",
+                now,
+                now.plus(Duration.ofDays(7)),
+                "$ticket:invitee",
+            )
+            conn.prepareStatement("UPDATE referral_tickets SET status = 'granted' WHERE id = ?").use {
+                it.setObject(1, ticket)
+                it.executeUpdate()
+            }
+        }
+        val granter = FakeGranter()
+
+        worker(granter).execute()
+
+        // pass 3 re-dispatched the un-dispatched grant... (scoped to this dedup_key — the
+        // reconcile scan is global, so an exact `reconciled` count would be multi-spec-fragile)
+        granter.requests.any { it.dedupKey == "$ticket:invitee" } shouldBe true
+        // ...and stamped it dispatched so the next run skips it.
+        query(
+            "SELECT COUNT(*) FROM granted_entitlements WHERE dedup_key = ? AND revenuecat_dispatched_at IS NOT NULL",
+            { it.setString(1, "$ticket:invitee") },
+        ) { it.getInt(1) } shouldBe 1
     }
 
     // ---------- 6.4 invitee grant + dispatch ----------

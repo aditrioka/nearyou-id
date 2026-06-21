@@ -25,6 +25,13 @@ data class InviterStanding(
     val isVoiding: Boolean get() = isBanned || isShadowBanned
 }
 
+/** A committed grant whose RevenueCat dispatch has not yet succeeded — fed to the reconcile pass. */
+data class DispatchableGrant(
+    val userId: UUID,
+    val entitlementEnd: Instant,
+    val dedupKey: String,
+)
+
 /**
  * Blocking-JDBC queries for the referral activity-gate worker
  * (`referral-grant-worker`). Every method takes the caller's [Connection] so the
@@ -32,7 +39,7 @@ data class InviterStanding(
  * `SubscriptionEventRepository` precedent); the service wraps invocations in
  * `withContext(dbDispatcher)` (docs/11 §3.2 bounded-dispatcher discipline).
  *
- * Owns `referral_tickets` (V23) + `granted_entitlements` (V29). Read-only
+ * Owns `referral_tickets` (V23) + `granted_entitlements` (V32). Read-only
  * cross-feature signals — the invitee's own post count (`posts`), the inviter
  * ban flags (`users`), and a recipient's current entitlement end
  * (`subscription_events`) — are inlined here with the sanctioned lint
@@ -178,13 +185,17 @@ class ReferralGrantRepository {
         }
     }
 
-    /** Void a ticket whose inviter is banned (docs/01 §233) — no grant. */
+    /**
+     * Void a ticket whose inviter is banned (docs/01 §233) — no grant. Distinct
+     * terminal status from TTL `'expired'` so analytics can tell a banned-inviter
+     * void from a 14-day lapse (V33).
+     */
     fun voidTicket(
         conn: Connection,
         ticketId: UUID,
     ) {
         conn.prepareStatement(
-            "UPDATE referral_tickets SET status = 'expired' WHERE id = ?",
+            "UPDATE referral_tickets SET status = 'voided' WHERE id = ?",
         ).use { ps ->
             ps.setObject(1, ticketId)
             ps.executeUpdate()
@@ -238,5 +249,53 @@ class ReferralGrantRepository {
         ).use { ps ->
             ps.setObject(1, inviterId)
             ps.executeUpdate() > 0
+        }
+
+    /** Stamp a grant row as successfully dispatched to RevenueCat (so the reconcile pass skips it). */
+    fun markGrantDispatched(
+        conn: Connection,
+        dedupKey: String,
+    ) {
+        conn.prepareStatement(
+            "UPDATE granted_entitlements SET revenuecat_dispatched_at = NOW() WHERE dedup_key = ?",
+        ).use { ps ->
+            ps.setString(1, dedupKey)
+            ps.executeUpdate()
+        }
+    }
+
+    /**
+     * Grants whose RevenueCat dispatch never succeeded (`revenuecat_dispatched_at IS NULL`) — a
+     * prior run's RC call failed after the ledger row committed, so the grant never reached
+     * RevenueCat. The reconcile pass re-dispatches them (idempotent via RevenueCat + `dedup_key`).
+     * Bounded by [limit] so one run can't fan out unboundedly while RC is down.
+     */
+    fun fetchUndispatchedGrants(
+        conn: Connection,
+        limit: Int,
+    ): List<DispatchableGrant> =
+        conn.prepareStatement(
+            """
+            SELECT user_id, entitlement_end, dedup_key
+              FROM granted_entitlements
+             WHERE revenuecat_dispatched_at IS NULL
+             ORDER BY created_at
+             LIMIT ?
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setInt(1, limit)
+            ps.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        add(
+                            DispatchableGrant(
+                                userId = rs.getObject("user_id", UUID::class.java),
+                                entitlementEnd = rs.getObject("entitlement_end", OffsetDateTime::class.java).toInstant(),
+                                dedupKey = rs.getString("dedup_key"),
+                            ),
+                        )
+                    }
+                }
+            }
         }
 }
