@@ -46,4 +46,4 @@
 ## 8. Bookkeeping
 
 - [x] 8.1 On the first feat commit, retitle the PR to `feat(mobile): mobile-notifications-deep-link-targets …` and refresh the body (in-progress shape) per the same-PR convention.
-- [ ] 8.2 On archive, close follow-up issue [#193](https://github.com/aditrioka/nearyou-id/issues/193) and file the deferred cases (reply-target deep-linking + actor-less `chat_message_redacted` deep-linking) as a new `follow-up` issue (label `follow-up` + `mobile`) so the "Actor-less and reply-target deep-linking is deferred" negative-guard requirement has a tracked home.
+- [x] 8.2 On archive, close follow-up issue [#193](https://github.com/aditrioka/nearyou-id/issues/193) and file the deferred cases (reply-target deep-linking + actor-less `chat_message_redacted` deep-linking) as a new `follow-up` issue (label `follow-up` + `mobile`) so the "Actor-less and reply-target deep-linking is deferred" negative-guard requirement has a tracked home.
