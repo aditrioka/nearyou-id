@@ -388,11 +388,85 @@ class InternalEndpointSpanAttributeTest : StringSpec({
         span!!.serviceAccountId() shouldBe null
         span.userId() shouldBe null
     }
+
+    // --- account-data-export task 7.5: the data-export worker gets the same span
+    //     treatment as the other /internal/* jobs (hashed service.account.id present;
+    //     no raw sub / no PII; never user.id). The OIDC gate writes the attribute
+    //     path-agnostically, so a stub /internal/data-export-worker exercises the
+    //     same contract the production route inherits.
+    "7.5a /internal/data-export-worker span carries hashed service.account.id (no user.id)" {
+        val (sdk, recorder) = SpanRecorder.newPipeline()
+        GlobalOpenTelemetry.set(sdk)
+        testApplication {
+            application {
+                installKtorServerTelemetry(sdk)
+                routing {
+                    route("/internal") {
+                        install(InternalEndpointAuth) { verifier = defaultVerifier }
+                        stubDataExportWorkerRoute()
+                    }
+                }
+            }
+            val token = signedJwt(subject = sentinelSub)
+            val resp =
+                client.post("/internal/data-export-worker") {
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                }
+            resp.status shouldBe HttpStatusCode.OK
+        }
+        val span = recorder.serverSpan()
+        span shouldNotBe null
+        val expected = ServiceAccountIdHasher.hash(sentinelSub)
+        span!!.serviceAccountId() shouldBe expected
+        span.serviceAccountId()!! shouldMatch Regex("^[0-9a-f]{16}$")
+        // Server-span mutual exclusion: a /internal span never carries user.id.
+        span.userId() shouldBe null
+    }
+
+    "7.5b /internal/data-export-worker spans never carry the raw sub or any PII (sentinel scan)" {
+        val (sdk, recorder) = SpanRecorder.newPipeline()
+        GlobalOpenTelemetry.set(sdk)
+        testApplication {
+            application {
+                installKtorServerTelemetry(sdk)
+                routing {
+                    route("/internal") {
+                        install(InternalEndpointAuth) { verifier = defaultVerifier }
+                        stubDataExportWorkerRoute()
+                    }
+                }
+            }
+            val token = signedJwt(subject = sentinelSub)
+            client.post("/internal/data-export-worker") {
+                header(HttpHeaders.Authorization, "Bearer $token")
+            }
+        }
+        for (span in recorder.recordedSpans()) {
+            span.name shouldNotContain sentinelSub
+            span.attributes.forEach { key, value ->
+                key.key shouldNotContain sentinelSub
+                value.toString() shouldNotContain sentinelSub
+            }
+            for (event in span.events) {
+                event.name shouldNotContain sentinelSub
+                event.attributes.forEach { _, value ->
+                    value.toString() shouldNotContain sentinelSub
+                }
+            }
+        }
+    }
 })
 
 /** Stub /internal/unban-worker that returns 200 "stub-ok" with no DB dependency. */
 private fun io.ktor.server.routing.Route.stubUnbanWorkerRoute() {
     routingPost("/unban-worker") {
+        call.respondText("stub-ok")
+    }
+}
+
+/** Stub /internal/data-export-worker (task 7.5) — 200 "stub-ok" with no DB dependency. */
+private fun io.ktor.server.routing.Route.stubDataExportWorkerRoute() {
+    routingPost("/data-export-worker") {
         call.respondText("stub-ok")
     }
 }
