@@ -42,7 +42,14 @@ class NotificationsRepositoryTest {
                 installLogging = false,
                 nowMillis = { 0L },
             )
-        return NotificationsRepository(apiClient = NotificationsApiClient(httpClient), diagnosticLog = log)
+        return NotificationsRepository(
+            apiClient = NotificationsApiClient(httpClient),
+            // The deep-link resolution clients are not exercised by these list/badge/mark-read tests —
+            // they reuse the recording client and are never called here.
+            singlePostApiClient = id.nearyou.app.post.SinglePostApiClient(httpClient),
+            profileApiClient = id.nearyou.app.profile.ProfileApiClient(httpClient),
+            diagnosticLog = log,
+        )
     }
 
     @Test

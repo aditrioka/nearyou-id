@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.notifications.NotificationsFlow
+import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.ui.components.LoadMoreFooter
 import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.resources.generated.resources.Res
@@ -47,10 +49,12 @@ import id.nearyou.resources.generated.resources.notif_post_replied
 import id.nearyou.resources.generated.resources.notifications_empty
 import id.nearyou.resources.generated.resources.notifications_loading
 import id.nearyou.resources.generated.resources.notifications_mark_all_read
+import id.nearyou.resources.generated.resources.notifications_post_unavailable
 import id.nearyou.resources.generated.resources.notifications_title
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_session_redirect
 import id.nearyou.resources.theme.locationPin
+import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
@@ -60,6 +64,16 @@ const val NOTIFICATIONS_LIST_TAG: String = "notificationsList"
 /** Test tag on a row's unread indicator dot — present on unread rows, absent on read rows (the
  *  read/unread visual-distinction signal the screen test asserts). */
 const val NOTIFICATION_UNREAD_DOT_TAG: String = "notificationUnreadDot"
+
+/** Test tag on the transient "post unavailable" affordance shown when a tapped post-target no longer
+ *  resolves (`mobile-notifications-deep-link-targets`). */
+const val NOTIFICATION_POST_UNAVAILABLE_TAG: String = "notificationPostUnavailable"
+
+/** Test tag on a row's per-tap resolving spinner (shown while its deep-link by-id fetch is in flight). */
+const val NOTIFICATION_RESOLVING_TAG: String = "notificationResolving"
+
+/** How long the transient "post unavailable" affordance stays before it auto-dismisses. */
+private const val POST_UNAVAILABLE_DURATION_MS: Long = 3000L
 
 /**
  * The in-app notifications surface (`mobile-notifications-list`) — the Notifikasi bottom-nav section's
@@ -74,11 +88,20 @@ const val NOTIFICATION_UNREAD_DOT_TAG: String = "notificationUnreadDot"
  * The four states (loading / content / empty / error) follow the screen-state-mapping spec, all copy via
  * `stringResource` (zero literals), under `NearYouTheme`. Rows render type-keyed GENERIC-actor copy +
  * `body_data` excerpts and NEVER the `actor_user_id`/`target_id` UUID (design D4). Tapping a row marks it
- * read (optimistic; `204`/`404` keep, other revert) and wires **no** navigation — deep-link tap-through is
- * deferred (follow-up issue #193, `mobile-notifications-deep-link-targets`).
+ * read (optimistic; `204`/`404` keep, other revert) AND deep-links to its target
+ * (`mobile-notifications-deep-link-targets`): `post` → post detail (via the full-projection by-id fetch;
+ * unavailable → the transient [notifications_post_unavailable] affordance, no nav), `followed` → profile,
+ * `chat_message` → chat thread. Navigation is hoisted to [onOpenPost] / [onOpenProfile] / [onOpenChatThread]
+ * (the shell wires them to root-stack pushes) and is consumed once from the VM's `pendingNavTarget` signal,
+ * so it does not re-fire on recomposition. The screen itself stays navigation-free (no back-stack reference).
  */
 @Composable
-fun NotificationsScreen() {
+fun NotificationsScreen(
+    onOpenPost: (PostDetailTarget) -> Unit = {},
+    onOpenProfile: (userId: String) -> Unit = {},
+    onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit =
+        { _, _, _ -> },
+) {
     val flow = koinInject<NotificationsFlow>()
     val viewModel = viewModel { NotificationsViewModel(flow) }
     val outcome by viewModel.outcome.collectAsStateWithLifecycle()
@@ -86,6 +109,31 @@ fun NotificationsScreen() {
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val loadMoreError by viewModel.loadMoreError.collectAsStateWithLifecycle()
+    val pendingNavTarget by viewModel.pendingNavTarget.collectAsStateWithLifecycle()
+    val postUnavailable by viewModel.postUnavailable.collectAsStateWithLifecycle()
+    val resolvingRowId by viewModel.resolvingRowId.collectAsStateWithLifecycle()
+
+    // Consume the one-shot nav signal: invoke the matching hoisted callback exactly once, then clear it
+    // via onNavConsumed() so it does not re-fire on recomposition (the EditPostUiState consumed-marker
+    // pattern; NO Channel/SharedFlow). actor/target/conversation UUIDs are route payload only — never rendered.
+    LaunchedEffect(pendingNavTarget) {
+        when (val target = pendingNavTarget) {
+            is NotificationNavTarget.Post -> onOpenPost(target.target)
+            is NotificationNavTarget.Profile -> onOpenProfile(target.userId)
+            is NotificationNavTarget.ChatThread ->
+                onOpenChatThread(target.conversationId, target.partnerUsername, target.partnerDisplayName)
+            null -> return@LaunchedEffect
+        }
+        viewModel.onNavConsumed()
+    }
+
+    // The post-unavailable affordance is transient + non-blocking: auto-dismiss after a short delay.
+    LaunchedEffect(postUnavailable) {
+        if (postUnavailable) {
+            delay(POST_UNAVAILABLE_DURATION_MS)
+            viewModel.onPostUnavailableConsumed()
+        }
+    }
 
     NotificationsContent(
         uiState = remember(outcome, isInitialLoad) { notificationsUiState(outcome, isInitialLoad) },
@@ -99,10 +147,12 @@ fun NotificationsScreen() {
         // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload path).
         onRefresh = viewModel::reload,
         onRetry = viewModel::reload,
-        // Row tap → optimistic mark-read (204/404 keep, other revert). NO navigation is wired (deep-link
-        // tap-through deferred — the destination post/reply/profile screens do not exist yet).
-        onRowTap = viewModel::markRead,
+        // Row tap → optimistic mark-read (204/404 keep, other revert) + deep-link resolution (the VM sets
+        // pendingNavTarget / postUnavailable, consumed above).
+        onRowTap = viewModel::onRowTap,
         onMarkAllRead = viewModel::markAllRead,
+        resolvingRowId = resolvingRowId,
+        postUnavailable = postUnavailable,
     )
 }
 
@@ -134,6 +184,8 @@ private fun NotificationsContent(
     onRetry: () -> Unit,
     onRowTap: (String) -> Unit,
     onMarkAllRead: () -> Unit,
+    resolvingRowId: String? = null,
+    postUnavailable: Boolean = false,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -150,6 +202,20 @@ private fun NotificationsContent(
                     Text(text = stringResource(Res.string.notifications_mark_all_read))
                 }
             }
+        }
+        // Transient non-blocking affordance: a tapped post-target that no longer resolves (404). It does
+        // NOT replace content or block the list; it auto-dismisses (the screen's LaunchedEffect).
+        if (postUnavailable) {
+            Text(
+                text = stringResource(Res.string.notifications_post_unavailable),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag(NOTIFICATION_POST_UNAVAILABLE_TAG),
+            )
         }
         PullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -172,6 +238,7 @@ private fun NotificationsContent(
                         onLoadMore = onLoadMore,
                         onRetryLoadMore = onRetryLoadMore,
                         onRowTap = onRowTap,
+                        resolvingRowId = resolvingRowId,
                     )
             }
         }
@@ -250,6 +317,7 @@ private fun NotificationList(
     onLoadMore: () -> Unit,
     onRetryLoadMore: () -> Unit,
     onRowTap: (String) -> Unit,
+    resolvingRowId: String?,
 ) {
     val listState = rememberLazyListState()
     LoadMoreOnScrollEnd(listState = listState, onLoadMore = onLoadMore)
@@ -259,7 +327,11 @@ private fun NotificationList(
         contentPadding = PaddingValues(vertical = 8.dp),
     ) {
         items(items = rows, key = { it.id }, contentType = { "notification" }) { row ->
-            NotificationRowItem(row = row, onTap = { onRowTap(row.id) })
+            NotificationRowItem(
+                row = row,
+                isResolving = row.id == resolvingRowId,
+                onTap = { onRowTap(row.id) },
+            )
             HorizontalDivider()
         }
         // Load-more footer: spinner while a page loads, non-destructive retry on error, nothing at end
@@ -284,6 +356,7 @@ private fun NotificationList(
 @Composable
 private fun NotificationRowItem(
     row: NotificationRow,
+    isResolving: Boolean,
     onTap: () -> Unit,
 ) {
     Row(
@@ -309,7 +382,7 @@ private fun NotificationRowItem(
             // Keep the copy left-aligned with unread rows by reserving the dot's width.
             Box(modifier = Modifier.size(8.dp))
         }
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = notificationCopy(row.type),
                 style = MaterialTheme.typography.bodyLarge,
@@ -323,6 +396,13 @@ private fun NotificationRowItem(
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
+        }
+        // Per-tap resolving spinner: shown on the tapped row while its deep-link by-id fetch is in flight.
+        if (isResolving) {
+            CircularProgressIndicator(
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(16.dp).testTag(NOTIFICATION_RESOLVING_TAG),
+            )
         }
     }
 }

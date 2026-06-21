@@ -1,5 +1,10 @@
 package id.nearyou.app.notifications
 
+import id.nearyou.app.post.SinglePostApiClient
+import id.nearyou.app.post.SinglePostFullResult
+import id.nearyou.app.profile.ProfileApiClient
+import id.nearyou.app.profile.ProfileReadApiResult
+
 /**
  * Orchestrates a notifications fetch: call `GET /api/v1/notifications` (NO cursor on the first page; the
  * opaque `next_cursor` sent back verbatim on [loadMore], reusing the first page's `unread=false` filter) →
@@ -15,6 +20,8 @@ package id.nearyou.app.notifications
  */
 class NotificationsRepository(
     private val apiClient: NotificationsApiClient,
+    private val singlePostApiClient: SinglePostApiClient,
+    private val profileApiClient: ProfileApiClient,
     private val diagnosticLog: (String) -> Unit = {},
 ) : NotificationsFlow {
     override suspend fun loadFirstPage(): NotificationsOutcome =
@@ -104,4 +111,43 @@ class NotificationsRepository(
     override suspend fun markRead(id: String): MarkReadResult = apiClient.markRead(id)
 
     override suspend fun markAllRead(): MarkAllReadResult = apiClient.markAllRead()
+
+    override suspend fun resolvePostTarget(postId: String): PostTargetResolution =
+        when (val result = singlePostApiClient.fetchFullPost(postId)) {
+            is SinglePostFullResult.Success ->
+                PostTargetResolution.Resolved(
+                    postId = result.post.id,
+                    authorUsername = result.post.authorUsername,
+                    authorDisplayName = result.post.authorDisplayName,
+                    content = result.post.content,
+                    cityName = result.post.cityName,
+                    createdAtIso = result.post.createdAt,
+                    likedByViewer = result.post.likedByViewer,
+                    replyCount = result.post.replyCount,
+                )
+            SinglePostFullResult.Unavailable -> {
+                // Type only — never the post id / body / any PII.
+                diagnosticLog("notifications_post_target_unavailable")
+                PostTargetResolution.Unavailable
+            }
+        }
+
+    override suspend fun resolvePartner(userId: String): PartnerResolution =
+        when (val result = profileApiClient.getProfile(userId)) {
+            is ProfileReadApiResult.Success ->
+                PartnerResolution.Resolved(
+                    username = result.body.username,
+                    displayName = result.body.displayName,
+                )
+            // A failed partner lookup must NOT block the (valid) conversation — the caller still opens the
+            // thread with blank partner fields. Diagnostic carries only the status / outcome type.
+            is ProfileReadApiResult.HttpError -> {
+                diagnosticLog("notifications_partner_unavailable: status=${result.status}")
+                PartnerResolution.Unavailable
+            }
+            is ProfileReadApiResult.NetworkError -> {
+                diagnosticLog("notifications_partner_unavailable: outcome=NetworkError")
+                PartnerResolution.Unavailable
+            }
+        }
 }

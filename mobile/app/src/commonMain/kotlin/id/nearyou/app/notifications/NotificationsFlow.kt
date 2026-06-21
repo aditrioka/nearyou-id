@@ -37,6 +37,54 @@ interface NotificationsFlow {
     /** Marks all loaded notifications read (`PATCH /read-all`). On [MarkAllReadResult.Success] the caller
      *  flips every loaded row to read; on [MarkAllReadResult.Failed] it reverts. */
     suspend fun markAllRead(): MarkAllReadResult
+
+    /**
+     * Resolves a `post`-target notification to the post-detail nav payload via the full-projection
+     * `single-post-read` (`mobile-notifications-deep-link-targets`). [PostTargetResolution.Resolved] carries
+     * the display fields the caller maps to a `PostDetailTarget` (`distanceM = null`); [Unavailable] (the
+     * endpoint's single `404 post_not_found` / any failure) → the caller surfaces a non-blocking
+     * "tidak tersedia" affordance and does NOT navigate.
+     */
+    suspend fun resolvePostTarget(postId: String): PostTargetResolution
+
+    /**
+     * Resolves a `chat_message` notification's partner display identity via `user-profile-read` — the
+     * sender of a 1:1 message IS the partner, so the notification's `actor_user_id` is the partner.
+     * [PartnerResolution.Resolved] gives the thread top-bar identity; on [Unavailable] the caller still
+     * opens the thread with blank partner fields (the conversation is independently valid; the top bar
+     * degrades to its existing placeholder).
+     */
+    suspend fun resolvePartner(userId: String): PartnerResolution
+}
+
+/**
+ * Neutral resolution of a `post`-target deep-link (NOT a screens type — the data seam stays free of
+ * `PostDetailTarget`; the ViewModel maps [Resolved] → `PostDetailTarget(distanceM = null, …)`). No author
+ * UUID / coordinate is carried (the by-id projection has none — no-PII).
+ */
+sealed interface PostTargetResolution {
+    data class Resolved(
+        val postId: String,
+        val authorUsername: String,
+        val authorDisplayName: String,
+        val content: String,
+        val cityName: String,
+        val createdAtIso: String,
+        val likedByViewer: Boolean,
+        val replyCount: Int,
+    ) : PostTargetResolution
+
+    data object Unavailable : PostTargetResolution
+}
+
+/** Neutral resolution of a chat partner's DISPLAY identity (no user UUID — display strings only). */
+sealed interface PartnerResolution {
+    data class Resolved(
+        val username: String,
+        val displayName: String,
+    ) : PartnerResolution
+
+    data object Unavailable : PartnerResolution
 }
 
 /**
