@@ -1,7 +1,7 @@
 # mobile-content-report Specification
 
 ## Purpose
-The mobile surface for reporting an individual **post** or **reply** (`POST /api/v1/reports` with `target_type` of `post`/`reply`), closing the user-generated-content store-compliance + safety gap left when mobile shipped only user-level reporting (`docs/03` §Report UX, `docs/06` §Report System). It owns the shared report-submission seam — `data/report/` (`ReportReasonCategory`, `ReportOutcome`, `ReportTargetType`, `ReportApiClient`, `ReportSubmitter`) plus the `ui/components/ReportDialog` (the six user-facing reason categories + an optional 200-code-point note) — consumed by both the profile and post-detail surfaces, so there is exactly one report-submission implementation. On the post-detail surface both `Submitted` and `Duplicate` (409) render the same success message (anti-enumeration, `docs/03`:234) while `RateLimited` (429) and `NetworkError` are typed; the post entry point is gated on `!isAuthor` and the reply entry point sends only the reply id (never `author_id`, preserving PII discipline). The backend reports pipeline (10/h rate limit, duplicate handling, auto-hide-on-3) is unchanged; the timeline-card kebab (#363) and chat-message report (#364) are explicitly deferred.
+The mobile surface for reporting an individual **post** or **reply** (`POST /api/v1/reports` with `target_type` of `post`/`reply`), closing the user-generated-content store-compliance + safety gap left when mobile shipped only user-level reporting (`docs/03` §Report UX, `docs/06` §Report System). It owns the shared report-submission seam — `data/report/` (`ReportReasonCategory`, `ReportOutcome`, `ReportTargetType`, `ReportApiClient`, `ReportSubmitter`) plus the `ui/components/ReportDialog` (the six user-facing reason categories + an optional 200-code-point note) — consumed by both the profile and post-detail surfaces, so there is exactly one report-submission implementation. On the post-detail surface both `Submitted` and `Duplicate` (409) render the same success message (anti-enumeration, `docs/03`:234) while `RateLimited` (429) and `NetworkError` are typed; the post entry point is gated on `!isAuthor` and the reply entry point sends only the reply id (never `author_id`, preserving PII discipline). The backend reports pipeline (10/h rate limit, duplicate handling, auto-hide-on-3) is unchanged; the timeline-card kebab (#363) is explicitly deferred, and chat-message report (#364) is delivered by the `mobile-chat-message-report` capability (which consumes this shared seam via `ReportTargetType.CHAT_MESSAGE`).
 ## Requirements
 ### Requirement: Shared report dialog presents the six user-facing reason categories and an optional note
 
@@ -53,15 +53,22 @@ The submission SHALL map each `ReportOutcome` member to exactly one user-visible
 
 ### Requirement: A single shared report-submission seam serves all report surfaces
 
-The report reason enum, the sealed `ReportOutcome`, the report submission call, and the report dialog composable SHALL exist as ONE shared seam (`data/report/` + `ui/components/`) consumed by BOTH the profile (user report) and post-detail (post/reply report) surfaces. There SHALL NOT be a second or duplicated report-submission implementation. The pre-existing profile report behavior and its wire contract SHALL be unchanged by the relocation (mechanical move only).
+The report reason enum, the sealed `ReportOutcome`, the report submission call, and the report dialog composable SHALL exist as ONE shared seam (`data/report/` + `ui/components/`) consumed by the profile (user report), post-detail (post/reply report), AND chat-thread (chat-message report) surfaces. `ReportTargetType` SHALL enumerate exactly the four members the shipped `reports` endpoint validates — `USER("user")`, `POST("post")`, `REPLY("reply")`, `CHAT_MESSAGE("chat_message")`. There SHALL NOT be a second or duplicated report-submission implementation. The pre-existing profile and post-detail report behavior and their wire contracts SHALL be unchanged by the addition of the chat-thread consumer (additive only).
 
 #### Scenario: Exactly one report reason enum and outcome type exist
-- **WHEN** inspecting the mobile source tree
-- **THEN** there is exactly one `ReportReasonCategory` definition and one `ReportOutcome` type, located under the shared seam, referenced by both the profile and post-detail surfaces
 
-#### Scenario: Profile report behavior is unchanged after the relocation
-- **WHEN** running the existing profile report tests after the seam is relocated
-- **THEN** they pass unchanged (same categories, same outcome mapping, same wire `target_type = "user"`)
+- **WHEN** inspecting the mobile source tree
+- **THEN** there is exactly one `ReportReasonCategory` definition, one `ReportOutcome` type, and one `ReportSubmitter`, located under the shared seam, referenced by the profile, post-detail, AND chat-thread surfaces
+
+#### Scenario: Profile and post-detail report behavior is unchanged after the chat consumer is added
+
+- **WHEN** running the existing profile and post-detail report tests after the chat-thread surface is added as a consumer
+- **THEN** they pass unchanged (same categories, same outcome mapping, same wire `target_type` of `user` / `post` / `reply`)
+
+#### Scenario: ReportTargetType enumerates the four shipped wire values
+
+- **WHEN** inspecting `ReportTargetType`
+- **THEN** it has exactly the members `USER`, `POST`, `REPLY`, `CHAT_MESSAGE` with wire strings `"user"`, `"post"`, `"reply"`, `"chat_message"` (matching the backend `reports` `target_type` CHECK)
 
 ### Requirement: Timeline-card report entry point is deferred
 
@@ -74,18 +81,6 @@ This capability SHALL NOT add a report affordance to the shared timeline post ca
 #### Scenario: Follow-up issue tracks the timeline-card deferral
 - **WHEN** inspecting the project's open GitHub issues (label `follow-up`)
 - **THEN** GitHub issue [#363](https://github.com/aditrioka/nearyou-id/issues/363) tracks the deferred timeline-card report kebab
-
-### Requirement: Chat-message report is deferred
-
-This capability SHALL NOT add a report affordance for chat messages (`target_type = "chat_message"`); chat-message reporting is a separate chat-surface change. GitHub issue [#364](https://github.com/aditrioka/nearyou-id/issues/364) (label `follow-up`) tracks it.
-
-#### Scenario: No chat-message report affordance is added
-- **WHEN** inspecting the chat screens and this change's diff
-- **THEN** no chat-message report affordance or `target_type = "chat_message"` submission is added
-
-#### Scenario: Follow-up issue tracks the chat-message deferral
-- **WHEN** inspecting the project's open GitHub issues (label `follow-up`)
-- **THEN** GitHub issue [#364](https://github.com/aditrioka/nearyou-id/issues/364) tracks chat-message reporting
 
 ### Requirement: Reporting one's own reply is permitted without a client guard
 
@@ -106,4 +101,18 @@ The change SHALL ship: (1) `commonTest` for the reason-category `toWire` mapping
 #### Scenario: New screen tests are excluded from the Release variant
 - **WHEN** inspecting `mobile/app/build.gradle.kts`
 - **THEN** the new report screen test(s) are listed in the Release-variant `*ScreenTest` exclude block AND `:mobile:app:testDevReleaseUnitTest` passes
+
+### Requirement: Chat-message report is delivered by the mobile-chat-message-report capability
+
+The `mobile-content-report` capability itself SHALL NOT add a chat-message report affordance to its own surfaces (post-detail, profile) — chat-message reporting (`target_type = "chat_message"`) is delivered by the separate `mobile-chat-message-report` capability, which adds the long-press → "Laporkan" entry point on the 1:1 chat thread. The shared seam (`ReportTargetType.CHAT_MESSAGE`, `ReportSubmitter`, `ReportDialog`) is the integration point both capabilities share. GitHub issue [#364](https://github.com/aditrioka/nearyou-id/issues/364) is resolved by `mobile-chat-message-report`.
+
+#### Scenario: Content-report's own surfaces add no chat-message affordance
+
+- **WHEN** inspecting the post-detail and profile report surfaces owned by `mobile-content-report`
+- **THEN** neither surface submits `target_type = "chat_message"` (chat reporting is not a content-report surface)
+
+#### Scenario: Chat-message reporting is delivered by the sibling capability
+
+- **WHEN** locating where `target_type = "chat_message"` is submitted in the mobile source
+- **THEN** it is the chat-thread surface owned by the `mobile-chat-message-report` capability, consuming the shared seam (not a duplicated report path)
 
