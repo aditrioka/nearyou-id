@@ -469,6 +469,44 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a moderation WORDLIST EDIT (`admin-moderation-wordlist-editor`
+     * capability): exactly one immutable row per applied Server-template wordlist
+     * publish. Joins the caller's [conn] so the rate-limit COUNT and this INSERT
+     * read + append the same ledger snapshot on one connection (the count can't
+     * drift from the ledger it gates — design D2). `action_type =
+     * 'moderation_wordlist_edited'`, `target_type = 'moderation_wordlist'`,
+     * `target_id` = the list parameter name (`moderation_profanity_list` /
+     * `moderation_uu_ite_list`); [beforeState]/[afterState] carry a DIFF SUMMARY
+     * (counts + added/removed + bounded changed-entry samples + version pointer —
+     * design D3), NOT the full 300+ entry arrays (recoverable from Remote Config
+     * version history). [reason] is the mandatory operator-supplied free text.
+     * `adminId` is the acting human admin, never the `system` sentinel.
+     */
+    fun logModerationWordlistEdited(
+        conn: Connection,
+        adminId: UUID,
+        listParameterName: String,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "moderation_wordlist_edited",
+            adminId = adminId,
+            targetType = "moderation_wordlist",
+            targetId = listParameterName,
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a Premium username-flag RESOLUTION (`admin-premium-username-
      * oversight` capability): `POST /admin/username-oversight/flags/{queue_id}/
      * resolve` transitioning a `username_flagged` `moderation_queue` row

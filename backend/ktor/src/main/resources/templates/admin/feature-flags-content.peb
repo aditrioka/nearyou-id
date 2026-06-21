@@ -77,10 +77,10 @@
     </table>
 </div>
 
-{# Moderation wordlist parameters — READ-ONLY here (count + version). Array-content
-   editing is deferred to admin-moderation-wordlist-editor (spec Req "Wordlist
-   array-content editing is out of scope and guarded read-only"); no mutation
-   control is rendered. #}
+{# Moderation wordlist parameters — READ-ONLY here (count + version). This page does
+   NOT mutate list content inline; each list links out to the admin-moderation-
+   wordlist-editor sub-surface (frame-20 "edit" affordance), which owns content
+   editing. moderation_match_threshold stays inline-editable above. #}
 <div class="cardlet ff-wordlists">
     <h4>Moderation wordlist parameters <span class="st neut">READ-ONLY</span></h4>
     <dl class="kv">
@@ -88,7 +88,10 @@
             <dt>{{ l.key }}</dt>
             <dd>
                 <span class="code">{{ l.summary }}</span>
-                <span class="note">{{ l.description }} · content editing deferred (admin-moderation-wordlist-editor)</span>
+                {% if l.slug is not null %}
+                    <a class="wl-edit-link" href="/admin/feature-flags/wordlists/{{ l.slug }}">edit</a>
+                {% endif %}
+                <span class="note">{{ l.description }}</span>
             </dd>
         {% endfor %}
     </dl>
