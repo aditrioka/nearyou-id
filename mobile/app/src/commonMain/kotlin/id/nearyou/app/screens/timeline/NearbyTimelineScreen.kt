@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -58,7 +57,8 @@ import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
-import id.nearyou.resources.generated.resources.radius_filter_label
+import id.nearyou.resources.generated.resources.radius_endpoint_farthest
+import id.nearyou.resources.generated.resources.radius_endpoint_nearest
 import id.nearyou.resources.generated.resources.radius_value_km
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_empty_nearby
@@ -274,7 +274,8 @@ private fun NearbyFeed(
 
 /**
  * The 4-position Nearby radius slider (`mobile-nearby-radius-slider`): an M3 [Slider] over
- * [NEARBY_RADIUS_POSITIONS_M] with a "Radius Sekitar … km" label that updates live as the thumb drags.
+ * [NEARBY_RADIUS_POSITIONS_M] with a centered live km value above a slider flanked by "Terdekat" /
+ * "Terjauh" endpoint labels (mockup screens frame 12), the value updating live as the thumb drags.
  * The thumb is driven by the VM's [selectedRadiusM]; on release [onSelect] commits the snapped position.
  * A Free viewer's drag is rejected by the VM (radius stays 20 km + [radiusUpsell] fires), so the thumb
  * bounces back — the [LaunchedEffect] re-syncs it to the permitted position whenever the selection OR the
@@ -294,30 +295,37 @@ private fun NearbyRadiusSelector(
         sliderPosition = positions.indexOf(selectedRadiusM).coerceAtLeast(0).toFloat()
     }
     val displayKm = positions[sliderPosition.roundToInt().coerceIn(0, positions.lastIndex)] / 1000
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    // Mockup (screens frame 12, .radius-bar `padding:8px 16px 0`): the current value sits above a slider
+    // flanked by "Terdekat" / "Terjauh" endpoint labels — NOT a left-aligned header + right-aligned value.
+    Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, end = 16.dp)) {
+        Text(
+            text = stringResource(Res.string.radius_value_km, displayKm),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = stringResource(Res.string.radius_filter_label),
-                style = MaterialTheme.typography.labelMedium,
+                text = stringResource(Res.string.radius_endpoint_nearest),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(modifier = Modifier.weight(1f))
+            Slider(
+                value = sliderPosition,
+                onValueChange = { sliderPosition = it },
+                onValueChangeFinished = {
+                    onSelect(positions[sliderPosition.roundToInt().coerceIn(0, positions.lastIndex)])
+                },
+                valueRange = 0f..positions.lastIndex.toFloat(),
+                steps = positions.size - 2,
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp).testTag(NEARBY_RADIUS_SLIDER_TAG),
+            )
             Text(
-                text = stringResource(Res.string.radius_value_km, displayKm),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+                text = stringResource(Res.string.radius_endpoint_farthest),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Slider(
-            value = sliderPosition,
-            onValueChange = { sliderPosition = it },
-            onValueChangeFinished = {
-                onSelect(positions[sliderPosition.roundToInt().coerceIn(0, positions.lastIndex)])
-            },
-            valueRange = 0f..positions.lastIndex.toFloat(),
-            steps = positions.size - 2,
-            modifier = Modifier.fillMaxWidth().testTag(NEARBY_RADIUS_SLIDER_TAG),
-        )
     }
 }
 
