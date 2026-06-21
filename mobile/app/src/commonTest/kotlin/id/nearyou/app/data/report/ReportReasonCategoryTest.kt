@@ -1,4 +1,4 @@
-package id.nearyou.app.profile
+package id.nearyou.app.data.report
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

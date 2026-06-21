@@ -3,6 +3,9 @@ package id.nearyou.app.internal
 import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.privacyFlipWorkerRoute
+import id.nearyou.app.admin.retention.JdbcRetentionCleanupRepository
+import id.nearyou.app.admin.retention.RetentionCleanupWorker
+import id.nearyou.app.admin.retention.retentionCleanupRoutes
 import id.nearyou.app.admin.unbanWorkerRoute
 import id.nearyou.app.auth.provider.JwksCache
 import id.nearyou.app.auth.routes.InMemoryDedup
@@ -83,6 +86,10 @@ class InternalRoutingIsolationTest : StringSpec({
                         ReferralActivityCheckWorker(UnusedDataSource, ReferralGrantRepository(), NoOpReferralEntitlementGranter),
                         NeverCalledVerifier,
                     )
+                    retentionCleanupRoutes(
+                        RetentionCleanupWorker(JdbcRetentionCleanupRepository(UnusedDataSource)),
+                        NeverCalledVerifier,
+                    )
                 }
             }
         }
@@ -123,6 +130,14 @@ class InternalRoutingIsolationTest : StringSpec({
         testApplication {
             mountProductionShape()
             val response = client.post("/internal/referral-activity-check")
+            response.status shouldBe HttpStatusCode.Unauthorized
+        }
+    }
+
+    "retention-cleanup worker without a bearer token is still rejected 401 by its own gate" {
+        testApplication {
+            mountProductionShape()
+            val response = client.post("/internal/cleanup")
             response.status shouldBe HttpStatusCode.Unauthorized
         }
     }

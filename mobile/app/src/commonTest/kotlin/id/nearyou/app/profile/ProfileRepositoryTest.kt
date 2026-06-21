@@ -2,6 +2,10 @@ package id.nearyou.app.profile
 
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.data.report.ReportApiClient
+import id.nearyou.app.data.report.ReportOutcome
+import id.nearyou.app.data.report.ReportReasonCategory
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.network.HttpClientFactory
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -28,7 +32,13 @@ class ProfileRepositoryTest {
                 installLogging = false,
                 nowMillis = { 0L },
             )
-        return ProfileRepository(ProfileApiClient(client))
+        // The report path delegates to the shared ReportSubmitter (data/report/), wired here over the SAME
+        // MockEngine so the profile report tests still exercise the full repo → submitter → api → wire
+        // path end-to-end (the relocation's regression oracle; the USER target flows through).
+        return ProfileRepository(
+            ProfileApiClient(client),
+            reportSubmitter = ReportSubmitter(ReportApiClient(client)),
+        )
     }
 
     @Test

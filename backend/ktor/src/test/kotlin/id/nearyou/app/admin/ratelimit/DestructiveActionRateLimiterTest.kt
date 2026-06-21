@@ -47,6 +47,15 @@ class DestructiveActionRateLimiterTest : StringSpec({
         limiter.countInTrailingHour(admin) shouldBe 6
     }
 
+    "standalone user_banned + user_shadow_banned count; user_shadow_unbanned does not (count 2)" {
+        val admin = newAdmin()
+        insertAudit(dataSource, admin, "user_banned")
+        insertAudit(dataSource, admin, "user_shadow_banned")
+        insertAudit(dataSource, admin, "user_shadow_unbanned") // restorative — excluded
+
+        limiter.countInTrailingHour(admin) shouldBe 2
+    }
+
     "excludes non-destructive action types AND out-of-window rows (count 0)" {
         val admin = newAdmin()
         // Non-destructive types in-window — must NOT count.

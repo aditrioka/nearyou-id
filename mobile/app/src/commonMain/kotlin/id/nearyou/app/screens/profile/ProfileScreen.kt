@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -23,8 +21,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -43,17 +39,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.profile.ProfileFlow
-import id.nearyou.app.profile.ReportReasonCategory
 import id.nearyou.app.profile.UserProfile
 import id.nearyou.app.ui.components.LetterAvatar
+import id.nearyou.app.ui.components.ReportDialog
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_block
 import id.nearyou.resources.generated.resources.cta_cancel
@@ -82,19 +78,11 @@ import id.nearyou.resources.generated.resources.profile_premium_badge
 import id.nearyou.resources.generated.resources.profile_premium_badge_icon_description
 import id.nearyou.resources.generated.resources.profile_report_action
 import id.nearyou.resources.generated.resources.profile_report_duplicate
-import id.nearyou.resources.generated.resources.profile_report_note_placeholder
 import id.nearyou.resources.generated.resources.profile_report_rate_limited
 import id.nearyou.resources.generated.resources.profile_report_reason_title
-import id.nearyou.resources.generated.resources.profile_report_submit
 import id.nearyou.resources.generated.resources.profile_report_success_toast
 import id.nearyou.resources.generated.resources.profile_settings_action
 import id.nearyou.resources.generated.resources.profile_unfollow
-import id.nearyou.resources.generated.resources.report_reason_adult_content
-import id.nearyou.resources.generated.resources.report_reason_harassment
-import id.nearyou.resources.generated.resources.report_reason_hate_speech_sara
-import id.nearyou.resources.generated.resources.report_reason_misinformation
-import id.nearyou.resources.generated.resources.report_reason_other
-import id.nearyou.resources.generated.resources.report_reason_spam
 import id.nearyou.resources.generated.resources.section_profile
 import id.nearyou.resources.generated.resources.signin_error_network
 import org.jetbrains.compose.resources.StringResource
@@ -373,7 +361,9 @@ private fun ProfileContent(
         )
     }
     if (showReportDialog) {
-        ReportReasonDialog(
+        ReportDialog(
+            title = Res.string.profile_report_reason_title,
+            testTag = PROFILE_REPORT_DIALOG_TAG,
             onSubmit = { category, note ->
                 showReportDialog = false
                 onReportSubmitted(category, note)
@@ -467,52 +457,6 @@ private fun BlockConfirmDialog(
 }
 
 @Composable
-private fun ReportReasonDialog(
-    onSubmit: (ReportReasonCategory, String?) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var selected by remember { mutableStateOf(ReportReasonCategory.SPAM) }
-    var note by remember { mutableStateOf("") }
-    // The submit is gated by the pure, unit-tested ≤200-code-point check (matches the server bound).
-    val noteWithinLimit = isReportNoteWithinLimit(note)
-    AlertDialog(
-        modifier = Modifier.testTag(PROFILE_REPORT_DIALOG_TAG),
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(Res.string.profile_report_reason_title)) },
-        text = {
-            Column(modifier = Modifier.selectableGroup()) {
-                ReportReasonCategory.entries.forEach { category ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = selected == category, onClick = { selected = category })
-                        Text(stringResource(category.label()))
-                    }
-                }
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    placeholder = { Text(stringResource(Res.string.profile_report_note_placeholder)) },
-                    isError = !noteWithinLimit,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onSubmit(selected, note.ifBlank { null }) },
-                // The submit is disabled past 200 Unicode code points (matching the server bound).
-                enabled = noteWithinLimit,
-            ) {
-                Text(stringResource(Res.string.profile_report_submit))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(Res.string.cta_cancel)) }
-        },
-    )
-}
-
-@Composable
 private fun CenteredMessage(
     text: String,
     modifier: Modifier = Modifier,
@@ -540,16 +484,6 @@ private fun ErrorRetry(onRetry: () -> Unit) {
         }
     }
 }
-
-private fun ReportReasonCategory.label(): StringResource =
-    when (this) {
-        ReportReasonCategory.SPAM -> Res.string.report_reason_spam
-        ReportReasonCategory.HATE_SPEECH_SARA -> Res.string.report_reason_hate_speech_sara
-        ReportReasonCategory.HARASSMENT -> Res.string.report_reason_harassment
-        ReportReasonCategory.ADULT_CONTENT -> Res.string.report_reason_adult_content
-        ReportReasonCategory.MISINFORMATION -> Res.string.report_reason_misinformation
-        ReportReasonCategory.OTHER -> Res.string.report_reason_other
-    }
 
 private fun ProfileMessage.resource(): StringResource =
     when (this) {

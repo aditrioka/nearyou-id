@@ -57,9 +57,9 @@ class UserModerationRepository(
         return dataSource.connection.use { conn ->
             val sql =
                 if (asUuid != null) {
-                    "SELECT id, username, is_banned, suspended_until, deleted_at FROM users WHERE id = ?"
+                    "SELECT id, username, is_banned, suspended_until, is_shadow_banned, deleted_at FROM users WHERE id = ?"
                 } else {
-                    "SELECT id, username, is_banned, suspended_until, deleted_at FROM users WHERE username = ?"
+                    "SELECT id, username, is_banned, suspended_until, is_shadow_banned, deleted_at FROM users WHERE username = ?"
                 }
             conn.prepareStatement(sql).use { ps ->
                 if (asUuid != null) ps.setObject(1, asUuid) else ps.setString(1, q)
@@ -345,6 +345,233 @@ class UserModerationRepository(
             }
         }
 
+    /**
+     * Apply a PERMANENT ban to an ELIGIBLE [targetId] (`is_banned = TRUE,
+     * suspended_until = NULL`) in one transaction, writing the `user_banned`
+     * audit row + the sanitized `account_action_applied` ban notification
+     * atomically. The standalone user-page sibling of the report-queue
+     * `ban_author` resolution — the column write + the sanitized ban
+     * notification mirror that path EXACTLY (one ban behavior across both entry
+     * points; see [insertBanNotification] + [BAN_REASON_CODE], which match
+     * `ReportResolutionRepository`'s ban primitives).
+     *
+     * `token_version` is NOT modified and refresh tokens are NOT deleted (mirrors
+     * the shipped suspend / unban / report-queue ban). A banned account is
+     * enforced immediately by the per-request `AuthPlugin` `is_banned` gate and
+     * the refresh-endpoint guard (`auth-session`) — there is no divergent
+     * token-invalidation path here.
+     *
+     * Guards (against a `SELECT … FOR UPDATE` snapshot), each writing nothing on
+     * rejection:
+     *  - acting admin at/over the destructive-action cap → [BanOutcome.RateLimited];
+     *  - no user resolves to [targetId] → [BanOutcome.NotFound];
+     *  - soft-deleted (`deleted_at IS NOT NULL`) → [BanOutcome.RejectedSoftDeleted];
+     *  - already permanently banned (`is_banned = TRUE AND suspended_until IS NULL`)
+     *    → [BanOutcome.NoOpAlreadyBanned] (no second audit row).
+     *
+     * A time-bound suspension (`is_banned = TRUE`, `suspended_until` non-null —
+     * future OR past) is ELIGIBLE: the ban escalates it to permanent and the
+     * prior expiry is captured in the audit `before_state`. The route role-gates
+     * this to owner/admin BEFORE the call (the higher-trust tier per the admin
+     * mockup), so no in-tx role check is needed here.
+     */
+    fun permanentBan(
+        targetId: UUID,
+        actingAdminId: UUID,
+        reason: String?,
+        ip: String,
+        userAgent: String?,
+    ): BanOutcome =
+        dataSource.connection.use { conn ->
+            conn.autoCommit = false
+            try {
+                if (rateLimiter.isAtOrOverCap(conn, actingAdminId)) {
+                    conn.rollback()
+                    return BanOutcome.RateLimited
+                }
+                val current =
+                    lockUser(conn, targetId) ?: run {
+                        conn.rollback()
+                        return BanOutcome.NotFound
+                    }
+                if (current.deletedAt != null) {
+                    conn.rollback()
+                    return BanOutcome.RejectedSoftDeleted
+                }
+                if (current.isBanned && current.suspendedUntil == null) {
+                    conn.rollback()
+                    return BanOutcome.NoOpAlreadyBanned
+                }
+
+                conn.prepareStatement(
+                    "UPDATE users SET is_banned = TRUE, suspended_until = NULL WHERE id = ?",
+                ).use { ps ->
+                    ps.setObject(1, targetId)
+                    ps.executeUpdate()
+                }
+
+                auditLogger.logUserBanned(
+                    conn = conn,
+                    adminId = actingAdminId,
+                    targetUserId = targetId,
+                    reason = reason,
+                    beforeState = stateJson(current.isBanned, current.suspendedUntil),
+                    afterState = stateJson(isBanned = true, suspendedUntil = null),
+                    ip = ip,
+                    userAgent = userAgent,
+                )
+                insertBanNotification(conn, targetId)
+
+                conn.commit()
+                BanOutcome.Applied
+            } catch (e: Throwable) {
+                runCatching { conn.rollback() }
+                throw e
+            } finally {
+                runCatching { conn.autoCommit = true }
+            }
+        }
+
+    /**
+     * Apply a SHADOW ban to an ELIGIBLE [targetId] (`is_shadow_banned = TRUE`,
+     * no other column) in one transaction, writing the `user_shadow_banned`
+     * audit row atomically. The standalone user-page sibling of the report-queue
+     * `shadow_ban_author` resolution — the column write mirrors it EXACTLY. A
+     * shadow ban is invisible to the offender, so NO notification is written.
+     *
+     * Guards (against a `SELECT … FOR UPDATE` snapshot), each writing nothing on
+     * rejection:
+     *  - acting admin at/over the destructive-action cap → [ShadowBanOutcome.RateLimited];
+     *  - no user resolves to [targetId] → [ShadowBanOutcome.NotFound];
+     *  - soft-deleted (`deleted_at IS NOT NULL`) → [ShadowBanOutcome.RejectedSoftDeleted];
+     *  - already shadow-banned (`is_shadow_banned = TRUE`) →
+     *    [ShadowBanOutcome.NoOpAlreadyShadowBanned] (no second audit row).
+     *
+     * The route role-gates this to any write role (owner/admin/moderator) BEFORE
+     * the call.
+     */
+    fun shadowBan(
+        targetId: UUID,
+        actingAdminId: UUID,
+        reason: String?,
+        ip: String,
+        userAgent: String?,
+    ): ShadowBanOutcome =
+        dataSource.connection.use { conn ->
+            conn.autoCommit = false
+            try {
+                if (rateLimiter.isAtOrOverCap(conn, actingAdminId)) {
+                    conn.rollback()
+                    return ShadowBanOutcome.RateLimited
+                }
+                val current =
+                    lockUser(conn, targetId) ?: run {
+                        conn.rollback()
+                        return ShadowBanOutcome.NotFound
+                    }
+                if (current.deletedAt != null) {
+                    conn.rollback()
+                    return ShadowBanOutcome.RejectedSoftDeleted
+                }
+                if (current.isShadowBanned) {
+                    conn.rollback()
+                    return ShadowBanOutcome.NoOpAlreadyShadowBanned
+                }
+
+                conn.prepareStatement(
+                    "UPDATE users SET is_shadow_banned = TRUE WHERE id = ?",
+                ).use { ps ->
+                    ps.setObject(1, targetId)
+                    ps.executeUpdate()
+                }
+
+                auditLogger.logUserShadowBanned(
+                    conn = conn,
+                    adminId = actingAdminId,
+                    targetUserId = targetId,
+                    reason = reason,
+                    beforeState = shadowStateJson(isShadowBanned = false),
+                    afterState = shadowStateJson(isShadowBanned = true),
+                    ip = ip,
+                    userAgent = userAgent,
+                )
+
+                conn.commit()
+                ShadowBanOutcome.Applied
+            } catch (e: Throwable) {
+                runCatching { conn.rollback() }
+                throw e
+            } finally {
+                runCatching { conn.autoCommit = true }
+            }
+        }
+
+    /**
+     * Lift a SHADOW ban on [targetId] (`is_shadow_banned = FALSE`) in one
+     * transaction, writing the `user_shadow_unbanned` audit row atomically. The
+     * restorative reversal of [shadowBan] — the ONLY admin path that clears
+     * `is_shadow_banned` (the [unban] action clears `is_banned`/`suspended_until`
+     * only, never `is_shadow_banned`). Restorative, so it is NOT counted against
+     * the destructive-action cap and writes NO notification.
+     *
+     * Guards (against a `SELECT … FOR UPDATE` snapshot):
+     *  - no user resolves to [targetId] → [ShadowUnbanOutcome.NotFound];
+     *  - not currently shadow-banned (`is_shadow_banned = FALSE`) →
+     *    [ShadowUnbanOutcome.NoOpNotShadowBanned] with NO audit row (the log
+     *    records only actual transitions).
+     *
+     * A soft-deleted-but-shadow-banned target MAY be un-shadow-banned
+     * (`deleted_at` unchanged), mirroring [unban] allowing a soft-deleted-but-
+     * banned target to be unbanned. The route role-gates this to any write role.
+     */
+    fun shadowUnban(
+        targetId: UUID,
+        actingAdminId: UUID,
+        reason: String?,
+        ip: String,
+        userAgent: String?,
+    ): ShadowUnbanOutcome =
+        dataSource.connection.use { conn ->
+            conn.autoCommit = false
+            try {
+                val current =
+                    lockUser(conn, targetId) ?: run {
+                        conn.rollback()
+                        return ShadowUnbanOutcome.NotFound
+                    }
+                if (!current.isShadowBanned) {
+                    conn.rollback()
+                    return ShadowUnbanOutcome.NoOpNotShadowBanned
+                }
+
+                conn.prepareStatement(
+                    "UPDATE users SET is_shadow_banned = FALSE WHERE id = ?",
+                ).use { ps ->
+                    ps.setObject(1, targetId)
+                    ps.executeUpdate()
+                }
+
+                auditLogger.logUserShadowUnbanned(
+                    conn = conn,
+                    adminId = actingAdminId,
+                    targetUserId = targetId,
+                    reason = reason,
+                    beforeState = shadowStateJson(isShadowBanned = true),
+                    afterState = shadowStateJson(isShadowBanned = false),
+                    ip = ip,
+                    userAgent = userAgent,
+                )
+
+                conn.commit()
+                ShadowUnbanOutcome.Applied
+            } catch (e: Throwable) {
+                runCatching { conn.rollback() }
+                throw e
+            } finally {
+                runCatching { conn.autoCommit = true }
+            }
+        }
+
     /** `SELECT … FOR UPDATE` the target's moderation columns, locking the row
      *  for the duration of the enclosing transaction. */
     private fun lockUser(
@@ -352,7 +579,7 @@ class UserModerationRepository(
         id: UUID,
     ): UserModerationState? =
         conn.prepareStatement(
-            "SELECT id, username, is_banned, suspended_until, deleted_at FROM users WHERE id = ? FOR UPDATE",
+            "SELECT id, username, is_banned, suspended_until, is_shadow_banned, deleted_at FROM users WHERE id = ? FOR UPDATE",
         ).use { ps ->
             ps.setObject(1, id)
             ps.executeQuery().use { rs -> if (rs.next()) rs.toState() else null }
@@ -402,12 +629,48 @@ class UserModerationRepository(
             put("suspended_until", suspendedUntil?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
         }
 
+    /** `{"is_shadow_banned": <bool>}` for the shadow-ban / un-shadow-ban audit
+     *  before/after state. Built in Kotlin and passed as `?::jsonb`. */
+    private fun shadowStateJson(isShadowBanned: Boolean): JsonObject =
+        buildJsonObject {
+            put("is_shadow_banned", JsonPrimitive(isShadowBanned))
+        }
+
+    /**
+     * Insert the permanent-ban-side `account_action_applied` notification on
+     * [conn] (joins the ban transaction). MIRRORS the report-queue
+     * `ban_author` resolution's ban notification EXACTLY (one ban behavior
+     * across both entry points, design D1): `body_data` carries the sanitized
+     * fixed [BAN_REASON_CODE] — NEVER the admin's free-text reason — and
+     * `actor_user_id` is left NULL (the actor is an admin, not a `public.users`
+     * row). If this shape ever changes, change it in
+     * `ReportResolutionRepository.insertBanNotification` too.
+     */
+    private fun insertBanNotification(
+        conn: Connection,
+        targetId: UUID,
+    ) {
+        val bodyData =
+            buildJsonObject {
+                put("action_type", JsonPrimitive("user_banned"))
+                put("reason", JsonPrimitive(BAN_REASON_CODE))
+            }
+        conn.prepareStatement(
+            "INSERT INTO notifications (user_id, type, body_data) VALUES (?, 'account_action_applied', ?::jsonb)",
+        ).use { ps ->
+            ps.setObject(1, targetId)
+            ps.setString(2, json.encodeToString(bodyData))
+            ps.executeUpdate()
+        }
+    }
+
     private fun ResultSet.toState(): UserModerationState =
         UserModerationState(
             id = getObject("id", UUID::class.java),
             username = getString("username"),
             isBanned = getBoolean("is_banned"),
             suspendedUntil = getTimestamp("suspended_until")?.toInstant(),
+            isShadowBanned = getBoolean("is_shadow_banned"),
             deletedAt = getTimestamp("deleted_at")?.toInstant(),
         )
 
@@ -424,6 +687,16 @@ class UserModerationRepository(
          */
         const val SANITIZED_REASON_CODE = "suspension"
 
+        /**
+         * Sanitized, non-free-text code written to the permanent-ban
+         * notification's `body_data.reason` (design D3). MUST match
+         * `ReportResolutionRepository.BAN_REASON_CODE` so the standalone
+         * user-page ban and the report-queue `ban_author` resolution emit the
+         * identical sanitized notification (one ban behavior, design D1). The
+         * admin's free-text reason lives ONLY in `admin_actions_log`.
+         */
+        const val BAN_REASON_CODE = "ban"
+
         private val json = Json { encodeDefaults = false }
     }
 }
@@ -434,6 +707,7 @@ data class UserModerationState(
     val username: String,
     val isBanned: Boolean,
     val suspendedUntil: Instant?,
+    val isShadowBanned: Boolean,
     val deletedAt: Instant?,
 )
 
@@ -510,4 +784,52 @@ sealed interface UnbanOutcome {
 
     /** No user resolves to the target id. */
     data object NotFound : UnbanOutcome
+}
+
+/** Typed result of [UserModerationRepository.permanentBan]. */
+sealed interface BanOutcome {
+    /** Permanent ban applied (`is_banned = TRUE`, `suspended_until = NULL`). */
+    data object Applied : BanOutcome
+
+    /** Target is soft-deleted (`deleted_at IS NOT NULL`) — not moderated. */
+    data object RejectedSoftDeleted : BanOutcome
+
+    /** Target is already permanently banned — no-op, no second audit row. */
+    data object NoOpAlreadyBanned : BanOutcome
+
+    /** Acting admin is at/over the destructive-action cap — no mutation, no audit. */
+    data object RateLimited : BanOutcome
+
+    /** No user resolves to the target id. */
+    data object NotFound : BanOutcome
+}
+
+/** Typed result of [UserModerationRepository.shadowBan]. */
+sealed interface ShadowBanOutcome {
+    /** Shadow ban applied (`is_shadow_banned = TRUE`). */
+    data object Applied : ShadowBanOutcome
+
+    /** Target is soft-deleted (`deleted_at IS NOT NULL`) — not moderated. */
+    data object RejectedSoftDeleted : ShadowBanOutcome
+
+    /** Target is already shadow-banned — no-op, no second audit row. */
+    data object NoOpAlreadyShadowBanned : ShadowBanOutcome
+
+    /** Acting admin is at/over the destructive-action cap — no mutation, no audit. */
+    data object RateLimited : ShadowBanOutcome
+
+    /** No user resolves to the target id. */
+    data object NotFound : ShadowBanOutcome
+}
+
+/** Typed result of [UserModerationRepository.shadowUnban]. */
+sealed interface ShadowUnbanOutcome {
+    /** Shadow ban lifted (`is_shadow_banned = FALSE`). */
+    data object Applied : ShadowUnbanOutcome
+
+    /** Target was not shadow-banned — no-op, no audit row. */
+    data object NoOpNotShadowBanned : ShadowUnbanOutcome
+
+    /** No user resolves to the target id. */
+    data object NotFound : ShadowUnbanOutcome
 }

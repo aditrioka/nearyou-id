@@ -1,5 +1,8 @@
 package id.nearyou.app.profile
 
+import id.nearyou.app.data.report.ReportOutcome
+import id.nearyou.app.data.report.ReportReasonCategory
+
 /**
  * commonTest double for [ProfileFlow] — drives the `ProfileViewModel` + screen tests with configurable
  * per-operation outcomes and records the last call arguments (mirroring `FakePostDetailFlow`).

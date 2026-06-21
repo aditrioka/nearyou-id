@@ -7,6 +7,9 @@ import id.nearyou.app.chat.ChatThreadOutcome
 import id.nearyou.app.chat.CreateConversationOutcome
 import id.nearyou.app.chat.SendOutcome
 import id.nearyou.app.chat.ViewerIdProvider
+import id.nearyou.app.data.report.ReportReasonCategory
+import id.nearyou.app.data.report.ReportSubmitter
+import id.nearyou.app.data.report.ReportTargetType
 import id.nearyou.app.infra.supabaserealtime.ChatMessageInbound
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import kotlinx.coroutines.delay
@@ -43,6 +46,7 @@ class ChatThreadViewModel(
     private val flow: ChatFlow,
     private val chatRealtimeSubscriber: ChatRealtimeSubscriber,
     private val viewerIdProvider: ViewerIdProvider,
+    private val reportSubmitter: ReportSubmitter,
     private val nowIso: () -> String = { Clock.System.now().toString() },
     private val resubscribeDelayMillis: Long = RESUBSCRIBE_DELAY_MILLIS,
     private val diagnosticLog: (String) -> Unit = {},
@@ -81,6 +85,16 @@ class ChatThreadViewModel(
     val startedConversationId: StateFlow<String?> = _startedConversationId.asStateFlow()
     private val _startOutcome = MutableStateFlow<CreateConversationOutcome?>(null)
     val startOutcome: StateFlow<CreateConversationOutcome?> = _startOutcome.asStateFlow()
+
+    // mobile-chat-message-report: the message id the report dialog targets (null = no dialog) + the
+    // one-shot report-result message. Both nullable VM state cleared via callbacks (onReportDialogDismissed
+    // / onReportMessageShown) — NOT a Channel/SharedFlow bus (docs/11 §2.2). The report target_id is the
+    // message id ALONE; senderId never enters this path (PII discipline — the row already dropped it).
+    private val _reportTargetMessageId = MutableStateFlow<String?>(null)
+    val reportTargetMessageId: StateFlow<String?> = _reportTargetMessageId.asStateFlow()
+
+    private val _reportMessage = MutableStateFlow<ChatReportMessage?>(null)
+    val reportMessage: StateFlow<ChatReportMessage?> = _reportMessage.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -185,6 +199,45 @@ class ChatThreadViewModel(
     /** Clears a transient send banner (after the user dismisses / edits the input). */
     fun clearSendOutcome() {
         _sendOutcome.value = null
+    }
+
+    /**
+     * mobile-chat-message-report: open the report dialog targeting a received chat message (the long-press
+     * "Laporkan"; the screen gates this on `row.isReportable`). Carries ONLY [messageId] (the report
+     * `target_id`) — never a sender identity (PII discipline).
+     */
+    fun onReportMessageClicked(messageId: String) {
+        _reportTargetMessageId.value = messageId
+    }
+
+    /** Dismiss the report dialog without submitting (clears the target one-shot). */
+    fun onReportDialogDismissed() {
+        _reportTargetMessageId.value = null
+    }
+
+    /**
+     * Submit the report for the currently-targeted chat message via the shared [reportSubmitter]
+     * (`target_type = "chat_message"`, `target_id = <message id>`). Dismisses the dialog, then maps the
+     * shared [id.nearyou.app.data.report.ReportOutcome] to the one-shot [ChatReportMessage] (Submitted AND
+     * Duplicate → the SAME success — anti-enumeration, design D4). A no-op if no target is set (defensive).
+     */
+    fun onReportSubmitted(
+        category: ReportReasonCategory,
+        note: String?,
+    ) {
+        val messageId = _reportTargetMessageId.value ?: return
+        // Close the dialog immediately (the submission result surfaces as the one-shot message).
+        _reportTargetMessageId.value = null
+        viewModelScope.launch {
+            val outcome = reportSubmitter.submit(ReportTargetType.CHAT_MESSAGE, messageId, category, note)
+            _reportMessage.value = chatReportMessage(outcome)
+        }
+    }
+
+    /** Clears the one-shot [reportMessage] after the screen has shown it (so it does not re-fire on
+     *  recomposition / config change). */
+    fun onReportMessageShown() {
+        _reportMessage.value = null
     }
 
     /**

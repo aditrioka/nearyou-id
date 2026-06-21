@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<!--
+  Transactional email: data-export ready (capability `account-data-export`, task 4.3).
+  Copy per docs/06 § Data Export Scope Matrix Delivery ("Data export kamu siap diunduh").
+  Placeholders rendered by DataExportEmailTemplate:
+    {{download_url}}  — the 24h-TTL R2 signed GET URL (a bearer capability; never logged)
+    {{expires_at}}    — ISO-8601 deadline after which the link stops working
+  Versioned in-repo; the runtime copy lives on the classpath at
+  resources/email-templates/data-export-ready.html.
+-->
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data export kamu siap diunduh</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#18181b;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;padding:32px;">
+            <tr>
+              <td>
+                <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;">Data export kamu siap diunduh</h1>
+                <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">
+                  Halo! Salinan data pribadi kamu di NearYou sudah selesai kami siapkan.
+                  Klik tombol di bawah untuk mengunduh arsipnya (format ZIP berisi file JSON + CSV).
+                </p>
+                <p style="margin:0 0 24px;text-align:center;">
+                  <a href="{{download_url}}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 24px;border-radius:8px;">
+                    Unduh Data Saya
+                  </a>
+                </p>
+                <p style="margin:0 0 16px;font-size:13px;line-height:1.6;color:#52525b;">
+                  Tautan ini hanya berlaku sampai <strong>{{expires_at}}</strong> (sekitar 24 jam).
+                  Setelah itu kamu perlu meminta ekspor baru dari menu Pengaturan.
+                </p>
+                <p style="margin:0;font-size:13px;line-height:1.6;color:#52525b;">
+                  Demi keamanan, jangan bagikan tautan ini ke siapa pun — siapa saja yang
+                  memilikinya bisa mengunduh datamu selama tautan masih berlaku.
+                </p>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:16px 0 0;font-size:12px;color:#a1a1aa;">NearYou &middot; Email ini dikirim otomatis, mohon tidak membalas.</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

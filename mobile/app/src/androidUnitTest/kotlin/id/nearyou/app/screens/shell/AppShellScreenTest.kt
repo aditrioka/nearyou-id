@@ -30,7 +30,9 @@ import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.NotificationsRepository
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.post.SinglePostApiClient
 import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileApiClient
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.push.fakeFcmTokenRegistrar
@@ -471,8 +473,15 @@ class AppShellScreenTest {
                     single<GlobalTimelineFlow> { globalFake }
                     single<LikeFlow> { FakeLikeFlow() }
                     // The shell's real notifications graph over the recording MockEngine (the badge's
-                    // unread-count request is captured here).
-                    single<NotificationsFlow> { NotificationsRepository(NotificationsApiClient(httpClient)) }
+                    // unread-count request is captured here). The deep-link resolution clients reuse the
+                    // recording client; they are not exercised by these shell tests.
+                    single<NotificationsFlow> {
+                        NotificationsRepository(
+                            NotificationsApiClient(httpClient),
+                            SinglePostApiClient(httpClient),
+                            ProfileApiClient(httpClient),
+                        )
+                    }
                     // The Profil section's profile read goes through this fake ProfileFlow (NOT the
                     // recording HttpClient), so selecting Profil adds no path to recordedPaths.
                     single<ProfileFlow> {

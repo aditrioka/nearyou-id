@@ -10,7 +10,6 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlin.coroutines.cancellation.CancellationException
@@ -22,8 +21,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private val JSON_HEADERS = headersOf("Content-Type", "application/json")
-
-private fun OutgoingContent.bodyText(): String = (this as? OutgoingContent.ByteArrayContent)?.bytes()?.decodeToString() ?: ""
 
 class ProfileApiClientTest {
     private fun client(handler: MockRequestHandler): HttpClient =
@@ -165,54 +162,9 @@ class ProfileApiClientTest {
             assertEquals(42L, result.retryAfterSeconds)
         }
 
-    @Test
-    fun `report sends the snake_case user-target body and omits a blank note`() =
-        runTest {
-            var captured: HttpRequestData? = null
-            var body = ""
-            val api =
-                ProfileApiClient(
-                    client { request ->
-                        captured = request
-                        body = request.body.bodyText()
-                        respond("", HttpStatusCode.NoContent)
-                    },
-                )
-            assertEquals(ActionApiResult.NoContent, api.report("u9", reasonCategory = "harassment", reasonNote = "   "))
-            assertEquals("/api/v1/reports", captured!!.url.encodedPath)
-            assertTrue(body.contains("\"target_type\":\"user\""), body)
-            assertTrue(body.contains("\"target_id\":\"u9\""), body)
-            assertTrue(body.contains("\"reason_category\":\"harassment\""), body)
-            // A blank note is normalized to null → the key is OMITTED (not "" / null).
-            assertTrue(!body.contains("reason_note"), "blank note must be omitted: $body")
-        }
-
-    @Test
-    fun `report includes a non-blank note`() =
-        runTest {
-            var body = ""
-            val api =
-                ProfileApiClient(
-                    client { request ->
-                        body = request.body.bodyText()
-                        respond("", HttpStatusCode.NoContent)
-                    },
-                )
-            api.report("u9", reasonCategory = "spam", reasonNote = "kasar sekali")
-            assertTrue(body.contains("\"reason_note\":\"kasar sekali\""), body)
-        }
-
-    @Test
-    fun `report 409 carries the duplicate_report code`() =
-        runTest {
-            val api =
-                ProfileApiClient(
-                    client { respond("""{"error":{"code":"duplicate_report"}}""", HttpStatusCode.Conflict, JSON_HEADERS) },
-                )
-            val result = assertIs<ActionApiResult.HttpError>(api.report("u9", "spam", null))
-            assertEquals(409, result.status)
-            assertEquals("duplicate_report", result.errorCode)
-        }
+    // The report path moved to the shared `data/report/` seam (ReportApiClient / ReportSubmitter —
+    // mobile-content-report). Its wire-body + duplicate_report + 429 + cancellation coverage now lives in
+    // `ReportSubmitterTest` / `ReportApiClientTest`; `ProfileApiClient` no longer exposes `report`.
 
     @Test
     fun `transport failure maps to NetworkError`() =
@@ -230,6 +182,5 @@ class ProfileApiClientTest {
             assertFailsWith<CancellationException> { api.follow("u1") }
             assertFailsWith<CancellationException> { api.unfollow("u1") }
             assertFailsWith<CancellationException> { api.block("u1") }
-            assertFailsWith<CancellationException> { api.report("u1", "spam", null) }
         }
 }

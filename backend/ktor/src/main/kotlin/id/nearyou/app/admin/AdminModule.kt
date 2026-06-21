@@ -10,10 +10,12 @@ import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.auth.adminAuth
 import id.nearyou.app.admin.blockregistry.AdminBlockRegistryRepository
 import id.nearyou.app.admin.chatredaction.ChatRedactionRepository
+import id.nearyou.app.admin.deletionqueue.DeletionQueueRepository
 import id.nearyou.app.admin.featureflags.FeatureFlagService
 import id.nearyou.app.admin.featureflags.FeatureFlagToggleRateLimiter
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
+import id.nearyou.app.admin.ratelimit.DeletionQueueExpediteRateLimiter
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import id.nearyou.app.admin.ratelimit.GraceExpediteActionRateLimiter
 import id.nearyou.app.admin.ratelimit.RejectedIdentifierClearRateLimiter
@@ -28,6 +30,7 @@ import id.nearyou.app.admin.routes.AdminLayout
 import id.nearyou.app.admin.routes.adminActionsLog
 import id.nearyou.app.admin.routes.adminBlockRegistry
 import id.nearyou.app.admin.routes.adminChatRedaction
+import id.nearyou.app.admin.routes.adminDeletionQueue
 import id.nearyou.app.admin.routes.adminFeatureFlags
 import id.nearyou.app.admin.routes.adminIndex
 import id.nearyou.app.admin.routes.adminPrivacyFlips
@@ -38,10 +41,13 @@ import id.nearyou.app.admin.routes.adminReservedUsernames
 import id.nearyou.app.admin.routes.adminSubscriptionGrace
 import id.nearyou.app.admin.routes.adminUserModeration
 import id.nearyou.app.admin.routes.adminUsernameOversight
+import id.nearyou.app.admin.routes.adminWordlistEditor
 import id.nearyou.app.admin.subscriptiongrace.SubscriptionGraceRepository
 import id.nearyou.app.admin.usermanagement.UserProfileRepository
 import id.nearyou.app.admin.usernameoversight.UsernameOversightRepository
 import id.nearyou.app.admin.usernameoversight.UsernameOversightService
+import id.nearyou.app.admin.wordlist.WordlistEditRateLimiter
+import id.nearyou.app.admin.wordlist.WordlistEditorService
 import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import id.nearyou.app.infra.repo.JdbcUsernameFlagOverrideRepository
@@ -103,6 +109,10 @@ fun Application.admin(
     // uses the system clock; tests inject a fixed instant for a deterministic
     // classification boundary.
     privacyFlipsClock: () -> Instant = Instant::now,
+    // Request-time clock for the hard-delete-queue countdown column
+    // (admin-hard-delete-queue). Production uses the system clock; tests inject a
+    // fixed instant for a deterministic countdown.
+    deletionQueueClock: () -> Instant = Instant::now,
     // The SHARED one-shot per-candidate username-override store (admin-premium-
     // username-oversight): the SAME repo the `PATCH /api/v1/user/username` gate
     // consults/consumes — the admin accept side writes approvals through it
@@ -150,6 +160,9 @@ fun Application.admin(
     val graceExpediteRateLimiter = GraceExpediteActionRateLimiter(dataSource)
     val subscriptionGraceRepository =
         SubscriptionGraceRepository(dataSource, auditLogger, graceExpediteRateLimiter)
+    val deletionQueueExpediteRateLimiter = DeletionQueueExpediteRateLimiter(dataSource)
+    val deletionQueueRepository =
+        DeletionQueueRepository(dataSource, auditLogger, deletionQueueExpediteRateLimiter)
     val loginRoutes =
         AdminLoginRoutes(
             adminUserRepository = adminUserRepository,
@@ -170,6 +183,14 @@ fun Application.admin(
         FeatureFlagService(
             publisher = remoteConfigPublisher,
             rateLimiter = featureFlagRateLimiter,
+            auditLogger = auditLogger,
+            dataSource = dataSource,
+        )
+    val wordlistEditRateLimiter = WordlistEditRateLimiter(dataSource)
+    val wordlistEditorService =
+        WordlistEditorService(
+            publisher = remoteConfigPublisher,
+            rateLimiter = wordlistEditRateLimiter,
             auditLogger = auditLogger,
             dataSource = dataSource,
         )
@@ -251,6 +272,7 @@ fun Application.admin(
                 )
                 adminChatRedaction(chatRedactionRepository, auditLogger, layout)
                 adminFeatureFlags(featureFlagService, auditLogger, layout)
+                adminWordlistEditor(wordlistEditorService, auditLogger, layout)
                 adminReservedUsernames(
                     reservedUsernamesRepository,
                     reservedUsernameActionRateLimiter,
@@ -268,6 +290,13 @@ fun Application.admin(
                     graceExpediteRateLimiter,
                     auditLogger,
                     layout,
+                )
+                adminDeletionQueue(
+                    deletionQueueRepository,
+                    deletionQueueExpediteRateLimiter,
+                    auditLogger,
+                    layout,
+                    deletionQueueClock,
                 )
             }
         }
