@@ -49,7 +49,7 @@
 
 ## 8. Manual verification + staging (pre-archive)
 
-- [ ] 8.1 verify-loop bring-up (UI-affecting; context-routed): compose a Premium image post, confirm upload→attach→render in feed + detail; screenshot evidence in the PR body (light + dark). Confirm Free-tier upsell path.
+- [x] 8.1 verify-loop bring-up (UI-affecting; context-routed): compose a Premium image post, confirm upload→attach→render in feed + detail; screenshot evidence in the PR body (light + dark). Confirm Free-tier upsell path.
 - [ ] 8.2 Staging branch deploy (`gh workflow run deploy-staging.yml --ref image-attached-posts`) + smoke the read-path `imageUrl` surfacing (runtime-impacting backend change, project.md § Staging deploy timing). **Seeding note:** the read-path lands before the mobile upload client (phases 2–3 vs 4–6), so verify it against a **manually-seeded** `image_uploads` ledger row + a `posts.image_id` reference (or a real Premium upload once the QA-variant client exists) — the backend unit tests in 7.6 seed the same way.
 
 ## 9. Deploy (prod — leave unchecked until prod infra/flag flip)
