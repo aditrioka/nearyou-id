@@ -557,12 +557,63 @@ class RevenueCatWebhookRoutesTest : StringSpec({
 
     // ---------- 5.4 Deferred guards ----------
 
-    "5.4 GRANT → no status change, no entitlement, 200 ignored" {
+    "GRANT activates Premium and records a source=referral grant event" {
         val u = seedUser(status = "free")
         try {
-            service.process(incoming("GRANT", "rc_grant_$u", u)) shouldBe SubscriptionService.Result.Ignored
-            status(u) shouldBe "free"
-            countEventsForUser(u) shouldBe 0
+            service.process(incoming("GRANT", "rc_grant_$u", u)) shouldBe SubscriptionService.Result.Ok
+            status(u) shouldBe "premium_active"
+            countEventsForUser(u) shouldBe 1
+            dataSource.connection.use { c ->
+                c.prepareStatement(
+                    "SELECT event_type, source FROM subscription_events WHERE revenuecat_event_id = ?",
+                ).use { ps ->
+                    ps.setString(1, "rc_grant_$u")
+                    ps.executeQuery().use { rs ->
+                        rs.next() shouldBe true
+                        rs.getString("event_type") shouldBe "grant"
+                        rs.getString("source") shouldBe "referral"
+                    }
+                }
+            }
+        } finally {
+            cleanup(u)
+        }
+    }
+
+    "GRANT re-delivered is a no-op duplicate" {
+        val u = seedUser(status = "free")
+        try {
+            service.process(incoming("GRANT", "rc_grdup_$u", u)) shouldBe SubscriptionService.Result.Ok
+            service.process(incoming("GRANT", "rc_grdup_$u", u)) shouldBe SubscriptionService.Result.Duplicate
+            countEventsForUser(u) shouldBe 1
+            status(u) shouldBe "premium_active"
+        } finally {
+            cleanup(u)
+        }
+    }
+
+    "GRANT for an unknown user is acknowledged without writes" {
+        val ghost = UUID.randomUUID()
+        service.process(incoming("GRANT", "rc_grorph_$ghost", ghost)) shouldBe SubscriptionService.Result.UnknownUser
+        countEvents("rc_grorph_$ghost") shouldBe 0
+    }
+
+    "referral GRANT is excluded from the paid MRR query" {
+        val u = seedUser(status = "free")
+        try {
+            service.process(incoming("GRANT", "rc_grmrr_$u", u))
+            dataSource.connection.use { c ->
+                c.prepareStatement(
+                    "SELECT COUNT(*) FROM subscription_events " +
+                        "WHERE user_id = ? AND source = 'paid' AND event_type IN ('initial_purchase', 'renewal')",
+                ).use { ps ->
+                    ps.setObject(1, u)
+                    ps.executeQuery().use { rs ->
+                        rs.next()
+                        rs.getInt(1) shouldBe 0
+                    }
+                }
+            }
         } finally {
             cleanup(u)
         }

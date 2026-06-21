@@ -54,6 +54,7 @@ COPY infra/r2/build.gradle.kts infra/r2/build.gradle.kts
 COPY infra/redis/build.gradle.kts infra/redis/build.gradle.kts
 COPY infra/remote-config/build.gradle.kts infra/remote-config/build.gradle.kts
 COPY infra/resend/build.gradle.kts infra/resend/build.gradle.kts
+COPY infra/revenuecat-api/build.gradle.kts infra/revenuecat-api/build.gradle.kts
 COPY infra/supabase/build.gradle.kts infra/supabase/build.gradle.kts
 COPY lint/detekt-rules/build.gradle.kts lint/detekt-rules/build.gradle.kts
 COPY shared/distance/build.gradle.kts shared/distance/build.gradle.kts
@@ -73,6 +74,7 @@ COPY infra/r2/src infra/r2/src
 COPY infra/redis/src infra/redis/src
 COPY infra/remote-config/src infra/remote-config/src
 COPY infra/resend/src infra/resend/src
+COPY infra/revenuecat-api/src infra/revenuecat-api/src
 COPY infra/supabase/src infra/supabase/src
 COPY shared/distance/src shared/distance/src
 COPY shared/tmp/src shared/tmp/src

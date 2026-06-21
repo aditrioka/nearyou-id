@@ -27,6 +27,7 @@ dependencies {
     implementation(projects.infra.redis)
     implementation(projects.infra.remoteConfig)
     implementation(projects.infra.resend)
+    implementation(projects.infra.revenuecatApi)
     implementation(projects.infra.supabase)
 
     implementation(libs.logback)

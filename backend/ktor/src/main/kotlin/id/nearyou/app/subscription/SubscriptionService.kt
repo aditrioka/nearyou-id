@@ -27,8 +27,10 @@ import javax.sql.DataSource
  * duplicate the whole transaction rolls back, so the status is NOT re-applied
  * and the notification never fires — exactly-once for the user-visible effects.
  *
- * PAID path only. `GRANT` (referral) + unknown event types are benign no-ops
- * that record nothing. On `EXPIRATION` the handler also schedules the 72h
+ * Paid events + referral `GRANT`s. A `GRANT` (a promotional entitlement the
+ * referral-grant-worker granted via the RevenueCat API) records a
+ * `source = 'referral'` event and activates Premium; unknown event types are
+ * benign no-ops that record nothing. On `EXPIRATION` the handler also schedules the 72h
  * privacy flip for private profiles (idempotent COALESCE) + emits a
  * `privacy_flip_warning`; purchase/renewal clear any pending flip on
  * re-activation — both in the same transaction (privacy-flip-worker capability;
@@ -66,7 +68,7 @@ class SubscriptionService(
         /** `app_user_id` matched no user — acknowledged so RevenueCat stops retrying. */
         data object UnknownUser : Result
 
-        /** `GRANT` (deferred) or an unknown event type — recorded nothing. */
+        /** An unknown event type — recorded nothing. */
         data object Ignored : Result
     }
 
@@ -100,12 +102,19 @@ class SubscriptionService(
                 // CANCELLATION keeps the user premium until the period ends — no status
                 // change, and it neither schedules nor clears a privacy flip.
                 "CANCELLATION" -> Transition("cancellation", null, null, EMPTY_BODY, PrivacyFlipAction.NONE)
-                "GRANT" -> {
-                    // Deferred to the referral-system change (granted_entitlements /
-                    // referral_tickets do not exist yet) — record nothing, grant nothing.
-                    log.info("event=revenuecat_grant_deferred user_id={} rc_event_id={}", event.userId, event.revenuecatEventId)
-                    return Result.Ignored
-                }
+                // Referral GRANT (referral-grant-worker): the promotional entitlement the
+                // activity-check worker granted via the RevenueCat v1 API; this echo records
+                // the source='referral' event and activates Premium. Re-activation clears any
+                // pending privacy flip, mirroring INITIAL_PURCHASE/RENEWAL.
+                "GRANT" ->
+                    Transition(
+                        "grant",
+                        STATUS_PREMIUM_ACTIVE,
+                        null,
+                        EMPTY_BODY,
+                        PrivacyFlipAction.CLEAR,
+                        source = SOURCE_REFERRAL,
+                    )
                 else -> {
                     log.info("event=revenuecat_event_ignored type={} user_id={}", event.type, event.userId)
                     return Result.Ignored
@@ -129,7 +138,7 @@ class SubscriptionService(
                                     conn = conn,
                                     userId = event.userId,
                                     eventType = transition.eventType,
-                                    source = SOURCE_PAID,
+                                    source = transition.source,
                                     revenuecatEventId = event.revenuecatEventId,
                                     entitlementStart = event.entitlementStart,
                                     entitlementEnd = event.entitlementEnd,
@@ -220,6 +229,7 @@ class SubscriptionService(
         val notificationType: NotificationType?,
         val notificationBody: JsonObject,
         val privacyFlip: PrivacyFlipAction,
+        val source: String = SOURCE_PAID,
     )
 
     private companion object {
@@ -227,6 +237,7 @@ class SubscriptionService(
         const val STATUS_PREMIUM_BILLING_RETRY = "premium_billing_retry"
         const val STATUS_FREE = "free"
         const val SOURCE_PAID = "paid"
+        const val SOURCE_REFERRAL = "referral"
         const val GRACE_DAYS = 7L
         val EMPTY_BODY: JsonObject = buildJsonObject {}
         val log = LoggerFactory.getLogger(SubscriptionService::class.java)
