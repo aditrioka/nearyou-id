@@ -22,7 +22,7 @@
 ## 4. `:mobile:app` consent gate + DI wiring
 
 - [ ] 4.1 Implement `ConsentGatedAnalyticsTracker` decorator in `:mobile:app`: reads `ConsentSnapshotStore.read()?.analytics` per call; delegates to the wrapped `AnalyticsTracker` when `true`, otherwise suppresses (design D2/D3). Absent snapshot → suppress.
-- [ ] 4.2 Wire Koin in `MobileModule`: `single<AnalyticsTracker> { ConsentGatedAnalyticsTracker(delegate = if (amplitudeConfig.apiKey.isBlank()) NoOpAnalyticsTracker() else AmplitudeAnalyticsTracker(amplitudeConfig, …), consentStore = get()) }`; add `amplitudeConfig` alongside `sentryConfig` in the mobile config seam (operator-supplied apiKey; blank in dev).
+- [ ] 4.2 Wire Koin in `MobileModule`: `single<AnalyticsTracker> { ConsentGatedAnalyticsTracker(delegate = if (amplitudeConfig.apiKey.isBlank()) NoOpAnalyticsTracker() else AmplitudeAnalyticsTracker(amplitudeConfig, …), consentStore = get()) }`; add `amplitudeConfig` alongside `sentryConfig` in the mobile config seam; source the staging key from the existing GCP Secret Manager slot `staging-amplitude-api-key` (provisioned per `docs/10` § 3.8; staging project ID `814353`) via the Sentry-DSN build-config delivery path; blank in dev → NoOp.
 - [ ] 4.3 `commonTest` for the consent gate: consent OFF → delegate never called (suppressed); consent absent → suppressed; consent ON → delegate invoked; per-fire re-evaluation (toggle OFF mid-session suppresses subsequent emissions). Use a fake `AnalyticsTracker` delegate to assert call/no-call.
 
 ## 5. Identify + foundational event slice

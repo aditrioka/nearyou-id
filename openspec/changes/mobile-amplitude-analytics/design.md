@@ -60,7 +60,7 @@ The analytics-consent onboarding screen (`mobile-analytics-consent`, [#157](http
 
 ## Migration Plan
 
-Additive + one impl swap (in-memory → durable `ConsentSnapshotStore`) behind an unchanged interface. No DB migration. Rollback = revert the PR (the consent screen returns to its current no-consumer state; the snapshot store reverts to in-memory). Operator setup (Amplitude project + ingestion key) is independent: until the key is supplied, `NoOp` is bound and the app behaves as today. At apply, close issue #198 (resolved) and reference it from the updated specs.
+Additive + one impl swap (in-memory → durable `ConsentSnapshotStore`) behind an unchanged interface. No DB migration. Rollback = revert the PR (the consent screen returns to its current no-consumer state; the snapshot store reverts to in-memory). Operator setup is **already done** (`docs/10` § 3.8): the staging Amplitude org/project + the `staging-amplitude-api-key` GCP Secret Manager slot exist (provisioned 2026-05-09); the remaining work is wiring that key into the mobile staging build (the Sentry-DSN build-config path). Until the key reaches the build, `NoOp` is bound and the app behaves as today. At apply, close issue #198 (resolved) and reference it from the updated specs.
 
 ## Open Questions
 
