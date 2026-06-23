@@ -53,3 +53,27 @@ With the durable login-history store now available (`login-history-tracking` shi
 #### Scenario: An anti-collision void is distinct from a TTL expiry
 - **WHEN** a ticket is voided for an anti-collision collision AND a separate ticket lapses past its 14-day `expires_at` without meeting the engagement legs
 - **THEN** the first ticket's terminal `status` is `'voided'` AND the second's is `'expired'` (analytics can tell an abuse-void from a 14-day lapse)
+
+#### Scenario: Exactly meeting every engagement threshold passes
+- **WHEN** the worker evaluates an anti-collision-clean, good-standing ticket whose invitee has exactly 2 posts, exactly 3 distinct login-days, and exactly 5 app sessions in the window
+- **THEN** the ticket passes the activity gate (the thresholds are inclusive lower bounds: `≥ 2`, `≥ 3`, `≥ 5`)
+
+#### Scenario: Continuous activity within 30 minutes is one session; an idle gap starts a new one
+- **WHEN** the worker counts the invitee's app sessions in the window
+- **THEN** consecutive `login_events` ≤ 30 minutes apart count as the SAME session AND an event more than 30 minutes after the invitee's prior event starts a NEW session AND the invitee's first event in the window counts as a session (so events at 29-minute spacing are one session, while a > 30-minute gap yields a second)
+
+#### Scenario: Login-days are bucketed in Asia/Jakarta, not UTC
+- **WHEN** the invitee has two `login_events` on adjacent UTC dates but the same calendar day in `Asia/Jakarta` (e.g. 22:00 and 02:00 UTC straddling UTC midnight on the same WIB day)
+- **THEN** they count as ONE distinct login-day (day-bucketing uses `(occurred_at AT TIME ZONE 'Asia/Jakarta')::date`), not two
+
+#### Scenario: An anti-collision void takes precedence over an engagement shortfall
+- **WHEN** the worker evaluates a ticket whose invitee both falls below an engagement threshold AND has an anti-collision collision with the inviter's history
+- **THEN** the ticket's `status` becomes the terminal `'voided'` (the abuse signal wins; it does NOT stay `'pending_activity'`, so a later run cannot rescue it)
+
+#### Scenario: An inviter with no relevant login history never false-voids a ticket
+- **WHEN** the worker evaluates a ticket whose inviter has little or no `login_events` history, so none of the inviter's fingerprints, subnets, or recently-seen identifiers match the invitee
+- **THEN** no anti-collision leg fires (each leg voids only on a POSITIVE match) AND the ticket is NOT voided on anti-collision grounds (it proceeds on its engagement legs)
+
+#### Scenario: Only the inviter's 10 most-recent distinct subnets are consulted
+- **WHEN** the invitee's `ip_subnet_24` matches a subnet that is NOT among the inviter's 10 most-recent distinct login subnets (it appears only as the inviter's 11th-most-recent-or-older distinct subnet)
+- **THEN** the IP /24 leg does NOT void the ticket (the leg considers only the 10 newest distinct subnets)

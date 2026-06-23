@@ -12,6 +12,10 @@ The system SHALL, on each `POST /internal/cleanup` invocation, delete from `logi
 - **WHEN** the worker runs AND a `login_events` row has `occurred_at` 89 days in the past
 - **THEN** that row is NOT deleted AND it is NOT counted in `login_events_deleted`
 
+#### Scenario: A login event at exactly 90 days survives (strict-less boundary)
+- **WHEN** the worker runs AND a `login_events` row has `occurred_at` exactly 90 days in the past
+- **THEN** that row is NOT deleted (the predicate is `occurred_at < NOW() - INTERVAL '90 days'` — strictly less, so the exactly-90-day boundary survives)
+
 ## MODIFIED Requirements
 
 ### Requirement: The endpoint runs all sweeps per invocation and returns per-sweep counts
@@ -29,3 +33,11 @@ Because each sweep deletes the rows that exceed its threshold, a re-run with no 
 #### Scenario: A second immediate run is a no-op
 - **WHEN** the worker is invoked a second time immediately after a run that deleted all currently-eligible rows, with no new rows having crossed any retention threshold in between
 - **THEN** the response is `200` with `refresh_tokens_deleted = 0`, `notifications_deleted = 0`, `fcm_tokens_deleted = 0`, and `login_events_deleted = 0`
+
+### Requirement: Each run emits one structured INFO log line
+
+The system SHALL emit exactly one structured INFO log line per worker run, carrying the event marker `retention_cleanup`, the per-sweep deleted counts (`refresh_tokens_deleted`, `notifications_deleted`, `fcm_tokens_deleted`, `login_events_deleted`), and the run duration in milliseconds.
+
+#### Scenario: A run logs its per-sweep counts and duration
+- **WHEN** the worker completes a run
+- **THEN** exactly one INFO log line is emitted with `event=retention_cleanup`, the four per-sweep counts, and the run duration in milliseconds
