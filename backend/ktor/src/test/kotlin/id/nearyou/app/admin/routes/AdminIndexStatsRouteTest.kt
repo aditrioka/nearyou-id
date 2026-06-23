@@ -182,11 +182,14 @@ class AdminIndexStatsRouteTest : StringSpec({
             // pg_database_size is callable by the test role → the System card renders.
             body shouldContain "Database size"
             // Deferred-cluster widgets are NOT rendered (spec negative guard).
-            // ("Subscription" now legitimately appears in the nav — the shipped
-            // admin-subscription-grace-monitor item — so it is no longer a valid
-            // dashboard-widget-absence signal; CSAM + RevenueCat remain absent.)
-            body shouldNotContain "CSAM"
+            // ("Subscription" AND "CSAM" now legitimately appear in the nav — the
+            // shipped admin-subscription-grace-monitor + admin-csam-detection-log
+            // items — so neither bare substring is a valid dashboard-widget-absence
+            // signal any longer; RevenueCat remains fully absent. The CSAM nav item
+            // is a link-out, NOT a dashboard metric widget — guard on the widget that
+            // never shipped instead.)
             body shouldNotContain "RevenueCat"
+            body shouldNotContain "CSAM detections (24h)"
         }
     }
 

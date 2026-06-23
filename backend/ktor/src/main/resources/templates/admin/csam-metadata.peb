@@ -1,0 +1,21 @@
+{# Decrypt-on-view fragment (design D4) swapped into #csam-meta-<id> by the per-row
+   "Decrypt metadata" button. Surfaces ONLY scalar metadata fields from the AES-256-GCM
+   blob — the uploader's raw pseudonymous internal UUID (intended, design D4), the
+   affected post id, the source, and the cascade count. There is NO image-bytes / content
+   URL field by construction (design D3); the archive never stored image bytes.
+
+   Every decrypt that reaches this fragment was role-gated (owner/admin) + CSRF-checked
+   and is recorded as exactly one csam_metadata_decrypted audit row — including the
+   fail-soft `unavailable` case (key unset / encrypted_metadata NULL → no 500). All
+   values are Pebble-autoescaped. #}
+{% if unavailable %}
+<p class="outcome-message muted">{{ message }}</p>
+{% else %}
+<dl class="kv">
+    <dt>Uploader user id</dt><dd><span class="code">{{ uploaderUserId }}</span></dd>
+    <dt>Affected post id</dt><dd><span class="code">{{ affectedPostId }}</span></dd>
+    <dt>Source</dt><dd>{{ source }}</dd>
+    <dt>Posts cascade-tombstoned</dt><dd>{{ cascadeCount }}</dd>
+    <dd class="note">Decrypted on demand. This view is audit-logged; no image content is ever revealed.</dd>
+</dl>
+{% endif %}

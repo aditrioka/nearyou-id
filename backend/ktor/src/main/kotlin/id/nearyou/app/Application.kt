@@ -1303,6 +1303,13 @@ fun Application.module() {
         // the admin "accept" approvals and the live consult/consume share one repo
         // (admin-premium-username-oversight Decision 2).
         usernameFlagOverrideRepository = usernameFlagOverrideRepository,
+        // Pass the SAME CSAM repo / service / encryptor the webhook + purge worker use,
+        // so the admin-manual takedown (admin-csam-detection-log) drives the EXACT
+        // in-process fixed-policy sink (design D1) and shares the fail-soft
+        // `csam-archive-aes-key` encryptor for the audited decrypt-on-view.
+        csamRepository = csamRepository,
+        csamMetadataEncryptor = csamMetadataEncryptor,
+        csamDetectionService = csamDetectionService,
     )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime

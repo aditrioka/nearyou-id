@@ -58,6 +58,7 @@
         <span class="ngroup">Anti-abuse &amp; keamanan</span>
         <a class="nitem{% if activePath == "/admin/rejected-identifiers" %} active{% endif %}" href="/admin/rejected-identifiers">{{ icon("block") }}Rejected identifiers</a>
         <a class="nitem{% if activePath == "/admin/blocks" %} active{% endif %}" href="/admin/blocks">{{ icon("group") }}Block registry</a>
+        <a class="nitem{% if activePath == "/admin/csam" %} active{% endif %}" href="/admin/csam">{{ icon("gpp_maybe") }}CSAM detection log</a>
         <span class="ngroup">Lifecycle</span>
         <a class="nitem{% if activePath == "/admin/privacy-flips" %} active{% endif %}" href="/admin/privacy-flips">{{ icon("timer") }}Privacy flips</a>
         <a class="nitem{% if activePath == "/admin/deletion-requests" %} active{% endif %}" href="/admin/deletion-requests">{{ icon("auto_delete") }}Hard delete queue</a>

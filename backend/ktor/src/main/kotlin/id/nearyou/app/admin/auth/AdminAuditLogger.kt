@@ -488,6 +488,83 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a CSAM KOMINFO-REPORT filing (`admin-csam-detection-log` capability):
+     * `POST /admin/csam/{id}/kominfo-report` recording `kominfo_report_id` +
+     * `kominfo_reported_at = now()` on a `csam_detection_archive` row (which releases it
+     * to the daily purge worker). Joins the caller's [conn] so this audit INSERT + the
+     * idempotent Kominfo UPDATE + the rate-limit COUNT read/append the SAME ledger
+     * snapshot and commit atomically inside the one filing transaction. `target_type =
+     * 'csam_detection_archive'`, `target_id` = the archive row id; [beforeState]/
+     * [afterState] record the filing transition (e.g. `{"kominfo_reported": false}` →
+     * `{"kominfo_report_id": "KMF-…", "kominfo_reported": true}`). This same `action_type`
+     * row is the rate-limit ledger entry counted by
+     * [id.nearyou.app.admin.ratelimit.CsamKominfoReportRateLimiter]. `adminId` is the
+     * acting human admin, never the `system` sentinel.
+     */
+    fun logCsamKominfoReported(
+        conn: Connection,
+        adminId: UUID,
+        archiveId: UUID,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "csam_kominfo_reported",
+            adminId = adminId,
+            targetType = "csam_detection_archive",
+            targetId = archiveId.toString(),
+            reason = null,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a CSAM archived-metadata DECRYPT-ON-VIEW (`admin-csam-detection-log`
+     * capability): `POST /admin/csam/{id}/decrypt` revealing the AES-256-GCM
+     * `encrypted_metadata` (the pseudonymous uploader id + post id + source + cascade
+     * count — NEVER image bytes) one row at a time. Joins the caller's [conn] so this
+     * audit INSERT + the rate-limit COUNT read/append the same ledger snapshot atomically.
+     * Written exactly once per AUTHORIZED invocation — after the `owner`/`admin` + CSRF
+     * gate passes — INCLUDING the two fail-soft cases (key unset / `encrypted_metadata`
+     * NULL); a 403 authZ/CSRF rejection writes NO such row (design D4), so a denied actor
+     * neither pollutes this ledger nor consumes the counter. [afterState] records only the
+     * outcome (`{"outcome": "decrypted" | "metadata_unavailable"}`) — never the decrypted
+     * plaintext / uploader id, which lives only in the encrypted blob and is shown
+     * transiently in the HTMX fragment. `target_type = 'csam_detection_archive'`,
+     * `target_id` = the archive row id. This same `action_type` row is the rate-limit
+     * ledger entry counted by
+     * [id.nearyou.app.admin.ratelimit.CsamMetadataDecryptRateLimiter]. `adminId` is the
+     * acting human admin, never the `system` sentinel.
+     */
+    fun logCsamMetadataDecrypted(
+        conn: Connection,
+        adminId: UUID,
+        archiveId: UUID,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "csam_metadata_decrypted",
+            adminId = adminId,
+            targetType = "csam_detection_archive",
+            targetId = archiveId.toString(),
+            reason = null,
+            beforeState = null,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a subscription-grace MANUAL EXPEDITE
      * (`admin-subscription-grace-monitor` capability): `POST
      * /admin/subscriptions/grace/{user_id}/expedite` recording a support-desk

@@ -1,0 +1,93 @@
+{% extends "layout.peb" %}
+
+{% block title %}CSAM Detection Log — NearYouID{% endblock %}
+
+{% block content %}
+<h2>CSAM Detection Log</h2>
+<p class="pg-sub">csam_detection_archive — legal-preservation record (one row per matched image). Image content is NEVER rendered here; only the image hash + on-demand, audit-logged decrypted metadata. The takedown handler, the Kominfo filing, and every metadata decrypt require role admin+ and a valid CSRF token, and are audit-logged.</p>
+
+{# Pending-count banner — the same-business-day SOP signal (<24h Kominfo
+   obligation, docs/06). Rendered on both the full page and the fragment so an
+   HTMX swap refreshes it after a takedown/Kominfo write. #}
+{% if pendingCount > 0 %}
+<div class="banner err" style="margin-top:0;">
+    <span class="ms">gpp_maybe</span>
+    <span><b>{{ pendingCount }} match{% if pendingCount != 1 %}es{% endif %} with no Kominfo filing yet.</b> Review and file immediately — SOP target: same business day. Recording a filing releases the row to the daily purge worker after its 90-day deadline.</span>
+</div>
+{% endif %}
+
+{# Admin-triggered handler (MVP "paste from CF email" path, design D1). Submits to
+   the in-process takedown route — NOT an HTTP self-call to /internal/csam-webhook.
+   hx-confirm guards the irreversible action. The full-page (no-JS) render carries
+   `csrfToken`; the HTMX-fragment render relies on the layout's configRequest hook. #}
+<div class="cardlet">
+    <h4><span class="ms">bolt</span>Admin-triggered handler (MVP path)</h4>
+    <form class="filters" style="margin-top:8px;"
+          action="/admin/csam/takedown"
+          method="POST"
+          hx-post="/admin/csam/takedown"
+          hx-target="#csam-log-table"
+          hx-swap="outerHTML"
+          hx-confirm="This runs the irreversible fixed-policy takedown: permanent ban + token bump + cascade-tombstone + archive. Continue?">
+        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+        <label class="field">
+            <span>image_id (from CF email)</span>
+            <input type="text" name="image_id" placeholder="Cloudflare image id" required aria-label="image_id">
+        </label>
+        <label class="field">
+            <span>image_hash (from CF email)</span>
+            <input type="text" name="image_hash" placeholder="matched image hash" required aria-label="image_hash">
+        </label>
+        <button type="submit" class="btn danger"><span class="ms">bolt</span>Invoke takedown handler</button>
+    </form>
+    <p>Runs atomically: tombstone post → permanent ban + token_version bump → cascade-tombstone the uploader's other posts → AES-256-GCM metadata archive → Kominfo report queue. Fully audit-logged (before/after state). A wrong image_id with no live upload archives only (no ban/cascade).</p>
+</div>
+
+{# Filter form. hx-get swaps only the #csam-log-table fragment; method=GET means it
+   also works as plain navigation when JS is unavailable. All reflected filter
+   values are autoescaped on output. #}
+<div class="filterbar">
+    <input type="checkbox" id="filters-toggle" class="filters-toggle" aria-label="Toggle filters">
+    <label for="filters-toggle" class="btn tonal sm filters-label">Filters</label>
+    <span class="filters-chips">{% for f in filters %}{% if f.value is not empty %}<span class="pill">{{ f.key }}: {{ f.value }}</span>{% endif %}{% endfor %}</span>
+    <form class="filters"
+          hx-get="/admin/csam"
+          hx-target="#csam-log-table"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          method="GET">
+        <label class="field">
+            <span>Source</span>
+            <select name="source">
+                <option value="">any</option>
+                <option value="cf_worker"{% if filters.source == 'cf_worker' %} selected{% endif %}>cf_worker</option>
+                <option value="admin_manual"{% if filters.source == 'admin_manual' %} selected{% endif %}>admin_manual</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>Kominfo status</span>
+            <select name="kominfo">
+                <option value="">any</option>
+                <option value="pending"{% if filters.kominfo == 'pending' %} selected{% endif %}>pending</option>
+                <option value="filed"{% if filters.kominfo == 'filed' %} selected{% endif %}>filed</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>From (UTC)</span>
+            <input type="date" name="from" value="{{ filters.from | default('') }}">
+        </label>
+        <label class="field">
+            <span>To (UTC)</span>
+            <input type="date" name="to" value="{{ filters.to | default('') }}">
+        </label>
+        <button type="submit" class="btn filled"><span class="ms">filter_alt</span>Filter</button>
+    </form>
+</div>
+
+{% include "csam-log-table.peb" %}
+
+<div class="banner info">
+    <span class="ms">info</span>
+    <span>Dedup is by <code>image_hash</code> (ON CONFLICT enriches <code>cf_match_id</code> without resetting source). Decrypt <code>encrypted_metadata</code> only via the per-row helper — role-gated, and every decrypt is recorded in the audit log. No image bytes are ever stored or rendered.</span>
+</div>
+{% endblock %}
