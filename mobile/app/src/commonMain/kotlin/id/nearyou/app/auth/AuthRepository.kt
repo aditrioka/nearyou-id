@@ -1,6 +1,8 @@
 package id.nearyou.app.auth
 
 import id.nearyou.app.appeal.AppealSession
+import id.nearyou.app.infra.amplitude.AnalyticsTracker
+import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
 import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.infra.sentry.NoOpCrashReporter
 import kotlinx.coroutines.sync.Mutex
@@ -58,6 +60,9 @@ class AuthRepository(
     // body is stashed here so the appeal screen (reached via the Banned outcome) can submit with it.
     // Defaulted so existing constructions/tests are unaffected; MobileModule binds the shared single.
     private val appealSession: AppealSession = AppealSession(),
+    // mobile-amplitude-analytics — consent-gated tracker for signup_completed. Defaults no-op so existing
+    // constructions/tests are unaffected; MobileModule binds the real ConsentGatedAnalyticsTracker.
+    private val analytics: AnalyticsTracker = NoOpAnalyticsTracker,
 ) : AuthFlow {
     private val signInMutex = Mutex()
     private val signUpMutex = Mutex()
@@ -179,7 +184,11 @@ class AuthRepository(
         when (val api = authApiClient.signUp(idToken, dateOfBirth)) {
             is SignInApiResult.Success -> {
                 tokenStore.write(api.tokens)
-                decodeJwtSubject(api.tokens.accessToken)?.let(crashReporter::setUser)
+                val sub = decodeJwtSubject(api.tokens.accessToken)
+                sub?.let(crashReporter::setUser)
+                // mobile-amplitude-analytics — emit signup_completed (consent-gated downstream); the user
+                // id is the just-issued token's `sub`.
+                sub?.let { analytics.track("signup_completed", it) }
                 SignUpOutcome.Success
             }
             is SignInApiResult.NetworkError -> {

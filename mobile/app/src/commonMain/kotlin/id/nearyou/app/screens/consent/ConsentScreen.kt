@@ -28,6 +28,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentOutcome
+import id.nearyou.app.data.consent.ConsentSnapshot
+import id.nearyou.app.data.consent.ConsentSnapshotStore
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.consent_ads_desc
 import id.nearyou.resources.generated.resources.consent_ads_label
@@ -74,6 +76,7 @@ fun ConsentScreen(
     initialAdsPersonalization: Boolean = false,
 ) {
     val consentFlow = koinInject<ConsentFlow>()
+    val snapshotStore = koinInject<ConsentSnapshotStore>()
     val scope = rememberCoroutineScope()
 
     var analytics by remember { mutableStateOf(initialAnalytics) }
@@ -170,7 +173,20 @@ fun ConsentScreen(
                 scope.launch {
                     inFlight = true
                     try {
-                        outcome = consentFlow.submitConsent(analytics, crash, ads)
+                        val result = consentFlow.submitConsent(analytics, crash, ads)
+                        outcome = result
+                        if (result == ConsentOutcome.Success) {
+                            // Persist the submitted triple to the durable snapshot on 200 (mirrors
+                            // ConsentSettingsScreen) so a user who consents only at onboarding has a
+                            // durable snapshot for the analytics tracker / crash gate (resolves #198).
+                            snapshotStore.write(
+                                ConsentSnapshot(
+                                    analytics = analytics,
+                                    crash = crash,
+                                    adsPersonalization = ads,
+                                ),
+                            )
+                        }
                     } finally {
                         // Reset even if the launch job is cancelled mid-call (config change /
                         // screen disposal) so the CTA never sticks on "loading".

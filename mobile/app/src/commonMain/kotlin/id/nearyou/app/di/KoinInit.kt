@@ -72,7 +72,11 @@ private fun configureRevenueCatBilling() {
 private fun startCrashReporting() {
     val koin = KoinPlatformTools.defaultContext().get()
     val controller = koin.get<CrashReportingController>()
-    val snapshot = koin.get<ConsentSnapshotStore>().read()
+    // Resolve the consent snapshot defensively: crash-reporting init MUST NOT crash app startup. If the
+    // store cannot be resolved/read yet (e.g. a bare initKoin() with no platform androidContext supplied —
+    // production Android always passes it via `initKoin { androidContext(this) }`), fall back to the
+    // opt-out default (snapshot = null → crash ON), corrected on the next consent interaction.
+    val snapshot = runCatching { koin.get<ConsentSnapshotStore>().read() }.getOrNull()
     // Opt-out default ON; close iff a last-known decline is present. Blank DSN no-ops init.
     controller.applyStartupConsent(snapshot?.crash)
 }

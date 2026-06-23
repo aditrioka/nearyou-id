@@ -64,6 +64,13 @@ if (includeMobile.toBoolean()) {
     // (#291), NOT this module. Mobile-gated like :infra:sentry / :infra:supabase-realtime so the
     // JDK-only backend Docker builder excludes it (it can't be configured/COPY'd without the Android SDK).
     include(":infra:revenuecat")
+    // mobile-amplitude-analytics — :infra:amplitude is a mobile-only KMP module (androidTarget + iOS,
+    // no JVM target; applies the Android library plugin), consumed solely by :mobile:app (the product-
+    // analytics AnalyticsTracker seam). It is a vendor-SDK-FREE Amplitude HTTP V2 wrapper (no vendor dep
+    // to fence), so it carries no special invariant-#16 weight; it stays mobile-gated like the siblings
+    // above so the JDK-only backend Docker builder excludes it (it can't be configured without the
+    // Android SDK).
+    include(":infra:amplitude")
 }
 include(":backend:ktor")
 include(":shared:tmp")

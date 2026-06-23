@@ -1,5 +1,7 @@
 package id.nearyou.app.post
 
+import id.nearyou.app.infra.amplitude.AnalyticsTracker
+import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
 import id.nearyou.app.location.LocationUnavailableException
@@ -30,6 +32,11 @@ class CreatePostRepository(
     // Diagnostic sink for non-user-facing error detail (status + error code only — NEVER the
     // coordinate or content). Wired to Sentry / OTel when that lands; no-op for now.
     private val diagnosticLog: (status: Int, errorCode: String?) -> Unit = { _, _ -> },
+    // mobile-amplitude-analytics — consent-gated tracker + the authenticated user-id source. Both default
+    // to no-op so existing callers/tests are unaffected; MobileModule passes the real ConsentGated tracker
+    // + a SelfUserIdProvider-backed lambda.
+    private val analytics: AnalyticsTracker = NoOpAnalyticsTracker,
+    private val selfUserId: suspend () -> String? = { null },
 ) : CreatePostFlow {
     override suspend fun submit(
         content: String,
@@ -69,7 +76,12 @@ class CreatePostRepository(
             val result =
                 apiClient.createPost(content = content, lat = location.lat, lng = location.lng, imageId = imageId)
         ) {
-            is PostCreationApiResult.Success -> PostCreationOutcome.Success(result.id)
+            is PostCreationApiResult.Success -> {
+                // mobile-amplitude-analytics — emit post_created (consent-gated downstream). Privacy-safe:
+                // user id only, no coordinates, no content.
+                selfUserId()?.let { analytics.track("post_created", it) }
+                PostCreationOutcome.Success(result.id)
+            }
             is PostCreationApiResult.NetworkError -> PostCreationOutcome.NetworkError
             is PostCreationApiResult.HttpError -> mapHttpError(result)
         }

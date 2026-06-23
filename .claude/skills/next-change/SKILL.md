@@ -50,7 +50,7 @@ This project (nearyou-id) is built incrementally via OpenSpec changes. The roadm
 - Planned-work signals in other docs (business, product, UX, architecture, security, ops, setup) without a matching archived change — surface them from the Stage-1 heading map plus a marker grep (`grep -nE 'DESIGN|planned|deferred|not yet|Phase [0-9]' docs/*.md`), then read just those sections (A.1 Stage 3).
 - Risks or gaps called out in docs that warrant a dedicated change.
 
-**Dedup against in-flight claims first** (from A.1's survey): if a candidate already has an open PR or a remote branch, it's claimed — drop it and take the next one. When multiple candidates remain, pick the one that's the natural next step given dependency order from the roadmap and recent commits, AND honor A.0. **Among otherwise-equal candidates, prefer the one whose expected footprint (modules, screens, and especially the next Flyway migration number) is disjoint from the in-flight claims** — that lets it squash-merge in parallel without rebase conflicts. If the best dependency-ordered pick DOES overlap an in-flight claim (e.g., both need the next `V<N>__*.sql`, or both edit the same screen), flag the overlap so the user can choose to sequence it behind the claim instead. Briefly note runners-up so the user can redirect.
+**Dedup against in-flight claims first** (from A.1's survey): if a candidate already has an open PR or a remote branch, it's claimed — drop it and take the next one. When multiple candidates remain, pick the one that's the natural next step given dependency order from the roadmap and recent commits, AND honor A.0. **Among otherwise-equal candidates, prefer the one whose expected footprint (modules, screens, and especially the next Flyway migration number) is disjoint from the in-flight claims** — that lets it squash-merge in parallel without rebase conflicts. **Exception — user-facing capabilities (per [`docs/12-Integration-Contracts.md`](../../../docs/12-Integration-Contracts.md)):** the footprint-disjoint heuristic is for independent / infra work. For a user-facing feature (a screen, action, notification, or admin surface), prefer the *complete vertical slice* — backend wire contract + every client surface + every read-path that returns the entity — even if it overlaps an in-flight claim; coordinate the overlap rather than shipping a single-layer slice that drifts (docs/12 §2). A deliberately deferred layer is allowed only as a docs/12 §3 explicit requirement, not a silent split. If the best dependency-ordered pick DOES overlap an in-flight claim (e.g., both need the next `V<N>__*.sql`, or both edit the same screen), flag the overlap so the user can choose to sequence it behind the claim instead. Briefly note runners-up so the user can redirect.
 
 **A.3 — Present the recommendation.** Show the user:
 
@@ -129,6 +129,10 @@ For each divergence found, classify and act:
 
 **B.4 — Standards-conformance pre-check (anti-patchwork gate).** For changes touching `:mobile:app` or `:backend:ktor`: verify `design.md` names the [`docs/11-Engineering-Standards.md`](../../../docs/11-Engineering-Standards.md) Pattern-Registry patterns it builds on (state holder, navigation, data layer, backend layering — whichever apply) and declares any deviation as an explicit Decision **plus** a `tasks.md` item amending docs/11 § Pattern Registry in the same PR. A design that silently introduces a second pattern for an already-listed concern is the patchwork failure mode this gate exists to stop — fix the design before pushing. (UI look-and-feel conformance is separately covered by `openspec/specs/mobile-design-system/spec.md` + the `mobile-ui-foundation` skill.)
 
+### Phase B.5 — Preflight gate
+
+After B.4, before finalizing the PR body in Phase C, run the **`openspec-preflight`** skill (`/opsx:preflight`) against the scaffolded change. It surfaces — at proposal time, not mid-`/opsx:apply` — the work that historically leaks out late as follow-ups: **human-required/operator tasks** (credentials, GCP provisioning, store/dashboard config, physical-device verify), **counterpart-layer gaps** (a user-facing capability missing its client/admin surface, or a wire field not threaded to every read-path — see [`docs/12-Integration-Contracts.md`](../../../docs/12-Integration-Contracts.md)), and **unmapped test scenarios**. It produces a **Preflight report** block. Carry that block into the C.3 PR body (`## Preflight`), and surface any blocking entry (an undeclared single-layer slice, a silent test-scenario drop, or an unacknowledged human-required blocker) to the user via `AskUserQuestion` before handoff. The doc-reconciliation check overlaps B.3 — don't re-run it, just record that B.3 ran.
+
 ### Phase C — Push the proposal to the claim PR
 
 The claim branch + draft PR already exist (Phase A.5). This phase pushes the scaffolded proposal onto that SAME branch and fills in the PR body — it does NOT create a branch or a new PR.
@@ -163,6 +167,9 @@ gh pr edit <pr> --body "$(cat <<'EOF'
 - **New:** <list from proposal>
 - **Modified:** <list from proposal>
 
+## Preflight
+<paste the Preflight report from B.5: Human-required tasks · cross-layer cohesion (docs/12) · doc reconciliation (B.3) · test coverage. Operators must action any blocking Human-required item before `/opsx:apply` reaches the dependent tasks.>
+
 ## Status
 **Draft PR — proposal phase.** This PR stays draft through proposal review + implementation. `/opsx:apply` marks it ready-for-review at the end of implementation. qodo's review fires when `/opsx:apply` step 8 posts `/review` as a PR comment (Qodo dashboard is Manual mode — see Context).
 
@@ -189,7 +196,7 @@ Triage proposal complexity first:
 
 Lens dispatch (non-trivial) — invoke `general-purpose` sub-agents in parallel (one message, multiple Agent tool calls), each with PR URL + change name + "read CLAUDE.md § Reviewing a PR before reviewing" + structured-report-under-600-words ask grouped by severity:
 
-- **general** — overall design coherence, scope creep, missing docs, dependency-order sanity, **and standards conformance: undeclared deviations from `docs/11-Engineering-Standards.md` (Pattern Registry) are blocking findings**.
+- **general** — overall design coherence, scope creep, missing docs, dependency-order sanity, **standards conformance: undeclared deviations from `docs/11-Engineering-Standards.md` (Pattern Registry) are blocking findings**, **and cross-layer cohesion ([`docs/12-Integration-Contracts.md`](../../../docs/12-Integration-Contracts.md)): an undeclared single-layer slice of a user-facing capability — a backend with no client/admin surface, or a wire field not threaded to every read-path — is a blocking finding unless the deferred layer is declared as a docs/12 §3 requirement**.
 - **security-and-invariant** — CLAUDE.md critical-invariants list, allowlist gaps, RLS, rate-limit math, secret reads, block/shadow-ban joins.
 - **OpenSpec format-and-correctness** — `### Requirement:` headers, ADDED/MODIFIED/REMOVED deltas, `#### Scenario:` WHEN/THEN coverage, `tasks.md` checkbox format, `--strict` validation surface.
 - **test-coverage** — missing scenarios, untested edge cases, integration-test surface.
@@ -229,7 +236,7 @@ Sub-agent findings come as prose in your tool-result context. You judge severity
 
 **E.1 — After the review loop settles** (no new blocking findings, or user chose to stop iterating):
 
-- **User chose to proceed**: remind them to run `/opsx:apply` (or offer to invoke it now via `AskUserQuestion`). `/opsx:apply` lands feat commits on the SAME branch (see Context § same-PR convention). Do NOT merge the proposal PR before implementation — under one-PR-per-change the PR stays open through proposal-review + implementation + archive, and squash-merges once at end-of-lifecycle. PR title typically retitled via `gh pr edit <pr> --title 'feat(<area>): <name>'` when implementation begins.
+- **User chose to proceed**: if the B.5 Preflight **Human-required tasks** block is non-empty, surface it and confirm the operator will action the blocking items before implementation reaches the dependent tasks (`/opsx:apply` re-checks this block as a precondition). Then remind them to run `/opsx:apply` (or offer to invoke it now via `AskUserQuestion`). `/opsx:apply` lands feat commits on the SAME branch (see Context § same-PR convention). Do NOT merge the proposal PR before implementation — under one-PR-per-change the PR stays open through proposal-review + implementation + archive, and squash-merges once at end-of-lifecycle. PR title typically retitled via `gh pr edit <pr> --title 'feat(<area>): <name>'` when implementation begins.
 - **User chose to pause**: report the PR URL, list any non-blocking findings still unaddressed, and stop. PR stays open at the current commit; future `/opsx:apply` / `/opsx:archive` invocations push to this branch.
 
 ## Recovery from common failures
