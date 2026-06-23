@@ -61,6 +61,7 @@ All three are prompted at the onboarding consent screen; `analytics` + `ads_pers
 - Amplitude: check `analytics_consent.analytics` before firing; silently suppress if FALSE
 - Sentry: on decline, client-side `Sentry.close()` for the session; backend skips error enrichment with user_id
 - AdMob: UMP SDK handles IAB TCF 2.2 consent + server-side `ads_personalization` check
+- **Login history (`login_events`) is NOT analytics**: it is essential security / anti-abuse data (account security + referral anti-abuse) processed under a **legitimate-interest** basis, so it is **always collected on authenticated sign-in / refresh, regardless of the `analytics` toggle** (UU PDP arts. 20–22 reserve consent for non-essential purposes; security / fraud-prevention is a recognized legitimate-interest purpose). It is disclosed as a security-purpose processing activity in the Privacy Policy, retained 90 days (§ Retention Policy "Session trail"), exported to the user (§ Data Export Scope Matrix "Session history"), and erased on account deletion (§ Account Deletion cascade). It replaces the consent-gated client `session_start` event as the referral app-sessions signal (`login-history-tracking`).
 
 ### User Can Change Anytime
 
@@ -297,7 +298,7 @@ In both cases all active refresh tokens for the user are deleted, so all active 
 | Active post + location | While the post exists |
 | Soft-deleted post (author) | 30 days then hard delete |
 | Post edit history | 1 year |
-| Session trail | 90 days auto-purge |
+| Session trail (`login_events` — sign-in / refresh: time, IP + /24, device-fingerprint hash, identifier hash) | 90 days auto-purge (the `/internal/cleanup` worker, `login-history-tracking`) |
 | Location on app open | Not stored, request-only |
 | "Hapus Akun" user account | 30-day grace then tombstone (PII null, messages retained with "Akun Dihapus" label) |
 | Moderation action log | 1 year (audit & appeal) |
@@ -328,6 +329,7 @@ Request recorded in `deletion_requests` (`05-Implementation.md`).
 
 **Cascade delete** (permanently gone on hard-delete):
 - Session tokens, refresh tokens (all families)
+- Login history (`login_events` — IP / device-fingerprint / identifier; explicit delete in the hard-delete worker, since the FK `ON DELETE CASCADE` does not fire on the tombstoned, un-row-deleted user)
 - Location history (non-post)
 - Google/Apple ID hash
 - Follow relationships (both directions)
@@ -370,15 +372,14 @@ Endpoint `/account/export` returns JSON + CSV ZIP:
 | Notifications received | Yes | CSV | type + target + timestamp + read state |
 | Reports received about the user | No | - | Out of scope (affects third parties) |
 | Moderation actions applied to the user | Yes | CSV | action_type + timestamp (admin_id omitted) |
-| Session history (fingerprint, IP) | Yes | CSV | 90-day window only |
+| Session history (`login_events`: occurred_at, event_type, fingerprint, IP, /24 subnet) | Yes | CSV | 90-day window only |
 | Premium subscription history | Yes | CSV | tier + start/end + source (paid/referral) |
 | Attestation verdicts (own device) | No | - | Internal security data |
 | Admin audit log about the user | No | - | Security integrity |
 | CSAM detection archive | No | - | Out of scope, legal preservation |
 | `rejected_identifiers` hash | No | - | Anti-abuse signal, may cross other users |
 
-**MVP-schema limitations (best-effort export — emits the stored subset)**: three rows above describe richer data than the current MVP schema persists, so the producer emits what exists today and the rest lands if/when the columns are added:
-- **Session history** — `refresh_tokens` has no IP column; the export emits fingerprint + timestamps only (no IP).
+**MVP-schema limitations (best-effort export — emits the stored subset)**: the two rows below describe richer data than the current MVP schema persists, so the producer emits what exists today and the rest lands if/when the columns are added. (Session history is no longer best-effort — `login-history-tracking` made it `login_events`-sourced, so the IP + /24 subnet are now included.)
 - **Premium subscription history** — `subscription_events` has no tier column; the export emits event_type/source/dates (no tier).
 - **Analytics consent** — only `users.analytics_consent` (current state) exists, not a history table; the export emits the current state, not a history.
 

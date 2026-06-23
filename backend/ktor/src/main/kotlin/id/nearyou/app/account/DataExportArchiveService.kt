@@ -148,12 +148,14 @@ class DataExportArchiveService {
             )
         files["session_history.csv"] =
             csv(
-                listOf("device_fingerprint_hash", "created_at", "last_used_at"),
+                listOf("occurred_at", "event_type", "device_fingerprint_hash", "ip", "ip_subnet_24"),
                 bundle.sessions.map {
                     listOf(
+                        it.occurredAt.toString(),
+                        it.eventType,
                         it.deviceFingerprintHash.orEmpty(),
-                        it.createdAt.toString(),
-                        it.lastUsedAt?.toString().orEmpty(),
+                        it.ip.orEmpty(),
+                        it.ipSubnet24.orEmpty(),
                     )
                 },
             )

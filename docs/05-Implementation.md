@@ -1228,9 +1228,9 @@ MRR/ARR queries MUST filter `WHERE source = 'paid' AND event_type IN ('initial_p
 >
 > Already-shipped support: `users.invite_code_prefix` (populated via `InviteCodePrefixDeriver.kt`, 10-char fallback on collision — currently unreachable under the `VARCHAR(8)` column width), `users.inviter_reward_claimed_at` (V2 lifetime sentinel, untouched by ticket creation), `subscription_events.source` accepts `'referral'`/`'manual_admin'` (table created in V21 by `revenuecat-subscription-webhook`), GCP secret slot `invite-code-secret`.
 >
-> **Anti-collision scope note:** ticket creation applies only the device-fingerprint-hash exact-equality check at signup (the data available there). The full multi-stage gate — docs/01 § Bonus Release Criteria item 3's 90-day-windowed fingerprint + IP /24 + recently-seen-identifier legs — is deferred to the activity-gate worker, which needs login-history data not yet tracked. docs/08 #22 (signup-time) and docs/01 §3 (worker-stage) are thereby reconciled, not contradictory.
+> **Anti-collision scope note:** ticket creation applies only the device-fingerprint-hash exact-equality check at signup (the data available there). The full multi-stage gate — docs/01 § Bonus Release Criteria item 3's 90-day-windowed fingerprint + recently-seen-identifier legs (device-fingerprint based) plus the engagement login-days + app-sessions legs — is **now implemented** by the activity-gate worker against the durable `login_events` store (`login-history-tracking` / V34). The IP /24 leg is **recorded but non-voiding** (carrier-grade-NAT safety, design D8a). docs/08 #22 (signup-time) and docs/01 §3 (worker-stage) are thereby reconciled, not contradictory.
 >
-> Future change will define `granted_entitlements` schema (with `granted_entitlements_inviter_once_idx` partial unique index for DB-level lifetime-cap enforcement), the activity-gate worker, the deferred anti-collision legs, and RevenueCat dispatch.
+> **Status: shipped.** `granted_entitlements` schema (with `granted_entitlements_inviter_once_idx` partial unique index), the activity-gate worker, and RevenueCat dispatch shipped in `referral-grant-worker` (V32/V33); the durable login-history store + the previously-deferred anti-collision + engagement legs shipped in `login-history-tracking` (V34).
 
 ---
 

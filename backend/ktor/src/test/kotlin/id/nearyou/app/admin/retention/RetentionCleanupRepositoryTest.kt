@@ -3,9 +3,11 @@ package id.nearyou.app.admin.retention
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.cleanup
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.fcmTokenExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.hikari
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.loginEventExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.notificationExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.refreshTokenExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedFcmToken
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedLoginEvent
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedNotification
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedRefreshToken
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedUser
@@ -230,9 +232,30 @@ class RetentionCleanupRepositoryTest : StringSpec({
         }
     }
 
+    // ----- Login-events sweep (spec: Scheduled login-events retention sweep) -----
+
+    "a login event older than 90 days is purged; one within 90 days (and one ~at the boundary) survive" {
+        val t = tag()
+        val u = seedUser(dataSource, t)
+        val old = seedLoginEvent(dataSource, u, occurredAt = Instant.now().minus(91, ChronoUnit.DAYS))
+        val recent = seedLoginEvent(dataSource, u, occurredAt = Instant.now().minus(89, ChronoUnit.DAYS))
+        // 89d23h ago — just INSIDE the 90-day window; the strict-`<` predicate lets it survive
+        // (a true fencepost-exact 90d is avoided per the macOS-micros vs Linux-nanos clock caveat).
+        val nearBoundary =
+            seedLoginEvent(dataSource, u, occurredAt = Instant.now().minus(90, ChronoUnit.DAYS).plus(1, ChronoUnit.HOURS))
+        try {
+            repository.deleteOldLoginEvents() shouldBeGreaterThanOrEqual 1
+            loginEventExists(dataSource, old) shouldBe false
+            loginEventExists(dataSource, recent) shouldBe true
+            loginEventExists(dataSource, nearBoundary) shouldBe true
+        } finally {
+            cleanup(dataSource, listOf(u))
+        }
+    }
+
     // ----- Worker: all sweeps run + per-sweep counts (spec: runs all sweeps per invocation) -----
 
-    "a worker run deletes from all three tables and reports a count for every sweep" {
+    "a worker run deletes from all four tables and reports a count for every sweep" {
         val t = tag()
         val u = seedUser(dataSource, t)
         seedRefreshToken(
@@ -244,6 +267,7 @@ class RetentionCleanupRepositoryTest : StringSpec({
         )
         seedNotification(dataSource, u, createdAt = Instant.now().minus(91, ChronoUnit.DAYS))
         seedFcmToken(dataSource, u, t, lastSeenAt = Instant.now().minus(31, ChronoUnit.DAYS))
+        seedLoginEvent(dataSource, u, occurredAt = Instant.now().minus(91, ChronoUnit.DAYS))
         try {
             val result = worker.execute()
             // Other suites' aged rows may also be reaped in the shared DB, so the
@@ -251,6 +275,7 @@ class RetentionCleanupRepositoryTest : StringSpec({
             result.refreshTokensDeleted shouldBeGreaterThanOrEqual 1
             result.notificationsDeleted shouldBeGreaterThanOrEqual 1
             result.fcmTokensDeleted shouldBeGreaterThanOrEqual 1
+            result.loginEventsDeleted shouldBeGreaterThanOrEqual 1
         } finally {
             cleanup(dataSource, listOf(u))
         }
@@ -314,6 +339,8 @@ class RetentionCleanupRepositoryTest : StringSpec({
                 override suspend fun purgeOldNotifications(): Int = throw SQLException("simulated notifications-sweep failure")
 
                 override suspend fun deleteStaleFcmTokens(): Int = error("not reached — sweep 2 failed first")
+
+                override suspend fun deleteOldLoginEvents(): Int = error("not reached — sweep 2 failed first")
             }
         val failingWorker = RetentionCleanupWorker(failAfterFirstSweep)
         try {

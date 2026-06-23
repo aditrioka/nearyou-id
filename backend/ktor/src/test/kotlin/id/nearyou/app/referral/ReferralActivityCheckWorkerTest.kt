@@ -135,12 +135,82 @@ class ReferralActivityCheckWorkerTest : StringSpec({
         }
     }
 
-    /** Seed one pending ticket. Returns the ticket id. */
+    /** Insert one `login_events` row (V34) per instant for [userId]. */
+    fun seedLoginEvents(
+        userId: UUID,
+        instants: List<Instant>,
+        fingerprint: String? = null,
+        identifier: String? = null,
+        ip: String? = null,
+    ) {
+        dataSource.connection.use { conn ->
+            instants.forEach { at ->
+                conn.prepareStatement(
+                    "INSERT INTO login_events (user_id, occurred_at, event_type, ip, " +
+                        "device_fingerprint_hash, identifier_hash) VALUES (?, ?, 'signin', ?::inet, ?, ?)",
+                ).use { ps ->
+                    ps.setObject(1, userId)
+                    ps.setObject(2, ts(at))
+                    ps.setString(3, ip)
+                    ps.setString(4, fingerprint)
+                    ps.setString(5, identifier)
+                    ps.executeUpdate()
+                }
+            }
+        }
+    }
+
+    // WIB-noon anchor: seeded activity sits at 12:00 Asia/Jakarta on recent days, so day-bucketing
+    // and 30-min sessionization are deterministic (never near a midnight boundary), independent of
+    // the wall-clock `now`. Whole-day-apart noon anchors are always distinct WIB dates.
+    val wib: java.time.ZoneId = java.time.ZoneId.of("Asia/Jakarta")
+
+    fun wibNoonDaysAgo(days: Long): Instant = now.atZone(wib).toLocalDate().minusDays(days).atTime(12, 0).atZone(wib).toInstant()
+
+    /** Set the invitee's signup fingerprint + provider identity (the leg-3 / leg-5 inputs). */
+    fun setUserIdentity(
+        userId: UUID,
+        fingerprint: String?,
+        googleIdHash: String?,
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "UPDATE users SET device_fingerprint_hash = ?, google_id_hash = ? WHERE id = ?",
+            ).use { ps ->
+                ps.setString(1, fingerprint)
+                ps.setString(2, googleIdHash)
+                ps.setObject(3, userId)
+                ps.executeUpdate()
+            }
+        }
+    }
+
+    /**
+     * Seed login_events that clear BOTH engagement legs: 5 sessions across ≥ 3 distinct
+     * Asia/Jakarta days (events 60/36/12h, then 2/1h before `now` — each pair > 30 min apart, and
+     * the 24h-spaced first three guarantee 3 distinct WIB dates). Called by default from
+     * [seedTicket] so a posts-passing ticket also clears the login-history legs; the per-invitee
+     * fingerprint never matches the (history-less) inviter, so the anti-collision legs stay clean.
+     */
+    fun seedPassingActivity(inviteeId: UUID) {
+        seedLoginEvents(
+            inviteeId,
+            listOf(60L, 36L, 12L, 2L, 1L).map { now.minus(Duration.ofHours(it)) },
+            fingerprint = "fp_passing_${inviteeId.toString().take(6)}",
+        )
+    }
+
+    /**
+     * Seed one pending ticket. Returns the ticket id. By default also seeds passing login-history
+     * activity for the invitee (so a posts-passing ticket clears the engagement legs); pass
+     * `seedInviteeActivity = false` to control `login_events` explicitly (the leg-specific tests).
+     */
     fun seedTicket(
         inviterId: UUID,
         inviteeId: UUID,
         createdAt: Instant = now.minus(Duration.ofDays(3)),
         expiresAt: Instant = now.plus(Duration.ofDays(11)),
+        seedInviteeActivity: Boolean = true,
     ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
@@ -158,6 +228,7 @@ class ReferralActivityCheckWorkerTest : StringSpec({
                 ps.executeUpdate()
             }
         }
+        if (seedInviteeActivity) seedPassingActivity(inviteeId)
         return id
     }
 
@@ -443,8 +514,9 @@ class ReferralActivityCheckWorkerTest : StringSpec({
             (1..10).map { i ->
                 val invitee = seedUser()
                 seedPosts(invitee, 2)
-                // distinct created_at so the worker processes them in a deterministic order
-                seedTicket(inviter, invitee, createdAt = now.minus(Duration.ofDays(10 - i.toLong())))
+                // distinct created_at so the worker processes them in a deterministic order;
+                // all >= 3 days old so each invitee's auto-seeded activity clears the 3-login-day leg
+                seedTicket(inviter, invitee, createdAt = now.minus(Duration.ofDays(13 - i.toLong())))
             }
 
         worker(FakeGranter()).execute()
@@ -588,16 +660,194 @@ class ReferralActivityCheckWorkerTest : StringSpec({
         subscriptionStatus(invitee) shouldBe "free" // default; unchanged by the worker
     }
 
-    // ---------- 6.14 deferred legs not consulted ----------
-    "a ticket passing posts + standing is granted regardless of any login/session/identifier data" {
-        // No login-history / session / IP data is seeded or queried; the gate is posts + standing only.
+    // ---------- 6.14 login-history activity-gate legs (login-history-tracking) ----------
+    "an invitee below the 3-login-day threshold stays pending (sessions met, anti-collision clean)" {
         val inviter = seedUser()
         val invitee = seedUser()
         seedPosts(invitee, 2)
-        val ticket = seedTicket(inviter, invitee)
-
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8), seedInviteeActivity = false)
+        // 5 sessions but only 2 distinct WIB days → the login-days leg (>= 3) fails.
+        seedLoginEvents(
+            invitee,
+            listOf(
+                wibNoonDaysAgo(2),
+                wibNoonDaysAgo(2).plus(Duration.ofHours(1)),
+                wibNoonDaysAgo(2).plus(Duration.ofHours(2)),
+                wibNoonDaysAgo(3),
+                wibNoonDaysAgo(3).plus(Duration.ofHours(1)),
+            ),
+        )
         worker(FakeGranter()).execute()
+        ticketStatus(ticket) shouldBe "pending_activity"
+        grantCount() shouldBe 0
+    }
 
+    "an invitee below the 5-session threshold stays pending (login-days met, anti-collision clean)" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8), seedInviteeActivity = false)
+        // 3 sessions across 3 distinct WIB days → login-days met (3) but the sessions leg (>= 5) fails.
+        seedLoginEvents(invitee, listOf(wibNoonDaysAgo(2), wibNoonDaysAgo(3), wibNoonDaysAgo(4)))
+        worker(FakeGranter()).execute()
+        ticketStatus(ticket) shouldBe "pending_activity"
+        grantCount() shouldBe 0
+    }
+
+    "an invitee exactly meeting 3 login-days and 5 sessions passes (inclusive boundary)" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8), seedInviteeActivity = false)
+        // exactly 5 sessions across exactly 3 distinct WIB days.
+        seedLoginEvents(
+            invitee,
+            listOf(
+                wibNoonDaysAgo(2),
+                wibNoonDaysAgo(2).plus(Duration.ofHours(1)),
+                wibNoonDaysAgo(2).plus(Duration.ofHours(2)),
+                wibNoonDaysAgo(3),
+                wibNoonDaysAgo(4),
+            ),
+        )
+        worker(FakeGranter()).execute()
+        ticketStatus(ticket) shouldBe "granted"
+    }
+
+    "sessionization: events within 30 minutes collapse to one session (count falls short → pending)" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8), seedInviteeActivity = false)
+        // 3 distinct days; on each day a second event 29 min later does NOT add a session → 3 sessions (< 5).
+        seedLoginEvents(
+            invitee,
+            listOf(2L, 3L, 4L).flatMap { d -> listOf(wibNoonDaysAgo(d), wibNoonDaysAgo(d).plus(Duration.ofMinutes(29))) },
+        )
+        worker(FakeGranter()).execute()
+        ticketStatus(ticket) shouldBe "pending_activity"
+    }
+
+    "sessionization: an idle gap over 30 minutes starts a new session (count met → granted)" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8), seedInviteeActivity = false)
+        // 3 distinct days; on two of them a second event 31 min later IS a new session → 5 sessions.
+        seedLoginEvents(
+            invitee,
+            listOf(
+                wibNoonDaysAgo(2),
+                wibNoonDaysAgo(2).plus(Duration.ofMinutes(31)),
+                wibNoonDaysAgo(3),
+                wibNoonDaysAgo(3).plus(Duration.ofMinutes(31)),
+                wibNoonDaysAgo(4),
+            ),
+        )
+        worker(FakeGranter()).execute()
+        ticketStatus(ticket) shouldBe "granted"
+    }
+
+    "login-days are bucketed in Asia/Jakarta, not UTC (3 WIB days that span only 2 UTC days passes)" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8), seedInviteeActivity = false)
+        // 5 events on 3 distinct WIB days (X, X+1, X+2) but only 2 distinct UTC days: noon+9h/+10h =
+        // WIB 21:00/22:00, noon-10h = WIB 02:00 (which sits on the PRIOR UTC day, since WIB = UTC+7).
+        // If bucketing used UTC it would see only 2 days → pending; granted proves WIB bucketing.
+        val wibX = wibNoonDaysAgo(5)
+        val wibX1 = wibNoonDaysAgo(4)
+        val wibX2 = wibNoonDaysAgo(3)
+        seedLoginEvents(
+            invitee,
+            listOf(
+                wibX.plus(Duration.ofHours(9)),
+                wibX.plus(Duration.ofHours(10)),
+                wibX1.minus(Duration.ofHours(10)),
+                wibX1.plus(Duration.ofHours(10)),
+                wibX2.minus(Duration.ofHours(10)),
+            ),
+        )
+        worker(FakeGranter()).execute()
+        ticketStatus(ticket) shouldBe "granted"
+    }
+
+    "a device-fingerprint collision with the inviter's 90-day history voids the ticket" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        setUserIdentity(invitee, fingerprint = "fp-shared", googleIdHash = "g-inv-${invitee.toString().take(8)}")
+        // the inviter logged in from the same device fingerprint within 90 days.
+        seedLoginEvents(inviter, listOf(wibNoonDaysAgo(10)), fingerprint = "fp-shared")
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8)) // passing engagement auto-seeded
+        worker(FakeGranter()).execute()
+        ticketStatus(ticket) shouldBe "voided"
+        grantCount() shouldBe 0
+    }
+
+    "an IP /24 overlap, with no fingerprint or identifier collision, does NOT void (recorded only, D8a)" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        setUserIdentity(invitee, fingerprint = "fp-invitee-clean", googleIdHash = "g-inv-${invitee.toString().take(8)}")
+        // inviter + invitee share a /24 (203.0.113.0/24) but NOT a fingerprint or identity.
+        seedLoginEvents(inviter, listOf(wibNoonDaysAgo(10)), fingerprint = "fp-inviter", ip = "203.0.113.5")
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8), seedInviteeActivity = false)
+        seedLoginEvents(
+            invitee,
+            listOf(
+                wibNoonDaysAgo(2),
+                wibNoonDaysAgo(2).plus(Duration.ofHours(1)),
+                wibNoonDaysAgo(2).plus(Duration.ofHours(2)),
+                wibNoonDaysAgo(3),
+                wibNoonDaysAgo(4),
+            ),
+            fingerprint = "fp-invitee-clean",
+            ip = "203.0.113.9",
+        )
+        worker(FakeGranter()).execute()
+        ticketStatus(ticket) shouldBe "granted" // the shared /24 is recorded but never voids
+    }
+
+    "the invitee's identity seen on an inviter device voids the ticket (recently-seen identifier)" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        val inviteeIdentity = "g-inv-${invitee.toString().take(8)}"
+        // the invitee's signup fingerprint does NOT collide (isolating leg 5 from leg 3).
+        setUserIdentity(invitee, fingerprint = "fp-invitee-clean", googleIdHash = inviteeIdentity)
+        seedLoginEvents(inviter, listOf(wibNoonDaysAgo(10)), fingerprint = "fp-inviter-dev")
+        // the invitee's account was logged in on the inviter's device (identity on the inviter's fingerprint).
+        seedLoginEvents(invitee, listOf(wibNoonDaysAgo(9)), fingerprint = "fp-inviter-dev", identifier = inviteeIdentity)
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8)) // passing engagement auto-seeded
+        worker(FakeGranter()).execute()
+        ticketStatus(ticket) shouldBe "voided"
+        grantCount() shouldBe 0
+    }
+
+    "an anti-collision collision voids even when the invitee is below an engagement threshold (precedence)" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        setUserIdentity(invitee, fingerprint = "fp-shared", googleIdHash = "g-inv-${invitee.toString().take(8)}")
+        seedLoginEvents(inviter, listOf(wibNoonDaysAgo(10)), fingerprint = "fp-shared")
+        // only 1 login-day (below engagement) AND a fingerprint collision → void wins over pending.
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8), seedInviteeActivity = false)
+        seedLoginEvents(invitee, listOf(wibNoonDaysAgo(2)))
+        worker(FakeGranter()).execute()
+        ticketStatus(ticket) shouldBe "voided"
+        grantCount() shouldBe 0
+    }
+
+    "an inviter with no login history never false-voids the ticket (collision needs a positive match)" {
+        val inviter = seedUser()
+        val invitee = seedUser()
+        seedPosts(invitee, 2)
+        // the invitee has a fingerprint + identity set, but the inviter has NO login_events.
+        setUserIdentity(invitee, fingerprint = "fp-invitee", googleIdHash = "g-inv-${invitee.toString().take(8)}")
+        val ticket = seedTicket(inviter, invitee, createdAt = wibNoonDaysAgo(8)) // passing engagement auto-seeded
+        worker(FakeGranter()).execute()
         ticketStatus(ticket) shouldBe "granted"
     }
 

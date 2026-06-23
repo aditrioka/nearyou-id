@@ -191,6 +191,10 @@ class AccountHardDeleteWorkerTest : StringSpec({
                     it.setObject(1, id)
                     it.executeUpdate()
                 }
+                conn.prepareStatement("DELETE FROM login_events WHERE user_id = ?").use {
+                    it.setObject(1, id)
+                    it.executeUpdate()
+                }
                 conn.prepareStatement("DELETE FROM posts WHERE author_id = ?").use {
                     it.setObject(1, id)
                     it.executeUpdate()
@@ -225,7 +229,7 @@ class AccountHardDeleteWorkerTest : StringSpec({
         }
     }
 
-    "cascade tables are emptied (both-direction follows + blocks, fcm, notifications, tokens)" {
+    "cascade tables are emptied (both-direction follows + blocks, fcm, notifications, tokens, login events)" {
         val uid = seedUser()
         val other = seedUser()
         seedRequest(uid, Instant.now().minusSeconds(60))
@@ -236,6 +240,7 @@ class AccountHardDeleteWorkerTest : StringSpec({
         exec("INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?)", other, uid)
         exec("INSERT INTO user_fcm_tokens (user_id, platform, token) VALUES (?, 'android', ?)", uid, "tok_$uid")
         exec("INSERT INTO notifications (user_id, type) VALUES (?, 'followed')", uid)
+        exec("INSERT INTO login_events (user_id, event_type) VALUES (?, 'signin')", uid)
         exec(
             "INSERT INTO refresh_tokens (id, family_id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?, ?)",
             UUID.randomUUID(),
@@ -251,6 +256,8 @@ class AccountHardDeleteWorkerTest : StringSpec({
             count("SELECT COUNT(*) FROM user_fcm_tokens WHERE user_id = ?", uid) shouldBe 0
             count("SELECT COUNT(*) FROM notifications WHERE user_id = ?", uid) shouldBe 0
             count("SELECT COUNT(*) FROM refresh_tokens WHERE user_id = ?", uid) shouldBe 0
+            // login_events deleted explicitly (the FK ON DELETE CASCADE does NOT fire on a tombstoned user)
+            count("SELECT COUNT(*) FROM login_events WHERE user_id = ?", uid) shouldBe 0
         } finally {
             cleanup(uid, other)
         }

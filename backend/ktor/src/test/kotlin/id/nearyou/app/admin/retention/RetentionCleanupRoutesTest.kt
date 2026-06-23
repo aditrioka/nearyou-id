@@ -343,6 +343,8 @@ class RetentionCleanupRoutesTest : StringSpec({
                     override suspend fun purgeOldNotifications(): Int = error("not reached")
 
                     override suspend fun deleteStaleFcmTokens(): Int = error("not reached")
+
+                    override suspend fun deleteOldLoginEvents(): Int = error("not reached")
                 },
             )
         withRoute(customWorker = timeoutWorker) {

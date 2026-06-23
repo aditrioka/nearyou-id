@@ -28,8 +28,12 @@ data class ReferralActivityCheckResult(
  * Daily `/internal/referral-activity-check` worker (`referral-grant-worker`).
  * Three passes over `referral_tickets`:
  *  1. expire stale `pending_activity` tickets (`expires_at < NOW()`) — set-based;
- *  2. evaluate each remaining ticket's activity gate (invitee ≥ 2 posts AND the
- *     inviter neither hard- nor shadow-banned), grant on pass (void on banned inviter);
+ *  2. evaluate each remaining ticket's activity gate — the inviter must be neither hard- nor
+ *     shadow-banned; the device-fingerprint anti-collision legs VOID (the invitee's signup
+ *     fingerprint in the inviter's 90-day login history, or the invitee's identity seen on an
+ *     inviter device — the /24 subnet is recorded but never voids, D8a); the engagement legs
+ *     (invitee ≥ 2 posts AND ≥ 3 login-days AND ≥ 5 app sessions, all from `login_events`) keep
+ *     a clean ticket pending until met — grant on full pass;
  *  3. reconcile — re-dispatch any `granted_entitlements` whose prior-run RevenueCat
  *     call failed (`revenuecat_dispatched_at IS NULL`), so a transient RC failure
  *     never silently loses an earned grant.
@@ -103,7 +107,25 @@ class ReferralActivityCheckWorker(
                     repository.voidTicket(conn, ticket.id)
                     return@tx GrantPlan.Voided
                 }
-                if (repository.countInviteePosts(conn, ticket.inviteeId, ticket.createdAt) < MIN_POSTS) {
+                // Anti-collision (device-fingerprint based) — a positive match VOIDS the ticket
+                // (terminal, taking precedence over an engagement shortfall). The /24 subnet is
+                // recorded but is NEVER a voiding signal (carrier-grade-NAT safety, design D8a).
+                val since90d = clock().minus(Duration.ofDays(ANTI_COLLISION_WINDOW_DAYS))
+                val antiCollisionHit =
+                    repository.inviteeFingerprintInInviterHistory(conn, ticket.inviterId, ticket.inviteeId, since90d) ||
+                        repository.inviteeIdentifierSeenOnInviterDevice(conn, ticket.inviterId, ticket.inviteeId, since90d)
+                if (antiCollisionHit) {
+                    repository.voidTicket(conn, ticket.id)
+                    return@tx GrantPlan.Voided
+                }
+                // Engagement legs (posts + login-days + sessions) — below ANY threshold stays
+                // pending and is re-evaluated next run until it passes or the 14-day TTL expires.
+                val since = ticket.createdAt
+                val belowEngagement =
+                    repository.countInviteePosts(conn, ticket.inviteeId, since) < MIN_POSTS ||
+                        repository.countInviteeLoginDays(conn, ticket.inviteeId, since) < MIN_LOGIN_DAYS ||
+                        repository.countInviteeAppSessions(conn, ticket.inviteeId, since) < MIN_SESSIONS
+                if (belowEngagement) {
                     return@tx GrantPlan.StillPending
                 }
                 // Gate passed → flip to granted, then build the grant(s).
@@ -252,6 +274,9 @@ class ReferralActivityCheckWorker(
 
     private companion object {
         const val MIN_POSTS = 2
+        const val MIN_LOGIN_DAYS = 3
+        const val MIN_SESSIONS = 5
+        const val ANTI_COLLISION_WINDOW_DAYS = 90L
         const val INVITER_MILESTONE = 5
         const val GRANT_DAYS = 7L
         const val ENTITLEMENT_ID = "premium"

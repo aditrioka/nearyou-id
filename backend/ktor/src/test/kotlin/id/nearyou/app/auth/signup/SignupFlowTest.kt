@@ -6,6 +6,8 @@ import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
+import id.nearyou.app.auth.loginhistory.InMemoryLoginEvents
+import id.nearyou.app.auth.loginhistory.LoginEventRecorder
 import id.nearyou.app.auth.provider.InvalidIdTokenException
 import id.nearyou.app.auth.provider.ProviderIdTokenVerifier
 import id.nearyou.app.auth.provider.VerifiedIdToken
@@ -293,6 +295,7 @@ class SignupFlowTest : StringSpec({
                     users,
                     refreshService,
                     jwtIssuer,
+                    LoginEventRecorder(InMemoryLoginEvents()),
                 )
             }
             val client = createClient { install(ClientCN) { json() } }
