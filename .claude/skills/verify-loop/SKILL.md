@@ -141,6 +141,8 @@ CI runs **both** lint frameworks; passing only one is insufficient. `:mobile:app
 ```
 `detekt` is a ROOT-level task (no `:mobile:app:detekt`). The **Release** variant guards the `*ScreenTest` exclude: ui-test-manifest's host activity is debug-only, so a new Robolectric `*ScreenTest` must be added to the release-variant exclude or `testDevReleaseUnitTest` throws.
 
+**CI parity — read before claiming "CI-equivalent":** CI runs the backend lane as `./gradlew test -Dkotest.tags='!network'`, so `@Tags("database")` specs **run** in CI against the service containers. `!network` ≠ `!database`: a local `-Dkotest.tags='!database'` run **skips the DB specs CI runs** (greens locally, reds in CI — memory `feedback_ci_test_lane_excludes_network_not_database`). A bare `:backend:ktor:test` (no tag override) runs all tags, CI-equivalent on the tag axis — but use fresh containers, not the dev DB (see the dev-DB-pollution blocker below). Full layer→environment→stage map + the three checks that run only in CI: [`docs/13-Test-Matrix.md`](../../../docs/13-Test-Matrix.md).
+
 ## Known blockers (grow this list)
 
 - **§D gate while a local `:backend:ktor:run` is alive → `SQLTransientConnectionException` on unrelated DB-tagged tests:** the live server's Hikari pool (10) plus the suite's per-spec pools exceed the dev Postgres connection budget — same "too many clients" mechanism as the CI memory, reproduced locally 2026-06-11 (16 connections with server up → gate red; 6 after kill → gate green). Kill the server (`lsof -ti tcp:8080 | xargs kill`) before running the gate; reboot it after if device testing continues.
