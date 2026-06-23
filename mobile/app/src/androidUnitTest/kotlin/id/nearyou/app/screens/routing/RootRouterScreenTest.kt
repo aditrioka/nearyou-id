@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SignInOutcome
 import id.nearyou.app.auth.SignUpOutcome
 import id.nearyou.app.data.like.FakeLikeFlow
@@ -16,7 +17,10 @@ import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
 import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsFlow
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.push.fakeFcmTokenRegistrar
+import id.nearyou.app.screens.timeline.FakeSelfUserId
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
@@ -73,6 +77,9 @@ class RootRouterScreenTest {
                     // NearbyTimelineFlow and loads on entry — provide a fast fake so the route completes.
                     single<NearbyTimelineFlow> { FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null)) }
                     single<LikeFlow> { FakeLikeFlow() }
+                    // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
+                    single<ProfileFlow> { FakeProfileFlow() }
+                    single<SelfUserIdProvider> { FakeSelfUserId() }
                     // mobile-location-permission-flow: the Nearby surface is gated on a
                     // LocationPermissionController. Bind a GRANTED fake (not strictly required now that the
                     // marker is the shell's Beranda label, but keeps the Home section fully composable).

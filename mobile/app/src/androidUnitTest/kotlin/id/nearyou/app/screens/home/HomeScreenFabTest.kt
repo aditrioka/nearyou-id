@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.FakeLocationPermissionController
@@ -19,9 +20,12 @@ import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.FakeCreatePostFlow
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.TestNavHost
+import id.nearyou.app.screens.timeline.FakeSelfUserId
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
@@ -69,6 +73,9 @@ class HomeScreenFabTest {
                     // HomeScreen hosts NearbyTimelineScreen (needs the Nearby flow + a GRANTED gate)…
                     single<NearbyTimelineFlow> { nearbyFake }
                     single<LikeFlow> { FakeLikeFlow() }
+                    // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
+                    single<ProfileFlow> { FakeProfileFlow() }
+                    single<SelfUserIdProvider> { FakeSelfUserId() }
                     single<LocationPermissionController> { FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED) }
                     // …and the FAB appends PostCreationRoute, whose screen injects the CreatePostFlow seam.
                     single<CreatePostFlow> { FakeCreatePostFlow() }
