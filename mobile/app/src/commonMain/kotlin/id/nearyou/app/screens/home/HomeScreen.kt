@@ -210,8 +210,10 @@ data class PostDetailTarget(
     val authorUsername: String,
     val authorDisplayName: String,
     // image-attached-posts: the tapped card's public image URL, carried into PostDetailRoute so detail
-    // renders the image with no by-id re-fetch (null = text-only). NOT a coordinate — safe to serialize.
-    val imageUrl: String?,
+    // renders the image with no by-id re-fetch (null = text-only OR a non-card entry like a notification
+    // deep-link that carries no card image). NOT a coordinate — safe to serialize. Defaulted so call sites
+    // that have no card image (e.g. NotificationsViewModel.toPostDetailTarget) need not pass it.
+    val imageUrl: String? = null,
 )
 
 private fun NearbyTimelinePost.toTarget(): PostDetailTarget =
