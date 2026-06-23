@@ -84,4 +84,22 @@ class JdbcModerationQueueRepository : ModerationQueueRepository {
             }
         }
     }
+
+    override fun upsertCsamDetectedRow(
+        conn: Connection,
+        targetType: ReportTargetType,
+        targetId: UUID,
+    ): Boolean {
+        conn.prepareStatement(
+            """
+            INSERT INTO moderation_queue (target_type, target_id, trigger)
+            VALUES (?, ?, 'csam_detected')
+            ON CONFLICT (target_type, target_id, trigger) DO NOTHING
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setString(1, targetType.wire)
+            ps.setObject(2, targetId)
+            return ps.executeUpdate() == 1
+        }
+    }
 }

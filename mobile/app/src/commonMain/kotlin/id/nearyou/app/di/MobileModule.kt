@@ -253,7 +253,17 @@ val mobileModule =
         single { NotificationsApiClient(get()) }
         // diagnosticLog wired to the real sink — the repo's status-only diagnostic strings went
         // nowhere via the no-op default (2026-06-10 audit, 06 medium: sink-wiring drift).
-        single { NotificationsRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        // SinglePostApiClient + ProfileApiClient (both bound below) back the deep-link target resolution
+        // (mobile-notifications-deep-link-targets): post-target → full-projection single-post-read;
+        // chat_message partner top-bar identity → user-profile-read (actor = the 1:1 sender = partner).
+        single {
+            NotificationsRepository(
+                get(),
+                get<SinglePostApiClient>(),
+                get<ProfileApiClient>(),
+                diagnosticLog = get<DiagnosticSink>()::log,
+            )
+        }
         single<NotificationsFlow> { get<NotificationsRepository>() }
 
         // mobile-post-creation-screen — the create-post graph. Reuses the shared HttpClient, the

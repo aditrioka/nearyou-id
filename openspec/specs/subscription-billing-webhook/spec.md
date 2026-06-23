@@ -113,14 +113,6 @@ The backend SHALL NOT change `users.subscription_status` when it processes a `CA
 - **WHEN** an authenticated `CANCELLATION` event is processed for a `premium_active` user
 - **THEN** that user's `subscription_status` remains `premium_active` AND a `cancellation` `subscription_events` row is recorded AND no notification is written
 
-### Requirement: Referral GRANT handling is deferred
-
-This change SHALL NOT grant entitlements for referral `GRANT` events — the referral entitlement-stacking logic (and its `granted_entitlements` / `referral_tickets` tables) does not exist yet and is owned by a future referral-system change. When a `GRANT` event is received, the handler MUST NOT change any user's `subscription_status` and MUST NOT grant Premium; it logs the event and returns `200`. The future referral change will MODIFY this requirement to add full `GRANT` handling (recording `source = 'referral'` events and applying entitlement stacking).
-
-#### Scenario: GRANT event grants nothing in this change
-- **WHEN** a `GRANT` event is received at the webhook
-- **THEN** no user's `subscription_status` is changed AND no Premium entitlement is granted AND the response status is `200` AND the event is logged for follow-up handling
-
 ### Requirement: Time-based grace-elapse auto-downgrade is deferred
 
 This change SHALL set `premium_billing_retry` and record the grace-window end on a `BILLING_ISSUE` event, but SHALL NOT implement a time-based worker that auto-downgrades a stuck `premium_billing_retry` user to `free` after the grace window elapses — that daily grace-state worker is a separate future change. In this change, only an `EXPIRATION` event downgrades a `premium_billing_retry` user.
@@ -162,4 +154,26 @@ The acting hourly worker that performs the flip once the deadline elapses is spe
 #### Scenario: Cancellation neither schedules nor clears a privacy flip
 - **WHEN** an authenticated `CANCELLATION` event is processed for a user (whose `subscription_status` stays `premium_active`)
 - **THEN** `users.privacy_flip_scheduled_at` is left unchanged — only an `EXPIRATION` schedules and only an `INITIAL_PURCHASE`/`RENEWAL` clears; a cancellation touches the column in neither direction (a private user keeps any pending deadline, a user with none stays NULL)
+
+### Requirement: Referral GRANT events activate Premium and record a referral-source event
+
+The backend SHALL handle a RevenueCat `GRANT` event by recording exactly one `subscription_events` row with `event_type = 'grant'`, `source = 'referral'`, the event's `revenuecat_event_id`, and the available entitlement window (`entitlement_start` / `entitlement_end`), and by setting the resolved user's `users.subscription_status = 'premium_active'` — all within one database transaction. `GRANT` events originate from the referral grant dispatch (the `referral-grant-worker` capability calls the RevenueCat promotional-entitlement API; RevenueCat then echoes a `GRANT` webhook); this requirement covers only the webhook's handling of that echo, not the decision to grant.
+
+Idempotency follows the event-ingestion contract: a re-delivered `GRANT` carrying a `revenuecat_event_id` already present MUST NOT write a second row and MUST NOT re-apply the status transition (the handler returns `200`, the duplicate signal). A `GRANT` event whose RevenueCat app-user identifier maps to no `users.id` MUST be acknowledged `200` with a WARN log and no writes (the orphan-event contract). Because the row carries `source = 'referral'`, these grants are excluded from the paid-only MRR/ARR query (`WHERE source = 'paid' AND event_type IN ('initial_purchase', 'renewal')`).
+
+#### Scenario: GRANT activates Premium and records a referral-source event
+- **WHEN** an authenticated `GRANT` event with a previously-unseen `revenuecat_event_id` is processed for a resolvable user
+- **THEN** that user's `subscription_status` becomes `premium_active` AND exactly one `subscription_events` row with `event_type = 'grant'`, `source = 'referral'`, and that `revenuecat_event_id` is written in the same transaction
+
+#### Scenario: Re-delivered GRANT is a no-op duplicate
+- **WHEN** a `GRANT` event whose `revenuecat_event_id` already exists in `subscription_events` is delivered again
+- **THEN** the response status is `200` AND no second `subscription_events` row is written AND the `subscription_status` transition is not re-applied
+
+#### Scenario: GRANT for an unknown user is acknowledged without writes
+- **WHEN** an authenticated, well-formed `GRANT` event carries a RevenueCat app-user identifier that maps to no `users.id`
+- **THEN** the response status is `200` AND no `subscription_events` row is written AND a WARN log records the orphan event
+
+#### Scenario: A referral grant is excluded from the paid MRR query
+- **WHEN** the analytics query `SELECT ... FROM subscription_events WHERE source = 'paid' AND event_type IN ('initial_purchase', 'renewal')` is run after a referral `GRANT` event has been recorded
+- **THEN** the `source = 'referral'` grant row is NOT returned (it counts toward engagement, not revenue)
 

@@ -3,6 +3,7 @@ package id.nearyou.app.screens.chat
 import id.nearyou.app.chat.ChatMessageDto
 import id.nearyou.app.chat.ChatThreadOutcome
 import id.nearyou.app.chat.SendOutcome
+import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.screens.post.codePointLength
 
 /** The chat message length cap — 2000 code points (`chat-conversations` content guard, docs/02 §319).
@@ -46,7 +47,15 @@ data class ChatMessageRow(
     val isOwn: Boolean,
     val isRedacted: Boolean,
     val createdAtIso: String,
-)
+) {
+    /**
+     * The report-affordance gate (`mobile-chat-message-report`): a message is reportable only when it is
+     * the OTHER party's ([isOwn] false) AND not already redacted ([isRedacted] false). Derived purely
+     * from the PII-stripped projection fields — `senderId` never reaches this row, so the gate is the
+     * row-level realization of the conceptual "other party's message" / post `!isAuthor` gate.
+     */
+    val isReportable: Boolean get() = !isOwn && !isRedacted
+}
 
 /**
  * Pure id-deduplicated merge of the three message sources into one ordered list (design D4 / task 7.2).
@@ -187,3 +196,26 @@ fun canSubmitChat(content: String): Boolean {
     val trimmed = content.trim()
     return trimmed.isNotEmpty() && content.codePointLength() <= MAX_CHAT_CONTENT_CODE_POINTS
 }
+
+/**
+ * The one-shot report-result message for the chat surface (`mobile-chat-message-report`). The shared
+ * [ReportOutcome] is mapped per-surface (see the [ReportOutcome] doc): the chat thread uses the
+ * **post-detail posture** — [ReportOutcome.Submitted] AND [ReportOutcome.Duplicate] both map to [SUCCESS]
+ * (the duplicate case is indistinguishable from a first report — anti-enumeration / anti-retaliation in a
+ * 1:1 context, `docs/03`:234); [ReportOutcome.RateLimited] → [RATE_LIMITED] (no success claim);
+ * [ReportOutcome.NetworkError] → [FAILED] (retryable). The screen maps each to a `:shared:resources`
+ * string and shows it as a one-shot snackbar.
+ */
+enum class ChatReportMessage {
+    SUCCESS,
+    RATE_LIMITED,
+    FAILED,
+}
+
+/** Pure, exhaustive (no wildcard) [ReportOutcome] → [ChatReportMessage] mapping (the post-detail posture). */
+fun chatReportMessage(outcome: ReportOutcome): ChatReportMessage =
+    when (outcome) {
+        ReportOutcome.Submitted, ReportOutcome.Duplicate -> ChatReportMessage.SUCCESS
+        is ReportOutcome.RateLimited -> ChatReportMessage.RATE_LIMITED
+        ReportOutcome.NetworkError -> ChatReportMessage.FAILED
+    }

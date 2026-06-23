@@ -3,7 +3,6 @@
 ## Purpose
 
 The referral-ticket-creation capability creates a referral ticket at signup — the entry point of the freemium referral/growth loop. `POST /api/v1/auth/signup` accepts an optional `invite_code`; when it resolves (O(1) on the shipped `users.invite_code_prefix` UNIQUE index) to an eligible inviter — existing, not soft-deleted, not banned, account age > 30 days, not the invitee — and the invitee passes the signup-time anti-abuse checks (device-fingerprint non-collision + a per-inviter ≤ 3-per-rolling-7-day burst limit), the system inserts exactly one `referral_tickets` row in `pending_activity` state (`invitee_user_id` UNIQUE → one ticket per registration, idempotent). Ticket creation is best-effort, non-blocking, silent to the invitee (anti-probing), and audit-logged server-side only — signup always returns its normal result regardless of the referral outcome. This is the first slice of the referral system: the activity-gate worker that advances a ticket out of `pending_activity`, the `granted_entitlements` table and entitlement grants (incl. the inviter lifetime single-grant), and the richer IP-subnet / recently-seen-identifier anti-collision legs are explicitly out of scope, captured here as negative-guard requirements for follow-on changes to MODIFY.
-
 ## Requirements
 ### Requirement: Invite code resolves to an inviter
 
@@ -103,23 +102,23 @@ A Flyway migration SHALL create the `referral_tickets` table with: `id UUID PRIM
 
 ### Requirement: Activity-gate worker is out of scope
 
-This change SHALL NOT implement the referral activity gate. No `/internal/referral-activity-check` worker is added, and no code path flips a ticket out of `pending_activity`. Tickets created by this change remain `pending_activity` until a future change ships the worker. The `'granted'` and `'expired'` status values are reserved in the CHECK constraint for that future change but are never written here.
+The referral-ticket-creation capability SHALL NOT implement the referral activity gate: the signup ticket-creation path adds no worker and flips no ticket out of `pending_activity`. Tickets created here remain `pending_activity` until acted on by the `referral-grant-worker` capability's `/internal/referral-activity-check` worker (shipped), which writes the `'granted'` / `'expired'` status values reserved in the V23 `CHECK` constraint. Ticket creation's own behavior is unchanged — it never transitions a ticket.
 
-#### Scenario: Tickets stay pending after creation
-- **WHEN** a ticket is created and any amount of time passes within this change's scope
-- **THEN** the ticket's `status` remains `'pending_activity'` (nothing in this change transitions it)
+#### Scenario: Ticket creation does not itself transition a ticket
+- **WHEN** a ticket is created at signup
+- **THEN** its `status` is `'pending_activity'` AND the signup / ticket-creation path performs no further status transition (advancing the ticket is the `referral-grant-worker` worker's responsibility)
 
 ### Requirement: Entitlement grants are out of scope
 
-This change SHALL NOT grant Premium entitlements, create a `granted_entitlements` table, dispatch any RevenueCat Granted-Entitlements API call, or enforce the inviter lifetime single-grant cap. The `users.inviter_reward_claimed_at` sentinel MUST NOT be read or written by this change.
+The referral-ticket-creation capability SHALL NOT grant Premium entitlements, write the `granted_entitlements` table, dispatch any RevenueCat promotional-entitlement call, or read/write the `users.inviter_reward_claimed_at` sentinel. Those are performed by the `referral-grant-worker` capability (shipped), not by the signup ticket-creation path. Creating a ticket has no entitlement side effects.
 
-#### Scenario: No entitlement side effects
-- **WHEN** a referral ticket is created
-- **THEN** no entitlement is granted, no `granted_entitlements` row is created, and `users.inviter_reward_claimed_at` is unchanged
+#### Scenario: No entitlement side effects at signup
+- **WHEN** a referral ticket is created at signup
+- **THEN** no entitlement is granted, no `granted_entitlements` row is created, and `users.inviter_reward_claimed_at` is unchanged by the signup path
 
 ### Requirement: Richer anti-collision checks are out of scope
 
-This change SHALL implement only the `device_fingerprint_hash` collision check at signup time. The IP-subnet (/24) overlap check against the inviter's recent login subnets and the recently-seen Google/Apple identifier check (docs/01-Business.md § Bonus Release Criteria item 3) are NOT performed here; they belong to the deferred activity-gate worker, which evaluates the full multi-stage gate. This change MUST NOT claim to enforce those checks.
+The referral-ticket-creation capability SHALL implement only the `device_fingerprint_hash` collision check at signup time. The IP-subnet (/24) overlap check against the inviter's recent login subnets and the recently-seen Google/Apple identifier check (docs/01-Business.md § Bonus Release Criteria item 3) are NOT performed here. These two legs also remain **unimplemented by the shipped `referral-grant-worker`** — they require durable login-history data that does not exist yet and are deferred to a follow-up change. Neither the signup path nor the current activity-check worker enforces them; this capability MUST NOT claim to.
 
 #### Scenario: IP-subnet and identifier-history checks are not applied at signup
 - **WHEN** a signup-time referral is evaluated

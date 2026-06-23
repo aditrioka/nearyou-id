@@ -11,10 +11,12 @@ const val NEARBY_RADIUS_M: Int = 20_000
 
 /**
  * Orchestrates a Nearby first-page fetch: acquire the coordinate from [locationProvider] → call
- * `GET /api/v1/timeline/nearby` (fixed [NEARBY_RADIUS_M], per-process [SessionIdProvider] header) →
- * map the HTTP **status** to exactly one [NearbyTimelineOutcome] (design D6). There is no generic
- * "load failed" fallthrough; `401` is delegated to the shipped `Auth` plugin (this repository MUST
- * NOT reimplement token refresh / re-route).
+ * `GET /api/v1/timeline/nearby` (at the caller-supplied `radiusM`, default [NEARBY_RADIUS_M]; per-process
+ * [SessionIdProvider] header) → map the HTTP **status** to exactly one [NearbyTimelineOutcome] (design
+ * D6). There is no generic "load failed" fallthrough; `401` is delegated to the shipped `Auth` plugin
+ * (this repository MUST NOT reimplement token refresh / re-route). [changeRadius] adds the radius-select
+ * path that surfaces the `radius_premium_only` 403 as [RadiusChangeResult.PremiumGated]
+ * (`mobile-nearby-radius-slider`).
  */
 class NearbyTimelineRepository(
     private val apiClient: NearbyTimelineApiClient,
@@ -24,7 +26,7 @@ class NearbyTimelineRepository(
     // no-op for now. MUST NOT carry tokens or coordinates (none are passed here).
     private val diagnosticLog: (String) -> Unit = {},
 ) : NearbyTimelineFlow {
-    override suspend fun loadFirstPage(): NearbyTimelineOutcome {
+    override suspend fun loadFirstPage(radiusM: Int): NearbyTimelineOutcome {
         // Catch the location failure AT the repository boundary (docs/11 §2.6: exceptions
         // don't cross into ViewModels) — previously LocationUnavailableException escaped to
         // the VM's blanket catch, which mapped it to NetworkError with ZERO diagnostics
@@ -45,7 +47,7 @@ class NearbyTimelineRepository(
             apiClient.fetchNearby(
                 lat = location.lat,
                 lng = location.lng,
-                radiusM = NEARBY_RADIUS_M,
+                radiusM = radiusM,
                 sessionId = sessionIdProvider.sessionId,
                 cursor = null,
             )
@@ -92,15 +94,16 @@ class NearbyTimelineRepository(
     override suspend fun loadMore(
         cursor: String,
         anchor: LatLng,
+        radiusM: Int,
     ): NearbyTimelineOutcome {
         // Reuse the first-page [anchor] — NO fresh GPS acquisition. The backend cursor is chronological,
-        // so ordering is anchor-independent; reuse keeps the radius stable + avoids redundant location
+        // so ordering is anchor-independent; reuse keeps the [radiusM] stable + avoids redundant location
         // work (design D4). Same status→outcome mapping as loadFirstPage.
         val result =
             apiClient.fetchNearby(
                 lat = anchor.lat,
                 lng = anchor.lng,
-                radiusM = NEARBY_RADIUS_M,
+                radiusM = radiusM,
                 sessionId = sessionIdProvider.sessionId,
                 cursor = cursor,
             )
@@ -128,6 +131,65 @@ class NearbyTimelineRepository(
                     result.status in 500..599 -> NearbyTimelineOutcome.NetworkError
                     else -> NearbyTimelineOutcome.NetworkError
                 }
+        }
+    }
+
+    override suspend fun changeRadius(radiusM: Int): RadiusChangeResult {
+        // Acquire a fresh page-1 anchor at the newly-selected radius (same coordinate-hygiene as
+        // loadFirstPage: catch the provider failure here, log the exception TYPE only — never a coordinate).
+        val location =
+            try {
+                locationProvider.current()
+            } catch (cancellation: kotlin.coroutines.cancellation.CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                diagnosticLog("nearby_radius_position_unavailable: ${failure::class.simpleName}")
+                return RadiusChangeResult.Loaded(NearbyTimelineOutcome.NetworkError)
+            }
+        val result =
+            apiClient.fetchNearby(
+                lat = location.lat,
+                lng = location.lng,
+                radiusM = radiusM,
+                sessionId = sessionIdProvider.sessionId,
+                cursor = null,
+            )
+        // Server Premium gate: a 403 radius_premium_only is surfaced as PremiumGated so the VM shows the
+        // upsell + reverts to 20 km — NOT folded into the frozen status→outcome contract. A stale-tier
+        // backstop; the client gate normally stops a Free session from ever issuing a non-20 km radius.
+        if (result is NearbyApiResult.HttpError &&
+            result.status == 403 &&
+            result.errorCode == "radius_premium_only"
+        ) {
+            return RadiusChangeResult.PremiumGated
+        }
+        // Any other result reuses the frozen mapping (200 → Loaded, 401 → SessionExpired, else retryable).
+        return when (result) {
+            is NearbyApiResult.Success ->
+                RadiusChangeResult.Loaded(
+                    NearbyTimelineOutcome.Loaded(
+                        posts = result.body.posts,
+                        nextCursor = result.body.nextCursor,
+                        upsell = result.body.upsell,
+                        anchor = location,
+                    ),
+                )
+            is NearbyApiResult.NetworkError -> {
+                diagnosticLog("nearby_radius_error: ${result.cause::class.simpleName}")
+                RadiusChangeResult.Loaded(NearbyTimelineOutcome.NetworkError)
+            }
+            is NearbyApiResult.HttpError ->
+                RadiusChangeResult.Loaded(
+                    when {
+                        result.status == 401 -> NearbyTimelineOutcome.SessionExpired
+                        result.status == 400 -> {
+                            diagnosticLog("nearby_radius_invalid_request: status=400")
+                            NearbyTimelineOutcome.Error
+                        }
+                        result.status in 500..599 -> NearbyTimelineOutcome.NetworkError
+                        else -> NearbyTimelineOutcome.NetworkError
+                    },
+                )
         }
     }
 }

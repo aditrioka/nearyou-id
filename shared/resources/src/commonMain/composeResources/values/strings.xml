@@ -198,6 +198,10 @@
     <string name="notif_post_auto_hidden">Postingan kamu disembunyikan otomatis</string>
     <string name="notif_chat_message">Pesan baru</string>
     <string name="notif_generic">Notifikasi baru</string>
+    <!-- mobile-notifications-deep-link-targets: the non-blocking affordance shown when a tapped post
+         notification's target no longer resolves (deleted / blocked / shadow-banned / auto-hidden — the
+         single-post-read endpoint collapses all to one 404). No navigation occurs; the row is still read. -->
+    <string name="notifications_post_unavailable">Postingan tidak tersedia</string>
 
     <!-- mobile-post-detail-screen. `post_detail_posted_from` mirrors docs/03-UX-Design.md:14
          ("Diposting dari {city}, {relative_time}"); the like/reply cap-upsell copy parallels the
@@ -331,6 +335,9 @@
          dialog title differs per target. -->
     <string name="report_title_post">Laporkan postingan ini</string>
     <string name="report_title_reply">Laporkan balasan ini</string>
+    <!-- mobile-chat-message-report: the 1:1 chat-message report dialog title (the chat-thread surface,
+         long-press "Laporkan"). Reuses the same reason picker + note + outcome copy as post/reply. -->
+    <string name="report_title_chat_message">Laporkan pesan ini</string>
     <string name="report_reason_spam">Spam</string>
     <string name="report_reason_hate_speech_sara">Ujaran kebencian (SARA)</string>
     <string name="report_reason_harassment">Pelecehan</string>
@@ -444,5 +451,15 @@
     <string name="username_confirm_dismiss">Batal</string>
     <string name="username_success_toast">Username berhasil diganti</string>
     <string name="username_premium_gate_body">Ganti username adalah fitur Premium.</string>
+    <!-- mobile-nearby-radius-slider: the Premium-gated 4-position Nearby radius slider (10/20/50/100 km;
+         docs/02-Product.md § Nearby Timeline). The upsell mirrors the search_premium_gate_body /
+         settings_hide_distance_premium_only register; radius_value_km formats each km tick + the selected
+         value (no hardcoded "km" glyph in Kotlin). FLAGGED FOR UX REVIEW. The "Aktifkan Premium" CTA reuses
+         cta_activate_premium and the dismiss reuses cta_close (declared above) — no duplicate-value keys. -->
+    <string name="radius_endpoint_nearest">Terdekat</string>
+    <string name="radius_endpoint_farthest">Terjauh</string>
+    <string name="radius_value_km" formatted="true">%1$d km</string>
+    <string name="radius_upsell_title">Radius khusus Premium</string>
+    <string name="radius_upsell_body">Pengguna gratis tetap di 20 km. Aktifkan Premium untuk memilih radius 10, 50, atau 100 km.</string>
 </resources>
 

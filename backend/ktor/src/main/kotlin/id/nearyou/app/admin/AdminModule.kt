@@ -41,10 +41,13 @@ import id.nearyou.app.admin.routes.adminReservedUsernames
 import id.nearyou.app.admin.routes.adminSubscriptionGrace
 import id.nearyou.app.admin.routes.adminUserModeration
 import id.nearyou.app.admin.routes.adminUsernameOversight
+import id.nearyou.app.admin.routes.adminWordlistEditor
 import id.nearyou.app.admin.subscriptiongrace.SubscriptionGraceRepository
 import id.nearyou.app.admin.usermanagement.UserProfileRepository
 import id.nearyou.app.admin.usernameoversight.UsernameOversightRepository
 import id.nearyou.app.admin.usernameoversight.UsernameOversightService
+import id.nearyou.app.admin.wordlist.WordlistEditRateLimiter
+import id.nearyou.app.admin.wordlist.WordlistEditorService
 import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import id.nearyou.app.infra.repo.JdbcUsernameFlagOverrideRepository
@@ -183,6 +186,14 @@ fun Application.admin(
             auditLogger = auditLogger,
             dataSource = dataSource,
         )
+    val wordlistEditRateLimiter = WordlistEditRateLimiter(dataSource)
+    val wordlistEditorService =
+        WordlistEditorService(
+            publisher = remoteConfigPublisher,
+            rateLimiter = wordlistEditRateLimiter,
+            auditLogger = auditLogger,
+            dataSource = dataSource,
+        )
 
     install(Pebble) {
         loader(
@@ -261,6 +272,7 @@ fun Application.admin(
                 )
                 adminChatRedaction(chatRedactionRepository, auditLogger, layout)
                 adminFeatureFlags(featureFlagService, auditLogger, layout)
+                adminWordlistEditor(wordlistEditorService, auditLogger, layout)
                 adminReservedUsernames(
                     reservedUsernamesRepository,
                     reservedUsernameActionRateLimiter,

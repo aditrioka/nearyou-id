@@ -358,14 +358,14 @@ tasks.named("check") {
 // The Robolectric Compose UI tests (SignInScreenTest / RootRouterScreenTest / AgeGateScreenTest /
 // NearbyTimelineScreenTest / NearbyLocationGateScreenTest / NearYouThemeTest / PostCreationScreenTest /
 // HomeScreenFabTest / GlobalTimelineScreenTest / FollowingTimelineScreenTest / HomeTabHostScreenTest /
-// NotificationsScreenTest / AppShellScreenTest / PostDetailScreenTest / PostCardTest / ProfileScreenTest /
+// NotificationsScreenTest / NotificationsScreenNavTest / AppShellScreenTest / PostDetailScreenTest / PostCardTest / ProfileScreenTest /
 // ReportDialogTest / ConversationListScreenTest / ChatThreadScreenTest / SearchScreenTest) need the debug-only
 // `androidx.compose.ui:ui-test-manifest` ComponentActivity, which is NOT merged into release variants —
 // so `./gradlew test` (all variants) fails `testDevReleaseUnitTest` etc. with a host-activity
 // RuntimeException. Skip those classes in release unit-test tasks; they are build-type-agnostic (they
 // exercise the composable, not the build type) and run fully in the debug variants. Non-UI unit tests
 // (e.g. PostCreationSourceGuardTest, CreatePostFlowKoinResolutionTest, GlobalTimelineKoinResolutionTest,
-// FollowingTimelineKoinResolutionTest, NotificationsDeepLinkAbsenceScanTest) still run in every variant.
+// FollowingTimelineKoinResolutionTest, NotificationsScreenNavFreeScanTest) still run in every variant.
 tasks.withType<Test>().configureEach {
     if (name.contains("Release")) {
         exclude(
@@ -382,6 +382,7 @@ tasks.withType<Test>().configureEach {
             "**/FollowingTimelineScreenTest*",
             "**/HomeTabHostScreenTest*",
             "**/NotificationsScreenTest*",
+            "**/NotificationsScreenNavTest*",
             "**/AppShellScreenTest*",
             "**/PostDetailScreenTest*",
             "**/EditPostScreenTest*",

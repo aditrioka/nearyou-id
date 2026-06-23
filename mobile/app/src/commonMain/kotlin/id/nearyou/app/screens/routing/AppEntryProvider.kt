@@ -80,6 +80,17 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 // mobile-chat-screen (task 10.1): the Home brand app-bar "Pesan" action pushes the
                 // conversation list onto the root stack (overlaying the section bar, like PostDetailRoute).
                 onOpenChat = { backStack.add(ConversationListRoute) },
+                // Notification chat_message deep-link (mobile-notifications-deep-link-targets): push the
+                // thread directly atop the shell (the VM resolved the partner identity via user-profile-read).
+                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName ->
+                    backStack.add(
+                        ChatThreadRoute(
+                            conversationId = conversationId,
+                            partnerUsername = partnerUsername,
+                            partnerDisplayName = partnerDisplayName,
+                        ),
+                    )
+                },
                 onOpenPost = { target ->
                     backStack.add(
                         PostDetailRoute(

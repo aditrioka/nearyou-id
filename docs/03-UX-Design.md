@@ -228,6 +228,7 @@ Toggle "Tampilkan preview pesan chat di notifikasi", default OFF; ON then body =
 ## Report UX
 
 - Kebab menu (post, reply, profile page): "Laporkan"
+- Chat message: **long-press** a received message bubble → "Laporkan" (the chat bubble has no kebab; the long-press is the chat-surface idiom — same reason picker + note + outcome). Own/sent and already-redacted messages expose no report affordance. (`docs/06` § Report System is canonical for the four reportable surfaces incl. chat message.)
 - Reason picker: "Spam", "Ujaran kebencian (SARA)", "Pelecehan", "Konten dewasa", "Misinformasi", "Lainnya"
 - Optional 200-char note (placeholder: "Jelaskan lebih detail jika perlu")
 - Post-submit: toast "Laporan terkirim. Tim moderasi akan meninjau."

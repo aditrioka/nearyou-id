@@ -11,6 +11,7 @@ import id.nearyou.app.admin.featureflags.FeatureFlagViewState
 import id.nearyou.app.admin.featureflags.FlagKind
 import id.nearyou.app.admin.featureflags.ToggleOutcome
 import id.nearyou.app.admin.featureflags.ToggleRequest
+import id.nearyou.app.admin.wordlist.WordlistTarget
 import id.nearyou.app.common.clientIp
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -157,14 +158,20 @@ private fun buildFlagRows(state: FeatureFlagViewState): List<Map<String, Any>> =
         }
     }
 
-/** Pre-format the two read-only wordlists into count summaries. */
+/**
+ * Pre-format the two wordlists into count summaries WITH an edit-link slug. The
+ * lists stay read-only ON this page (count + version); the `slug` drives the
+ * frame-20 "edit" affordance that links out to the `admin-moderation-wordlist-
+ * editor` sub-surface, which owns content editing.
+ */
 private fun buildListRows(state: FeatureFlagViewState): List<Map<String, Any>> =
     FeatureFlagCatalog.READ_ONLY_LISTS.map { def ->
-        mapOf(
-            "key" to def.key,
-            "description" to def.description,
-            "summary" to entryCountSummary(state.values[def.key]),
-        )
+        buildMap {
+            put("key", def.key)
+            put("description", def.description)
+            put("summary", entryCountSummary(state.values[def.key]))
+            WordlistTarget.fromParameterName(def.key)?.let { put("slug", it.slug) }
+        }
     }
 
 /** "<n> entries" for a JSON string-array value; "unset" for null; "malformed" otherwise. */

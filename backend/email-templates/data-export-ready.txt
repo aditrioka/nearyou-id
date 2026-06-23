@@ -1,0 +1,16 @@
+Data export kamu siap diunduh
+=============================
+
+Halo! Salinan data pribadi kamu di NearYou sudah selesai kami siapkan.
+Unduh arsipnya (format ZIP berisi file JSON + CSV) lewat tautan berikut:
+
+{{download_url}}
+
+Tautan ini hanya berlaku sampai {{expires_at}} (sekitar 24 jam). Setelah itu
+kamu perlu meminta ekspor baru dari menu Pengaturan.
+
+Demi keamanan, jangan bagikan tautan ini ke siapa pun -- siapa saja yang
+memilikinya bisa mengunduh datamu selama tautan masih berlaku.
+
+--
+NearYou - Email ini dikirim otomatis, mohon tidak membalas.

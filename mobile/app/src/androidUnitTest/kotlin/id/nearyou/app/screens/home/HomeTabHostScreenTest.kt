@@ -45,6 +45,7 @@ import id.nearyou.app.screens.routing.PostCreationRoute
 import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.screens.timeline.FOLLOWING_TIMELINE_LIST_TAG
+import id.nearyou.app.screens.timeline.FakeSelfUserId
 import id.nearyou.app.screens.timeline.GLOBAL_POST_CARD_TAG
 import id.nearyou.app.screens.timeline.GLOBAL_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.NEARBY_POST_CARD_TAG
@@ -107,7 +108,10 @@ private const val COMPOSER_TITLE = "Buat postingan" // post_create_title
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
+// A realistic phone viewport (matching NearbyTimelineScreenTest / AppShellScreenTest) — the default tiny
+// Robolectric screen clipped card content below the mobile-nearby-radius-slider header, mis-resolving
+// center-taps onto the card's identity row.
+@Config(sdk = [33], qualifiers = "w360dp-h891dp")
 @OptIn(ExperimentalTestApi::class)
 class HomeTabHostScreenTest {
     private lateinit var nearbyFake: FakeNearbyTimelineFlow
@@ -134,6 +138,9 @@ class HomeTabHostScreenTest {
                     single<FollowingTimelineFlow> { followingFake }
                     single<GlobalTimelineFlow> { globalFake }
                     single<LikeFlow> { FakeLikeFlow(likeOutcome) }
+                    // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
+                    single<ProfileFlow> { FakeProfileFlow() }
+                    single<SelfUserIdProvider> { FakeSelfUserId() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }

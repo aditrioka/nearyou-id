@@ -3,9 +3,7 @@
 ## Purpose
 
 The `admin-user-management` capability is the admin panel's per-user **profile + history browse surface** — the read-only `GET /admin/users/{id}` page that complements the state-changing `admin-user-moderation` actions. It renders a target user's identity (`id`, `username`, `display_name`, premium status, account age, `private_profile_opt_in`) and current moderation state (`is_banned`, `suspended_until`, `is_shadow_banned`), a merged newest-first **history timeline** combining `admin_actions_log` (admin actions against the user) and `username_history`, the moderation action controls (suspend / unban / warn, each carrying the session CSRF token), and the acting admin's live destructive-action quota chip. The page is session-gated (any admin role MAY view), strictly read-only (writes no `admin_actions_log` row, mutates nothing), and safe against malformed / unknown / SQL-metacharacter `{id}` (a 4xx or inline empty-state, never a 500 or 404). The user-lookup result on `admin-user-moderation` deep-links here. It is the browse half of admin user management; the account-state mutations live in `admin-user-moderation`.
-
 ## Requirements
-
 ### Requirement: Authenticated GET /admin/users/{id} renders the per-user profile page
 
 The system SHALL serve `GET /admin/users/{id}` as an authenticated route wired INSIDE the `authenticate(ADMIN_AUTH_NAME)` block established by `admin-login`, so the session middleware gates it. Any authenticated admin role (`owner`/`admin`/`moderator`/`read_only`) MAY view the page. On a valid session and a `{id}` that resolves to a user, it SHALL return HTTP 200 with an HTML page that extends the shared admin base layout (`admin-panel-scaffold`) and renders the profile block, the action-history view, and the action controls (per the requirements below). The route SHALL be **read-only** — serving it SHALL NOT write any `admin_actions_log` row and SHALL NOT mutate any table. Reads of `users`, `admin_actions_log`, and `username_history` in the admin module are permitted (the admin module is exempt from the `visible_*`-view + block-exclusion lint); all lookups SHALL use parameterized JDBC, never string-interpolated SQL.
@@ -68,14 +66,26 @@ The page SHALL render a history view combining (a) the target user's admin-actio
 
 ### Requirement: The profile page surfaces the action controls and the destructive-quota chip
 
-The page SHALL render the moderation action controls — the existing suspend and unban controls (posting to `/admin/users/{id}/suspend` and `/admin/users/{id}/unban`, owned by `admin-user-moderation`) and the NEW warning control (posting to `/admin/users/{id}/warn`) — each carrying the session CSRF token as a hidden field. The page SHALL ALSO render the acting admin's live **destructive-action quota chip** showing the current count against the cap (e.g. "3/20 this hour"), sourced from the `admin-destructive-action-rate-limit` count for the acting admin.
+The page SHALL render the moderation action controls — the existing suspend and unban controls (posting to `/admin/users/{id}/suspend` and `/admin/users/{id}/unban`, owned by `admin-user-moderation`), the warning control (posting to `/admin/users/{id}/warn`), and the NEW ban / shadow-ban / un-shadow-ban controls (posting to `/admin/users/{id}/ban`, `/admin/users/{id}/shadow-ban`, and `/admin/users/{id}/shadow-unban`, owned by `admin-user-moderation`) — each a CSRF-protected POST form carrying the session CSRF token as a hidden field (matching the page's existing no-JS plain-form pattern for suspend/warn/unban). The ban / shadow-ban / un-shadow-ban controls SHALL reflect the target's current state: the **ban** control is offered when the target is not already permanently banned, the **shadow-ban** control is offered when `is_shadow_banned = FALSE`, and the **un-shadow-ban** control is offered when `is_shadow_banned = TRUE` (the shadow-ban and un-shadow-ban controls are mutually exclusive for a given state). The ban control SHALL be presented only to `owner` / `admin` sessions (the role tier that may permanently ban); the shadow-ban / un-shadow-ban controls SHALL be presented to all write roles. The page SHALL ALSO render the acting admin's live **destructive-action quota chip** showing the current count against the cap (e.g. "3/20 this hour"), sourced from the `admin-destructive-action-rate-limit` count for the acting admin.
 
 #### Scenario: The action controls and quota chip render
 
-- **GIVEN** an authenticated write-role admin session AND a target user
+- **GIVEN** an authenticated `owner`/`admin` session AND a target user with `is_banned = FALSE`, `is_shadow_banned = FALSE`
 - **WHEN** the profile page is served
-- **THEN** the rendered body SHALL contain a suspend control posting to `/admin/users/<id>/suspend`, an unban control posting to `/admin/users/<id>/unban`, and a warning control posting to `/admin/users/<id>/warn`, each with a `_csrf` hidden field
+- **THEN** the rendered body SHALL contain a suspend control posting to `/admin/users/<id>/suspend`, an unban control posting to `/admin/users/<id>/unban`, a warning control posting to `/admin/users/<id>/warn`, a ban control posting to `/admin/users/<id>/ban`, and a shadow-ban control posting to `/admin/users/<id>/shadow-ban`, each with a `_csrf` hidden field
 - **AND** the rendered body SHALL display a destructive-action quota indicator showing the acting admin's current destructive-action count against the cap of 20
+
+#### Scenario: A shadow-banned target shows the un-shadow-ban control instead of shadow-ban
+
+- **GIVEN** an authenticated write-role session AND a target user with `is_shadow_banned = TRUE`
+- **WHEN** the profile page is served
+- **THEN** the rendered body SHALL contain an un-shadow-ban control posting to `/admin/users/<id>/shadow-unban` (with a `_csrf` hidden field) AND SHALL NOT offer a shadow-ban control for that target
+
+#### Scenario: A moderator session is not offered the permanent-ban control
+
+- **GIVEN** an authenticated `moderator` session AND a target user with `is_banned = FALSE`
+- **WHEN** the profile page is served
+- **THEN** the rendered body SHALL NOT contain a ban control posting to `/admin/users/<id>/ban` (permanent ban is owner/admin only) AND SHALL still contain the shadow-ban control
 
 ### Requirement: A malformed {id} path segment is handled safely
 
@@ -111,3 +121,4 @@ The `GET /admin/users?q=` lookup result (the `admin-user-moderation` lookup surf
 - **GIVEN** an authenticated session AND a user resolvable by the lookup
 - **WHEN** the client sends `GET /admin/users?q=<that-uuid>`
 - **THEN** the rendered result fragment SHALL contain a link whose target is `/admin/users/<that-uuid>`
+

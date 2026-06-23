@@ -2,6 +2,7 @@ package id.nearyou.app.screens.chat
 
 import id.nearyou.app.chat.ChatThreadOutcome
 import id.nearyou.app.chat.SendOutcome
+import id.nearyou.app.data.report.ReportOutcome
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -100,6 +101,46 @@ class ChatThreadUiStateTest {
         val rows = chatMessageRows(listOf(msg("m1", content = "x", redacted = true)), viewerId = viewer)
         assertTrue(rows.single().isRedacted)
         assertNull(rows.single().content)
+    }
+
+    // ---- mobile-chat-message-report: affordance-visibility projection + outcome mapping ----
+
+    @Test
+    fun `a received non-redacted message is reportable`() {
+        val rows = chatMessageRows(listOf(msg("m1", sender = "other")), viewerId = viewer)
+        assertTrue(rows.single().isReportable, "the other party's non-redacted message is reportable")
+    }
+
+    @Test
+    fun `the viewer's own message is not reportable`() {
+        val rows = chatMessageRows(listOf(msg("m1", sender = viewer)), viewerId = viewer)
+        assertFalse(rows.single().isReportable, "you cannot report your own message")
+    }
+
+    @Test
+    fun `an optimistic own send is not reportable`() {
+        // An optimistic send carries the viewer's own id (senderId == viewer) → isOwn → not reportable,
+        // so an un-persisted temp id can never reach the report target_id.
+        val rows = chatMessageRows(listOf(msg("temp-0", sender = viewer)), viewerId = viewer)
+        assertFalse(rows.single().isReportable)
+    }
+
+    @Test
+    fun `a redacted received message is not reportable`() {
+        val rows = chatMessageRows(listOf(msg("m1", sender = "other", redacted = true)), viewerId = viewer)
+        assertFalse(rows.single().isReportable, "an already-moderated message is not reportable")
+    }
+
+    @Test
+    fun `chatReportMessage folds Submitted and Duplicate into SUCCESS`() {
+        assertEquals(ChatReportMessage.SUCCESS, chatReportMessage(ReportOutcome.Submitted))
+        assertEquals(ChatReportMessage.SUCCESS, chatReportMessage(ReportOutcome.Duplicate))
+    }
+
+    @Test
+    fun `chatReportMessage maps RateLimited and NetworkError distinctly`() {
+        assertEquals(ChatReportMessage.RATE_LIMITED, chatReportMessage(ReportOutcome.RateLimited(retryAfterSeconds = 60)))
+        assertEquals(ChatReportMessage.FAILED, chatReportMessage(ReportOutcome.NetworkError))
     }
 
     // ---- thread state projection ----

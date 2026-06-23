@@ -2,6 +2,12 @@
 agp = "8.11.2"
 auth0-jwksRsa = "0.23.0"
 auth0-javaJwt = "4.5.0"
+# account-data-export — AWS SDK for Kotlin S3 client, fenced in :infra:r2 for Cloudflare R2
+# (S3-compatible) object storage + presigned download URLs. First AWS SDK on the classpath.
+# Coroutine-native (fits the Ktor backend over the blocking Java SDK v2); Cloudflare officially
+# documents this path. Pinned after a dated propose-time + apply-phase re-check (2026-06-20:
+# latest stable on Maven Central is 1.6.92).
+aws-sdk-kotlin = "1.6.92"
 android-compileSdk = "36"
 android-minSdk = "24"
 android-targetSdk = "36"
@@ -299,6 +305,9 @@ samstevens-totp = { module = "dev.samstevens.totp:totp", version.ref = "samsteve
 
 firebase-admin = { module = "com.google.firebase:firebase-admin", version.ref = "firebase-admin" }
 google-cloud-vision = { module = "com.google.cloud:google-cloud-vision", version.ref = "google-cloud-vision" }
+# AWS SDK for Kotlin S3 client — Cloudflare R2 object storage + presigned URLs (account-data-export).
+# Consumed ONLY by :infra:r2; the vendor import is fenced there (no-vendor-SDK-outside-:infra invariant).
+aws-s3 = { module = "aws.sdk.kotlin:s3", version.ref = "aws-sdk-kotlin" }
 # mobile-fcm-token-registration — Android FCM client SDK, version managed by the Firebase BoM (no version.ref).
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }

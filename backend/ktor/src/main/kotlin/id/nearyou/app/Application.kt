@@ -3,11 +3,22 @@ package id.nearyou.app
 import id.nearyou.app.account.AccountDeletionRepository
 import id.nearyou.app.account.AccountDeletionService
 import id.nearyou.app.account.AccountHardDeleteWorker
+import id.nearyou.app.account.DataExportArchiveService
+import id.nearyou.app.account.DataExportGatherRepository
+import id.nearyou.app.account.DataExportRequestRepository
+import id.nearyou.app.account.DataExportService
+import id.nearyou.app.account.DataExportWorker
+import id.nearyou.app.account.PeerIdHasher
+import id.nearyou.app.account.accountDataExportRoutes
 import id.nearyou.app.account.accountHardDeleteWorkerRoute
 import id.nearyou.app.account.accountRoutes
+import id.nearyou.app.account.dataExportWorkerRoute
 import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.admin
+import id.nearyou.app.admin.auth.AdminAuditLogger
+import id.nearyou.app.admin.auth.AdminUserRepository
+import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.privacyFlipWorkerRoute
 import id.nearyou.app.admin.retention.JdbcRetentionCleanupRepository
 import id.nearyou.app.admin.retention.RetentionCleanupWorker
@@ -93,6 +104,10 @@ import id.nearyou.app.infra.otel.OtelBootstrap
 import id.nearyou.app.infra.otel.OtelInstrumentation
 import id.nearyou.app.infra.otel.httpClientWithOtel
 import id.nearyou.app.infra.otel.installKtorServerTelemetry
+import id.nearyou.app.infra.r2.ObjectStore
+import id.nearyou.app.infra.r2.R2Config
+import id.nearyou.app.infra.r2.R2ObjectStore
+import id.nearyou.app.infra.r2.objectStore
 import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.redis.NoOpRedisStringCache
 import id.nearyou.app.infra.redis.RedisStringCache
@@ -134,6 +149,11 @@ import id.nearyou.app.infra.repo.ReservedUsernameRepository
 import id.nearyou.app.infra.repo.SinglePostRepository
 import id.nearyou.app.infra.repo.UserBlockRepository
 import id.nearyou.app.infra.repo.UserRepository
+import id.nearyou.app.infra.resend.EmailSender
+import id.nearyou.app.infra.resend.ResendConfig
+import id.nearyou.app.infra.resend.ResendEmailSender
+import id.nearyou.app.infra.resend.emailSender
+import id.nearyou.app.infra.revenuecatapi.referralEntitlementGranter
 import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
 import id.nearyou.app.infra.supabase.realtime.SupabaseBroadcastChatClient
 import id.nearyou.app.moderation.CachingLayer3ConfigLoader
@@ -147,6 +167,11 @@ import id.nearyou.app.moderation.ModerationListLoader
 import id.nearyou.app.moderation.ReportRateLimiter
 import id.nearyou.app.moderation.ReportService
 import id.nearyou.app.moderation.TextModerator
+import id.nearyou.app.moderation.csam.CsamDetectionService
+import id.nearyou.app.moderation.csam.CsamMetadataEncryptor
+import id.nearyou.app.moderation.csam.CsamRepository
+import id.nearyou.app.moderation.csam.csamArchivePurgeRoute
+import id.nearyou.app.moderation.csam.csamWebhookRoutes
 import id.nearyou.app.moderation.reportRoutes
 import id.nearyou.app.notifications.DbNotificationEmitter
 import id.nearyou.app.notifications.NoopNotificationDispatcher
@@ -161,9 +186,12 @@ import id.nearyou.app.post.PostReadService
 import id.nearyou.app.post.postEditRoutes
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.post.singlePostRoutes
+import id.nearyou.app.referral.ReferralActivityCheckWorker
+import id.nearyou.app.referral.ReferralGrantRepository
 import id.nearyou.app.referral.ReferralRepository
 import id.nearyou.app.referral.ReferralService
 import id.nearyou.app.referral.ReferralTicketRateLimiter
+import id.nearyou.app.referral.referralActivityCheckRoute
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
 import id.nearyou.app.search.searchRoutes
@@ -421,6 +449,39 @@ fun Application.module() {
     val retentionCleanupRepository = JdbcRetentionCleanupRepository(dataSource, dbDispatchers.db)
     val retentionCleanupWorker = RetentionCleanupWorker(retentionCleanupRepository)
 
+    // account-data-export: user-facing request/status API + the Cloud-Scheduler-invoked
+    // worker (/internal/data-export-worker). R2 (object storage) + Resend (email) are
+    // vendor-neutral substrates behind interfaces; an un-provisioned slot fails soft to the
+    // NoOp binding (boot never fails; the worker maps the unconfigured outcome to `failed`).
+    // ktorEnv is declared here (the earliest secret-slot-deriving consumer) and reused
+    // throughout the file below (moderation pipeline, FCM, chat-realtime, image delivery).
+    val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
+    val objectStore: ObjectStore = objectStore(R2Config.fromSecrets(secrets::resolve))
+    val emailSender: EmailSender =
+        emailSender(
+            ResendConfig(
+                apiKey = secrets.resolve("resend-api-key").orEmpty(),
+                // Staging recipient guard (docs/10 §3.9): redirect ALL mail to Resend's
+                // always-delivered test inbox so a synthetic/stale staging user can't email a
+                // real address. Null in production → real recipient.
+                recipientOverride = if (ktorEnv == "staging") "delivered@resend.dev" else null,
+            ),
+        )
+    // Graceful-stop: release the R2 S3 client's HTTP engine + the Resend Ktor client's
+    // connection pool on SIGTERM/deploy (mirrors the OTel `ApplicationStopped` hook above).
+    // NoOp bindings have no `close()`, so the `as?` casts no-op for them.
+    monitor.subscribe(ApplicationStopped) {
+        (objectStore as? R2ObjectStore)?.close()
+        (emailSender as? ResendEmailSender)?.close()
+    }
+    // Server-keyed peer-id HMAC for the scope-matrix gather (dev/test default when the slot is
+    // un-provisioned, so offline gather works; staging/prod resolve a real secret).
+    val peerIdHasher = PeerIdHasher.fromSecret(secrets.resolve("export-peer-hash-secret"))
+    val dataExportRequestRepository = DataExportRequestRepository(dataSource, dbDispatchers.db)
+    val dataExportGatherRepository = DataExportGatherRepository(dataSource, peerIdHasher, dbDispatchers.db)
+    val dataExportArchiveService = DataExportArchiveService()
+    val dataExportService = DataExportService(dataExportRequestRepository, objectStore)
+
     val reservedUsernames: ReservedUsernameRepository = JdbcReservedUsernameRepository(dataSource)
     // Real username_history binding (premium-username-customization) — shared by
     // the signup generator (release-hold collision check) and the change service.
@@ -449,11 +510,9 @@ fun Application.module() {
 
     val contentLengthGuard: ContentLengthGuard = installContentLengthGuard()
 
-    // ktorEnv is referenced by the moderation-pipeline scaffolding directly below
-    // and again by the FCM init / chat-realtime wiring further down. Declared here
-    // (above the moderation block) so the moderation-pipeline secret-slot derivation
-    // can reach it; the rest of the file uses the same `val ktorEnv`.
-    val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
+    // ktorEnv is declared earlier (alongside the account-data-export substrate wiring, the
+    // earliest secret-slot-deriving consumer) and reused by the moderation-pipeline
+    // scaffolding directly below and the FCM init / chat-realtime wiring further down.
 
     // redisUrl is consumed by the moderation pipeline (Redis cache) AND further down
     // by the rate-limiter / probe wiring. Resolved once here so the same value backs
@@ -627,6 +686,19 @@ fun Application.module() {
     val notificationRepository: NotificationRepository = JdbcNotificationRepository(dataSource)
     val notificationEmitter: NotificationEmitter = DbNotificationEmitter(notificationRepository)
     val notificationService = NotificationService(notificationRepository, dbDispatchers.db)
+    // account-data-export worker — wired here because it depends on notificationEmitter (the
+    // durable `data_export_ready` channel). The user-facing repos/service were wired earlier.
+    val dataExportWorker =
+        DataExportWorker(
+            dataSource = dataSource,
+            requests = dataExportRequestRepository,
+            gather = dataExportGatherRepository,
+            archiveService = dataExportArchiveService,
+            objectStore = objectStore,
+            emailSender = emailSender,
+            notificationEmitter = notificationEmitter,
+            dbDispatcher = dbDispatchers.db,
+        )
     val userFcmTokenReader: UserFcmTokenReader = JdbcUserFcmTokenReader(dataSource)
     val actorUsernameLookup: ActorUsernameLookup = JdbcActorUsernameLookup(dataSource)
     val inAppDispatcher: NotificationDispatcher = NoopNotificationDispatcher()
@@ -837,6 +909,14 @@ fun Application.module() {
             repository = subscriptionEventRepository,
             notifications = notificationEmitter,
             dispatcher = notificationDispatcher,
+            dbDispatcher = dbDispatchers.db,
+        )
+    val referralGrantRepository = ReferralGrantRepository()
+    val referralActivityCheckWorker =
+        ReferralActivityCheckWorker(
+            dataSource = dataSource,
+            repository = referralGrantRepository,
+            granter = referralEntitlementGranter(secrets.resolve(secretKey(ktorEnv, "revenuecat-secret-api-key"))),
             dbDispatcher = dbDispatchers.db,
         )
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
@@ -1086,6 +1166,14 @@ fun Application.module() {
                 single { accountDeletionRepository }
                 single { accountDeletionService }
                 single { accountHardDeleteWorker }
+                single<ObjectStore> { objectStore }
+                single<EmailSender> { emailSender }
+                single { peerIdHasher }
+                single { dataExportRequestRepository }
+                single { dataExportGatherRepository }
+                single { dataExportArchiveService }
+                single { dataExportService }
+                single { dataExportWorker }
                 single { retentionCleanupWorker }
             },
         )
@@ -1100,6 +1188,33 @@ fun Application.module() {
     realtimeRoutes(realtimeIssuer)
     appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())
     revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)
+
+    // --- CSAM detection (csam-detection capability) ---
+    // The AES key for `csam_detection_archive.encrypted_metadata` is FAIL-SOFT: the
+    // slot is operator-provisioned at the Month-6 image launch, so a missing key
+    // degrades encryption to a no-op (the safety-critical takedown is never blocked).
+    // The admin-session repos reuse the admin-auth seam (stateless above the connection
+    // seam, safe to re-instantiate — AdminModule precedent) for the admin-internal path.
+    val csamRepository = CsamRepository(dataSource)
+    val csamMetadataEncryptor =
+        CsamMetadataEncryptor { secrets.resolve("csam-archive-aes-key")?.let { Base64.getDecoder().decode(it) } }
+    val csamDetectionService =
+        CsamDetectionService(
+            dataSource = dataSource,
+            dbDispatcher = dbDispatchers.db,
+            csamRepository = csamRepository,
+            moderationQueueRepository = moderationQueueRepository,
+            encryptor = csamMetadataEncryptor,
+            auditLogger = AdminAuditLogger(dataSource),
+        )
+    csamWebhookRoutes(
+        service = csamDetectionService,
+        sessionRepository = SessionRepository(dataSource),
+        adminUserRepository = AdminUserRepository(dataSource),
+        rateLimiter = rateLimiter,
+        secrets = secrets,
+        env = ktorEnv,
+    )
     postRoutes(createPostService)
     imageRoutes(imageUploadService)
     singlePostRoutes(postReadService)
@@ -1121,6 +1236,7 @@ fun Application.module() {
     fcmTokenRoutes(fcmTokenRepository)
     consentRoutes(consentRepository)
     accountRoutes(accountDeletionService)
+    accountDataExportRoutes(dataExportService)
     hideDistanceRoutes(hideDistanceRepository)
 
     // /internal/* — Cloud-Scheduler-invoked job endpoints. The OIDC gate is
@@ -1136,6 +1252,9 @@ fun Application.module() {
             unbanWorkerRoute(suspensionUnbanWorker, oidcTokenVerifier)
             privacyFlipWorkerRoute(privacyFlipWorker, oidcTokenVerifier)
             accountHardDeleteWorkerRoute(accountHardDeleteWorker, oidcTokenVerifier)
+            referralActivityCheckRoute(referralActivityCheckWorker, oidcTokenVerifier)
+            csamArchivePurgeRoute(csamDetectionService, oidcTokenVerifier)
+            dataExportWorkerRoute(dataExportWorker, oidcTokenVerifier)
             retentionCleanupRoutes(retentionCleanupWorker, oidcTokenVerifier)
         }
     }

@@ -9,6 +9,7 @@ import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.theme.NearYouTheme
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -20,6 +21,7 @@ import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val TITLE = "Notifikasi"
@@ -30,9 +32,10 @@ private const val RETRY = "Coba lagi"
 private const val COPY_POST_LIKED = "Seseorang menyukai postingan kamu"
 
 /**
- * iOS counterpart to the Robolectric `NotificationsScreenTest` — the notifications screen run natively on
- * the iOS simulator (task 12.9). Covers the four fetch states + the type-keyed copy/excerpt + mark-read on
- * tap, reusing the commonTest fakes. The pull-to-refresh swipe is left to the Android suite (gesture-timing
+ * iOS counterpart to the Robolectric `NotificationsScreenTest` (+ `NotificationsScreenNavTest` for the
+ * deep-link tap) — the notifications screen run natively on the iOS simulator (task 12.9). Covers the four
+ * fetch states + the type-keyed copy/excerpt + mark-read on tap + a post-target deep-link tap → onOpenPost,
+ * reusing the commonTest fakes. The pull-to-refresh swipe is left to the Android suite (gesture-timing
  * flakiness). See `id.nearyou.app.screens.auth.SignInFlowIosTest` for the v1-API + iosTest-placement
  * rationale; uses kotlin.test `@Test` with K/N-legal fn names (no `,()#`).
  */
@@ -100,6 +103,23 @@ class NotificationsFlowIosTest {
             onNodeWithText(RETRY).performClick()
             waitForIdle()
             assertEquals(2, fake.loadInvocationCount, "retry re-invokes the fetch")
+        }
+    }
+
+    @Test
+    fun tappingPostTargetRow_invokesOnOpenPost_withNullDistance() {
+        installKoin(
+            NotificationsOutcome.Loaded(
+                listOf(fakeNotification(id = "n1", type = "post_liked", targetType = "post", targetId = "p1")),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            var captured: PostDetailTarget? = null
+            setContent { KoinContext { NearYouTheme { NotificationsScreen(onOpenPost = { captured = it }) } } }
+            onNodeWithText(COPY_POST_LIKED, substring = true).performClick()
+            waitUntil(timeoutMillis = 5_000) { captured != null }
+            assertNull(captured?.distanceM, "the by-id projection omits coordinates → distanceM is null")
         }
     }
 

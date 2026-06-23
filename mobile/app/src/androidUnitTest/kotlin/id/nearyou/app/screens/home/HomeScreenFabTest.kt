@@ -29,6 +29,7 @@ import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.TestNavHost
+import id.nearyou.app.screens.timeline.FakeSelfUserId
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.username.FakeSelfUserIdProvider
 import id.nearyou.app.theme.NearYouTheme
@@ -77,6 +78,9 @@ class HomeScreenFabTest {
                     // HomeScreen hosts NearbyTimelineScreen (needs the Nearby flow + a GRANTED gate)…
                     single<NearbyTimelineFlow> { nearbyFake }
                     single<LikeFlow> { FakeLikeFlow() }
+                    // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
+                    single<ProfileFlow> { FakeProfileFlow() }
+                    single<SelfUserIdProvider> { FakeSelfUserId() }
                     single<LocationPermissionController> { FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED) }
                     // …and the FAB appends PostCreationRoute, whose screen injects the CreatePostFlow seam
                     // plus (image-attached-posts) the image-attach + Premium-gate seams.

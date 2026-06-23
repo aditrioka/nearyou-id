@@ -221,11 +221,26 @@ fun Application.timelineRoutes(
                 ) {
                     throw LocationOutOfBoundsException(lat, lng)
                 }
-                if (radius !in NearbyTimelineService.RADIUS_MIN..NearbyTimelineService.RADIUS_MAX) {
+                if (radius !in NearbyTimelineService.ALLOWED_RADII_M) {
                     call.respondError(
                         HttpStatusCode.BadRequest,
                         "radius_out_of_bounds",
-                        "radius_m must be in [${NearbyTimelineService.RADIUS_MIN}, ${NearbyTimelineService.RADIUS_MAX}].",
+                        "radius_m must be one of ${NearbyTimelineService.ALLOWED_RADII_M}.",
+                    )
+                    return@get
+                }
+                // Premium radius gate (mobile-nearby-radius-slider): a Free viewer may use only
+                // FREE_RADIUS_M (20 km); every other allowed-set position is Premium-only. Tier is
+                // read from the auth principal — NO users SELECT (timeline-read-rate-limit invariant).
+                // Placed AFTER set-membership validation and BEFORE the limiter pre-check (mirroring
+                // the radius/location 400s above) so a 403 never burns a Free user's read quota.
+                if (radius != NearbyTimelineService.FREE_RADIUS_M &&
+                    !isPremiumStatus(principal.subscriptionStatus)
+                ) {
+                    call.respondError(
+                        HttpStatusCode.Forbidden,
+                        "radius_premium_only",
+                        "radius_m other than ${NearbyTimelineService.FREE_RADIUS_M} requires Premium.",
                     )
                     return@get
                 }
@@ -260,7 +275,7 @@ fun Application.timelineRoutes(
                                 call.respondError(
                                     HttpStatusCode.BadRequest,
                                     "radius_out_of_bounds",
-                                    "radius_m must be in [${NearbyTimelineService.RADIUS_MIN}, ${NearbyTimelineService.RADIUS_MAX}].",
+                                    "radius_m must be one of ${NearbyTimelineService.ALLOWED_RADII_M}.",
                                 )
                                 return@get
                             }
@@ -271,11 +286,7 @@ fun Application.timelineRoutes(
                         // "zero users SELECTs in the handler" invariant). Symmetric: combined per-row with
                         // the author preference by effectiveDistanceMeters.
                         val viewerHidesDistance =
-                            principal.hideDistanceOptIn &&
-                                (
-                                    principal.subscriptionStatus == "premium_active" ||
-                                        principal.subscriptionStatus == "premium_billing_retry"
-                                )
+                            principal.hideDistanceOptIn && isPremiumStatus(principal.subscriptionStatus)
                         call.respond(
                             NearbyResponse(
                                 posts =
@@ -390,3 +401,13 @@ private suspend fun io.ktor.server.application.ApplicationCall.respondError(
         mapOf("error" to mapOf("code" to code, "message" to message)),
     )
 }
+
+/**
+ * Premium-tier predicate shared (within this file) by the Nearby radius gate and the hide-distance
+ * projection. Matches the canonical premium states — `premium_active` plus the 7-day `premium_billing_retry`
+ * billing-retry grace — used by `SearchService.PREMIUM_STATES` and the timeline read limiter. Kept local
+ * to avoid a cross-module refactor of the three existing copies; the tier is always read from the auth
+ * principal, never a `users` SELECT (timeline-read-rate-limit invariant).
+ */
+private fun isPremiumStatus(subscriptionStatus: String?): Boolean =
+    subscriptionStatus == "premium_active" || subscriptionStatus == "premium_billing_retry"
