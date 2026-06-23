@@ -53,7 +53,10 @@ data class SignInResponse(
 /** Backend error envelope: `{ "error": { "code": "user_not_found", ... } }`. */
 @Serializable
 data class BackendErrorBody(
-    val error: ErrorEnvelope,
+    val error: ErrorEnvelope? = null,
+    // content-moderation-appeal: the banned/suspended sign-in `403` carries the limited appeal token
+    // alongside the error envelope (`auth-signin`). Null on every other error body.
+    @SerialName("appeal_token") val appealToken: String? = null,
 )
 
 @Serializable
@@ -72,8 +75,10 @@ sealed interface SignInApiResult {
     data class Success(val tokens: TokenPair) : SignInApiResult
 
     /** Non-2xx response. [code] is the backend error envelope's `error.code` when parseable
-     *  (the flat `/signup` `403 user_blocked` body has no `code` → `null`; map on [status]). */
-    data class HttpError(val status: Int, val code: String?) : SignInApiResult
+     *  (the flat `/signup` `403 user_blocked` body has no `code` → `null`; map on [status]).
+     *  [appealToken] is the limited appeal token from the banned/suspended sign-in `403` body
+     *  (content-moderation-appeal); null on every other non-2xx. */
+    data class HttpError(val status: Int, val code: String?, val appealToken: String? = null) : SignInApiResult
 
     /** Transport-level failure (IOException, timeout, host unreachable). */
     data class NetworkError(val cause: Throwable) : SignInApiResult
@@ -124,15 +129,19 @@ class AuthApiClient(
             }
         }
 
-        val code =
+        val parsed =
             try {
-                response.body<BackendErrorBody>().error.code
+                response.body<BackendErrorBody>()
             } catch (cause: CancellationException) {
                 throw cause
             } catch (_: Throwable) {
                 null
             }
-        return SignInApiResult.HttpError(status = response.status.value, code = code)
+        return SignInApiResult.HttpError(
+            status = response.status.value,
+            code = parsed?.error?.code,
+            appealToken = parsed?.appealToken,
+        )
     }
 
     /**
@@ -179,14 +188,18 @@ class AuthApiClient(
 
         // Best-effort parse of the NESTED envelope (400/401/409/503); the FLAT 403 body yields
         // null here — intentionally informational only, since the repository maps on `status`.
-        val code =
+        val parsed =
             try {
-                response.body<BackendErrorBody>().error.code
+                response.body<BackendErrorBody>()
             } catch (cause: CancellationException) {
                 throw cause
             } catch (_: Throwable) {
                 null
             }
-        return SignInApiResult.HttpError(status = response.status.value, code = code)
+        return SignInApiResult.HttpError(
+            status = response.status.value,
+            code = parsed?.error?.code,
+            appealToken = parsed?.appealToken,
+        )
     }
 }

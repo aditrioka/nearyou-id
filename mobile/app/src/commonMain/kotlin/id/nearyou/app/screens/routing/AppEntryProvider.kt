@@ -64,6 +64,9 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                     backStack.restoreAfterReauth(destination)
                 },
                 onNoAccount = { backStack.add(AgeGateRoute) },
+                // content-moderation-appeal: a banned/suspended sign-in stashes the appeal token in
+                // AppealSession (AuthRepository) and surfaces this entry → push the appeal surface.
+                onOpenAppeal = { backStack.add(AppealRoute) },
             )
         }
         entry<HomeRoute> {

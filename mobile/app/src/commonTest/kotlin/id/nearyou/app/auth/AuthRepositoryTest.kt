@@ -1,5 +1,6 @@
 package id.nearyou.app.auth
 
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.diagnostics.FakeCrashReporter
 import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.infra.sentry.NoOpCrashReporter
@@ -34,6 +35,7 @@ class AuthRepositoryTest {
         tokenStore: InMemoryTokenStore = InMemoryTokenStore(),
         diagnosticLog: (String) -> Unit = {},
         crashReporter: CrashReporter = NoOpCrashReporter,
+        appealSession: AppealSession = AppealSession(),
         handler: MockRequestHandler,
     ): AuthRepository {
         val sessionInvalidator = SessionInvalidator(tokenStore)
@@ -54,6 +56,7 @@ class AuthRepositoryTest {
             sessionInvalidator = sessionInvalidator,
             diagnosticLog = diagnosticLog,
             crashReporter = crashReporter,
+            appealSession = appealSession,
         )
     }
 
@@ -119,6 +122,27 @@ class AuthRepositoryTest {
                     respond("""{"error":{"code":"account_banned"}}""", HttpStatusCode.Forbidden, JSON_HEADERS)
                 }
             assertEquals(SignInOutcome.Banned, repo.signInWithGoogle())
+        }
+
+    @Test
+    fun `403 with an appeal_token stashes it in AppealSession and still maps to Banned`() =
+        runTest {
+            // content-moderation-appeal: the banned sign-in 403 carries the limited appeal token; the
+            // repository stashes it (so the appeal screen can submit) and returns Banned.
+            val session = AppealSession()
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null)),
+                    appealSession = session,
+                ) {
+                    respond(
+                        """{"error":{"code":"account_banned"},"appeal_token":"appeal-tok-1"}""",
+                        HttpStatusCode.Forbidden,
+                        JSON_HEADERS,
+                    )
+                }
+            assertEquals(SignInOutcome.Banned, repo.signInWithGoogle())
+            assertEquals("appeal-tok-1", session.peek(), "the limited appeal token is stashed for the appeal screen")
         }
 
     @Test

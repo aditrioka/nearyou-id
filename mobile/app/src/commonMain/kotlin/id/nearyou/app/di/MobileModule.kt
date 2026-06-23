@@ -174,6 +174,9 @@ val mobileModule =
                 tokenStore = get(),
                 sessionInvalidator = get(),
                 crashReporter = get(),
+                // content-moderation-appeal: the shared AppealSession holder (declared below) so a
+                // banned 403's appeal token reaches the appeal screen.
+                appealSession = get(),
             )
         }
         // Bind the AuthFlow interface to the concrete AuthRepository so screens depend on the
