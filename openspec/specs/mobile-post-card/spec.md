@@ -24,10 +24,11 @@ The card SHALL render, per the canonical mockup (frames 1 + 19, `dev/mockups/nea
 
 - An **identity header row**: the letter avatar (per § "Letter avatar derivation is deterministic"), the author's **display name** (prominent), the **@username handle** (sourced via a `stringResource` format — the `@` prefix is not hardcoded in Kotlin), and the post **time label** (the existing date-label treatment; relative "5 mnt"-style formatting remains deferred to `mobile-timeline-relative-timestamp`). The display-name and handle texts render **single-line with ellipsis overflow**, so maximal-length identities (V2 maxima: 50-char display name, 60-char username) cannot wrap or push the time label out of the header.
 - The post **content** text.
+- An optional **attached image**: when the card model supplies a non-null `imageUrl`, the card SHALL render the image below the content via the async image loader (Coil 3), with an aspect-ratio placeholder and graceful failure (no error chrome) per the docs/02 § 6 delivery rules — no preload during scroll, on-screen render only. The image element SHALL carry a meaningful `contentDescription` sourced via `stringResource` (an accessibility alt-text label for the attached post image — not a hardcoded literal, not null/empty). When `imageUrl` is null the card renders no image element and is visually identical to the pre-image baseline.
 - A **location meta row**: the coral location pin (tint `locationPin`) + `city_name` (when non-empty) + the distance string via `DistanceRenderer.render(distanceM)` when a non-null `distanceM` is supplied (Nearby); Global supplies `null` and renders no distance. When `city_name` is empty AND `distanceM` is null, the location meta row (including the pin) SHALL be omitted entirely (no orphan pin icon).
 - The **action row** per § "Action row renders interactive reply and like affordances per mockup frame 1".
 
-The card model/API SHALL NOT accept the author UUID or raw `latitude`/`longitude` (the fields do not exist on the rendered model), so the card structurally cannot render them.
+The card model/API SHALL NOT accept the author UUID or raw `latitude`/`longitude` (the fields do not exist on the rendered model), so the card structurally cannot render them. The card model MAY accept a public `imageUrl: String?` (the coordinate-independent delivery URL) — this is not PII.
 
 #### Scenario: Identity header renders display name, handle, and time
 
@@ -49,6 +50,11 @@ The card model/API SHALL NOT accept the author UUID or raw `latitude`/`longitude
 
 - **WHEN** the card is rendered with a 50-character `authorDisplayName` and a 60-character `authorUsername` (the V2 column maxima)
 - **THEN** the display-name and handle nodes render single-line with ellipsis (no wrap) AND the time label remains visible in the header row
+
+#### Scenario: Card renders the attached image when imageUrl is present, and nothing when absent
+
+- **WHEN** the card is rendered once with a non-null `imageUrl` and once with `imageUrl = null`
+- **THEN** the first render contains an async image node below the content carrying a non-empty `contentDescription` sourced from `Res.string.*` (accessibility alt text) AND the second render contains no image element (the no-image card is unchanged from the pre-image baseline)
 
 ### Requirement: Letter avatar derivation is deterministic
 
