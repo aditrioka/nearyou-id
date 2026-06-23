@@ -322,6 +322,25 @@ class SignInFlowTest : StringSpec({
         }
     }
 
+    "a non-IP clientIp ('unknown') is sanitized to NULL — the row is recorded, not dropped" {
+        // Regression guard: call.clientIp falls back to the literal "unknown" with no CF/XFF
+        // source; without sanitization the `?::inet` cast throws and (fail-soft) drops the whole
+        // row. The recorder must store NULL instead so the login-history still persists.
+        val sub = "google-le-badip"
+        val user = userRow(googleIdHash = sha256Hex(sub))
+        val events = InMemoryLoginEvents()
+        setup(InMemoryUsers(listOf(user)), StaticVerifier(sub), events) { _ ->
+            val client = createClient { install(ClientCN) { json() } }
+            client.post("/api/v1/auth/signin") {
+                header("CF-Connecting-IP", "unknown") // forces call.clientIp == "unknown"
+                contentType(ContentType.Application.Json)
+                setBody(SignInRequest(provider = "google", idToken = "ok"))
+            }
+            events.recorded shouldHaveSize 1 // recorded, NOT dropped
+            events.recorded.single().ip shouldBe null // the non-IP literal is sanitized away
+        }
+    }
+
     "a successful refresh records a refresh login event (stored provider identifier)" {
         val sub = "google-le-refresh"
         val user = userRow(googleIdHash = sha256Hex(sub))
@@ -396,6 +415,31 @@ class SignInFlowTest : StringSpec({
                 setBody(SignInRequest(provider = "google", idToken = "ok"))
             }
             events.recorded shouldHaveSize 1
+        }
+    }
+
+    "a denied refresh (account banned after sign-in) records no login event" {
+        val sub = "google-le-denied-refresh"
+        val user = userRow(googleIdHash = sha256Hex(sub))
+        val users = InMemoryUsers(listOf(user))
+        val events = InMemoryLoginEvents()
+        setup(users, StaticVerifier(sub), events) { _ ->
+            val client = createClient { install(ClientCN) { json() } }
+            val signin: TokenPairResponse =
+                client.post("/api/v1/auth/signin") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SignInRequest(provider = "google", idToken = "ok"))
+                }.body()
+            events.recorded shouldHaveSize 1 // the sign-in recorded one event
+            // Ban the account, then attempt refresh → denied 403, which must write NO event.
+            users.rows[user.id] = users.rows[user.id]!!.copy(isBanned = true, suspendedUntil = null)
+            val resp =
+                client.post("/api/v1/auth/refresh") {
+                    contentType(ContentType.Application.Json)
+                    setBody(RefreshRequest(refreshToken = signin.refreshToken))
+                }
+            resp.status shouldBe HttpStatusCode.Forbidden
+            events.recorded shouldHaveSize 1 // unchanged — the denied refresh recorded nothing
         }
     }
 })

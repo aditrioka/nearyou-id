@@ -1,5 +1,6 @@
 package id.nearyou.app.auth.loginhistory
 
+import id.nearyou.app.admin.auth.InetSanitizer
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -31,7 +32,14 @@ class LoginEventRecorder(
         identifierHash: String?,
     ) {
         try {
-            repository.insert(userId, eventType, ip, deviceFingerprintHash, identifierHash)
+            // `call.clientIp` can resolve to the literal "unknown" (or a hostname) when no
+            // CF-Connecting-IP / X-Forwarded-For source is present — both reject the `?::inet`
+            // cast. Sanitize to NULL for any non-IP-literal so a missing IP stores NULL rather
+            // than throwing (which, under fail-soft, would silently DROP the whole row — the
+            // login-history the referral engagement/anti-collision legs depend on — in every
+            // CF-less environment, e.g. local dev / staging). Reuses the admin INET-write guard.
+            val storableIp = ip?.let { InetSanitizer.orFallback(it, null) }
+            repository.insert(userId, eventType, storableIp, deviceFingerprintHash, identifierHash)
         } catch (e: Exception) {
             log.warn("login_events insert failed (fail-soft) user={} type={}", userId, eventType.wire, e)
         }

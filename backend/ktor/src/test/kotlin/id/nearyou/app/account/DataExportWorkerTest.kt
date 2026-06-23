@@ -568,8 +568,8 @@ class DataExportWorkerTest : StringSpec({
         val store = CapturingObjectStore()
         val email = RecordingEmailSender()
         val uid = seedUser()
-        // a login event with an IP, within the 90-day export window
         dataSource.connection.use { conn ->
+            // an in-window login event with an IP
             conn.prepareStatement(
                 "INSERT INTO login_events (user_id, event_type, ip, device_fingerprint_hash) " +
                     "VALUES (?, 'signin', ?::inet, ?)",
@@ -579,6 +579,15 @@ class DataExportWorkerTest : StringSpec({
                 ps.setString(3, "fp-export")
                 ps.executeUpdate()
             }
+            // a >90-day-old event — must be EXCLUDED by the export's 90-day window
+            conn.prepareStatement(
+                "INSERT INTO login_events (user_id, occurred_at, event_type, ip) " +
+                    "VALUES (?, NOW() - INTERVAL '91 days', 'signin', ?::inet)",
+            ).use { ps ->
+                ps.setObject(1, uid)
+                ps.setString(2, "198.51.100.7")
+                ps.executeUpdate()
+            }
         }
         seedPendingRequest(uid)
 
@@ -586,9 +595,11 @@ class DataExportWorkerTest : StringSpec({
         val csv = unzip(store.puts.values.single())["session_history.csv"]!!
 
         csv.contains("occurred_at") shouldBe true // login_events-sourced header
+        csv.contains("event_type") shouldBe true
         csv.contains("ip_subnet_24") shouldBe true
         csv.contains("203.0.113.45") shouldBe true // the IP is now present (omitted pre-V34)
         csv.contains("203.0.113.0/24") shouldBe true // the generated /24 subnet
+        csv.contains("198.51.100.7") shouldBe false // the >90-day row is outside the window
     }
 
     "8.8 chat export carries sent AND received with the peer id HASHED (raw id/username absent)" {
