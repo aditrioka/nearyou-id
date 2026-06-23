@@ -2,7 +2,6 @@
 
 ## Purpose
 The scheduled-retention-cleanup capability is the OIDC-gated internal worker (`POST /internal/cleanup`, Cloud-Scheduler-invoked, gated on its own route subtree) that enforces the written data-retention windows for three otherwise-unbounded tables — `refresh_tokens` (expired/stale, `docs/05` §112), `notifications` (90-day purge, §582), and `user_fcm_tokens` (30-day stale, §1120) — via idempotent bulk `DELETE` sweeps, returning per-sweep counts and emitting one structured `retention_cleanup` log line per run. It closes the UU-PDP data-minimization gap (personal data retained past policy), the stale-refresh-token security surface, and unbounded DB growth, and reuses the shipped internal-worker pattern (`suspension-unban-worker` / `privacy-flip-worker`): own-subtree OIDC gate, classified `500`, no per-row audit. It deliberately excludes the FCM on-send `404/410` single-token delete (owned by `fcm-push-dispatch`) and bounds out two deferred sweeps — WebAuthn-challenge cleanup and moderation/reports 1-year archival — as explicit scope-boundary requirements.
-
 ## Requirements
 ### Requirement: Scheduled refresh-token retention sweep
 
@@ -58,11 +57,11 @@ The system SHALL, on each `POST /internal/cleanup` invocation, delete from `user
 
 ### Requirement: The endpoint runs all sweeps per invocation and returns per-sweep counts
 
-The system SHALL expose `POST /internal/cleanup` such that a single invocation runs all in-scope retention sweeps (refresh tokens, notifications, FCM tokens) and responds `200` with a JSON body reporting the deleted-row count for each sweep: `{"refresh_tokens_deleted": <int>, "notifications_deleted": <int>, "fcm_tokens_deleted": <int>}`. Each sweep SHALL be an independent statement so that the failure of one sweep does not roll back rows already reclaimed by a sibling sweep.
+The system SHALL expose `POST /internal/cleanup` such that a single invocation runs all in-scope retention sweeps (refresh tokens, notifications, FCM tokens, login events) and responds `200` with a JSON body reporting the deleted-row count for each sweep: `{"refresh_tokens_deleted": <int>, "notifications_deleted": <int>, "fcm_tokens_deleted": <int>, "login_events_deleted": <int>}`. Each sweep SHALL be an independent statement so that the failure of one sweep does not roll back rows already reclaimed by a sibling sweep.
 
 #### Scenario: A run reports a count for every sweep
 - **WHEN** the worker is invoked AND each table contains some rows past its retention window
-- **THEN** the response is `200` with `refresh_tokens_deleted`, `notifications_deleted`, and `fcm_tokens_deleted` each equal to the number of rows that sweep deleted
+- **THEN** the response is `200` with `refresh_tokens_deleted`, `notifications_deleted`, `fcm_tokens_deleted`, and `login_events_deleted` each equal to the number of rows that sweep deleted
 
 ### Requirement: The worker is idempotent across re-runs
 
@@ -70,15 +69,15 @@ Because each sweep deletes the rows that exceed its threshold, a re-run with no 
 
 #### Scenario: A second immediate run is a no-op
 - **WHEN** the worker is invoked a second time immediately after a run that deleted all currently-eligible rows, with no new rows having crossed any retention threshold in between
-- **THEN** the response is `200` with `refresh_tokens_deleted = 0`, `notifications_deleted = 0`, and `fcm_tokens_deleted = 0`
+- **THEN** the response is `200` with `refresh_tokens_deleted = 0`, `notifications_deleted = 0`, `fcm_tokens_deleted = 0`, and `login_events_deleted = 0`
 
 ### Requirement: Each run emits one structured INFO log line
 
-The system SHALL emit exactly one structured INFO log line per worker run, carrying the event marker `retention_cleanup`, the per-sweep deleted counts (`refresh_tokens_deleted`, `notifications_deleted`, `fcm_tokens_deleted`), and the run duration in milliseconds.
+The system SHALL emit exactly one structured INFO log line per worker run, carrying the event marker `retention_cleanup`, the per-sweep deleted counts (`refresh_tokens_deleted`, `notifications_deleted`, `fcm_tokens_deleted`, `login_events_deleted`), and the run duration in milliseconds.
 
 #### Scenario: A run logs its per-sweep counts and duration
 - **WHEN** the worker completes a run
-- **THEN** exactly one INFO log line is emitted with `event=retention_cleanup`, the three per-sweep counts, and the run duration in milliseconds
+- **THEN** exactly one INFO log line is emitted with `event=retention_cleanup`, the four per-sweep counts, and the run duration in milliseconds
 
 ### Requirement: The worker endpoint authenticates via OIDC on its own route subtree
 
@@ -115,4 +114,20 @@ This capability SHALL NOT delete, archive, or modify any `moderation_queue` or `
 #### Scenario: The worker leaves old resolved moderation and report rows untouched
 - **WHEN** the worker runs AND a resolved `moderation_queue` row (or a resolved `reports` row) is older than one year
 - **THEN** that row is NOT deleted or archived AND no count for it appears in the response body
+
+### Requirement: Scheduled login-events retention sweep
+
+The system SHALL, on each `POST /internal/cleanup` invocation, delete from `login_events` every row whose `occurred_at < NOW() - INTERVAL '90 days'` — the canonical "Session trail | 90 days auto-purge" window (`docs/06` § Retention Policy). The sweep SHALL be an independent, idempotent bulk `DELETE` returning its reclaimed-row count (`login_events_deleted`), consistent with the other three sweeps, and SHALL run on its own statement so a failure does not roll back a sibling sweep's reclaimed rows.
+
+#### Scenario: A login event older than 90 days is purged
+- **WHEN** the worker runs AND a `login_events` row has `occurred_at` 91 days in the past
+- **THEN** that row is deleted AND it is counted in `login_events_deleted`
+
+#### Scenario: A login event within 90 days survives
+- **WHEN** the worker runs AND a `login_events` row has `occurred_at` 89 days in the past
+- **THEN** that row is NOT deleted AND it is NOT counted in `login_events_deleted`
+
+#### Scenario: A login event at exactly 90 days survives (strict-less boundary)
+- **WHEN** the worker runs AND a `login_events` row has `occurred_at` exactly 90 days in the past
+- **THEN** that row is NOT deleted (the predicate is `occurred_at < NOW() - INTERVAL '90 days'` — strictly less, so the exactly-90-day boundary survives)
 
