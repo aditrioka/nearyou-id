@@ -151,6 +151,9 @@ kotlin {
             // RevenueCat purchases-kmp SDK is an `implementation`-scoped transitive dep of
             // :infra:revenuecat, so it NEVER reaches the app's compile classpath (invariant #16).
             implementation(projects.infra.revenuecat)
+            // mobile-amplitude-analytics — the vendor-FREE AnalyticsTracker seam (Amplitude HTTP V2
+            // wrapper; no vendor SDK to fence). Consumed via the app-layer ConsentGatedAnalyticsTracker.
+            implementation(projects.infra.amplitude)
             // Mobile #3 — Ktor KMP client + serialization + datetime for token expiration.
             implementation(libs.ktor.kmp.clientCore)
             implementation(libs.ktor.kmp.clientContentNegotiation)
@@ -240,6 +243,9 @@ android {
             // not a secret) + environment tag. Empty until the operator provisions it (task 1.3); an
             // empty DSN makes init no-op. Overridable via -PdevSentryDsn=.
             buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("devSentryDsn") as String?) ?: ""}\"")
+            // mobile-amplitude-analytics — per-flavor Amplitude ingestion key (write key, not a secret;
+            // empty in dev → NoOpAnalyticsTracker). Overridable via -PdevAmplitudeApiKey=.
+            buildConfigField("String", "AMPLITUDE_API_KEY", "\"${(project.findProperty("devAmplitudeApiKey") as String?) ?: ""}\"")
             // mobile-paywall-screen — RevenueCat publishable client key (ships in the binary; not a
             // secret). Blank in dev (no RevenueCat locally) → configure skipped → paywall Unconfigured.
             buildConfigField("String", "REVENUECAT_PUBLIC_KEY", "\"${(project.findProperty("devRevenueCatPublicKey") as String?) ?: ""}\"")
@@ -276,6 +282,9 @@ android {
             // mobile-sentry-crash-reporting — staging Sentry DSN (operator-supplied; empty → init no-ops).
             // Overridable via -PstagingSentryDsn=.
             buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("stagingSentryDsn") as String?) ?: ""}\"")
+            // mobile-amplitude-analytics — staging Amplitude ingestion key (staging-amplitude-api-key slot,
+            // docs/10 § 3.8). Blank by default; CI injects via -PstagingAmplitudeApiKey for the live path.
+            buildConfigField("String", "AMPLITUDE_API_KEY", "\"${(project.findProperty("stagingAmplitudeApiKey") as String?) ?: ""}\"")
             // mobile-paywall-screen — RevenueCat Test Store publishable key (staging-revenuecat-test-api-key
             // slot, PR #319). Blank by default; CI injects via -PstagingRevenueCatPublicKey for the live path.
             buildConfigField(
@@ -294,6 +303,9 @@ android {
             // mobile-sentry-crash-reporting — production Sentry DSN (operator-supplied; empty → init no-ops).
             // Overridable via -PprodSentryDsn=.
             buildConfigField("String", "SENTRY_DSN", "\"${(project.findProperty("prodSentryDsn") as String?) ?: ""}\"")
+            // mobile-amplitude-analytics — production Amplitude ingestion key. Blank until the prod twin is
+            // provisioned; CI injects via -PprodAmplitudeApiKey.
+            buildConfigField("String", "AMPLITUDE_API_KEY", "\"${(project.findProperty("prodAmplitudeApiKey") as String?) ?: ""}\"")
             // mobile-paywall-screen — production RevenueCat publishable key. Blank until the prod twin is
             // provisioned (needs Apple/Google dev accounts); CI injects via -PprodRevenueCatPublicKey.
             buildConfigField("String", "REVENUECAT_PUBLIC_KEY", "\"${(project.findProperty("prodRevenueCatPublicKey") as String?) ?: ""}\"")

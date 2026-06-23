@@ -1,5 +1,6 @@
 package id.nearyou.app.di
 
+import id.nearyou.app.analytics.ConsentGatedAnalyticsTracker
 import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.AuthRepository
@@ -16,6 +17,7 @@ import id.nearyou.app.chat.ConversationsRepository
 import id.nearyou.app.chat.RealtimeTokenApiClient
 import id.nearyou.app.chat.TokenViewerIdProvider
 import id.nearyou.app.chat.ViewerIdProvider
+import id.nearyou.app.config.amplitudeApiKey
 import id.nearyou.app.config.apiBaseUrl
 import id.nearyou.app.config.appVersionName
 import id.nearyou.app.config.devicePlatform
@@ -46,6 +48,10 @@ import id.nearyou.app.followlist.FollowListRepository
 import id.nearyou.app.hidedistance.DefaultHideDistanceRepository
 import id.nearyou.app.hidedistance.HideDistanceApiClient
 import id.nearyou.app.hidedistance.HideDistanceRepository
+import id.nearyou.app.infra.amplitude.AmplitudeAnalyticsTracker
+import id.nearyou.app.infra.amplitude.AmplitudeConfig
+import id.nearyou.app.infra.amplitude.AnalyticsTracker
+import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
 import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.infra.revenuecat.RevenueCatPurchaseController
 import id.nearyou.app.infra.sentry.CrashReporter
@@ -115,6 +121,24 @@ val mobileModule =
         // SDK is fenced inside :infra:sentry). Init runs at process startup in initKoin#startCrashReporting
         // (opt-out default ON, consent-gated, blank-DSN no-op).
         single<CrashReporter> { SentryCrashReporter() }
+        // mobile-amplitude-analytics — the consent-gated product-analytics tracker. The Amplitude HTTP V2
+        // wrapper (or NoOpAnalyticsTracker when the ingestion key is blank — dev / un-provisioned) is
+        // wrapped by the app-layer ConsentGatedAnalyticsTracker (design D3), which reads the durable
+        // ConsentSnapshotStore per fire and silently suppresses when analytics consent is off.
+        single<AnalyticsTracker> {
+            ConsentGatedAnalyticsTracker(
+                delegate =
+                    if (amplitudeApiKey.isBlank()) {
+                        NoOpAnalyticsTracker
+                    } else {
+                        AmplitudeAnalyticsTracker(
+                            config = AmplitudeConfig(apiKey = amplitudeApiKey),
+                            engine = httpClientEngine(),
+                        )
+                    },
+                consentStore = get(),
+            )
+        }
         // mobile-paywall-screen — the RevenueCat-backed PurchaseController (single commonMain binding; the
         // purchases-kmp SDK is fenced inside :infra:revenuecat, invariant #16). Configured at startup via
         // configureRevenueCat; until then fetchOfferings fail-softs to Unavailable (the Unconfigured paywall).
