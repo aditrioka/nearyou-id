@@ -2,12 +2,12 @@
 
 ## Purpose
 
-The login-history-tracking capability is the durable, append-only, security-purpose record of every authenticated sign-in and token refresh — the `login_events` table (V34: per-user time, IP plus a generated /24 subnet, device-fingerprint hash, and provider-identifier hash), written best-effort from the auth routes via `LoginEventRecorder` (sourcing the IP from the `call.clientIp` accessor; fail-soft, so an audit-write error never breaks sign-in / refresh). It exists to give the referral activity-gate the durable login / IP / device history its anti-abuse legs depend on — ≥ 3 login-days, ≥ 5 server-sessionized app-sessions, and the device-fingerprint / recently-seen-identifier anti-collision checks — replacing the consent-gated client `session_start` event. As PII collected under a security / legitimate-interest basis (exempt from the analytics-consent toggle), it is fully integrated into the UU-PDP lifecycle: a 90-day retention auto-purge, inclusion in the personal-data export ("Session history", now IP-bearing), and erasure on account hard-delete.
+The login-history-tracking capability is the durable, append-only, security-purpose record of every authenticated sign-in and token refresh — the `login_events` table (V35: per-user time, IP plus a generated /24 subnet, device-fingerprint hash, and provider-identifier hash), written best-effort from the auth routes via `LoginEventRecorder` (sourcing the IP from the `call.clientIp` accessor; fail-soft, so an audit-write error never breaks sign-in / refresh). It exists to give the referral activity-gate the durable login / IP / device history its anti-abuse legs depend on — ≥ 3 login-days, ≥ 5 server-sessionized app-sessions, and the device-fingerprint / recently-seen-identifier anti-collision checks — replacing the consent-gated client `session_start` event. As PII collected under a security / legitimate-interest basis (exempt from the analytics-consent toggle), it is fully integrated into the UU-PDP lifecycle: a 90-day retention auto-purge, inclusion in the personal-data export ("Session history", now IP-bearing), and erasure on account hard-delete.
 
 ## Requirements
 ### Requirement: login_events schema
 
-A Flyway migration (the next free version, **V34**) SHALL create the `login_events` table — an append-only, per-user, security-purpose record of authenticated sign-in and refresh events — with:
+A Flyway migration (the next free version, **V35**) SHALL create the `login_events` table — an append-only, per-user, security-purpose record of authenticated sign-in and refresh events — with:
 
 - `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`
 - `user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`

@@ -1,8 +1,8 @@
-## 1. Schema (V34)
+## 1. Schema (V35)
 
-- [x] 1.1 Add `backend/ktor/src/main/resources/db/migration/V34__login_events.sql` creating `login_events` per the `login-history-tracking` spec: `id`, `user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`, `occurred_at`, `event_type VARCHAR(16) CHECK (event_type IN ('signin','refresh'))`, `ip INET`, `ip_subnet_24 INET GENERATED ALWAYS AS (network(set_masklen(ip, 24))) STORED`, `device_fingerprint_hash TEXT`, `identifier_hash TEXT`, plus the `(user_id, occurred_at DESC)` index. No `NOW()` in any index predicate.
-- [x] 1.2 Confirm V34 is the next free version against `origin/main` immediately before pushing (parallel-session Flyway-collision guard); renumber if a sibling change merged a V34 first.
-- [x] 1.3 Migration smoke test (`MigrationV34SmokeTest`, the `migration-pipeline` precedent): table + columns exist, `event_type` CHECK rejects an out-of-set value, the FK is `ON DELETE CASCADE`, the generated `ip_subnet_24` masks the host octet (and is NULL when `ip` is NULL), and the `(user_id, occurred_at)` index exists.
+- [x] 1.1 Add `backend/ktor/src/main/resources/db/migration/V35__login_events.sql` creating `login_events` per the `login-history-tracking` spec: `id`, `user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`, `occurred_at`, `event_type VARCHAR(16) CHECK (event_type IN ('signin','refresh'))`, `ip INET`, `ip_subnet_24 INET GENERATED ALWAYS AS (network(set_masklen(ip, 24))) STORED`, `device_fingerprint_hash TEXT`, `identifier_hash TEXT`, plus the `(user_id, occurred_at DESC)` index. No `NOW()` in any index predicate.
+- [x] 1.2 Confirm V35 is the next free version against `origin/main` immediately before pushing (parallel-session Flyway-collision guard); renumber if a sibling change merged a V35 first.
+- [x] 1.3 Migration smoke test (`MigrationV35SmokeTest`, the `migration-pipeline` precedent): table + columns exist, `event_type` CHECK rejects an out-of-set value, the FK is `ON DELETE CASCADE`, the generated `ip_subnet_24` masks the host octet (and is NULL when `ip` is NULL), and the `(user_id, occurred_at)` index exists.
 
 ## 2. Login-event write path
 
@@ -41,7 +41,7 @@
 ## 7. Docs reconciliation
 
 - [x] 7.1 docs/01 §212: reword "≥5 app sessions (tracked via the `session_start` event)" → server-side `login_events` sessionization (security-purpose, not the consent-gated client event).
-- [x] 7.2 docs/05 §1231/§1233: note the login-history data is now tracked (`login-history-tracking` / V34) and the deferred anti-collision + engagement legs are now active.
+- [x] 7.2 docs/05 §1231/§1233: note the login-history data is now tracked (`login-history-tracking` / V35) and the deferred anti-collision + engagement legs are now active.
 - [x] 7.3 docs/06 § Analytics & Tracking Consent: document the `login_events` security/legitimate-interest exemption from the `analytics` toggle (always-on for authenticated users, security purpose).
 - [x] 7.4 docs/06 § Data Export Scope Matrix MVP-limitation note: update "Session history — `refresh_tokens` has no IP column" → sourced from `login_events`, IP now included.
 - [x] 7.5 docs/06 § Account Deletion (Tombstone Pattern) cascade-delete list: add `login_events`.
@@ -52,7 +52,7 @@
 
 - [x] 8.1 Pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally (both lint frameworks).
 - [x] 8.2 Full-suite DB run against fresh PostGIS + Redis containers (CI-equivalent) so no seed pollution / cross-spec interaction false-fails — 184 specs / 2240 tests, 0 failures.
-- [ ] 8.3 Staging smoke (no-creds where possible): `/health/ready` 200 (V34 applied); a signin/refresh writes a `login_events` row; `/internal/cleanup` → 200 with `login_events_deleted`; export includes the IP-bearing session-history CSV. (Deferred — no `smoke-login-history-tracking.sh` yet; run via a staging branch deploy in the verify-loop / pre-archive phase.)
+- [ ] 8.3 Staging smoke (no-creds where possible): `/health/ready` 200 (V35 applied); a signin/refresh writes a `login_events` row; `/internal/cleanup` → 200 with `login_events_deleted`; export includes the IP-bearing session-history CSV. (Deferred — no `smoke-login-history-tracking.sh` yet; run via a staging branch deploy in the verify-loop / pre-archive phase.)
 - [x] 8.4 `openspec validate login-history-tracking --strict` green before the squash-merge.
 - [x] 8.5 `openspec archive login-history-tracking` + spec sync (new `login-history-tracking`; modified `referral-grant-worker`, `scheduled-retention-cleanup`, `account-data-export`, `account-hard-delete-worker`, `referral-ticket-creation`); each touched spec validated `--type spec --strict` green.
 - [x] 8.6 At archive, refreshed the stale descriptive prose in `openspec/specs/referral-grant-worker/spec.md`: filled the new `login-history-tracking` spec's TBD Purpose, rewrote the `## Purpose` "legs are deferred" sentence to the now-active state, and added a coherence note to the untouched `### Requirement: Activity gate evaluates the durable legs` pointing to the authoritative full-gate requirement.

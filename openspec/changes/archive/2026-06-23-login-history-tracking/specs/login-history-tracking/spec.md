@@ -2,7 +2,7 @@
 
 ### Requirement: login_events schema
 
-A Flyway migration (the next free version, **V34**) SHALL create the `login_events` table — an append-only, per-user, security-purpose record of authenticated sign-in and refresh events — with:
+A Flyway migration (the next free version, **V35**) SHALL create the `login_events` table — an append-only, per-user, security-purpose record of authenticated sign-in and refresh events — with:
 
 - `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`
 - `user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`

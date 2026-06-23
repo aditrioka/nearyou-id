@@ -13,13 +13,13 @@ import java.time.LocalDate
 import java.util.UUID
 
 /**
- * Database smoke test for V34 (`login_events`) — the durable login-history store
+ * Database smoke test for V35 (`login_events`) — the durable login-history store
  * (`login-history-tracking`). Pins the table shape: the `event_type` CHECK
  * vocabulary, the `ON DELETE CASCADE` user FK, the STORED generated `ip_subnet_24`
  * /24 column, and the `(user_id, occurred_at)` workhorse index.
  */
 @Tags("database")
-class MigrationV34SmokeTest : StringSpec({
+class MigrationV35SmokeTest : StringSpec({
 
     val url = System.getenv("DB_URL") ?: "jdbc:postgresql://localhost:5433/nearyou_dev"
     val user = System.getenv("DB_USER") ?: "postgres"
@@ -37,9 +37,9 @@ class MigrationV34SmokeTest : StringSpec({
     fun cleanupFixtures() {
         connect().use { conn ->
             conn.prepareStatement(
-                "DELETE FROM login_events WHERE user_id IN (SELECT id FROM users WHERE username LIKE 'v34\\_%')",
+                "DELETE FROM login_events WHERE user_id IN (SELECT id FROM users WHERE username LIKE 'v35\\_%')",
             ).use { it.executeUpdate() }
-            conn.prepareStatement("DELETE FROM users WHERE username LIKE 'v34\\_%'").use { it.executeUpdate() }
+            conn.prepareStatement("DELETE FROM users WHERE username LIKE 'v35\\_%'").use { it.executeUpdate() }
         }
     }
 
@@ -56,10 +56,10 @@ class MigrationV34SmokeTest : StringSpec({
             """.trimIndent(),
         ).use { ps ->
             ps.setObject(1, id)
-            ps.setString(2, "v34_$short")
-            ps.setString(3, "V34 $short")
+            ps.setString(2, "v35_$short")
+            ps.setString(3, "V35 $short")
             ps.setObject(4, LocalDate.of(1990, 1, 1))
-            ps.setString(5, "V34${short.take(5).uppercase()}")
+            ps.setString(5, "V35${short.take(5).uppercase()}")
             ps.executeUpdate()
         }
         return id

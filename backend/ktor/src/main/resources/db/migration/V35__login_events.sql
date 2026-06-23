@@ -1,4 +1,4 @@
--- V34: login_events — the durable, append-only, per-user security/anti-abuse
+-- V35: login_events — the durable, append-only, per-user security/anti-abuse
 -- record of authenticated sign-in and refresh events.
 --
 -- Backs the `login-history-tracking` change. It is the durable login-history

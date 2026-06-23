@@ -66,9 +66,9 @@ Every piece reuses an existing docs/11 pattern: route-layer side-effect write, J
 
 ## Migration Plan
 
-- **V34 is purely additive** — a new `login_events` table; no change to any existing table, no backfill. Rollback is a `DROP TABLE` with no data dependency until the legs read it.
+- **V35 is purely additive** — a new `login_events` table; no change to any existing table, no backfill. Rollback is a `DROP TABLE` with no data dependency until the legs read it.
 - **Deploy atomicity** — the migration, the recorder wiring, and the leg evaluation ship together in one squash-merge. On first deploy `login_events` is empty, so the engagement legs naturally hold tickets `pending_activity` until history accrues, and the anti-collision legs find no matches (no false voids). Pre-launch there are no production tickets, so there is nothing to grandfather; were this to ship post-launch, in-flight tickets whose window predates the table's first row would need grandfathering (evaluate without the login-history legs) — noted, not implemented, because it does not apply pre-launch.
-- **Staging smoke** — `/health/ready` green (V34 applied), a sign-in / refresh produces a `login_events` row, `/internal/cleanup` returns the new `login_events_deleted` count, and an export includes the IP-bearing session-history CSV.
+- **Staging smoke** — `/health/ready` green (V35 applied), a sign-in / refresh produces a `login_events` row, `/internal/cleanup` returns the new `login_events_deleted` count, and an export includes the IP-bearing session-history CSV.
 
 ## Open Questions
 
