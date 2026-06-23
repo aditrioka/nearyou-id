@@ -18,6 +18,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 
 /**
@@ -77,7 +78,8 @@ class AmplitudeAnalyticsTracker(
 
     /** Fire-and-forget dispatch: launch off the caller's thread and swallow all errors (fail-soft). */
     private fun emit(event: AmplitudeEvent) {
-        scope.launch { runCatching { post(event) } }
+        // Fail-soft, but never swallow structured cancellation (codebase convention).
+        scope.launch { runCatching { post(event) }.onFailure { if (it is CancellationException) throw it } }
     }
 
     /** Maps a [track] call to its HTTP V2 event (`internal` for deterministic tests). */

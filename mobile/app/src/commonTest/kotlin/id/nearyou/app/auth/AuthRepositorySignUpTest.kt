@@ -1,5 +1,7 @@
 package id.nearyou.app.auth
 
+import id.nearyou.app.infra.amplitude.AnalyticsTracker
+import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
 import id.nearyou.app.network.HttpClientFactory
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
@@ -11,6 +13,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
+import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -38,6 +41,7 @@ class AuthRepositorySignUpTest {
         gateway: GoogleSignInGateway,
         tokenStore: InMemoryTokenStore = InMemoryTokenStore(),
         diagnosticLog: (String) -> Unit = {},
+        analytics: AnalyticsTracker = NoOpAnalyticsTracker,
         handler: MockRequestHandler,
     ): AuthRepository {
         val sessionInvalidator = SessionInvalidator(tokenStore)
@@ -57,6 +61,7 @@ class AuthRepositorySignUpTest {
             tokenStore = tokenStore,
             sessionInvalidator = sessionInvalidator,
             diagnosticLog = diagnosticLog,
+            analytics = analytics,
         )
     }
 
@@ -309,5 +314,73 @@ class AuthRepositorySignUpTest {
                     respond("""{"error":{"code":"teapot"}}""", HttpStatusCode.fromValue(418), JSON_HEADERS)
                 }
             assertEquals(SignUpOutcome.RetryableError, repo.signUpWithGoogle("g-id", DOB))
+        }
+
+    // mobile-amplitude-analytics — a successful signup emits exactly one signup_completed carrying the
+    // just-issued token's `sub`. The 201 body's access_token is a real (sub-decodable) JWT so
+    // decodeJwtSubject yields "u1"; the middle segment is base64url of {"sub":"u1"}.
+    @Test
+    fun `successful signup emits signup_completed with the token sub`() =
+        runTest {
+            val events = mutableListOf<Pair<String, String>>()
+            val recording =
+                object : AnalyticsTracker {
+                    override fun track(
+                        eventType: String,
+                        userId: String,
+                        eventProperties: Map<String, JsonElement>,
+                    ) {
+                        events.add(eventType to userId)
+                    }
+
+                    override fun identify(
+                        userId: String,
+                        userProperties: Map<String, JsonElement>,
+                    ) = Unit
+
+                    override fun flush() = Unit
+                }
+            val jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1MSJ9.sig"
+            val body = """{"access_token":"$jwt","refresh_token":"rt-1","expires_in":900}"""
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null)),
+                    analytics = recording,
+                ) { respond(body, HttpStatusCode.Created, JSON_HEADERS) }
+
+            assertEquals(SignUpOutcome.Success, repo.signUpWithGoogle("g-id", DOB))
+            assertEquals(listOf("signup_completed" to "u1"), events, "exactly one signup_completed with the token sub")
+        }
+
+    // mobile-amplitude-analytics — a non-201 signup emits NO analytics event.
+    @Test
+    fun `a blocked signup emits no analytics event`() =
+        runTest {
+            val events = mutableListOf<String>()
+            val recording =
+                object : AnalyticsTracker {
+                    override fun track(
+                        eventType: String,
+                        userId: String,
+                        eventProperties: Map<String, JsonElement>,
+                    ) {
+                        events.add(eventType)
+                    }
+
+                    override fun identify(
+                        userId: String,
+                        userProperties: Map<String, JsonElement>,
+                    ) = Unit
+
+                    override fun flush() = Unit
+                }
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null)),
+                    analytics = recording,
+                ) { respond(SIGNUP_403_FLAT, HttpStatusCode.Forbidden, JSON_HEADERS) }
+
+            repo.signUpWithGoogle("g-id", DOB)
+            assertTrue(events.isEmpty(), "no analytics event on a non-201 signup")
         }
 }

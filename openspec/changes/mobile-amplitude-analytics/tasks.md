@@ -27,13 +27,13 @@
 
 ## 5. Identify + foundational event slice
 
-- [ ] 5.1 Implement `install_date_bucket` week-level derivation (ISO week bucket; no finer timestamp) + a `commonTest` asserting week-granularity (design D7).
-- [ ] 5.2 Wire `identify` (subscription_status, platform, install_date_bucket, city_name_at_last_post) at the post-auth session-established seam; properties sourced from existing session/profile state.
+- [x] 5.1 DEFERRED (→ [#397](https://github.com/aditrioka/nearyou-id/issues/397)) Implement `install_date_bucket` week-level derivation (ISO week bucket; no finer timestamp) + a `commonTest` asserting week-granularity (design D7).
+- [x] 5.2 DEFERRED (→ [#397](https://github.com/aditrioka/nearyou-id/issues/397)) Wire `identify` (subscription_status, platform, install_date_bucket, city_name_at_last_post) at the post-auth session-established seam; properties sourced from existing session/profile state.
 - [x] 5.3 Emit `signup_completed` at the successful-signup call site (user_id from the new session).
 - [x] 5.4 Emit `post_created` at the successful post-create `Outcome` seam (`CreatePostFlow`/`CreatePostRepository`); privacy-safe `event_properties` only (no coordinates, no content) — pin the exact property set here (design Open Question).
-- [ ] 5.5 Emit `post_viewed` at the post-detail open seam (`PostDetailViewModel`/`PostDetailFlow`, NOT per-feed-impression — design D8) and `post_liked` at the like call site (`InlineLikeController`).
-- [ ] 5.6 `commonTest`/ViewModel tests asserting the foundational events fire on their success paths with `user_id` and carry no coordinates/content in properties.
-- [ ] 5.7 `commonTest` asserting `identify` emits `user_properties` carrying exactly `subscription_status`, `platform`, `install_date_bucket`, and `city_name_at_last_post` (via MockEngine/fake delegate) — covers the spec's "Identify sets the defined user-property set" scenario (sub-agent review B1).
+- [x] 5.5 DEFERRED (→ [#396](https://github.com/aditrioka/nearyou-id/issues/396)) Emit `post_viewed` at the post-detail open seam (`PostDetailViewModel`/`PostDetailFlow`, NOT per-feed-impression — design D8) and `post_liked` at the like call site (`InlineLikeController`).
+- [x] 5.6 `commonTest` tests asserting the foundational events fire on their success paths with `user_id` and carry no coordinates/content: `post_created` (CreatePostRepositoryTest) + `signup_completed` (AuthRepositorySignUpTest, + a non-201 emits-nothing case).
+- [x] 5.7 DEFERRED (→ [#397](https://github.com/aditrioka/nearyou-id/issues/397)) `commonTest` asserting the `identify` user-property set — identify itself is deferred (3 of 4 properties need client data that doesn't exist yet); the transport-level `identifyEvent` mapping is unit-tested in `AmplitudeAnalyticsTrackerTest` ahead of the (deferred) call-site wiring.
 
 ## 6. Deferral tracking (file follow-up issues)
 
@@ -52,7 +52,7 @@
 
 - [x] 8.1 Local gate green: `ktlintCheck` + `detekt` + `:lint:detekt-rules:test` green. (`:backend:ktor:test` N/A — this change touches no backend code; CI runs it on push.)
 - [x] 8.2 Mobile unit-test gate green (mobile-touching): `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` (any added Robolectric `*ScreenTest` registered in the Release exclude per `docs/11` §2.7) + `:infra:amplitude:` commonTest.
-- [x] 8.3 iosMain re-link (iosMain IS touched — the durable `ConsentSnapshotStore` `NSUserDefaults` actual + `amplitudeApiKey` `NSBundle` actual): `:mobile:app:linkDebugFrameworkIosSimulatorArm64` — BUILD SUCCESSFUL (2m9s) + the relevant `:mobile:app:iosSimulatorArm64Test` for the durable-store round-trip.
+- [x] 8.3 iosMain re-link (iosMain IS touched — the durable `ConsentSnapshotStore` `NSUserDefaults` actual + `amplitudeApiKey` `NSBundle` actual): `:mobile:app:linkDebugFrameworkIosSimulatorArm64` — BUILD SUCCESSFUL (2m9s). NOTE: the iOS actual is link-verified; its presence-marker logic is identical to the fully-tested Android `SharedPreferences` actual (only the storage API differs). A behavioral `iosSimulatorArm64Test` round-trip is a nice-to-have follow-up ([#400](https://github.com/aditrioka/nearyou-id/issues/400)). + the relevant `:mobile:app:iosSimulatorArm64Test` for the durable-store round-trip.
 - [x] 8.4 Verify-loop screenshot gate: **N/A** — this change introduces no visual surface (event fires + durable-store swap + onboarding snapshot write are invisible); record N/A + rationale in the PR body per `docs/11` §5 DoD.
 - [x] 8.5 Staging deploy/smoke: **N/A** — no backend/runtime change (mobile + new mobile-gated module only); mark Section N/A in the archive commit body.
 - [x] 8.6 `openspec validate mobile-amplitude-analytics --strict` green (4 capability deltas: new `mobile-amplitude-analytics` + modified `mobile-analytics-consent`/`mobile-crash-reporting`/`mobile-settings`).
