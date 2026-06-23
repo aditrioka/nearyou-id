@@ -4,6 +4,7 @@ import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
+import id.nearyou.app.screens.appeal.AppealScreen
 import id.nearyou.app.screens.auth.AgeGateScreen
 import id.nearyou.app.screens.auth.SignInScreen
 import id.nearyou.app.screens.chat.ChatThreadScreen
@@ -199,6 +200,16 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             ConsentSettingsScreen(
                 onBack = { backStack.removeLastOrNull() },
                 onTokenInvalid = { backStack.replaceAll(SignInRoute) },
+            )
+        }
+        entry<AppealRoute> {
+            // The ban/suspension appeal surface (mobile-appeal). Reached from the banned/suspended session
+            // (the 5.4 wiring). onBack pops; a no-token / 401 / approved state routes to sign-in via
+            // `replaceAll` — the appeal token is one-shot, so re-sign-in re-mints it (or picks up the lifted
+            // ban). The screen reads the token from the in-memory AppealSession holder.
+            AppealScreen(
+                onBack = { backStack.removeLastOrNull() },
+                onReSignIn = { backStack.replaceAll(SignInRoute) },
             )
         }
         entry<ProfileRoute> { route ->

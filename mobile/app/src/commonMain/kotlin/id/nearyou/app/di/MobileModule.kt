@@ -1,5 +1,9 @@
 package id.nearyou.app.di
 
+import id.nearyou.app.appeal.AppealApiClient
+import id.nearyou.app.appeal.AppealFlow
+import id.nearyou.app.appeal.AppealRepository
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.AuthRepository
@@ -442,6 +446,17 @@ val mobileModule =
         single { UsernameApiClient(get()) }
         single { UsernameRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<UsernameFlow> { get<UsernameRepository>() }
+
+        // content-moderation-appeal (mobile-appeal) — the ban/suspension appeal graph. The appeal call is
+        // ban-exempt and the caller has NO normal token, so AppealApiClient is wired to a RAW client
+        // (createUnauthenticated — no Auth plugin) so the limited appeal token it attaches explicitly is not
+        // overridden by the bearer plugin. AppealSession holds the token captured at the sign-in 403 (a
+        // single, never persisted, never on a NavKey — the PendingSignupIdentity precedent). AppealFlow is
+        // the testable seam (FakeAppealFlow drives the screen + ViewModel tests).
+        single { AppealSession() }
+        single { AppealApiClient(HttpClientFactory.createUnauthenticated(apiBaseUrl, httpClientEngine(), isDebugBuild)) }
+        single { AppealRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<AppealFlow> { get<AppealRepository>() }
 
         // mobile-fcm-token-registration — the push-token registration graph. Reuses the shared
         // (bearer-authed) HttpClient (NO new client). The FcmTokenProvider platform actual is bound in

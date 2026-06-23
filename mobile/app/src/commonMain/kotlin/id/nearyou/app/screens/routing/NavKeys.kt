@@ -147,6 +147,17 @@ data object BlockedUsersRoute : NavKey
 data object ConsentSettingsRoute : NavKey
 
 /**
+ * The ban/suspension appeal surface (`mobile-appeal`, `content-moderation-appeal`), reached from the
+ * banned/suspended session state. A **parameterless** marker: the limited appeal token lives in the
+ * in-memory [id.nearyou.app.appeal.AppealSession] holder, NEVER on the route — a credential must not enter
+ * the serialized back stack (the [AgeGateRoute] `id_token` precedent). The screen's ViewModel reads the
+ * token from the holder; a restored back stack on this route after process death (token gone) falls back to
+ * re-sign-in. Registered in the `navSavedStateConfiguration` polymorphic `SerializersModule`.
+ */
+@Serializable
+data object AppealRoute : NavKey
+
+/**
  * Other-user profile surface ([id.nearyou.app.screens.profile.ProfileScreen]), opened by tapping a feed
  * card's author identity (pushed onto the ROOT back stack above [HomeRoute], overlaying the tab bar —
  * the same mechanism [PostDetailRoute] uses). The second **payload-carrying** route, so it MUST be

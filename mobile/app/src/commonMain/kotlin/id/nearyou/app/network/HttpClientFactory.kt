@@ -174,4 +174,48 @@ object HttpClientFactory {
             }
         }
     }
+
+    /**
+     * A RAW client for the ban-exempt appeal calls (`content-moderation-appeal`): NO `Auth` plugin, so the
+     * limited appeal token attached EXPLICITLY by [id.nearyou.app.appeal.AppealApiClient] is sent verbatim.
+     * The shared [create] client's bearer plugin would OVERRIDE an explicit `Authorization` header whenever
+     * the token store holds a (stale) normal token — wrong for the banned caller, who must send the appeal
+     * token. ContentNegotiation + the same cross-platform timeout budgets + (debug) the same
+     * Authorization-sanitizing logging; no auth, no refresh, no retry (the submit is a POST).
+     */
+    fun createUnauthenticated(
+        apiBaseUrl: String,
+        engine: HttpClientEngine,
+        installLogging: Boolean,
+        installTimeouts: Boolean = true,
+        logger: Logger = PrintlnLogger,
+    ): HttpClient {
+        val jsonConfig =
+            Json {
+                ignoreUnknownKeys = true
+                explicitNulls = false
+            }
+        return HttpClient(engine) {
+            install(ContentNegotiation) {
+                json(jsonConfig)
+            }
+            if (installTimeouts) {
+                install(HttpTimeout) {
+                    connectTimeoutMillis = 10_000
+                    requestTimeoutMillis = 15_000
+                    socketTimeoutMillis = 15_000
+                }
+            }
+            if (installLogging) {
+                install(Logging) {
+                    this.logger = CoordinateMaskingLogger(logger)
+                    level = LogLevel.HEADERS
+                    sanitizeHeader { header -> header.equals(HttpHeaders.Authorization, ignoreCase = true) }
+                }
+            }
+            defaultRequest {
+                url(apiBaseUrl)
+            }
+        }
+    }
 }

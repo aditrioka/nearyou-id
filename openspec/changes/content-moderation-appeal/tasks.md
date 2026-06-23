@@ -30,7 +30,7 @@
 
 ## 5. Mobile — appeal surface (`mobile-appeal`)
 
-- [ ] 5.1 `:shared:resources` strings: "Ajukan Banding" entry, form label/hint, char counter, pending/approved/rejected status copy, rate-limit + already-pending + error copy, permanent-ban "Hubungi support" copy (Bahasa Indonesia; CMP Resources only).
+- [x] 5.1 `:shared:resources` strings: "Ajukan Banding" entry, form label/hint, char counter, pending/approved/rejected status copy, rate-limit + already-pending + error copy, permanent-ban "Hubungi support" copy (Bahasa Indonesia; CMP Resources only). — `appeal_*` keys added (reusing cta_retry / timeline_loading / timeline_session_redirect / signin_error_network).
 - [x] 5.2 Data layer: `AppealApiClient` (DTOs colocated, shared `HttpClient`) + `AppealRepository` exposing sealed `AppealOutcome` (success / already-pending / rate-limited / not-eligible / transport-failure) mapping the route envelopes exactly. — `AppealApiClient`/`AppealFlow`/`AppealRepository`; the limited appeal token is attached EXPLICITLY (banned caller has no normal token → raw client, no Auth plugin); `AppealRepositoryTest` 10 green (testDevDebugUnitTest).
 - [ ] 5.3 `AppealScreen` + `AppealViewModel` (androidx ViewModel in commonMain, one `StateFlow<AppealUiState>`, `collectAsStateWithLifecycle`) + `AppealRoute` NavKey (`@Serializable`, registered in the polymorphic `SerializersModule`). Form (1000-char counter) + outcome→state mapping + status display.
 - [ ] 5.4 Settings: show the "Ajukan Banding" entry only in the suspended session state; permanent-ban path shows the support copy (design D7), no in-app permanent-ban form.
