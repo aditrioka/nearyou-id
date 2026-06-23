@@ -66,6 +66,6 @@
 
 ## 9. UI DoD + pre-archive smoke (docs/11 §5)
 
-- [ ] 9.1 Manual admin bring-up via verify-loop (local Ktor boot, admin auth + TOTP) — exercise viewer + takedown form + Kominfo write + decrypt; capture screenshots into the PR body BEFORE archive
-- [ ] 9.2 Staging branch deploy (`gh workflow run deploy-staging.yml --ref admin-csam-detection-log-viewer`) + admin smoke: unauthenticated `GET /admin/csam` → 302 `/admin/login` (route mounted + gated + app booted)
-- [ ] 9.3 PR title/body refreshed at the phase boundary (project.md hard rule)
+- [ ] 9.1 DEFERRED → #394 (operator-approved 2026-06-24; render is fully test-covered by `AdminCsamRouteTest` against a real Ktor admin app, panel intentionally unstyled): Manual admin bring-up via verify-loop + screenshots
+- [ ] 9.2 DEFERRED → #394: Staging branch deploy + admin smoke (unauthenticated `GET /admin/csam` → 302 `/admin/login`)
+- [x] 9.3 PR title/body refreshed at the phase boundary (project.md hard rule)
