@@ -9,19 +9,19 @@
 - [ ] 2.2 Implement `NoOpAnalyticsTracker` (no-op all methods) — the blank-key / unconfigured binding (mirrors `NoOpCrashReporter`).
 - [ ] 2.3 Implement `AmplitudeAnalyticsTracker` posting to the configured HTTP V2 endpoint: build the `{api_key, events:[{event_type, user_id, event_properties, user_properties, time}]}` body via `kotlinx.serialization`; own a **dedicated** `HttpClient` (ContentNegotiation + JSON + short timeout + `HttpRequestRetry` on idempotent 5xx) with **no Auth plugin** (design D4); fail-soft (catch + swallow all transport/serialization errors).
 - [ ] 2.4 Add `AmplitudeConfig` (apiKey + endpoint, default `https://api2.amplitude.com/2/httpapi`, EU-overridable per D5).
-- [ ] 2.5 `:infra:amplitude` `commonTest` (Ktor `MockEngine`): event body shape assertion (2.3); fail-soft on simulated network/5xx error; **no `Authorization` header** present (D4 security); blank-key NoOp performs no request (mirrors `NoOpCrashReporterTest`).
+- [ ] 2.5 `:infra:amplitude` `commonTest` (Ktor `MockEngine`): event body shape assertion (2.3); fail-soft on simulated network/5xx error; **no `Authorization` header** present (D4 security); blank-key NoOp performs no request (mirrors `NoOpCrashReporterTest`); the POST target URL equals the configured endpoint (US default `api2.amplitude.com`), and a second construction with the EU endpoint targets the EU host (D5 residency).
 
 ## 3. Durable consent snapshot (resolves #198)
 
-- [ ] 3.1 Add a durable `ConsentSnapshotStore` binding via `expect/actual` (Android DataStore / iOS `NSUserDefaults` — the `SecureTokenStore` storage family, no new pin), replacing `InMemoryConsentSnapshotStore` in the Koin graph. Write-on-`200`-echo semantics unchanged (server-acknowledged triple, never a client guess — `mobile-settings` requirement).
-- [ ] 3.2 Make the onboarding `ConsentScreen` persist the server-echoed triple to `ConsentSnapshotStore` on PATCH `200` (mirroring `ConsentSettingsScreen`); persist only on `200`, never on failure (spec `mobile-analytics-consent` ADDED requirement).
+- [ ] 3.1 Add a durable `ConsentSnapshotStore` binding via `expect/actual` (Android DataStore / iOS `NSUserDefaults` — the `SecureTokenStore` `expect/actual` precedent, no new pin), replacing `InMemoryConsentSnapshotStore`. Because this makes `ConsentSnapshotStore` an `expect`-backed type, **move its Koin binding out of the `commonMain` `MobileModule` into the per-platform `PlatformModule`s** (where `SecureTokenStore` is bound) — a leftover `commonMain` binding of the now-`expect` type won't compile. Write-on-`200`-echo semantics unchanged (server-acknowledged triple, never a client guess — `mobile-settings` requirement).
+- [ ] 3.2 Make the onboarding `ConsentScreen` persist the server-echoed triple to `ConsentSnapshotStore` on PATCH `200` (mirroring `ConsentSettingsScreen`); persist only on `200`, never on failure (spec `mobile-analytics-consent` ADDED requirement). The existing `ConsentScreen` Robolectric skip/`503` test MUST stay green after this snapshot-write addition (keep it in the Release-variant exclude per `docs/11` §2.7).
 - [ ] 3.3 Tests: durable round-trip across a freshly-constructed store instance (process-restart simulation) returns the persisted triple; onboarding `200` writes the snapshot; onboarding `503` leaves it unwritten; first-run `read()` → `null`. (Satisfies `mobile-analytics-consent` durable-persistence + onboarding scenarios and the `mobile-settings` reconstructed-instance scenario.)
 - [ ] 3.4 Crash-gate regression: a durable crash-decline survives a simulated process restart and closes reporting on startup (`mobile-crash-reporting` new scenario); absent snapshot → opt-out default ON.
 - [ ] 3.5 Close GitHub issue [#198](https://github.com/aditrioka/nearyou-id/issues/198) as resolved (durable persistence landed); the spec deltas already reference it.
 
 ## 4. `:mobile:app` consent gate + DI wiring
 
-- [ ] 4.1 Implement `ConsentGatedAnalyticsTracker` decorator in `:mobile:app`: reads `ConsentSnapshotStore.read()?.analytics` per call; delegates to the wrapped `AnalyticsTracker` when `true`, otherwise suppresses (design D2/D3). Absent snapshot → suppress.
+- [ ] 4.1 Implement `ConsentGatedAnalyticsTracker` decorator in `:mobile:app`: reads `ConsentSnapshotStore.read()?.analytics` per call; delegates to the wrapped `AnalyticsTracker` when `true`, otherwise suppresses (design D2/D3). Absent snapshot → suppress. The gate covers `track`, `identify`, AND `flush` (flush is a no-op for the per-call HTTP V2 transport, but gating it forecloses any ungated egress path — sub-agent review).
 - [ ] 4.2 Wire Koin in `MobileModule`: `single<AnalyticsTracker> { ConsentGatedAnalyticsTracker(delegate = if (amplitudeConfig.apiKey.isBlank()) NoOpAnalyticsTracker() else AmplitudeAnalyticsTracker(amplitudeConfig, …), consentStore = get()) }`; add `amplitudeConfig` alongside `sentryConfig` in the mobile config seam; source the staging key from the existing GCP Secret Manager slot `staging-amplitude-api-key` (provisioned per `docs/10` § 3.8; staging project ID `814353`) via the Sentry-DSN build-config delivery path; blank in dev → NoOp.
 - [ ] 4.3 `commonTest` for the consent gate: consent OFF → delegate never called (suppressed); consent absent → suppressed; consent ON → delegate invoked; per-fire re-evaluation (toggle OFF mid-session suppresses subsequent emissions). Use a fake `AnalyticsTracker` delegate to assert call/no-call.
 
@@ -33,12 +33,14 @@
 - [ ] 5.4 Emit `post_created` at the successful post-create `Outcome` seam (`CreatePostFlow`/`CreatePostRepository`); privacy-safe `event_properties` only (no coordinates, no content) — pin the exact property set here (design Open Question).
 - [ ] 5.5 Emit `post_viewed` at the post-detail open seam (`PostDetailViewModel`/`PostDetailFlow`, NOT per-feed-impression — design D8) and `post_liked` at the like call site (`InlineLikeController`).
 - [ ] 5.6 `commonTest`/ViewModel tests asserting the foundational events fire on their success paths with `user_id` and carry no coordinates/content in properties.
+- [ ] 5.7 `commonTest` asserting `identify` emits `user_properties` carrying exactly `subscription_status`, `platform`, `install_date_bucket`, and `city_name_at_last_post` (via MockEngine/fake delegate) — covers the spec's "Identify sets the defined user-property set" scenario (sub-agent review B1).
 
 ## 6. Deferral tracking (file follow-up issues)
 
 - [ ] 6.1 File a `follow-up` GitHub issue (labels `follow-up`, `mobile`) for the deferred pre-auth `app_opened` event + `device_id` seam (onboarding-funnel completion); reference it from the spec's deferral requirement.
 - [ ] 6.2 File a `follow-up` GitHub issue (labels `follow-up`, `mobile`) for the deferred full event taxonomy (premium/chat/moderation) + backend-fired security events (requires a JVM target on `:infra:amplitude`); reference it from the spec's deferral requirement.
 - [ ] 6.3 File a `follow-up` GitHub issue (labels `follow-up`, `admin`) for the admin operational-dashboard Amplitude funnel embed (`docs/07` § Operational Dashboard).
+- [ ] 6.4 File a `follow-up` GitHub issue (label `follow-up`) to fix the stale `docs/04` § Amplitude diagram annotation ("server-side events") that contradicts the canonical client-HTTP-wrapper prose (pre-existing doc nit; surfaced in review).
 
 ## 7. Module gating + docs maintenance
 

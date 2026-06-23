@@ -2,7 +2,7 @@
 
 ### Requirement: Consent-gated analytics emission
 
-The mobile app SHALL gate every Amplitude analytics emission (events and identify) on the analytics-consent value read from the **durable** `ConsentSnapshotStore` (`read()?.analytics`), re-evaluated on each emission, and SHALL silently suppress — emit no network request and surface no error or UI — when analytics consent is `FALSE` or the consent snapshot is absent. (Satisfies the `docs/08` Pre-Launch requirement "Analytics consent suppression tested — Amplitude opt-out silent.")
+The mobile app SHALL gate every Amplitude analytics emission (events, `identify`, and `flush`) on the analytics-consent value read from the **durable** `ConsentSnapshotStore` (`read()?.analytics`), re-evaluated on each emission, and SHALL silently suppress — emit no network request and surface no error or UI — when analytics consent is `FALSE` or the consent snapshot is absent. (Satisfies the `docs/08` Pre-Launch requirement "Analytics consent suppression tested — Amplitude opt-out silent.")
 
 #### Scenario: Analytics consent off suppresses emission
 - **WHEN** analytics consent is `FALSE` and any tracked event or identify is invoked
