@@ -15,6 +15,8 @@ import id.nearyou.app.admin.featureflags.FeatureFlagService
 import id.nearyou.app.admin.featureflags.FeatureFlagToggleRateLimiter
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
+import id.nearyou.app.admin.ratelimit.CsamKominfoReportRateLimiter
+import id.nearyou.app.admin.ratelimit.CsamMetadataDecryptRateLimiter
 import id.nearyou.app.admin.ratelimit.DeletionQueueExpediteRateLimiter
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import id.nearyou.app.admin.ratelimit.GraceExpediteActionRateLimiter
@@ -30,6 +32,7 @@ import id.nearyou.app.admin.routes.AdminLayout
 import id.nearyou.app.admin.routes.adminActionsLog
 import id.nearyou.app.admin.routes.adminBlockRegistry
 import id.nearyou.app.admin.routes.adminChatRedaction
+import id.nearyou.app.admin.routes.adminCsam
 import id.nearyou.app.admin.routes.adminDeletionQueue
 import id.nearyou.app.admin.routes.adminFeatureFlags
 import id.nearyou.app.admin.routes.adminIndex
@@ -50,7 +53,11 @@ import id.nearyou.app.admin.wordlist.WordlistEditRateLimiter
 import id.nearyou.app.admin.wordlist.WordlistEditorService
 import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
+import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcUsernameFlagOverrideRepository
+import id.nearyou.app.moderation.csam.CsamDetectionService
+import id.nearyou.app.moderation.csam.CsamMetadataEncryptor
+import id.nearyou.app.moderation.csam.CsamRepository
 import id.nearyou.data.repository.UsernameFlagOverrideRepository
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
@@ -64,6 +71,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.pebbletemplates.pebble.loader.ClasspathLoader
+import kotlinx.coroutines.Dispatchers
 import java.time.Instant
 import javax.sql.DataSource
 
@@ -120,6 +128,25 @@ fun Application.admin(
     // Application.module(); standalone admin wiring (tests) defaults to a fresh
     // JDBC binding (stateless above the connection seam — safe to re-instantiate).
     usernameFlagOverrideRepository: UsernameFlagOverrideRepository = JdbcUsernameFlagOverrideRepository(),
+    // CSAM detection-log surface collaborators (admin-csam-detection-log). Production
+    // passes the SAME `CsamRepository` / `CsamDetectionService` / `CsamMetadataEncryptor`
+    // instances constructed in Application.module() (so the admin-manual takedown shares
+    // the exact in-process service sink the CF-Worker webhook uses). Standalone admin
+    // wiring (tests) defaults to fresh DB-backed instances; the encryptor defaults to a
+    // fail-soft null-key provider — a test exercising the decrypt path injects a key via
+    // [csamMetadataEncryptor]. The service's [CsamDetectionService.handleDetection] owns
+    // its own transaction, so the takedown route gates the destructive cap pre-flight.
+    csamRepository: CsamRepository = CsamRepository(dataSource),
+    csamMetadataEncryptor: CsamMetadataEncryptor = CsamMetadataEncryptor { null },
+    csamDetectionService: CsamDetectionService =
+        CsamDetectionService(
+            dataSource = dataSource,
+            dbDispatcher = Dispatchers.IO,
+            csamRepository = csamRepository,
+            moderationQueueRepository = JdbcModerationQueueRepository(),
+            encryptor = csamMetadataEncryptor,
+            auditLogger = AdminAuditLogger(dataSource),
+        ),
 ) {
     val adminUserRepository = AdminUserRepository(dataSource)
     val sessionRepository = SessionRepository(dataSource)
@@ -163,6 +190,8 @@ fun Application.admin(
     val deletionQueueExpediteRateLimiter = DeletionQueueExpediteRateLimiter(dataSource)
     val deletionQueueRepository =
         DeletionQueueRepository(dataSource, auditLogger, deletionQueueExpediteRateLimiter)
+    val csamKominfoReportRateLimiter = CsamKominfoReportRateLimiter(dataSource)
+    val csamMetadataDecryptRateLimiter = CsamMetadataDecryptRateLimiter(dataSource)
     val loginRoutes =
         AdminLoginRoutes(
             adminUserRepository = adminUserRepository,
@@ -297,6 +326,17 @@ fun Application.admin(
                     auditLogger,
                     layout,
                     deletionQueueClock,
+                )
+                adminCsam(
+                    repo = csamRepository,
+                    detectionService = csamDetectionService,
+                    encryptor = csamMetadataEncryptor,
+                    destructiveRateLimiter = destructiveActionRateLimiter,
+                    kominfoRateLimiter = csamKominfoReportRateLimiter,
+                    decryptRateLimiter = csamMetadataDecryptRateLimiter,
+                    auditLogger = auditLogger,
+                    layout = layout,
+                    dataSource = dataSource,
                 )
             }
         }

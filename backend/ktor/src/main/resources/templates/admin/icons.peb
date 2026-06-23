@@ -53,6 +53,8 @@
 <svg class="ic" data-icon="credit_card" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/></svg>
 {%- elseif name == "auto_delete" -%}
 <svg class="ic" data-icon="auto_delete" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM8 9h8v10H8V9zm7.5-5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+{%- elseif name == "gpp_maybe" -%}
+<svg class="ic" data-icon="gpp_maybe" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/><path d="M11 7h2v6h-2zm0 8h2v2h-2z"/></svg>
 {%- else -%}
 {# Unknown icon name → visible sentinel instead of silent empty output, so a
    typo'd call fails loudly in any render/test that looks at data-icon. #}
