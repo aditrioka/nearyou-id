@@ -78,7 +78,7 @@ fun Application.appealRoutes(
                             return@post
                         }
                     // Length guard BEFORE the DB — throws → StatusPages maps to
-                    // 400 content_empty / content_too_long (the V31 CHECK is the backstop).
+                    // 400 content_empty / content_too_long (the V34 CHECK is the backstop).
                     val appealText = contentGuard.enforce(APPEAL_TEXT_KEY, body.appealText)
 
                     when (val outcome = service.submit(principal.userId, appealText)) {

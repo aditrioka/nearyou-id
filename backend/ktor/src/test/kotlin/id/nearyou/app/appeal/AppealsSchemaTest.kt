@@ -24,8 +24,8 @@ private fun hikari(): HikariDataSource {
 }
 
 /**
- * V31 `appeals` schema invariants (content-moderation-appeal). Tagged `database` —
- * requires dev Postgres + V31 applied. Per-test `try/finally` cleanup (NOT
+ * V34 `appeals` schema invariants (content-moderation-appeal). Tagged `database` —
+ * requires dev Postgres + V34 applied. Per-test `try/finally` cleanup (NOT
  * afterTest) so `autoClose` is safe: the pool outlives every cleanup.
  */
 @Tags("database")

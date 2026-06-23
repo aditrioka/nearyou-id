@@ -9,7 +9,7 @@ import java.util.UUID
  * Per-user daily appeal-submission cap (`content-moderation-appeal`). Appeals are
  * rare (at most one pending at a time), so this is a low SECONDARY anti-abuse bound
  * on rapid re-submission after a decision — NOT the primary one-pending guard (that
- * is the `appeals_one_pending_per_user` partial-unique index, V31).
+ * is the `appeals_one_pending_per_user` partial-unique index, V34).
  *
  * The `_day}` key marker selects the fixed-window Redis script (entries never age
  * out mid-day; the bucket expires at the caller-supplied `computeTTLToNextReset`

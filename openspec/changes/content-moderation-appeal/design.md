@@ -31,7 +31,7 @@ Resolution (the **MODIFIED `auth-signin`** delta): a banned/suspended sign-in ad
 ### D3 — Eligibility & shadow-ban exclusion (`is_banned` is the gate)
 Eligibility = `is_banned = TRUE` (covers suspension and permanent ban). Because a shadow-banned-only user is `is_banned = FALSE`, the same predicate **naturally excludes** them — there is no separate "hide from shadow-banned" branch that could leak the state. The submission endpoint returns the same `409 no_actionable_moderation` envelope to any `is_banned = FALSE` caller (shadow-banned or perfectly normal), so the response never distinguishes shadow-ban from no-ban. Explicit negative-guard scenario in the spec.
 
-### D4 — `appeals` data model (V31)
+### D4 — `appeals` data model (V34)
 ```
 appeals(
   id              UUID PK default gen_random_uuid(),
@@ -49,7 +49,7 @@ appeals(
 - **One pending appeal per user** via a partial-unique index: `CREATE UNIQUE INDEX appeals_one_pending_per_user ON appeals(user_id) WHERE status = 'pending'` — no `NOW()` in the predicate (invariant). A second submission while one is pending → `409 appeal_already_pending`.
 - **Pending queue index** for the admin list: `CREATE INDEX appeals_pending_created_idx ON appeals(created_at) WHERE status = 'pending'`.
 - `reviewed_by` is `ON DELETE SET NULL` (admin-session FK invariant — admin deletion must not cascade-destroy appeal history). `appeal_text` length CHECK is the schema backstop to the content-length-guard invariant (route-level guard is primary).
-- `V31` is disjoint from in-flight V29×2 (referral, csam) + V30 (data-export); **`tasks.md` re-verifies the next-free version at pre-merge** per the known parallel-Flyway-collision risk.
+- `V34` is disjoint from in-flight V29×2 (referral, csam) + V30 (data-export); **`tasks.md` re-verifies the next-free version at pre-merge** per the known parallel-Flyway-collision risk.
 
 ### D5 — Submission guards & rate-limit
 `POST /api/v1/appeals` (body: `appeal_text`): (1) eligibility (`is_banned = TRUE`, else 409 per D3); (2) one-pending guard (409 `appeal_already_pending`); (3) length guard (≤1000, route-level, before DB); (4) per-user submission rate-limit via the canonical Redis hash-tag key shape `{scope:rate_appeal_day}:{user:<user_id>}` (matching the shipped `{scope:rate_post_day}:{user:…}` / `{scope:rate_chat_send_day}:{user:…}` family — `_day` is the fixed-window marker; the `{scope:…}:{user:…}` two-segment shape is required by `RedisHashTagRule`) with `computeTTLToNextReset` (a low daily cap, e.g. 3/day, throttles abuse without locking out a legitimate appellant). `action_type` is **derived server-side** from the user's row (`suspended_until IS NULL → permanent_ban`, else `suspension`) — never client-supplied.
@@ -82,7 +82,7 @@ A `screens/appeal` feature (`AppealScreen` + `AppealViewModel` + `AppealUiState`
 
 ## Migration Plan
 
-- Forward: `V31__appeals.sql` (additive — new table + two partial indexes; re-verify the next-free version pre-merge). Backend + admin + mobile ship in one PR. The ban-exempt realm is additive (new named provider; existing realm gains only the `scope = "appeal"` reject). The `auth-signin` change is additive for non-banned users (their 200 response is unchanged); a banned user's existing 403 simply gains an `appeal_token` body field — no client breakage.
+- Forward: `V34__appeals.sql` (additive — new table + two partial indexes; re-verify the next-free version pre-merge). Backend + admin + mobile ship in one PR. The ban-exempt realm is additive (new named provider; existing realm gains only the `scope = "appeal"` reject). The `auth-signin` change is additive for non-banned users (their 200 response is unchanged); a banned user's existing 403 simply gains an `appeal_token` body field — no client breakage.
 - Rollback: drop the `appeals` table + remove the realm/routes; no data migration on existing tables, so rollback is clean. The admin action types `appeal_approved` / `appeal_rejected` are additive enum-of-strings in `admin_actions_log` (no schema enum to revert).
 
 ## Open Questions

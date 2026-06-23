@@ -68,7 +68,7 @@ private fun errorCode(body: String): String {
 /**
  * Integration tests for the `content-moderation-appeal` route surface + the ban-exempt
  * realm wiring (`POST`/`GET /api/v1/appeals`). Tagged `database` — requires dev Postgres
- * + V31. Per-test `try/finally` cleanup so `autoClose` (pool) is safe.
+ * + V34. Per-test `try/finally` cleanup so `autoClose` (pool) is safe.
  */
 @Tags("database")
 class AppealEndpointsTest : StringSpec({

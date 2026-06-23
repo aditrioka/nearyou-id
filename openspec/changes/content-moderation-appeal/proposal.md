@@ -4,7 +4,7 @@ Banned and suspended users currently have **no in-product recourse**. A 7-day-su
 
 ## What Changes
 
-- **New `appeals` table** (Flyway **V31**) — ledger of user-submitted appeals against *account-level* moderation actions (7-day suspension / permanent ban), with a `pending → approved | rejected` status lifecycle and an audit linkage to the reviewing admin.
+- **New `appeals` table** (Flyway **V34**) — ledger of user-submitted appeals against *account-level* moderation actions (7-day suspension / permanent ban), with a `pending → approved | rejected` status lifecycle and an audit linkage to the reviewing admin.
 - **New `POST /api/v1/appeals` submission endpoint**, reachable by `is_banned` users (suspended *or* permanent) via a **ban-exempt authenticated realm** — it validates `token_version` but does **not** apply the auth-jwt `account_banned` / `account_suspended` 403 short-circuit (without this, a banned user literally cannot reach the endpoint). The credential is a **limited-scope appeal token** the user obtains at sign-in (see the `auth-signin` modification), since suspension revokes their normal tokens. Guards: eligibility = `is_banned = TRUE` (else `409 no_actionable_moderation`); **one pending appeal per user** (partial-unique, no `NOW()` in the predicate; `409 appeal_already_pending`); per-user submission rate-limit; `appeal_text` length-capped (1000 chars, content-length-guard invariant).
 - **Shadow-ban exclusion (by design):** `is_shadow_banned`-only users are *not* `is_banned`, so no appeal is ever surfaced or accepted for them — preserving shadow-ban invisibility (the form's existence must never confirm the state). Enforced by the eligibility predicate, with an explicit negative-guard scenario.
 - **New own-appeal-status read** — the user reads their latest appeal's status (pending / approved / rejected + decision reason) from Settings, so the outcome is surfaced without a proactive push.
@@ -28,9 +28,9 @@ No breaking changes.
 
 ## Impact
 
-- **Code:** new backend `appeal` package (`AppealRoutes` → `AppealService` → `JdbcAppealRepository`); `V31__appeals.sql`; ban-exempt realm wiring + `scope = "appeal"` confinement on standard realms in the auth configuration; limited-appeal-token issuance in the sign-in path; admin route subtree + Pebble templates + two audit action types; mobile `screens/appeal` + a Settings entry + `:shared:resources` strings.
+- **Code:** new backend `appeal` package (`AppealRoutes` → `AppealService` → `JdbcAppealRepository`); `V34__appeals.sql`; ban-exempt realm wiring + `scope = "appeal"` confinement on standard realms in the auth configuration; limited-appeal-token issuance in the sign-in path; admin route subtree + Pebble templates + two audit action types; mobile `screens/appeal` + a Settings entry + `:shared:resources` strings.
 - **APIs:** `+ POST /api/v1/appeals`, `+ GET` own-appeal-status, `+ GET /admin/appeals` (+ approve / reject form actions).
-- **DB:** `+ appeals` table (V31 — re-verify the next-free version at pre-merge; in-flight siblings hold V29×2 + V30, and parallel Flyway collisions are a known risk).
+- **DB:** `+ appeals` table (V34 — re-verify the next-free version at pre-merge; in-flight siblings hold V29×2 + V30, and parallel Flyway collisions are a known risk).
 - **Reused (anti-patchwork):** the unban path (admin-user-moderation), `admin_actions_log` audit, rate-limit infra (Redis hash-tag key shape + `computeTTLToNextReset`), the auth-jwt validate block (extended, not duplicated).
 - **Deferred — captured as explicit requirements in the spec, not dropped:** proactive in-app/FCM notification on an appeal decision (the own-status read is the MVP outcome surface); a permanent-ban in-app entry point (default per [docs/03:270](../../../docs/03-UX-Design.md): support-email path — design.md resolves the docs/08-vs-docs/03 tension).
 - **Out of scope:** appeals against shadow-ban (never surfaced, by design); appeals against individual post auto-hide / report outcomes (this change is account-level actions only).

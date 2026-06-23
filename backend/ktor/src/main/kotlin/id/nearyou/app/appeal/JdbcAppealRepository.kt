@@ -20,7 +20,7 @@ data class AppealRow(
 )
 
 /**
- * JDBC for the `appeals` table (V31, `content-moderation-appeal`). Own-account
+ * JDBC for the `appeals` table (V34, `content-moderation-appeal`). Own-account
  * writes/reads — `userId` is always the verified appeal-realm principal, never a
  * request param (no IDOR surface). `appeals` is neither a `visible_*` view nor a
  * block/shadow-ban-protected table, so no `@allow-*` annotation and no block join

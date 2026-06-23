@@ -1,4 +1,4 @@
--- V31: content-moderation appeal loop (content-moderation-appeal).
+-- V34: content-moderation appeal loop (content-moderation-appeal).
 --
 -- `appeals` — user-submitted appeals against account-level moderation actions
 -- (7-day suspension / permanent ban), per docs/08 Open Decision #2 + docs/03 §234.
