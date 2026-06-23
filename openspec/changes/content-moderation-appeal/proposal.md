@@ -28,9 +28,10 @@ No breaking changes.
 
 ## Impact
 
-- **Code:** new backend `appeal` package (`AppealRoutes` → `AppealService` → `JdbcAppealRepository`); `V34__appeals.sql`; ban-exempt realm wiring + `scope = "appeal"` confinement on standard realms in the auth configuration; limited-appeal-token issuance in the sign-in path; admin route subtree + Pebble templates + two audit action types; mobile `screens/appeal` + a Settings entry + `:shared:resources` strings.
+- **Code:** new backend `appeal` package (`AppealRoutes` → `AppealService` → `JdbcAppealRepository`); `V34__appeals.sql`; ban-exempt realm wiring + `scope = "appeal"` confinement on standard realms in the auth configuration; limited-appeal-token issuance in the sign-in path; admin route subtree + Pebble templates + two audit action types; mobile `screens/appeal` + a sign-in banned-state entry + `:shared:resources` strings.
 - **APIs:** `+ POST /api/v1/appeals`, `+ GET` own-appeal-status, `+ GET /admin/appeals` (+ approve / reject form actions).
 - **DB:** `+ appeals` table (V34 — re-verify the next-free version at pre-merge; in-flight siblings hold V29×2 + V30, and parallel Flyway collisions are a known risk).
+- **Docs:** amends `docs/03-UX-Design.md` § Report UX **and** `docs/08-Roadmap-Risk.md` Open Decision #2 — the appeal-path location is reconciled from the proposal-time "form in Settings" framing to the as-built **sign-in/banned-screen** entry (suspension is session-terminating, so there is no in-app Settings session to host it).
 - **Reused (anti-patchwork):** the unban path (admin-user-moderation), `admin_actions_log` audit, rate-limit infra (Redis hash-tag key shape + `computeTTLToNextReset`), the auth-jwt validate block (extended, not duplicated).
 - **Deferred — captured as explicit requirements in the spec, not dropped:** proactive in-app/FCM notification on an appeal decision (the own-status read is the MVP outcome surface); a permanent-ban in-app entry point (default per [docs/03:270](../../../docs/03-UX-Design.md): support-email path — design.md resolves the docs/08-vs-docs/03 tension).
 - **Out of scope:** appeals against shadow-ban (never surfaced, by design); appeals against individual post auto-hide / report outcomes (this change is account-level actions only).
