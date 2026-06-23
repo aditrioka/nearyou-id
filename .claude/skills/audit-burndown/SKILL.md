@@ -1,20 +1,20 @@
 ---
 name: audit-burndown
-description: Work ONE remaining item from the 2026-06-10 holistic-audit backlog end-to-end — pick (or take the named item), route it to the right delivery shape (OpenSpec vs regular PR), execute under the docs/11 rails + verification gates, then update the backlog state. Use when the user says "/audit-burndown", "burn down one audit item", "babat satu item audit", "kerjakan item audit berikutnya", or names a specific audit leftover (05-#5, #214, ...). When the last item falls, this skill also performs the audit-directory cleanup.
+description: Work ONE remaining item from the 2026-06-10 holistic-audit backlog end-to-end — pick (or take the named item), route it to the right delivery shape (OpenSpec vs regular PR), execute under the docs/11 rails + verification gates, then update the backlog state. When the last item falls, this skill performs the audit-directory cleanup. Use on "/audit-burndown", "burn down one audit item", "babat satu item audit", "kerjakan item audit berikutnya", or a named audit leftover (05-#5, #214, …). NOT for new-capability proposals (use /next-change) or general follow-up triage (use /triage-follow-ups).
 ---
 
 Eat the 2026-06-10 audit backlog one item per invocation. One item = one branch = one PR. Never start a second item in the same session.
 
 ## 0 — Claim survey (always, before picking)
 
-Same discipline as `/next-change`: `gh pr list --state open`, `git worktree list`, `gh issue list --label follow-up --state open`. If an item is already claimed by an open PR or a sibling worktree branch, skip it and take the next. Work from a fresh branch off `origin/main`.
+Same discipline as `/next-change`: `gh pr list --state open`, `git worktree list`, `gh issue list --label follow-up --state open`. Skip any item already claimed by an open PR or sibling-worktree branch; take the next. Work from a fresh branch off `origin/main`.
 
 ## 1 — Resolve the backlog
 
 Two sources of truth (check both — the second disappears after cleanup):
 
 1. **Open `follow-up` issues from the audit:** [#210](https://github.com/aditrioka/nearyou-id/issues/210) feed self-visibility · [#211](https://github.com/aditrioka/nearyou-id/issues/211)+[#196](https://github.com/aditrioka/nearyou-id/issues/196) social-list contract · [#212](https://github.com/aditrioka/nearyou-id/issues/212) batched-Lua limiter · [#214](https://github.com/aditrioka/nearyou-id/issues/214) auth rate limits. ([#213](https://github.com/aditrioka/nearyou-id/issues/213) is NEVER picked standalone — it ships inside the future chat change.)
-2. **`dev/audits/2026-06-10-holistic-audit/`** — PROGRESS.md § "Remaining after wave 7" + the full fix sketches in `findings/05` + `findings/06`. If the directory is already deleted, the sketches live forever in the PR [#209](https://github.com/aditrioka/nearyou-id/pull/209) diff.
+2. **`dev/audits/2026-06-10-holistic-audit/`** — PROGRESS.md § "Remaining after wave 7" + fix sketches in `findings/05` + `findings/06`. If the directory is deleted, the sketches live in the PR [#209](https://github.com/aditrioka/nearyou-id/pull/209) diff.
 
 **The menu** (id → what → sketch → shape → constraint):
 
@@ -35,11 +35,11 @@ Two sources of truth (check both — the second disappears after cleanup):
 ## 2 — Execute under the rails
 
 - Read `docs/11-Engineering-Standards.md` (the relevant §) BEFORE coding — non-negotiable.
-- OpenSpec-shaped items: `/opsx:propose` → `/opsx:apply` → `/opsx:archive` (one PR carries the lifecycle). Regular-PR items: branch `fix/...`/`refactor/...`, normal review.
+- OpenSpec-shaped items: `/opsx:propose` → `/opsx:apply` → `/opsx:archive` (one PR carries the lifecycle). Regular-PR items: branch `fix/…`/`refactor/…`, normal review.
 - Gates before every push: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` + (mobile) `:mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`. Do NOT run the gate while a local `:backend:ktor:run` is alive (Postgres connection budget — see verify-loop § Known blockers).
-- UI-affecting → the manual verification gate (verify-loop §B/§C, screenshot evidence in the PR body) before archive/merge. K/N-touching → `:mobile:app:iosSimulatorArm64Test`.
+- UI-affecting → manual verification gate (verify-loop §B/§C, screenshot evidence in the PR body) before archive/merge. K/N-touching → `:mobile:app:iosSimulatorArm64Test`.
 
-## 3 — Close the loop (the part that keeps the backlog honest)
+## 3 — Close the loop (keeps the backlog honest)
 
 After the item's PR merges:
 
@@ -48,7 +48,11 @@ After the item's PR merges:
    - Delete `dev/audits/2026-06-10-holistic-audit/` entirely (history + PR #209 diff preserve it),
    - Fix the one live code reference: the `AUDIT-FLAGGED` comment in `Application.kt`'s RemoteConfig wiring (point it at the PR instead of the file),
    - Ship as a tiny `chore(audit): retire audit artifacts — backlog empty` PR. Mention this skill can be deleted in the same PR or kept dormant.
-3. Tell the operator: what shipped, what the backlog still holds, and the recommended next `/audit-burndown` pick.
+3. Tell the operator: what shipped, what the backlog still holds, the recommended next pick.
+
+## Safety
+
+All mutation lands on a fresh feature branch + PR — never push to `main`, never `--no-verify`. Don't run the gradle gate while a local `:backend:ktor:run` is alive. The directory-delete in step 3.2 fires ONLY when the backlog is verified empty (history + PR #209 preserve it).
 
 ## Self-improving rule
 
