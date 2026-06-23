@@ -56,7 +56,7 @@ class AppealViewModelTest {
         }
 
     @Test
-    fun `on-entry maps none to Form, pending to Pending, decided to Decided`() =
+    fun `on-entry maps none-pending-decided status to their UI states`() =
         runTest {
             val none = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.None))
             advanceUntilIdle()
@@ -150,7 +150,7 @@ class AppealViewModelTest {
         }
 
     @Test
-    fun `editor caps at the limit and counts characters, blank cannot submit`() =
+    fun `editor caps at the limit and a blank cannot submit`() =
         runTest {
             val flow = FakeAppealFlow()
             val viewModel = vm(flow)
