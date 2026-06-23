@@ -21,6 +21,8 @@ data class FollowingTimelinePost(
     val createdAt: String,
     val likedByViewer: Boolean,
     val replyCount: Int,
+    // image-attached-posts: the public image delivery URL (null = text-only). NOT PII (coordinate-free).
+    val imageUrl: String?,
 )
 
 private fun FollowingPostDto.toUi(): FollowingTimelinePost =
@@ -33,6 +35,7 @@ private fun FollowingPostDto.toUi(): FollowingTimelinePost =
         createdAt = createdAt,
         likedByViewer = likedByViewer,
         replyCount = replyCount,
+        imageUrl = imageUrl,
     )
 
 /**

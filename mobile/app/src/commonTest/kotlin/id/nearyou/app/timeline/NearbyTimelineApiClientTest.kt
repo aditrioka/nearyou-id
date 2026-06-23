@@ -225,6 +225,49 @@ class NearbyTimelineApiClientTest {
             val api = NearbyTimelineApiClient(client { throw RuntimeException("connection refused") })
             assertTrue(api.fetchNearby(-6.2, 106.8, 20000, "s") is NearbyApiResult.NetworkError)
         }
+
+    // ---- mobile-nearby-radius-slider: a non-default radius is sent, and the radius_premium_only 403
+    //      error.code is parsed onto HttpError (the VM's reactive backstop reads it). ----
+
+    @Test
+    fun `fetchNearby sends the supplied non-default radius_m verbatim`() =
+        runTest {
+            var captured: HttpRequestData? = null
+            val api =
+                NearbyTimelineApiClient(
+                    client { request ->
+                        captured = request
+                        respond("""{"posts":[]}""", HttpStatusCode.OK, JSON_HEADERS)
+                    },
+                )
+            api.fetchNearby(lat = -6.2, lng = 106.8, radiusM = 50000, sessionId = "s")
+            assertEquals("50000", requireNotNull(captured).url.parameters["radius_m"])
+        }
+
+    @Test
+    fun `a 403 radius_premium_only populates HttpError errorCode`() =
+        runTest {
+            val api =
+                NearbyTimelineApiClient(
+                    client {
+                        respond(
+                            """{"error":{"code":"radius_premium_only","message":"requires Premium"}}""",
+                            HttpStatusCode.Forbidden,
+                            JSON_HEADERS,
+                        )
+                    },
+                )
+            val err = assertIsHttpError(api.fetchNearby(-6.2, 106.8, 50000, "s"))
+            assertEquals(403, err.status)
+            assertEquals("radius_premium_only", err.errorCode, "the 403 error.code is parsed onto HttpError")
+        }
+
+    @Test
+    fun `a non-2xx with an empty or shapeless body leaves errorCode null`() =
+        runTest {
+            val api = NearbyTimelineApiClient(client { respond("", HttpStatusCode.InternalServerError, JSON_HEADERS) })
+            assertNull(assertIsHttpError(api.fetchNearby(-6.2, 106.8, 20000, "s")).errorCode)
+        }
 }
 
 private fun assertIsSuccess(result: NearbyApiResult): NearbyResponseDto {

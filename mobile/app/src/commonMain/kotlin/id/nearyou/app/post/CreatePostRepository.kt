@@ -38,7 +38,10 @@ class CreatePostRepository(
     private val analytics: AnalyticsTracker = NoOpAnalyticsTracker,
     private val selfUserId: suspend () -> String? = { null },
 ) : CreatePostFlow {
-    override suspend fun submit(content: String): PostCreationOutcome {
+    override suspend fun submit(
+        content: String,
+        imageId: String?,
+    ): PostCreationOutcome {
         // 1. Permission gate FIRST — never reach the un-guarded platform provider under a denial.
         //    status()/request() suspend; a CancellationException propagates naturally (not caught).
         val granted =
@@ -67,8 +70,12 @@ class CreatePostRepository(
                 return PostCreationOutcome.LocationUnavailable
             }
 
-        // 3. POST + exhaustive status/error.code mapping.
-        return when (val result = apiClient.createPost(content = content, lat = location.lat, lng = location.lng)) {
+        // 3. POST + exhaustive status/error.code mapping. The optional imageId is threaded straight to the
+        //    request body (null ⇒ a text-only post; the body omits image_id, byte-identical to pre-change).
+        return when (
+            val result =
+                apiClient.createPost(content = content, lat = location.lat, lng = location.lng, imageId = imageId)
+        ) {
             is PostCreationApiResult.Success -> {
                 // mobile-amplitude-analytics — emit post_created (consent-gated downstream). Privacy-safe:
                 // user id only, no coordinates, no content.

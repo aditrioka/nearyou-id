@@ -80,6 +80,17 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 // mobile-chat-screen (task 10.1): the Home brand app-bar "Pesan" action pushes the
                 // conversation list onto the root stack (overlaying the section bar, like PostDetailRoute).
                 onOpenChat = { backStack.add(ConversationListRoute) },
+                // Notification chat_message deep-link (mobile-notifications-deep-link-targets): push the
+                // thread directly atop the shell (the VM resolved the partner identity via user-profile-read).
+                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName ->
+                    backStack.add(
+                        ChatThreadRoute(
+                            conversationId = conversationId,
+                            partnerUsername = partnerUsername,
+                            partnerDisplayName = partnerDisplayName,
+                        ),
+                    )
+                },
                 onOpenPost = { target ->
                     backStack.add(
                         PostDetailRoute(
@@ -92,6 +103,9 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                             replyCount = target.replyCount,
                             authorUsername = target.authorUsername,
                             authorDisplayName = target.authorDisplayName,
+                            // image-attached-posts: carry the tapped card's image URL so detail renders it
+                            // with no by-id re-fetch (null = text-only).
+                            imageUrl = target.imageUrl,
                         ),
                     )
                 },
@@ -111,6 +125,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                             authorUsername = target.authorUsername,
                             authorDisplayName = target.authorDisplayName,
                             focusReplyComposer = true,
+                            // image-attached-posts: same image URL carry-through as the whole-card open.
+                            imageUrl = target.imageUrl,
                         ),
                     )
                 },
@@ -153,7 +169,13 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // ATOP HomeRoute (the home-surface FAB), so popping it leaves HomeRoute — never an empty stack
             // (which NavDisplay would reject). No defensive size guard is added, so a future misuse that
             // makes PostCreationRoute the sole entry fails loudly rather than silently no-op'ing.
-            PostCreationScreen(onPostCreated = { backStack.removeLastOrNull() })
+            PostCreationScreen(
+                onPostCreated = { backStack.removeLastOrNull() },
+                // image-attached-posts: a Free viewer tapping the image-attach affordance routes to the
+                // shared paywall (the IMAGE_ATTACH entry-context tailors the hero), the SearchScreen /
+                // username-gate mechanism. The composer holds no back-stack reference.
+                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.IMAGE_ATTACH)) },
+            )
         }
         entry<PostDetailRoute> { route ->
             // `removeLastOrNull()` is size-safe: PostDetailRoute is only ever appended ATOP HomeRoute

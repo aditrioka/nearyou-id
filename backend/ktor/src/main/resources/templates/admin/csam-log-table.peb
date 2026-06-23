@@ -1,0 +1,110 @@
+{# Swappable CSAM detection-log fragment. Rendered standalone for HTMX requests
+   (HX-Request: true) and {% include %}d by csam-log.peb for full-page navigation.
+   The #csam-log-table id is the hx-target swapped in place by the filter form, the
+   takedown form, and the Kominfo form.
+
+   IMAGE-CONTENT-FREE INVARIANT (design D3): there is NO <img>, no image-bytes, and
+   no img.nearyou.id / content URL anywhere in this fragment. Only scalar columns
+   (image hash prefix, source, enforcement/archive state, Kominfo status) render; the
+   only link-out is the Cloudflare REVIEW console for cf_worker rows (design D8), which
+   is the CF dashboard, never the matched image.
+
+   Every value is Pebble-autoescaped on output — NO `raw` filter. The Kominfo report
+   id is operator-pasted free text, so escaping is load-bearing. The form actions are
+   built from the row id (a UUID, not user-controlled).
+
+   CSRF on the per-row Kominfo form: the full-page (no-JS) render carries `csrfToken`
+   so the `_csrf` hidden field populates; the HTMX-fragment render omits it (the
+   layout's htmx:configRequest hook adds the X-CSRF-Token header from the meta tag). #}
+<div id="csam-log-table">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+<div class="summary">
+    <p class="summary-total">Pending Kominfo filing: {{ pendingCount }}</p>
+</div>
+{% if hasRows %}
+    <div class="tbl-wrap">
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th>Detected (UTC)</th>
+                <th>Image hash</th>
+                <th>Source</th>
+                <th>Enforcement / archive</th>
+                <th>Kominfo</th>
+                <th>Unblock req</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td>{{ row.detectedAt }}</td>
+                <td><span class="code">{{ row.imageHashShort }}</span></td>
+                <td>
+                {% if row.isCfWorker %}
+                    <span class="st info">{{ row.source }}</span>
+                {% else %}
+                    <span class="st pend">{{ row.source }}</span>
+                {% endif %}
+                </td>
+                <td><span class="st ok">archived</span></td>
+                <td>
+                {% if row.kominfoFiled %}
+                    <span class="st ok">filed</span>
+                    {% if row.kominfoReportId is not null %}<span class="code">{{ row.kominfoReportId }}</span>{% endif %}
+                {% else %}
+                    <span class="st neut">not filed</span>
+                    <form class="kominfo-file"
+                          action="{{ row.kominfoAction }}"
+                          method="POST"
+                          hx-post="{{ row.kominfoAction }}"
+                          hx-target="#csam-log-table"
+                          hx-swap="outerHTML"
+                          hx-confirm="Recording a Kominfo filing releases this preservation row to the purge worker after its 90-day deadline. Continue?">
+                        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                        <input type="text" name="kominfo_report_id" maxlength="200" placeholder="Kominfo report id (required)" required aria-label="Kominfo report id">
+                        <button type="submit" class="btn dangert sm"><span class="ms">gavel</span>File Kominfo</button>
+                    </form>
+                {% endif %}
+                </td>
+                <td>
+                {% if row.unblockUrl is not null %}
+                    <a class="btn outl sm" href="{{ row.unblockUrl }}" target="_blank" rel="noopener noreferrer">Review</a>
+                {% else %}
+                    <span class="muted">—</span>
+                {% endif %}
+                </td>
+            </tr>
+            <tr class="meta-row">
+                <td colspan="6">
+                {% if row.hasMetadata %}
+                    <button type="button"
+                            class="btn outl sm"
+                            hx-post="{{ row.decryptAction }}"
+                            hx-target="#csam-meta-{{ row.id }}"
+                            hx-swap="innerHTML"><span class="ms">key</span>Decrypt metadata</button>
+                {% else %}
+                    <span class="muted">No encrypted metadata on this row.</span>
+                {% endif %}
+                    <div id="csam-meta-{{ row.id }}" class="csam-meta-slot"></div>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if nextUrl is not null %}
+    <div class="pager">
+        <a class="pagination-next"
+           href="{{ nextUrl }}"
+           hx-get="{{ nextUrl }}"
+           hx-target="#csam-log-table"
+           hx-swap="outerHTML"
+           hx-push-url="true">Next</a>
+    </div>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No CSAM detection records match the current filters.</p>
+{% endif %}
+</div>

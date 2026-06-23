@@ -2,6 +2,7 @@ package id.nearyou.app.infra.remoteconfig
 
 import com.google.auth.oauth2.GoogleCredentials
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -359,3 +360,44 @@ private fun extractProjectId(secretJson: String): String? {
     val value = root["project_id"] as? JsonPrimitive ?: return null
     return value.content.takeIf { it.isNotBlank() }
 }
+
+/**
+ * Canonical JSON-array-of-strings codec for Remote Config string-list parameters
+ * (`moderation_profanity_list` / `moderation_uu_ite_list`). Single-sources the wire
+ * shape the moderation reader (`ModerationListLoader`) parses, so the admin
+ * wordlist editor encodes exactly what the loader decodes — without leaking a
+ * `kotlinx.serialization` decision into `:backend:ktor` (the editor sees only
+ * `List<String>`). Encode produces `["a","b"]`; decode tolerates a malformed /
+ * non-array / null value by returning `null` (the caller treats that as "no
+ * current list").
+ */
+object RemoteConfigStringList {
+    private val JSON = Json { ignoreUnknownKeys = true }
+
+    /** `List<String>` → a JSON-array string (`["a","b"]`), the Server-template wire shape. */
+    fun encode(entries: List<String>): String = JsonArray(entries.map { JsonPrimitive(it) }).toString()
+
+    /** A JSON-array string → `List<String>`; `null` when [raw] is null, blank, malformed, or not a string array. */
+    fun decode(raw: String?): List<String>? {
+        if (raw.isNullOrBlank()) return null
+        return runCatching {
+            val element = JSON.parseToJsonElement(raw) as? JsonArray ?: return null
+            element.map { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: return null }
+        }.getOrNull()
+    }
+}
+
+/**
+ * Publish a string-list parameter (e.g. a moderation wordlist) to the Server
+ * template: serialize [entries] to the canonical JSON-array shape and delegate to
+ * [RemoteConfigPublisher.publishServerParameter] (so the If-Match optimistic
+ * concurrency, the `WriteUnavailable` degradation, and the single-parameter-patch
+ * guarantee all carry over unchanged). An extension (not an interface method) so
+ * no implementation — including [NoOpRemoteConfigPublisher] and test fakes — needs
+ * to change; the underlying `publishServerParameter` call is the spy point.
+ */
+fun RemoteConfigPublisher.publishServerStringList(
+    parameterName: String,
+    entries: List<String>,
+    expectedEtag: String,
+): PublishResult = publishServerParameter(parameterName, RemoteConfigStringList.encode(entries), expectedEtag)

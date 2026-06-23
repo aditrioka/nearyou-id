@@ -19,9 +19,18 @@ class FakeCreatePostFlow(
     var lastSubmittedContent: String? = null
         private set
 
-    override suspend fun submit(content: String): PostCreationOutcome {
+    /** image-attached-posts: the imageId passed on the last submit (null ⇒ the text-only path). Lets a
+     *  test assert the create body carries the uploaded id ONLY when an image was attached. */
+    var lastSubmittedImageId: String? = null
+        private set
+
+    override suspend fun submit(
+        content: String,
+        imageId: String?,
+    ): PostCreationOutcome {
         submitInvocationCount++
         lastSubmittedContent = content
+        lastSubmittedImageId = imageId
         if (suspendForever) awaitCancellation()
         return outcome
     }

@@ -10,23 +10,50 @@ import id.nearyou.distance.LatLng
  */
 interface NearbyTimelineFlow {
     /**
-     * Loads the first page of the Nearby feed (≤ 30 posts). Pull-to-refresh re-invokes this; the
-     * returned [NearbyTimelineOutcome.Loaded.nextCursor] drives [loadMore], and the resolved
+     * Loads the first page of the Nearby feed (≤ 30 posts) at [radiusM] (default [NEARBY_RADIUS_M] =
+     * 20 km; `mobile-nearby-radius-slider`). Pull-to-refresh re-invokes this at the currently-selected
+     * radius; the returned [NearbyTimelineOutcome.Loaded.nextCursor] drives [loadMore], and the resolved
      * [NearbyTimelineOutcome.Loaded.anchor] is the coordinate [loadMore] reuses.
      */
-    suspend fun loadFirstPage(): NearbyTimelineOutcome
+    suspend fun loadFirstPage(radiusM: Int = NEARBY_RADIUS_M): NearbyTimelineOutcome
 
     /**
      * Loads a subsequent page for [cursor], **reusing the first-page [anchor] coordinate** rather than
      * re-acquiring a device fix (`mobile-nearby-timeline-infinite-scroll`, design D4). The backend
      * cursor is chronological (`createdAt`, `id`), so ordering is anchor-independent; reusing the anchor
-     * keeps the 20 km radius stable across pages and avoids redundant GPS. [anchor] is request state
-     * only — it is never rendered or logged.
+     * keeps the selected [radiusM] stable across pages and avoids redundant GPS. [anchor] is request
+     * state only — it is never rendered or logged.
      */
     suspend fun loadMore(
         cursor: String,
         anchor: LatLng,
+        radiusM: Int = NEARBY_RADIUS_M,
     ): NearbyTimelineOutcome
+
+    /**
+     * Reloads page 1 at a newly-selected [radiusM] (`mobile-nearby-radius-slider`). Distinct from
+     * [loadFirstPage] because it surfaces the server Premium gate ([RadiusChangeResult.PremiumGated],
+     * HTTP 403 `radius_premium_only`) as its OWN result rather than collapsing it into the frozen
+     * status→outcome mapping — so the ViewModel can interpret the 403 (→ revert to 20 km + Premium
+     * upsell) WITHOUT a new [NearbyTimelineOutcome] member.
+     */
+    suspend fun changeRadius(radiusM: Int): RadiusChangeResult
+}
+
+/**
+ * The result of an explicit radius selection ([NearbyTimelineFlow.changeRadius]). Kept distinct from
+ * [NearbyTimelineOutcome] so the `radius_premium_only` 403 can be surfaced WITHOUT adding a member to
+ * the frozen status→outcome mapping (`mobile-nearby-radius-slider`): the ViewModel interprets
+ * [PremiumGated] (→ revert to 20 km + Premium upsell) vs [Loaded] (→ adopt the new page) itself.
+ */
+sealed interface RadiusChangeResult {
+    /** The radius was accepted; carries the normal fetch [outcome] (200 → `Loaded`, or the retryable
+     *  `Error`/`NetworkError`/`SessionExpired` fallback for any other status — the unchanged mapping). */
+    data class Loaded(val outcome: NearbyTimelineOutcome) : RadiusChangeResult
+
+    /** HTTP 403 with `error.code = "radius_premium_only"` — the server-side Premium gate. A stale-tier
+     *  backstop: the client gate normally prevents a Free session from ever issuing a non-20 km radius. */
+    data object PremiumGated : RadiusChangeResult
 }
 
 /**

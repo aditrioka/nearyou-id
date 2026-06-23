@@ -1,0 +1,10 @@
+{% extends "layout.peb" %}
+
+{% block title %}Wordlist Editor — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Moderation Wordlist Editor</h2>
+<p class="pg-sub">{{ listLabel }}</p>
+
+{% include "wordlist-editor-content.peb" %}
+{% endblock %}

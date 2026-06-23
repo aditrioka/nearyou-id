@@ -8,6 +8,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -16,12 +17,20 @@ import kotlin.coroutines.cancellation.CancellationException
  * **bare camelCase**, matching the shipped backend `CreatePostRequestDto` (NOT snake_case, NOT
  * `lat`/`lng`). [content] is the raw composer text; the server NFKC-normalizes + trims + length-guards
  * it (1..280 code points) authoritatively, so the client gate is only a UX nicety (design D5).
+ *
+ * [imageId] (image-attached-posts) is the OPTIONAL id of an already-uploaded image (the `201` from
+ * `POST /api/v1/images`), serialized as the **snake_case** `image_id` to match the shipped
+ * `CreatePostRequestDto.imageId`. It is present **only when an image is attached**: it defaults to `null`,
+ * and the shared `Json` (`explicitNulls = false`, `encodeDefaults = false`) omits a null/default value
+ * entirely, so a text-only post's body is **byte-identical** to the pre-change body (no `image_id` key
+ * at all). The server attaches the image to the created post when present.
  */
 @Serializable
 data class CreatePostRequestDto(
     val content: String,
     val latitude: Double,
     val longitude: Double,
+    @SerialName("image_id") val imageId: String? = null,
 )
 
 /**
@@ -88,12 +97,16 @@ class PostCreationApiClient(
         content: String,
         lat: Double,
         lng: Double,
+        // image-attached-posts: the optional uploaded image id. Defaulted to null so existing call sites
+        // (and the text-only path) are unchanged AND the serialized body stays byte-identical (the default
+        // null is omitted by the shared Json). Non-null ⇒ the body carries `"image_id":"<id>"`.
+        imageId: String? = null,
     ): PostCreationApiResult {
         val response: HttpResponse =
             try {
                 client.post("/api/v1/posts") {
                     contentType(ContentType.Application.Json)
-                    setBody(CreatePostRequestDto(content = content, latitude = lat, longitude = lng))
+                    setBody(CreatePostRequestDto(content = content, latitude = lat, longitude = lng, imageId = imageId))
                 }
             } catch (cause: CancellationException) {
                 // Never swallow cancellation — let structured concurrency unwind (mirrors AuthApiClient).

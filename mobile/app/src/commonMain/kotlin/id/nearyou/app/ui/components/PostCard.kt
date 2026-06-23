@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -24,6 +25,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import id.nearyou.distance.DistanceRenderer
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.ic_post_like
@@ -36,6 +38,7 @@ import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.post_card_like_state_liked
 import id.nearyou.resources.generated.resources.post_card_like_state_not_liked
 import id.nearyou.resources.generated.resources.post_card_meta_separator
+import id.nearyou.resources.generated.resources.post_image_alt
 import id.nearyou.resources.theme.locationPin
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -61,6 +64,10 @@ const val POST_CARD_LIKE_ACTION_TAG: String = "postCardLikeAction"
 /** Test tag on the reply affordance (icon + count — the reply-shortcut target on the action row). */
 const val POST_CARD_REPLY_ACTION_TAG: String = "postCardReplyAction"
 
+/** Test tag on the attached-image node (`image-attached-posts`) — present only when `imageUrl != null`,
+ *  so a test can assert the image renders when supplied and is absent when null. */
+const val POST_CARD_IMAGE_TAG: String = "postCardImage"
+
 /**
  * The display-only model the shared post card renders (`mobile-post-card` capability). Carries
  * ONLY display fields: deliberately NO author UUID and NO raw `latitude`/`longitude`, so the card
@@ -78,6 +85,10 @@ data class PostCardModel(
     val createdAt: String,
     val likedByViewer: Boolean,
     val replyCount: Int,
+    // image-attached-posts: the public, coordinate-independent delivery URL of the post's attached image
+    // (null = text-only post). NOT PII (the image path carries no location). When non-null the card renders
+    // a Coil AsyncImage below the content; when null the card is byte-identical to the pre-image baseline.
+    val imageUrl: String? = null,
 )
 
 /**
@@ -189,6 +200,24 @@ fun PostCard(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 12.dp),
             )
+            // image-attached-posts: the optional attached image, BELOW the content + ABOVE the location
+            // meta row. Rendered ONLY when imageUrl is non-null (text-only posts stay byte-identical to
+            // the pre-image baseline). Coil 3 AsyncImage loads on on-screen render (no scroll preload —
+            // docs/02 §6 delivery rules) and fails gracefully to nothing (no error chrome). The accessible
+            // alt text is resource-backed (post_image_alt) per the CMP-Resources-only invariant.
+            if (model.imageUrl != null) {
+                AsyncImage(
+                    model = model.imageUrl,
+                    contentDescription = stringResource(Res.string.post_image_alt),
+                    contentScale = ContentScale.FillWidth,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                            .clip(MaterialTheme.shapes.medium)
+                            .testTag(POST_CARD_IMAGE_TAG),
+                )
+            }
             if (model.cityName.isNotEmpty() || model.distanceM != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),

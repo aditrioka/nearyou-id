@@ -14,10 +14,15 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.data.report.ReportSubmitter
+import id.nearyou.app.image.FakeImagePicker
+import id.nearyou.app.image.FakeImageUploadRepository
+import id.nearyou.app.image.ImagePicker
+import id.nearyou.app.image.ImageUploader
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -30,6 +35,8 @@ import id.nearyou.app.post.FakePostEditFlow
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostEditFlow
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.push.fakeFcmTokenRegistrar
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.PaywallEntry
@@ -38,10 +45,12 @@ import id.nearyou.app.screens.routing.PostCreationRoute
 import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.screens.timeline.FOLLOWING_TIMELINE_LIST_TAG
+import id.nearyou.app.screens.timeline.FakeSelfUserId
 import id.nearyou.app.screens.timeline.GLOBAL_POST_CARD_TAG
 import id.nearyou.app.screens.timeline.GLOBAL_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.NEARBY_POST_CARD_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
+import id.nearyou.app.screens.username.FakeSelfUserIdProvider
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeFollowingTimelineFlow
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
@@ -99,7 +108,10 @@ private const val COMPOSER_TITLE = "Buat postingan" // post_create_title
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
+// A realistic phone viewport (matching NearbyTimelineScreenTest / AppShellScreenTest) — the default tiny
+// Robolectric screen clipped card content below the mobile-nearby-radius-slider header, mis-resolving
+// center-taps onto the card's identity row.
+@Config(sdk = [33], qualifiers = "w360dp-h891dp")
 @OptIn(ExperimentalTestApi::class)
 class HomeTabHostScreenTest {
     private lateinit var nearbyFake: FakeNearbyTimelineFlow
@@ -126,11 +138,19 @@ class HomeTabHostScreenTest {
                     single<FollowingTimelineFlow> { followingFake }
                     single<GlobalTimelineFlow> { globalFake }
                     single<LikeFlow> { FakeLikeFlow(likeOutcome) }
+                    // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
+                    single<ProfileFlow> { FakeProfileFlow() }
+                    single<SelfUserIdProvider> { FakeSelfUserId() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
-                    // The FAB appends PostCreationRoute, whose screen injects the CreatePostFlow seam.
+                    // The FAB appends PostCreationRoute, whose screen injects the CreatePostFlow seam plus
+                    // (image-attached-posts) the image-attach + Premium-gate seams.
                     single<CreatePostFlow> { FakeCreatePostFlow() }
+                    single<ImagePicker> { FakeImagePicker() }
+                    single<ImageUploader> { FakeImageUploadRepository() }
+                    single<ProfileFlow> { FakeProfileFlow() }
+                    single<SelfUserIdProvider> { FakeSelfUserIdProvider("self-id") }
                     // The TestNavHost(HomeRoute) cases compose the AppShellScreen section shell, whose unread
                     // badge injects a NotificationsFlow (empty/0 fake — the badge is exercised in AppShellScreenTest).
                     single<NotificationsFlow> { FakeNotificationsFlow() }

@@ -3,6 +3,9 @@ package id.nearyou.app.internal
 import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.privacyFlipWorkerRoute
+import id.nearyou.app.admin.retention.JdbcRetentionCleanupRepository
+import id.nearyou.app.admin.retention.RetentionCleanupWorker
+import id.nearyou.app.admin.retention.retentionCleanupRoutes
 import id.nearyou.app.admin.unbanWorkerRoute
 import id.nearyou.app.auth.provider.JwksCache
 import id.nearyou.app.auth.routes.InMemoryDedup
@@ -10,8 +13,12 @@ import id.nearyou.app.auth.routes.appleS2SRoutes
 import id.nearyou.app.auth.session.InMemoryUsers
 import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.core.domain.oidc.VerifiedClaims
+import id.nearyou.app.infra.revenuecatapi.NoOpReferralEntitlementGranter
 import id.nearyou.app.notifications.NoopNotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.app.referral.ReferralActivityCheckWorker
+import id.nearyou.app.referral.ReferralGrantRepository
+import id.nearyou.app.referral.referralActivityCheckRoute
 import id.nearyou.app.subscription.SubscriptionEventRepository
 import id.nearyou.app.subscription.SubscriptionService
 import id.nearyou.app.subscription.revenueCatWebhookRoutes
@@ -75,6 +82,14 @@ class InternalRoutingIsolationTest : StringSpec({
                 route("/internal") {
                     unbanWorkerRoute(SuspensionUnbanWorker(UnusedDataSource), NeverCalledVerifier)
                     privacyFlipWorkerRoute(PrivacyFlipWorker(UnusedDataSource), NeverCalledVerifier)
+                    referralActivityCheckRoute(
+                        ReferralActivityCheckWorker(UnusedDataSource, ReferralGrantRepository(), NoOpReferralEntitlementGranter),
+                        NeverCalledVerifier,
+                    )
+                    retentionCleanupRoutes(
+                        RetentionCleanupWorker(JdbcRetentionCleanupRepository(UnusedDataSource)),
+                        NeverCalledVerifier,
+                    )
                 }
             }
         }
@@ -107,6 +122,22 @@ class InternalRoutingIsolationTest : StringSpec({
         testApplication {
             mountProductionShape()
             val response = client.post("/internal/privacy-flip-worker")
+            response.status shouldBe HttpStatusCode.Unauthorized
+        }
+    }
+
+    "referral-activity-check without a bearer token is still rejected 401 by its own gate" {
+        testApplication {
+            mountProductionShape()
+            val response = client.post("/internal/referral-activity-check")
+            response.status shouldBe HttpStatusCode.Unauthorized
+        }
+    }
+
+    "retention-cleanup worker without a bearer token is still rejected 401 by its own gate" {
+        testApplication {
+            mountProductionShape()
+            val response = client.post("/internal/cleanup")
             response.status shouldBe HttpStatusCode.Unauthorized
         }
     }

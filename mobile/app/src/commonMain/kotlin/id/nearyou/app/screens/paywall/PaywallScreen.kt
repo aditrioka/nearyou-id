@@ -224,7 +224,9 @@ private fun PaywallHero(entry: PaywallEntry) {
         when (entry) {
             PaywallEntry.LIKE_CAP -> Res.string.paywall_subhead_like_cap
             PaywallEntry.SEARCH_GATE -> Res.string.paywall_subhead_search
-            PaywallEntry.USERNAME -> Res.string.paywall_subhead_default
+            // image-attached-posts: the composer image-attach gate reuses the generic Premium subhead
+            // (no image-specific hero copy — the upsell context is enough), mirroring USERNAME.
+            PaywallEntry.USERNAME, PaywallEntry.IMAGE_ATTACH -> Res.string.paywall_subhead_default
         }
     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(

@@ -33,6 +33,22 @@ class FakeNotificationsFlow(
     private val markReadResult: MarkReadResult = MarkReadResult.Acknowledged,
     private val markReadThrows: Throwable? = null,
     private val markAllReadResult: MarkAllReadResult = MarkAllReadResult.Success(0),
+    private val postTargetResolution: PostTargetResolution =
+        PostTargetResolution.Resolved(
+            postId = "22222222-2222-2222-2222-222222222222",
+            authorUsername = "budi",
+            authorDisplayName = "Budi",
+            content = "halo dunia",
+            cityName = "Jakarta",
+            createdAtIso = "2026-05-31T10:00:00Z",
+            likedByViewer = false,
+            replyCount = 3,
+        ),
+    private val partnerResolution: PartnerResolution =
+        PartnerResolution.Resolved(username = "budi", displayName = "Budi"),
+    /** When non-null, the `resolvePostTarget` call with THIS 1-based index suspends forever (the
+     *  supersede/cancel test taps a second row while the first resolution is in flight). */
+    private val suspendResolveOnCall: Int? = null,
     loadMorePages: List<NotificationsOutcome> = emptyList(),
 ) : NotificationsFlow {
     var loadInvocationCount: Int = 0
@@ -78,6 +94,23 @@ class FakeNotificationsFlow(
     override suspend fun markAllRead(): MarkAllReadResult {
         markAllReadInvocationCount++
         return markAllReadResult
+    }
+
+    /** Records each resolved post id so a test can assert the fetch fired for the tapped row's target. */
+    val resolvePostTargetIds: MutableList<String> = mutableListOf()
+
+    /** Records each resolved partner (actor) id so a test can assert the chat partner fetch fired. */
+    val resolvePartnerIds: MutableList<String> = mutableListOf()
+
+    override suspend fun resolvePostTarget(postId: String): PostTargetResolution {
+        resolvePostTargetIds += postId
+        if (resolvePostTargetIds.size == suspendResolveOnCall) awaitCancellation()
+        return postTargetResolution
+    }
+
+    override suspend fun resolvePartner(userId: String): PartnerResolution {
+        resolvePartnerIds += userId
+        return partnerResolution
     }
 }
 

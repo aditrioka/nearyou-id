@@ -27,6 +27,7 @@ object UserModerationTestSupport {
         suspendedUntil: Instant? = null,
         deletedAt: Instant? = null,
         username: String? = null,
+        isShadowBanned: Boolean = false,
     ): UUID {
         val id = UUID.randomUUID()
         val short = id.toString().replace("-", "").take(8)
@@ -35,8 +36,8 @@ object UserModerationTestSupport {
                 """
                 INSERT INTO users (
                     id, username, display_name, date_of_birth, invite_code_prefix,
-                    is_banned, suspended_until, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    is_banned, suspended_until, is_shadow_banned, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
@@ -50,10 +51,11 @@ object UserModerationTestSupport {
                 } else {
                     ps.setNull(7, Types.TIMESTAMP)
                 }
+                ps.setBoolean(8, isShadowBanned)
                 if (deletedAt != null) {
-                    ps.setTimestamp(8, Timestamp.from(deletedAt))
+                    ps.setTimestamp(9, Timestamp.from(deletedAt))
                 } else {
-                    ps.setNull(8, Types.TIMESTAMP)
+                    ps.setNull(9, Types.TIMESTAMP)
                 }
                 ps.executeUpdate()
             }
@@ -65,6 +67,7 @@ object UserModerationTestSupport {
         val isBanned: Boolean,
         val suspendedUntil: Instant?,
         val deletedAt: Instant?,
+        val isShadowBanned: Boolean = false,
     )
 
     fun loadUser(
@@ -73,7 +76,7 @@ object UserModerationTestSupport {
     ): UserRow =
         dataSource.connection.use { conn ->
             conn.prepareStatement(
-                "SELECT is_banned, suspended_until, deleted_at FROM users WHERE id = ?",
+                "SELECT is_banned, suspended_until, is_shadow_banned, deleted_at FROM users WHERE id = ?",
             ).use { ps ->
                 ps.setObject(1, id)
                 ps.executeQuery().use { rs ->
@@ -82,6 +85,7 @@ object UserModerationTestSupport {
                         isBanned = rs.getBoolean("is_banned"),
                         suspendedUntil = rs.getTimestamp("suspended_until")?.toInstant(),
                         deletedAt = rs.getTimestamp("deleted_at")?.toInstant(),
+                        isShadowBanned = rs.getBoolean("is_shadow_banned"),
                     )
                 }
             }

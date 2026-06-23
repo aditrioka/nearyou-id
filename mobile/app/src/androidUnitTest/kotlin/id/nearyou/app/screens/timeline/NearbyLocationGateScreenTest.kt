@@ -10,12 +10,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
 import id.nearyou.app.location.LocationUnavailableException
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
@@ -86,6 +89,9 @@ class NearbyLocationGateScreenTest {
                 module {
                     single<NearbyTimelineFlow> { fakeFlow }
                     single<LikeFlow> { FakeLikeFlow() }
+                    // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
+                    single<ProfileFlow> { FakeProfileFlow() }
+                    single<SelfUserIdProvider> { FakeSelfUserId() }
                     single<LocationPermissionController> { fakeController }
                 },
             )

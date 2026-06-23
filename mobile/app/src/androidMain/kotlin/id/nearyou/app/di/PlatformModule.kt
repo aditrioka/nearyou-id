@@ -8,6 +8,9 @@ import id.nearyou.app.auth.SecureTokenStore
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.data.consent.ConsentSnapshotStore
 import id.nearyou.app.data.consent.DurableConsentSnapshotStore
+import id.nearyou.app.image.AndroidImagePicker
+import id.nearyou.app.image.ImagePicker
+import id.nearyou.app.image.ImagePickerRequestBridge
 import id.nearyou.app.location.AndroidLocationPermissionController
 import id.nearyou.app.location.AndroidLocationProvider
 import id.nearyou.app.location.LocationPermissionController
@@ -53,4 +56,10 @@ actual val platformModule: Module =
         // mobile-fcm-token-registration — the Android FCM token provider (Firebase Messaging SDK). The
         // vendor SDK import is confined to this actual (FcmPushSourceGuardTest enforces the boundary).
         single<FcmTokenProvider> { AndroidFcmTokenProvider() }
+        // image-attached-posts (Phase 4) — the Android Photo Picker (PickVisualMedia) actual + its
+        // Activity-result bridge (launcher set by MainActivity, mirroring the location/notification
+        // permission bridges). The picker requires NO storage permission; the actual re-encodes the
+        // picked image to ≤5 MB JPEG (AndroidImageCompressor).
+        single { ImagePickerRequestBridge() }
+        single<ImagePicker> { AndroidImagePicker(androidContext(), get()) }
     }

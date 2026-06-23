@@ -7,6 +7,9 @@ import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDe
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.network.ktor3.KtorNetworkFetcherFactory
 import id.nearyou.app.screens.routing.ProactiveRefreshEffect
 import id.nearyou.app.screens.routing.RootRoute
 import id.nearyou.app.screens.routing.SessionExpiryEffect
@@ -23,10 +26,24 @@ import id.nearyou.app.theme.NearYouTheme
  * `koinViewModel` is scoped to its `NavEntry` — it survives the entry going off-screen (e.g. Home
  * while the composer is on top) and is cleared only when the entry is popped (design Decision 5;
  * this is why returning from the composer does NOT re-fetch the Nearby feed).
+ *
+ * image-attached-posts (D5): the singleton Coil [ImageLoader] is configured once here with the
+ * [KtorNetworkFetcherFactory] so network image URLs load (Coil 3.x does NOT auto-register a network
+ * fetcher — unlike Coil 2 — so the fetcher MUST be added explicitly). `setSafe` is the documented
+ * CMP entrypoint; it no-ops if a loader is already set, and the `remember {}` guard makes it a per-app
+ * one-shot. A dedicated loader (NOT the auth `HttpClient`) is used: post images are public, so no Bearer
+ * is attached (D6). Image bytes are never logged.
  */
 @Composable
 @Preview
 fun App() {
+    remember {
+        SingletonImageLoader.setSafe { ctx ->
+            ImageLoader.Builder(ctx)
+                .components { add(KtorNetworkFetcherFactory()) }
+                .build()
+        }
+    }
     NearYouTheme {
         val backStack = rememberNavBackStack(navSavedStateConfiguration, RootRoute)
         // A terminal 401 (bearer refresh failed → store cleared) re-routes to the unauthenticated

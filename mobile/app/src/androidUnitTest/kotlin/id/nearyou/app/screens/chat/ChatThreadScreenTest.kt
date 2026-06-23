@@ -3,12 +3,14 @@ package id.nearyou.app.screens.chat
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.ChatMessageDto
@@ -17,6 +19,9 @@ import id.nearyou.app.chat.FakeChatFlow
 import id.nearyou.app.chat.FakeChatRealtimeSubscriber
 import id.nearyou.app.chat.SendOutcome
 import id.nearyou.app.chat.ViewerIdProvider
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportOutcome
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import id.nearyou.app.notifications.FakeNotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionController
@@ -61,19 +66,23 @@ private fun dto(
 @OptIn(ExperimentalTestApi::class)
 class ChatThreadScreenTest {
     private lateinit var flow: FakeChatFlow
+    private lateinit var reportSubmitter: FakeReportSubmitter
 
     private fun installKoin(
         history: ChatThreadOutcome = ChatThreadOutcome.Loaded(emptyList(), null),
         sendOutcome: SendOutcome = SendOutcome.Sent(dto("server-1", sender = VIEWER, content = "hi")),
+        reportOutcome: ReportOutcome = ReportOutcome.Submitted,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         flow = FakeChatFlow(historyOutcomes = listOf(history), sendOutcome = sendOutcome)
+        reportSubmitter = FakeReportSubmitter(reportOutcome)
         startKoin {
             modules(
                 module {
                     single<ChatFlow> { flow }
                     single<ChatRealtimeSubscriber> { FakeChatRealtimeSubscriber() }
                     single<ViewerIdProvider> { ViewerIdProvider { VIEWER } }
+                    single<ReportSubmitter> { reportSubmitter }
                     single<NotificationPermissionController> { FakeNotificationPermissionController() }
                     single { NotificationPromptOneShot() }
                 },
@@ -155,6 +164,57 @@ class ChatThreadScreenTest {
             setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(partnerDisplayName = ""), onBack = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(DELETED).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(DELETED).assertExists()
+        }
+    }
+
+    // --- mobile-chat-message-report ---
+
+    @Test
+    fun longPressReceivedMessage_opensReportDialog_andSubmitShowsSuccess() {
+        installKoin(ChatThreadOutcome.Loaded(listOf(dto("m1", sender = OTHER, content = "REPORT_ME")), null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("REPORT_ME").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("REPORT_ME").performTouchInput { longClick() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_MESSAGE_REPORT_ITEM_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_MESSAGE_REPORT_ITEM_TAG).performClick()
+            // The shared report dialog opens.
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_REPORT_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            // Submit with the default-selected reason → success snackbar (FakeReportSubmitter → Submitted).
+            onNodeWithText("Kirim laporan").performClick()
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText("Laporan terkirim. Tim moderasi akan meninjau.").fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText("Laporan terkirim. Tim moderasi akan meninjau.").assertExists()
+        }
+    }
+
+    @Test
+    fun longPressOwnMessage_showsNoReportAffordance() {
+        installKoin(ChatThreadOutcome.Loaded(listOf(dto("m1", sender = VIEWER, content = "MY_OWN_MSG")), null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("MY_OWN_MSG").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("MY_OWN_MSG").performTouchInput { longClick() }
+            // No report affordance: an own message is not reportable (gate `!isOwn`).
+            onNodeWithTag(CHAT_MESSAGE_REPORT_ITEM_TAG).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun longPressRedactedMessage_showsNoReportAffordance() {
+        installKoin(
+            ChatThreadOutcome.Loaded(
+                listOf(dto("m1", sender = OTHER, content = null, redactedAt = "2026-06-02T00:00:00Z")),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_REDACTED_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(REDACTED).performTouchInput { longClick() }
+            // No report affordance: an already-redacted message is not reportable (gate `!isRedacted`).
+            onNodeWithTag(CHAT_MESSAGE_REPORT_ITEM_TAG).assertDoesNotExist()
         }
     }
 }

@@ -377,13 +377,18 @@ Endpoint `/account/export` returns JSON + CSV ZIP:
 | CSAM detection archive | No | - | Out of scope, legal preservation |
 | `rejected_identifiers` hash | No | - | Anti-abuse signal, may cross other users |
 
+**MVP-schema limitations (best-effort export — emits the stored subset)**: three rows above describe richer data than the current MVP schema persists, so the producer emits what exists today and the rest lands if/when the columns are added:
+- **Session history** — `refresh_tokens` has no IP column; the export emits fingerprint + timestamps only (no IP).
+- **Premium subscription history** — `subscription_events` has no tier column; the export emits event_type/source/dates (no tier).
+- **Analytics consent** — only `users.analytics_consent` (current state) exists, not a history table; the export emits the current state, not a history.
+
 **Delivery**: an async worker packs the ZIP, uploads to R2, creates a signed URL TTL 24 hours, and emails via Resend (user-facing): "Data export kamu siap diunduh".
 
 **SLA**: 7 days (confirm with legal advisor before launch).
 
 ### Infrastructure
 
-- **Hard delete worker**: Cloud Scheduler calls `/internal/cleanup` daily (consolidated endpoint; reads `deletion_requests`)
+- **Hard delete worker**: Cloud Scheduler calls `/internal/account-hard-delete-worker` daily (reads `deletion_requests`). _(Shipped on its own subtree as `account-hard-delete-worker`; the original "consolidated `/internal/cleanup`" name is now owned by the `scheduled-retention-cleanup` retention sweeps — see `docs/05` §§112/582/1120.)_
 - **Audit log table**: every hard delete logged with timestamp, entity, and reason
 - **Deletion log (R2)**: append-only JSONL objects, 7-year retention, input for post-restore reconciliation
 - **Data export endpoint**: `/account/export` (§ Data Export Scope Matrix)
@@ -405,24 +410,22 @@ All internal scheduler endpoints are served under `/internal/*` with mandatory O
 
 ### Covered Endpoints
 
-> **Status (2026-05-07).** Only **2 of the endpoints below are shipped**; the rest are DESIGN — route not yet mounted in `Application.kt`. If drift suspected, cross-check: `find backend/ktor/src/main -name "*Routes.kt" -path "*internal*"`.
+> **Status (2026-06).** The **Shipped** list below is mounted in `Application.kt`'s `/internal/*` block (each worker gates OIDC on its own subtree); the **DESIGN** list is not yet mounted. If drift suspected, cross-check: `find backend/ktor/src/main -name "*Routes.kt" -path "*internal*"`.
 
 **Shipped:**
 - Apple S2S notifications (`/internal/apple/s2s-notifications`) — `AppleS2SRoutes.kt`
 - Suspension unban worker (`/internal/unban-worker`, daily) — `admin/UnbanWorkerRoute.kt`
+- Privacy flip worker (`/internal/privacy-flip-worker`, hourly) — `admin/PrivacyFlipWorkerRoute.kt`
+- Hard delete worker (`/internal/account-hard-delete-worker`, daily) — `account/AccountHardDeleteWorkerRoute.kt`
+- Retention cleanup worker (`/internal/cleanup`, daily) — `admin/retention/RetentionCleanupRoutes.kt`; runs the refresh-token + notifications + stale-FCM sweeps (`scheduled-retention-cleanup`)
 
 **DESIGN — not yet implemented:**
-- Hard delete worker (`/internal/cleanup`)
 - Image lifecycle cleanup
-- Session purge + refresh token cleanup
 - Reverse geocoding cache warmup
 - CSAM webhook handler (`/internal/csam-webhook`)
 - Granted entitlement activity gate check (daily)
-- Subscription grace period downgrade worker (daily, `/internal/privacy-flip-worker`)
 - CSAM archive purge worker (post-90-day)
-- FCM token cleanup (weekly)
-- Notifications purge (weekly, >90 days)
-- Moderation queue / reports archival (weekly)
+- Moderation queue / reports archival (weekly, resolved rows >1 year — deferred follow-up of `scheduled-retention-cleanup`)
 - Stream GC (post-swap, weekly)
 - RevenueCat webhook (`/internal/revenuecat-webhook`)
 

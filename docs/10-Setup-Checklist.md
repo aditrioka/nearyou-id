@@ -192,7 +192,7 @@ End-to-end verified 2026-04-26: Secret Manager credential → OAuth token via SA
   - [ ] `nearyou-media-prod` — pending GCP prod project setup
   - [x] `nearyou-media-staging` — done 2026-04-26; region APAC (Asia Pacific), storage class Standard, Public Access Disabled (private — served via CF Images later, never directly)
   - [ ] `nearyou-backups` (production backup target) — pending Pre-Launch backup spec
-- [ ] Enable **Cloudflare Images** — **deferred (Phase B)** until media spec starts: CF Images = $5/mo minimum regardless of usage, not worth burning while `image_upload_enabled = false`. At enable-time also: configure variants, register `img-staging.nearyou.id` in CF Images Custom Domains, add DNS CNAME (the DNS record alone is useless without CF Images backend registration).
+- [ ] Enable **Cloudflare Images** — **deferred to Phase 4** (when the media spec starts; per `08-Roadmap-Risk.md` § Development Phases): CF Images = $5/mo minimum regardless of usage, not worth burning while `image_upload_enabled = false`. At enable-time also: configure variants, register `img-staging.nearyou.id` in CF Images Custom Domains, add DNS CNAME (the DNS record alone is useless without CF Images backend registration).
   - [ ] Note account hash (buat URL structure)
   - [ ] Note delivery URL pattern (custom subdomain locked per Decision #32 in `08-Roadmap-Risk.md` — `img-staging.nearyou.id` / `img.nearyou.id`)
 - [x] Generate R2 S3-compatible API token untuk backend access — done 2026-04-26; token `nearyou-staging-r2-rw`, Object Read & Write, **bucket-scoped** (only `nearyou-media-staging`, not account-wide — least privilege), TTL forever, no IP filter; credentials → Secret Manager (5 secrets, § 4.2). **E2E smoke PASSED 2026-04-26**: PUT, LIST, GET (sha256 content match), DELETE, HEAD-after-DELETE (404) via boto3 + S3v4 signing — same flow backend Ktor will use via AWS SDK.
@@ -201,7 +201,7 @@ End-to-end verified 2026-04-26: Secret Manager credential → OAuth token via SA
 - CF account ID: `c0e93113188e87a99848a2c6cb3e55e9`
 - R2 staging credentials: 5 secrets, all v1, all granted to Cloud Run runtime SA — slot names § 4.2
 - R2 staging endpoint: `https://c0e93113188e87a99848a2c6cb3e55e9.r2.cloudflarestorage.com`
-- CF Images account hash: _________________ (defer with Phase B enable)
+- CF Images account hash: _________________ (defer with Phase 4 enable)
 - Pending wiring: 5 R2 staging secrets not yet in `deploy-staging.yml --set-secrets` — add when backend media module code lands (separate OpenSpec change, likely with Firebase Admin SDK wiring)
 
 ### 3.6 Sentry
@@ -338,6 +338,7 @@ Semua masuk GCP Secret Manager dengan namespace `prod-*` dan `staging-*`. **Sing
 - [ ] `prod-apns-p8-key` dan `staging-apns-p8-key` (file content)
 - [~] `prod-resend-api-key` dan `staging-resend-api-key` — staging done 2026-04-27: v1, 36 bytes, granted; Free Developer plan key, full-access scope, name `nearyou-staging`; smoke PASSED (Inbox, not Spam — § 3.9); not yet wired (consumer `:infra:resend`). Prod pending: same Resend account + key may be reused (env-prefix mirror) OR mint a separate `nearyou-prod` key for blast-radius isolation — decide pas prod env setup.
 - [~] `prod-r2-access-key` + `prod-r2-secret` dan staging equivalents — staging done 2026-04-26 with 5 secrets (more granular than original spec): `staging-r2-access-key-id` v1 (32 bytes), `staging-r2-secret-access-key` v1 (64 bytes), `staging-r2-bucket-name` v1 (`nearyou-media-staging`), `staging-r2-endpoint-url` v1, `staging-r2-account-id` v1 — all granted, local credential files deleted post-upload; prod equivalents pending GCP prod project setup
+- [ ] ⚠️ **Pre-Launch (before prod tag-deploy)**: provision `prod-export-peer-hash-secret` (consumer `:infra` — `account-data-export` `PeerIdHasher.fromSecret` via `secretKey(env, "export-peer-hash-secret")`). **Fails OPEN, not closed**: unlike R2/Resend (NoOp when un-provisioned), a blank/absent secret degrades peer-id hashing to the PUBLIC `DEV_DEFAULT_SECRET`, making exported peer hashes correlatable across users. Acceptable pre-prod (synthetic data); HARD blocker before the data-export worker handles real user data in prod. (`staging-export-peer-hash-secret` optional — staging is synthetic-only.)
 - [ ] `prod-cf-images-api-token` dan `staging-cf-images-api-token`
 - [ ] `prod-sentry-auth-token` (shared untuk upload, tergantung strategi) — **deferred** until mobile release build pipeline (Phase 3 mobile work). Auth token ≠ DSN: token = CI symbolication artifact upload (ProGuard mappings, dSYM); DSN = runtime event ingestion; backend needs no auth token — full reasoning § 3.6.
 
@@ -466,7 +467,7 @@ Resolved + shipped via PR [#31](https://github.com/aditrioka/nearyou-id/pull/31)
 |---------|-------|------|--------|
 | 1. Domain & DNS | 14 | 0 | `[ ]` |
 | 2. Developer Programs | 15 | 0 | `[ ]` |
-| 3. Infrastructure Accounts | 45+ | 43 | `[~]` (Firebase staging + R2 staging + Sentry org/projects/DSNs + Resend domain/key + Grafana Cloud staging stack/token + Supabase staging + Upstash staging + GitHub Actions `GCP_SA_KEY`/`GCP_PROJECT_ID`/`GCP_REGION` + branch-protection ruleset `main-protection` (active 2026-05-09 per § 3.10) done; CF Images deferred Phase B; sentry-cli auth token deferred to mobile build phase; Cloudflare DNS active for `api-staging`) |
+| 3. Infrastructure Accounts | 45+ | 43 | `[~]` (Firebase staging + R2 staging + Sentry org/projects/DSNs + Resend domain/key + Grafana Cloud staging stack/token + Supabase staging + Upstash staging + GitHub Actions `GCP_SA_KEY`/`GCP_PROJECT_ID`/`GCP_REGION` + branch-protection ruleset `main-protection` (active 2026-05-09 per § 3.10) done; CF Images deferred Phase 4; sentry-cli auth token deferred to mobile build phase; Cloudflare DNS active for `api-staging`) |
 | 4. Secrets | 29 | 24 partial | `[~]` (`staging-firebase-admin-sa` v1 + wired, `staging-r2-{access-key-id,secret-access-key,bucket-name,endpoint-url,account-id}` v1, `staging-sentry-{backend,android,ios}-dsn` v1, `staging-resend-api-key` v1, `staging-csam-archive-aes-key` v1 (added 2026-05-09, not yet wired), `staging-amplitude-api-key` v1 (added 2026-05-09, not yet wired), `staging-otel-grafana-otlp-{endpoint,token}` v1 + wired, `staging-{ktor-rsa-private-key,jitter-secret,invite-code-secret}` v1 + wired, `staging-{db-url,db-user,db-password,supabase-url,supabase-jwt-secret,supabase-service-role-key,redis-url}` v1 + wired) |
 | 5. Decisions | 9 | 5 | `[~]` (IAP, BPS/OSM, CF Images URL, CSAM trigger — all resolved 2026-04-26; OTel vendor — resolved 2026-05-07 as Grafana Cloud Tempo via PR #66; 4 pricing/quota verifications still open) |
 | 6. Datasets | 4 work items | 1.5 | `[~]` (§6.3 polygons shipped via PR #31 — 552 OSM rows + maritime buffer + GIST index live in staging DB; §6.4 RC + fallback files scaffolded via PR #70 with placeholder sentinels; §6.1 word pairs + §6.2 reserved usernames still open) |

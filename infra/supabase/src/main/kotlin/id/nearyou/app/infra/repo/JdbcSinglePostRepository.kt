@@ -54,6 +54,7 @@ class JdbcSinglePostRepository(
                    p.author_display_name,
                    p.content,
                    p.city_name,
+                   p.image_id,
                    p.created_at,
                    (pl.user_id IS NOT NULL) AS liked_by_viewer,
                    c.n AS reply_count,
@@ -62,7 +63,7 @@ class JdbcSinglePostRepository(
                   (
                       SELECT p.id, p.author_id, u.username AS author_username,
                              u.display_name AS author_display_name, p.content,
-                             p.city_name, p.created_at
+                             p.city_name, p.image_id, p.created_at
                         FROM visible_posts p
                         JOIN users u ON u.id = p.author_id
                        WHERE p.id = ?
@@ -73,7 +74,7 @@ class JdbcSinglePostRepository(
                   (
                       SELECT p.id, p.author_id, u.username AS author_username,
                              u.display_name AS author_display_name, p.content,
-                             p.city_name, p.created_at
+                             p.city_name, p.image_id, p.created_at
                         FROM posts p
                         JOIN users u ON u.id = p.author_id
                        WHERE p.id = ?
@@ -116,6 +117,7 @@ class JdbcSinglePostRepository(
                             authorDisplayName = rs.getString("author_display_name"),
                             content = rs.getString("content"),
                             cityName = rs.getString("city_name"),
+                            imageId = rs.getString("image_id"),
                             createdAt = rs.getTimestamp("created_at").toInstant(),
                             likedByViewer = rs.getBoolean("liked_by_viewer"),
                             replyCount = rs.getInt("reply_count"),

@@ -22,6 +22,17 @@ data class CloudflareImagesConfig(
     fun isComplete(): Boolean =
         apiToken.isNotBlank() && accountId.isNotBlank() &&
             accountHash.isNotBlank() && deliveryBaseUrl.isNotBlank()
+
+    /**
+     * The single source of truth for an image's public delivery URL — the exact 4-segment
+     * `<deliveryBaseUrl>/<accountHash>/<imageId>/public` shape. Used by BOTH the upload path
+     * ([CloudflareImageStore.upload]) and the read-path surfacing (`:backend:ktor` timeline /
+     * single-post / post-detail DTOs) so write and read never drift (`image-attached-posts`).
+     * The exact path segments (a possible `/cdn-cgi/imagedelivery/` prefix per docs/02 §6
+     * Pre-Phase-1 verification) are confirmed at launch while the feature is flag-dark; whatever
+     * that shape becomes, both paths inherit it from this one builder.
+     */
+    fun deliveryUrl(imageId: String): String = "${deliveryBaseUrl.trimEnd('/')}/$accountHash/$imageId/public"
 }
 
 /**

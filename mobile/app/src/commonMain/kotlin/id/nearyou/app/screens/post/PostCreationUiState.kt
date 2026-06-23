@@ -54,13 +54,16 @@ data class PostCreationUiState(
 )
 
 /**
- * Maps the live [content] + the last [outcome] (null = never submitted) + the [inFlight] flag to the
- * screen state. Deterministic — no wall-clock, no platform dependency, no PII. Exhaustive over
- * [PostCreationOutcome] (no generic fallthrough, design parity with `nearbyTimelineUiState`):
+ * Maps the live [content] + the last [outcome] (null = never submitted) + the [inFlight] flag +
+ * the [imageUploading] flag to the screen state. Deterministic — no wall-clock, no platform dependency,
+ * no PII. Exhaustive over [PostCreationOutcome] (no generic fallthrough, design parity with
+ * `nearbyTimelineUiState`):
  *
  * - [charCount] is the number of **Unicode code points** in [content] (a 280-emoji string counts 280,
  *   NOT 560 — UTF-16 unit counting would wrongly reject it).
- * - submit is enabled iff [content] has ≥1 non-blank code point AND ≤280 code points AND not in-flight.
+ * - submit is enabled iff [content] has ≥1 non-blank code point AND ≤280 code points AND not in-flight
+ *   AND no image upload is in flight ([imageUploading] = false — image-attached-posts: the "Posting" CTA
+ *   is blocked until the upload resolves to a terminal `ImageUploadOutcome`).
  * - `inFlight` ⇒ [loading] (submit disabled, no banner — the in-flight phase supersedes any prior
  *   outcome).
  * - otherwise the [outcome] derives [success] / the per-error [banner].
@@ -69,6 +72,7 @@ fun postCreationUiState(
     content: String,
     outcome: PostCreationOutcome?,
     inFlight: Boolean,
+    imageUploading: Boolean = false,
 ): PostCreationUiState {
     val charCount = content.codePointLength()
     val overLimit = charCount > MAX_POST_CONTENT_CODE_POINTS
@@ -99,7 +103,9 @@ fun postCreationUiState(
     return PostCreationUiState(
         charCount = charCount,
         overLimit = overLimit,
-        submitEnabled = withinLength,
+        // image-attached-posts: an in-flight image upload also blocks "Posting" (no post may be created
+        // referencing an image that has not finished uploading).
+        submitEnabled = withinLength && !imageUploading,
         loading = false,
         success = outcome is PostCreationOutcome.Success,
         banner = banner,

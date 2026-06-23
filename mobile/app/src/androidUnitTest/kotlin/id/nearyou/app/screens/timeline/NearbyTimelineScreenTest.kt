@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.timeline
 
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -7,15 +8,20 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
 import id.nearyou.app.post.LikeOutcome
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.screens.home.HomeScreen
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
@@ -32,6 +38,8 @@ import id.nearyou.app.ui.components.POST_CARD_LIKE_ACTION_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_FILLED_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_OUTLINED_TAG
 import id.nearyou.app.ui.components.POST_CARD_REPLY_ACTION_TAG
+import id.nearyou.app.ui.components.RADIUS_UPSELL_DIALOG_PREMIUM_TAG
+import id.nearyou.app.ui.components.RADIUS_UPSELL_DIALOG_TAG
 import id.nearyou.distance.LatLng
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
@@ -89,6 +97,9 @@ class NearbyTimelineScreenTest {
         suspendFromCall: Int = Int.MAX_VALUE,
         likeOutcome: LikeOutcome = LikeOutcome.Liked,
         loadMorePages: List<NearbyTimelineOutcome> = emptyList(),
+        // mobile-nearby-radius-slider: the on-entry self-isPremium read seam. Default Free (so the radius
+        // slider's snap-back + upsell path is the default); a test passes true to exercise free selection.
+        isPremium: Boolean = false,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake =
@@ -107,6 +118,10 @@ class NearbyTimelineScreenTest {
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }
+                    single<ProfileFlow> {
+                        FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(isPremium = isPremium)))
+                    }
+                    single<SelfUserIdProvider> { FakeSelfUserId("self") }
                 },
             )
         }
@@ -372,6 +387,38 @@ class NearbyTimelineScreenTest {
             assertFalse(tapped.toString().contains("-6.21"), "no latitude in the onOpenPost payload")
             assertFalse(tapped.toString().contains("106.85"), "no longitude in the onOpenPost payload")
             assertFalse(tapped.toString().contains("11111111-1111"), "no author UUID in the onOpenPost payload")
+        }
+    }
+
+    // ---- mobile-nearby-radius-slider: the 4-position radius control + the Premium upsell ----
+
+    // The radius slider renders on the granted Nearby feed with the 20 km default label.
+    @Test
+    fun radiusSlider_rendersWithDefault20kmLabel() {
+        installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "X")), null, null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_RADIUS_SLIDER_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(NEARBY_RADIUS_SLIDER_TAG).assertExists()
+            onNodeWithText("20 km").assertExists() // radius_value_km at the default position
+        }
+    }
+
+    // A Free viewer driving the slider to a Premium-only radius → the Premium upsell dialog appears
+    // (the slider snaps back to 20 km). The gate logic itself is covered by RadiusSelectionTest /
+    // NearbyTimelineViewModelTest; here we assert the screen wires the one-shot to the dialog. A
+    // not-yet-resolved tier (Resolving) ALSO behaves as Free, so this is robust to the on-entry read timing.
+    @Test
+    fun radiusSlider_freeViewer_premiumRadius_showsUpsellDialog() {
+        installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "X")), null, null), isPremium = false)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_RADIUS_SLIDER_TAG).fetchSemanticsNodes().isNotEmpty() }
+            // Drive the slider to index 2 (50 km, Premium-only) via the SetProgress semantics action.
+            onNodeWithTag(NEARBY_RADIUS_SLIDER_TAG).performSemanticsAction(SemanticsActions.SetProgress) { it(2f) }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(RADIUS_UPSELL_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(RADIUS_UPSELL_DIALOG_TAG).assertExists()
+            onNodeWithTag(RADIUS_UPSELL_DIALOG_PREMIUM_TAG).assertExists() // the "Aktifkan Premium" CTA
         }
     }
 

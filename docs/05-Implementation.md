@@ -111,6 +111,8 @@ CREATE INDEX refresh_tokens_expires_idx ON refresh_tokens (expires_at) WHERE rev
 
 Cleanup (Cloud Scheduler `/internal/cleanup`): daily `WHERE expires_at < NOW() - INTERVAL '1 day'`; weekly `WHERE last_used_at < NOW() - INTERVAL '90 days'`. Rotated token deleted immediately on successful rotation.
 
+> **Status: shipped** (`scheduled-retention-cleanup`, 2026-06; no migration — table + `refresh_tokens_expires_idx` in V2). The `POST /internal/cleanup` worker (OIDC-gated on its own subtree, mirrors `PrivacyFlipWorker`) runs this sweep. Two deliberate amendments of the wording above (design D2): (1) the daily expired-by-`expires_at` query and the (formerly weekly) stale-by-`last_used_at` query are merged into ONE idempotent run, `DELETE FROM refresh_tokens WHERE expires_at < NOW() - INTERVAL '1 day' OR last_used_at < NOW() - INTERVAL '90 days'`, executed **daily** (running an idempotent threshold DELETE daily rather than weekly is equally correct and removes a second Scheduler job); (2) the sweep is NOT filtered by `revoked_at`, so a revoked row past either threshold is reaped too. `last_used_at` is nullable — a never-used token (`last_used_at IS NULL`) is governed solely by the `expires_at` branch (a NULL comparison is UNKNOWN, never true).
+
 Instant global revocation: JWT carries `token_version`; every authenticated request compares JWT vs DB. Redis cache TTL 5 min, explicit invalidation on increment; Redis down → direct DB query + circuit breaker alert.
 
 ### Revocation Latency per Use Case
@@ -581,6 +583,8 @@ CREATE INDEX notifications_user_all_idx
 
 `body_data` stores type-specific JSON (excerpts, billing grace end date, etc.). Retention: 90 days auto-purge via `/internal/cleanup`. Delivered via FCM push in parallel; the DB row is the source of truth for the in-app list.
 
+> **Status: shipped** (`scheduled-retention-cleanup`, 2026-06; no migration — `notifications_user_all_idx` in V10 serves it). The `POST /internal/cleanup` worker runs `DELETE FROM notifications WHERE created_at < NOW() - INTERVAL '90 days'` (type-agnostic — no `type` exempted, not filtered by `read_at`) on a **single daily** schedule (design D2 — all sweeps share one Scheduler job; no separate weekly job).
+
 **Event type catalog** (V10 shipped this; table amended 2026-04-24, PR [#24](https://github.com/aditrioka/nearyou-id/pull/24)): canonical addressing is `(target_type, target_id)` on the outer row — that column pair is what deep-links route to; outer `(target_type='post', target_id=<post_id>)` answers "which post". `body_data` carries only what the outer pair can't supply: excerpts, secondary entity IDs (`reply_id`, since target points at the parent), status strings, timestamps, `reason` for auto-hide copy. Do NOT duplicate `target_id` inside `body_data`. For `chat_message_redacted`, target_id is the redacted message; `conversation_id` lets the client route without a second fetch. See `V10__notifications.sql` + `NotificationWritePathTest.kt` for shipped shapes.
 
 | Type | Trigger | Actor | `target_type` | Body data |
@@ -632,6 +636,45 @@ CREATE INDEX deletion_requests_immediate_idx
 - Cancellation sets `cancelled_at`; `apple_s2s_account_delete` rows cannot be cancelled.
 - **Immediate-execution for `apple_s2s_account_delete`**: the Apple S2S handler inserts the row AND synchronously enqueues a one-shot tombstone+cascade job before responding to Apple. If the sync job fails, the daily worker backstops via `deletion_requests_immediate_idx`.
 - Daily hard-delete worker: scans `scheduled_hard_delete_at <= NOW() AND executed_at IS NULL AND cancelled_at IS NULL`, runs tombstone + cascade + deletion-log write, sets `executed_at = NOW()`.
+
+---
+
+## Data Export Requests Schema
+
+Backs the UU-PDP data-portability producer (`account-data-export`, V30). The trigger endpoint `POST /api/v1/account/export` enqueues a `pending` row; the OIDC worker `/internal/data-export-worker` gathers the § Data Export Scope Matrix (`06-Security-Privacy.md`), packs a JSON+CSV ZIP, uploads to R2, and transitions the row through its lifecycle. The export-ready signal reuses the existing `data_export_ready` notification (V10 catalog, `body_data {signed_url, expires_at}`) — no `notifications` change.
+
+```sql
+CREATE TABLE data_export_requests (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status              VARCHAR(16) NOT NULL DEFAULT 'pending' CHECK (status IN (
+                            'pending', 'processing', 'ready', 'expired', 'failed'
+                        )),
+    requested_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at          TIMESTAMPTZ,
+    completed_at        TIMESTAMPTZ,
+    r2_object_key       TEXT,
+    download_expires_at TIMESTAMPTZ,
+    attempt_count       INT NOT NULL DEFAULT 0,
+    error               TEXT
+);
+
+CREATE INDEX data_export_requests_pending_idx
+    ON data_export_requests(requested_at)
+    WHERE status = 'pending';
+
+CREATE UNIQUE INDEX data_export_requests_one_active_idx
+    ON data_export_requests(user_id)
+    WHERE status IN ('pending', 'processing');
+
+CREATE INDEX data_export_requests_user_recent_idx
+    ON data_export_requests(user_id, requested_at DESC);
+```
+
+- **Status state machine**: `pending` → `processing` (worker claims via an optimistic `UPDATE … WHERE status='pending'` affected-rows guard, so concurrent worker invocations never double-process) → `ready` (archive uploaded, 24h signed URL issued, `data_export_ready` notification emitted, best-effort Resend email sent) → `expired` (derived once `download_expires_at` passes) | `failed` (gather/upload error after retries; `attempt_count++`).
+- **Structural idempotency**: `data_export_requests_one_active_idx` permits only one `pending|processing` row per user — a second enqueue raises a unique-violation the route maps to "return the existing request". A `ready`/`expired`/`failed` row does NOT block a fresh request.
+- **Delivery**: the in-app `data_export_ready` notification is the **durable** channel; the Resend email is best-effort and a send failure on an already-`ready` export does NOT revert it. Signed-URL TTL 24h; an R2 object-lifecycle rule deletes the export object after the window.
+- Both partial-index `WHERE` clauses filter on `status` only — `NOW()`-free (the partial-index invariant).
 
 ---
 
@@ -1118,6 +1161,8 @@ Token / app_version length CHECKs are defense-in-depth against a malformed clien
 ### Endpoint + Cleanup
 
 `POST /api/v1/user/fcm-token` with `{ token, platform, app_version }`. Upsert on `(user_id, platform, token)` unique; **`last_seen_at = NOW()` updated on every call** (authoritative freshness signal). Expired (on send: FCM 404/410) → immediate row delete. Stale (weekly via `/internal/cleanup`) → delete `WHERE last_seen_at < NOW() - INTERVAL '30 days'`.
+
+> **Status: shipped** (`scheduled-retention-cleanup`, 2026-06; no migration — `user_fcm_tokens_last_seen_idx` in V14 serves it). The `POST /internal/cleanup` worker runs the stale sweep `DELETE FROM user_fcm_tokens WHERE last_seen_at < NOW() - INTERVAL '30 days'` on a **single daily** schedule (design D2 — daily rather than weekly, equally correct for an idempotent threshold DELETE; all sweeps share one Scheduler job). The immediate on-send 404/410 single-token delete is owned by `fcm-push-dispatch`, not this worker.
 
 ---
 
