@@ -1,6 +1,6 @@
 ---
 name: openspec-archive-change
-description: Archive a completed change in the experimental workflow. Use when the user wants to finalize and archive a change after implementation is complete.
+description: Archive a completed change in the experimental workflow — gate on Definition-of-Done + TBD-Purpose, sync delta specs, move the change under archive/, and push the archive commit to the existing PR. Use when finalizing a change after implementation + review are done. NOT before implementation/smoke/verification are complete.
 license: MIT
 compatibility: Requires openspec CLI.
 metadata:
@@ -9,174 +9,74 @@ metadata:
   generatedBy: "1.3.0"
 ---
 
-Archive a completed change in the experimental workflow.
+Archive a completed change.
 
-**Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+**Input**: optionally a change name. If omitted, infer from context; if ambiguous you MUST prompt.
 
 **Steps**
 
-1. **If no change name provided, prompt for selection**
+1. **Select the change.** If no name given, `openspec list --json` + AskUserQuestion (active changes only, with schema). Do NOT guess or auto-select.
 
-   Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+2. **Check artifact completion.** `openspec status --change "<name>" --json` → if any artifact isn't `done`, warn (list incomplete) + AskUserQuestion to confirm before proceeding.
 
-   Show only active changes (not already archived).
-   Include the schema used for each change if available.
+3. **Check task completion.** Read the tasks file; count `- [ ]` vs `- [x]`. If incomplete tasks exist, warn + AskUserQuestion to confirm. No tasks file → proceed.
 
-   **IMPORTANT**: Do NOT guess or auto-select a change. Always let the user choose.
+3.5. **Definition-of-Done gate (nearyou-id — `docs/11-Engineering-Standards.md` §5).** On the change's PR, verify:
+   - **UI-affecting** → manual verification evidence (screenshots / artifact path from `verify-loop`, per `/opsx:apply` step 7.5) is in the PR body. A UI change with no evidence and no explicit "Verification: N/A" line is NOT done — tests green alone doesn't clear this.
+   - **Runtime-impacting backend** → pre-archive staging smoke ran (or Section 6 is explicitly N/A).
+   - **Gates** → flavor-qualified mobile test tasks ran when mobile was touched (not just the backend gate).
 
-2. **Check artifact completion status**
+   If anything is missing: warn, then AskUserQuestion — (a) run the missing gate now (recommended), (b) proceed with an explicit waiver recorded in the PR body, (c) cancel. Never proceed silently.
 
-   Run `openspec status --change "<name>" --json` to check artifact completion.
+4. **Assess delta-spec sync.** Check `openspec/changes/<name>/specs/`. If delta specs exist, compare each against `openspec/specs/<capability>/spec.md`, determine the changes (adds/mods/removals/renames), and show a combined summary before prompting (sync now (recommended) / archive without syncing / cancel). If the user chooses sync, use the Task tool (subagent_type `general-purpose`, prompt: invoke `openspec-sync-specs` for `<name>` with the analyzed delta summary). Proceed to archive regardless.
 
-   Parse the JSON to understand:
-   - `schemaName`: The workflow being used
-   - `artifacts`: List of artifacts with their status (`done` or other)
+5. **Block archive if any resulting spec would carry a TBD Purpose placeholder.** The historical `/opsx:archive` default produced `## Purpose\nTBD - created by archiving change <name>…` and the handoff almost always forgot to fill it (a 2026-05-07 audit found 26/41 specs still carrying it). This step refuses to archive until every affected Purpose is grounded — it is **mandatory, not advisory**: the Purpose is the first thing agents/humans read when grepping `openspec/specs/`; a TBD placeholder makes them skip the spec or treat the stub as authoritative.
 
-   **If any artifacts are not `done`:**
-   - Display warning listing incomplete artifacts
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
-   - Proceed if user confirms
+   For each `openspec/changes/<name>/specs/<capability>/spec.md`: determine the post-archive `openspec/specs/<capability>/spec.md` (the file the world reads going forward), and check it for the literal substring `TBD - created by archiving`. If found, do NOT proceed silently. Offer all three via AskUserQuestion:
+   - **(a) Fill the Purpose now (recommended).** From `proposal.md` § Why + § What Changes, synthesize a 2–4 sentence Purpose; replace the TBD line in the spec.md (or delta spec.md if sync hasn't run). Re-run `openspec validate <name> --strict` + re-run this step.
+   - **(b) Defer with an explicit `follow-up` issue.** Only when filling meaningfully needs inputs you lack: `gh issue create --label follow-up` (+ area label) capturing the capability + missing inputs, then proceed. Real tracked debt, not a free pass — don't use for laziness.
+   - **(c) Cancel archive.** Surface the affected capability list and let the user decide.
 
-3. **Check task completion status**
-
-   Read the tasks file (typically `tasks.md`) to check for incomplete tasks.
-
-   Count tasks marked with `- [ ]` (incomplete) vs `- [x]` (complete).
-
-   **If incomplete tasks found:**
-   - Display warning showing count of incomplete tasks
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
-   - Proceed if user confirms
-
-   **If no tasks file exists:** Proceed without task-related warning.
-
-3.5. **Definition-of-Done gate (nearyou-id — per `docs/11-Engineering-Standards.md` §5)**
-
-   Before archiving, verify on the change's PR:
-   - **UI-affecting change** → manual verification evidence (screenshots / artifact path from the `verify-loop` bring-up, per `/opsx:apply` step 7.5) is present in the PR body. A UI change with no verification evidence and no explicit "Verification: N/A" line is NOT done — tests green alone doesn't clear this gate.
-   - **Runtime-impacting backend change** → pre-archive staging smoke ran (or Section 6 is explicitly N/A).
-   - **Gates** → the flavor-qualified mobile test tasks ran when mobile was touched (not just the backend gate).
-
-   If any item is missing: warn, then **AskUserQuestion** — (a) run the missing gate now (recommended), (b) proceed with an explicit waiver recorded in the PR body, (c) cancel archive. Never proceed silently.
-
-4. **Assess delta spec sync state**
-
-   Check for delta specs at `openspec/changes/<name>/specs/`. If none exist, proceed without sync prompt.
-
-   **If delta specs exist:**
-   - Compare each delta spec with its corresponding main spec at `openspec/specs/<capability>/spec.md`
-   - Determine what changes would be applied (adds, modifications, removals, renames)
-   - Show a combined summary before prompting
-
-   **Prompt options:**
-   - If changes needed: "Sync now (recommended)", "Archive without syncing"
-   - If already synced: "Archive now", "Sync anyway", "Cancel"
-
-   If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
-
-5. **Block archive if any resulting spec would carry a TBD Purpose placeholder.**
-
-   The historical default of `/opsx:archive` produced spec.md files with `## Purpose\nTBD - created by archiving change <name>. Update Purpose after archive.` — and the human/AI handing off the archive almost always forgot to fill it. Audit on 2026-05-07 found 26 of 41 specs (63%) still carrying the TBD placeholder. This step closes the gap by **refusing to archive until every affected spec's Purpose is grounded.**
-
-   For each delta spec file under `openspec/changes/<name>/specs/<capability>/spec.md`:
-
-   1. Determine what `openspec/specs/<capability>/spec.md` will look like AFTER archive sync. This is the file the world reads going forward — it carries either the existing Purpose (if `<capability>` was previously specced) or whatever Purpose the archive process synthesises from the delta (typically the TBD placeholder for new capabilities).
-   2. Check the post-archive spec for the literal substring `TBD - created by archiving`. If found, the archive MUST NOT proceed silently.
-
-   **Acceptable resolution paths (offer all three via AskUserQuestion):**
-   - **(a) Fill the Purpose now (recommended).** Read the change's `proposal.md` § Why + § What Changes; synthesize a 2-4 sentence Purpose paragraph; edit the affected spec.md (or the delta spec.md if the sync hasn't run yet) to replace the TBD line with the real Purpose. Re-run `openspec validate <name> --strict` and re-run this step.
-   - **(b) Defer with an explicit `follow-up` GitHub issue.** If filling the Purpose meaningfully requires inputs you do not have right now, file a `follow-up` GitHub issue (`gh issue create --label follow-up` + an area label) capturing the capability + the missing inputs. Then proceed. Do NOT use this path for laziness — an open follow-up issue is real tracked debt, not a free pass.
-   - **(c) Cancel archive.** Stop, surface the affected capability list to the user, and let them decide.
-
-   Acceptable check command (regex-anchored to the literal placeholder phrase the archive process inserts; tolerates leading whitespace):
-
+   Check command (halts archive on any output; empty = proceed):
    ```bash
-   # After running `openspec archive` or before doing the mv, scan for placeholders:
    grep -rn "TBD - created by archiving" openspec/specs/ openspec/changes/<name>/specs/ 2>/dev/null
    ```
 
-   If the command emits any line, the archive halts. Empty output means proceed.
+6. **Perform the archive.** `mkdir -p openspec/changes/archive`; target `YYYY-MM-DD-<change-name>` (current date). If the target exists, fail (suggest a different date). Else `mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>`.
 
-   **Why this is mandatory, not advisory:** the Purpose paragraph is the first thing AI agents and humans read when grepping `openspec/specs/`. A TBD placeholder leaves the spec half-filled — agents skip the spec because they can't tell what it covers, or worse, they treat the placeholder as authoritative and propose changes that conflict with the actual capability. The 26-of-41 audit finding is the consequence of leaving this rule at "advisory."
-
-6. **Perform the archive**
-
-   Create the archive directory if it doesn't exist:
-   ```bash
-   mkdir -p openspec/changes/archive
-   ```
-
-   Generate target name using current date: `YYYY-MM-DD-<change-name>`
-
-   **Check if target already exists:**
-   - If yes: Fail with error, suggest renaming existing archive or using different date
-   - If no: Move the change directory to archive
-
-   ```bash
-   mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
-   ```
-
-7. **Update PR body to merge-ready state (one-PR-per-change convention).**
-
-   Per `openspec/project.md` § Change Delivery Workflow + § "PR title and body MUST stay current at every phase boundary," the archive commit lands on the SAME PR that `/next-change` opened. After `openspec archive` moves the change directory and syncs specs, push the archive commit to the PR's branch and refresh the PR body to a "merge-ready" shape.
-
+7. **Update PR body to merge-ready state (one-PR-per-change).** The archive commit lands on the SAME PR `/next-change` opened (per `openspec/project.md` § Change Delivery Workflow + § "PR title and body MUST stay current at every phase boundary" — skipping this leaves the description in proposal shape and misleads reviewers at squash-merge; precedent: an earlier `/opsx:archive` on PR #37 skipped it and the user had to request the refresh).
    ```bash
    gh pr list --head "<change-name>" --state open --json number --jq '.[0].number'
    gh pr edit <pr-number> --body "$(cat <<'EOF'
-   <updated body — merge-ready shape, see openspec/project.md for the prescription>
+   <merge-ready body — see openspec/project.md for the prescription>
    EOF
    )"
    ```
+   Merge-ready body: lead with **Status: ✅ Implementation + archive complete. Merge-ready.**, drop in-progress framing, include final test counts + capability deltas (ADDED/MODIFIED from `openspec archive` output), list post-merge ticks (e.g. staging smoke) explicitly, and cite the one-PR-per-change convention so the reviewer understands the 10+ commits squash to ONE. Final retitle only if the dominant prefix changed (usually `feat(<area>): <name>` still fits).
 
-   The merge-ready body should:
-   - Lead with **Status: ✅ Implementation + archive complete. Merge-ready.**
-   - Drop the in-progress framing.
-   - Include final test counts + capability deltas (ADDED/MODIFIED summary from `openspec archive` output).
-   - List any post-merge tasks (e.g., staging smoke test) explicitly as "ticks after squash-merge."
-   - Cite the `one-PR-per-change` convention so the reviewer understands why the PR has 10+ commits + the squash will produce ONE commit on `main`.
-
-   The title may need a final retitle if the dominant prefix changed during the lifecycle (use `gh pr edit <pr> --title '<new-title>'`). Usually `feat(<area>): <name>` from the first feat-commit transition still fits.
-
-   This step is required by `openspec/project.md` § "PR title and body MUST stay current at every phase boundary." Skipping it leaves the PR description in its in-progress / proposal shape after archive, which misleads reviewers at squash-merge time. Precedent: an earlier `/opsx:archive` run on PR #37 skipped this step and the user had to manually request the body refresh — that gap is closed by making this an explicit skill step.
-
-8. **Display summary**
-
-   Show archive completion summary including:
-   - Change name
-   - Schema that was used
-   - Archive location
-   - Whether specs were synced (if applicable)
-   - PR body refresh confirmation (`gh pr edit <pr> --body` ran successfully)
-   - Note about any warnings (incomplete artifacts/tasks)
+8. **Display summary** — change name, schema, archive location, sync status, PR-body-refresh confirmation, any warnings.
 
 **Output On Success**
-
 ```
 ## Archive Complete
-
 **Change:** <change-name>
 **Schema:** <schema-name>
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
-**Specs:** ✓ Synced to main specs (or "No delta specs" or "Sync skipped")
-
-All artifacts complete. All tasks complete.
+**Specs:** ✓ Synced to main specs (or "No delta specs" / "Sync skipped")
 ```
 
 **Guardrails**
-- Always prompt for change selection if not provided
-- Use artifact graph (openspec status --json) for completion checking
-- Don't block archive on warnings - just inform and confirm
-- Preserve .openspec.yaml when moving to archive (it moves with the directory)
-- Show clear summary of what happened
-- If sync is requested, use openspec-sync-specs approach (agent-driven)
-- If delta specs exist, always run the sync assessment and show the combined summary before prompting
+- Always prompt for change selection if not provided; never block archive on warnings (inform + confirm).
+- Use the artifact graph (`openspec status --json`) for completion checking.
+- `.openspec.yaml` moves with the directory; preserve it.
+- If delta specs exist, always run the sync assessment + show the combined summary before prompting.
 
-**Branching (nearyou-id project — one PR per change lifecycle)**
+## Branching (nearyou-id — one PR per change lifecycle)
 
-Commit and push the archive commit to the **existing change branch** (the one `/next-change` opened, branch name = change name) — the same branch that already carries the proposal commits and the feat commits from `/opsx:apply`. Do NOT create a separate `openspec/archive-<change-name>` branch and do NOT open a separate archive PR. The archive commit is the LAST commit before squash-merge to `main`.
+Push the archive commit to the **existing change branch** (the one `/next-change` opened, branch name = change name) — the LAST commit before squash-merge. Do NOT create a separate `openspec/archive-<name>` branch or a separate archive PR — that's the OLD 3-PR shape (V5–V11, e.g. PRs [#34](https://github.com/aditrioka/nearyou-id/pull/34)/[#35](https://github.com/aditrioka/nearyou-id/pull/35)); the one-PR convention started with PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) and was codified in PR [#38](https://github.com/aditrioka/nearyou-id/pull/38). Commit shape: `chore(openspec): archive <change-name>` (or `docs(openspec):`), body summarizing capabilities ADDED/MODIFIED/REMOVED. After it lands, the next step is the user squash-merging the unified PR — see `openspec/project.md` § Change Delivery Workflow → Archive timing for the gating sequence (CI green → archive commit → CI green → squash-merge → staging deploy green).
 
-Suggested commit shape: `chore(openspec): archive <change-name>` (or `docs(openspec): archive <change-name>` to match prior precedent), with a body summarizing capability spec changes (capabilities ADDED / MODIFIED / REMOVED). The archive commit lands BEFORE the unified PR's squash-merge — see `openspec/project.md` § Change Delivery Workflow → Archive timing for the gating sequence (CI green → archive commit pushed → CI green again → squash-merge → staging deploy green).
+**qodo on the archive commit.** Qodo dashboard is Manual mode (see `openspec-apply-change` § Branching) — pushing the archive commit to the non-draft PR does NOT auto-trigger qodo; no `/review`, no polling, no gating here. (Qodo's only OpenSpec-lifecycle invocation is the `/review` comment from `/opsx:apply` step 8 against the implementation diff, which already ran by archive time.) Squash-merge proceeds when CI is green.
 
-After the archive commit lands, the next step is the user squash-merging the unified PR, NOT a separate archive PR. If you find yourself about to run `gh pr create` for an archive PR on this nearyou-id project, stop — that's the OLD 3-PR convention (V5–V11 archives, e.g., PRs [#34](https://github.com/aditrioka/nearyou-id/pull/34) / [#35](https://github.com/aditrioka/nearyou-id/pull/35)). PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) (`like-rate-limit`) was the first change to ship under the new one-PR convention; PR [#38](https://github.com/aditrioka/nearyou-id/pull/38) codified the convention in docs.
+## Safety
 
-**qodo on the archive commit (nearyou-id specific).** Qodo dashboard is configured Manual mode (see `openspec-apply-change` § Branching) — push to a non-draft PR does NOT auto-trigger qodo. The archive commit lands silently as far as qodo is concerned. No `/review` comment is posted in this skill, no polling, no gating. Squash-merge proceeds when CI is green. (Qodo's only invocation in the OpenSpec lifecycle is the explicit `/review` comment posted by `/opsx:apply` step 8 against the implementation diff — by the time this archive skill runs, that review has already happened.)
+The `mv` is reversible via git. Push the archive commit to the existing branch only — never `main`, never a new archive PR, never `--no-verify`. The TBD-Purpose grep (step 5) is a hard halt, not advisory.
