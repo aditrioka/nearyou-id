@@ -2,14 +2,14 @@
 
 PR [#358](https://github.com/aditrioka/nearyou-id/pull/358) (`csam-detection-webhook-and-archive`, merge-ready) shipped the CSAM takedown backend:
 
-- **`V29 csam_detection_archive`** — one legal-preservation row per matched image. Plaintext Kominfo essentials (`image_hash UNIQUE`, `cf_match_id`, `ncmec_reference`), `source CHECK ('admin_manual','cf_worker')`, AES-256-GCM `encrypted_metadata BYTEA` (nullable, fail-soft), `kominfo_report_id`/`kominfo_reported_at` (NULL = pending), `created_at`, `expires_at = created_at + 90d`. No FK to `users` (survives hard-delete). Indexes: `cf_match_id` partial-UNIQUE; purge index on `expires_at WHERE kominfo_reported_at IS NOT NULL`.
+- **`V31 csam_detection_archive`** — one legal-preservation row per matched image. Plaintext Kominfo essentials (`image_hash UNIQUE`, `cf_match_id`, `ncmec_reference`), `source CHECK ('admin_manual','cf_worker')`, AES-256-GCM `encrypted_metadata BYTEA` (nullable, fail-soft), `kominfo_report_id`/`kominfo_reported_at` (NULL = pending), `created_at`, `expires_at = created_at + 90d`. No FK to `users` (survives hard-delete). Indexes: `cf_match_id` partial-UNIQUE; purge index on `expires_at WHERE kominfo_reported_at IS NOT NULL`.
 - **`CsamDetectionService.handleDetection(Input)`** — the fixed-policy atomic takedown (resolve uploader → tombstone post → permanent-ban + `token_version` bump → cascade-tombstone → AES-GCM archive → `moderation_queue csam_detected` → audit). Idempotent; ledger-miss-resilient (archive-only). `Input.source: Source` (`ADMIN_MANUAL`/`CF_WORKER`), `Input.actorAdminId: UUID`.
 - **`POST /internal/csam-webhook`** — two auth paths: admin-session cookie + `X-CSRF-Token` gated to `owner`/`admin` (reusing `SessionRepository`/`AdminUserRepository`/`AdminRoleGate`/`HashUtil`), or CF-Worker Bearer + HMAC. Body `{image_id, image_hash, cf_match_id?, ncmec_reference?}`; both `image_id` and `image_hash` mandatory. Returns JSON `{status: actioned|archived}`.
 - **`CsamRepository`** (archive/resolve/purge), **`CsamMetadataEncryptor`** (AES-256-GCM, AAD-bound to `image_hash`), **`AdminAuditLogger`**.
 
-This change is the operator front-end #358 explicitly anticipated. #358's `CsamWebhookRoutes` docstring: the admin-session path's "*production caller (the admin paste-URL form) ships with the deferred admin viewer; this change ships + tests the auth contract*." The V29 migration: `kominfo_report_id` is "*set later by the deferred admin review surface.*" Both = this change.
+This change is the operator front-end #358 explicitly anticipated. #358's `CsamWebhookRoutes` docstring: the admin-session path's "*production caller (the admin paste-URL form) ships with the deferred admin viewer; this change ships + tests the auth contract*." The V31 migration: `kominfo_report_id` is "*set later by the deferred admin review surface.*" Both = this change.
 
-**Constraints:** no Flyway migration (existing V29 columns only); hard dependency on #358 (apply sequences behind its squash-merge); admin UI per docs/11 §3.6 (Pebble + HTMX + vendored CSS, mockup frame f13); image bytes never enter the panel; reuse #358's service/repo/encryptor (no fork).
+**Constraints:** no Flyway migration (existing V31 columns only); hard dependency on #358 (apply sequences behind its squash-merge); admin UI per docs/11 §3.6 (Pebble + HTMX + vendored CSS, mockup frame f13); image bytes never enter the panel; reuse #358's service/repo/encryptor (no fork).
 
 ## Goals / Non-Goals
 
