@@ -8,6 +8,7 @@ import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
+import id.nearyou.app.image.imageDeliveryUrls
 import id.nearyou.app.infra.repo.JdbcPostsFollowingRepository
 import id.nearyou.app.infra.repo.JdbcPostsGlobalRepository
 import id.nearyou.app.infra.repo.JdbcPostsTimelineRepository
@@ -248,9 +249,11 @@ class TimelineReadRateLimitTest : StringSpec({
                 // Auth uses the unwrapped repo (separate DataSource) so its `users.findById`
                 // SELECT doesn't pollute the timeline-handler statement counter.
                 install(Authentication) { configureUserJwt(keys, users, java.time.Instant::now) }
-                timelineRoutes(nearby, timelineRateLimiter)
-                followingTimelineRoutes(following, timelineRateLimiter)
-                globalTimelineRoutes(global, timelineRateLimiter)
+                // Unconfigured delivery-URL builder (null config) — this spec exercises the rate-limit
+                // paths only (empty / hard-capped bodies), not imageUrl surfacing.
+                timelineRoutes(nearby, timelineRateLimiter, imageDeliveryUrls(null))
+                followingTimelineRoutes(following, timelineRateLimiter, imageDeliveryUrls(null))
+                globalTimelineRoutes(global, timelineRateLimiter, imageDeliveryUrls(null))
             }
             block()
         }

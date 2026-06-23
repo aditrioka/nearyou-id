@@ -132,6 +132,13 @@ purchases-kmp = "3.0.6"
 # `RevenueCat` CocoaPod linkOnly in the :mobile:app cocoapods block (the sentryCocoaIos pattern). A
 # mismatch surfaces as an iOS `ld: framework 'RevenueCat' not found` / symbol error.
 revenuecat-ios = "5.77.0"
+# image-attached-posts (D5) — Coil 3 (KMP) AsyncImage for the read-path image render in the shared
+# PostCard + post detail. The coil-network-ktor3 backend reuses the project's existing Ktor stack (no new
+# networking lib). Apply-phase dated re-check (2026-06-20, tasks.md 1.1): 3.5.0 is the current stable line
+# on Maven Central (coil-compose + coil-network-ktor3 release in lockstep); full CMP target set incl. iOS.
+# Coil 3.x does NOT auto-register a network fetcher (unlike Coil 2) — KtorNetworkFetcherFactory is added
+# explicitly via SingletonImageLoader.setSafe at app init (App.kt). Image bytes are never logged (D6).
+coil = "3.4.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -196,6 +203,12 @@ ktor-kmp-serializationKotlinxJson = { module = "io.ktor:ktor-serialization-kotli
 ktor-kmp-clientAuth = { module = "io.ktor:ktor-client-auth", version.ref = "ktor" }
 ktor-kmp-clientLogging = { module = "io.ktor:ktor-client-logging", version.ref = "ktor" }
 ktor-kmp-clientMock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
+
+# image-attached-posts (D5) — Coil 3 (KMP) async image rendering for the read-path post image. `coil-compose`
+# provides `AsyncImage`; `coil-network-ktor3` is the Ktor-backed network fetcher (reuses the existing Ktor
+# stack — no new networking lib). Consumed by :mobile:app commonMain; full CMP target set incl. iOS.
+coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
+coil-network-ktor3 = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil" }
 
 # Android Credential Manager + Google ID helper (Mobile #3 — Google Sign-In Android substrate).
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "androidx-credentials" }

@@ -86,6 +86,7 @@ import id.nearyou.app.image.ImageUploadFlagGate
 import id.nearyou.app.image.ImageUploadRateLimiter
 import id.nearyou.app.image.ImageUploadService
 import id.nearyou.app.image.JdbcImageUploadRepository
+import id.nearyou.app.image.imageDeliveryUrls
 import id.nearyou.app.image.imageRoutes
 import id.nearyou.app.infra.cloudflareimages.CloudflareImagesConfig
 import id.nearyou.app.infra.cloudflareimages.imageStore
@@ -992,12 +993,25 @@ fun Application.module() {
             }
         }
     val postsTimelineRepository: PostsTimelineRepository = JdbcPostsTimelineRepository(dataSource)
+    // image-attached-posts read-path surfacing: build delivery URLs from the SAME Cloudflare config
+    // the upload path uses (one source of truth — no write/read drift). Declared before the read
+    // services + timeline routes so all of them surface `imageUrl` via this one builder. The base is
+    // env-derived (img.nearyou.id prod / img-staging.nearyou.id staging); an unconfigured env yields
+    // null URLs (fail-soft, no broken links).
+    val cloudflareImagesConfig =
+        CloudflareImagesConfig(
+            apiToken = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-api-token")).orEmpty(),
+            accountId = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-account-id")).orEmpty(),
+            accountHash = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-account-hash")).orEmpty(),
+            deliveryBaseUrl = if (ktorEnv == "staging") "https://img-staging.nearyou.id" else "https://img.nearyou.id",
+        )
+    val readImageDeliveryUrls = imageDeliveryUrls(cloudflareImagesConfig)
     val nearbyTimelineService = NearbyTimelineService(postsTimelineRepository, dbDispatchers.db)
     val postsFollowingRepository: PostsFollowingRepository = JdbcPostsFollowingRepository(dataSource)
     val followingTimelineService = FollowingTimelineService(postsFollowingRepository, dbDispatchers.db)
     val postsGlobalRepository: PostsGlobalRepository = JdbcPostsGlobalRepository(dataSource)
     val singlePostRepository: SinglePostRepository = JdbcSinglePostRepository(dataSource)
-    val postReadService = PostReadService(singlePostRepository, dbDispatchers.db)
+    val postReadService = PostReadService(singlePostRepository, readImageDeliveryUrls, dbDispatchers.db)
     val globalTimelineService = GlobalTimelineService(postsGlobalRepository, dbDispatchers.db)
     // Per `timeline-read-rate-limit` capability: shared across all three timeline
     // routes. Stateless above the Redis seam, so a single Koin binding suffices.
@@ -1028,15 +1042,7 @@ fun Application.module() {
             flagGate = ImageUploadFlagGate(redisStringCache, remoteConfig),
             rateLimiter = ImageUploadRateLimiter(rateLimiter),
             moderator = imageModerator(secrets.resolve(secretKey(ktorEnv, "gcp-vision-sa"))),
-            store =
-                imageStore(
-                    CloudflareImagesConfig(
-                        apiToken = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-api-token")).orEmpty(),
-                        accountId = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-account-id")).orEmpty(),
-                        accountHash = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-account-hash")).orEmpty(),
-                        deliveryBaseUrl = if (ktorEnv == "staging") "https://img-staging.nearyou.id" else "https://img.nearyou.id",
-                    ),
-                ),
+            store = imageStore(cloudflareImagesConfig),
             remoteConfig = remoteConfig,
             dbDispatcher = dbDispatchers.db,
         )
@@ -1220,9 +1226,9 @@ fun Application.module() {
     likeRoutes(likeService)
     replyRoutes(replyService, contentLengthGuard)
     chatRoutes(chatService, contentLengthGuard, chatRealtimeClient)
-    timelineRoutes(nearbyTimelineService, timelineReadRateLimiter)
-    followingTimelineRoutes(followingTimelineService, timelineReadRateLimiter)
-    globalTimelineRoutes(globalTimelineService, timelineReadRateLimiter)
+    timelineRoutes(nearbyTimelineService, timelineReadRateLimiter, readImageDeliveryUrls)
+    followingTimelineRoutes(followingTimelineService, timelineReadRateLimiter, readImageDeliveryUrls)
+    globalTimelineRoutes(globalTimelineService, timelineReadRateLimiter, readImageDeliveryUrls)
     reportRoutes(reportService)
     searchRoutes(searchService)
     userUsernameRoutes(usernameChangeService)

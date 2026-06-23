@@ -153,6 +153,7 @@ class PostDetailScreenTest {
         authorDisplayName: String = "Raka Pratama",
         focusReplyComposer: Boolean = false,
         createdAtIso: String = CREATED_AT,
+        imageUrl: String? = null,
     ): PostDetailRoute =
         PostDetailRoute(
             postId = "p1",
@@ -165,6 +166,7 @@ class PostDetailScreenTest {
             authorUsername = authorUsername,
             authorDisplayName = authorDisplayName,
             focusReplyComposer = focusReplyComposer,
+            imageUrl = imageUrl,
         )
 
     // ---- mobile-post-editing integration (the refresh-on-resume → affordance / Diedit label / history) ----
@@ -386,6 +388,34 @@ class PostDetailScreenTest {
             onNodeWithText(CONTENT).assertExists()
             onNodeWithText(POSTED_FROM_NO_CITY).assertExists() // date only, no dangling "dari ,"
             onNodeWithText("\"\"").assertDoesNotExist() // no literal empty-quotes leaked
+        }
+    }
+
+    // image-attached-posts § "Attached image renders when imageUrl is present, and nothing when absent" —
+    // the detail image rides the route payload (no by-id re-fetch). The bytes never decode in Robolectric;
+    // this asserts the AsyncImage NODE is composed/omitted by the imageUrl guard (the behavioral contract).
+    @Test
+    fun attachedImageRendersWhenRouteImageUrlPresent() {
+        installKoin(FakePostDetailFlow())
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(route = route(imageUrl = "https://img.example/acct/p1/public"), onBack = {})
+                    }
+                }
+            }
+            onNodeWithTag(POST_DETAIL_IMAGE_TAG, useUnmergedTree = true).assertExists()
+        }
+    }
+
+    @Test
+    fun noImageElementWhenRouteImageUrlNull() {
+        installKoin(FakePostDetailFlow())
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(imageUrl = null), onBack = {}) } } }
+            onNodeWithText(CONTENT).assertExists() // header still renders
+            onNodeWithTag(POST_DETAIL_IMAGE_TAG, useUnmergedTree = true).assertDoesNotExist()
         }
     }
 

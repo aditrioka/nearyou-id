@@ -51,6 +51,10 @@ data class NearbyPostDto(
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
     @SerialName("reply_count") val replyCount: Int,
+    // image-attached-posts (D4): the public image delivery URL, BARE camelCase on the wire (the
+    // TimelineRoutes.kt mixed-case precedent — NOT snake_case). The backend OMITS it (explicitNulls=false)
+    // for a text-only post, so it decodes to null. NOT a raw coordinate — safe to carry/render.
+    val imageUrl: String? = null,
 )
 
 /**

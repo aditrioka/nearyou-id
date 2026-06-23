@@ -381,6 +381,7 @@ private fun FollowingTimelinePost.toCardModel(): PostCardModel =
         createdAt = createdAt,
         likedByViewer = likedByViewer,
         replyCount = replyCount,
+        imageUrl = imageUrl,
     )
 
 @Composable

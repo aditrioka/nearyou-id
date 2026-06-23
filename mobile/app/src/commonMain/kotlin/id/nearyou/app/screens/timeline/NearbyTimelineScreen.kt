@@ -596,6 +596,7 @@ private fun NearbyTimelinePost.toCardModel(): PostCardModel =
         createdAt = createdAt,
         likedByViewer = likedByViewer,
         replyCount = replyCount,
+        imageUrl = imageUrl,
     )
 
 @Composable

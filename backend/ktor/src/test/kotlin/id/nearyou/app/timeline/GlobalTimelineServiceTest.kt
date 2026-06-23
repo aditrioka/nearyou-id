@@ -7,6 +7,7 @@ import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
+import id.nearyou.app.image.imageDeliveryUrls
 import id.nearyou.app.infra.repo.JdbcPostsGlobalRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import io.kotest.core.annotation.Tags
@@ -216,7 +217,9 @@ class GlobalTimelineServiceTest : StringSpec({
                     )
                 }
                 install(Authentication) { configureUserJwt(keys, users, java.time.Instant::now) }
-                globalTimelineRoutes(service, rateLimiter)
+                // Unconfigured delivery-URL builder (null config) — this spec does not assert imageUrl;
+                // the image-attached-posts surfacing is covered by ImageUrlSurfacingTest.
+                globalTimelineRoutes(service, rateLimiter, imageDeliveryUrls(null))
             }
             block()
         }

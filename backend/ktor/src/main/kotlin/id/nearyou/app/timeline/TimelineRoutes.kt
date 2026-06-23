@@ -5,6 +5,7 @@ import id.nearyou.app.auth.UserPrincipal
 import id.nearyou.app.common.InvalidCursorException
 import id.nearyou.app.common.decodeCursor
 import id.nearyou.app.common.encodeCursor
+import id.nearyou.app.image.ImageDeliveryUrls
 import id.nearyou.app.post.LocationOutOfBoundsException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -38,6 +39,10 @@ data class NearbyPostDto(
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
     @SerialName("reply_count") val replyCount: Int,
+    // image-attached-posts: public Cloudflare delivery URL of the attached image, or null/omitted
+    // (explicitNulls=false) for a text-only post. Bare camelCase wire (same convention as the other
+    // bare fields); coordinate-independent (no PII). Built server-side via the shared builder.
+    val imageUrl: String? = null,
 )
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -62,6 +67,10 @@ data class FollowingPostDto(
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
     @SerialName("reply_count") val replyCount: Int,
+    // image-attached-posts: public Cloudflare delivery URL of the attached image, or null/omitted
+    // (explicitNulls=false) for a text-only post. Bare camelCase wire (same convention as the other
+    // bare fields); coordinate-independent (no PII). Built server-side via the shared builder.
+    val imageUrl: String? = null,
 )
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -86,6 +95,10 @@ data class GlobalPostDto(
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
     @SerialName("reply_count") val replyCount: Int,
+    // image-attached-posts: public Cloudflare delivery URL of the attached image, or null/omitted
+    // (explicitNulls=false) for a text-only post. Bare camelCase wire (same convention as the other
+    // bare fields); coordinate-independent (no PII). Built server-side via the shared builder.
+    val imageUrl: String? = null,
 )
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -101,6 +114,7 @@ private const val SESSION_ID_HEADER = "X-Session-Id"
 fun Application.followingTimelineRoutes(
     service: FollowingTimelineService,
     rateLimiter: TimelineReadRateLimiter,
+    imageUrls: ImageDeliveryUrls,
 ) {
     routing {
         authenticate(AUTH_PROVIDER_USER) {
@@ -152,6 +166,7 @@ fun Application.followingTimelineRoutes(
                                             createdAt = it.createdAt.toString(),
                                             likedByViewer = it.likedByViewer,
                                             replyCount = it.replyCount,
+                                            imageUrl = imageUrls.forImage(it.imageId),
                                         )
                                     },
                                 nextCursor = page.nextCursor?.let(::encodeCursor),
@@ -168,6 +183,7 @@ fun Application.followingTimelineRoutes(
 fun Application.timelineRoutes(
     service: NearbyTimelineService,
     rateLimiter: TimelineReadRateLimiter,
+    imageUrls: ImageDeliveryUrls,
 ) {
     routing {
         authenticate(AUTH_PROVIDER_USER) {
@@ -295,6 +311,7 @@ fun Application.timelineRoutes(
                                             createdAt = it.createdAt.toString(),
                                             likedByViewer = it.likedByViewer,
                                             replyCount = it.replyCount,
+                                            imageUrl = imageUrls.forImage(it.imageId),
                                         )
                                     },
                                 nextCursor = page.nextCursor?.let(::encodeCursor),
@@ -311,6 +328,7 @@ fun Application.timelineRoutes(
 fun Application.globalTimelineRoutes(
     service: GlobalTimelineService,
     rateLimiter: TimelineReadRateLimiter,
+    imageUrls: ImageDeliveryUrls,
 ) {
     routing {
         authenticate(AUTH_PROVIDER_USER) {
@@ -359,6 +377,7 @@ fun Application.globalTimelineRoutes(
                                             createdAt = it.createdAt.toString(),
                                             likedByViewer = it.likedByViewer,
                                             replyCount = it.replyCount,
+                                            imageUrl = imageUrls.forImage(it.imageId),
                                         )
                                     },
                                 nextCursor = page.nextCursor?.let(::encodeCursor),
