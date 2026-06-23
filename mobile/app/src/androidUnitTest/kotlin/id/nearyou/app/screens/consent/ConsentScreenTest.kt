@@ -12,6 +12,8 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentOutcome
 import id.nearyou.app.consent.FakeConsentFlow
+import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.screens.routing.ConsentRoute
 import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.theme.NearYouTheme
@@ -66,7 +68,14 @@ class ConsentScreenTest {
     private fun installKoin(outcome: ConsentOutcome = ConsentOutcome.Success) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeConsentFlow(outcome = outcome)
-        startKoin { modules(module { single<ConsentFlow> { fake } }) }
+        startKoin {
+            modules(
+                module {
+                    single<ConsentFlow> { fake }
+                    single<ConsentSnapshotStore> { InMemoryConsentSnapshotStore() }
+                },
+            )
+        }
     }
 
     @AfterTest

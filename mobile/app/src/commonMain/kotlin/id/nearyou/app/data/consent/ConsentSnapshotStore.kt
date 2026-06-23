@@ -24,14 +24,30 @@ interface ConsentSnapshotStore {
 }
 
 /**
- * Process-lifetime in-memory binding. It survives ViewModel reconstruction within a process (so a later
- * Settings re-entry seeds from the last submit), which is what the `mobile-settings` snapshot scenarios
- * exercise. **Durable on-disk persistence (surviving process death) is deferred to issue
- * [#198](https://github.com/aditrioka/nearyou-id/issues/198)** (design D5) — at which point a platform
- * expect/actual binding (DataStore / NSUserDefaults, the no-new-pin storage family backing
- * `SecureTokenStore`) replaces this one behind the same interface. Correctness is preserved meanwhile:
- * the snapshot is a faithful mirror of the last server-acknowledged state, and the V2 fallback is
- * privacy-safe, so a cold start simply re-shows the safe defaults until the user re-opens consent.
+ * The durable production binding (`mobile-amplitude-analytics`, resolving issue
+ * [#198](https://github.com/aditrioka/nearyou-id/issues/198)): the snapshot persists across process
+ * death so a consumer reading it (the analytics tracker, the crash gate) honors the user's last
+ * server-acknowledged choice on every cold start. Platform actuals (consent flags are non-secret, so
+ * plain key-value storage — no encryption — synchronous to match this interface):
+ *  - androidMain: `SharedPreferences` (a `Context`-scoped private prefs file).
+ *  - iosMain: `NSUserDefaults` (standard defaults).
+ *
+ * No constructor is declared here — construction happens only in the per-platform Koin `platformModule`
+ * (android passes `androidContext()`; iOS is no-arg), so commonMain never instantiates it (the
+ * `SecureTokenStore` expect/actual precedent, design D2). `InMemoryConsentSnapshotStore` remains the
+ * test double.
+ */
+expect class DurableConsentSnapshotStore : ConsentSnapshotStore {
+    override fun read(): ConsentSnapshot?
+
+    override fun write(snapshot: ConsentSnapshot)
+}
+
+/**
+ * Process-lifetime in-memory binding — the **test double** (commonTest substitutes it for the platform
+ * [DurableConsentSnapshotStore] so consent/settings projections can be exercised without a platform
+ * store). It survives ViewModel reconstruction within a process but NOT process death; production uses
+ * the durable expect/actual binding above.
  */
 class InMemoryConsentSnapshotStore : ConsentSnapshotStore {
     private var snapshot: ConsentSnapshot? = null

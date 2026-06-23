@@ -32,8 +32,6 @@ import id.nearyou.app.data.accountdeletion.AccountDeletionRepository
 import id.nearyou.app.data.block.BlockedUsersApiClient
 import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersRepository
-import id.nearyou.app.data.consent.ConsentSnapshotStore
-import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.ReportApiClient
 import id.nearyou.app.data.report.ReportSubmitter
@@ -308,12 +306,11 @@ val mobileModule =
         // behind BlockedUsersFlow so a FakeBlockedUsersFlow drives the screen tests) reuses the shared
         // (bearer-authed) HttpClient; no new client, no X-Session-Id (the block endpoints carry no
         // per-session soft-cap accounting). The consent settings sub-screen REUSES the ConsentFlow above
-        // (no second consent path). The consent snapshot store is in-memory for now (durable on-disk
-        // persistence deferred to #198, design D5).
+        // (no second consent path). The ConsentSnapshotStore is the durable platform binding in
+        // `platformModule` (mobile-amplitude-analytics, resolves #198).
         single { BlockedUsersApiClient(get()) }
         single { BlockedUsersRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<BlockedUsersFlow> { get<BlockedUsersRepository>() }
-        single<ConsentSnapshotStore> { InMemoryConsentSnapshotStore() }
 
         // account-deletion-tombstone — the "Hapus Akun" + restore-banner seam (ApiClient → Repository
         // bound behind AccountDeletionFlow so a FakeAccountDeletionFlow drives the screen tests). Reuses

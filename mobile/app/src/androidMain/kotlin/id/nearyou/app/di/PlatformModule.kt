@@ -6,6 +6,8 @@ import id.nearyou.app.auth.GoogleSignInClient
 import id.nearyou.app.auth.GoogleSignInGateway
 import id.nearyou.app.auth.SecureTokenStore
 import id.nearyou.app.auth.TokenStore
+import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.data.consent.DurableConsentSnapshotStore
 import id.nearyou.app.location.AndroidLocationPermissionController
 import id.nearyou.app.location.AndroidLocationProvider
 import id.nearyou.app.location.LocationPermissionController
@@ -24,6 +26,10 @@ import org.koin.dsl.module
 actual val platformModule: Module =
     module {
         single<TokenStore> { SecureTokenStore(androidContext()) }
+        // mobile-amplitude-analytics — the durable consent snapshot (resolves #198). SharedPreferences
+        // (non-secret consent flags; synchronous to match the ConsentSnapshotStore interface). Read by
+        // the analytics-consent gate, the Sentry crash gate, and Settings seeding.
+        single<ConsentSnapshotStore> { DurableConsentSnapshotStore(androidContext()) }
         single { CurrentActivityHolder() }
         single<GoogleSignInGateway> {
             GoogleSignInClient(
