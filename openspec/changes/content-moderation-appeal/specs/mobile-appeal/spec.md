@@ -1,17 +1,17 @@
 ## ADDED Requirements
 
-### Requirement: Settings appeal entry for suspended users
+### Requirement: Sign-in banned-state appeal entry
 
-The mobile Settings surface SHALL show an "Ajukan Banding" entry that navigates to the appeal screen, visible when the session is in the suspended state (the limited session a suspended user holds). The entry MUST NOT be shown to a normal (un-actioned) session. All copy MUST come from `:shared:resources` CMP Resources (no hardcoded UI strings).
+The sign-in/banned screen SHALL show an "Ajukan banding" entry that navigates to the appeal screen, shown when a sign-in attempt returns the banned/suspended state (`SignInOutcome.Banned`, surfaced from the 403 `account_banned` response that carries the limited `appeal_token`). The entry MUST NOT be shown after a successful (un-actioned) sign-in. The entry lives at **sign-in, not Settings**: a banned OR suspended user is 403'd at the auth boundary (suspension is session-terminating — it bumps `token_version`, revoking existing tokens), so neither holds an in-app session from which to open Settings; the limited appeal token is captured from the sign-in 403 body into the in-memory appeal-session holder. All copy MUST come from `:shared:resources` CMP Resources (no hardcoded UI strings).
 
-#### Scenario: Suspended session sees the appeal entry
-- **GIVEN** the user's session reflects an active suspension
-- **WHEN** the user opens Settings
-- **THEN** an "Ajukan Banding" entry is shown and navigates to the appeal screen
+#### Scenario: Banned/suspended sign-in surfaces the appeal entry
+- **GIVEN** a sign-in attempt returns 403 (`account_banned`) carrying an `appeal_token`
+- **WHEN** the user is on the resulting banned sign-in screen
+- **THEN** an "Ajukan banding" entry is shown and navigates to the appeal screen
 
-#### Scenario: Normal session does not see the appeal entry
+#### Scenario: Successful (un-actioned) sign-in shows no appeal entry
 - **GIVEN** the user is not under any moderation action
-- **WHEN** the user opens Settings
+- **WHEN** sign-in succeeds
 - **THEN** no appeal entry is shown
 
 ### Requirement: Appeal submission form

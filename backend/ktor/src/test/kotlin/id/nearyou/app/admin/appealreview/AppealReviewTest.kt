@@ -6,8 +6,11 @@ import id.nearyou.app.admin.auth.AdminAuthTestSupport
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import java.sql.Date
@@ -65,6 +68,7 @@ class AppealReviewTest : StringSpec({
         userId: UUID,
         actionType: String,
         status: String = "pending",
+        text: String = "Mohon ditinjau kembali.",
     ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
@@ -74,7 +78,7 @@ class AppealReviewTest : StringSpec({
                 ps.setObject(1, id)
                 ps.setObject(2, userId)
                 ps.setString(3, actionType)
-                ps.setString(4, "Mohon ditinjau kembali.")
+                ps.setString(4, text)
                 ps.setString(5, status)
                 ps.executeUpdate()
             }
@@ -265,6 +269,38 @@ class AppealReviewTest : StringSpec({
             loadAppeal(appealId).status shouldBe "pending"
         } finally {
             cleanupUser(uid)
+        }
+    }
+
+    "GET /admin/appeals renders the pending queue (pending text shown, decided excluded)" {
+        val admin = AdminAuthTestSupport.seedAdmin(dataSource)
+        val sessionToken = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val pendingUser = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
+        val approvedUser = seedUser(banned = false, suspendedUntil = null)
+        // Distinct, plain-text needles so the rendered queue (appeals.peb + toViewMap projection) is asserted precisely.
+        seedAppeal(pendingUser, "suspension", status = "pending", text = "PendingNeedleAlfa")
+        seedAppeal(approvedUser, "permanent_ban", status = "approved", text = "ApprovedNeedleBravo")
+        try {
+            AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+                val resp =
+                    client.get("/admin/appeals") {
+                        header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$sessionToken")
+                    }
+                resp.status shouldBe HttpStatusCode.OK
+                val body = resp.bodyAsText()
+                body shouldContain "PendingNeedleAlfa" // the pending appeal is listed with its text
+                (body.contains("ApprovedNeedleBravo")) shouldBe false // the approved appeal is excluded
+            }
+        } finally {
+            cleanupUser(pendingUser)
+            cleanupUser(approvedUser)
+            AdminAuthTestSupport.cleanupAdmin(dataSource, admin.id)
+        }
+    }
+
+    "GET /admin/appeals without a session is denied (302 → /admin/login)" {
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            client.get("/admin/appeals").status shouldBe HttpStatusCode.Found
         }
     }
 })

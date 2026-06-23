@@ -2,7 +2,7 @@
 
 ### Requirement: Admin appeals-review queue
 
-The admin panel SHALL expose `GET /admin/appeals` rendering a paginated list of `pending` appeals (each row showing the appellant, `action_type`, a truncated `appeal_text`, and `created_at`) plus a per-appeal detail view with the full `appeal_text`. The route MUST be behind the existing admin authentication (owner/admin role) and follow the panel's Pebble + HTMX idioms with a no-JS fallback. The surface ships unstyled (its mockup-board frame is the documented "sole known gap" per `docs/11` §3.6; behavior ships now, styling lands with a later admin design-foundation pass).
+The admin panel SHALL expose `GET /admin/appeals` rendering a paginated list of `pending` appeals (each row showing the appellant, `action_type`, the full `appeal_text` inline, and `created_at`). Because `appeal_text` is bounded at 1000 characters by the V34 `CHECK`, the full text renders inline in each row and no separate per-appeal detail view is required. The route MUST be behind the existing admin authentication (owner/admin role) and follow the panel's Pebble + HTMX idioms with a no-JS fallback. The surface ships unstyled (its mockup-board frame is the documented "sole known gap" per `docs/11` §3.6; behavior ships now, styling lands with a later admin design-foundation pass).
 
 #### Scenario: Pending queue lists awaiting appeals
 - **GIVEN** two appeals exist with `status = 'pending'` and one with `status = 'approved'`

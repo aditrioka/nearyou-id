@@ -1,5 +1,6 @@
 package id.nearyou.app.auth.routes
 
+import com.auth0.jwt.JWT
 import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
@@ -28,6 +29,9 @@ import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.security.MessageDigest
 import java.time.Instant
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientCN
@@ -111,9 +115,11 @@ class SignInFlowTest : StringSpec({
         }
     }
 
-    "banned user → 403 account_banned with a limited appeal_token and NO refresh row" {
+    "banned user → 403 account_banned with a limited appeal_token (scope=appeal, current token_version, ≤1h TTL) and NO refresh row" {
         val sub = "google-banned"
-        val user = userRow(googleIdHash = sha256Hex(sub), isBanned = true)
+        // A non-default token_version (7) so the claim assertion proves the route copies the
+        // user's CURRENT version, not a hardcoded constant.
+        val user = userRow(googleIdHash = sha256Hex(sub), isBanned = true, tokenVersion = 7)
         setup(InMemoryUsers(listOf(user)), StaticVerifier(sub)) { tokens ->
             val client = createClient { install(ClientCN) { json() } }
             val response =
@@ -127,6 +133,13 @@ class SignInFlowTest : StringSpec({
             // content-moderation-appeal: the 403 carries the limited appeal token so the
             // actioned user can reach the ban-exempt appeal realm …
             body shouldContain "appeal_token"
+            // … with the spec'd limited-credential claims: scope=appeal, the user's current
+            // token_version (7), and a TTL of at most one hour.
+            val appealToken = Json.parseToJsonElement(body).jsonObject["appeal_token"]!!.jsonPrimitive.content
+            val decoded = JWT.decode(appealToken)
+            decoded.getClaim("scope").asString() shouldBe "appeal"
+            decoded.getClaim("token_version").asInt() shouldBe 7
+            ((decoded.expiresAt.time - decoded.issuedAt.time) / 1000L) shouldBe 3600L
             // … and NO normal access/refresh token is issued (no refresh_tokens row).
             tokens.rows.size shouldBe 0
         }

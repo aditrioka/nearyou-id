@@ -82,6 +82,7 @@ class AppealEndpointsTest : StringSpec({
         banned: Boolean = false,
         suspendedUntil: Instant? = null,
         shadowBanned: Boolean = false,
+        deletedAt: Instant? = null,
     ): UUID {
         val id = UUID.randomUUID()
         val short = id.toString().replace("-", "").take(8)
@@ -89,8 +90,8 @@ class AppealEndpointsTest : StringSpec({
             conn.prepareStatement(
                 """
                 INSERT INTO users (id, username, display_name, date_of_birth, invite_code_prefix,
-                                   is_banned, suspended_until, is_shadow_banned)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                   is_banned, suspended_until, is_shadow_banned, deleted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
@@ -100,14 +101,16 @@ class AppealEndpointsTest : StringSpec({
                 ps.setString(5, "e${short.take(7)}")
                 ps.setBoolean(6, banned)
                 if (suspendedUntil != null) {
-                    ps.setTimestamp(
-                        7,
-                        Timestamp.from(suspendedUntil),
-                    )
+                    ps.setTimestamp(7, Timestamp.from(suspendedUntil))
                 } else {
                     ps.setNull(7, Types.TIMESTAMP_WITH_TIMEZONE)
                 }
                 ps.setBoolean(8, shadowBanned)
+                if (deletedAt != null) {
+                    ps.setTimestamp(9, Timestamp.from(deletedAt))
+                } else {
+                    ps.setNull(9, Types.TIMESTAMP_WITH_TIMEZONE)
+                }
                 ps.executeUpdate()
             }
         }
@@ -297,13 +300,17 @@ class AppealEndpointsTest : StringSpec({
         }
     }
 
-    "daily submission cap → 429 once exceeded (after a prior appeal is decided)" {
+    "daily submission cap → 429 + Retry-After once exceeded (after a prior appeal is decided)" {
         val uid = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
         try {
             withAppeals(rateLimiter = AppealRateLimiter(cap = 1)) {
                 postAppeal(jwtIssuer.issueAppealToken(uid, 0), "first").status shouldBe HttpStatusCode.Created
                 decideLatest(uid, "rejected") // clears the one-pending guard so the next reaches the limiter
-                postAppeal(jwtIssuer.issueAppealToken(uid, 0), "second").status shouldBe HttpStatusCode.TooManyRequests
+                val capped = postAppeal(jwtIssuer.issueAppealToken(uid, 0), "second")
+                capped.status shouldBe HttpStatusCode.TooManyRequests
+                // The spec's "conveys time-to-reset" half: Retry-After is present + positive.
+                val retryAfter = capped.headers[HttpHeaders.RetryAfter]
+                (retryAfter != null && retryAfter.toLong() > 0L) shouldBe true
             }
         } finally {
             cleanup(uid)
@@ -338,25 +345,80 @@ class AppealEndpointsTest : StringSpec({
 
     // ---- Ban-exempt realm (auth-jwt MODIFIED) --------------------------------------
 
-    "appeal realm rejects a stale token_version → 401 (the revocation check is NOT relaxed)" {
+    "appeal realm rejects a stale token_version → 401 token_revoked (the revocation check is NOT relaxed)" {
         val uid = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
         try {
             withAppeals {
                 // user.token_version defaults to 0; an appeal token claiming v99 is revoked.
-                postAppeal(jwtIssuer.issueAppealToken(uid, 99), "stale").status shouldBe HttpStatusCode.Unauthorized
+                val resp = postAppeal(jwtIssuer.issueAppealToken(uid, 99), "stale")
+                resp.status shouldBe HttpStatusCode.Unauthorized
+                errorCode(resp.bodyAsText()) shouldBe "token_revoked"
             }
         } finally {
             cleanup(uid)
         }
     }
 
-    "scope=appeal token is confined: rejected on a standard (user) realm route, normal token accepted" {
+    "appeal realm rejects a soft-deleted subject → 401 (the deleted_at gate is retained on the ban-exempt realm)" {
+        // The appeal realm relaxes ONLY the is_banned/suspended_until short-circuit; the soft-delete gate
+        // is the last line of defense against a deleted-but-not-token-bumped account reaching the write
+        // path. A matching token_version (0) must NOT be sufficient on the relaxed realm.
+        val uid =
+            seedUser(
+                banned = true,
+                suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS),
+                deletedAt = Instant.now().minus(1, ChronoUnit.DAYS),
+            )
+        try {
+            withAppeals {
+                postAppeal(jwtIssuer.issueAppealToken(uid, 0), "deleted").status shouldBe HttpStatusCode.Unauthorized
+            }
+            actionTypeOf(uid) shouldBe null
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "appeal realm rejects an unauthenticated request → 401, no appeal row" {
+        val uid = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
+        try {
+            withAppeals {
+                // No Authorization header → the realm's challenge fires before validate.
+                client().post("/api/v1/appeals") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"appeal_text":"no token"}""")
+                }.status shouldBe HttpStatusCode.Unauthorized
+            }
+            actionTypeOf(uid) shouldBe null
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "appeal realm rejects a token signed by a foreign key → 401, no appeal row" {
+        val uid = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
+        try {
+            // A different RSA keypair: the realm's RS256 verifier rejects the forged signature before validate runs.
+            val foreign = JwtIssuer(RsaKeyLoader(TestKeys.freshEncodedPemPrivateKey(), kid = "foreign"))
+            withAppeals {
+                postAppeal(foreign.issueAppealToken(uid, 0), "forged").status shouldBe HttpStatusCode.Unauthorized
+            }
+            actionTypeOf(uid) shouldBe null
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "scope=appeal token is confined: rejected (401 token_revoked) on a standard realm route, normal token accepted" {
         val uid = seedUser(banned = false)
         try {
             withAppeals {
-                client().get("/test/user-realm") {
-                    header(HttpHeaders.Authorization, "Bearer ${jwtIssuer.issueAppealToken(uid, 0)}")
-                }.status shouldBe HttpStatusCode.Unauthorized
+                val confined =
+                    client().get("/test/user-realm") {
+                        header(HttpHeaders.Authorization, "Bearer ${jwtIssuer.issueAppealToken(uid, 0)}")
+                    }
+                confined.status shouldBe HttpStatusCode.Unauthorized
+                errorCode(confined.bodyAsText()) shouldBe "token_revoked"
                 client().get("/test/user-realm") {
                     header(HttpHeaders.Authorization, "Bearer ${jwtIssuer.issueAccessToken(uid, 0)}")
                 }.status shouldBe HttpStatusCode.OK

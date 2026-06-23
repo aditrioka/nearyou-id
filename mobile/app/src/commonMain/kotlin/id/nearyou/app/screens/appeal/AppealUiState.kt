@@ -1,6 +1,6 @@
 package id.nearyou.app.screens.appeal
 
-/** Max appeal-text length (code points), mirroring the backend `appeal.text` guard + the V31 CHECK. */
+/** Max appeal-text length (code points), mirroring the backend `appeal.text` guard + the V34 CHECK. */
 const val APPEAL_TEXT_LIMIT: Int = 1000
 
 /**
