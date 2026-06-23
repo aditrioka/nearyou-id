@@ -29,8 +29,8 @@
 
 - [ ] 5.1 Implement `install_date_bucket` week-level derivation (ISO week bucket; no finer timestamp) + a `commonTest` asserting week-granularity (design D7).
 - [ ] 5.2 Wire `identify` (subscription_status, platform, install_date_bucket, city_name_at_last_post) at the post-auth session-established seam; properties sourced from existing session/profile state.
-- [ ] 5.3 Emit `signup_completed` at the successful-signup call site (user_id from the new session).
-- [ ] 5.4 Emit `post_created` at the successful post-create `Outcome` seam (`CreatePostFlow`/`CreatePostRepository`); privacy-safe `event_properties` only (no coordinates, no content) — pin the exact property set here (design Open Question).
+- [x] 5.3 Emit `signup_completed` at the successful-signup call site (user_id from the new session).
+- [x] 5.4 Emit `post_created` at the successful post-create `Outcome` seam (`CreatePostFlow`/`CreatePostRepository`); privacy-safe `event_properties` only (no coordinates, no content) — pin the exact property set here (design Open Question).
 - [ ] 5.5 Emit `post_viewed` at the post-detail open seam (`PostDetailViewModel`/`PostDetailFlow`, NOT per-feed-impression — design D8) and `post_liked` at the like call site (`InlineLikeController`).
 - [ ] 5.6 `commonTest`/ViewModel tests asserting the foundational events fire on their success paths with `user_id` and carry no coordinates/content in properties.
 - [ ] 5.7 `commonTest` asserting `identify` emits `user_properties` carrying exactly `subscription_status`, `platform`, `install_date_bucket`, and `city_name_at_last_post` (via MockEngine/fake delegate) — covers the spec's "Identify sets the defined user-property set" scenario (sub-agent review B1).

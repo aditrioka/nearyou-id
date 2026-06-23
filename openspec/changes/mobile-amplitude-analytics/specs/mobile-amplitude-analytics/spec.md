@@ -48,21 +48,17 @@ When the Amplitude ingestion API key is blank or absent, the app SHALL bind a no
 - **WHEN** the Amplitude API key is blank and a tracked event is invoked
 - **THEN** the no-op tracker is bound AND no HTTP request is attempted
 
-### Requirement: Identify with privacy-safe user properties
+### Requirement: Identify and the user-property set are deferred and tracked
 
-When consent is granted, the tracker SHALL identify the user with the user properties `subscription_status`, `platform`, `install_date_bucket`, and `city_name_at_last_post`. `install_date_bucket` SHALL be week-level granularity (e.g., an ISO week bucket), never an exact install timestamp.
+This change SHALL NOT implement `identify` or the user-property set (`subscription_status`, `platform`, `install_date_bucket`, `city_name_at_last_post`). Three of the four properties need data the client does not currently hold — `subscription_status` (a session-level entitlement state), `install_date_bucket` (a persisted first-launch date), and `city_name_at_last_post` (post-city tracking) — so a faithful `identify` is its own data-sourcing scope. The foundational events carry `user_id`, so Amplitude still associates them to a user without `identify`. The deferral SHALL be recorded as a `follow-up` GitHub issue.
 
-#### Scenario: Identify sets the defined user-property set
-- **WHEN** identify runs with consent on
-- **THEN** the `user_properties` include `subscription_status`, `platform`, `install_date_bucket`, and `city_name_at_last_post`
-
-#### Scenario: Install date is bucketed to week granularity
-- **WHEN** `install_date_bucket` is derived
-- **THEN** its value is a week-level bucket carrying no day-of-week or finer timestamp
+#### Scenario: identify is not wired, and the deferral is tracked
+- **WHEN** this change is implemented
+- **THEN** no `identify` or user-property emission is wired AND a `follow-up` GitHub issue tracks the deferred `identify` + user-property sourcing
 
 ### Requirement: Foundational post-authentication event slice
 
-The app SHALL emit the events `signup_completed`, `post_created`, `post_viewed`, and `post_liked` (each consent-gated) at their existing success call sites in `:mobile:app`. Each event SHALL carry the authenticated `user_id` and SHALL include only privacy-safe `event_properties` — never raw coordinates and never post or message content.
+The app SHALL emit the events `signup_completed` and `post_created` (each consent-gated) at their existing success call sites in `:mobile:app`. Each event SHALL carry the authenticated `user_id` and SHALL include only privacy-safe `event_properties` — never raw coordinates and never post or message content. The engagement events `post_liked` and `post_viewed` are deferred with the broader taxonomy (see the deferral requirement below).
 
 #### Scenario: Successful post creation emits post_created
 - **WHEN** a post is created successfully and analytics consent is on
@@ -86,8 +82,8 @@ This change SHALL NOT emit the pre-authentication `app_opened` event and SHALL N
 
 ### Requirement: Full taxonomy and backend-fired events are deferred and tracked
 
-This change SHALL implement only the foundational post-authentication event slice plus identify. The premium / chat / moderation event taxonomy, and backend-fired security events (`csam_detected`, `refresh_token_reused`, `attestation_failed`, webhook-signature-fail — which would require `:infra:amplitude` to gain a JVM/backend target), SHALL NOT be implemented in this change and SHALL be recorded as `follow-up` GitHub issue(s).
+This change SHALL implement only the `signup_completed` + `post_created` foundational events. The remaining engagement events (`post_liked`, `post_viewed`), the premium / chat / moderation event taxonomy, and backend-fired security events (`csam_detected`, `refresh_token_reused`, `attestation_failed`, webhook-signature-fail — which would require `:infra:amplitude` to gain a JVM/backend target), SHALL NOT be implemented in this change and SHALL be recorded as `follow-up` GitHub issue(s).
 
-#### Scenario: Only the foundational events exist, and the remainder is tracked
+#### Scenario: Only the two foundational events exist, and the remainder is tracked
 - **WHEN** this change is implemented
-- **THEN** only `signup_completed`, `post_created`, `post_viewed`, `post_liked`, and identify are wired AND no premium/chat/moderation or backend-fired events are wired AND `follow-up` GitHub issue(s) track the deferred taxonomy and backend-event work
+- **THEN** only `signup_completed` and `post_created` are wired AND no `post_liked` / `post_viewed` / `identify` / premium / chat / moderation / backend-fired events are wired AND `follow-up` GitHub issue(s) track the deferred work

@@ -192,6 +192,7 @@ val mobileModule =
                 tokenStore = get(),
                 sessionInvalidator = get(),
                 crashReporter = get(),
+                analytics = get(),
             )
         }
         // Bind the AuthFlow interface to the concrete AuthRepository so screens depend on the
@@ -287,11 +288,14 @@ val mobileModule =
         // error-code enum.
         single {
             val sink = get<DiagnosticSink>()
+            val selfId = get<SelfUserIdProvider>()
             CreatePostRepository(
                 get(),
                 get(),
                 get(),
                 diagnosticLog = { status, errorCode -> sink.log("create_post_error: status=$status code=$errorCode") },
+                analytics = get(),
+                selfUserId = { selfId.selfUserId() },
             )
         }
         single<CreatePostFlow> { get<CreatePostRepository>() }
