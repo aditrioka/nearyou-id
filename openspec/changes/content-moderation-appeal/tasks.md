@@ -38,14 +38,14 @@
 
 ## 6. Verification & gates
 
-- [ ] 6.1 Local gate green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` + mobile `:mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` (mobile-touching).
+- [x] 6.1 Local gate green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` + mobile `:mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` (mobile-touching). — **backend suite 2033/2033** (fresh PostGIS container) + **mobile debug 1169/1169** + **mobile release** green + ktlint + detekt (backend + mobile). `AppealScreenTest` added to the Release-variant exclude (Robolectric is debug-only).
 - [ ] 6.2 verify-loop: backend + admin appeals queue (approve/reject + audit) on a local Ktor boot; mobile appeal screen on emulator/device (UI-affecting DoD — screenshot evidence of submit→pending + status display).
 - [ ] 6.3 Pre-archive staging smoke: branch deploy + exercise the appeal submission (ban-exempt realm reachable) + admin approve path.
-- [ ] 6.4 Confirm no `docs/11` § Pattern Registry amendment is needed (design uses only listed patterns — no second pattern introduced).
+- [x] 6.4 Confirm no `docs/11` § Pattern Registry amendment is needed (design uses only listed patterns — no second pattern introduced). — Confirmed: backend uses the existing JDBC repository + service + route layering + the shared RateLimiter/ContentLengthGuard/AdminAuditLogger seams; mobile uses the androidx-ViewModel state holder + Nav3 + the ApiClient/Repository/Flow data layer. No second pattern for any registered concern.
 
 ## 7. Follow-ups (file as `follow-up` issues, do not silently drop)
 
-- [ ] 7.1 Proactive in-app/FCM notification on appeal decision (deferred per spec; the own-status read is the MVP outcome surface).
-- [ ] 7.2 In-app permanent-ban appeal entry (deferred per design D7; support-email path is the MVP recourse).
-- [ ] 7.3 Styled admin appeal-review mockup frame (the "sole known gap" per `docs/11` §3.6) — lands with the admin design-foundation pass.
-- [ ] 7.4 Appeal-text moderation posture: `appeal_text` is user free-text reaching admins unredacted; if doxxing / third-party-PII appears, have it inherit the chat-redaction posture (`admin_chat_redaction` / `redacted_at` pattern). Filed as a `follow-up`, not built in MVP (text-only, admin-only audience).
+- [x] 7.1 Proactive in-app/FCM notification on appeal decision (deferred per spec; the own-status read is the MVP outcome surface).
+- [x] 7.2 In-app permanent-ban appeal entry (deferred per design D7; support-email path is the MVP recourse).
+- [x] 7.3 Styled admin appeal-review mockup frame (the "sole known gap" per `docs/11` §3.6) — lands with the admin design-foundation pass.
+- [x] 7.4 Appeal-text moderation posture: `appeal_text` is user free-text reaching admins unredacted; if doxxing / third-party-PII appears, have it inherit the chat-redaction posture (`admin_chat_redaction` / `redacted_at` pattern). Filed as a `follow-up`, not built in MVP (text-only, admin-only audience).

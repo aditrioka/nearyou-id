@@ -363,6 +363,7 @@ tasks.named("check") {
 tasks.withType<Test>().configureEach {
     if (name.contains("Release")) {
         exclude(
+            "**/AppealScreenTest*",
             "**/SignInScreenTest*",
             "**/RootRouterScreenTest*",
             "**/AgeGateScreenTest*",
