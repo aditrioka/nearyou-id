@@ -37,10 +37,10 @@
 
 ## 6. Deferral tracking (file follow-up issues)
 
-- [ ] 6.1 File a `follow-up` GitHub issue (labels `follow-up`, `mobile`) for the deferred pre-auth `app_opened` event + `device_id` seam (onboarding-funnel completion); reference it from the spec's deferral requirement.
-- [ ] 6.2 File a `follow-up` GitHub issue (labels `follow-up`, `mobile`) for the deferred full event taxonomy (premium/chat/moderation) + backend-fired security events (requires a JVM target on `:infra:amplitude`); reference it from the spec's deferral requirement.
-- [ ] 6.3 File a `follow-up` GitHub issue (labels `follow-up`, `admin`) for the admin operational-dashboard Amplitude funnel embed (`docs/07` § Operational Dashboard).
-- [ ] 6.4 File a `follow-up` GitHub issue (label `follow-up`) to fix the stale `docs/04` § Amplitude diagram annotation ("server-side events") that contradicts the canonical client-HTTP-wrapper prose (pre-existing doc nit; surfaced in review).
+- [x] 6.1 File a `follow-up` GitHub issue (labels `follow-up`, `mobile`) for the deferred pre-auth `app_opened` event + `device_id` seam — [#395](https://github.com/aditrioka/nearyou-id/issues/395) (onboarding-funnel completion); reference it from the spec's deferral requirement.
+- [x] 6.2 File a `follow-up` GitHub issue (labels `follow-up`, `mobile`) for the deferred full event taxonomy (premium/chat/moderation) + backend-fired security events — [#396](https://github.com/aditrioka/nearyou-id/issues/396) (incl. post_liked/post_viewed); identify → [#397](https://github.com/aditrioka/nearyou-id/issues/397) (requires a JVM target on `:infra:amplitude`); reference it from the spec's deferral requirement.
+- [x] 6.3 File a `follow-up` GitHub issue (labels `follow-up`, `admin`) for the admin operational-dashboard Amplitude funnel embed (`docs/07` § Operational Dashboard). — [#398](https://github.com/aditrioka/nearyou-id/issues/398)
+- [x] 6.4 File a `follow-up` GitHub issue (label `follow-up`) to fix the stale `docs/04` § Amplitude diagram annotation — [#399](https://github.com/aditrioka/nearyou-id/issues/399) ("server-side events") that contradicts the canonical client-HTTP-wrapper prose (pre-existing doc nit; surfaced in review).
 
 ## 7. Module gating + docs maintenance
 
@@ -52,7 +52,7 @@
 
 - [ ] 8.1 Local gate green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
 - [ ] 8.2 Mobile unit-test gate green (mobile-touching): `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` (any added Robolectric `*ScreenTest` registered in the Release exclude per `docs/11` §2.7) + `:infra:amplitude:` commonTest.
-- [ ] 8.3 iosMain re-link (iosMain IS touched — the durable `ConsentSnapshotStore` `NSUserDefaults` actual): `:mobile:app:linkDebugFrameworkIosSimulatorArm64` + the relevant `:mobile:app:iosSimulatorArm64Test` for the durable-store round-trip.
-- [ ] 8.4 Verify-loop screenshot gate: **N/A** — this change introduces no visual surface (event fires + durable-store swap + onboarding snapshot write are invisible); record N/A + rationale in the PR body per `docs/11` §5 DoD.
-- [ ] 8.5 Staging deploy/smoke: **N/A** — no backend/runtime change (mobile + new mobile-gated module only); mark Section N/A in the archive commit body.
-- [ ] 8.6 `openspec validate mobile-amplitude-analytics --strict` green (4 capability deltas: new `mobile-amplitude-analytics` + modified `mobile-analytics-consent`/`mobile-crash-reporting`/`mobile-settings`).
+- [x] 8.3 iosMain re-link (iosMain IS touched — the durable `ConsentSnapshotStore` `NSUserDefaults` actual + `amplitudeApiKey` `NSBundle` actual): `:mobile:app:linkDebugFrameworkIosSimulatorArm64` — BUILD SUCCESSFUL (2m9s) + the relevant `:mobile:app:iosSimulatorArm64Test` for the durable-store round-trip.
+- [x] 8.4 Verify-loop screenshot gate: **N/A** — this change introduces no visual surface (event fires + durable-store swap + onboarding snapshot write are invisible); record N/A + rationale in the PR body per `docs/11` §5 DoD.
+- [x] 8.5 Staging deploy/smoke: **N/A** — no backend/runtime change (mobile + new mobile-gated module only); mark Section N/A in the archive commit body.
+- [x] 8.6 `openspec validate mobile-amplitude-analytics --strict` green (4 capability deltas: new `mobile-amplitude-analytics` + modified `mobile-analytics-consent`/`mobile-crash-reporting`/`mobile-settings`).

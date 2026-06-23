@@ -54,7 +54,7 @@ This change SHALL NOT implement `identify` or the user-property set (`subscripti
 
 #### Scenario: identify is not wired, and the deferral is tracked
 - **WHEN** this change is implemented
-- **THEN** no `identify` or user-property emission is wired AND a `follow-up` GitHub issue tracks the deferred `identify` + user-property sourcing
+- **THEN** no `identify` or user-property emission is wired AND a `follow-up` GitHub issue ([#397](https://github.com/aditrioka/nearyou-id/issues/397)) tracks the deferred `identify` + user-property sourcing
 
 ### Requirement: Foundational post-authentication event slice
 
@@ -78,7 +78,7 @@ This change SHALL NOT emit the pre-authentication `app_opened` event and SHALL N
 
 #### Scenario: No app_opened and no device_id are introduced, and the deferral is tracked
 - **WHEN** the app starts before the user authenticates
-- **THEN** no `app_opened` event is emitted AND no `device_id` is generated or persisted AND a `follow-up` GitHub issue tracks the deferred pre-auth onboarding-funnel work
+- **THEN** no `app_opened` event is emitted AND no `device_id` is generated or persisted AND a `follow-up` GitHub issue ([#395](https://github.com/aditrioka/nearyou-id/issues/395)) tracks the deferred pre-auth onboarding-funnel work
 
 ### Requirement: Full taxonomy and backend-fired events are deferred and tracked
 
@@ -86,4 +86,4 @@ This change SHALL implement only the `signup_completed` + `post_created` foundat
 
 #### Scenario: Only the two foundational events exist, and the remainder is tracked
 - **WHEN** this change is implemented
-- **THEN** only `signup_completed` and `post_created` are wired AND no `post_liked` / `post_viewed` / `identify` / premium / chat / moderation / backend-fired events are wired AND `follow-up` GitHub issue(s) track the deferred work
+- **THEN** only `signup_completed` and `post_created` are wired AND no `post_liked` / `post_viewed` / `identify` / premium / chat / moderation / backend-fired events are wired AND `follow-up` GitHub issues ([#396](https://github.com/aditrioka/nearyou-id/issues/396), [#397](https://github.com/aditrioka/nearyou-id/issues/397)) track the deferred work
