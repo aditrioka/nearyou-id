@@ -5,6 +5,7 @@ import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersRepository
 import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.timeline.LocationProvider
@@ -43,6 +44,7 @@ class SettingsKoinResolutionTest {
         val stubPlatform =
             module {
                 single<TokenStore> { InMemoryTokenStore() }
+                single<ConsentSnapshotStore> { InMemoryConsentSnapshotStore() }
                 single<LocationProvider>(named("deviceLocation")) { StubLocationProvider() }
                 single<LocationPermissionController> { FakeLocationPermissionController() }
             }

@@ -2,6 +2,8 @@ package id.nearyou.app.post
 
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.infra.amplitude.AnalyticsTracker
+import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -16,6 +18,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -53,6 +56,8 @@ class CreatePostRepositoryTest {
         controller: LocationPermissionController,
         locationProvider: LocationProvider,
         diagnosticLog: (Int, String?) -> Unit = { _, _ -> },
+        analytics: AnalyticsTracker = NoOpAnalyticsTracker,
+        selfUserId: suspend () -> String? = { null },
         handler: MockRequestHandler,
     ): CreatePostRepository {
         val httpClient =
@@ -70,6 +75,8 @@ class CreatePostRepositoryTest {
             locationProvider = locationProvider,
             permissionController = controller,
             diagnosticLog = diagnosticLog,
+            analytics = analytics,
+            selfUserId = selfUserId,
         )
     }
 
@@ -236,5 +243,42 @@ class CreatePostRepositoryTest {
             val controller = FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
             val repo = repository(controller, CountingLocationProvider()) { throw RuntimeException("connection refused") }
             assertEquals(PostCreationOutcome.NetworkError, repo.submit("halo"))
+        }
+
+    @Test
+    fun `successful create emits post_created with the user id and no sensitive properties`() =
+        runTest {
+            val events = mutableListOf<Triple<String, String, Map<String, JsonElement>>>()
+            val recording =
+                object : AnalyticsTracker {
+                    override fun track(
+                        eventType: String,
+                        userId: String,
+                        eventProperties: Map<String, JsonElement>,
+                    ) {
+                        events.add(Triple(eventType, userId, eventProperties))
+                    }
+
+                    override fun identify(
+                        userId: String,
+                        userProperties: Map<String, JsonElement>,
+                    ) = Unit
+
+                    override fun flush() = Unit
+                }
+            val controller = FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
+            val repo =
+                repository(
+                    controller,
+                    CountingLocationProvider(),
+                    analytics = recording,
+                    selfUserId = { "user-42" },
+                ) { respond("""{"id":"p9"}""", HttpStatusCode.Created, JSON_HEADERS) }
+
+            assertEquals(PostCreationOutcome.Success("p9"), repo.submit("halo"))
+            assertEquals(1, events.size, "exactly one analytics event on a successful create")
+            assertEquals("post_created", events.single().first)
+            assertEquals("user-42", events.single().second)
+            assertTrue(events.single().third.isEmpty(), "no coordinates/content in event properties")
         }
 }

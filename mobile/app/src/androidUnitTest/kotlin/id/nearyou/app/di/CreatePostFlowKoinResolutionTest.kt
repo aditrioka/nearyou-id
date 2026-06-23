@@ -2,6 +2,8 @@ package id.nearyou.app.di
 
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.TokenStore
+import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.location.CachingLocationProvider
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
@@ -56,6 +58,9 @@ class CreatePostFlowKoinResolutionTest {
         val stubPlatform =
             module {
                 single<TokenStore> { InMemoryTokenStore() }
+                // CreatePostRepository now resolves AnalyticsTracker (→ ConsentSnapshotStore) for the
+                // post_created event; supply the consent store double (production binds it per platformModule).
+                single<ConsentSnapshotStore> { InMemoryConsentSnapshotStore() }
                 single<LocationProvider>(named("deviceLocation")) { StubLocationProvider() }
                 single<LocationPermissionController> { FakeLocationPermissionController() }
             }

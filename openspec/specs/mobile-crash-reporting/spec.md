@@ -2,7 +2,6 @@
 
 ## Purpose
 Consent-gated, PII-scrubbed crash and error reporting for the mobile app (Android + iOS), so the team is not blind to production crashes at launch. Native crashes and unhandled exceptions are captured through a vendor-neutral `CrashReporter` interface in the `:infra:sentry` KMP module (the Sentry Kotlin Multiplatform SDK fenced behind it, invariant #16), tagged with release + environment and correlated to the signed-in user by an opaque id only. Reporting honors the `crash` consent category (opt-out default ON; closed on decline) and scrubs PII (`sendDefaultPii=false` + a `beforeSend` backstop + the coordinate-free breadcrumb contract). Backend (Sentry-Java) error capture is explicitly out of scope (tracked separately).
-
 ## Requirements
 ### Requirement: Mobile crash and error reporting via a vendor-neutral interface
 The mobile app SHALL report native crashes and unhandled exceptions on Android and iOS through a vendor-SDK-free `CrashReporter` interface defined in a new `:infra:sentry` KMP module. The Sentry Kotlin Multiplatform SDK MUST be confined to `:infra:sentry` and depended on with `implementation` scope so it never reaches `:mobile:app`'s compile classpath (invariant #16).
@@ -31,7 +30,7 @@ The app SHALL initialize crash reporting at startup before application code can 
 - **THEN** initialization is skipped without throwing, and the app continues normally
 
 ### Requirement: Consent gating honors the crash consent category (opt-out default)
-Crash reporting SHALL be gated on `users.analytics_consent.crash`, which defaults ON (opt-out). The app MUST consume the `crash` flag already captured by the consent flow without adding new consent plumbing. On decline the app MUST stop reporting for the session; on re-consent it MUST resume.
+Crash reporting SHALL be gated on `users.analytics_consent.crash`, which defaults ON (opt-out). The app MUST consume the `crash` flag already captured by the consent flow without adding new consent plumbing. On decline the app MUST stop reporting for the session; on re-consent it MUST resume. The gate reads the **durable** `ConsentSnapshotStore` (made durable by `mobile-amplitude-analytics`, resolving issue [#198](https://github.com/aditrioka/nearyou-id/issues/198)), so a prior crash decline now survives process death.
 
 #### Scenario: Default consent keeps reporting active
 - **WHEN** the user has not declined crash consent
@@ -49,9 +48,14 @@ Crash reporting SHALL be gated on `users.analytics_consent.crash`, which default
 - **WHEN** the consent gate reads a `ConsentSnapshotStore` snapshot whose `crash` value is declined
 - **THEN** reporting initializes (opt-out default) and is closed on the first consent read, so no events are sent
 
+#### Scenario: A persisted decline survives a process restart
+- **GIVEN** a durable snapshot whose `crash` value is declined, written before process death
+- **WHEN** the app is relaunched and the startup crash gate reads the durable `ConsentSnapshotStore`
+- **THEN** the persisted decline is read back and reporting is closed (the decline is not lost across the cold start)
+
 #### Scenario: Absent snapshot falls back to the opt-out default
-- **WHEN** no consent snapshot is present (e.g. a cold start after process death, before durable consent persistence lands via issue #198)
-- **THEN** the opt-out default (`crash` ON) applies and is corrected on the next consent interaction; durable cross-process decline is tracked by #198, consuming the same `ConsentSnapshotStore` seam
+- **WHEN** no consent snapshot is present (a first-run user who has not yet completed the consent screen)
+- **THEN** the opt-out default (`crash` ON) applies and is corrected on the next consent interaction
 
 ### Requirement: User correlation uses only an opaque identifier
 On authentication the app SHALL associate crash events with the signed-in user using only the opaque JWT `sub`; it MUST NOT send username, email, or display name. On logout the association MUST be cleared.
