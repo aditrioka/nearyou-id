@@ -1,5 +1,6 @@
 package id.nearyou.app.auth
 
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.infra.amplitude.AnalyticsTracker
 import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
 import id.nearyou.app.infra.sentry.CrashReporter
@@ -55,6 +56,10 @@ class AuthRepository(
     // successful sign-in/signup. Defaults no-op so existing constructions/tests are unaffected;
     // MobileModule binds the real reporter.
     private val crashReporter: CrashReporter = NoOpCrashReporter,
+    // content-moderation-appeal: on a banned/suspended `403`, the limited appeal token from the response
+    // body is stashed here so the appeal screen (reached via the Banned outcome) can submit with it.
+    // Defaulted so existing constructions/tests are unaffected; MobileModule binds the shared single.
+    private val appealSession: AppealSession = AppealSession(),
     // mobile-amplitude-analytics — consent-gated tracker for signup_completed. Defaults no-op so existing
     // constructions/tests are unaffected; MobileModule binds the real ConsentGatedAnalyticsTracker.
     private val analytics: AnalyticsTracker = NoOpAnalyticsTracker,
@@ -118,7 +123,12 @@ class AuthRepository(
                     // the age-gate/signup flow (Mobile #4 MODIFIED routing). The screen navigates
                     // to AgeGateScreen; no on-SignInScreen banner.
                     api.status == 404 -> SignInOutcome.NoAccount(idToken)
-                    api.status == 403 -> SignInOutcome.Banned
+                    api.status == 403 -> {
+                        // Stash the limited appeal token (when present) so the appeal screen can submit;
+                        // the Banned outcome surfaces the "Ajukan banding" entry on SignInScreen.
+                        api.appealToken?.let { appealSession.set(it) }
+                        SignInOutcome.Banned
+                    }
                     api.status == 401 ->
                         // invalid_id_token: re-run the Google ceremony ONCE for a fresh token,
                         // then re-submit. A second 401 is terminal.

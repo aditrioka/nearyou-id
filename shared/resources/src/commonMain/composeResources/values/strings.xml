@@ -451,6 +451,28 @@
     <string name="username_confirm_dismiss">Batal</string>
     <string name="username_success_toast">Username berhasil diganti</string>
     <string name="username_premium_gate_body">Ganti username adalah fitur Premium.</string>
+
+    <!-- content-moderation-appeal (mobile-appeal). The ban/suspension appeal surface — docs/03 §228
+         ("appeal path via Settings") + docs/08 Open Decision #2. Reuses cta_retry / timeline_loading /
+         timeline_session_redirect / signin_error_network / ic_nav_back (declared elsewhere). -->
+    <string name="appeal_title">Ajukan banding</string>
+    <string name="appeal_back_cd">Kembali</string>
+    <string name="appeal_intro">Kamu bisa mengajukan banding atas tindakan moderasi pada akunmu. Tim kami akan meninjau dan memberi keputusan.</string>
+    <string name="appeal_field_hint">Tulis alasan banding kamu…</string>
+    <string name="appeal_char_counter" formatted="true">%1$d/%2$d</string>
+    <string name="appeal_submit">Kirim banding</string>
+    <string name="appeal_submitting">Sedang mengirim banding…</string>
+    <string name="appeal_pending_title">Banding sedang ditinjau</string>
+    <string name="appeal_pending_body">Banding kamu sudah kami terima dan sedang ditinjau. Cek kembali nanti.</string>
+    <string name="appeal_approved_title">Banding diterima</string>
+    <string name="appeal_approved_body">Tindakan pada akunmu telah dicabut. Masuk lagi untuk melanjutkan.</string>
+    <string name="appeal_rejected_title">Banding ditolak</string>
+    <string name="appeal_rejected_body">Banding kamu ditolak. Tindakan pada akun tetap berlaku.</string>
+    <string name="appeal_rejected_reason" formatted="true">Alasan: %1$s</string>
+    <string name="appeal_error_not_eligible">Tidak ada tindakan moderasi yang bisa dibanding saat ini.</string>
+    <string name="appeal_error_rate_limited" formatted="true">Terlalu banyak permintaan. Coba lagi dalam %1$d menit.</string>
+    <string name="appeal_error_invalid">Teks banding tidak valid (maksimal 1000 karakter).</string>
+    <string name="appeal_contact_support">Untuk pemblokiran permanen, hubungi support lewat email yang tertera di kebijakan kami.</string>
     <!-- mobile-nearby-radius-slider: the Premium-gated 4-position Nearby radius slider (10/20/50/100 km;
          docs/02-Product.md § Nearby Timeline). The upsell mirrors the search_premium_gate_body /
          settings_hide_distance_premium_only register; radius_value_km formats each km tick + the selected

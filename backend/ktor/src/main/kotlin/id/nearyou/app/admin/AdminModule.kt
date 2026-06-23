@@ -1,6 +1,7 @@
 package id.nearyou.app.admin
 
 import id.nearyou.app.admin.actionslog.AdminActionsLogRepository
+import id.nearyou.app.admin.appealreview.AppealReviewRepository
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminAuthProvider
 import id.nearyou.app.admin.auth.AdminLoginRoutes
@@ -30,6 +31,7 @@ import id.nearyou.app.admin.reservedusernames.ReservedUsernamesRepository
 import id.nearyou.app.admin.routes.AdminIndexStatsRepository
 import id.nearyou.app.admin.routes.AdminLayout
 import id.nearyou.app.admin.routes.adminActionsLog
+import id.nearyou.app.admin.routes.adminAppealReview
 import id.nearyou.app.admin.routes.adminBlockRegistry
 import id.nearyou.app.admin.routes.adminChatRedaction
 import id.nearyou.app.admin.routes.adminCsam
@@ -182,6 +184,10 @@ fun Application.admin(
             userModerationRepository,
             destructiveActionRateLimiter,
         )
+    // content-moderation-appeal (admin-appeal-review): approve (→ unban) / reject.
+    // No destructive-action rate limiter — approve is restorative, reject alters no
+    // user state (design D6), so neither is counted by the destructive-action cap.
+    val appealReviewRepository = AppealReviewRepository(dataSource, auditLogger)
     val chatRedactionRepository =
         ChatRedactionRepository(dataSource, auditLogger, destructiveActionRateLimiter)
     val graceExpediteRateLimiter = GraceExpediteActionRateLimiter(dataSource)
@@ -292,6 +298,7 @@ fun Application.admin(
                     auditLogger,
                     layout,
                 )
+                adminAppealReview(appealReviewRepository, auditLogger, layout)
                 adminUserModeration(
                     userModerationRepository,
                     userProfileRepository,

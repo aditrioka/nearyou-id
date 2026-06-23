@@ -54,6 +54,7 @@
         <span class="ngroup">Moderasi</span>
         <a class="nitem{% if activePath == "/admin/" %} active{% endif %}" href="/admin/">{{ icon("dashboard") }}Dashboard</a>
         <a class="nitem{% if activePath == "/admin/reports" %} active{% endif %}" href="/admin/reports">{{ icon("flag") }}Reports</a>
+        <a class="nitem{% if activePath == "/admin/appeals" %} active{% endif %}" href="/admin/appeals">{{ icon("article") }}Appeals</a>
         <a class="nitem{% if activePath == "/admin/users" %} active{% endif %}" href="/admin/users">{{ icon("group") }}Users</a>
         <span class="ngroup">Anti-abuse &amp; keamanan</span>
         <a class="nitem{% if activePath == "/admin/rejected-identifiers" %} active{% endif %}" href="/admin/rejected-identifiers">{{ icon("block") }}Rejected identifiers</a>

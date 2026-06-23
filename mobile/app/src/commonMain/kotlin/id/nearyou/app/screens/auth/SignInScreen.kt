@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,6 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.auth.AuthFlow
@@ -31,6 +33,7 @@ import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.account_separation_disclosure
 import id.nearyou.resources.generated.resources.app_name
+import id.nearyou.resources.generated.resources.appeal_title
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.cta_signin_google
 import id.nearyou.resources.generated.resources.logo_brand_dark
@@ -44,6 +47,9 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+
+/** Test tag for the banned-state "Ajukan banding" entry (content-moderation-appeal). */
+const val SIGNIN_APPEAL_TAG: String = "signinAppeal"
 
 /**
  * Unauthenticated entry surface ([SignInRoute][id.nearyou.app.screens.routing.SignInRoute]): large
@@ -65,6 +71,9 @@ import org.koin.compose.koinInject
 fun SignInScreen(
     onSignedIn: () -> Unit,
     onNoAccount: () -> Unit,
+    // content-moderation-appeal: opens the appeal surface from the banned/suspended state. Defaulted so
+    // existing call sites / tests are unaffected; appEntryProvider wires it to `add(AppealRoute)`.
+    onOpenAppeal: () -> Unit = {},
 ) {
     val authFlow = koinInject<AuthFlow>()
     val pendingSignupIdentity = koinInject<PendingSignupIdentity>()
@@ -158,6 +167,16 @@ fun SignInScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 16.dp),
             )
+        }
+        // content-moderation-appeal: a banned/suspended user gets an "Ajukan banding" entry that opens the
+        // appeal surface (which reads the limited appeal token AuthRepository stashed from the 403 body).
+        if (outcome == SignInOutcome.Banned) {
+            TextButton(
+                onClick = onOpenAppeal,
+                modifier = Modifier.padding(top = 8.dp).testTag(SIGNIN_APPEAL_TAG),
+            ) {
+                Text(text = stringResource(Res.string.appeal_title))
+            }
         }
         Button(
             onClick = {

@@ -509,7 +509,7 @@ Quantitative criteria beyond the density threshold are not final. Finalize close
 
 ### 2. Content Moderation Appeal Process
 
-Appeal workflow is designed alongside the Admin Panel build in Phase 3.5. Minimum: a form in Settings to submit an appeal + workflow in the Admin Panel for review. Users banned or suspended can submit; `is_shadow_banned` users cannot (by design, as visibility of the appeal form would confirm the state).
+Appeal workflow is designed alongside the Admin Panel build in Phase 3.5. Minimum: an appeal form reachable from the banned sign-in screen (the entry is at sign-in, not Settings — suspension is session-terminating, so an actioned user holds no in-app session; the limited appeal token is obtained at sign-in) + workflow in the Admin Panel for review. Users banned or suspended can submit; `is_shadow_banned` users cannot (by design, as visibility of the appeal form would confirm the state). Shipped by the `content-moderation-appeal` capability.
 
 ### 3. Word-Pair Dataset (AI-Assisted)
 

@@ -67,16 +67,18 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "data-icon=\"alternate_email\""
             body shouldContain "data-icon=\"credit_card\""
             body shouldContain "data-icon=\"gpp_maybe\""
-            // EXACTLY thirteen nav items, under their six group headings: the
-            // Premium group holds Subscription grace (admin-subscription-grace-
-            // monitor); the Konfigurasi group holds Feature flags (admin-feature-
-            // flag-editor) + Reserved usernames (admin-reserved-usernames-editor)
-            // + Username oversight (admin-premium-username-oversight); the
-            // Lifecycle group holds Privacy flips (admin-privacy-flip-monitor) +
-            // Hard delete queue (admin-hard-delete-queue); the Anti-abuse group
-            // holds the Block registry item (admin-block-registry) + the CSAM
-            // detection log (admin-csam-detection-log).
-            Regex("class=\"nitem").findAll(body).count() shouldBe 13
+            body shouldContain "data-icon=\"article\""
+            // EXACTLY fourteen nav items, under their six group headings: the
+            // Moderasi group holds Dashboard + Reports + Appeals (admin-appeal-
+            // review, content-moderation-appeal) + Users; the Premium group holds
+            // Subscription grace (admin-subscription-grace-monitor); the Konfigurasi
+            // group holds Feature flags (admin-feature-flag-editor) + Reserved
+            // usernames (admin-reserved-usernames-editor) + Username oversight
+            // (admin-premium-username-oversight); the Lifecycle group holds Privacy
+            // flips (admin-privacy-flip-monitor) + Hard delete queue (admin-hard-
+            // delete-queue); the Anti-abuse group holds the Block registry item
+            // (admin-block-registry) + the CSAM detection log (admin-csam-detection-log).
+            Regex("class=\"nitem").findAll(body).count() shouldBe 14
             body shouldContain "Moderasi"
             body shouldContain "Anti-abuse &amp; keamanan"
             body shouldContain "Lifecycle"

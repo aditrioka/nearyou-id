@@ -39,6 +39,7 @@ private const val ERR_BANNED = "Akun kamu telah dinonaktifkan. Hubungi support j
 private const val ERR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
 private const val SESSION_EXPIRED = "Sesi kamu berakhir. Masuk lagi untuk lanjut." // signin_session_expired
 private const val AGE_GATE_TITLE = "Verifikasi usia kamu" // AgeGateScreen title — proves the 404 navigation landed
+private const val APPEAL_ENTRY = "Ajukan banding" // content-moderation-appeal: the banned-state appeal entry (appeal_title)
 
 /**
  * Render + interaction coverage of `SignInScreen` via the Robolectric-backed CMP UI runner
@@ -201,6 +202,41 @@ class SignInScreenTest {
             waitForIdle()
             onNodeWithText("test@example.com", substring = true).assertDoesNotExist()
             onNodeWithText("Test User", substring = true).assertDoesNotExist()
+        }
+    }
+
+    // content-moderation-appeal (mobile-appeal "Sign-in banned-state appeal entry") — on the Banned
+    // outcome the "Ajukan banding" entry is shown AND tapping it invokes onOpenAppeal (the navigation
+    // to the appeal screen). The entry gate reads `outcome` directly (not signInUiState), so this
+    // composes the real screen rather than relying on SignInUiStateTest.
+    @Test
+    fun bannedOutcome_showsAppealEntry_andTapInvokesOnOpenAppeal() {
+        installKoin(SignInOutcome.Banned)
+        var appealTaps = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        SignInScreen(onSignedIn = {}, onNoAccount = {}, onOpenAppeal = { appealTaps++ })
+                    }
+                }
+            }
+            onNodeWithText(CTA_GOOGLE).performClick()
+            waitForIdle()
+            onNodeWithText(APPEAL_ENTRY).assertExists()
+            onNodeWithText(APPEAL_ENTRY).performClick()
+            waitForIdle()
+            assertEquals(1, appealTaps, "tapping the appeal entry opens the appeal screen")
+        }
+    }
+
+    // Negative guard — a non-banned (un-actioned) outcome shows NO appeal entry.
+    @Test
+    fun nonBannedOutcome_hidesAppealEntry() {
+        installKoin(SignInOutcome.Cancelled)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
+            onNodeWithText(APPEAL_ENTRY).assertDoesNotExist()
         }
     }
 }

@@ -65,6 +65,9 @@ fun Application.installContentLengthGuard(): ContentLengthGuard {
                     "reply.content" to 280,
                     // Chat content: 2000 code points per docs/02-Product.md:319.
                     "chat.content" to 2000,
+                    // content-moderation-appeal: appeal free-text ≤1000 code points
+                    // (the V34 appeals.appeal_text CHECK is the DB-level backstop).
+                    "appeal.text" to 1000,
                     // bio / display_name / username register in later changes.
                 ),
         )

@@ -232,7 +232,7 @@ Toggle "Tampilkan preview pesan chat di notifikasi", default OFF; ON then body =
 - Reason picker: "Spam", "Ujaran kebencian (SARA)", "Pelecehan", "Konten dewasa", "Misinformasi", "Lainnya"
 - Optional 200-char note (placeholder: "Jelaskan lebih detail jika perlu")
 - Post-submit: toast "Laporan terkirim. Tim moderasi akan meninjau."
-- Reporters get no visibility into the review outcome (prevents retaliation); the reported party gets an appeal path via Settings if action was taken
+- Reporters get no visibility into the review outcome (prevents retaliation); if an account-level action (suspension / permanent ban) was taken, the reported party gets an appeal path **from the banned sign-in screen** (suspension is session-terminating — it revokes the user's tokens — so the appeal entry lives at sign-in, not Settings; see the `content-moderation-appeal` capability)
 
 ---
 
