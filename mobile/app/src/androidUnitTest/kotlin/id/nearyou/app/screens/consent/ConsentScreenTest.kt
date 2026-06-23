@@ -12,6 +12,7 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentOutcome
 import id.nearyou.app.consent.FakeConsentFlow
+import id.nearyou.app.data.consent.ConsentSnapshot
 import id.nearyou.app.data.consent.ConsentSnapshotStore
 import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.screens.routing.ConsentRoute
@@ -34,6 +35,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private const val TITLE = "Privasi & data"
@@ -64,15 +66,17 @@ private const val ADS_DESC = "Iklan dapat disesuaikan dengan minat kamu (Google 
 @OptIn(ExperimentalTestApi::class)
 class ConsentScreenTest {
     private lateinit var fake: FakeConsentFlow
+    private lateinit var snapshotStore: InMemoryConsentSnapshotStore
 
     private fun installKoin(outcome: ConsentOutcome = ConsentOutcome.Success) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeConsentFlow(outcome = outcome)
+        snapshotStore = InMemoryConsentSnapshotStore()
         startKoin {
             modules(
                 module {
                     single<ConsentFlow> { fake }
-                    single<ConsentSnapshotStore> { InMemoryConsentSnapshotStore() }
+                    single<ConsentSnapshotStore> { snapshotStore }
                 },
             )
         }
@@ -144,6 +148,34 @@ class ConsentScreenTest {
             onNodeWithText(SKIP).performScrollTo().performClick()
             waitForIdle()
             assertEquals(1, done, "skip routes to Home")
+        }
+    }
+
+    @Test
+    fun successfulSubmit_persistsTheConsentSnapshot() {
+        installKoin(ConsentOutcome.Success)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ConsentScreen(onDone = {}) } } }
+            // Toggle Analytics ON (V2 default is OFF), then submit → 200.
+            onAllNodes(isToggleable())[0].performScrollTo().performClick()
+            onNodeWithText(CONTINUE_CTA).performScrollTo().performClick()
+            waitUntil { snapshotStore.read() != null }
+            assertEquals(
+                ConsentSnapshot(analytics = true, crash = true, adsPersonalization = false),
+                snapshotStore.read(),
+                "a successful onboarding submit persists the submitted triple (resolves #198 onboarding write)",
+            )
+        }
+    }
+
+    @Test
+    fun failedSubmit_leavesTheSnapshotUnwritten() {
+        installKoin(ConsentOutcome.RetryableError)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ConsentScreen(onDone = {}) } } }
+            onNodeWithText(CONTINUE_CTA).performScrollTo().performClick()
+            waitForIdle()
+            assertNull(snapshotStore.read(), "a failed (non-200) submit must not write the snapshot")
         }
     }
 
