@@ -662,6 +662,73 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for an admin APPEAL APPROVAL (`admin-appeal-review` capability):
+     * `POST /admin/appeals/{id}/approve` transitioning an `appeals` row
+     * `pending → approved` AND lifting the appellant's moderation action (the
+     * unban). Joins the caller's [conn] so this audit INSERT commits atomically
+     * with the `appeals` UPDATE + the `users` unban in ONE transaction.
+     * `targetType = 'appeal'`, `targetId` = the appeal id; [afterState] records the
+     * approval + the lifted ban + the affected `user_id`. Approve is RESTORATIVE,
+     * so it is NOT counted by the destructive-action cap (design D6). `adminId` is
+     * the acting human admin, never the `system` sentinel.
+     */
+    fun logAppealApproved(
+        conn: Connection,
+        adminId: UUID,
+        appealId: UUID,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "appeal_approved",
+            adminId = adminId,
+            targetType = "appeal",
+            targetId = appealId.toString(),
+            reason = null,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for an admin APPEAL REJECTION (`admin-appeal-review` capability):
+     * `POST /admin/appeals/{id}/reject` transitioning an `appeals` row
+     * `pending → rejected`, leaving the moderation action INTACT (no `users`
+     * write). Joins the caller's [conn] for atomicity with the `appeals` UPDATE.
+     * The optional free-text [reason] (the decision rationale) is stored here
+     * (audit-only). `targetType = 'appeal'`, `targetId` = the appeal id. `adminId`
+     * is the acting human admin, never the `system` sentinel.
+     */
+    fun logAppealRejected(
+        conn: Connection,
+        adminId: UUID,
+        appealId: UUID,
+        reason: String?,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "appeal_rejected",
+            adminId = adminId,
+            targetType = "appeal",
+            targetId = appealId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Own-connection audit write for the standalone login / logout / CSRF
      * events — opens, writes, and (via `use`) closes its own connection.
      * There is nothing to be atomic against on those paths, so each is a

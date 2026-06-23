@@ -21,12 +21,12 @@
 
 ## 4. Admin — appeals-review surface (`admin-appeal-review`)
 
-- [ ] 4.1 Consult `docs/11` §3.6 + the admin board (no appeal frame yet → unstyled; adopt existing column/action/CSRF idioms from `admin-report-queue` templates).
-- [ ] 4.2 `GET /admin/appeals` paginated pending list + per-appeal detail (Pebble + HTMX, no-JS fallback), behind owner/admin auth.
-- [ ] 4.3 Approve action: single tx guarded `WHERE status='pending'` → unban statement (`is_banned=FALSE`, `suspended_until=NULL`) + appeal→`approved` + `reviewed_by`/`reviewed_at`; idempotent (re-approve affects no rows AND writes no extra audit row); CSRF (NOT counted by `admin-destructive-action-rate-limit` — approve is restorative, design D6/B2); one `admin_actions_log` row `appeal_approved`.
-- [ ] 4.4 Reject action: appeal→`rejected` (+ optional `decision_reason` ≤1000) leaving moderation state intact; CSRF (NOT counted by the destructive-action rate-limit — reject alters no user state); one `admin_actions_log` row `appeal_rejected`.
-- [ ] 4.5 Register the `appeal_approved` / `appeal_rejected` action types wherever admin action types are enumerated; re-pin the admin static-asset `SHA256SUMS` if any `admin/static/*` changes (CI-only check, not in the local gate).
-- [ ] 4.6 Tests (`@Tags("database")`): queue lists only pending; approve lifts suspension + writes one audit row; approve a **permanently-banned** appellant (`suspended_until IS NULL`) → `is_banned=FALSE`; approve **concurrent with the daily unban worker** (already `is_banned=FALSE`) still transitions appeal→approved, no error; re-approve is idempotent + writes **no additional** audit row; reject leaves ban intact + writes one audit row; CSRF-missing rejected; unauthenticated denied.
+- [x] 4.1 Consult `docs/11` §3.6 + the admin board (no appeal frame yet → unstyled; adopt existing column/action/CSRF idioms from `admin-report-queue` templates).
+- [x] 4.2 `GET /admin/appeals` paginated pending list + per-appeal detail (Pebble + HTMX, no-JS fallback), behind owner/admin auth.
+- [x] 4.3 Approve action: single tx guarded `WHERE status='pending'` → unban statement (`is_banned=FALSE`, `suspended_until=NULL`) + appeal→`approved` + `reviewed_by`/`reviewed_at`; idempotent (re-approve affects no rows AND writes no extra audit row); CSRF (NOT counted by `admin-destructive-action-rate-limit` — approve is restorative, design D6/B2); one `admin_actions_log` row `appeal_approved`.
+- [x] 4.4 Reject action: appeal→`rejected` (+ optional `decision_reason` ≤1000) leaving moderation state intact; CSRF (NOT counted by the destructive-action rate-limit — reject alters no user state); one `admin_actions_log` row `appeal_rejected`.
+- [x] 4.5 Register the `appeal_approved` / `appeal_rejected` action types wherever admin action types are enumerated; re-pin the admin static-asset `SHA256SUMS` if any `admin/static/*` changes (CI-only check, not in the local gate).
+- [x] 4.6 Tests (`@Tags("database")`): queue lists only pending; approve lifts suspension + writes one audit row; approve a **permanently-banned** appellant (`suspended_until IS NULL`) → `is_banned=FALSE`; approve **concurrent with the daily unban worker** (already `is_banned=FALSE`) still transitions appeal→approved, no error; re-approve is idempotent + writes **no additional** audit row; reject leaves ban intact + writes one audit row; CSRF-missing rejected; unauthenticated denied.
 
 ## 5. Mobile — appeal surface (`mobile-appeal`)
 

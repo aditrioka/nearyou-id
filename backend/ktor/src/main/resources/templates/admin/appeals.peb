@@ -1,0 +1,57 @@
+{% extends "layout.peb" %}
+
+{% block title %}Appeals — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Appeal Queue</h2>
+<p class="pg-sub">appeals · status = pending · oldest-first (appeals_pending_created_idx)</p>
+
+{# Unstyled review surface — the admin board has no appeal frame yet (docs/11 §3.6,
+   "sole known gap"); it adopts the report-queue card/action/CSRF idioms until the
+   design-foundation pass lands the styled frame. Every value is Pebble-autoescaped
+   on output — `appealText` is user free-text reaching an admin, so NO `raw` filter
+   is used anywhere (XSS-safe; the doxxing/PII-redaction posture is follow-up 7.4).
+
+   CSRF: full-page (no-JS) render carries `csrfToken`, so the in-row `_csrf` hidden
+   fields populate for the no-JS POST path; the layout's htmx hook adds the
+   X-CSRF-Token header when JS is enabled. Approve LIFTS the ban; Reject keeps the
+   action — both are idempotent (a re-decision of a decided appeal is a no-op). #}
+{% if hasRows %}
+    {% for row in rows %}
+    <article class="rcard">
+        <div class="rc-head">
+            <span class="st pend">pending</span>
+            <span class="st info">{{ row.actionType }}</span>
+            <a class="code" href="/admin/users?q={{ row.userId }}">{{ row.userId }}</a>
+            <span class="time">{{ row.createdAt }}</span>
+        </div>
+        <p class="rc-note">{{ row.appealText }}</p>
+        <div class="rc-actions">
+            {# Approve — lifts the moderation action (is_banned = FALSE, suspended_until = NULL). #}
+            <form class="approve-appeal" action="/admin/appeals/{{ row.id }}/approve" method="POST">
+                <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                <button type="submit" class="btn tonal sm">Approve — lift the ban</button>
+            </form>
+            <div class="vdiv"></div>
+            {# Reject — keeps the moderation action intact; optional decision reason. #}
+            <form class="reject-appeal" action="/admin/appeals/{{ row.id }}/reject" method="POST">
+                <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                <label class="field">
+                    <span>Decision reason (optional)</span>
+                    <input type="text" name="reason" maxlength="1000" placeholder="why the appeal is denied">
+                </label>
+                <button type="submit" class="btn danger sm">Reject — keep the action</button>
+            </form>
+        </div>
+    </article>
+    {% endfor %}
+    {% if prevOffset is not null or nextOffset is not null %}
+    <div class="pager">
+        {% if prevOffset is not null %}<a href="/admin/appeals?offset={{ prevOffset }}">Newer</a>{% endif %}
+        {% if nextOffset is not null %}<a href="/admin/appeals?offset={{ nextOffset }}">Load older</a>{% endif %}
+    </div>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No pending appeals.</p>
+{% endif %}
+{% endblock %}
