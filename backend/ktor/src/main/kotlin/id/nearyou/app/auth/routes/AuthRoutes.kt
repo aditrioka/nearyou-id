@@ -178,6 +178,26 @@ fun Application.authRoutes(
                     call.respond(HttpStatusCode.Unauthorized, errorBody("token_revoked", "User no longer exists."))
                     return@post
                 }
+            // Account-state gate (auth-session: "Refresh denies a banned or
+            // soft-deleted account"). Mirror the per-request AuthPlugin gate
+            // (AuthPlugin.kt deletedAt → token_revoked, isBanned → account_banned)
+            // so a refresh cannot mint a fresh access token for an account every
+            // authenticated route already 403s. A permanent ban (mirroring the
+            // shipped suspend / report-queue ban) bumps no token_version and
+            // deletes no refresh token, so this gate is what makes the ban
+            // effective within one ~15-min access-token TTL instead of the 30-day
+            // refresh-token TTL. is_banned covers BOTH a permanent ban and an
+            // active time-bound suspension. No new access token is issued on a
+            // denied refresh (the rotated refresh token's raw value is discarded,
+            // never returned — so the denied caller gains no usable token).
+            if (user.deletedAt != null) {
+                call.respond(HttpStatusCode.Unauthorized, errorBody("token_revoked", "User no longer exists."))
+                return@post
+            }
+            if (user.isBanned) {
+                call.respond(HttpStatusCode.Forbidden, errorBody("account_banned", "Account is banned."))
+                return@post
+            }
             val access = jwtIssuer.issueAccessToken(user.id, user.tokenVersion)
             call.respond(TokenPairResponse(access, rotated.rawToken, ACCESS_TOKEN_TTL_SECONDS))
         }

@@ -68,11 +68,9 @@ class CloudflareImageStore(
         }
 
         // Construct the delivery URL on our controlled `img` subdomain (Open Decision #32 —
-        // we never serve from imagedelivery.net except the documented emergency fallback).
-        // The exact path segments (a possible `/cdn-cgi/imagedelivery/` prefix per docs/02 §6
-        // Pre-Phase-1 verification) are confirmed at launch while the feature is flag-dark.
-        val deliveryUrl = "${config.deliveryBaseUrl.trimEnd('/')}/${config.accountHash}/$imageId/public"
-        return StoredImage(imageId = imageId, deliveryUrl = deliveryUrl)
+        // we never serve from imagedelivery.net except the documented emergency fallback) via the
+        // single shared builder so the read-path surfacing emits the identical shape.
+        return StoredImage(imageId = imageId, deliveryUrl = config.deliveryUrl(imageId))
     }
 }
 

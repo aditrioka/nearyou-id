@@ -8,6 +8,7 @@ import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
+import id.nearyou.app.image.imageDeliveryUrls
 import id.nearyou.app.infra.repo.JdbcPostsFollowingRepository
 import id.nearyou.app.infra.repo.JdbcPostsGlobalRepository
 import id.nearyou.app.infra.repo.JdbcPostsTimelineRepository
@@ -248,9 +249,11 @@ class TimelineReadRateLimitTest : StringSpec({
                 // Auth uses the unwrapped repo (separate DataSource) so its `users.findById`
                 // SELECT doesn't pollute the timeline-handler statement counter.
                 install(Authentication) { configureUserJwt(keys, users, java.time.Instant::now) }
-                timelineRoutes(nearby, timelineRateLimiter)
-                followingTimelineRoutes(following, timelineRateLimiter)
-                globalTimelineRoutes(global, timelineRateLimiter)
+                // Unconfigured delivery-URL builder (null config) — this spec exercises the rate-limit
+                // paths only (empty / hard-capped bodies), not imageUrl surfacing.
+                timelineRoutes(nearby, timelineRateLimiter, imageDeliveryUrls(null))
+                followingTimelineRoutes(following, timelineRateLimiter, imageDeliveryUrls(null))
+                globalTimelineRoutes(global, timelineRateLimiter, imageDeliveryUrls(null))
             }
             block()
         }
@@ -262,7 +265,7 @@ class TimelineReadRateLimitTest : StringSpec({
         token: String,
         sid: String? = "SID-1",
     ): HttpResponse =
-        client().get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=5000") {
+        client().get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=20000") {
             header(HttpHeaders.Authorization, "Bearer $token")
             sid?.let { header("X-Session-Id", it) }
         }
@@ -767,6 +770,54 @@ class TimelineReadRateLimitTest : StringSpec({
                     .jsonPrimitive.content shouldBe "radius_out_of_bounds"
             }
             spy.acquireKeys().shouldBeEmpty()
+        } finally {
+            cleanup(viewer)
+        }
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Radius premium gate (mobile-nearby-radius-slider) — Free→403 short-circuits ahead of
+    // the limiter pre-check (no quota burn) and ahead of any DB read (no users/posts SELECT).
+    // ----------------------------------------------------------------------------------
+    "scenario 23d — Free radius_premium_only 403 returns with zero rate-limit Redis calls" {
+        val (viewer, vt) = seedUser() // Free
+        try {
+            val spy = SpyRateLimiter(InMemoryRateLimiter())
+            withTimeline(rateLimiter = spy) {
+                val resp =
+                    client().get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=50000") {
+                        header(HttpHeaders.Authorization, "Bearer $vt")
+                    }
+                resp.status shouldBe HttpStatusCode.Forbidden
+                Json.parseToJsonElement(resp.bodyAsText())
+                    .jsonObject["error"]!!.jsonObject["code"]!!
+                    .jsonPrimitive.content shouldBe "radius_premium_only"
+            }
+            // The premium gate runs before the limiter pre-check — a 403 burns no quota.
+            spy.acquireKeys().shouldBeEmpty()
+        } finally {
+            cleanup(viewer)
+        }
+    }
+
+    "scenario 13b — radius premium gate 403 issues zero users + posts SELECTs (short-circuits before DB)" {
+        val (viewer, vt) = seedUser() // Free; the tier is read from the principal, not a users SELECT
+        try {
+            val limiter = InMemoryRateLimiter()
+            val counter = StatementCounter()
+            withTimeline(
+                rateLimiter = limiter,
+                dataSourceWrapper = { CountingDataSource(it, counter) },
+            ) {
+                counter.reset()
+                val resp =
+                    client().get("/api/v1/timeline/nearby?lat=-6.2&lng=106.8&radius_m=100000") {
+                        header(HttpHeaders.Authorization, "Bearer $vt")
+                    }
+                resp.status shouldBe HttpStatusCode.Forbidden
+            }
+            counter.matching(Regex("(?i)from\\s+users\\b")) shouldBe 0
+            counter.matching(Regex("(?i)from\\s+(visible_posts|posts)\\b")) shouldBe 0
         } finally {
             cleanup(viewer)
         }

@@ -93,6 +93,10 @@ data class SinglePostResponse(
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
     @SerialName("reply_count") val replyCount: Int,
     val isAuthor: Boolean = false,
+    // image-attached-posts: public Cloudflare delivery URL of the attached image, or null/omitted
+    // (explicitNulls=false) for a text-only post. Coordinate-independent — no PII. Built server-side
+    // via the shared builder; the client treats it as opaque.
+    val imageUrl: String? = null,
 )
 
 private const val POST_NOT_FOUND_BODY = """{"error":{"code":"post_not_found"}}"""

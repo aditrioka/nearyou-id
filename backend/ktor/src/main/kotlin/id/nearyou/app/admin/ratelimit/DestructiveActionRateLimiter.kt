@@ -16,9 +16,12 @@ import javax.sql.DataSource
  * drift, no new infra coupling (the admin panel does not depend on Redis), and
  * no migration. The destructive set (design D3) is the user-punitive actions:
  *
- *  - `user_warned` + `user_suspended` + `admin_chat_redaction` (direct
- *    `action_type`; redaction is disjoint from `moderation_queue_resolved` so it
- *    is counted by the direct arm and never double-counted), and
+ *  - `user_warned` + `user_suspended` + `user_banned` + `user_shadow_banned` +
+ *    `admin_chat_redaction` (direct `action_type`; each is disjoint from
+ *    `moderation_queue_resolved` so it is counted by the direct arm and never
+ *    double-counted). The standalone user-page ban / shadow-ban log
+ *    `user_banned` / `user_shadow_banned`; the restorative `user_shadow_unbanned`
+ *    is NOT punitive and is deliberately excluded (like `user_unbanned`), and
  *  - the destructive report-queue resolutions, which all log
  *    `action_type = 'moderation_queue_resolved'` (shared with `keep`/`hide`) and
  *    so are isolated by `after_state ->> 'resolution' IN (suspend_author_7d,
@@ -82,7 +85,7 @@ class DestructiveActionRateLimiter(
              WHERE admin_id = ?
                AND created_at > NOW() - INTERVAL '1 hour'
                AND (
-                     action_type IN ('user_warned', 'user_suspended', 'admin_chat_redaction')
+                     action_type IN ('user_warned', 'user_suspended', 'user_banned', 'user_shadow_banned', 'admin_chat_redaction')
                   OR (
                         action_type = 'moderation_queue_resolved'
                     AND after_state ->> 'resolution' IN ('suspend_author_7d', 'ban_author', 'shadow_ban_author')

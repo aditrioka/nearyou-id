@@ -62,7 +62,10 @@ class AdminUserModerationRouteTest : StringSpec({
         suspendedUntil: Instant? = null,
         deletedAt: Instant? = null,
         username: String? = null,
-    ): UUID = UserModerationTestSupport.seedUser(dataSource, isBanned, suspendedUntil, deletedAt, username).also { seededUsers += it }
+        isShadowBanned: Boolean = false,
+    ): UUID =
+        UserModerationTestSupport.seedUser(dataSource, isBanned, suspendedUntil, deletedAt, username, isShadowBanned)
+            .also { seededUsers += it }
 
     fun cookie(token: String) = "${AdminAuthProvider.COOKIE_NAME}=$token"
 
@@ -734,6 +737,261 @@ class AdminUserModerationRouteTest : StringSpec({
             val middle = body.indexOf("uY-MIDDLE")
             val oldest = body.indexOf("AAA-oldest")
             (newest in 1 until middle && middle < oldest) shouldBe true
+        }
+    }
+
+    // ============ ban route: role gate (owner/admin), CSRF, malformed id =======
+
+    "ban: admin + valid CSRF → 303 and the user is permanently banned" {
+        val admin = seedAdmin(role = "admin")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldBe HttpStatusCode.SeeOther
+        }
+        val row = UserModerationTestSupport.loadUser(dataSource, uid)
+        row.isBanned shouldBe true
+        row.suspendedUntil shouldBe null
+    }
+
+    "ban: moderator + valid CSRF → 403 (owner/admin only), not banned, no user_banned row" {
+        val admin = seedAdmin(role = "moderator")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        UserModerationTestSupport.loadUser(dataSource, uid).isBanned shouldBe false
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned") shouldHaveSize 0
+    }
+
+    "ban: missing CSRF → 403, not banned, no user_banned row" {
+        val admin = seedAdmin(role = "admin")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.post("/admin/users/$uid/ban") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        UserModerationTestSupport.loadUser(dataSource, uid).isBanned shouldBe false
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned") shouldHaveSize 0
+    }
+
+    "ban: non-UUID id (owner + valid CSRF) → 400 (not 500)" {
+        val admin = seedAdmin(role = "owner")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/not-a-uuid/ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldNotBe HttpStatusCode.InternalServerError
+            res.status shouldBe HttpStatusCode.BadRequest
+        }
+    }
+
+    "ban: CSRF is checked BEFORE the role gate (read_only + wrong CSRF → CSRF violation row)" {
+        val admin = seedAdmin(role = "read_only")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, "wrong-token")
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin.id).any { it.actionType == "admin_csrf_violation" } shouldBe true
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned") shouldHaveSize 0
+    }
+
+    "ban: role gate runs BEFORE the id-parse (read_only + valid CSRF + bad id → 403, not 400)" {
+        val admin = seedAdmin(role = "read_only")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/not-a-uuid/ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+    }
+
+    "ban: at the cap → quota-exceeded (200 with message), not banned, no user_banned row" {
+        val admin = seedAdmin(role = "admin")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        seedWarns(dataSource, admin.id, 20)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldNotBe HttpStatusCode.InternalServerError
+            res.bodyAsText() shouldContain "quota exceeded"
+        }
+        UserModerationTestSupport.loadUser(dataSource, uid).isBanned shouldBe false
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_banned") shouldHaveSize 0
+    }
+
+    // ============ shadow-ban / shadow-unban routes (all write roles) ===========
+
+    "shadow-ban: moderator + valid CSRF → 303 and the user is shadow-banned" {
+        val admin = seedAdmin(role = "moderator")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/shadow-ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldBe HttpStatusCode.SeeOther
+        }
+        UserModerationTestSupport.loadUser(dataSource, uid).isShadowBanned shouldBe true
+    }
+
+    "shadow-ban: read_only + valid CSRF → 403, not shadow-banned, no audit row" {
+        val admin = seedAdmin(role = "read_only")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/shadow-ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        UserModerationTestSupport.loadUser(dataSource, uid).isShadowBanned shouldBe false
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_shadow_banned") shouldHaveSize 0
+    }
+
+    "shadow-ban: wrong CSRF token → 403, not shadow-banned, no audit row" {
+        val admin = seedAdmin(role = "moderator")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/shadow-ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, "wrong-token-value")
+                }
+            res.status shouldBe HttpStatusCode.Forbidden
+        }
+        UserModerationTestSupport.loadUser(dataSource, uid).isShadowBanned shouldBe false
+        UserModerationTestSupport.auditRowsForTarget(dataSource, uid, "user_shadow_banned") shouldHaveSize 0
+    }
+
+    "shadow-ban: non-UUID id (owner + valid CSRF) → 400 (not 500)" {
+        val admin = seedAdmin(role = "owner")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/not-a-uuid/shadow-ban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldNotBe HttpStatusCode.InternalServerError
+            res.status shouldBe HttpStatusCode.BadRequest
+        }
+    }
+
+    "shadow-unban: non-UUID id (moderator + valid CSRF) → 400 (not 500)" {
+        val admin = seedAdmin(role = "moderator")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/not-a-uuid/shadow-unban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldNotBe HttpStatusCode.InternalServerError
+            res.status shouldBe HttpStatusCode.BadRequest
+        }
+    }
+
+    "shadow-unban: moderator + valid CSRF → 303 and the shadow ban is lifted" {
+        val admin = seedAdmin(role = "moderator")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false, isShadowBanned = true)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.post("/admin/users/$uid/shadow-unban") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                }
+            res.status shouldBe HttpStatusCode.SeeOther
+        }
+        UserModerationTestSupport.loadUser(dataSource, uid).isShadowBanned shouldBe false
+    }
+
+    // ============ profile render: new controls, role-visibility, quota chip ====
+
+    "profile (owner) of an active user renders the ban + shadow-ban controls" {
+        val admin = seedAdmin(role = "owner")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false, isShadowBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            val body = res.bodyAsText()
+            body shouldContain "/admin/users/$uid/ban"
+            body shouldContain "/admin/users/$uid/shadow-ban"
+        }
+    }
+
+    "profile (moderator) of an active user hides the ban control but keeps shadow-ban" {
+        val admin = seedAdmin(role = "moderator")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false, isShadowBanned = false)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            val body = res.bodyAsText()
+            body shouldNotContain "/admin/users/$uid/ban\""
+            body shouldContain "/admin/users/$uid/shadow-ban"
+        }
+    }
+
+    "profile of a shadow-banned user shows the un-shadow-ban control (shadow-ban absent)" {
+        val admin = seedAdmin(role = "owner")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false, isShadowBanned = true)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            val body = res.bodyAsText()
+            body shouldContain "/admin/users/$uid/shadow-unban"
+            body shouldNotContain "/admin/users/$uid/shadow-ban\""
+        }
+    }
+
+    "profile quota chip reflects seeded user_banned + user_shadow_banned rows" {
+        val admin = seedAdmin(role = "owner")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = false)
+        insertUserAudit(dataSource, admin.id, UUID.randomUUID(), "user_banned")
+        insertUserAudit(dataSource, admin.id, UUID.randomUUID(), "user_banned")
+        insertUserAudit(dataSource, admin.id, UUID.randomUUID(), "user_shadow_banned")
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+            res.bodyAsText() shouldContain "3/20"
         }
     }
 })

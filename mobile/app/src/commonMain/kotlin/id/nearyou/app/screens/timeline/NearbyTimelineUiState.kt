@@ -24,6 +24,8 @@ data class NearbyTimelinePost(
     val createdAt: String,
     val likedByViewer: Boolean,
     val replyCount: Int,
+    // image-attached-posts: the public image delivery URL (null = text-only). NOT PII (coordinate-free).
+    val imageUrl: String?,
 )
 
 private fun NearbyPostDto.toUi(): NearbyTimelinePost =
@@ -37,6 +39,7 @@ private fun NearbyPostDto.toUi(): NearbyTimelinePost =
         createdAt = createdAt,
         likedByViewer = likedByViewer,
         replyCount = replyCount,
+        imageUrl = imageUrl,
     )
 
 /**

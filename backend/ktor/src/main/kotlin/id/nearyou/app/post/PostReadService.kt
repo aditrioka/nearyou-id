@@ -1,6 +1,7 @@
 package id.nearyou.app.post
 
 import id.nearyou.app.engagement.PostNotFoundException
+import id.nearyou.app.image.ImageDeliveryUrls
 import id.nearyou.app.infra.repo.SinglePostRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,10 @@ import java.util.UUID
  */
 class PostReadService(
     private val repository: SinglePostRepository,
+    // image-attached-posts: maps the row's raw image_id to the public delivery URL via the shared
+    // builder (the SAME one the upload path uses). Defaulted to the unconfigured/null builder so
+    // existing test constructors stay valid and a text-only/unconfigured read yields no URL.
+    private val imageUrls: ImageDeliveryUrls = ImageDeliveryUrls { null },
     // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
     private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -40,6 +45,7 @@ class PostReadService(
             likedByViewer = row.likedByViewer,
             replyCount = row.replyCount,
             isAuthor = row.isAuthor,
+            imageUrl = imageUrls.forImage(row.imageId),
         )
     }
 }

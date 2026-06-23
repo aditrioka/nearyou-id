@@ -52,6 +52,9 @@ import id.nearyou.app.followlist.FollowListRepository
 import id.nearyou.app.hidedistance.DefaultHideDistanceRepository
 import id.nearyou.app.hidedistance.HideDistanceApiClient
 import id.nearyou.app.hidedistance.HideDistanceRepository
+import id.nearyou.app.image.ImageUploadApiClient
+import id.nearyou.app.image.ImageUploadRepository
+import id.nearyou.app.image.ImageUploader
 import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.infra.revenuecat.RevenueCatPurchaseController
 import id.nearyou.app.infra.sentry.CrashReporter
@@ -257,7 +260,17 @@ val mobileModule =
         single { NotificationsApiClient(get()) }
         // diagnosticLog wired to the real sink — the repo's status-only diagnostic strings went
         // nowhere via the no-op default (2026-06-10 audit, 06 medium: sink-wiring drift).
-        single { NotificationsRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        // SinglePostApiClient + ProfileApiClient (both bound below) back the deep-link target resolution
+        // (mobile-notifications-deep-link-targets): post-target → full-projection single-post-read;
+        // chat_message partner top-bar identity → user-profile-read (actor = the 1:1 sender = partner).
+        single {
+            NotificationsRepository(
+                get(),
+                get<SinglePostApiClient>(),
+                get<ProfileApiClient>(),
+                diagnosticLog = get<DiagnosticSink>()::log,
+            )
+        }
         single<NotificationsFlow> { get<NotificationsRepository>() }
 
         // mobile-post-creation-screen — the create-post graph. Reuses the shared HttpClient, the
@@ -439,6 +452,27 @@ val mobileModule =
         single { SearchApiClient(get()) }
         single { SearchRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<SearchFlow> { get<SearchRepository>() }
+
+        // image-attached-posts (Phase 5, upload data layer) — the premium image-upload seam over
+        // POST /api/v1/images. Reuses the shared (bearer-authed) HttpClient (Bearer + 401 owned by the
+        // Auth plugin; NO new client, NO X-Session-Id — the upload endpoint carries no per-session
+        // soft-cap accounting). The status + error.code → ImageUploadOutcome mapping (the two 403s /
+        // two 429s disambiguated by error.code) lives in ImageUploadRepository. The (status, errorCode)
+        // sink shape is adapted onto the shared string DiagnosticSink (same adapter as CreatePostRepository
+        // above) — coordinate-/bytes-free by construction (an Int + a server error-code string, NEVER the
+        // image bytes). The ImagePicker actual + the composer ViewModel are Phase 4/6, NOT wired here.
+        single { ImageUploadApiClient(get()) }
+        single {
+            val sink = get<DiagnosticSink>()
+            ImageUploadRepository(
+                get(),
+                diagnosticLog = { status, errorCode -> sink.log("image_upload_error: status=$status code=$errorCode") },
+            )
+        }
+        // image-attached-posts (Phase 6) — the composer ViewModel consumes the ImageUploader seam (bound to
+        // the repository above), never the ApiClient (docs/11 §2.6). A FakeImageUploadRepository drives the
+        // composer tests through the seam (the concrete stays resolvable).
+        single<ImageUploader> { get<ImageUploadRepository>() }
 
         // mobile-premium-username-customization — the Ganti Username data seam over the SHIPPED, FROZEN
         // PATCH /api/v1/user/username + GET /api/v1/username/check endpoints (Bearer attached by the Auth

@@ -377,6 +377,11 @@ Endpoint `/account/export` returns JSON + CSV ZIP:
 | CSAM detection archive | No | - | Out of scope, legal preservation |
 | `rejected_identifiers` hash | No | - | Anti-abuse signal, may cross other users |
 
+**MVP-schema limitations (best-effort export — emits the stored subset)**: three rows above describe richer data than the current MVP schema persists, so the producer emits what exists today and the rest lands if/when the columns are added:
+- **Session history** — `refresh_tokens` has no IP column; the export emits fingerprint + timestamps only (no IP).
+- **Premium subscription history** — `subscription_events` has no tier column; the export emits event_type/source/dates (no tier).
+- **Analytics consent** — only `users.analytics_consent` (current state) exists, not a history table; the export emits the current state, not a history.
+
 **Delivery**: an async worker packs the ZIP, uploads to R2, creates a signed URL TTL 24 hours, and emails via Resend (user-facing): "Data export kamu siap diunduh".
 
 **SLA**: 7 days (confirm with legal advisor before launch).

@@ -123,6 +123,12 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.androidx.lifecycle.viewmodelNavigation3)
+            // image-attached-posts (D5) — Coil 3 AsyncImage (read-path post image) + the Ktor-backed
+            // network fetcher (reuses the existing Ktor stack — no new networking lib). The fetcher is
+            // registered once at app init via SingletonImageLoader.setSafe (App.kt); images are public
+            // (no Bearer), so this does NOT reuse the auth HttpClient (D6).
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.ktor3)
             implementation(libs.koin.core)
             implementation(libs.koin.compose)
             implementation(libs.koin.composeViewmodel)
@@ -352,14 +358,14 @@ tasks.named("check") {
 // The Robolectric Compose UI tests (SignInScreenTest / RootRouterScreenTest / AgeGateScreenTest /
 // NearbyTimelineScreenTest / NearbyLocationGateScreenTest / NearYouThemeTest / PostCreationScreenTest /
 // HomeScreenFabTest / GlobalTimelineScreenTest / FollowingTimelineScreenTest / HomeTabHostScreenTest /
-// NotificationsScreenTest / AppShellScreenTest / PostDetailScreenTest / PostCardTest / ProfileScreenTest /
+// NotificationsScreenTest / NotificationsScreenNavTest / AppShellScreenTest / PostDetailScreenTest / PostCardTest / ProfileScreenTest /
 // ReportDialogTest / ConversationListScreenTest / ChatThreadScreenTest / SearchScreenTest) need the debug-only
 // `androidx.compose.ui:ui-test-manifest` ComponentActivity, which is NOT merged into release variants —
 // so `./gradlew test` (all variants) fails `testDevReleaseUnitTest` etc. with a host-activity
 // RuntimeException. Skip those classes in release unit-test tasks; they are build-type-agnostic (they
 // exercise the composable, not the build type) and run fully in the debug variants. Non-UI unit tests
 // (e.g. PostCreationSourceGuardTest, CreatePostFlowKoinResolutionTest, GlobalTimelineKoinResolutionTest,
-// FollowingTimelineKoinResolutionTest, NotificationsDeepLinkAbsenceScanTest) still run in every variant.
+// FollowingTimelineKoinResolutionTest, NotificationsScreenNavFreeScanTest) still run in every variant.
 tasks.withType<Test>().configureEach {
     if (name.contains("Release")) {
         exclude(
@@ -377,6 +383,7 @@ tasks.withType<Test>().configureEach {
             "**/FollowingTimelineScreenTest*",
             "**/HomeTabHostScreenTest*",
             "**/NotificationsScreenTest*",
+            "**/NotificationsScreenNavTest*",
             "**/AppShellScreenTest*",
             "**/PostDetailScreenTest*",
             "**/EditPostScreenTest*",

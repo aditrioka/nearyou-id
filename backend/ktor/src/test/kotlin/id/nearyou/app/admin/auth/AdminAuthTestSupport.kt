@@ -276,25 +276,63 @@ object AdminAuthTestSupport {
      * [dataSource] + [FIXED_AES_KEY], and a non-redirect-following client so
      * 302s are observable. [aesKeyOverride] lets a test inject a different
      * key (e.g., to exercise wrong-key decryption).
+     *
+     * [csamMetadataEncryptor] lets the `admin-csam-detection-log` tests inject a
+     * provisioned (or deliberately unprovisioned) `csam_detection_archive` decrypt key;
+     * it defaults to a fail-soft null-key encryptor (the production pre-launch posture).
+     * When provided, the SAME encryptor instance backs the in-process takedown service
+     * the admin-manual takedown route invokes, so the archive blob and the decrypt path
+     * agree on the key (design D1/D4).
      */
     suspend fun withAdminApp(
         dataSource: DataSource,
         aesKeyOverride: (() -> ByteArray)? = null,
         clock: () -> Instant = Instant::now,
         remoteConfigPublisher: RemoteConfigPublisher = NoOpRemoteConfigPublisher,
+        csamMetadataEncryptor: id.nearyou.app.moderation.csam.CsamMetadataEncryptor? = null,
         block: suspend ApplicationTestBuilder.(client: HttpClient) -> Unit,
     ) {
         testApplication {
             application {
                 installTestClientIpDefault()
-                admin(
-                    dataSource = dataSource,
-                    aesKeyProvider = aesKeyOverride ?: { FIXED_AES_KEY },
-                    csrfHmacKeyProvider = { FIXED_CSRF_HMAC_KEY },
-                    environmentName = TEST_ENVIRONMENT_NAME,
-                    remoteConfigPublisher = remoteConfigPublisher,
-                    privacyFlipsClock = clock,
-                )
+                val csamArgs =
+                    csamMetadataEncryptor?.let { enc ->
+                        val repo = id.nearyou.app.moderation.csam.CsamRepository(dataSource)
+                        Triple(
+                            repo,
+                            enc,
+                            id.nearyou.app.moderation.csam.CsamDetectionService(
+                                dataSource = dataSource,
+                                dbDispatcher = kotlinx.coroutines.Dispatchers.IO,
+                                csamRepository = repo,
+                                moderationQueueRepository = id.nearyou.app.infra.repo.JdbcModerationQueueRepository(),
+                                encryptor = enc,
+                                auditLogger = id.nearyou.app.admin.auth.AdminAuditLogger(dataSource),
+                            ),
+                        )
+                    }
+                if (csamArgs == null) {
+                    admin(
+                        dataSource = dataSource,
+                        aesKeyProvider = aesKeyOverride ?: { FIXED_AES_KEY },
+                        csrfHmacKeyProvider = { FIXED_CSRF_HMAC_KEY },
+                        environmentName = TEST_ENVIRONMENT_NAME,
+                        remoteConfigPublisher = remoteConfigPublisher,
+                        privacyFlipsClock = clock,
+                    )
+                } else {
+                    admin(
+                        dataSource = dataSource,
+                        aesKeyProvider = aesKeyOverride ?: { FIXED_AES_KEY },
+                        csrfHmacKeyProvider = { FIXED_CSRF_HMAC_KEY },
+                        environmentName = TEST_ENVIRONMENT_NAME,
+                        remoteConfigPublisher = remoteConfigPublisher,
+                        privacyFlipsClock = clock,
+                        csamRepository = csamArgs.first,
+                        csamMetadataEncryptor = csamArgs.second,
+                        csamDetectionService = csamArgs.third,
+                    )
+                }
             }
             val client = createClient { followRedirects = false }
             block(client)

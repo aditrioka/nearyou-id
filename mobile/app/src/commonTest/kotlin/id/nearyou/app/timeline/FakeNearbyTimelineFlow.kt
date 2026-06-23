@@ -29,8 +29,21 @@ class FakeNearbyTimelineFlow(
     /** Records the (cursor, anchor) of each [loadMore] call so a test can assert the anchor is reused. */
     val loadMoreCalls: MutableList<Pair<String, LatLng>> = mutableListOf()
 
-    override suspend fun loadFirstPage(): NearbyTimelineOutcome {
+    /** Records the radiusM of each [loadFirstPage] call (mobile-nearby-radius-slider). */
+    val loadFirstPageRadii: MutableList<Int> = mutableListOf()
+
+    /** Records the radiusM of each [loadMore] call. */
+    val loadMoreRadii: MutableList<Int> = mutableListOf()
+
+    /** Records the radiusM of each [changeRadius] call. */
+    val changeRadiusCalls: MutableList<Int> = mutableListOf()
+
+    /** Programmable result for [changeRadius]; defaults to `Loaded` wrapping [outcome]. */
+    var changeRadiusResult: RadiusChangeResult = RadiusChangeResult.Loaded(outcome)
+
+    override suspend fun loadFirstPage(radiusM: Int): NearbyTimelineOutcome {
         loadInvocationCount++
+        loadFirstPageRadii += radiusM
         if (suspendForever || loadInvocationCount >= suspendFromCall) awaitCancellation()
         failWith?.let { throw it }
         return outcome
@@ -39,10 +52,17 @@ class FakeNearbyTimelineFlow(
     override suspend fun loadMore(
         cursor: String,
         anchor: LatLng,
+        radiusM: Int,
     ): NearbyTimelineOutcome {
         loadMoreCalls += cursor to anchor
+        loadMoreRadii += radiusM
         // Default to an end page (empty + null cursor) so a test that programs no pages still terminates.
         return if (pages.isEmpty()) NearbyTimelineOutcome.Loaded(emptyList(), null, null) else pages.removeFirst()
+    }
+
+    override suspend fun changeRadius(radiusM: Int): RadiusChangeResult {
+        changeRadiusCalls += radiusM
+        return changeRadiusResult
     }
 }
 

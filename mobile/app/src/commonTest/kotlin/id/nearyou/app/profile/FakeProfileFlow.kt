@@ -58,6 +58,7 @@ class FakeProfileFlow(
             userId: String = "u1",
             isSelf: Boolean = false,
             followedByViewer: Boolean = false,
+            isPremium: Boolean = false,
         ): UserProfile =
             UserProfile(
                 userId = userId,
@@ -68,7 +69,7 @@ class FakeProfileFlow(
                 followingCount = 5,
                 isSelf = isSelf,
                 followedByViewer = followedByViewer,
-                isPremium = false,
+                isPremium = isPremium,
                 isPrivate = if (isSelf) false else null,
             )
     }

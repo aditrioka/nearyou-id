@@ -128,9 +128,37 @@ class NavKeySerializationTest {
         assertEquals(original, decoded)
     }
 
+    /** mobile-post-detail § "A payload predating imageUrl still decodes" — a back stack serialized BEFORE
+     *  image-attached-posts lacks the imageUrl property; the default (null) keeps process-death restore
+     *  decoding instead of throwing (the detail simply renders no image). */
+    @Test
+    fun postDetailRoute_payloadWithoutImageUrl_decodesToNull() {
+        // The default-valued field is not encoded (encodeDefaults = false) for a null imageUrl, so the
+        // serialized form of an image-less route IS the pre-change payload shape; strip defensively anyway.
+        val withoutImage =
+            json
+                .encodeToString(navKeySerializer, samplePostDetailRoute(distanceM = 1234.5))
+                .replace(Regex(""","imageUrl":("[^"]*"|null)"""), "")
+        val decoded = json.decodeFromString(navKeySerializer, withoutImage) as PostDetailRoute
+        assertEquals(null, decoded.imageUrl, "a pre-change payload decodes with the null default")
+        assertEquals("p1", decoded.postId)
+    }
+
+    /** The image-bearing variant survives the round-trip with the URL intact. */
+    @Test
+    fun postDetailRoute_imageVariant_roundTripsWithTheUrl() {
+        val original = samplePostDetailRoute(distanceM = null, imageUrl = "https://img.example/acct/p1/public")
+        val decoded =
+            json.decodeFromString(navKeySerializer, json.encodeToString(navKeySerializer, original))
+                as PostDetailRoute
+        assertEquals("https://img.example/acct/p1/public", decoded.imageUrl)
+        assertEquals(original, decoded)
+    }
+
     private fun samplePostDetailRoute(
         distanceM: Double?,
         focusReplyComposer: Boolean = false,
+        imageUrl: String? = null,
     ): PostDetailRoute =
         PostDetailRoute(
             postId = "p1",
@@ -143,5 +171,6 @@ class NavKeySerializationTest {
             authorUsername = "raka.jkt",
             authorDisplayName = "Raka Pratama",
             focusReplyComposer = focusReplyComposer,
+            imageUrl = imageUrl,
         )
 }

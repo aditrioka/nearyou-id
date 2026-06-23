@@ -1,0 +1,105 @@
+{# Swappable moderation wordlist editor content fragment (admin-moderation-wordlist-
+   editor, the frame-20 "edit" sub-surface). Rendered standalone for HTMX requests
+   (HX-Request: true) and {% include %}d by wordlist-editor.peb for the full-page /
+   no-JS path. #wl-content is the hx-target swapped in place. Every value is
+   Pebble-autoescaped on output — no `raw` filter (operator-supplied entries are
+   HTML-escaped). #}
+<div id="wl-content">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+
+{% if not writeAvailable %}
+    <div class="banner warn wl-readonly-notice">
+        Writes unavailable — the Remote Config write role is not configured on this admin service.
+        Showing the current list read-only; ask the operator to grant the Remote Config write role.
+    </div>
+{% endif %}
+
+<p class="pg-sub">{{ listParam }} · Firebase Remote Config · Server template · audit-logged (<code>moderation_wordlist_edited</code>) · rate-limited {{ quotaUsed }}/{{ quotaCap }} this hour · template version {{ version }}</p>
+
+<div class="banner info wl-scope-note">
+    Edits the Remote Config <b>Server</b> list only — the repo fallback (<code>*.default.txt</code>) and the
+    Secret Manager fallback are updated separately at the quarterly legal review. Edits take effect after the
+    ≤5-minute moderation cache TTL (not instant in enforcement).
+</div>
+
+{% if diffResulting is not null %}
+<div class="cardlet wl-diff">
+    <h4>Staged changes (preview — not yet published)</h4>
+    <p><b class="wl-added">+{{ diffAdded }}</b> added · <b class="wl-removed">−{{ diffRemoved }}</b> removed · resulting total <b>{{ diffResulting }}</b></p>
+</div>
+{% endif %}
+
+{% if importAdded is not null %}
+<div class="banner info wl-import-report">
+    Import: {{ importAdded }} added, {{ importDuplicatesSkipped }} duplicates skipped,
+    {{ importCommentBlankSkipped }} comment/blank lines skipped.
+</div>
+{% endif %}
+
+<div class="cardlet">
+    <h4>Entries <span class="st neut wl-count">{{ entryCount }} entries</span></h4>
+    <input type="text" class="wl-filter" placeholder="Filter entries…" aria-label="Filter entries">
+    <ul class="wl-list">
+        {% for e in entries %}<li class="wl-entry">{{ e }}</li>{% endfor %}
+    </ul>
+</div>
+
+{% if canWrite %}
+<form class="wl-form"
+      action="/admin/feature-flags/wordlists/{{ listSlug }}"
+      method="POST"
+      hx-post="/admin/feature-flags/wordlists/{{ listSlug }}"
+      hx-target="#wl-content"
+      hx-swap="outerHTML">
+    <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+    <input type="hidden" name="etag" value="{{ etag | default('') }}">
+
+    <label class="wl-label" for="wl-entries">Staged list — one entry per line (edit directly to add / remove)</label>
+    <textarea id="wl-entries" name="entries" class="wl-entries" rows="16">{{ entriesText }}</textarea>
+
+    <label class="wl-label" for="wl-add">Add single (taken literally — a leading <code>#</code> is kept)</label>
+    <input id="wl-add" type="text" name="add" class="wl-add" placeholder="one keyword">
+
+    <label class="wl-label" for="wl-import">Bulk import (newline- or comma-separated; <code>#</code> comment + blank lines skipped, duplicates skipped)</label>
+    <textarea id="wl-import" name="import" class="wl-import" rows="4" placeholder="paste keywords to merge…"></textarea>
+
+    <label class="wl-label" for="wl-reason">Reason (required to publish)</label>
+    <input id="wl-reason" type="text" name="reason" class="wl-reason" placeholder="reason (required)">
+
+    <div class="wl-actions">
+        <button type="submit" class="btn outl sm"
+                formaction="/admin/feature-flags/wordlists/{{ listSlug }}/preview"
+                hx-post="/admin/feature-flags/wordlists/{{ listSlug }}/preview"
+                hx-target="#wl-content"
+                hx-swap="outerHTML">Preview diff</button>
+        <button type="submit" class="btn filled sm"
+                hx-confirm="Publish {{ listParam }}? This republishes the list to Remote Config and is audit-logged.">Publish changes</button>
+    </div>
+</form>
+{% else %}
+<div class="banner warn wl-no-write">
+    Read-only — wordlist edits require the owner/admin role{% if not writeAvailable %} and the Remote Config write credential{% endif %}.
+</div>
+{% endif %}
+
+<p class="wl-back"><a href="/admin/feature-flags">← Back to Feature Flags</a></p>
+
+<script>
+    {# Client-side entry filter (graceful: the list renders fully without JS).
+       Re-binds after each HTMX swap because the fragment carries its own script. #}
+    (function () {
+        var root = document.getElementById('wl-content');
+        if (!root) return;
+        var filter = root.querySelector('.wl-filter');
+        if (!filter) return;
+        filter.addEventListener('input', function () {
+            var q = filter.value.toLowerCase();
+            root.querySelectorAll('.wl-entry').forEach(function (li) {
+                li.style.display = li.textContent.toLowerCase().indexOf(q) === -1 ? 'none' : '';
+            });
+        });
+    })();
+</script>
+</div>

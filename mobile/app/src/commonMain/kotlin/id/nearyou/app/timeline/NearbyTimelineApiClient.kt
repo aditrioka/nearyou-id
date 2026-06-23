@@ -6,9 +6,14 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -46,6 +51,10 @@ data class NearbyPostDto(
     val createdAt: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
     @SerialName("reply_count") val replyCount: Int,
+    // image-attached-posts (D4): the public image delivery URL, BARE camelCase on the wire (the
+    // TimelineRoutes.kt mixed-case precedent — NOT snake_case). The backend OMITS it (explicitNulls=false)
+    // for a text-only post, so it decodes to null. NOT a raw coordinate — safe to carry/render.
+    val imageUrl: String? = null,
 )
 
 /**
@@ -82,8 +91,10 @@ sealed interface NearbyApiResult {
     data class Success(val body: NearbyResponseDto) : NearbyApiResult
 
     /** Non-2xx response. The repository keys outcome on [status] (400 → retryable Error, 5xx →
-     *  NetworkError, 401 is already handled by the shipped `Auth` plugin upstream). */
-    data class HttpError(val status: Int) : NearbyApiResult
+     *  NetworkError, 401 is already handled by the shipped `Auth` plugin upstream). [errorCode] is the
+     *  best-effort `error.code` parsed from the `respondError` envelope — `mobile-nearby-radius-slider`
+     *  reads it ONLY to distinguish the `radius_premium_only` 403; null when absent/unparseable. */
+    data class HttpError(val status: Int, val errorCode: String? = null) : NearbyApiResult
 
     /** Transport-level failure (IOException, timeout, host unreachable). */
     data class NetworkError(val cause: Throwable) : NearbyApiResult
@@ -134,6 +145,28 @@ class NearbyTimelineApiClient(
             }
         }
 
-        return NearbyApiResult.HttpError(status = response.status.value)
+        return NearbyApiResult.HttpError(
+            status = response.status.value,
+            errorCode = response.parseErrorCodeOrNull(),
+        )
     }
 }
+
+/** Json used only for the best-effort error-envelope parse; tolerant of extra fields. */
+private val ERROR_ENVELOPE_JSON = Json { ignoreUnknownKeys = true }
+
+/**
+ * Best-effort parse of `error.code` from the shared `respondError` envelope
+ * (`{"error":{"code":...,"message":...}}`) on a non-2xx Nearby response. Returns null on any failure
+ * (empty body, a different error shape, malformed JSON) — the repository still keys on the HTTP status;
+ * only `mobile-nearby-radius-slider` reads this (for the `radius_premium_only` 403 backstop).
+ */
+private suspend fun HttpResponse.parseErrorCodeOrNull(): String? =
+    try {
+        ERROR_ENVELOPE_JSON.parseToJsonElement(bodyAsText())
+            .jsonObject["error"]
+            ?.jsonObject?.get("code")
+            ?.jsonPrimitive?.contentOrNull
+    } catch (_: Throwable) {
+        null
+    }
