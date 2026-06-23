@@ -306,9 +306,11 @@ class ImageUrlSurfacingTest : StringSpec({
     fun postsArray(body: String): List<JsonObject> = Json.parseToJsonElement(body).jsonObject["posts"]!!.jsonArray.map { it.jsonObject }
 
     suspend fun ApplicationTestBuilder.nearby(token: String): List<JsonObject> {
+        // radius_m MUST be an ALLOWED_RADII_M value (mobile-nearby-radius-slider added `radius_out_of_bounds`
+        // 400 validation); use FREE_RADIUS_M (20 km) so the (Free) seed users also clear the Premium radius gate.
         val resp =
             createClient { install(ClientCN) { json() } }
-                .get("/api/v1/timeline/nearby?lat=$lat&lng=$lng&radius_m=5000") {
+                .get("/api/v1/timeline/nearby?lat=$lat&lng=$lng&radius_m=${NearbyTimelineService.FREE_RADIUS_M}") {
                     header(HttpHeaders.Authorization, "Bearer $token")
                 }
         resp.status shouldBe HttpStatusCode.OK
