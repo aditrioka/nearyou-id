@@ -8,9 +8,11 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,7 +29,9 @@ private val JSON_CT = headersOf(HttpHeaders.ContentType, "application/json")
  *  - two overlapping `refresh(client)` calls (the proactive + reactive cross-path) perform EXACTLY
  *    ONE `POST /api/v1/auth/refresh` — the second caller awaits-and-reuses the in-flight result; and
  *  - BOTH `invalidate()` call sites funnel through the refresher: a null refresh token (no POST) AND a
- *    non-success refresh response (POST → 401 → invalidate).
+ *    non-success refresh response (POST → 401 → invalidate); and
+ *  - a cancellation of the LEADER's coroutine mid-POST does NOT poison a follower with a foreign
+ *    `CancellationException`, and the in-flight slot is still cleared (audit 2026-06-10, finding 05-#16).
  *
  * The shipped `Auth`-plugin "Concurrent 401s … retry once" guarantee (now routed through the same
  * `TokenRefresher`) stays covered by `AuthApiClientTest`.
@@ -77,6 +81,51 @@ class TokenRefresherTest {
             val expected = TokenPair("at-new", "rt-new", 900_000L)
             assertTrue(results.all { it == expected }, "both callers reuse the single refresh result: $results")
             assertEquals(expected, store.read(), "the new token pair is persisted once")
+        }
+
+    @Test
+    fun leaderCancellation_doesNotPoisonAFollower_andClearsTheInFlightSlot() =
+        runTest {
+            // Audit 2026-06-10, finding 05-#16: when the LEADER's coroutine is cancelled mid-POST, the
+            // shared deferred must NOT be completed with the leader's foreign CancellationException —
+            // that would unwind a FOLLOWER whose own request was never cancelled (the original request
+            // then failing without SessionInvalidator firing). The leader runs the POST under
+            // NonCancellable, so the follower still observes the real rotated pair, and the in-flight
+            // slot is cleared so the NEXT caller runs a fresh refresh (not a follow of a dead deferred).
+            var refreshCalls = 0
+            val store = InMemoryTokenStore(TokenPair("at-stale", "rt-Y", PAST_EPOCH))
+            val invalidator = SessionInvalidator(store)
+            val leaderEnteredPost = CompletableDeferred<Unit>()
+            val httpClient =
+                client(store, invalidator) { request ->
+                    if (request.url.encodedPath == "/api/v1/auth/refresh") {
+                        refreshCalls++
+                        leaderEnteredPost.complete(Unit) // the leader now holds the single-flight
+                        delay(50) // widen the in-flight window so the follower queues + we can cancel
+                        respond(REFRESH_OK_BODY, HttpStatusCode.OK, JSON_CT)
+                    } else {
+                        respond("[]", HttpStatusCode.OK, JSON_CT)
+                    }
+                }
+            val refresher = TokenRefresher(store, invalidator) { 0L }
+
+            val leader = async { refresher.refresh(httpClient) }
+            leaderEnteredPost.await() // leader is mid-POST, owns the deferred
+            val follower = async { refresher.refresh(httpClient) }
+            runCurrent() // let the follower reach await() as a follower (no second POST)
+            leader.cancel() // cancel the leader's coroutine while its refresh is in flight
+
+            val expected = TokenPair("at-new", "rt-new", 900_000L)
+            assertEquals(
+                expected,
+                follower.await(),
+                "the follower observes the real rotated pair, NOT the leader's foreign CancellationException",
+            )
+            assertEquals(1, refreshCalls, "the cancelled leader still completes the single POST the follower reuses")
+
+            // The in-flight slot was cleared despite the cancellation → a subsequent refresh re-POSTs.
+            assertEquals(expected, refresher.refresh(httpClient), "a later caller runs a fresh refresh")
+            assertEquals(2, refreshCalls, "the in-flight slot was cleared, so the later caller is a new leader")
         }
 
     @Test
