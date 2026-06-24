@@ -118,6 +118,23 @@ class SignInViewModelTest {
         }
 
     @Test
+    fun banned_surfacesTheAppealEntry_withoutNavigating() =
+        runTest(dispatcher) {
+            // `showAppealEntry` is a VM-owned field (computed in toUiState, NOT in the pure signInUiState),
+            // so it needs VM-level coverage: a Banned outcome surfaces the appeal entry, keeps the user on
+            // the screen (no navigation), shows the BANNED banner, and disables the CTA.
+            val viewModel = vm(authFlow = FakeAuthFlow(outcome = SignInOutcome.Banned))
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            viewModel.onSignInClick()
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.showAppealEntry, "a Banned outcome surfaces the appeal entry")
+            assertNull(viewModel.uiState.value.navigation, "Banned does not navigate")
+            assertEquals(SignInErrorBanner.BANNED, viewModel.uiState.value.errorBanner)
+            assertFalse(viewModel.uiState.value.ctaEnabled, "Banned disables the CTA")
+        }
+
+    @Test
     fun success_raisesHomeOneShot() =
         runTest(dispatcher) {
             val viewModel = vm(authFlow = FakeAuthFlow(outcome = SignInOutcome.Success))
