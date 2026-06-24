@@ -27,7 +27,7 @@
 - [ ] 5.1 `NearbyTimelineViewModelTest`: migrate the 3 `isInitialLoad` reads to `uiState` assertions (`uiState.value is/!is Loading`) using a `backgroundScope.launch { viewModel.uiState.collect {} }` collector; keep the `.outcome` reads (cursor/like/radius assertions) as-is.
 - [ ] 5.2 `GlobalTimelineViewModelTest`: migrate the 3 `isInitialLoad` reads to `uiState` assertions with a `backgroundScope` collector; keep the `.outcome` reads.
 - [ ] 5.3 `FollowingTimelineViewModelTest`: migrate the 3 `isInitialLoad` reads to `uiState` assertions with a `backgroundScope` collector; keep the `.outcome` reads.
-- [ ] 5.4 `NotificationsViewModelTest` + `NotificationsViewModelNavTest`: migrate the `isInitialLoad` read to a `uiState` assertion with a `backgroundScope` collector; keep the `.outcome` reads.
+- [ ] 5.4 `NotificationsViewModelTest`: migrate its 1 `isInitialLoad` read to a `uiState` assertion with a `backgroundScope` collector; keep its `.outcome` reads. `NotificationsViewModelNavTest` has NO `isInitialLoad` read — its 3 `.outcome` reads stay (no accessor migration), but confirm it still compiles against the new VM surface.
 
 ## 6. New uiState scenario coverage (per spec deltas)
 
