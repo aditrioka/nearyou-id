@@ -4,11 +4,14 @@ import id.nearyou.app.auth.AUTH_PROVIDER_USER
 import id.nearyou.app.auth.UserPrincipal
 import id.nearyou.app.auth.jwt.ACCESS_TOKEN_TTL_SECONDS
 import id.nearyou.app.auth.jwt.JwtIssuer
+import id.nearyou.app.auth.loginhistory.LoginEventRecorder
+import id.nearyou.app.auth.loginhistory.LoginEventType
 import id.nearyou.app.auth.provider.InvalidIdTokenException
 import id.nearyou.app.auth.provider.ProviderIdTokenVerifier
 import id.nearyou.app.auth.session.RefreshTokenInvalidException
 import id.nearyou.app.auth.session.RefreshTokenService
 import id.nearyou.app.auth.session.TokenReuseException
+import id.nearyou.app.common.clientIp
 import id.nearyou.app.infra.repo.UserRepository
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -87,6 +90,7 @@ fun Application.authRoutes(
     users: UserRepository,
     tokens: RefreshTokenService,
     jwtIssuer: JwtIssuer,
+    loginEventRecorder: LoginEventRecorder,
 ) {
     routing {
         post("/api/v1/auth/signin") {
@@ -149,6 +153,15 @@ fun Application.authRoutes(
             }
             val access = jwtIssuer.issueAccessToken(user.id, user.tokenVersion)
             val refresh = tokens.issue(user.id, req.deviceFingerprintHash)
+            // Durable login-history (security/anti-abuse, best-effort). identifier_hash is the
+            // already-verified provider sub hash; ip via the clientIp invariant accessor.
+            loginEventRecorder.record(
+                userId = user.id,
+                eventType = LoginEventType.SIGNIN,
+                ip = call.clientIp,
+                deviceFingerprintHash = req.deviceFingerprintHash,
+                identifierHash = subHash,
+            )
             call.respond(TokenPairResponse(access, refresh.rawToken, ACCESS_TOKEN_TTL_SECONDS))
         }
 
@@ -199,6 +212,15 @@ fun Application.authRoutes(
                 return@post
             }
             val access = jwtIssuer.issueAccessToken(user.id, user.tokenVersion)
+            // Durable login-history (security/anti-abuse, best-effort). identifier_hash is the
+            // account's stored provider hash (refresh carries no id_token); ip via clientIp.
+            loginEventRecorder.record(
+                userId = user.id,
+                eventType = LoginEventType.REFRESH,
+                ip = call.clientIp,
+                deviceFingerprintHash = req.deviceFingerprintHash,
+                identifierHash = user.googleIdHash ?: user.appleIdHash,
+            )
             call.respond(TokenPairResponse(access, rotated.rawToken, ACCESS_TOKEN_TTL_SECONDS))
         }
 

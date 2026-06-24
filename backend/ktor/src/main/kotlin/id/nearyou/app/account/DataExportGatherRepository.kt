@@ -121,11 +121,16 @@ data class ModerationActionExportRow(
     val createdAt: Instant,
 )
 
-/** Session history — CSV. 90-day window. (IP is not stored in MVP; only the fingerprint hash.) */
+/**
+ * Session history — CSV, 90-day window. Sourced from `login_events` (login-history-tracking);
+ * now carries the IP + /24 subnet (previously omitted, since `refresh_tokens` had no IP column).
+ */
 data class SessionExportRow(
+    val occurredAt: Instant,
+    val eventType: String,
     val deviceFingerprintHash: String?,
-    val createdAt: Instant,
-    val lastUsedAt: Instant?,
+    val ip: String?,
+    val ipSubnet24: String?,
 )
 
 /** Premium subscription event — CSV. (No `tier` column in the schema; `eventType` is the closest.) */
@@ -433,9 +438,11 @@ class DataExportGatherRepository(
     ): List<SessionExportRow> =
         conn.queryList(SQL_SESSIONS, userId) { rs ->
             SessionExportRow(
+                occurredAt = rs.getTimestamp("occurred_at").toInstant(),
+                eventType = rs.getString("event_type"),
                 deviceFingerprintHash = rs.getString("device_fingerprint_hash"),
-                createdAt = rs.getTimestamp("created_at").toInstant(),
-                lastUsedAt = rs.getTimestamp("last_used_at")?.toInstant(),
+                ip = rs.getString("ip"),
+                ipSubnet24 = rs.getString("ip_subnet_24"),
             )
         }
 
@@ -604,14 +611,17 @@ class DataExportGatherRepository(
              ORDER BY created_at ASC
             """
 
-        // Session history — 90-day window (NOW() in WHERE is fine here: not a partial index).
+        // Session history — sourced from login_events (login-history-tracking), 90-day window
+        // (NOW() in WHERE is fine here: not a partial index). INET columns cast to text so the
+        // CSV carries clean strings ("203.0.113.45" / "203.0.113.0/24").
         const val SQL_SESSIONS =
             """
-            SELECT device_fingerprint_hash, created_at, last_used_at
-              FROM refresh_tokens
+            SELECT occurred_at, event_type, device_fingerprint_hash,
+                   ip::text AS ip, ip_subnet_24::text AS ip_subnet_24
+              FROM login_events
              WHERE user_id = ?
-               AND created_at >= NOW() - INTERVAL '90 days'
-             ORDER BY created_at ASC
+               AND occurred_at >= NOW() - INTERVAL '90 days'
+             ORDER BY occurred_at ASC
             """
 
         const val SQL_SUBSCRIPTIONS =

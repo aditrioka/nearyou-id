@@ -150,10 +150,35 @@ object RetentionCleanupTestSupport {
         return id
     }
 
+    /** Seed a `login_events` row with an explicit `occurred_at` (V34). */
+    fun seedLoginEvent(
+        dataSource: DataSource,
+        userId: UUID,
+        occurredAt: Instant,
+    ): UUID {
+        val id = UUID.randomUUID()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "INSERT INTO login_events (id, user_id, occurred_at, event_type) VALUES (?, ?, ?, 'signin')",
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setObject(2, userId)
+                ps.setTimestamp(3, Timestamp.from(occurredAt))
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
     fun refreshTokenExists(
         dataSource: DataSource,
         id: UUID,
     ): Boolean = rowExists(dataSource, "SELECT 1 FROM refresh_tokens WHERE id = ?", id)
+
+    fun loginEventExists(
+        dataSource: DataSource,
+        id: UUID,
+    ): Boolean = rowExists(dataSource, "SELECT 1 FROM login_events WHERE id = ?", id)
 
     fun notificationExists(
         dataSource: DataSource,
@@ -200,6 +225,10 @@ object RetentionCleanupTestSupport {
                 ps.executeUpdate()
             }
             conn.prepareStatement("DELETE FROM user_fcm_tokens WHERE user_id = ANY(?)").use { ps ->
+                ps.setArray(1, arr)
+                ps.executeUpdate()
+            }
+            conn.prepareStatement("DELETE FROM login_events WHERE user_id = ANY(?)").use { ps ->
                 ps.setArray(1, arr)
                 ps.executeUpdate()
             }

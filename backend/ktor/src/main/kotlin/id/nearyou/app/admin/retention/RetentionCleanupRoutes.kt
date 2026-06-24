@@ -21,6 +21,7 @@ data class RetentionCleanupResponse(
     @SerialName("refresh_tokens_deleted") val refreshTokensDeleted: Int,
     @SerialName("notifications_deleted") val notificationsDeleted: Int,
     @SerialName("fcm_tokens_deleted") val fcmTokensDeleted: Int,
+    @SerialName("login_events_deleted") val loginEventsDeleted: Int,
 )
 
 @Serializable
@@ -83,6 +84,7 @@ private suspend fun io.ktor.server.routing.RoutingContext.handleRetentionCleanup
                 refreshTokensDeleted = result.refreshTokensDeleted,
                 notificationsDeleted = result.notificationsDeleted,
                 fcmTokensDeleted = result.fcmTokensDeleted,
+                loginEventsDeleted = result.loginEventsDeleted,
             ),
         )
     }

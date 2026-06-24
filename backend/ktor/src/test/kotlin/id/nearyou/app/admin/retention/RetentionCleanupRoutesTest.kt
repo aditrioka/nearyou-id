@@ -219,10 +219,11 @@ class RetentionCleanupRoutesTest : StringSpec({
             body shouldContain "\"refresh_tokens_deleted\":0"
             body shouldContain "\"notifications_deleted\":0"
             body shouldContain "\"fcm_tokens_deleted\":0"
+            body shouldContain "\"login_events_deleted\":0"
         }
     }
 
-    "exactly one structured INFO log line with the three counts + duration" {
+    "exactly one structured INFO log line with the four counts + duration" {
         val token = rcSignedJwt(privKey, pubKey)
         worker.execute()
         withLogCapture("id.nearyou.app.admin.retention.RetentionCleanupWorker") { appender ->
@@ -242,6 +243,7 @@ class RetentionCleanupRoutesTest : StringSpec({
             msg shouldContain "refresh_tokens_deleted="
             msg shouldContain "notifications_deleted="
             msg shouldContain "fcm_tokens_deleted="
+            msg shouldContain "login_events_deleted="
             msg shouldContain "duration_ms="
             msg shouldNotContain token
         }
@@ -343,6 +345,8 @@ class RetentionCleanupRoutesTest : StringSpec({
                     override suspend fun purgeOldNotifications(): Int = error("not reached")
 
                     override suspend fun deleteStaleFcmTokens(): Int = error("not reached")
+
+                    override suspend fun deleteOldLoginEvents(): Int = error("not reached")
                 },
             )
         withRoute(customWorker = timeoutWorker) {

@@ -40,6 +40,14 @@ interface RetentionCleanupRepository {
      * `fcm-push-dispatch` and is NOT touched here.
      */
     suspend fun deleteStaleFcmTokens(): Int
+
+    /**
+     * Delete every `login_events` row older than the 90-day window
+     * (`occurred_at < NOW() - INTERVAL '90 days'`) — the canonical "Session trail"
+     * retention (`docs/06` § Retention Policy). The login-history PII purge added by
+     * `login-history-tracking`.
+     */
+    suspend fun deleteOldLoginEvents(): Int
 }
 
 /**
@@ -65,6 +73,8 @@ class JdbcRetentionCleanupRepository(
     override suspend fun purgeOldNotifications(): Int = executeDelete(SQL_NOTIFICATIONS)
 
     override suspend fun deleteStaleFcmTokens(): Int = executeDelete(SQL_FCM_TOKENS)
+
+    override suspend fun deleteOldLoginEvents(): Int = executeDelete(SQL_LOGIN_EVENTS)
 
     private suspend fun executeDelete(sql: String): Int =
         withContext(dbDispatcher) {
@@ -94,5 +104,10 @@ class JdbcRetentionCleanupRepository(
         // Stale FCM tokens unseen for >30 days (index-served by user_fcm_tokens_last_seen_idx, V14).
         const val SQL_FCM_TOKENS =
             "DELETE FROM user_fcm_tokens WHERE last_seen_at < NOW() - INTERVAL '30 days'"
+
+        // Login-history PII purge — the 90-day "Session trail" window (docs/06 § Retention),
+        // index-served by login_events_user_occurred_idx (V34).
+        const val SQL_LOGIN_EVENTS =
+            "DELETE FROM login_events WHERE occurred_at < NOW() - INTERVAL '90 days'"
     }
 }

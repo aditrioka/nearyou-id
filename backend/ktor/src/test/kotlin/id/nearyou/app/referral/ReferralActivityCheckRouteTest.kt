@@ -143,9 +143,23 @@ class ReferralActivityCheckRouteTest : StringSpec({
             ).use { ps ->
                 ps.setObject(1, inviter)
                 ps.setObject(2, invitee)
-                ps.setObject(3, OffsetDateTime.ofInstant(now.minus(java.time.Duration.ofDays(2)), ZoneOffset.UTC))
+                // 8 days old so the invitee's seeded activity below can span >= 3 distinct login-days
+                ps.setObject(3, OffsetDateTime.ofInstant(now.minus(java.time.Duration.ofDays(8)), ZoneOffset.UTC))
                 ps.setObject(4, OffsetDateTime.ofInstant(now.plus(java.time.Duration.ofDays(12)), ZoneOffset.UTC))
                 ps.executeUpdate()
+            }
+            // Seed login-history so the invitee clears the engagement legs (>= 3 login-days,
+            // >= 5 sessions): 5 events 60/36/12/2/1h before now — the 24h-apart first three
+            // guarantee 3 distinct Asia/Jakarta days, each > 30 min apart → 5 sessions. The
+            // (history-less) inviter never matches, so the anti-collision legs stay clean.
+            listOf(60L, 36L, 12L, 2L, 1L).forEach { h ->
+                conn.prepareStatement(
+                    "INSERT INTO login_events (user_id, occurred_at, event_type) VALUES (?, ?, 'signin')",
+                ).use { ps ->
+                    ps.setObject(1, invitee)
+                    ps.setObject(2, OffsetDateTime.ofInstant(now.minus(java.time.Duration.ofHours(h)), ZoneOffset.UTC))
+                    ps.executeUpdate()
+                }
             }
             invitee
         }

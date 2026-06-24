@@ -32,6 +32,8 @@ import id.nearyou.app.auth.installAuth
 import id.nearyou.app.auth.jwks.jwksRoutes
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
+import id.nearyou.app.auth.loginhistory.JdbcLoginEventRepository
+import id.nearyou.app.auth.loginhistory.LoginEventRecorder
 import id.nearyou.app.auth.provider.APPLE_JWKS_URL_DEFAULT
 import id.nearyou.app.auth.provider.AppleIdTokenVerifier
 import id.nearyou.app.auth.provider.GOOGLE_JWKS_URL_DEFAULT
@@ -391,6 +393,10 @@ fun Application.module() {
     val userRepository: UserRepository = JdbcUserRepository(dataSource)
     val refreshTokenRepository: RefreshTokenRepository = JdbcRefreshTokenRepository(dataSource)
     val refreshTokenService = RefreshTokenService(refreshTokenRepository, userRepository)
+    // Durable login-history (V34) — written best-effort from the auth routes (clientIp +
+    // request body live there); RefreshTokenService stays untouched. Security-purpose data,
+    // not analytics-consent-gated (login-history-tracking).
+    val loginEventRecorder = LoginEventRecorder(JdbcLoginEventRepository(dataSource, dbDispatchers.db))
 
     // Outbound HTTP client with OTel KtorClientTelemetry plugin pre-installed
     // so every outbound request carries `traceparent` populated from the
@@ -1200,7 +1206,7 @@ fun Application.module() {
 
     jwksRoutes()
     healthRoutes()
-    authRoutes(Providers(googleVerifier, appleVerifier), userRepository, refreshTokenService, jwtIssuer)
+    authRoutes(Providers(googleVerifier, appleVerifier), userRepository, refreshTokenService, jwtIssuer, loginEventRecorder)
     signupRoutes(signupService)
     realtimeRoutes(realtimeIssuer)
     appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())

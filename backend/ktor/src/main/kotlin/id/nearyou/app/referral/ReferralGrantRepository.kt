@@ -132,6 +132,131 @@ class ReferralGrantRepository {
         }
 
     /**
+     * Engagement leg (docs/01 §212): the count of DISTINCT calendar days — bucketed in
+     * `Asia/Jakarta` (the app's single market; WIB is a fixed +07:00, no DST) — on which the
+     * invitee has a `login_events` row within `[since, NOW()]`. `≥ 3` passes. Keyed by
+     * `user_id` on `login_events`, not a content/feed read (no block/shadow-ban join applies).
+     */
+    fun countInviteeLoginDays(
+        conn: Connection,
+        inviteeId: UUID,
+        since: Instant,
+    ): Int =
+        conn.prepareStatement(
+            """
+            SELECT COUNT(DISTINCT (occurred_at AT TIME ZONE 'Asia/Jakarta')::date)
+              FROM login_events
+             WHERE user_id = ?
+               AND occurred_at >= ?
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setObject(1, inviteeId)
+            ps.setObject(2, OffsetDateTime.ofInstant(since, ZoneOffset.UTC))
+            ps.executeQuery().use { rs -> if (rs.next()) rs.getInt(1) else 0 }
+        }
+
+    /**
+     * Engagement leg (docs/01 §212): the invitee's app-session count within `[since, NOW()]`,
+     * server-side sessionized — a `login_events` row (signin or refresh) more than 30 minutes
+     * after the invitee's prior event starts a new session; the first event (NULL `LAG`) counts.
+     * `≥ 5` passes. This replaces the deferred, consent-gated client `session_start` signal.
+     */
+    fun countInviteeAppSessions(
+        conn: Connection,
+        inviteeId: UUID,
+        since: Instant,
+    ): Int =
+        conn.prepareStatement(
+            """
+            SELECT COUNT(*) FROM (
+                SELECT occurred_at - LAG(occurred_at) OVER (ORDER BY occurred_at) AS gap
+                  FROM login_events
+                 WHERE user_id = ?
+                   AND occurred_at >= ?
+            ) t
+            WHERE t.gap IS NULL OR t.gap > INTERVAL '30 minutes'
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setObject(1, inviteeId)
+            ps.setObject(2, OffsetDateTime.ofInstant(since, ZoneOffset.UTC))
+            ps.executeQuery().use { rs -> if (rs.next()) rs.getInt(1) else 0 }
+        }
+
+    /**
+     * Anti-collision leg 3 (docs/01 §213, device-fingerprint history): does the invitee's SIGNUP
+     * device fingerprint (`users.device_fingerprint_hash`) appear among the inviter's
+     * `login_events` device fingerprints since [since90d] (the inviter's last 90 days)? The
+     * windowed/historical successor to the signup-time exact-equality check. A positive match
+     * VOIDS the ticket (D8a). Self-keyed `users` read (not a content/feed read).
+     */
+    @AllowMissingBlockJoin("invitee signup-fingerprint vs inviter login history — keyed reads, not a feed")
+    fun inviteeFingerprintInInviterHistory(
+        conn: Connection,
+        inviterId: UUID,
+        inviteeId: UUID,
+        since90d: Instant,
+    ): Boolean =
+        conn.prepareStatement(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                  FROM users invitee
+                  JOIN login_events inviter_le
+                    ON inviter_le.device_fingerprint_hash = invitee.device_fingerprint_hash
+                 WHERE invitee.id = ?
+                   AND invitee.device_fingerprint_hash IS NOT NULL
+                   AND inviter_le.user_id = ?
+                   AND inviter_le.occurred_at >= ?
+            )
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setObject(1, inviteeId)
+            ps.setObject(2, inviterId)
+            ps.setObject(3, OffsetDateTime.ofInstant(since90d, ZoneOffset.UTC))
+            ps.executeQuery().use { rs -> rs.next() && rs.getBoolean(1) }
+        }
+
+    /**
+     * Anti-collision leg 5 (docs/01 §213, recently-seen identifier): has the invitee's provider
+     * identity (`users.google_id_hash` / `apple_id_hash`) been seen on ANY `login_events` row
+     * whose device fingerprint the inviter used in the last 90 days (since [since90d])? Catches a
+     * "second provider account on the inviter's own device" even when the invitee's signup
+     * fingerprint differs (so it is NOT subsumed by leg 3). A positive match VOIDS the ticket. The
+     * `ip_subnet_24` is deliberately NOT a corroborating input (carrier-NAT safety, D8a).
+     */
+    @AllowMissingBlockJoin("invitee identity vs inviter device history — keyed reads, not a feed")
+    fun inviteeIdentifierSeenOnInviterDevice(
+        conn: Connection,
+        inviterId: UUID,
+        inviteeId: UUID,
+        since90d: Instant,
+    ): Boolean =
+        conn.prepareStatement(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                  FROM login_events seen
+                 WHERE seen.identifier_hash = (
+                           SELECT COALESCE(u.google_id_hash, u.apple_id_hash)
+                             FROM users u WHERE u.id = ?
+                       )
+                   AND seen.device_fingerprint_hash IN (
+                           SELECT inviter_le.device_fingerprint_hash
+                             FROM login_events inviter_le
+                            WHERE inviter_le.user_id = ?
+                              AND inviter_le.occurred_at >= ?
+                              AND inviter_le.device_fingerprint_hash IS NOT NULL
+                       )
+            )
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setObject(1, inviteeId)
+            ps.setObject(2, inviterId)
+            ps.setObject(3, OffsetDateTime.ofInstant(since90d, ZoneOffset.UTC))
+            ps.executeQuery().use { rs -> rs.next() && rs.getBoolean(1) }
+        }
+
+    /**
      * The recipient's current (furthest-future) entitlement end, for stacking. The
      * `GREATEST` of the paid/echoed window (`subscription_events`) AND this worker's own
      * already-written promo grants (`granted_entitlements`). Including the latter matters

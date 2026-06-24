@@ -287,6 +287,7 @@ class DataExportWorkerTest : StringSpec({
                     "DELETE FROM reports WHERE reporter_id = ?",
                     "DELETE FROM subscription_events WHERE user_id = ?",
                     "DELETE FROM refresh_tokens WHERE user_id = ?",
+                    "DELETE FROM login_events WHERE user_id = ?",
                 ).forEach { sql ->
                     conn.prepareStatement(sql).use {
                         it.setObject(1, id)
@@ -561,6 +562,44 @@ class DataExportWorkerTest : StringSpec({
             "notifications.csv", "moderation_actions.csv", "session_history.csv",
             "subscription_history.csv", "manifest.json", "README.txt",
         ).forEach { name -> files.containsKey(name) shouldBe true }
+    }
+
+    "8.8 session history is sourced from login_events and now includes the IP + /24 subnet" {
+        val store = CapturingObjectStore()
+        val email = RecordingEmailSender()
+        val uid = seedUser()
+        dataSource.connection.use { conn ->
+            // an in-window login event with an IP
+            conn.prepareStatement(
+                "INSERT INTO login_events (user_id, event_type, ip, device_fingerprint_hash) " +
+                    "VALUES (?, 'signin', ?::inet, ?)",
+            ).use { ps ->
+                ps.setObject(1, uid)
+                ps.setString(2, "203.0.113.45")
+                ps.setString(3, "fp-export")
+                ps.executeUpdate()
+            }
+            // a >90-day-old event — must be EXCLUDED by the export's 90-day window
+            conn.prepareStatement(
+                "INSERT INTO login_events (user_id, occurred_at, event_type, ip) " +
+                    "VALUES (?, NOW() - INTERVAL '91 days', 'signin', ?::inet)",
+            ).use { ps ->
+                ps.setObject(1, uid)
+                ps.setString(2, "198.51.100.7")
+                ps.executeUpdate()
+            }
+        }
+        seedPendingRequest(uid)
+
+        runBlocking { worker(store, email).execute() }
+        val csv = unzip(store.puts.values.single())["session_history.csv"]!!
+
+        csv.contains("occurred_at") shouldBe true // login_events-sourced header
+        csv.contains("event_type") shouldBe true
+        csv.contains("ip_subnet_24") shouldBe true
+        csv.contains("203.0.113.45") shouldBe true // the IP is now present (omitted pre-V34)
+        csv.contains("203.0.113.0/24") shouldBe true // the generated /24 subnet
+        csv.contains("198.51.100.7") shouldBe false // the >90-day row is outside the window
     }
 
     "8.8 chat export carries sent AND received with the peer id HASHED (raw id/username absent)" {

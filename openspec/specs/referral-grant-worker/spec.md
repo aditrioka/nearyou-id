@@ -2,8 +2,7 @@
 
 ## Purpose
 
-The referral-grant-worker capability is the second stage of the freemium referral funnel — it turns activity-passing referral tickets into Premium grants. A daily, OIDC-gated `POST /internal/referral-activity-check` worker scans `pending_activity` `referral_tickets` (created at signup by `referral-ticket-creation`) in three passes: expire stale tickets (and void those whose inviter is now banned), evaluate the durable activity gate (invitee authored ≥ 2 posts AND inviter in good standing) and grant on pass, then reconcile any grant whose prior-run RevenueCat dispatch failed. A successful ticket flips to `granted` and dispatches a 1-week promotional Premium entitlement via the RevenueCat v1 API (`:infra:revenuecat-api`): the invitee is rewarded once per their own ticket, and the inviter exactly once per lifetime at their 5th successful referral (enforced by the `users.inviter_reward_claimed_at` sentinel + the `granted_entitlements` partial-unique index). Grants stack (extend-if-active / fresh-if-not), are idempotent (`granted_entitlements` UNIQUE + `dedup_key`), and dispatch fails soft (ledger-only when unconfigured; reconciled when transiently failed). The login-history-dependent gate legs (≥ 3 login-days, ≥ 5 app-sessions, 90-day device-fingerprint / IP-subnet / recently-seen-identifier anti-collision) are deferred — no durable source exists yet. `users.subscription_status` is owned by the `subscription-billing-webhook` `GRANT` echo, never written by this worker.
-
+The referral-grant-worker capability is the second stage of the freemium referral funnel — it turns activity-passing referral tickets into Premium grants. A daily, OIDC-gated `POST /internal/referral-activity-check` worker scans `pending_activity` `referral_tickets` (created at signup by `referral-ticket-creation`) in three passes: expire stale tickets (and void those whose inviter is now banned), evaluate the durable activity gate (invitee authored ≥ 2 posts AND inviter in good standing) and grant on pass, then reconcile any grant whose prior-run RevenueCat dispatch failed. A successful ticket flips to `granted` and dispatches a 1-week promotional Premium entitlement via the RevenueCat v1 API (`:infra:revenuecat-api`): the invitee is rewarded once per their own ticket, and the inviter exactly once per lifetime at their 5th successful referral (enforced by the `users.inviter_reward_claimed_at` sentinel + the `granted_entitlements` partial-unique index). Grants stack (extend-if-active / fresh-if-not), are idempotent (`granted_entitlements` UNIQUE + `dedup_key`), and dispatch fails soft (ledger-only when unconfigured; reconciled when transiently failed). The full activity gate also evaluates the login-history legs added by `login-history-tracking` — ≥ 3 login-days and ≥ 5 server-sessionized app-sessions (engagement), plus the device-fingerprint and recently-seen-identifier anti-collision voids — against the durable `login_events` store; the invitee IP /24 is recorded but non-voiding (carrier-grade-NAT false-positive safety). `users.subscription_status` is owned by the `subscription-billing-webhook` `GRANT` echo, never written by this worker.
 ## Requirements
 ### Requirement: Referral activity-check worker endpoint
 
@@ -27,7 +26,7 @@ For each `pending_activity` ticket whose `expires_at < NOW()` (the 14-day window
 
 ### Requirement: Activity gate evaluates the durable legs
 
-A not-yet-expired `pending_activity` ticket SHALL pass the activity gate when ALL implemented legs hold: the invitee has authored at least 2 posts within `[ticket.created_at, NOW()]` (counted from the invitee's own authored `posts` — an engagement signal, not a visibility-sensitive read), AND the inviter is in good standing — **neither hard-banned/suspended (`users.is_banned = FALSE`) nor shadow-banned (`users.is_shadow_banned = FALSE`)**, per docs/01 §233 ("inviter ban — shadow or hard — voids all pending tickets"). A ticket that has not yet reached the 2-post threshold SHALL remain `pending_activity` (re-evaluated on the next daily run until it passes or expires). A ticket whose inviter is banned by **either** flag SHALL be voided — set to the distinct terminal `status = 'voided'` (added by V33; separate from a TTL `'expired'` so analytics can tell a banned-inviter void from a 14-day lapse) with no grant.
+A not-yet-expired `pending_activity` ticket SHALL pass the activity gate when ALL implemented legs hold: the invitee has authored at least 2 posts within `[ticket.created_at, NOW()]` (counted from the invitee's own authored `posts` — an engagement signal, not a visibility-sensitive read), AND the inviter is in good standing — **neither hard-banned/suspended (`users.is_banned = FALSE`) nor shadow-banned (`users.is_shadow_banned = FALSE`)**, per docs/01 §233 ("inviter ban — shadow or hard — voids all pending tickets"). A ticket that has not yet reached the 2-post threshold SHALL remain `pending_activity` (re-evaluated on the next daily run until it passes or expires). A ticket whose inviter is banned by **either** flag SHALL be voided — set to the distinct terminal `status = 'voided'` (added by V33; separate from a TTL `'expired'` so analytics can tell a banned-inviter void from a 14-day lapse) with no grant. (This requirement specifies the **posts + inviter-standing** legs only; the *Activity gate evaluates the login-history legs* requirement adds the engagement login-days / app-sessions legs and the device-fingerprint anti-collision voids, and states the authoritative full-gate pass condition that a granted ticket must satisfy.)
 
 #### Scenario: Invitee with two posts and an in-good-standing inviter passes
 - **WHEN** the worker evaluates a non-expired ticket whose invitee has authored ≥ 2 posts since the ticket was created AND whose inviter is neither hard-banned nor shadow-banned
@@ -141,15 +140,72 @@ The worker SHALL dispatch promotional-entitlement grants via a client in `:infra
 - **WHEN** a grant's `granted_entitlements` row is committed but its RevenueCat dispatch failed (`revenuecat_dispatched_at IS NULL`)
 - **THEN** a later worker run's reconcile pass re-dispatches it AND, on success, stamps `revenuecat_dispatched_at` so it is not retried again
 
-### Requirement: Deferred activity-gate legs are not evaluated
+### Requirement: Activity gate evaluates the login-history legs
 
-The worker SHALL NOT evaluate the ≥ 3-login-days engagement leg, the ≥ 5-app-sessions engagement leg (docs/01 §212), the 90-day-windowed device-fingerprint historical check, the IP-subnet (/24) overlap check, or the recently-seen Google/Apple identifier check (docs/01 §213 item 3 — the exact set docs/05 §1186 enumerates as deferred). These legs require durable login-history / fingerprint-history data that does not exist today (refresh-token rotation deletes login history; `session_start` is a consent-gated client analytics event). They are deferred to a follow-up change that ships that tracking and MODIFIES this requirement to add them. The implemented gate is posts + expiry + inviter-eligibility; the residual abuse surface is bounded by the **exact-equality** `device_fingerprint_hash` collision check already applied at signup (a point-in-time check — distinct from, and weaker than, the deferred 90-day-windowed historical variant) and the per-inviter ≤ 3/7-day burst limit, both already enforced by `referral-ticket-creation`.
+With the durable login-history store now available (`login-history-tracking` ships `login_events`), the worker SHALL evaluate the five previously-deferred activity-gate legs — the two engagement legs and the three anti-collision legs of docs/01 §212–213 — against `login_events`, in addition to the already-implemented `≥ 2 posts` engagement leg, the 14-day expiry, and the inviter good-standing check. All `login_events` reads are keyed by `user_id` (the invitee's own counts; the inviter's own history) — security / engagement signals, not visibility-sensitive content reads.
 
-#### Scenario: Login-day and app-session legs are not consulted
-- **WHEN** the worker evaluates a ticket's activity gate
-- **THEN** it does not read or require any login-day count or app-session count (those legs are deferred)
+**Engagement legs** (the invitee's own `login_events`, within the ticket window `[ticket.created_at, NOW()]`), which join the existing `≥ 2 posts` leg:
 
-#### Scenario: Historical-fingerprint, IP-subnet, and identifier legs are not consulted
-- **WHEN** the worker evaluates a ticket's anti-collision posture
-- **THEN** it does not perform a 90-day-windowed device-fingerprint historical check, an IP-subnet (/24) overlap check, or a recently-seen-identifier check (those legs are deferred; only the signup-time exact-equality fingerprint check already ran)
+1. **≥ 3 distinct login-days** — the invitee has `login_events` on at least 3 distinct calendar days, day-bucketed in `Asia/Jakarta` (the app's market timezone), within the window.
+2. **≥ 5 app sessions** — the invitee has at least 5 distinct app sessions in the window, where a session is a `login_events` row (`signin` or `refresh`) not preceded by another of the invitee's events within the prior 30 minutes (server-side idle-gap sessionization). This replaces the deferred, consent-gated client `session_start` signal as the source of the app-sessions count.
+
+**Anti-collision legs** (the invitee's identity vs. the inviter's `login_events` history). The voiding anti-collision signal is **device-fingerprint-based only** — a deliberate market-safety decision (see leg 4):
+
+3. **Device-fingerprint history (voids)** — the invitee's `device_fingerprint_hash` appears among the inviter's `login_events` device-fingerprint hashes in the last 90 days (the historical, windowed check — distinct from and stronger than the point-in-time exact-equality `device_fingerprint_hash` check already applied at signup by `referral-ticket-creation`).
+4. **IP /24 overlap (recorded, NON-voiding)** — the invitee's `ip_subnet_24` and the inviter's recent subnets are recorded (for the data export and forensics), but a /24 overlap **alone SHALL NOT void** a ticket, and `ip_subnet_24` SHALL NOT be a voiding input to any anti-collision leg. Indonesian carrier-grade NAT (Telkomsel / Indosat / XL) makes a shared /24 common among *unrelated* users, so subnet-based voiding would terminally penalize legitimate same-carrier referrals; voiding relies on the higher-signal device-fingerprint checks (legs 3 and 5). *This amends docs/01 §213's standalone /24 check — reconciled in the docs amendment task.*
+5. **Recently-seen identifier (voids)** — the invitee's `identifier_hash` appears on a `login_events` row, within the inviter's last 90 days, that shares one of the inviter's **device-fingerprint hashes** (the self-referral "second provider account on the inviter's own device" signal — realizing docs/01 §213's "inviter's recently-seen list"). The subnet-sharing arm is deliberately excluded for the same carrier-NAT reason as leg 4.
+
+**Gate semantics:**
+
+- The engagement legs (`≥ 2 posts`, `≥ 3 login-days`, `≥ 5 sessions`) are *thresholds reached over time*: a ticket that is anti-collision-clean and inviter-in-good-standing but has not yet met ALL engagement thresholds SHALL remain `pending_activity` (re-evaluated on each daily run until it passes or the 14-day TTL expires) — the existing posts-leg behavior, extended to the two new legs.
+- The **voiding** anti-collision legs are the device-fingerprint (leg 3) and recently-seen-identifier (leg 5) checks — *abuse signals*: a ticket that fails EITHER SHALL be set to the terminal `status = 'voided'` (the banned-inviter precedent — a distinct terminal status from a TTL `'expired'`, so analytics can separate an abuse-void from a 14-day lapse) with no grant. An anti-collision failure is permanent for that ticket — it does not become passable by waiting. The IP /24 leg (leg 4) is **non-voiding** (recorded only).
+- A ticket passes the full activity gate (and proceeds to the grant flow) only when ALL of: `≥ 2 posts` AND `≥ 3 login-days` AND `≥ 5 sessions` AND the inviter is neither hard-banned nor shadow-banned AND the device-fingerprint (leg 3) and identifier (leg 5) anti-collision checks both clear.
+
+#### Scenario: An invitee meeting every engagement and anti-collision leg passes
+- **WHEN** the worker evaluates a non-expired ticket whose invitee has `≥ 2` posts, `≥ 3` distinct login-days, and `≥ 5` app sessions in the window, whose `device_fingerprint_hash` and `identifier_hash` do not collide with the inviter's device history, and whose inviter is in good standing
+- **THEN** the ticket passes the activity gate and proceeds to the grant flow (a shared `ip_subnet_24` alone does not block it)
+
+#### Scenario: An invitee below the login-days threshold stays pending
+- **WHEN** the worker evaluates an anti-collision-clean ticket whose invitee has logged in on fewer than 3 distinct days in the window
+- **THEN** the ticket's `status` remains `'pending_activity'` AND no grant is dispatched (it is re-evaluated on the next run)
+
+#### Scenario: An invitee below the app-sessions threshold stays pending
+- **WHEN** the worker evaluates an anti-collision-clean ticket whose invitee has fewer than 5 sessionized app sessions in the window (even if the login-days and posts legs are met)
+- **THEN** the ticket's `status` remains `'pending_activity'` AND no grant is dispatched
+
+#### Scenario: A device-fingerprint collision against the inviter's 90-day history voids the ticket
+- **WHEN** the worker evaluates a ticket whose invitee's `device_fingerprint_hash` matches one of the inviter's `login_events` fingerprints within the last 90 days
+- **THEN** the ticket's `status` becomes `'voided'` AND no grant is dispatched (the collision is terminal, not re-evaluated)
+
+#### Scenario: An IP /24 overlap alone does NOT void the ticket
+- **WHEN** the worker evaluates a ticket whose invitee's `ip_subnet_24` overlaps the inviter's recent login subnets BUT neither the device-fingerprint (leg 3) nor the identifier (leg 5) check matches
+- **THEN** the ticket is NOT voided on the /24 overlap (the /24 is recorded but non-voiding — carrier-grade-NAT false-positive safety) AND the ticket proceeds on its engagement legs
+
+#### Scenario: A recently-seen-identifier collision voids the ticket
+- **WHEN** the worker evaluates a ticket whose invitee's `identifier_hash` appears on a `login_events` row, within the inviter's last 90 days, that shares one of the inviter's device-fingerprint hashes
+- **THEN** the ticket's `status` becomes `'voided'` AND no grant is dispatched
+
+#### Scenario: An anti-collision void is distinct from a TTL expiry
+- **WHEN** a ticket is voided for an anti-collision collision AND a separate ticket lapses past its 14-day `expires_at` without meeting the engagement legs
+- **THEN** the first ticket's terminal `status` is `'voided'` AND the second's is `'expired'` (analytics can tell an abuse-void from a 14-day lapse)
+
+#### Scenario: Exactly meeting every engagement threshold passes
+- **WHEN** the worker evaluates an anti-collision-clean, good-standing ticket whose invitee has exactly 2 posts, exactly 3 distinct login-days, and exactly 5 app sessions in the window
+- **THEN** the ticket passes the activity gate (the thresholds are inclusive lower bounds: `≥ 2`, `≥ 3`, `≥ 5`)
+
+#### Scenario: Continuous activity within 30 minutes is one session; an idle gap starts a new one
+- **WHEN** the worker counts the invitee's app sessions in the window
+- **THEN** consecutive `login_events` ≤ 30 minutes apart count as the SAME session AND an event more than 30 minutes after the invitee's prior event starts a NEW session AND the invitee's first event in the window counts as a session (so events at 29-minute spacing are one session, while a > 30-minute gap yields a second)
+
+#### Scenario: Login-days are bucketed in Asia/Jakarta, not UTC
+- **WHEN** the invitee has two `login_events` on adjacent UTC dates but the same calendar day in `Asia/Jakarta` (e.g. 22:00 and 02:00 UTC straddling UTC midnight on the same WIB day)
+- **THEN** they count as ONE distinct login-day (day-bucketing uses `(occurred_at AT TIME ZONE 'Asia/Jakarta')::date`), not two
+
+#### Scenario: An anti-collision void takes precedence over an engagement shortfall
+- **WHEN** the worker evaluates a ticket whose invitee both falls below an engagement threshold AND collides with the inviter's device-fingerprint history (leg 3 or 5)
+- **THEN** the ticket's `status` becomes the terminal `'voided'` (the abuse signal wins; it does NOT stay `'pending_activity'`, so a later run cannot rescue it)
+
+#### Scenario: An inviter with no relevant login history never false-voids a ticket
+- **WHEN** the worker evaluates a ticket whose inviter has little or no `login_events` history, so none of the inviter's device-fingerprint hashes match the invitee
+- **THEN** no anti-collision leg fires (each voiding leg fires only on a POSITIVE device-fingerprint match) AND the ticket is NOT voided on anti-collision grounds (it proceeds on its engagement legs)
 
