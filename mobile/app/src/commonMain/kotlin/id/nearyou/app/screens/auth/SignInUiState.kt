@@ -25,6 +25,9 @@ enum class SignInErrorBanner {
     BANNED,
     NETWORK,
     TOKEN_INVALID,
+
+    /** `signin_error_rate_limited` — 429 from the auth-endpoint limiter (auth-endpoint-rate-limits). */
+    RATE_LIMITED,
 }
 
 /** Pure, Compose-free projection of the sign-in screen UI state. Encodes Decision 7's
@@ -60,6 +63,10 @@ fun signInUiState(
             SignInUiState(SignInCtaLabel.GOOGLE, ctaEnabled = true, errorBanner = SignInErrorBanner.TOKEN_INVALID)
         SignInOutcome.NetworkError ->
             SignInUiState(SignInCtaLabel.RETRY, ctaEnabled = true, errorBanner = SignInErrorBanner.NETWORK)
+        // 429 (auth-endpoint-rate-limits): RETRY label + enabled + a dedicated banner telling the
+        // user to try again shortly — a defined state, not the generic NETWORK error.
+        is SignInOutcome.RateLimited ->
+            SignInUiState(SignInCtaLabel.RETRY, ctaEnabled = true, errorBanner = SignInErrorBanner.RATE_LIMITED)
         // NoAccount is a transient navigation trigger (→ AgeGateScreen), like Success — no banner
         // (the signin_error_no_account copy is retired from the 404 path). Cancelled / null are the
         // initial CTA-visible state.

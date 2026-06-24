@@ -124,4 +124,12 @@ class AgeGateUiStateTest {
         assertNull(ageGateUiState(SignUpOutcome.Success, dobSubmittable = true, inFlight = false).banner)
         assertNull(ageGateUiState(SignUpOutcome.Cancelled, dobSubmittable = true, inFlight = false).banner)
     }
+
+    @Test
+    fun `RateLimited shows the retry label and the rate-limited banner`() {
+        // auth-endpoint-rate-limits: a 429 is a defined retryable state with its own banner — not NETWORK.
+        val state = ageGateUiState(SignUpOutcome.RateLimited(retryAfterSeconds = 60L), dobSubmittable = true, inFlight = false)
+        assertEquals(AgeGateCtaLabel.RETRY, state.ctaLabel)
+        assertEquals(AgeGateBanner.RATE_LIMITED, state.banner)
+    }
 }

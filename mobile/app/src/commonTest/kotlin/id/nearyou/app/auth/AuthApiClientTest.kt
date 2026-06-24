@@ -22,6 +22,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -299,5 +300,48 @@ class AuthApiClientTest {
 
             assertTrue(job.isCancelled, "the in-flight signIn job is cancelled, not hung")
             assertFalse(completed, "signIn did not silently complete with a NetworkError after cancellation")
+        }
+
+    // (i) auth-endpoint-rate-limits: a 429 carries the parsed Retry-After seconds on HttpError.
+    @Test
+    fun `signin 429 parses the Retry-After header onto HttpError`() =
+        runTest {
+            val store = InMemoryTokenStore()
+            val httpClient =
+                client(store) {
+                    respond(
+                        """{"error":{"code":"rate_limited"}}""",
+                        HttpStatusCode.TooManyRequests,
+                        headersOf(
+                            HttpHeaders.RetryAfter to listOf("120"),
+                            HttpHeaders.ContentType to listOf("application/json"),
+                        ),
+                    )
+                }
+            val result = AuthApiClient(httpClient) { 0L }.signIn("g-id")
+
+            val err = assertIs<SignInApiResult.HttpError>(result)
+            assertEquals(429, err.status)
+            assertEquals(120L, err.retryAfterSeconds)
+        }
+
+    // (i2) an absent / unparseable Retry-After header → null retryAfterSeconds (no crash).
+    @Test
+    fun `signin 429 with no Retry-After header yields null retryAfterSeconds`() =
+        runTest {
+            val store = InMemoryTokenStore()
+            val httpClient =
+                client(store) {
+                    respond(
+                        """{"error":{"code":"rate_limited"}}""",
+                        HttpStatusCode.TooManyRequests,
+                        headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val result = AuthApiClient(httpClient) { 0L }.signIn("g-id")
+
+            val err = assertIs<SignInApiResult.HttpError>(result)
+            assertEquals(429, err.status)
+            assertNull(err.retryAfterSeconds)
         }
 }

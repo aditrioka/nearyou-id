@@ -85,4 +85,13 @@ class SignInUiStateTest {
         val state = signInUiState(SignInOutcome.Success, inFlight = false)
         assertNull(state.errorBanner)
     }
+
+    @Test
+    fun `RateLimited shows the retry label and the rate-limited banner enabled`() {
+        // auth-endpoint-rate-limits: a 429 is a defined state with its own banner — not NETWORK.
+        val state = signInUiState(SignInOutcome.RateLimited(retryAfterSeconds = 60L), inFlight = false)
+        assertEquals(SignInCtaLabel.RETRY, state.ctaLabel)
+        assertEquals(true, state.ctaEnabled)
+        assertEquals(SignInErrorBanner.RATE_LIMITED, state.errorBanner)
+    }
 }

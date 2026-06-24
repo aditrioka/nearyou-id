@@ -1291,6 +1291,16 @@ Hash tag `{scope:<value>}` ensures same-scope keys land on the same Redis slot (
 
 **Guest permissions**: read Global timeline (latest 10 posts) only — no write, no profile view. **Upgrade path**: on Google/Apple sign-in + attestation, the guest token is invalidated and replaced with an authenticated JWT.
 
+> **Auth-endpoint app-level limiter — SHIPPED** via change `auth-endpoint-rate-limits` (`rate-limit-infrastructure` capability; audit #214 / finding 01-#16). A light, always-present in-process limiter on the three unauthenticated auth-exchange endpoints, keyed by hashed client IP (`IpHasher.hash(call.clientIp)`), reusing the shipped `RateLimiter.tryAcquireByKey` + `429`/`Retry-After` substrate. NoOp fail-soft parity (auth never depends on Redis). This is defense-in-depth **additive to** — not a replacement for — the still-wanted pre-launch Cloudflare rate rules + Cloud Armor allow-only-CF ingress (docs/08 #39).
+>
+> | Endpoint | Key | Limit | Window |
+> |----------|-----|-------|--------|
+> | `POST /api/v1/auth/signin` | `{scope:rate_auth_signin}:{ip:<hashed-ip>}` | 10 | 1 min (sliding) |
+> | `POST /api/v1/auth/signup` | `{scope:rate_auth_signup}:{ip:<hashed-ip>}` | 5 | 1 hour (sliding) |
+> | `POST /api/v1/auth/refresh` | `{scope:rate_auth_refresh}:{ip:<hashed-ip>}` | 60 | 1 min (sliding) |
+>
+> **Refresh is per-MINUTE, not per-hour** (the issue's starting number was 60/hour): refresh fires automatically for every active user on each ~15-min token TTL, so a per-hour cap accumulates across CGNAT/public-WiFi peers and would log innocent users out — a per-minute flood cap is the CGNAT-safe shape (see the change's design.md). **Key shape note:** these conforming two-segment `{scope:…}:{ip:…}` keys supersede the illustrative pre-`RedisHashTagRule` `rate:guest_issue:{ip:…}` forms in the Layer-1 table above (those predate the hash-tag standard and would not pass `RedisHashTagRule` today). **Client mapping** ships in the same change: a `429` maps to a dedicated rate-limited UI state on sign-in / age-gate, and a `429` on refresh is treated as transient (the session is NOT invalidated — a rate-limited refresh must never log the user out).
+
 ### Layer 2: Per User (with WIB Stagger)
 
 | Action | Limit |

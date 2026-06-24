@@ -6,6 +6,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import kotlinx.serialization.SerialName
@@ -77,8 +78,15 @@ sealed interface SignInApiResult {
     /** Non-2xx response. [code] is the backend error envelope's `error.code` when parseable
      *  (the flat `/signup` `403 user_blocked` body has no `code` → `null`; map on [status]).
      *  [appealToken] is the limited appeal token from the banned/suspended sign-in `403` body
-     *  (content-moderation-appeal); null on every other non-2xx. */
-    data class HttpError(val status: Int, val code: String?, val appealToken: String? = null) : SignInApiResult
+     *  (content-moderation-appeal); null on every other non-2xx. [retryAfterSeconds] is the
+     *  parsed `Retry-After` header on a `429` (auth-endpoint-rate-limits); null when absent /
+     *  unparseable / not a `429`. */
+    data class HttpError(
+        val status: Int,
+        val code: String?,
+        val appealToken: String? = null,
+        val retryAfterSeconds: Long? = null,
+    ) : SignInApiResult
 
     /** Transport-level failure (IOException, timeout, host unreachable). */
     data class NetworkError(val cause: Throwable) : SignInApiResult
@@ -141,6 +149,7 @@ class AuthApiClient(
             status = response.status.value,
             code = parsed?.error?.code,
             appealToken = parsed?.appealToken,
+            retryAfterSeconds = response.headers[HttpHeaders.RetryAfter]?.toLongOrNull(),
         )
     }
 
@@ -200,6 +209,7 @@ class AuthApiClient(
             status = response.status.value,
             code = parsed?.error?.code,
             appealToken = parsed?.appealToken,
+            retryAfterSeconds = response.headers[HttpHeaders.RetryAfter]?.toLongOrNull(),
         )
     }
 }

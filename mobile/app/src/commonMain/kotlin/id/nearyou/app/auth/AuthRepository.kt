@@ -133,6 +133,9 @@ class AuthRepository(
                         // invalid_id_token: re-run the Google ceremony ONCE for a fresh token,
                         // then re-submit. A second 401 is terminal.
                         if (allowRetry) attemptSignIn(allowRetry = false) else SignInOutcome.InvalidIdToken
+                    // 429 from the auth-endpoint limiter (auth-endpoint-rate-limits): a defined
+                    // rate-limited state with a Retry-After hint — NOT a generic NetworkError.
+                    api.status == 429 -> SignInOutcome.RateLimited(api.retryAfterSeconds)
                     api.status in 500..599 -> SignInOutcome.NetworkError
                     // Unenumerated status: treat as a connectivity/server problem (a defined
                     // state) rather than a generic "failed" fallthrough.
@@ -207,6 +210,9 @@ class AuthRepository(
                     // terminal (the inner attempt below runs with allowRetry = false).
                     api.status == 401 ->
                         if (allowRetry) refreshTokenAndRetrySignUp(dateOfBirth) else SignUpOutcome.InvalidIdToken
+                    // 429 from the auth-endpoint limiter (auth-endpoint-rate-limits): a defined
+                    // rate-limited state with a Retry-After hint — NOT the generic RetryableError.
+                    api.status == 429 -> SignUpOutcome.RateLimited(api.retryAfterSeconds)
                     // 400 invalid_request is not expected from a well-formed picker submission —
                     // surface it as retryable WITH a logged diagnostic (not a silent no-op/crash).
                     api.status == 400 -> {
@@ -257,6 +263,13 @@ sealed interface SignInOutcome {
     data object InvalidIdToken : SignInOutcome
 
     data object NetworkError : SignInOutcome
+
+    /**
+     * `429 Too Many Requests` from the auth-endpoint rate limiter (auth-endpoint-rate-limits).
+     * [retryAfterSeconds] is the parsed `Retry-After` hint (null when absent). Surfaced as a static
+     * "too many attempts, try again shortly" copy — NOT the generic [NetworkError] state.
+     */
+    data class RateLimited(val retryAfterSeconds: Long?) : SignInOutcome
 
     data object Cancelled : SignInOutcome
 }

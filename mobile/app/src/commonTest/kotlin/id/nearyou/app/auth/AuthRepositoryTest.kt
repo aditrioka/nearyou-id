@@ -88,6 +88,28 @@ class AuthRepositoryTest {
             assertNull(store.read())
         }
 
+    // auth-endpoint-rate-limits: a 429 maps to RateLimited (carrying the Retry-After hint), NOT the
+    // generic NetworkError — and writes no token.
+    @Test
+    fun `signin 429 maps to RateLimited carrying the Retry-After seconds with no token write`() =
+        runTest {
+            val store = InMemoryTokenStore()
+            val repo =
+                repository(FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", "Test User", "test@example.com")), store) {
+                    respond(
+                        """{"error":{"code":"rate_limited"}}""",
+                        HttpStatusCode.TooManyRequests,
+                        headersOf(
+                            io.ktor.http.HttpHeaders.RetryAfter to listOf("45"),
+                            io.ktor.http.HttpHeaders.ContentType to listOf("application/json"),
+                        ),
+                    )
+                }
+
+            assertEquals(SignInOutcome.RateLimited(45L), repo.signInWithGoogle())
+            assertNull(store.read(), "no token write on a rate-limited signin")
+        }
+
     @Test
     fun `GoogleSignInResult Failed maps to NetworkError and is sent to the diagnostic log`() =
         runTest {

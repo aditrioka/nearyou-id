@@ -34,6 +34,9 @@ enum class AgeGateBanner {
 
     /** `signin_error_network` — `5xx` / `503` / IO / `400` retryable error. */
     NETWORK,
+
+    /** `signin_error_rate_limited` — 429 from the auth-endpoint limiter (auth-endpoint-rate-limits). */
+    RATE_LIMITED,
 }
 
 /** Pure, Compose-free projection of the age-gate screen UI state, mirroring `SignInUiState`. */
@@ -70,9 +73,16 @@ fun ageGateUiState(
             SignUpOutcome.AccountExists -> AgeGateBanner.ACCOUNT_EXISTS
             SignUpOutcome.InvalidIdToken -> AgeGateBanner.TOKEN_INVALID
             SignUpOutcome.RetryableError -> AgeGateBanner.NETWORK
+            is SignUpOutcome.RateLimited -> AgeGateBanner.RATE_LIMITED
             SignUpOutcome.Success, SignUpOutcome.Cancelled, null -> null
         }
-    val label = if (outcome == SignUpOutcome.RetryableError) AgeGateCtaLabel.RETRY else AgeGateCtaLabel.CREATE
+    // RETRY label for the two retryable states (generic retryable + 429 rate-limited); CREATE otherwise.
+    val label =
+        if (outcome == SignUpOutcome.RetryableError || outcome is SignUpOutcome.RateLimited) {
+            AgeGateCtaLabel.RETRY
+        } else {
+            AgeGateCtaLabel.CREATE
+        }
     return AgeGateUiState(ctaLabel = label, ctaEnabled = dobSubmittable, banner = banner)
 }
 
