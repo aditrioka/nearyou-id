@@ -1,11 +1,16 @@
 package id.nearyou.app.auth.signup
 
+import id.nearyou.app.auth.AuthRateLimiter
 import id.nearyou.app.auth.jwt.ACCESS_TOKEN_TTL_SECONDS
 import id.nearyou.app.auth.provider.InvalidIdTokenException
+import id.nearyou.app.common.clientIp
+import id.nearyou.app.infra.otel.IpHasher
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.request.receive
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.post
@@ -59,9 +64,21 @@ private fun err(
     message: String,
 ) = SignupErrorBody(SignupErrorBody.SignupErrorEnvelope(code, message))
 
-fun Application.signupRoutes(signupService: SignupService) {
+fun Application.signupRoutes(
+    signupService: SignupService,
+    authRateLimiter: AuthRateLimiter,
+) {
     routing {
         post("/api/v1/auth/signup") {
+            // Defense-in-depth rate limit FIRST (before body parse / signup processing), keyed by
+            // hashed client IP (audit #214). Additive to the (unbuilt) per-identifier signup limit.
+            val signupHashedIp = IpHasher.hash(call.clientIp)
+            val signupRate = authRateLimiter.trySignup(signupHashedIp)
+            if (signupRate is AuthRateLimiter.Outcome.RateLimited) {
+                call.response.header(HttpHeaders.RetryAfter, signupRate.retryAfterSeconds.toString())
+                call.respond(HttpStatusCode.TooManyRequests, err("rate_limited", "Too many requests. Please try again later."))
+                return@post
+            }
             val req =
                 try {
                     call.receive<SignupRequestDto>()

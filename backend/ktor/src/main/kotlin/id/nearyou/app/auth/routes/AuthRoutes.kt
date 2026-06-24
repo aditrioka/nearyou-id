@@ -1,6 +1,7 @@
 package id.nearyou.app.auth.routes
 
 import id.nearyou.app.auth.AUTH_PROVIDER_USER
+import id.nearyou.app.auth.AuthRateLimiter
 import id.nearyou.app.auth.UserPrincipal
 import id.nearyou.app.auth.jwt.ACCESS_TOKEN_TTL_SECONDS
 import id.nearyou.app.auth.jwt.JwtIssuer
@@ -12,12 +13,15 @@ import id.nearyou.app.auth.session.RefreshTokenInvalidException
 import id.nearyou.app.auth.session.RefreshTokenService
 import id.nearyou.app.auth.session.TokenReuseException
 import id.nearyou.app.common.clientIp
+import id.nearyou.app.infra.otel.IpHasher
 import id.nearyou.app.infra.repo.UserRepository
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
@@ -91,9 +95,22 @@ fun Application.authRoutes(
     tokens: RefreshTokenService,
     jwtIssuer: JwtIssuer,
     loginEventRecorder: LoginEventRecorder,
+    authRateLimiter: AuthRateLimiter,
 ) {
     routing {
         post("/api/v1/auth/signin") {
+            // Defense-in-depth rate limit FIRST (before body parse / id-token verification),
+            // keyed by hashed client IP (audit #214). The hash is hoisted out of the key literal
+            // per the RedisHashTagRule block-interpolation note; the raw IP never reaches the Lua
+            // key (OtelForbiddenAttributeRule). A 429'd attempt records no login_events row — the
+            // limiter itself is the abuse signal.
+            val signinHashedIp = IpHasher.hash(call.clientIp)
+            val signinRate = authRateLimiter.trySignin(signinHashedIp)
+            if (signinRate is AuthRateLimiter.Outcome.RateLimited) {
+                call.response.header(HttpHeaders.RetryAfter, signinRate.retryAfterSeconds.toString())
+                call.respond(HttpStatusCode.TooManyRequests, errorBody("rate_limited", "Too many requests. Please try again later."))
+                return@post
+            }
             val req =
                 try {
                     call.receive<SignInRequest>()
@@ -166,6 +183,15 @@ fun Application.authRoutes(
         }
 
         post("/api/v1/auth/refresh") {
+            // Defense-in-depth rate limit FIRST (before body parse / token rotation), keyed by
+            // hashed client IP (audit #214). Per-MINUTE cap (CGNAT-safe; see AuthRateLimiter KDoc).
+            val refreshHashedIp = IpHasher.hash(call.clientIp)
+            val refreshRate = authRateLimiter.tryRefresh(refreshHashedIp)
+            if (refreshRate is AuthRateLimiter.Outcome.RateLimited) {
+                call.response.header(HttpHeaders.RetryAfter, refreshRate.retryAfterSeconds.toString())
+                call.respond(HttpStatusCode.TooManyRequests, errorBody("rate_limited", "Too many requests. Please try again later."))
+                return@post
+            }
             val req =
                 try {
                     call.receive<RefreshRequest>()

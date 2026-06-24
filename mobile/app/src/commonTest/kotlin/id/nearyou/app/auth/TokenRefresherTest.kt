@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -175,5 +176,83 @@ class TokenRefresherTest {
             assertEquals(1, refreshCalls, "the refresh POST is attempted once")
             assertTrue(store.clearCount >= 1, "the non-success refresh funnels through invalidate()")
             assertNull(store.read(), "both access AND refresh tokens are cleared")
+        }
+
+    @Test
+    fun rateLimitedRefresh_throwsTransient_keepsTokens_andDoesNotInvalidate() =
+        runTest {
+            // auth-endpoint-rate-limits: a 429 is NOT a rejected refresh token. It must throw a
+            // transient signal (NOT return null) and must NOT invalidate — the token pair is kept.
+            var refreshCalls = 0
+            val original = TokenPair("at-stale", "rt-Y", PAST_EPOCH)
+            val store = InMemoryTokenStore(original)
+            val invalidator = SessionInvalidator(store)
+            val httpClient =
+                client(store, invalidator) { request ->
+                    if (request.url.encodedPath == "/api/v1/auth/refresh") {
+                        refreshCalls++
+                        respond(
+                            """{"error":{"code":"rate_limited"}}""",
+                            HttpStatusCode.TooManyRequests,
+                            headersOf(
+                                HttpHeaders.RetryAfter to listOf("90"),
+                                HttpHeaders.ContentType to listOf("application/json"),
+                            ),
+                        )
+                    } else {
+                        respond("[]", HttpStatusCode.OK, JSON_CT)
+                    }
+                }
+            val refresher = TokenRefresher(store, invalidator) { 0L }
+
+            val ex = assertFailsWith<RefreshRateLimitedException> { refresher.refresh(httpClient) }
+
+            assertEquals(90L, ex.retryAfterSeconds, "the Retry-After hint is carried")
+            assertEquals(1, refreshCalls, "the refresh POST is attempted once")
+            assertEquals(0, store.clearCount, "a 429 must NOT invalidate the session")
+            assertEquals(original, store.read(), "the token pair is preserved on a 429")
+        }
+
+    @Test
+    fun rateLimitedRefresh_propagatesToFollowers_withoutLoggingAnyoneOut() =
+        runTest {
+            // The single-flight follower must observe the SAME transient (a thrown exception), not a
+            // null — a null would log the follower out, the precise CGNAT failure the change prevents.
+            var refreshCalls = 0
+            val original = TokenPair("at-stale", "rt-Y", PAST_EPOCH)
+            val store = InMemoryTokenStore(original)
+            val invalidator = SessionInvalidator(store)
+            val httpClient =
+                client(store, invalidator) { request ->
+                    if (request.url.encodedPath == "/api/v1/auth/refresh") {
+                        refreshCalls++
+                        delay(50) // widen the in-flight window so the second caller queues as a follower
+                        respond(
+                            """{"error":{"code":"rate_limited"}}""",
+                            HttpStatusCode.TooManyRequests,
+                            headersOf(
+                                HttpHeaders.RetryAfter to listOf("30"),
+                                HttpHeaders.ContentType to listOf("application/json"),
+                            ),
+                        )
+                    } else {
+                        respond("[]", HttpStatusCode.OK, JSON_CT)
+                    }
+                }
+            val refresher = TokenRefresher(store, invalidator) { 0L }
+
+            val results =
+                listOf(
+                    async { runCatching { refresher.refresh(httpClient) } },
+                    async { runCatching { refresher.refresh(httpClient) } },
+                ).awaitAll()
+
+            assertEquals(1, refreshCalls, "two overlapping 429 refreshes ⇒ exactly ONE POST")
+            assertTrue(
+                results.all { it.exceptionOrNull() is RefreshRateLimitedException },
+                "leader AND follower both observe the transient (not a null-driven logout): $results",
+            )
+            assertEquals(0, store.clearCount, "neither the leader nor the follower is logged out")
+            assertEquals(original, store.read(), "the token pair is preserved for both")
         }
 }

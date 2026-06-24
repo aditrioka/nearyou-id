@@ -110,6 +110,28 @@ class AuthRepositorySignUpTest {
             assertNull(store.read())
         }
 
+    // auth-endpoint-rate-limits: a 429 maps to RateLimited (carrying the Retry-After hint), NOT the
+    // generic RetryableError — and writes no token.
+    @Test
+    fun `429 maps to RateLimited carrying the Retry-After seconds with no token write`() =
+        runTest {
+            val store = InMemoryTokenStore()
+            val repo =
+                repository(FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null)), store) {
+                    respond(
+                        """{"error":{"code":"rate_limited"}}""",
+                        HttpStatusCode.TooManyRequests,
+                        headersOf(
+                            io.ktor.http.HttpHeaders.RetryAfter to listOf("75"),
+                            io.ktor.http.HttpHeaders.ContentType to listOf("application/json"),
+                        ),
+                    )
+                }
+
+            assertEquals(SignUpOutcome.RateLimited(75L), repo.signUpWithGoogle("g-id", DOB))
+            assertNull(store.read(), "no token write on a rate-limited signup")
+        }
+
     // 7.7a — first 401 refreshes the Google token ONCE and retries with the FRESH id_token → 201.
     @Test
     fun `first 401 refreshes the token once and retries signup with the fresh id_token`() =

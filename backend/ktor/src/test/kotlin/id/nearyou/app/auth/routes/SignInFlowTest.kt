@@ -1,6 +1,7 @@
 package id.nearyou.app.auth.routes
 
 import com.auth0.jwt.JWT
+import id.nearyou.app.auth.AuthRateLimiter
 import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
@@ -15,6 +16,7 @@ import id.nearyou.app.auth.session.InMemoryRefreshTokens
 import id.nearyou.app.auth.session.InMemoryUsers
 import id.nearyou.app.auth.session.RefreshTokenService
 import id.nearyou.app.auth.session.userRow
+import id.nearyou.app.infra.redis.NoOpRateLimiter
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldHaveSize
@@ -82,6 +84,7 @@ class SignInFlowTest : StringSpec({
                     service,
                     jwtIssuer,
                     LoginEventRecorder(loginEvents),
+                    AuthRateLimiter(NoOpRateLimiter()),
                 )
             }
             block(tokens)

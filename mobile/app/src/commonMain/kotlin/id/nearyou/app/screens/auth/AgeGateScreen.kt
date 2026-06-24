@@ -46,6 +46,7 @@ import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.logo_brand_dark
 import id.nearyou.resources.generated.resources.logo_brand_light
 import id.nearyou.resources.generated.resources.signin_error_network
+import id.nearyou.resources.generated.resources.signin_error_rate_limited
 import id.nearyou.resources.generated.resources.signin_error_token_invalid
 import id.nearyou.resources.generated.resources.signup_error_account_exists
 import id.nearyou.resources.generated.resources.signup_loading
@@ -133,6 +134,7 @@ fun AgeGateScreen(
                 AgeGateBanner.ACCOUNT_EXISTS -> stringResource(Res.string.signup_error_account_exists)
                 AgeGateBanner.TOKEN_INVALID -> stringResource(Res.string.signin_error_token_invalid)
                 AgeGateBanner.NETWORK -> stringResource(Res.string.signin_error_network)
+                AgeGateBanner.RATE_LIMITED -> stringResource(Res.string.signin_error_rate_limited)
             }
         }
 
@@ -221,8 +223,9 @@ fun AgeGateScreen(
  *  - [SignUpOutcome.Success] → `clear()` the in-memory identity + [onSignedUp] (→ HomeRoute).
  *  - [SignUpOutcome.AccountExists] (409) → `clear()` + [onExitToSignIn] (→ SignInRoute).
  *  - [SignUpOutcome.Blocked] / [SignUpOutcome.InvalidIdToken] / [SignUpOutcome.RetryableError] /
- *    [SignUpOutcome.Cancelled] / `null` → no-op: the user stays on the screen to read the banner, and
- *    the holder is NOT cleared (a retryable error may be resubmitted with the same identity).
+ *    [SignUpOutcome.RateLimited] / [SignUpOutcome.Cancelled] / `null` → no-op: the user stays on the
+ *    screen to read the banner, and the holder is NOT cleared (a retryable / rate-limited error may
+ *    be resubmitted with the same identity).
  */
 internal fun handleAgeGateTerminalOutcome(
     outcome: SignUpOutcome?,

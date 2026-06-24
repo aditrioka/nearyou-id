@@ -2,6 +2,7 @@ package id.nearyou.app.auth.signup
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import id.nearyou.app.auth.AuthRateLimiter
 import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
@@ -16,6 +17,7 @@ import id.nearyou.app.auth.routes.TokenPairResponse
 import id.nearyou.app.auth.routes.authRoutes
 import id.nearyou.app.auth.session.RefreshTokenService
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
+import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.repo.IdentifierType
 import id.nearyou.app.infra.repo.JdbcRefreshTokenRepository
 import id.nearyou.app.infra.repo.JdbcRejectedIdentifierRepository
@@ -29,6 +31,7 @@ import id.nearyou.app.referral.ReferralTicketCreator
 import id.nearyou.app.referral.ReferralTicketRateLimiter
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.comparables.shouldBeGreaterThanOrEqualTo
 import io.kotest.matchers.ints.shouldBeLessThanOrEqual
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
@@ -39,6 +42,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
@@ -202,13 +206,33 @@ class SignupFlowTest : StringSpec({
         testApplication {
             application {
                 install(ContentNegotiation) { json() }
-                signupRoutes(svc)
+                signupRoutes(svc, AuthRateLimiter(NoOpRateLimiter()))
             }
             block(svc)
         }
     }
 
     beforeEach { cleanSlate() }
+
+    "signup over the IP cap returns 429 + Retry-After before the signup service runs" {
+        val svc = buildSignupService()
+        testApplication {
+            application {
+                install(ContentNegotiation) { json() }
+                signupRoutes(svc, AuthRateLimiter(InMemoryRateLimiter(), signupCap = 0))
+            }
+            val client = createClient { install(ClientCN) { json() } }
+            // Malformed body: a 429 (not 400) proves the limiter guard precedes call.receive, so the
+            // signup service is never invoked and no users / rejected-identifier rows are touched.
+            val response =
+                client.post("/api/v1/auth/signup") {
+                    contentType(ContentType.Application.Json)
+                    setBody("not json")
+                }
+            response.status shouldBe HttpStatusCode.TooManyRequests
+            response.headers[HttpHeaders.RetryAfter]!!.toLong() shouldBeGreaterThanOrEqualTo 1L
+        }
+    }
 
     "successful Google signup populates every NOT NULL column" {
         withSignup { _ ->
@@ -289,13 +313,14 @@ class SignupFlowTest : StringSpec({
                 install(Authentication) {
                     configureUserJwt(keys, users, nowProvider = { fixedClock.instant() })
                 }
-                signupRoutes(svc)
+                signupRoutes(svc, AuthRateLimiter(NoOpRateLimiter()))
                 authRoutes(
                     SigninProviders(FixedVerifier("unused"), FixedVerifier("unused")),
                     users,
                     refreshService,
                     jwtIssuer,
                     LoginEventRecorder(InMemoryLoginEvents()),
+                    AuthRateLimiter(NoOpRateLimiter()),
                 )
             }
             val client = createClient { install(ClientCN) { json() } }
@@ -472,7 +497,7 @@ class SignupFlowTest : StringSpec({
         testApplication {
             application {
                 install(ContentNegotiation) { json() }
-                signupRoutes(svcPre)
+                signupRoutes(svcPre, AuthRateLimiter(NoOpRateLimiter()))
             }
             val client = createClient { install(ClientCN) { json() } }
             bodyPre =
@@ -490,7 +515,7 @@ class SignupFlowTest : StringSpec({
         testApplication {
             application {
                 install(ContentNegotiation) { json() }
-                signupRoutes(svcUnder)
+                signupRoutes(svcUnder, AuthRateLimiter(NoOpRateLimiter()))
             }
             val client = createClient { install(ClientCN) { json() } }
             bodyUnder =
@@ -594,7 +619,7 @@ class SignupFlowTest : StringSpec({
         testApplication {
             application {
                 install(ContentNegotiation) { json() }
-                signupRoutes(svc)
+                signupRoutes(svc, AuthRateLimiter(NoOpRateLimiter()))
             }
             val client = createClient { install(ClientCN) { json() } }
             val response =
@@ -622,7 +647,7 @@ class SignupFlowTest : StringSpec({
         testApplication {
             application {
                 install(ContentNegotiation) { json() }
-                signupRoutes(svc)
+                signupRoutes(svc, AuthRateLimiter(NoOpRateLimiter()))
             }
             val client = createClient { install(ClientCN) { json() } }
             val response =
@@ -640,7 +665,7 @@ class SignupFlowTest : StringSpec({
         testApplication {
             application {
                 install(ContentNegotiation) { json() }
-                signupRoutes(svc)
+                signupRoutes(svc, AuthRateLimiter(NoOpRateLimiter()))
             }
             val client = createClient { install(ClientCN) { json() } }
             val response =

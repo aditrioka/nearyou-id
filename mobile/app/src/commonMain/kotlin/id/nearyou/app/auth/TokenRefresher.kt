@@ -7,6 +7,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
@@ -37,10 +38,13 @@ import kotlin.time.Clock
  * reactive `RefreshTokensParams.client` and the proactively-injected shared client are the same
  * singleton, and passing it avoids a Koin construction cycle (`HttpClient` ↔ `TokenRefresher`).
  *
- * On a rejected refresh token (null refresh token in the store, or a non-success refresh response)
- * the refresh funnels through [SessionInvalidator.invalidate] → the reliable re-route to
- * `SignInScreen`. A transport failure (IOException/timeout) is NOT swallowed: it propagates so the
- * caller surfaces a connectivity error and the token pair is kept (no spurious logout).
+ * On a rejected refresh token (null refresh token in the store, or a non-success, **non-429**
+ * refresh response) the refresh funnels through [SessionInvalidator.invalidate] → the reliable
+ * re-route to `SignInScreen`. A transport failure (IOException/timeout) is NOT swallowed: it
+ * propagates so the caller surfaces a connectivity error and the token pair is kept (no spurious
+ * logout). A `429` (auth-endpoint-rate-limits) is treated like a transport failure — it throws
+ * [RefreshRateLimitedException] and does NOT invalidate (a rate-limited refresh must never log the
+ * user, or any single-flight follower, out over a transient cap).
  */
 class TokenRefresher(
     private val tokenStore: TokenStore,
@@ -133,10 +137,33 @@ class TokenRefresher(
                 )
             tokenStore.write(tokens)
             tokens
+        } else if (response.status.value == HTTP_TOO_MANY_REQUESTS) {
+            // auth-endpoint-rate-limits: a 429 is NOT a rejected refresh token. Do NOT invalidate the
+            // session — that would log the user (and, via the shared single-flight deferred, every
+            // FOLLOWER) out over a transient cap, the precise CGNAT failure the change prevents. Throw
+            // a transient/retryable signal: this takes the transport-failure path (the outer catch
+            // does `completeExceptionally` → every follower's `await()` rethrows and keeps its tokens),
+            // so the token pair is preserved and the caller surfaces a connectivity-style retry,
+            // distinct from the rejected-refresh-token path below that DOES invalidate.
+            throw RefreshRateLimitedException(response.headers[HttpHeaders.RetryAfter]?.toLongOrNull())
         } else {
             // Refresh token expired/revoked (terminal) → clear the store + signal the re-route.
             sessionInvalidator.invalidate()
             null
         }
     }
+
+    private companion object {
+        const val HTTP_TOO_MANY_REQUESTS = 429
+    }
 }
+
+/**
+ * A `429` from `POST /api/v1/auth/refresh` (auth-endpoint-rate-limits). Transient / retryable — the
+ * session is NOT invalidated and the persisted token pair is preserved; the caller should back off
+ * and retry. Distinct from the rejected-refresh-token path, which invalidates. [retryAfterSeconds]
+ * is the parsed `Retry-After` hint (null when absent).
+ */
+class RefreshRateLimitedException(
+    val retryAfterSeconds: Long?,
+) : Exception("Refresh rate-limited; retry after ${retryAfterSeconds ?: "?"}s")

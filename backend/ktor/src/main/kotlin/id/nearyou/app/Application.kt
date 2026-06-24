@@ -28,6 +28,7 @@ import id.nearyou.app.appeal.AppealRateLimiter
 import id.nearyou.app.appeal.AppealService
 import id.nearyou.app.appeal.JdbcAppealRepository
 import id.nearyou.app.appeal.appealRoutes
+import id.nearyou.app.auth.AuthRateLimiter
 import id.nearyou.app.auth.installAuth
 import id.nearyou.app.auth.jwks.jwksRoutes
 import id.nearyou.app.auth.jwt.JwtIssuer
@@ -1206,8 +1207,19 @@ fun Application.module() {
 
     jwksRoutes()
     healthRoutes()
-    authRoutes(Providers(googleVerifier, appleVerifier), userRepository, refreshTokenService, jwtIssuer, loginEventRecorder)
-    signupRoutes(signupService)
+    // Defense-in-depth limiter on the unauthenticated auth endpoints (audit #214). Rides the same
+    // shared env-aware `rateLimiter` (NoOpRateLimiter fail-soft in dev/test always admits — parity
+    // with every other limiter, so auth never depends on Redis availability).
+    val authRateLimiter = AuthRateLimiter(rateLimiter)
+    authRoutes(
+        Providers(googleVerifier, appleVerifier),
+        userRepository,
+        refreshTokenService,
+        jwtIssuer,
+        loginEventRecorder,
+        authRateLimiter,
+    )
+    signupRoutes(signupService, authRateLimiter)
     realtimeRoutes(realtimeIssuer)
     appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())
     revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)

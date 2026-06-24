@@ -108,8 +108,8 @@ class SignInViewModel(
             SignInOutcome.Success ->
                 state.update { it.copy(inFlight = false, outcome = SignInOutcome.Success, navigation = SignInNavTarget.Home) }
             else ->
-                // Banned / InvalidIdToken / NetworkError / Cancelled — stay on the screen; the outcome drives
-                // the CTA label / banner / appeal entry. No navigation.
+                // Banned / InvalidIdToken / NetworkError / RateLimited / Cancelled — stay on the screen; the
+                // outcome drives the CTA label / banner / appeal entry. No navigation.
                 state.update { it.copy(inFlight = false, outcome = result) }
         }
     }

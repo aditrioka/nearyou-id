@@ -37,6 +37,7 @@ import id.nearyou.resources.generated.resources.logo_brand_dark
 import id.nearyou.resources.generated.resources.logo_brand_light
 import id.nearyou.resources.generated.resources.signin_error_banned
 import id.nearyou.resources.generated.resources.signin_error_network
+import id.nearyou.resources.generated.resources.signin_error_rate_limited
 import id.nearyou.resources.generated.resources.signin_error_token_invalid
 import id.nearyou.resources.generated.resources.signin_loading
 import id.nearyou.resources.generated.resources.signin_session_expired
@@ -100,6 +101,7 @@ fun SignInScreen(
                 SignInErrorBanner.BANNED -> stringResource(Res.string.signin_error_banned)
                 SignInErrorBanner.NETWORK -> stringResource(Res.string.signin_error_network)
                 SignInErrorBanner.TOKEN_INVALID -> stringResource(Res.string.signin_error_token_invalid)
+                SignInErrorBanner.RATE_LIMITED -> stringResource(Res.string.signin_error_rate_limited)
             }
         }
 

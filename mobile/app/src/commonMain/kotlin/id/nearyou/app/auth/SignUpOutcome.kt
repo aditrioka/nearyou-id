@@ -31,6 +31,11 @@ sealed interface SignUpOutcome {
      *  `GoogleSignInResult.Failed` — a retryable error (`signin_error_network` + `cta_retry`). */
     data object RetryableError : SignUpOutcome
 
+    /** `429 Too Many Requests` from the auth-endpoint rate limiter (auth-endpoint-rate-limits).
+     *  [retryAfterSeconds] is the parsed `Retry-After` hint (null when absent). Surfaced as a static
+     *  "too many attempts, try again shortly" copy — distinct from the generic [RetryableError]. */
+    data class RateLimited(val retryAfterSeconds: Long?) : SignUpOutcome
+
     /** A concurrent/duplicate invocation rejected by the in-flight guard (design D8). No `/signup`
      *  call, no token write, no UI change — mirrors `SignInOutcome.Cancelled`. */
     data object Cancelled : SignUpOutcome
