@@ -15,7 +15,7 @@ This change adds a light, defense-in-depth, **app-level** limiter on those three
   - `AuthApiClient` parses the `Retry-After` header into `retryAfterSeconds` on non-2xx; carried on `SignInApiResult.HttpError`.
   - `SignInOutcome.RateLimited(retryAfterSeconds)` + `SignUpOutcome.RateLimited(retryAfterSeconds)` added; `AuthRepository` maps `429` to them (today a `429` silently falls into the generic `NetworkError` / `RetryableError` bucket).
   - **`TokenRefresher` correctness fix**: a `429` on refresh must **not** invalidate the session. Today any non-2xx hits `sessionInvalidator.invalidate()` → logout; a rate-limited refresh must keep the token pair and surface a transient/retryable condition.
-  - New static `Res.string.*` copy for the rate-limited state (no PII), surfaced by `SignInUiState` / `AgeGateUiState`.
+  - New static `Res.string.*` copy for the rate-limited state (no PII), surfaced by `SignInUiState` / `AgeGateUiState`. (The `refresh` path has no screen — a refresh `429` is handled silently as a transient/retryable condition with no user-visible string.)
 - **Docs** — amend docs/05 §Layer-1 to document the shipped auth-endpoint limiter (scopes / caps / windows) and note the conforming `{scope:…}:{ip:…}` key shape supersedes the illustrative pre-`RedisHashTagRule` `rate:guest_issue:{ip:…}` table shapes; reaffirm CF / Cloud Armor (docs/08 #39) stays a separate wanted pre-launch layer.
 
 No DB migration. No new infra module — pure Redis + app code on the existing substrate.
@@ -37,4 +37,4 @@ _None._ This extends an existing capability.
 - **APIs**: the three endpoints gain a `429` response shape (`Retry-After` header + envelope) — additive, no breaking change to existing 2xx/4xx contracts.
 - **Detekt / invariants honored**: `RedisHashTagRule` (two-segment conforming keys), `RateLimitTtlRule` (burst keys with hardcoded `Duration` ttl pass; no `_day` marker), `OtelForbiddenAttributeRule` (hashed IP only in `{ip:}`), the `clientIp` invariant.
 - **Docs**: docs/05 §Layer-1 amended (stated here so reviewers don't flag the divergence).
-- **Out of scope (explicit)**: Cloudflare rate rules + Cloud Armor allow-only-CF ingress (docs/08 #39) — a separate pre-launch edge layer, unchanged by this change.
+- **Out of scope (explicit)**: Cloudflare rate rules + Cloud Armor allow-only-CF ingress (docs/08 pre-launch task #39) — a separate pre-launch edge layer, unchanged by this change. The IP-axis `signup` cap is also **additive** to the still-unbuilt docs/06 per-identifier signup limit (3/24h per Google/Apple ID hash, a different Layer-3 axis) — neither alone is the whole signup-abuse story.
