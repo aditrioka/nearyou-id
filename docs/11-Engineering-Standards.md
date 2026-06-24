@@ -54,6 +54,8 @@ id.nearyou.app/
 
 The pre-audit flat `screens/` package (35 mixed files) is the legacy shape. **New code MUST follow the target shape.** Existing files move only as a mechanical move (package decl + imports, zero logic edits) with the full mobile test gate green in the same commit.
 
+**Canonical shared list/feed primitives (`ui/components/`, audit 05-#11).** A list-bearing screen MUST reuse these rather than re-rolling private state composables (the drifting copies are how `mobile-design-system` list contracts diverged across screens): the **list-state kit** (`ListScrollableState` / `ListLoadingState` / `ListCenteredMessageState` / `ListErrorState` + `SoftLimitBanner`, in `ListStates.kt`) for the non-`Content` states, the generic **`PostFeedList<T>`** for a paginated post feed, `PostCard` + `LetterAvatar` for the card itself, and `LoadMoreFooter` / `LoadMoreOnScrollEnd` for infinite-scroll. Each non-`Content` state takes the host's `testTag` and renders inside a single-item scrollable so pull-to-refresh works from it. A screen whose state genuinely diverges (e.g. a directive empty with a CTA) composes its own content inside `ListScrollableState(testTag = …)` — it does NOT re-roll the scrollable wrapper. Adding a *second* list-state pattern for one of these concerns is a Pattern-Registry fork (§ 4) — amend that section first.
+
 ### 2.2 State management
 
 - Screen-level state holder = **androidx `ViewModel` in commonMain** (JetBrains lifecycle), obtained via `koinViewModel()`, scoped to the Nav3 entry (see 2.3). Plain `*Flow`/`*State` holder classes are legacy; do not add new ones for screens. [verified d.android.com state-production 2026-05-14; kotlinlang compose-viewmodel 2026-06-08]
