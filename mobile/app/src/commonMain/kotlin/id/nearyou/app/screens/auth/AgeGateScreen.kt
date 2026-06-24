@@ -23,14 +23,12 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.SignUpOutcome
 import id.nearyou.app.screens.routing.PendingSignupIdentity
@@ -51,7 +49,6 @@ import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.signin_error_token_invalid
 import id.nearyou.resources.generated.resources.signup_error_account_exists
 import id.nearyou.resources.generated.resources.signup_loading
-import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -94,33 +91,30 @@ fun AgeGateScreen(
 ) {
     val authFlow = koinInject<AuthFlow>()
     val pendingSignupIdentity = koinInject<PendingSignupIdentity>()
-    val idToken = pendingSignupIdentity.peek()
 
-    // Process-death guard: a restored back stack may land on AgeGateRoute with the in-memory holder
-    // empty. Re-route to SignInRoute once and DO NOT render the signup form (the `if (idToken == null)`
-    // early-return below). clear() is idempotent — defense-in-depth on the terminal-exit contract.
-    LaunchedEffect(idToken == null) {
-        if (idToken == null) {
-            pendingSignupIdentity.clear()
-            onExitToSignIn()
+    // Entry-scoped state holder (docs/11 §2.2): the picked DOB / picker visibility / outcome / in-flight
+    // flag now live in the ViewModel, so the picked DOB survives a configuration change and the signup
+    // call (on viewModelScope) is not cancelled by recomposition. The absent-identity process-death guard
+    // is resolved synchronously in the VM's initial state (it reads the Koin-single holder before the first
+    // composition), surfaced as `identityAbsent` + a SignIn re-route one-shot — so the form never renders.
+    val viewModel = viewModel { AgeGateViewModel(authFlow, pendingSignupIdentity, today) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Consume the one-shot navigation (never mutate the back stack during composition). Covers BOTH the
+    // terminal signup outcomes (Home/SignIn, via the reused handleAgeGateTerminalOutcome seam) and the
+    // absent-identity re-route (SignIn) raised in the VM's initial state.
+    LaunchedEffect(uiState.navigation) {
+        when (uiState.navigation) {
+            AgeGateNavTarget.Home -> onSignedUp()
+            AgeGateNavTarget.SignIn -> onExitToSignIn()
+            null -> Unit
         }
+        if (uiState.navigation != null) viewModel.onNavigationHandled()
     }
-    if (idToken == null) return
 
-    val scope = rememberCoroutineScope()
-
-    var selectedDobMillis by remember { mutableStateOf<Long?>(null) }
-    var showPicker by remember { mutableStateOf(false) }
-    var outcome by remember { mutableStateOf<SignUpOutcome?>(null) }
-    var inFlight by remember { mutableStateOf(false) }
-
-    val selectedDob: LocalDate? = selectedDobMillis?.let { dobFromUtcMillis(it) }
-    val uiState =
-        ageGateUiState(
-            outcome = outcome,
-            dobSubmittable = isDobSubmittable(selectedDob, today),
-            inFlight = inFlight,
-        )
+    // Absent identity (process death / restored back stack): the VM has already cleared the holder and
+    // raised the SignIn re-route above — render no signup form (gated on uiState, never a LaunchedEffect).
+    if (uiState.identityAbsent) return
 
     val logo =
         if (isSystemInDarkTheme()) Res.drawable.logo_brand_dark else Res.drawable.logo_brand_light
@@ -143,14 +137,7 @@ fun AgeGateScreen(
         }
 
     // The DOB field shows the picked ISO date (YYYY-MM-DD) or the picker affordance copy.
-    val dobFieldText = selectedDob?.toString() ?: stringResource(Res.string.age_gate_dob_picker_cta)
-
-    // Navigate from an effect (never mutate the back stack during composition). The terminal-exit
-    // clear()-then-navigate decision is the pure [handleAgeGateTerminalOutcome] seam (unit-tested in
-    // AgeGateOutcomeHandlerTest) so the holder-lifecycle contract is verified without driving the DOB UI.
-    LaunchedEffect(outcome) {
-        handleAgeGateTerminalOutcome(outcome, pendingSignupIdentity, onSignedUp, onExitToSignIn)
-    }
+    val dobFieldText = uiState.selectedDob?.toString() ?: stringResource(Res.string.age_gate_dob_picker_cta)
 
     Column(
         modifier =
@@ -188,7 +175,7 @@ fun AgeGateScreen(
             modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
         )
         OutlinedButton(
-            onClick = { showPicker = true },
+            onClick = { viewModel.onShowPicker(true) },
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         ) {
             Text(text = dobFieldText)
@@ -207,17 +194,7 @@ fun AgeGateScreen(
                 // Defense-in-depth: reject taps when the CTA is logically disabled (no
                 // submittable DOB / in-flight), even if a synthetic click slips past `enabled`.
                 if (!uiState.ctaEnabled) return@Button
-                val dob = selectedDob ?: return@Button
-                scope.launch {
-                    inFlight = true
-                    try {
-                        outcome = authFlow.signUpWithGoogle(idToken, dob)
-                    } finally {
-                        // Reset even if the launch job is cancelled mid-call (config change /
-                        // screen disposal) so the CTA never sticks on "loading".
-                        inFlight = false
-                    }
-                }
+                viewModel.onCreateAccountClick()
             },
             enabled = uiState.ctaEnabled,
             modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
@@ -226,15 +203,12 @@ fun AgeGateScreen(
         }
     }
 
-    if (showPicker) {
+    if (uiState.showPicker) {
         DobPickerDialog(
-            initialMillis = selectedDobMillis,
+            initialMillis = uiState.selectedDobMillis,
             today = today,
-            onConfirm = { picked ->
-                if (picked != null) selectedDobMillis = picked
-                showPicker = false
-            },
-            onDismiss = { showPicker = false },
+            onConfirm = { picked -> viewModel.onDobPicked(picked) },
+            onDismiss = { viewModel.onShowPicker(false) },
         )
     }
 }
