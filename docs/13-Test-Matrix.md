@@ -53,6 +53,7 @@ CI runs the backend lane as:
 - `!network` ≠ `!database`. A local run with `-Dkotest.tags='!database'` **skips the DB specs CI runs** → greens locally, reds in CI (this exact trap broke an admin nav-count test, [#355](https://github.com/aditrioka/nearyou-id/pull/355); see project memory `feedback_ci_test_lane_excludes_network_not_database`).
 - A bare `:backend:ktor:test` (no `-Dkotest.tags`) runs **all** tags locally, so it is CI-equivalent on the tag axis *provided a reachable Postgres+Redis* — but see §5 for the dev-DB-pollution caveat.
 - Comma is **not** a valid kotest tag separator (5.x grammar is `&`/`|`/`!`).
+- **Run a single spec / subset:** `./gradlew :backend:ktor:test -Dkotest.filter.specs='*.SpecName'` — the `*.` dot-prefix is required (`*SpecName` matches nothing), comma lists don't work (run one at a time), and a non-matching filter **silently reports `BUILD SUCCESSFUL` with zero tests** → confirm `build/test-results/test/TEST-<fqcn>.xml` exists (project memory `reference_kotest_gradle_single_spec`). For an area subset use `--tests "id.nearyou.app.admin.*"`.
 
 ---
 
