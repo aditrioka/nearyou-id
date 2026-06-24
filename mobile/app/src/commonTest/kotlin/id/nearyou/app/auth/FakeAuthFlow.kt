@@ -1,19 +1,26 @@
 package id.nearyou.app.auth
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.datetime.LocalDate
 
 /**
- * Test-only [AuthFlow] for screen tests. Returns a pre-programmed [SignInOutcome] /
- * [SignUpOutcome] and tracks invocation counts so screen tests can assert (non-)entry: the
+ * Test-only [AuthFlow] for screen + ViewModel tests. Returns a pre-programmed [SignInOutcome] /
+ * [SignUpOutcome] and tracks invocation counts so tests can assert (non-)entry: the
  * Banned-CTA-tap-rejection scenario asserts the sign-in ceremony is NOT entered, and the Mobile #4
  * age-gate tests assert `signUpWithGoogle` is NOT auto-fired on screen entry (spec § "Entering
  * AgeGateScreen does not re-invoke the Google ceremony"). `isAuthenticated()` returns a fixed
  * value for `RootRouterScreen` routing tests.
+ *
+ * Pass [gate] to make `signInWithGoogle`/`signUpWithGoogle` SUSPEND until it completes — so a
+ * ViewModel's single-in-flight guard can be exercised deterministically (a second tap while one is
+ * pending at the gate must NOT increment the invocation count). Defaulted `null` = no suspension, so
+ * existing call sites are unaffected.
  */
 class FakeAuthFlow(
     private val outcome: SignInOutcome = SignInOutcome.Success,
     private val signUpOutcome: SignUpOutcome = SignUpOutcome.Success,
     private val authenticated: Boolean = false,
+    private val gate: CompletableDeferred<Unit>? = null,
 ) : AuthFlow {
     var signInInvocationCount: Int = 0
         private set
@@ -23,6 +30,7 @@ class FakeAuthFlow(
 
     override suspend fun signInWithGoogle(): SignInOutcome {
         signInInvocationCount++
+        gate?.await()
         return outcome
     }
 
@@ -31,6 +39,7 @@ class FakeAuthFlow(
         dateOfBirth: LocalDate,
     ): SignUpOutcome {
         signUpInvocationCount++
+        gate?.await()
         return signUpOutcome
     }
 

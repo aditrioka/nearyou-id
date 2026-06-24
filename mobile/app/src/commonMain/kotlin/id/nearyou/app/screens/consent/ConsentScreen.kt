@@ -18,17 +18,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentOutcome
-import id.nearyou.app.data.consent.ConsentSnapshot
 import id.nearyou.app.data.consent.ConsentSnapshotStore
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.consent_ads_desc
@@ -45,7 +42,6 @@ import id.nearyou.resources.generated.resources.consent_title
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.loading
 import id.nearyou.resources.generated.resources.signin_error_token_invalid
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
@@ -77,15 +73,16 @@ fun ConsentScreen(
 ) {
     val consentFlow = koinInject<ConsentFlow>()
     val snapshotStore = koinInject<ConsentSnapshotStore>()
-    val scope = rememberCoroutineScope()
 
-    var analytics by remember { mutableStateOf(initialAnalytics) }
-    var crash by remember { mutableStateOf(initialCrash) }
-    var ads by remember { mutableStateOf(initialAdsPersonalization) }
-    var outcome by remember { mutableStateOf<ConsentOutcome?>(null) }
-    var inFlight by remember { mutableStateOf(false) }
-
-    val uiState = consentUiState(outcome = outcome, inFlight = inFlight)
+    // Entry-scoped state holder (docs/11 §2.2): the three toggles + outcome + in-flight flag now live in
+    // the ViewModel, so the toggle selections survive a configuration change and the PATCH (on
+    // viewModelScope) is not cancelled by recomposition. The submit-200 snapshot write happens in the VM
+    // BEFORE the `done` one-shot (reusing the handleConsentTerminalOutcome decision).
+    val viewModel =
+        viewModel {
+            ConsentViewModel(consentFlow, snapshotStore, initialAnalytics, initialCrash, initialAdsPersonalization)
+        }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val ctaText =
         when (uiState.ctaLabel) {
@@ -102,10 +99,13 @@ fun ConsentScreen(
             }
         }
 
-    // Navigate from an effect (never mutate the back stack during composition). Success → onDone is
-    // the pure [handleConsentTerminalOutcome] seam (unit-tested in ConsentOutcomeHandlerTest).
-    LaunchedEffect(outcome) {
-        handleConsentTerminalOutcome(outcome, onDone)
+    // Navigate from an effect (never mutate the back stack during composition). The VM raises `done` on a
+    // submit-200 (via the reused handleConsentTerminalOutcome seam); we route Home and consume the one-shot.
+    LaunchedEffect(uiState.done) {
+        if (uiState.done) {
+            onDone()
+            viewModel.onDoneHandled()
+        }
     }
 
     Column(
@@ -133,26 +133,28 @@ fun ConsentScreen(
             modifier = Modifier.padding(top = 12.dp),
         )
 
+        // The toggles are disabled while a submit is in flight. For the consent screen
+        // `consentUiState` makes `ctaEnabled == !inFlight` exactly, so it is the faithful disable signal.
         ConsentToggleRow(
             label = stringResource(Res.string.consent_analytics_label),
             description = stringResource(Res.string.consent_analytics_desc),
-            checked = analytics,
-            onCheckedChange = { analytics = it },
-            enabled = !inFlight,
+            checked = uiState.analytics,
+            onCheckedChange = viewModel::onAnalyticsChange,
+            enabled = uiState.ctaEnabled,
         )
         ConsentToggleRow(
             label = stringResource(Res.string.consent_crash_label),
             description = stringResource(Res.string.consent_crash_desc),
-            checked = crash,
-            onCheckedChange = { crash = it },
-            enabled = !inFlight,
+            checked = uiState.crash,
+            onCheckedChange = viewModel::onCrashChange,
+            enabled = uiState.ctaEnabled,
         )
         ConsentToggleRow(
             label = stringResource(Res.string.consent_ads_label),
             description = stringResource(Res.string.consent_ads_desc),
-            checked = ads,
-            onCheckedChange = { ads = it },
-            enabled = !inFlight,
+            checked = uiState.ads,
+            onCheckedChange = viewModel::onAdsChange,
+            enabled = uiState.ctaEnabled,
         )
 
         if (bannerText != null) {
@@ -170,29 +172,7 @@ fun ConsentScreen(
                 // Defense-in-depth: reject taps when the CTA is logically disabled (in-flight),
                 // even if a synthetic click slips past `enabled`.
                 if (!uiState.ctaEnabled) return@Button
-                scope.launch {
-                    inFlight = true
-                    try {
-                        val result = consentFlow.submitConsent(analytics, crash, ads)
-                        outcome = result
-                        if (result == ConsentOutcome.Success) {
-                            // Persist the submitted triple to the durable snapshot on 200 (mirrors
-                            // ConsentSettingsScreen) so a user who consents only at onboarding has a
-                            // durable snapshot for the analytics tracker / crash gate (resolves #198).
-                            snapshotStore.write(
-                                ConsentSnapshot(
-                                    analytics = analytics,
-                                    crash = crash,
-                                    adsPersonalization = ads,
-                                ),
-                            )
-                        }
-                    } finally {
-                        // Reset even if the launch job is cancelled mid-call (config change /
-                        // screen disposal) so the CTA never sticks on "loading".
-                        inFlight = false
-                    }
-                }
+                viewModel.onContinueClick()
             },
             enabled = uiState.ctaEnabled,
             modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
