@@ -21,16 +21,19 @@ Two sources of truth (check both — the second disappears after cleanup):
 | Item | What | Sketch | Shape | Constraint |
 |---|---|---|---|---|
 | `#196+#211` | Social lists embed profile summaries + constant-404 alignment | issue bodies | OpenSpec (one change) | MUST land before the profile/follow screens |
-| `05-#5` | 5 remember-only screens → entry-scoped ViewModels | findings/05 #5 | OpenSpec | PostDetail+PostCreation first (user drafts); FOLD IN 05-#6/#7 (stateIn + koinViewModel) — same surface |
+| ~~`05-#5`~~ | ✔ **DONE** — remember-only screens → entry-scoped ViewModels: PostCreation/PostDetail (sibling changes) + SignIn/AgeGate/Consent (PR #405) | findings/05 #5 | — | shipped; 05-#6/#7 are NO LONGER folded in (now distinct rows below) |
 | `#214` | App-level auth-endpoint rate limits | issue body | OpenSpec (amends rate-limit-infrastructure) | client 429 mapping ships in the SAME change |
-| `#210` | Shadow-banned author feed self-visibility | issue body | OpenSpec (timeline spec deltas) | watch the cursor indexes (no de-indexing OR) |
 | `05-#16` | TokenRefresher follower-CE translation | findings/05 #16 | regular fix PR + test | small |
 | `05-#11` | `ui/components/` extraction (list-state kit + post card) | findings/06 duplication map | regular refactor PR | fold in 05-#9 (shell unread VM) + 05-#12 (LocationGate) if touching those files anyway; update docs/11 Pattern Registry |
+| `05-#6` | Retrofit the 3 OLD timeline VMs (Nearby/Global/Notifications, still multi-`StateFlow`) → single-`stateIn` | findings/05 #6 | OpenSpec | risky, heavily-tested retrofit (pager + like/load-more controllers); its OWN PR. NOT a 05-#5 fold-in — new VMs already use stateIn |
+| `05-#7` | App-wide `koinViewModel()` + Koin VM-declaration conversion of all ~17 `viewModel { }` call sites | findings/05 #7 | OpenSpec | app-wide pattern decision + a docs/11 §2.2-vs-code divergence; converting a subset FORKS the convention |
 | `D6` | `screens/` package restructure (mechanical moves only) | docs/11 §2.1 | regular PR | LAST mobile item (avoids churn conflicts) |
 | `#212` | Batched-Lua timeline limiter | issue body | OpenSpec (spec amendment mandated) | opportunistic — bundle when touching the limiter |
 | `R8-smoke` | Release-build runtime smoke on a physical device | verify-loop §B | no PR — verification evidence only | REQUIRED before the first distributed release build |
 
-**No argument given → recommended order:** `#196+#211` if profile/follow screens are imminent, else `05-#5`; then `#214` → `#210` → `05-#16` → `05-#11` → `D6`; `#212` opportunistic; `R8-smoke` whenever a release approaches. State the pick + reason, then proceed (do not stop to ask).
+> **Shipped (closed):** `#196+#211` (PR #222), `#210` (PR #243), `05-#5` (PR #405). Still open: `#214`, `#212`; the re-scoped `05-#6`/`05-#7` (now distinct OpenSpec items); `05-#16`, `05-#11`, `D6`; `R8-smoke` (release-time).
+
+**No argument given → recommended order:** `05-#16` (small) or `05-#11` next; then `#214` → `D6`; `05-#6`/`05-#7` are larger standalone OpenSpec items; `#212` opportunistic; `R8-smoke` whenever a release approaches. State the pick + reason, then proceed (do not stop to ask).
 
 ## 2 — Execute under the rails
 
