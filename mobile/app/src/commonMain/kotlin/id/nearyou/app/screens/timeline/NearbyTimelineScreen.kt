@@ -184,8 +184,9 @@ private fun NearbyFeed(
     val profileFlow = koinInject<ProfileFlow>()
     val selfUserIdProvider = koinInject<SelfUserIdProvider>()
     val viewModel = viewModel { NearbyTimelineViewModel(flow, likeFlow, profileFlow, selfUserIdProvider) }
-    val outcome by viewModel.outcome.collectAsStateWithLifecycle()
-    val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
+    // The single screen state — the nearbyTimelineUiState projection now lives in the VM (docs/11 §2.2),
+    // collected here instead of re-derived in the composable.
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val likeCapRetryAfterSeconds by viewModel.likeCapRetryAfterSeconds.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
@@ -206,8 +207,8 @@ private fun NearbyFeed(
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             NearbyTimelineContent(
                 // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
-                // list stays mounted). The refresh spinner is conveyed by isRefreshing, NOT by this projection.
-                uiState = remember(outcome, isInitialLoad) { nearbyTimelineUiState(outcome, isInitialLoad) },
+                // list stays mounted). The refresh spinner is conveyed by isRefreshing, NOT by this state.
+                uiState = uiState,
                 isRefreshing = isRefreshing,
                 // Load-more (infinite scroll): the footer flags + the scroll-end/retry callbacks. The shared
                 // LoadMoreController appends pages into the retained Loaded outcome, reusing the page-1 anchor.

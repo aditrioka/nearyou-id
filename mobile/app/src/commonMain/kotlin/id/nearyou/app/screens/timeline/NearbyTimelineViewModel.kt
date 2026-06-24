@@ -15,8 +15,11 @@ import id.nearyou.app.ui.timeline.InlineLikeController
 import id.nearyou.app.ui.timeline.LoadMoreController
 import id.nearyou.app.ui.timeline.LoadMorePage
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -34,16 +37,20 @@ import kotlin.coroutines.cancellation.CancellationException
  * (no new outcome member) — identical to the prior in-composable behavior, just hoisted off the
  * composition so it is not lost when the entry is disposed.
  *
- * Loading is split into two distinct flags (mobile-design-system § "Canonical list loading and refresh
- * pattern", design D3), replacing the prior single `inFlight`:
- * - [isInitialLoad] — true only until the FIRST outcome arrives (no content yet). Drives the screen's
- *   skeleton state via `nearbyTimelineUiState(outcome, isInitialLoad)`.
- * - [isRefreshing] — true during a [reload] while a prior outcome is RETAINED (so the list stays
- *   mounted and the screen keeps rendering `Content`). Drives only the `PullToRefreshBox` indicator.
+ * The single screen state is exposed as ONE [uiState] `StateFlow` (docs/11 §2.2) — the pure
+ * `nearbyTimelineUiState(outcome, isInitialLoad)` projection folded into the ViewModel via `stateIn`, so
+ * it is owned here, not recomputed in the composable. Loading is split (mobile-design-system § "Canonical
+ * list loading and refresh pattern", design D3), replacing the prior single `inFlight`:
+ * - the initial-load flag is INTERNAL (`initialLoad`, private) — true only until the FIRST outcome
+ *   arrives; reflected through [uiState] (which projects `Loading` until then), NOT a separate public flow.
+ * - [isRefreshing] — true during a [reload] while a prior outcome is RETAINED (so [uiState] keeps
+ *   projecting `Content`). Drives only the `PullToRefreshBox` indicator (not folded into [uiState]).
  *
- * On [reload] the existing outcome is kept (never nulled) and [isRefreshing] is set true; the outcome
- * is swapped + [isRefreshing] cleared on completion. So there is never an initial-load skeleton AND a
- * pull-to-refresh spinner at once.
+ * On [reload] the existing outcome is kept (never nulled) and [isRefreshing] is set true; the outcome is
+ * swapped + [isRefreshing] cleared on completion. So there is never an initial-load skeleton AND a
+ * pull-to-refresh spinner at once. The raw [outcome] stays exposed as the domain-state seam the inline-like
+ * / load-more controllers (and the white-box tests) read — it carries cursor/anchor paging the PII-free
+ * [NearbyTimelineUiState] deliberately strips.
  */
 class NearbyTimelineViewModel(
     private val flow: NearbyTimelineFlow,
@@ -54,11 +61,21 @@ class NearbyTimelineViewModel(
     private val _outcome = MutableStateFlow<NearbyTimelineOutcome?>(null)
     val outcome: StateFlow<NearbyTimelineOutcome?> = _outcome.asStateFlow()
 
-    private val _isInitialLoad = MutableStateFlow(true)
-    val isInitialLoad: StateFlow<Boolean> = _isInitialLoad.asStateFlow()
+    private val initialLoad = MutableStateFlow(true)
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    /**
+     * The single screen state (docs/11 §2.2): the pure [nearbyTimelineUiState] projection folded into the
+     * ViewModel via [stateIn] — computed once per outcome/initial-load change, NOT re-derived in the
+     * composable. `Loading` until the first outcome arrives; the refresh indicator is the separate
+     * [isRefreshing] flag (design D3), never folded in here.
+     */
+    val uiState: StateFlow<NearbyTimelineUiState> =
+        combine(_outcome, initialLoad) { outcome, isInitialLoad ->
+            nearbyTimelineUiState(outcome, isInitialLoad)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NearbyTimelineUiState.Loading)
 
     // mobile-nearby-radius-slider: the selected Nearby radius (default 20 km — the Free anchor). In-session
     // only (resets on cold start; no local-preference seam — design Decision 2). Drives every fetch.
@@ -106,7 +123,7 @@ class NearbyTimelineViewModel(
         LoadMoreController<NearbyPostDto>(
             scope = viewModelScope,
             currentCursor = { (_outcome.value as? NearbyTimelineOutcome.Loaded)?.nextCursor },
-            canLoadMore = { !_isInitialLoad.value && !_isRefreshing.value },
+            canLoadMore = { !initialLoad.value && !_isRefreshing.value },
             fetchPage = { cursor ->
                 val anchor = (_outcome.value as? NearbyTimelineOutcome.Loaded)?.anchor
                 if (anchor == null) {
@@ -164,7 +181,7 @@ class NearbyTimelineViewModel(
         // Reentrancy guard (2026-06-10 audit, 06 medium): stacked PTR + retry taps
         // raced concurrent fetches — latest-writer-wins on outcome and a flickering
         // isRefreshing. One reload at a time; the next gesture re-fires after.
-        if (_isRefreshing.value || _isInitialLoad.value) return
+        if (_isRefreshing.value || initialLoad.value) return
         // Refresh resets paging: load() swaps in a fresh first page (dropping the appended tail) and the
         // footer state is cleared here (mobile-design-system § load-more pattern, design D3).
         loadMoreController.reset()
@@ -188,7 +205,7 @@ class NearbyTimelineViewModel(
             } finally {
                 // After the first outcome arrives the screen leaves the skeleton for good; subsequent
                 // reloads toggle isRefreshing only.
-                _isInitialLoad.value = false
+                initialLoad.value = false
                 _isRefreshing.value = false
             }
         }
@@ -202,7 +219,7 @@ class NearbyTimelineViewModel(
         // guard is race-free because viewModelScope dispatches Dispatchers.Main.immediate: changeRadiusAndReload
         // sets _isRefreshing = true synchronously (before the first suspension) so a second rapid selectRadius
         // sees it set — the same reentrancy discipline reload() relies on.
-        if (_isInitialLoad.value || _isRefreshing.value) return
+        if (initialLoad.value || _isRefreshing.value) return
         when (val decision = radiusSelectionDecision(_isPremiumKnown.value, radiusM)) {
             is RadiusSelectionDecision.Apply -> {
                 if (decision.radiusM == _selectedRadiusM.value) return // no-op when unchanged

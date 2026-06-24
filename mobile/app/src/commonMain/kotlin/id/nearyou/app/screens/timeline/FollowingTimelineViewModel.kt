@@ -10,8 +10,11 @@ import id.nearyou.app.ui.timeline.InlineLikeController
 import id.nearyou.app.ui.timeline.LoadMoreController
 import id.nearyou.app.ui.timeline.LoadMorePage
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -26,10 +29,14 @@ import kotlin.coroutines.cancellation.CancellationException
  * The first load runs once on construction; [reload] re-fetches (pull-to-refresh + error retry). A load
  * failure maps to the EXISTING retryable [FollowingTimelineOutcome.NetworkError] (no new outcome member).
  *
- * Loading is split into [isInitialLoad] (true until the first outcome arrives — drives the skeleton) and
- * [isRefreshing] (true during a [reload] while a prior outcome is retained — drives only the
- * `PullToRefreshBox` indicator), per the canonical loading/refresh pattern (design D3). Mirrors
- * `GlobalTimelineViewModel`.
+ * The single screen state is exposed as ONE [uiState] `StateFlow` (docs/11 §2.2) — the pure
+ * `followingTimelineUiState(outcome, isInitialLoad)` projection folded into the ViewModel via `stateIn`, so
+ * it is owned here, not recomputed in the composable. The initial-load flag is INTERNAL (`initialLoad`,
+ * private), reflected through [uiState] (`Loading` until the first outcome arrives), NOT a separate public
+ * flow; [isRefreshing] (true during a [reload] while a prior outcome is retained) drives only the
+ * `PullToRefreshBox` indicator and is never folded into [uiState] (the canonical loading/refresh pattern,
+ * design D3). The raw [outcome] stays exposed as the domain-state seam the controllers + white-box tests
+ * read. Mirrors `GlobalTimelineViewModel`.
  */
 class FollowingTimelineViewModel(
     private val flow: FollowingTimelineFlow,
@@ -38,11 +45,21 @@ class FollowingTimelineViewModel(
     private val _outcome = MutableStateFlow<FollowingTimelineOutcome?>(null)
     val outcome: StateFlow<FollowingTimelineOutcome?> = _outcome.asStateFlow()
 
-    private val _isInitialLoad = MutableStateFlow(true)
-    val isInitialLoad: StateFlow<Boolean> = _isInitialLoad.asStateFlow()
+    private val initialLoad = MutableStateFlow(true)
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    /**
+     * The single screen state (docs/11 §2.2): the pure [followingTimelineUiState] projection folded into
+     * the ViewModel via [stateIn] — computed once per outcome/initial-load change, NOT re-derived in the
+     * composable. `Loading` until the first outcome arrives; the refresh indicator is the separate
+     * [isRefreshing] flag (design D3), never folded in here.
+     */
+    val uiState: StateFlow<FollowingTimelineUiState> =
+        combine(_outcome, initialLoad) { outcome, isInitialLoad ->
+            followingTimelineUiState(outcome, isInitialLoad)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FollowingTimelineUiState.Loading)
 
     // mobile-inline-post-actions: the Following surface's instance of the SAME shared inline-like
     // controller class Nearby/Global use (no per-feed duplicate of the lifecycle), over the same LikeFlow
@@ -73,7 +90,7 @@ class FollowingTimelineViewModel(
         LoadMoreController<FollowingPostDto>(
             scope = viewModelScope,
             currentCursor = { (_outcome.value as? FollowingTimelineOutcome.Loaded)?.nextCursor },
-            canLoadMore = { !_isInitialLoad.value && !_isRefreshing.value },
+            canLoadMore = { !initialLoad.value && !_isRefreshing.value },
             fetchPage = { cursor ->
                 when (val outcome = flow.loadMore(cursor)) {
                     is FollowingTimelineOutcome.Loaded -> LoadMorePage.Success(outcome.posts, outcome.nextCursor)
@@ -124,7 +141,7 @@ class FollowingTimelineViewModel(
     fun reload() {
         // Reentrancy guard (mirrors Global/Nearby): stacked PTR + retry taps would otherwise race
         // concurrent fetches. One reload at a time; the next gesture re-fires after.
-        if (_isRefreshing.value || _isInitialLoad.value) return
+        if (_isRefreshing.value || initialLoad.value) return
         // Refresh resets paging: load() swaps in a fresh first page (dropping the appended tail) and the
         // footer state is cleared here (mobile-design-system § load-more pattern, design D3).
         loadMoreController.reset()
@@ -144,7 +161,7 @@ class FollowingTimelineViewModel(
                 // FollowingTimelineOutcome member is introduced.
                 _outcome.value = FollowingTimelineOutcome.NetworkError
             } finally {
-                _isInitialLoad.value = false
+                initialLoad.value = false
                 _isRefreshing.value = false
             }
         }

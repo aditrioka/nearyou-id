@@ -25,7 +25,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -103,8 +102,9 @@ fun NotificationsScreen(
 ) {
     val flow = koinInject<NotificationsFlow>()
     val viewModel = viewModel { NotificationsViewModel(flow) }
-    val outcome by viewModel.outcome.collectAsStateWithLifecycle()
-    val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
+    // The single screen state — the notificationsUiState projection now lives in the VM (docs/11 §2.2),
+    // collected here instead of re-derived in the composable.
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val loadMoreError by viewModel.loadMoreError.collectAsStateWithLifecycle()
@@ -135,7 +135,7 @@ fun NotificationsScreen(
     }
 
     NotificationsContent(
-        uiState = remember(outcome, isInitialLoad) { notificationsUiState(outcome, isInitialLoad) },
+        uiState = uiState,
         isRefreshing = isRefreshing,
         // Load-more (infinite scroll): the footer flags + the scroll-end/retry callbacks. The shared
         // LoadMoreController appends pages into the retained Loaded outcome, reusing the page-1 unread filter.

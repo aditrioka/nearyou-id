@@ -5,8 +5,10 @@ import id.nearyou.app.notifications.MarkAllReadResult
 import id.nearyou.app.notifications.MarkReadResult
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.fakeNotification
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -52,7 +54,6 @@ class NotificationsViewModelTest {
         val viewModel = NotificationsViewModel(fake)
         assertEquals(1, fake.loadInvocationCount, "the first page loads exactly once on construction")
         assertTrue(viewModel.outcome.value is NotificationsOutcome.Loaded, "the loaded outcome is exposed")
-        assertFalse(viewModel.isInitialLoad.value, "isInitialLoad resets after the first load completes")
         assertFalse(viewModel.isRefreshing.value, "isRefreshing stays false for the initial load")
     }
 
@@ -69,10 +70,61 @@ class NotificationsViewModelTest {
     fun loadFailure_mapsToExistingNetworkError() {
         val fake = FakeNotificationsFlow(failWith = IllegalStateException("fetch threw"))
         val viewModel = NotificationsViewModel(fake)
+        viewModel.activateUiState()
         assertEquals(
             NotificationsOutcome.NetworkError,
             viewModel.outcome.value,
             "a fetch failure maps to the existing retryable NetworkError (no new outcome member)",
+        )
+        assertTrue(viewModel.uiState.value is NotificationsUiState.Error, "and uiState projects to Error")
+    }
+
+    @Test
+    fun uiState_delegatesToTheProjection() {
+        val fake = FakeNotificationsFlow(NotificationsOutcome.Loaded(listOf(fakeNotification()), null))
+        val viewModel = NotificationsViewModel(fake)
+        viewModel.activateUiState()
+        // The single uiState equals the pure projection for the held outcome (reused, not reimplemented);
+        // after the first outcome arrives the initial-load flag is false.
+        assertEquals(
+            notificationsUiState(viewModel.outcome.value, isInitialLoad = false),
+            viewModel.uiState.value,
+            "uiState delegates to notificationsUiState(outcome, isInitialLoad)",
+        )
+        assertTrue(viewModel.uiState.value is NotificationsUiState.Content, "a loaded non-empty outcome projects to Content")
+    }
+
+    @Test
+    fun uiState_retainsContentAcrossAFreshCollector() {
+        // The config-change proxy: the entry-scoped VM retains the resolved outcome, so a FRESH uiState
+        // collector (the recomposed screen) still sees Content — not a reset to Loading.
+        val fake = FakeNotificationsFlow(NotificationsOutcome.Loaded(listOf(fakeNotification()), null))
+        val viewModel = NotificationsViewModel(fake)
+        viewModel.activateUiState()
+        assertTrue(viewModel.uiState.value is NotificationsUiState.Content, "loaded → Content")
+        viewModel.activateUiState() // a second, fresh collector (the config-change case)
+        assertTrue(
+            viewModel.uiState.value is NotificationsUiState.Content,
+            "a fresh collector still sees the retained Content (not reset to Loading)",
+        )
+    }
+
+    @Test
+    fun refresh_keepsContent_andTogglesOnlyIsRefreshing() {
+        // suspendFromCall = 2 → the reload's loadFirstPage suspends, so we observe the in-flight refresh:
+        // isRefreshing = true, uiState stays Content (NOT Loading) — the prior outcome is retained.
+        val fake = FakeNotificationsFlow(NotificationsOutcome.Loaded(listOf(fakeNotification()), null), suspendFromCall = 2)
+        val viewModel = NotificationsViewModel(fake)
+        viewModel.activateUiState()
+        assertTrue(viewModel.uiState.value is NotificationsUiState.Content, "after the first load uiState is Content")
+        assertFalse(viewModel.isRefreshing.value, "not refreshing before reload")
+
+        viewModel.reload()
+
+        assertTrue(viewModel.isRefreshing.value, "a reload-in-flight sets isRefreshing")
+        assertTrue(
+            viewModel.uiState.value is NotificationsUiState.Content,
+            "uiState stays Content during the refresh (does NOT revert to Loading)",
         )
     }
 
@@ -291,5 +343,11 @@ class NotificationsViewModelTest {
         viewModel.onLoadMore()
 
         assertTrue(fake.loadMoreCalls.isEmpty(), "load-more is suppressed while a refresh is in flight (canLoadMore gate)")
+    }
+
+    // Activates the WhileSubscribed(5000) uiState share (on the Unconfined Main) so uiState.value reflects
+    // the projected state in these synchronous tests; the collector is abandoned at test end (no runTest).
+    private fun NotificationsViewModel.activateUiState() {
+        CoroutineScope(Dispatchers.Main).launch { uiState.collect {} }
     }
 }

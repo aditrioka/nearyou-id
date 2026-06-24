@@ -14,8 +14,11 @@ import id.nearyou.app.ui.timeline.LoadMoreController
 import id.nearyou.app.ui.timeline.LoadMorePage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -54,11 +57,22 @@ class NotificationsViewModel(
     // migrated to in #167. This VM had kept the pre-split single `inFlight`
     // flag (2026-06-10 audit, finding 05-#2): refresh tore Content down to the
     // skeleton AND showed two progress indicators at once.
-    private val _isInitialLoad = MutableStateFlow(true)
-    val isInitialLoad: StateFlow<Boolean> = _isInitialLoad.asStateFlow()
+    private val initialLoad = MutableStateFlow(true)
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    /**
+     * The single screen state (docs/11 §2.2): the pure [notificationsUiState] projection folded into the
+     * ViewModel via [stateIn] — computed once per outcome/initial-load change, NOT re-derived in the
+     * composable. `Loading` until the first outcome arrives; the refresh indicator is the separate
+     * [isRefreshing] flag, never folded in here. The raw [outcome] stays exposed as the domain-state seam
+     * the optimistic read mutations / load-more controller / deep-link resolution + white-box tests read.
+     */
+    val uiState: StateFlow<NotificationsUiState> =
+        combine(_outcome, initialLoad) { outcome, isInitialLoad ->
+            notificationsUiState(outcome, isInitialLoad)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NotificationsUiState.Loading)
 
     // mobile-nearby-timeline-infinite-scroll (extended to notifications): the notifications instance of the
     // ONE shared load-more lifecycle (ui/timeline/LoadMoreController). Appends pages into the retained
@@ -70,7 +84,7 @@ class NotificationsViewModel(
         LoadMoreController<NotificationDto>(
             scope = viewModelScope,
             currentCursor = { (_outcome.value as? NotificationsOutcome.Loaded)?.nextCursor },
-            canLoadMore = { !_isInitialLoad.value && !_isRefreshing.value },
+            canLoadMore = { !initialLoad.value && !_isRefreshing.value },
             fetchPage = { cursor ->
                 when (val outcome = flow.loadMore(cursor)) {
                     is NotificationsOutcome.Loaded -> LoadMorePage.Success(outcome.items, outcome.nextCursor)
@@ -127,7 +141,7 @@ class NotificationsViewModel(
         // Reentrancy guard (2026-06-10 audit, 06 medium): stacked PTR + retry taps
         // raced concurrent fetches — latest-writer-wins on outcome and a flickering
         // isRefreshing. One reload at a time; the next gesture re-fires after.
-        if (_isRefreshing.value || _isInitialLoad.value) return
+        if (_isRefreshing.value || initialLoad.value) return
         // Refresh resets paging: load() swaps in a fresh first page (dropping the appended tail) and the
         // footer state is cleared here (mobile-design-system § load-more pattern).
         loadMoreController.reset()
@@ -146,7 +160,7 @@ class NotificationsViewModel(
                 // The fetch threw → existing retryable error state. No new outcome member.
                 _outcome.value = NotificationsOutcome.NetworkError
             } finally {
-                _isInitialLoad.value = false
+                initialLoad.value = false
                 _isRefreshing.value = false
             }
         }
