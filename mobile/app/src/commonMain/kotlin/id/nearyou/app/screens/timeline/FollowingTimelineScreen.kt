@@ -1,20 +1,11 @@
 package id.nearyou.app.screens.timeline
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -22,7 +13,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -31,15 +21,15 @@ import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.timeline.FollowingTimelineFlow
 import id.nearyou.app.timeline.FollowingTimelineOutcome
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
-import id.nearyou.app.ui.components.LoadMoreFooter
-import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
-import id.nearyou.app.ui.components.PostCard
+import id.nearyou.app.ui.components.ListCenteredMessageState
+import id.nearyou.app.ui.components.ListErrorState
+import id.nearyou.app.ui.components.ListLoadingState
+import id.nearyou.app.ui.components.ListScrollableState
 import id.nearyou.app.ui.components.PostCardModel
+import id.nearyou.app.ui.components.PostFeedList
 import id.nearyou.resources.generated.resources.Res
-import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
-import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_following_placeholder
 import id.nearyou.resources.generated.resources.timeline_limit_hard
 import id.nearyou.resources.generated.resources.timeline_limit_soft
@@ -177,19 +167,33 @@ private fun FollowingTimelineContent(
         modifier = Modifier.fillMaxSize(),
     ) {
         when (uiState) {
-            FollowingTimelineUiState.Loading -> LoadingState()
+            FollowingTimelineUiState.Loading ->
+                ListLoadingState(
+                    message = stringResource(Res.string.timeline_loading),
+                    testTag = FOLLOWING_TIMELINE_LIST_TAG,
+                    showSkeleton = true,
+                )
             // The DIVERGENCE from Global: a directive empty (placeholder copy + "Lihat Global" CTA), NOT
             // the loading skeleton — Following-empty is a real expected state (docs/03 § Empty State).
             FollowingTimelineUiState.Empty -> FollowingEmptyState(onSeeGlobal = onSeeGlobal)
-            FollowingTimelineUiState.HardLimit -> CenteredMessageState(stringResource(Res.string.timeline_limit_hard))
-            FollowingTimelineUiState.Error -> ErrorState(onRetry = onRetry)
+            FollowingTimelineUiState.HardLimit ->
+                ListCenteredMessageState(
+                    message = stringResource(Res.string.timeline_limit_hard),
+                    testTag = FOLLOWING_TIMELINE_LIST_TAG,
+                )
+            FollowingTimelineUiState.Error -> ListErrorState(onRetry = onRetry, testTag = FOLLOWING_TIMELINE_LIST_TAG)
             // Terminal 401 → neutral redirect placeholder: the redirect copy with NO retry control and
             // NOT signin_error_network (the SessionInvalidator re-route whisks the user to SignInScreen).
             FollowingTimelineUiState.SessionRedirect ->
-                CenteredMessageState(stringResource(Res.string.timeline_session_redirect))
+                ListCenteredMessageState(
+                    message = stringResource(Res.string.timeline_session_redirect),
+                    testTag = FOLLOWING_TIMELINE_LIST_TAG,
+                )
             is FollowingTimelineUiState.Content ->
-                PostList(
+                PostFeedList(
                     posts = uiState.posts,
+                    keyOf = { it.id },
+                    cardModelOf = { it.toCardModel() },
                     isLoadingMore = isLoadingMore,
                     loadMoreError = loadMoreError,
                     onLoadMore = onLoadMore,
@@ -198,10 +202,14 @@ private fun FollowingTimelineContent(
                     onToggleLike = onToggleLike,
                     onReplyShortcut = onReplyShortcut,
                     onOpenProfile = onOpenProfile,
+                    listTag = FOLLOWING_TIMELINE_LIST_TAG,
+                    cardTag = FOLLOWING_POST_CARD_TAG,
                 )
             is FollowingTimelineUiState.SoftLimit ->
-                PostList(
+                PostFeedList(
                     posts = uiState.posts,
+                    keyOf = { it.id },
+                    cardModelOf = { it.toCardModel() },
                     isLoadingMore = isLoadingMore,
                     loadMoreError = loadMoreError,
                     onLoadMore = onLoadMore,
@@ -210,47 +218,10 @@ private fun FollowingTimelineContent(
                     onToggleLike = onToggleLike,
                     onReplyShortcut = onReplyShortcut,
                     onOpenProfile = onOpenProfile,
+                    listTag = FOLLOWING_TIMELINE_LIST_TAG,
+                    cardTag = FOLLOWING_POST_CARD_TAG,
                     banner = stringResource(Res.string.timeline_limit_soft),
                 )
-        }
-    }
-}
-
-/**
- * A non-`Content` screen state rendered inside a single-item `LazyColumn` (tagged
- * [FOLLOWING_TIMELINE_LIST_TAG]) so the `PullToRefreshBox` recognizes the pull gesture from it. The
- * single item fills the viewport and centers [content].
- */
-@Composable
-private fun FollowingScrollableState(content: @Composable () -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize().testTag(FOLLOWING_TIMELINE_LIST_TAG)) {
-        item {
-            Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                content()
-            }
-        }
-    }
-}
-
-@Composable
-private fun LoadingState() {
-    FollowingScrollableState {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
-            Text(
-                text = stringResource(Res.string.timeline_loading),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 16.dp),
-            )
-            // Skeleton placeholder cards (no content) to signal a list is loading.
-            repeat(3) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(72.dp),
-                    content = {},
-                )
-            }
         }
     }
 }
@@ -264,7 +235,7 @@ private fun LoadingState() {
  */
 @Composable
 private fun FollowingEmptyState(onSeeGlobal: () -> Unit) {
-    FollowingScrollableState {
+    ListScrollableState(testTag = FOLLOWING_TIMELINE_LIST_TAG) {
         Column(
             modifier = Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -278,93 +249,6 @@ private fun FollowingEmptyState(onSeeGlobal: () -> Unit) {
             Button(onClick = onSeeGlobal, modifier = Modifier.padding(top = 16.dp)) {
                 Text(text = stringResource(Res.string.cta_see_global))
             }
-        }
-    }
-}
-
-@Composable
-private fun CenteredMessageState(message: String) {
-    FollowingScrollableState {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(24.dp),
-        )
-    }
-}
-
-@Composable
-private fun ErrorState(onRetry: () -> Unit) {
-    FollowingScrollableState {
-        Column(
-            modifier = Modifier.padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = stringResource(Res.string.signin_error_network),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
-                Text(text = stringResource(Res.string.cta_retry))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PostList(
-    posts: List<FollowingTimelinePost>,
-    isLoadingMore: Boolean,
-    loadMoreError: Boolean,
-    onLoadMore: () -> Unit,
-    onRetryLoadMore: () -> Unit,
-    onOpenPost: (FollowingTimelinePost) -> Unit,
-    onToggleLike: (FollowingTimelinePost) -> Unit,
-    onReplyShortcut: (FollowingTimelinePost) -> Unit,
-    onOpenProfile: (FollowingTimelinePost) -> Unit,
-    banner: String? = null,
-) {
-    val listState = rememberLazyListState()
-    LoadMoreOnScrollEnd(listState = listState, onLoadMore = onLoadMore)
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize().testTag(FOLLOWING_TIMELINE_LIST_TAG),
-        // Bottom clearance for the shell's overlaid composer FAB (56dp + 16 margin + breathing room) so
-        // the last card's like/reply row never sits under it at scroll end.
-        contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp),
-    ) {
-        if (banner != null) {
-            item {
-                SoftLimitBanner(text = banner)
-            }
-        }
-        items(items = posts, key = { it.id }, contentType = { "post" }) { post ->
-            // The ONE shared card (ui/components, mobile-post-card) — distanceM = null on this surface
-            // (Following has no spatial filter, no distance is rendered). The whole card is the
-            // open-detail tap; the action row's like/reply affordances are the only other targets
-            // (mobile-inline-post-actions). All callbacks carry the PII-free post.
-            PostCard(
-                model = post.toCardModel(),
-                onOpen = { onOpenPost(post) },
-                onToggleLike = { onToggleLike(post) },
-                onReplyShortcut = { onReplyShortcut(post) },
-                onOpenProfile = { onOpenProfile(post) },
-                modifier = Modifier.testTag(FOLLOWING_POST_CARD_TAG),
-            )
-        }
-        // Load-more footer: spinner while a page loads, non-destructive retry on error, nothing at end
-        // (mobile-design-system § "Canonical list load-more pattern"). The scroll-end detector above
-        // drives onLoadMore; the LoadMoreController's guards make an eager trigger on a short list a no-op.
-        item(key = "loadMoreFooter", contentType = "footer") {
-            LoadMoreFooter(
-                isLoadingMore = isLoadingMore,
-                loadMoreError = loadMoreError,
-                onRetry = onRetryLoadMore,
-            )
         }
     }
 }
@@ -383,18 +267,3 @@ private fun FollowingTimelinePost.toCardModel(): PostCardModel =
         replyCount = replyCount,
         imageUrl = imageUrl,
     )
-
-@Composable
-private fun SoftLimitBanner(text: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.padding(12.dp),
-        )
-    }
-}

@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -30,16 +29,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.screens.home.PostDetailTarget
+import id.nearyou.app.ui.components.ListCenteredMessageState
+import id.nearyou.app.ui.components.ListErrorState
+import id.nearyou.app.ui.components.ListLoadingState
 import id.nearyou.app.ui.components.LoadMoreFooter
 import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.resources.generated.resources.Res
-import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.notif_chat_message
 import id.nearyou.resources.generated.resources.notif_followed
 import id.nearyou.resources.generated.resources.notif_generic
@@ -51,7 +51,6 @@ import id.nearyou.resources.generated.resources.notifications_loading
 import id.nearyou.resources.generated.resources.notifications_mark_all_read
 import id.nearyou.resources.generated.resources.notifications_post_unavailable
 import id.nearyou.resources.generated.resources.notifications_title
-import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_session_redirect
 import id.nearyou.resources.theme.locationPin
 import kotlinx.coroutines.delay
@@ -223,13 +222,24 @@ private fun NotificationsContent(
             modifier = Modifier.fillMaxSize(),
         ) {
             when (uiState) {
-                NotificationsUiState.Loading -> LoadingState()
-                NotificationsUiState.Empty -> CenteredMessage(stringResource(Res.string.notifications_empty))
-                NotificationsUiState.Error -> ErrorState(onRetry = onRetry)
+                NotificationsUiState.Loading ->
+                    ListLoadingState(
+                        message = stringResource(Res.string.notifications_loading),
+                        testTag = NOTIFICATIONS_LIST_TAG,
+                    )
+                NotificationsUiState.Empty ->
+                    ListCenteredMessageState(
+                        message = stringResource(Res.string.notifications_empty),
+                        testTag = NOTIFICATIONS_LIST_TAG,
+                    )
+                NotificationsUiState.Error -> ListErrorState(onRetry = onRetry, testTag = NOTIFICATIONS_LIST_TAG)
                 // Terminal 401 → neutral redirect placeholder (no retry, not the connectivity
                 // copy) — the SessionInvalidator re-route is already in flight (06-#3).
                 NotificationsUiState.SessionRedirect ->
-                    CenteredMessage(stringResource(Res.string.timeline_session_redirect))
+                    ListCenteredMessageState(
+                        message = stringResource(Res.string.timeline_session_redirect),
+                        testTag = NOTIFICATIONS_LIST_TAG,
+                    )
                 is NotificationsUiState.Content ->
                     NotificationList(
                         rows = uiState.rows,
@@ -240,70 +250,6 @@ private fun NotificationsContent(
                         onRowTap = onRowTap,
                         resolvingRowId = resolvingRowId,
                     )
-            }
-        }
-    }
-}
-
-/**
- * Single-item LazyColumn wrapper so non-Content states stay swipeable — `PullToRefreshBox` only
- * recognizes the gesture over a scrollable child (the Nearby/Global `*ScrollableState` idiom). Carries
- * [NOTIFICATIONS_LIST_TAG] so the screen test targets the same swipe surface in every state.
- */
-@Composable
-private fun NotificationsScrollableState(content: @Composable () -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize().testTag(NOTIFICATIONS_LIST_TAG)) {
-        item {
-            Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                content()
-            }
-        }
-    }
-}
-
-@Composable
-private fun LoadingState() {
-    NotificationsScrollableState {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
-            Text(
-                text = stringResource(Res.string.notifications_loading),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 16.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun CenteredMessage(message: String) {
-    NotificationsScrollableState {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(24.dp),
-        )
-    }
-}
-
-@Composable
-private fun ErrorState(onRetry: () -> Unit) {
-    NotificationsScrollableState {
-        Column(
-            modifier = Modifier.padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = stringResource(Res.string.signin_error_network),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
-                Text(text = stringResource(Res.string.cta_retry))
             }
         }
     }
