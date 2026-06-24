@@ -9,9 +9,12 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 
 /**
@@ -26,7 +29,9 @@ import kotlin.time.Clock
  * a [Mutex] + a shared [CompletableDeferred]: the FIRST caller becomes the leader and performs the
  * POST **in its own coroutine** (so the round-trip stays on the caller's dispatcher — `runTest`-/
  * test-scheduler-friendly, never an orphaned background coroutine); every follower awaits the
- * leader's deferred and returns its `TokenPair`.
+ * leader's deferred and returns its `TokenPair`. The leader runs the POST under [NonCancellable] so a
+ * cancellation of the LEADER's coroutine never poisons followers with a foreign `CancellationException`
+ * — followers always observe a real outcome (rotated pair / `null` / transport failure).
  *
  * The [HttpClient] is passed **per call** (`refresh(client)`) rather than held as a field: both the
  * reactive `RefreshTokensParams.client` and the proactively-injected shared client are the same
@@ -67,15 +72,37 @@ class TokenRefresher(
             return deferred.await()
         }
         return try {
-            val result = performRefresh(client)
-            deferred.complete(result)
-            result
+            // Run the round-trip in a NonCancellable scope and publish to followers FROM INSIDE it.
+            // A cancellation of the LEADER's coroutine (app-root teardown, a popped screen's reactive
+            // call) must NOT surface as a refresh outcome: the old code caught it as a `Throwable` and
+            // `completeExceptionally(CancellationException)`'d the shared deferred, which made every
+            // FOLLOWER's `await()` rethrow that foreign CE — silently unwinding a follower whose own
+            // request was never cancelled, so the original request failed WITHOUT `SessionInvalidator`
+            // firing and the timeline stranded on its `SessionRedirect` placeholder (audit 2026-06-10,
+            // finding 05-#16). NonCancellable lets the leader's POST finish, so followers always observe
+            // a real outcome — a rotated `TokenPair`, `null` (session invalidated), or a transport
+            // failure — and the leader's own cancellation still resurfaces at its caller's next suspend.
+            withContext(NonCancellable) {
+                val result = performRefresh(client)
+                deferred.complete(result)
+                result
+            }
+        } catch (cancellation: CancellationException) {
+            // Module convention (mirrors AuthApiClient): never treat a CancellationException as a
+            // refresh FAILURE. Unreachable for the leader's own cancellation (suppressed above); kept so
+            // a stray CE is never republished to followers. The deferred is already completed inside the
+            // NonCancellable block, so no follower is left hanging.
+            throw cancellation
         } catch (cause: Throwable) {
-            // Publish the failure to any follower (so it does not hang), then propagate.
+            // A real (non-cancellation) failure — publish it to any follower (so it does not hang),
+            // then propagate so the caller surfaces a connectivity error.
             deferred.completeExceptionally(cause)
             throw cause
         } finally {
-            mutex.withLock { if (inFlight === deferred) inFlight = null }
+            // Clear the in-flight slot even if the leader's coroutine was cancelled: the suspend lock
+            // acquisition must itself be uncancellable, or a cancelled leader would strand a finished
+            // deferred in `inFlight` and trap the next caller as a follower of an already-done refresh.
+            withContext(NonCancellable) { mutex.withLock { if (inFlight === deferred) inFlight = null } }
         }
     }
 
