@@ -189,6 +189,8 @@ Other conventions:
 
 Direct push to `main` is hook-blocked — every change ships via feature branch + PR + squash-merge.
 
+**gh CLI account (per-repo).** `gh` operations on nearyou-id MUST run under the `aditrioka` account, NOT `adi-at-buku` — a wrong active account makes `gh pr create` fail with a 403 "must be a collaborator" (`gh auth switch` to correct it). Note `aditrioka` may still lack `actions:write` (so `gh run rerun` can 403). (Also project memory `reference_gh_active_account_per_repo`.)
+
 **Change naming.** Kebab-case, descriptive, no `-v<N>` suffix — a change name describes what it adds, not which Flyway version it bumps (a change can ship zero or multiple migrations). Pre-V7 archives follow this (`signup-flow`, `post-creation-geo`, `nearby-timeline-with-blocks`, `following-timeline-with-follow-cascade`); the V7–V9 trio (`post-likes-v7`, `post-replies-v8`, `reports-v9`) used an interim suffix that we standardized away from.
 
 **Branch naming.**
