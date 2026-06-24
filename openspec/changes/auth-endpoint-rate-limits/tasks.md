@@ -46,4 +46,4 @@
 
 - [x] 8.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green.
 - [x] 8.2 `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` green.
-- [ ] 8.3 Manual verification of the rate-limited UI state per docs/11 §5 (verify-loop / mobile-ui-foundation) — screenshot evidence in the PR body before archive.
+- [x] 8.3 Manual verification of the rate-limited UI state per docs/11 §5 (verify-loop / mobile-ui-foundation) — screenshot evidence in the PR body before archive.
