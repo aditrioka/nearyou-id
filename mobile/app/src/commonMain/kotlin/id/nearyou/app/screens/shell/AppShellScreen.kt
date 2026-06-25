@@ -26,8 +26,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -35,6 +33,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.push.FcmTokenRegistrar
@@ -90,10 +90,11 @@ import org.koin.compose.koinInject
  *
  * This is the [HomeRoute][id.nearyou.app.screens.routing.HomeRoute] entry (mapped by `appEntryProvider`):
  * its body composes **directly** under the `HomeRoute` `NavEntry` (no intermediate `NavDisplay`), so every
- * `viewModel { }` inside — the Home feeds' VMs AND the notifications VM — resolves to the `HomeRoute` store
- * and survives **section switches** without re-fetch (design D3/D7), exactly as the feed tabs survive tab
- * switches. `selectedSection` is a `@Serializable` [Section] in `rememberSaveable` (iOS-safe; default
- * [Section.Home]). There is **no** per-section `NavDisplay` and **no** section-root `NavKey`.
+ * `viewModel { }` inside — this shell's own [AppShellViewModel], the Home feeds' VMs, AND the notifications
+ * VM — resolves to the `HomeRoute` store and survives **section switches** (and configuration changes)
+ * without re-fetch (design D3/D7), exactly as the feed tabs survive tab switches. `selectedSection` is a
+ * `@Serializable` [Section] in `rememberSaveable` (iOS-safe; default [Section.Home]). There is **no**
+ * per-section `NavDisplay` and **no** section-root `NavKey`.
  *
  * The composer FAB stays inside [HomeScreen] (the Home section), so it shows on Home only — never on the
  * Notifikasi / Profil sections. [onOpenComposer], [onOpenPost], and [onOpenPostReply] are forwarded to
@@ -104,10 +105,12 @@ import org.koin.compose.koinInject
  * Notifikasi / Profil sections wire neither card callback.
  *
  * The Notifikasi nav item carries an unread **badge** (design D6) sourced from
- * `GET /api/v1/notifications/unread-count` — fetched **once** on shell composition and refreshed **once**
- * when the user leaves the Notifikasi section (having likely read some). It is shown only when `count > 0`.
- * NO polling timer / push-driven live subscription is wired (live updates deferred — follow-up issue
- * #197, `mobile-notifications-live-unread-badge`).
+ * `GET /api/v1/notifications/unread-count`, owned by the shell-scoped [AppShellViewModel] (audit 05-#9 —
+ * moved off this composable so the count survives rotation + section switches and no data work launches
+ * from the composable, docs/11 §2.2): fetched **once** on shell composition (the VM's `init`) and refreshed
+ * **once** when the user leaves the Notifikasi section (a `DisposableEffect` `onDispose` →
+ * `refreshUnreadCount()`). It is shown only when `count > 0`. NO polling timer / push-driven live
+ * subscription is wired (live updates deferred — follow-up issue #197, `mobile-notifications-live-unread-badge`).
  */
 @Composable
 fun AppShellScreen(
@@ -126,10 +129,12 @@ fun AppShellScreen(
     val flow = koinInject<NotificationsFlow>()
     var selectedSection by rememberSaveable { mutableStateOf(Section.Home) }
 
-    val scope = rememberCoroutineScope()
-    var unreadCount by remember { mutableStateOf(0L) }
-    // One-shot unread-count fetch on shell composition (design D6). A failed/absent count → 0 (no badge).
-    LaunchedEffect(Unit) { unreadCount = flow.unreadCount() ?: 0L }
+    // The unread-count badge state lives in a shell-scoped ViewModel (audit 05-#9): it owns the one-shot
+    // unread-count fetch (design D6) so the count survives rotation + section switches with the HomeRoute
+    // store, and no business/data work launches from this composable (docs/11 §2.2). A failed/absent count
+    // → 0 (no badge). The shell IS the HomeRoute NavEntry, so this `viewModel { }` scopes to that store.
+    val shellViewModel = viewModel { AppShellViewModel(flow) }
+    val shellState by shellViewModel.uiState.collectAsStateWithLifecycle()
 
     // mobile-fcm-token-registration — the single session-active hook (design D4). The authenticated shell is
     // where every authenticated path converges (cold-start, sign-in, signup), so registering here fires once
@@ -172,9 +177,9 @@ fun AppShellScreen(
                     iconOutlined = Res.drawable.ic_nav_notifications,
                     iconFilled = Res.drawable.ic_nav_notifications_filled,
                     iconDescription = stringResource(Res.string.section_notifications_icon_description),
-                    // Badge shown only when there are unread notifications (count > 0).
+                    // Badge shown only when there are unread notifications (shellState.showBadge ⇔ count > 0).
                     badgeContentDescription =
-                        if (unreadCount > 0) stringResource(Res.string.notifications_badge) else null,
+                        if (shellState.showBadge) stringResource(Res.string.notifications_badge) else null,
                 )
                 SectionItem(
                     selected = selectedSection == Section.Profil,
@@ -213,9 +218,10 @@ fun AppShellScreen(
                         onOpenChatThread = onOpenChatThread,
                     )
                     // Refresh the badge once when leaving Notifikasi (the user likely read some). One-shot,
-                    // not a live subscription — onDispose fires when the section body leaves composition.
+                    // not a live subscription — onDispose fires when the section body leaves composition and
+                    // delegates the fetch to the VM (the data work runs in viewModelScope, not here — §2.2).
                     DisposableEffect(Unit) {
-                        onDispose { scope.launch { unreadCount = flow.unreadCount() ?: 0L } }
+                        onDispose { shellViewModel.refreshUnreadCount() }
                     }
                 }
                 // The live self profile (mobile-profile): targetUserId = null → the VM resolves the self
