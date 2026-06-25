@@ -158,10 +158,11 @@ fun NearbyTimelineScreen(
 /**
  * The granted-permission Nearby feed: the fetch path, with its load state hoisted into a
  * `HomeRoute`-scoped [NearbyTimelineViewModel] (resolved via `viewModel { … }` under the
- * `rememberViewModelStoreNavEntryDecorator`). The VM exposes `isInitialLoad` (drives the skeleton)
- * separately from `isRefreshing` (drives only the `PullToRefreshBox` indicator), so a refresh keeps the
- * content list mounted (design D3). Hoisting the state off the composition is the reload-on-return fix
- * (mobile-nav-swap-to-navigation3 Decision 5): the VM survives `HomeRoute` going off-screen while the
+ * `rememberViewModelStoreNavEntryDecorator`). The VM exposes one `uiState` (the projection; `Loading`
+ * until the first outcome) separately from `isRefreshing` (drives only the `PullToRefreshBox` indicator),
+ * so a refresh keeps the content list mounted (design D3). Hoisting the state off the composition is the
+ * reload-on-return fix (mobile-nav-swap-to-navigation3 Decision 5): the VM survives `HomeRoute` going
+ * off-screen while the
  * composer is on top OR while another feed page is shown, so popping/swiping back reuses the loaded
  * feed. A coordinate-acquisition failure still maps to the EXISTING retryable error state in the VM —
  * NO new [NearbyTimelineOutcome] member.
