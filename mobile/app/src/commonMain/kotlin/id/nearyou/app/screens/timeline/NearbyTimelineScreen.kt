@@ -19,7 +19,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,7 +32,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.location.LocationConsentModal
-import id.nearyou.app.location.LocationGate
 import id.nearyou.app.location.LocationGateUiState
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.profile.ProfileFlow
@@ -60,7 +58,6 @@ import id.nearyou.resources.generated.resources.timeline_limit_hard
 import id.nearyou.resources.generated.resources.timeline_limit_soft
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.generated.resources.timeline_session_redirect
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import kotlin.math.roundToInt
@@ -80,9 +77,12 @@ const val NEARBY_RADIUS_SLIDER_TAG: String = "nearbyRadiusSlider"
 
 /**
  * The first product surface — the authenticated Nearby feed, gated on a granted location permission
- * (`mobile-location-permission-flow`). Injects [LocationPermissionController] and drives a
- * [LocationGate] that, on entry, projects the OS permission status to one of: prompt the UU-PDP
- * consent rationale (→ OS prompt), proceed to the fetch, or show the denial fallback. The granted
+ * (`mobile-location-permission-flow`). Injects [LocationPermissionController] into a `HomeRoute`-scoped
+ * [LocationGateViewModel] (hosting the Compose-free `LocationGate` orchestrator) that, on entry, projects
+ * the OS permission status to one of: prompt the UU-PDP consent rationale (→ OS prompt), proceed to the
+ * fetch, or show the denial fallback. Entry-scoping the gate (audit 05-#12) is what stops it rebuilding —
+ * resetting to `Loading` + re-querying the OS — on every swipe back to Nearby; it now survives in the same
+ * store as the feed VM. The granted
  * branch ([NearbyFeed]) observes a `HomeRoute`-scoped [NearbyTimelineViewModel] that holds the
  * [NearbyTimelineOutcome] + the split `isInitialLoad`/`isRefreshing` flags and (re)loads page 1
  * (pull-to-refresh + error-retry both re-fetch). Hoisting that load state into a NavEntry-scoped
@@ -119,9 +119,11 @@ fun NearbyTimelineScreen(
     onActivatePremium: () -> Unit = {},
 ) {
     val controller = koinInject<LocationPermissionController>()
-    val gate = remember { LocationGate(controller) }
-    val gateState by gate.state.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
+    // HomeRoute-scoped (audit 05-#12): resolved against the same NavEntry store as the feed VM, so the gate
+    // state survives the Nearby page going off-screen instead of rebuilding (Loading + OS re-query) on every
+    // swipe back. The VM owns the Compose-free LocationGate orchestrator and the viewModelScope launches.
+    val gateViewModel = viewModel { LocationGateViewModel(controller) }
+    val gateState by gateViewModel.uiState.collectAsStateWithLifecycle()
 
     // Re-query the OS permission on every foreground entry (ON_RESUME), not just first composition,
     // so returning from the OS Settings screen (via "Buka Pengaturan") immediately reflects a
@@ -129,7 +131,7 @@ fun NearbyTimelineScreen(
     // prior denial does not re-nag the rationale on every Nearby visit (the "Buka Pengaturan" CTA is
     // the only re-entry path) — spec § "A prior denial does not re-show the rationale on every Nearby visit".
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        scope.launch { gate.refresh() }
+        gateViewModel.refresh()
     }
 
     when (gateState) {
@@ -139,11 +141,11 @@ fun NearbyTimelineScreen(
             // prompt, declining drops to the denial fallback (no OS prompt forced).
             LocationGateSpinner()
             LocationConsentModal(
-                onAccept = { scope.launch { gate.onRationaleAccepted() } },
-                onDecline = { gate.onRationaleDeclined() },
+                onAccept = gateViewModel::onRationaleAccepted,
+                onDecline = gateViewModel::onRationaleDeclined,
             )
         }
-        LocationGateUiState.Denied -> LocationDeniedState(onOpenSettings = { controller.openAppSettings() })
+        LocationGateUiState.Denied -> LocationDeniedState(onOpenSettings = gateViewModel::openAppSettings)
         LocationGateUiState.Granted ->
             NearbyFeed(
                 onSeeGlobal = onSeeGlobal,
