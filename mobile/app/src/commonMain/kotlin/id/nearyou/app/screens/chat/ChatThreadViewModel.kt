@@ -14,8 +14,11 @@ import id.nearyou.app.infra.supabaserealtime.ChatMessageInbound
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
@@ -70,8 +73,20 @@ class ChatThreadViewModel(
     private val _historyOutcome = MutableStateFlow<ChatThreadOutcome?>(null)
     val historyOutcome: StateFlow<ChatThreadOutcome?> = _historyOutcome.asStateFlow()
 
-    private val _isInitialLoad = MutableStateFlow(true)
-    val isInitialLoad: StateFlow<Boolean> = _isInitialLoad.asStateFlow()
+    private val initialLoad = MutableStateFlow(true)
+
+    /**
+     * The single content screen state (docs/11 §2.2): the pure [chatThreadUiState] projection folded into
+     * the ViewModel via [stateIn] over the three message-state inputs — the raw history [historyOutcome] +
+     * the private [initialLoad] flag + the realtime-merged [rows] — computed once per input change, NOT
+     * re-derived in the composable. `Loading` until the first history outcome arrives; the initial-load flag
+     * is subsumed here (no separate public flow). The send-bar (`sendBarState`) and the report one-shots are
+     * orthogonal signals and are NOT folded into this content state.
+     */
+    val uiState: StateFlow<ChatThreadUiState> =
+        combine(_historyOutcome, initialLoad, _rows) { outcome, isInitialLoad, rows ->
+            chatThreadUiState(outcome, isInitialLoad, rows)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatThreadUiState.Loading)
 
     private val _sendOutcome = MutableStateFlow<SendOutcome?>(null)
     val sendOutcome: StateFlow<SendOutcome?> = _sendOutcome.asStateFlow()
@@ -272,7 +287,7 @@ class ChatThreadViewModel(
         } catch (_: Throwable) {
             _historyOutcome.value = ChatThreadOutcome.NetworkError
         } finally {
-            if (initial) _isInitialLoad.value = false
+            if (initial) initialLoad.value = false
         }
     }
 
