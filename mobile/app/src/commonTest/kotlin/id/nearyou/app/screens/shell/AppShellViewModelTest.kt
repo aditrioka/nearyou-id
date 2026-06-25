@@ -53,6 +53,7 @@ class AppShellViewModelTest {
     fun refreshUnreadCount_reFetches() {
         val fake = FakeNotificationsFlow(unreadCountValue = 2)
         val viewModel = AppShellViewModel(fake)
+        viewModel.activateUiState()
         assertEquals(1, fake.unreadCountInvocationCount, "construction fetches once")
 
         // The leaving-Notifikasi refresh re-fetches the count once (not a poll loop — a single re-fetch).
