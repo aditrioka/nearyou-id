@@ -6,8 +6,11 @@ import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersOutcome
 import id.nearyou.app.data.block.UnblockOutcome
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -16,6 +19,14 @@ import kotlin.coroutines.cancellation.CancellationException
  * Resolved via `viewModel { … }` inside `BlockedUsersScreen` (the established mobile state-holder
  * Pattern Registry entry, docs/11 § 2.2). The first page loads once in [init]; [reload] re-fetches
  * (pull-to-refresh + error-retry).
+ *
+ * The single screen state is exposed as ONE [uiState] `StateFlow` (docs/11 §2.2) — the pure
+ * `blockedUsersUiState(outcome, isInitialLoad)` projection folded into the ViewModel via `stateIn`, so it
+ * is owned here, not recomputed in the composable. The initial-load flag is INTERNAL ([initialLoad],
+ * private), reflected through [uiState] (`Loading` until the first outcome arrives), NOT a separate public
+ * flow; [isRefreshing] / [unblockError] / [unblocking] stay SEPARATE flows. The raw [outcome] stays
+ * exposed as the domain-state seam: [unblock] reads/writes it (non-optimistic row removal) and routes a
+ * terminal `401` through it, and the white-box tests assert on it.
  *
  * **Unblock is NON-optimistic** (`mobile-settings` § "Block-list management"): the row stays put until
  * the `DELETE` succeeds, then it is removed. A `RetryableError` keeps the row and raises a one-shot
@@ -29,11 +40,21 @@ class BlockedUsersViewModel(
     private val _outcome = MutableStateFlow<BlockedUsersOutcome?>(null)
     val outcome: StateFlow<BlockedUsersOutcome?> = _outcome.asStateFlow()
 
-    private val _isInitialLoad = MutableStateFlow(true)
-    val isInitialLoad: StateFlow<Boolean> = _isInitialLoad.asStateFlow()
+    private val initialLoad = MutableStateFlow(true)
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    /**
+     * The single screen state (docs/11 §2.2): the pure [blockedUsersUiState] projection folded into the
+     * ViewModel via [stateIn] — computed once per outcome/initial-load change, NOT re-derived in the
+     * composable. `Loading` until the first outcome arrives; the refresh indicator is the separate
+     * [isRefreshing] flag, never folded in here.
+     */
+    val uiState: StateFlow<BlockedUsersUiState> =
+        combine(_outcome, initialLoad) { outcome, isInitialLoad ->
+            blockedUsersUiState(outcome, isInitialLoad)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BlockedUsersUiState.Loading)
 
     /** A one-shot "unblock failed, row kept" signal — the screen renders a snackbar then [consumeUnblockError]. */
     private val _unblockError = MutableStateFlow(false)
@@ -49,7 +70,7 @@ class BlockedUsersViewModel(
 
     /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
     fun reload() {
-        if (_isRefreshing.value || _isInitialLoad.value) return
+        if (_isRefreshing.value || initialLoad.value) return
         load(initial = false)
     }
 
@@ -63,7 +84,7 @@ class BlockedUsersViewModel(
             } catch (_: Throwable) {
                 _outcome.value = BlockedUsersOutcome.RetryableError
             } finally {
-                _isInitialLoad.value = false
+                initialLoad.value = false
                 _isRefreshing.value = false
             }
         }
