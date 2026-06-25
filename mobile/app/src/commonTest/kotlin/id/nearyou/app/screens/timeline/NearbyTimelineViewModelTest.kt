@@ -11,8 +11,10 @@ import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.timeline.RadiusChangeResult
 import id.nearyou.app.timeline.fakeNearbyPost
 import id.nearyou.distance.LatLng
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -53,7 +55,6 @@ class NearbyTimelineViewModelTest {
         val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"))
         assertEquals(1, fake.loadInvocationCount, "the first page loads exactly once on construction")
         assertTrue(viewModel.outcome.value is NearbyTimelineOutcome.Loaded, "the loaded outcome is exposed")
-        assertFalse(viewModel.isInitialLoad.value, "isInitialLoad clears once the first outcome arrives")
         assertFalse(viewModel.isRefreshing.value, "isRefreshing is false after the initial load completes")
     }
 
@@ -67,21 +68,25 @@ class NearbyTimelineViewModelTest {
     }
 
     @Test
-    fun reload_keepsPriorOutcome_andTogglesIsRefreshingNotIsInitialLoad() {
-        // The first load completes (a Loaded outcome, isInitialLoad = false); the SECOND call (reload)
-        // suspends, so we observe the in-flight refresh: isRefreshing = true, isInitialLoad stays false,
-        // and the prior outcome is retained (not nulled) so the screen keeps rendering Content (design D3).
+    fun reload_keepsPriorOutcome_andTogglesIsRefreshing_uiStateStaysContent() {
+        // The first load completes (a Loaded outcome → uiState Content); the SECOND call (reload) suspends,
+        // so we observe the in-flight refresh: isRefreshing = true, uiState stays Content (NOT Loading), and
+        // the prior outcome is retained (not nulled) so the screen keeps rendering Content (design D3).
         val loaded = NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "RETAINED")), null, null)
         val fake = FakeNearbyTimelineFlow(loaded, suspendFromCall = 2)
         val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"))
-        assertFalse(viewModel.isInitialLoad.value, "after the first load isInitialLoad is false")
+        viewModel.activateUiState()
+        assertTrue(viewModel.uiState.value is NearbyTimelineUiState.Content, "after the first load uiState is Content")
         assertFalse(viewModel.isRefreshing.value, "not refreshing before reload")
         val priorOutcome = viewModel.outcome.value
 
         viewModel.reload()
 
         assertTrue(viewModel.isRefreshing.value, "a reload-in-flight sets isRefreshing")
-        assertFalse(viewModel.isInitialLoad.value, "a reload does NOT re-enter the initial-load skeleton")
+        assertTrue(
+            viewModel.uiState.value is NearbyTimelineUiState.Content,
+            "a reload does NOT re-enter the Loading skeleton (uiState stays Content)",
+        )
         assertEquals(priorOutcome, viewModel.outcome.value, "the prior outcome is retained during the refresh")
     }
 
@@ -89,10 +94,42 @@ class NearbyTimelineViewModelTest {
     fun loadFailure_mapsToExistingNetworkError() {
         val fake = FakeNearbyTimelineFlow(failWith = IllegalStateException("granted but no fix"))
         val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"))
+        viewModel.activateUiState()
         assertEquals(
             NearbyTimelineOutcome.NetworkError,
             viewModel.outcome.value,
             "a coordinate/network failure maps to the existing retryable NetworkError (no new outcome member)",
+        )
+        assertTrue(viewModel.uiState.value is NearbyTimelineUiState.Error, "and uiState projects to Error")
+    }
+
+    @Test
+    fun uiState_delegatesToTheProjection() {
+        val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "X")), null, null))
+        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"))
+        viewModel.activateUiState()
+        // The single uiState equals the pure projection for the held outcome (reused, not reimplemented);
+        // after the first outcome arrives the initial-load flag is false.
+        assertEquals(
+            nearbyTimelineUiState(viewModel.outcome.value, isInitialLoad = false),
+            viewModel.uiState.value,
+            "uiState delegates to nearbyTimelineUiState(outcome, isInitialLoad)",
+        )
+        assertTrue(viewModel.uiState.value is NearbyTimelineUiState.Content, "a loaded outcome projects to Content")
+    }
+
+    @Test
+    fun uiState_retainsContentAcrossAFreshCollector() {
+        // The config-change proxy: the entry-scoped VM retains the resolved outcome, so a FRESH uiState
+        // collector (the recomposed screen) still sees Content — not a reset to Loading.
+        val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "X")), null, null))
+        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"))
+        viewModel.activateUiState()
+        assertTrue(viewModel.uiState.value is NearbyTimelineUiState.Content, "loaded → Content")
+        viewModel.activateUiState() // a second, fresh collector (the config-change case)
+        assertTrue(
+            viewModel.uiState.value is NearbyTimelineUiState.Content,
+            "a fresh collector still sees the retained Content (not reset to Loading)",
         )
     }
 
@@ -354,6 +391,12 @@ class NearbyTimelineViewModelTest {
         assertEquals(50_000, viewModel.selectedRadiusM.value, "the Premium 50 km selection is adopted")
         viewModel.onLoadMore()
         assertEquals(listOf(50_000), fake.loadMoreRadii, "load-more reuses the selected 50 km radius, not the 20 km default")
+    }
+
+    // Activates the WhileSubscribed(5000) uiState share (on the Unconfined Main) so uiState.value reflects
+    // the projected state in these synchronous tests; the collector is abandoned at test end (no runTest).
+    private fun NearbyTimelineViewModel.activateUiState() {
+        CoroutineScope(Dispatchers.Main).launch { uiState.collect {} }
     }
 }
 

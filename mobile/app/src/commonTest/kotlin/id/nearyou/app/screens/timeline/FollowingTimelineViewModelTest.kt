@@ -6,8 +6,10 @@ import id.nearyou.app.timeline.FakeFollowingTimelineFlow
 import id.nearyou.app.timeline.FollowingPostDto
 import id.nearyou.app.timeline.FollowingTimelineOutcome
 import id.nearyou.app.timeline.fakeFollowingPost
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -45,7 +47,6 @@ class FollowingTimelineViewModelTest {
         val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow())
         assertEquals(1, fake.loadInvocationCount, "the first page loads exactly once on construction")
         assertTrue(viewModel.outcome.value is FollowingTimelineOutcome.Loaded, "the loaded outcome is exposed")
-        assertFalse(viewModel.isInitialLoad.value, "isInitialLoad clears once the first outcome arrives")
         assertFalse(viewModel.isRefreshing.value, "isRefreshing is false after the initial load completes")
     }
 
@@ -59,20 +60,24 @@ class FollowingTimelineViewModelTest {
     }
 
     @Test
-    fun reload_keepsPriorOutcome_andTogglesIsRefreshingNotIsInitialLoad() {
+    fun reload_keepsPriorOutcome_andTogglesIsRefreshing_uiStateStaysContent() {
         // First load completes; the SECOND call (reload) suspends, so we observe the in-flight refresh:
-        // isRefreshing = true, isInitialLoad stays false, prior outcome retained (design D3).
+        // isRefreshing = true, uiState stays Content (NOT Loading), prior outcome retained (design D3).
         val loaded = FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "RETAINED")), null, null)
         val fake = FakeFollowingTimelineFlow(loaded, suspendFromCall = 2)
         val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow())
-        assertFalse(viewModel.isInitialLoad.value, "after the first load isInitialLoad is false")
+        viewModel.activateUiState()
+        assertTrue(viewModel.uiState.value is FollowingTimelineUiState.Content, "after the first load uiState is Content")
         assertFalse(viewModel.isRefreshing.value, "not refreshing before reload")
         val priorOutcome = viewModel.outcome.value
 
         viewModel.reload()
 
         assertTrue(viewModel.isRefreshing.value, "a reload-in-flight sets isRefreshing")
-        assertFalse(viewModel.isInitialLoad.value, "a reload does NOT re-enter the initial-load skeleton")
+        assertTrue(
+            viewModel.uiState.value is FollowingTimelineUiState.Content,
+            "a reload does NOT re-enter the Loading skeleton (uiState stays Content)",
+        )
         assertEquals(priorOutcome, viewModel.outcome.value, "the prior outcome is retained during the refresh")
     }
 
@@ -80,10 +85,42 @@ class FollowingTimelineViewModelTest {
     fun loadFailure_mapsToExistingNetworkError() {
         val fake = FakeFollowingTimelineFlow(failWith = IllegalStateException("fetch threw"))
         val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow())
+        viewModel.activateUiState()
         assertEquals(
             FollowingTimelineOutcome.NetworkError,
             viewModel.outcome.value,
             "a fetch failure maps to the existing retryable NetworkError (no new outcome member)",
+        )
+        assertTrue(viewModel.uiState.value is FollowingTimelineUiState.Error, "and uiState projects to Error")
+    }
+
+    @Test
+    fun uiState_delegatesToTheProjection() {
+        val fake = FakeFollowingTimelineFlow(FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "X")), null, null))
+        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow())
+        viewModel.activateUiState()
+        // The single uiState equals the pure projection for the held outcome (reused, not reimplemented);
+        // after the first outcome arrives the initial-load flag is false.
+        assertEquals(
+            followingTimelineUiState(viewModel.outcome.value, isInitialLoad = false),
+            viewModel.uiState.value,
+            "uiState delegates to followingTimelineUiState(outcome, isInitialLoad)",
+        )
+        assertTrue(viewModel.uiState.value is FollowingTimelineUiState.Content, "a loaded non-empty outcome projects to Content")
+    }
+
+    @Test
+    fun uiState_retainsContentAcrossAFreshCollector() {
+        // The config-change proxy: the entry-scoped VM retains the resolved outcome, so a FRESH uiState
+        // collector (the recomposed screen) still sees Content — not a reset to Loading.
+        val fake = FakeFollowingTimelineFlow(FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "X")), null, null))
+        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow())
+        viewModel.activateUiState()
+        assertTrue(viewModel.uiState.value is FollowingTimelineUiState.Content, "loaded → Content")
+        viewModel.activateUiState() // a second, fresh collector (the config-change case)
+        assertTrue(
+            viewModel.uiState.value is FollowingTimelineUiState.Content,
+            "a fresh collector still sees the retained Content (not reset to Loading)",
         )
     }
 
@@ -258,5 +295,11 @@ class FollowingTimelineViewModelTest {
         viewModel.onLoadMore()
 
         assertTrue(fake.loadMoreCalls.isEmpty(), "load-more is suppressed while a refresh is in flight (canLoadMore gate)")
+    }
+
+    // Activates the WhileSubscribed(5000) uiState share (on the Unconfined Main) so uiState.value reflects
+    // the projected state in these synchronous tests; the collector is abandoned at test end (no runTest).
+    private fun FollowingTimelineViewModel.activateUiState() {
+        CoroutineScope(Dispatchers.Main).launch { uiState.collect {} }
     }
 }
