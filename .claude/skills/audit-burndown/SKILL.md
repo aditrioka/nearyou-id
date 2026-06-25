@@ -25,15 +25,15 @@ Two sources of truth (check both — the second disappears after cleanup):
 | `#214` | App-level auth-endpoint rate limits | issue body | OpenSpec (amends rate-limit-infrastructure) | client 429 mapping ships in the SAME change |
 | `05-#16` | TokenRefresher follower-CE translation | findings/05 #16 | regular fix PR + test | small |
 | `05-#11` | `ui/components/` extraction (list-state kit + post card) | findings/06 duplication map | regular refactor PR | fold in 05-#9 (shell unread VM) + 05-#12 (LocationGate) if touching those files anyway; update docs/11 Pattern Registry |
-| `05-#6` | Retrofit the 3 OLD timeline VMs (Nearby/Global/Notifications, still multi-`StateFlow`) → single-`stateIn` | findings/05 #6 | OpenSpec | risky, heavily-tested retrofit (pager + like/load-more controllers); its OWN PR. NOT a 05-#5 fold-in — new VMs already use stateIn |
+| ~~`05-#6`~~ | ✔ **DONE** — feed/list VMs → single-`stateIn` `uiState` (Nearby/Global/**Following**/Notifications = 4, not 3; PR #409 `mobile-feed-viewmodels-statein`). Following copied the old shape post-audit (so "new VMs already use stateIn" was false for the feed family); `isInitialLoad`→private, `outcome` kept as the raw-state seam. ConversationList/BlockedUsers same-shape fork deferred → #410 | findings/05 #6 | OpenSpec | shipped |
 | `05-#7` | App-wide `koinViewModel()` + Koin VM-declaration conversion of all ~17 `viewModel { }` call sites | findings/05 #7 | OpenSpec | app-wide pattern decision + a docs/11 §2.2-vs-code divergence; converting a subset FORKS the convention |
 | `D6` | `screens/` package restructure (mechanical moves only) | docs/11 §2.1 | regular PR | LAST mobile item (avoids churn conflicts) |
 | `#212` | Batched-Lua timeline limiter | issue body | OpenSpec (spec amendment mandated) | opportunistic — bundle when touching the limiter |
 | `R8-smoke` | Release-build runtime smoke on a physical device | verify-loop §B | no PR — verification evidence only | REQUIRED before the first distributed release build |
 
-> **Shipped (closed):** `#196+#211` (PR #222), `#210` (PR #243), `05-#5` (PR #405). Still open: `#214`, `#212`; the re-scoped `05-#6`/`05-#7` (now distinct OpenSpec items); `05-#16`, `05-#11`, `D6`; `R8-smoke` (release-time).
+> **Shipped (closed):** `#196+#211` (PR #222), `#210` (PR #243), `05-#5` (PR #405), `05-#16` (PR #406), `05-#11` list-state half (PR #407), `#214` (PR #408), `05-#6` (PR #409). Still open: `#212`; `05-#7`; `05-#9` (shell unread VM); `05-#12` (LocationGate fold); the `05-#11` PostDetail `Replies*`/`PostHeader` remainder (deferred in #407); `D6`; `R8-smoke` (release-time); plus the new same-shape-fork follow-up `#410`.
 
-**No argument given → recommended order:** `05-#16` (small) or `05-#11` next; then `#214` → `D6`; `05-#6`/`05-#7` are larger standalone OpenSpec items; `#212` opportunistic; `R8-smoke` whenever a release approaches. State the pick + reason, then proceed (do not stop to ask).
+**No argument given → recommended order:** `05-#9` (shell unread VM) or `05-#12` (LocationGate fold) next — small, clean mobile VM folds; then `05-#7` (app-wide `koinViewModel()` — larger, and it carries an unresolved convention decision: convert to `koinViewModel()` vs amend docs/11 §2.2 to bless the de-facto `viewModel { }`; surface that to the operator before sinking a session into ~17 call sites); `#212` opportunistic (bundle when touching the limiter); `D6` LAST mobile item (package moves → churn); `R8-smoke` whenever a release approaches. State the pick + reason, then proceed (do not stop to ask).
 
 ## 2 — Execute under the rails
 
