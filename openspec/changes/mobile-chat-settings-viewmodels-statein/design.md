@@ -33,7 +33,7 @@ Both VMs are simpler than the feed VMs (no `InlineLikeController` / `LoadMoreCon
 - **[Behavior-preserving retrofit of two live screens]** → Behavior is preserved; the gate (`:mobile:app:testDevDebugUnitTest` + `…testDevReleaseUnitTest`) and the Robolectric screen tests (`ConversationListScreenTest`, `BlockedUsersScreenTest`, which render the same states) are the safety net. The pure-projection unit tests are untouched (function reused).
 - **[`outcome` staying public could read as "two state flows"]** → Documented here + in each spec delta as the raw-domain-state seam (distinct type `StateFlow<XxxOutcome?>`, distinct purpose: paging/PII/side-effect); there is exactly one `XxxUiState` flow.
 - **[`BlockedUsersScreen` still collecting `outcome`]** → Scoped narrowly to the documented terminal-401 navigation side-effect; the rendered state is the single `uiState`. Mirrors how the feed screens keep collecting their auxiliary flows alongside `uiState`.
-- **[K/N compile — VMs are commonMain]** → Covered by `:mobile:app:iosSimulatorArm64Test` (the existing `ConversationListFlowIosTest` / `BlockedUsersFlowIosTest` exercise these data paths on Native).
+- **[K/N compile — VMs are commonMain]** → Covered by `:mobile:app:iosSimulatorArm64Test` (the commonTest VM tests run on Native; the existing `BlockedUsersFlowIosTest` exercises the settings data path — there is no dedicated conversation-list iOS flow test, the chat iOS coverage is `ChatThreadReportFlowIosTest`).
 
 ## Migration Plan
 
