@@ -63,8 +63,10 @@ fun BlockedUsersScreen(
 ) {
     val flow = koinInject<BlockedUsersFlow>()
     val viewModel = viewModel { BlockedUsersViewModel(flow) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    // Kept alongside uiState only for the terminal-401 → sign-in navigation side-effect below (the raw
+    // domain-state seam); the rendered state is the single uiState, not an in-composable re-projection.
     val outcome by viewModel.outcome.collectAsStateWithLifecycle()
-    val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
     val unblockError by viewModel.unblockError.collectAsStateWithLifecycle()
     val unblocking by viewModel.unblocking.collectAsStateWithLifecycle()
 
@@ -83,14 +85,13 @@ fun BlockedUsersScreen(
         }
     }
 
-    val uiState = remember(outcome, isInitialLoad) { blockedUsersUiState(outcome, isInitialLoad) }
-
     Scaffold(
         topBar = { SettingsTopBar(title = stringResource(Res.string.blocked_users_title), onBack = onBack) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)) {
-            when (uiState) {
+            // Bind to a local so the Content branch can smart-cast (uiState is a delegated property).
+            when (val state = uiState) {
                 BlockedUsersUiState.Loading -> CenteredLoading()
                 BlockedUsersUiState.Empty -> SettingsCenteredMessage(stringResource(Res.string.blocked_users_empty))
                 BlockedUsersUiState.Error -> ErrorState(onRetry = viewModel::reload)
@@ -98,7 +99,7 @@ fun BlockedUsersScreen(
                 BlockedUsersUiState.SessionRedirect -> CenteredLoading()
                 is BlockedUsersUiState.Content ->
                     BlockedUsersList(
-                        rows = uiState.rows,
+                        rows = state.rows,
                         unblocking = unblocking,
                         onUnblock = viewModel::unblock,
                     )

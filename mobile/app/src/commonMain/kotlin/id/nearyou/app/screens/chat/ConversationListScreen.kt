@@ -22,7 +22,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -58,7 +57,8 @@ const val CONVERSATION_LIST_BACK_TAG: String = "conversationListBack"
  * The conversation-list surface ([ConversationListRoute][id.nearyou.app.screens.routing.ConversationListRoute],
  * mockup frame 2) — opened from the Home brand app-bar "Pesan" action and overlaid on the section shell
  * via the ROOT back stack (design D3/D5). Injects [ConversationsFlow] and observes a route-scoped
- * [ConversationListViewModel] (the `isInitialLoad`/`isRefreshing` split, mirroring the timelines). A row
+ * [ConversationListViewModel] (its single `uiState` projection + the separate `isRefreshing` flag,
+ * mirroring the timelines). A row
  * tap pushes [ChatThreadRoute][id.nearyou.app.screens.routing.ChatThreadRoute] via the hoisted
  * [onOpenThread] (carrying the row's PII-free partner display fields + the conversation id); the screen
  * holds NO back-stack reference (navigation-free). Every string via `stringResource`.
@@ -70,12 +70,11 @@ fun ConversationListScreen(
 ) {
     val flow = koinInject<ConversationsFlow>()
     val viewModel = viewModel { ConversationListViewModel(flow) }
-    val outcome by viewModel.outcome.collectAsStateWithLifecycle()
-    val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     ConversationListContent(
-        uiState = remember(outcome, isInitialLoad) { conversationListUiState(outcome, isInitialLoad) },
+        uiState = uiState,
         isRefreshing = isRefreshing,
         onRefresh = viewModel::reload,
         onRetry = viewModel::reload,

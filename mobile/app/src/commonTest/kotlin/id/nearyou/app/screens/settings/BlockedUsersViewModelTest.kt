@@ -4,8 +4,10 @@ import id.nearyou.app.data.block.BlockedUser
 import id.nearyou.app.data.block.BlockedUsersOutcome
 import id.nearyou.app.data.block.FakeBlockedUsersFlow
 import id.nearyou.app.data.block.UnblockOutcome
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -49,8 +51,9 @@ class BlockedUsersViewModelTest {
     fun `first page loads once on construction`() {
         val flow = loadedFlow(listOf(rowA))
         val vm = BlockedUsersViewModel(flow)
+        vm.activateUiState()
         assertEquals(1, flow.fetchInvocationCount)
-        assertEquals(false, vm.isInitialLoad.value)
+        assertTrue(vm.uiState.value !is BlockedUsersUiState.Loading, "after the first load uiState leaves Loading")
         assertEquals(BlockedUsersOutcome.Loaded(listOf(rowA), null), vm.outcome.value)
     }
 
@@ -92,5 +95,41 @@ class BlockedUsersViewModelTest {
         assertTrue(vm.unblockError.value)
         vm.consumeUnblockError()
         assertEquals(false, vm.unblockError.value)
+    }
+
+    @Test
+    fun `uiState delegates to the pure projection`() {
+        val flow = loadedFlow(listOf(rowA))
+        val vm = BlockedUsersViewModel(flow)
+        vm.activateUiState()
+        // The single uiState equals the pure projection for the held outcome (reused, not reimplemented);
+        // after the first outcome arrives the initial-load flag is false.
+        assertEquals(
+            blockedUsersUiState(vm.outcome.value, isInitialLoad = false),
+            vm.uiState.value,
+            "uiState delegates to blockedUsersUiState(outcome, isInitialLoad)",
+        )
+        assertTrue(vm.uiState.value is BlockedUsersUiState.Content, "a loaded non-empty outcome projects to Content")
+    }
+
+    @Test
+    fun `uiState retains Content across a fresh collector`() {
+        // The config-change proxy: the entry-scoped VM retains the resolved outcome, so a FRESH uiState
+        // collector (the recomposed screen) still sees Content — not a reset to Loading.
+        val flow = loadedFlow(listOf(rowA))
+        val vm = BlockedUsersViewModel(flow)
+        vm.activateUiState()
+        assertTrue(vm.uiState.value is BlockedUsersUiState.Content, "loaded → Content")
+        vm.activateUiState() // a second, fresh collector (the config-change case)
+        assertTrue(
+            vm.uiState.value is BlockedUsersUiState.Content,
+            "a fresh collector still sees the retained Content (not reset to Loading)",
+        )
+    }
+
+    // Activates the WhileSubscribed(5000) uiState share (on the Unconfined Main) so uiState.value reflects
+    // the projected state in these synchronous tests; the collector is abandoned at test end (no runTest).
+    private fun BlockedUsersViewModel.activateUiState() {
+        CoroutineScope(Dispatchers.Main).launch { uiState.collect {} }
     }
 }
