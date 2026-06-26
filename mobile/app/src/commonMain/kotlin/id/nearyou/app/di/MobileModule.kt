@@ -88,11 +88,11 @@ import id.nearyou.app.post.SinglePostApiClient
 import id.nearyou.app.profile.ProfileApiClient
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileRepository
+import id.nearyou.app.push.FcmTokenApiClient
+import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.referral.DefaultReferralRepository
 import id.nearyou.app.referral.ReferralApiClient
 import id.nearyou.app.referral.ReferralRepository
-import id.nearyou.app.push.FcmTokenApiClient
-import id.nearyou.app.push.FcmTokenRegistrar
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.ProactiveTokenRefreshTrigger
