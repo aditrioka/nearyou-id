@@ -10,9 +10,13 @@ import io.kotest.matchers.collections.shouldBeIn
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
+import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -77,6 +81,8 @@ class AdminPostEditsRouteTest : StringSpec({
             body shouldContain "older snapshot text"
             body shouldContain "<header>" // full page extends layout
             body shouldContain "<nav>"
+            // viewer → Report Queue back-link (the report→edit-history triage loop).
+            body shouldContain "href=\"/admin/reports\""
         }
     }
 
@@ -289,17 +295,25 @@ class AdminPostEditsRouteTest : StringSpec({
         val auditBefore = AdminAuthTestSupport.countAuditRows(dataSource, admin.id)
 
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
-            val res =
-                client.post("/admin/posts/$postId/edits") {
-                    header(HttpHeaders.Cookie, cookie(token))
-                    header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
-                }
-            // No mutation handler is mapped on the path: a POST resolves to a
-            // client error, never a 2xx. Ktor returns 404 for an unmapped method
-            // on a parameterized multi-segment path (405 on a static path); both
-            // mean "no such handler" — the spec requires only that it is not
-            // handled as a mutation.
-            res.status shouldBeIn listOf(HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed)
+            // No mutation handler is mapped on the path: every mutating verb
+            // (POST/PUT/PATCH/DELETE, per the spec) resolves to a client error,
+            // never a 2xx. Ktor returns 404 for an unmapped method on a
+            // parameterized multi-segment path (405 on a static path); both mean
+            // "no such handler" — the spec requires only that it is not handled
+            // as a mutation.
+            val authed: HttpRequestBuilder.() -> Unit = {
+                header(HttpHeaders.Cookie, cookie(token))
+                header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+            }
+            val path = "/admin/posts/$postId/edits"
+            val mutations =
+                listOf(
+                    client.post(path, authed),
+                    client.put(path, authed),
+                    client.patch(path, authed),
+                    client.delete(path, authed),
+                )
+            mutations.forEach { it.status shouldBeIn listOf(HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed) }
 
             // serve the read twice
             client.get("/admin/posts/$postId/edits") { header(HttpHeaders.Cookie, cookie(token)) }

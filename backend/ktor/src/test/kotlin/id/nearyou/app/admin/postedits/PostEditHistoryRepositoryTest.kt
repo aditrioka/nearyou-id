@@ -54,6 +54,18 @@ class PostEditHistoryRepositoryTest : StringSpec({
         repo.liveVersion(UUID.randomUUID()).shouldBeNull()
     }
 
+    "liveVersion timestamp uses COALESCE(updated_at, created_at): updated_at wins, else created_at" {
+        val author = user()
+        val created = Instant.parse("2026-06-10T19:00:00Z")
+        val updated = Instant.parse("2026-06-10T20:40:00Z")
+        // updated_at present → it is the displayed timestamp (primary COALESCE branch).
+        val edited = PostEditsTestSupport.seedPost(dataSource, author, createdAt = created, updatedAt = updated)
+        repo.liveVersion(edited)!!.timestamp shouldBe updated
+        // updated_at NULL (never edited) → fall back to created_at.
+        val fresh = PostEditsTestSupport.seedPost(dataSource, author, createdAt = created, updatedAt = null)
+        repo.liveVersion(fresh)!!.timestamp shouldBe created
+    }
+
     "liveVersion is null for a hard-deleted post" {
         val author = user()
         val postId = PostEditsTestSupport.seedPost(dataSource, author)
