@@ -321,13 +321,14 @@ fun SettingsScreen(
                 onClick = { uriHandler.openUri(LEGAL_URL) },
             )
             // mobile-data-export-entry — "Unduh Data Saya" (docs/03 § Data Export; absent from mockup frame
-            // 16 per design D5). The subtitle is status-driven; the row opens the confirmation dialog except
-            // while single-active (in progress), where it is non-re-issuable (the dialog never opens).
+            // 16 per design D5). The subtitle is status-driven; the row opens the confirmation dialog only
+            // when a fresh request is allowed (canRequest() — the single source of truth, false while the
+            // seed GET is loading or while single-active in progress, so the dialog never opens then).
             SettingsRow(
                 icon = Res.drawable.ic_description,
                 title = stringResource(Res.string.settings_row_data_export),
                 subtitle = dataExportRowSubtitle(dataExportState),
-                onClick = { if (dataExportState != DataExportUiState.InProgress) showDataExportDialog = true },
+                onClick = { if (dataExportVm.canRequest()) showDataExportDialog = true },
             )
             SettingsRow(
                 icon = Res.drawable.ic_logout,

@@ -69,6 +69,7 @@ private const val DATA_EXPORT_CONFIRM = "Ya, minta export"
 private const val DATA_EXPORT_CANCEL = "Batal"
 private const val DATA_EXPORT_IN_PROGRESS = "Sedang diproses"
 private const val DATA_EXPORT_READY_OPEN = "Buka unduhan"
+private const val DATA_EXPORT_EXPIRED = "Tautan kedaluwarsa. Minta ulang."
 
 /**
  * Render coverage of `SettingsScreen` (mockup frame 16). Verifies the grouped section headers + app bar,
@@ -327,11 +328,26 @@ class SettingsScreenTest {
             setContent {
                 KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
             }
+            waitForIdle() // let the seed GET (fetchStatus → None) settle so the row is requestable
             onNodeWithText(DATA_EXPORT).performScrollTo().performClick()
             onNodeWithText(DATA_EXPORT_DIALOG_TITLE).assertExists()
             onNodeWithText(DATA_EXPORT_CONFIRM).performClick()
             waitUntil { dataExportFlow.requestCount == 1 }
             assertEquals(1, dataExportFlow.requestCount, "confirming the dialog issues exactly one POST")
+        }
+    }
+
+    @Test
+    fun dataExport_none_offersRequestAffordanceAndNoBanner() {
+        installKoin(dataExport = FakeDataExportFlow(statusOutcome = DataExportStatusOutcome.None))
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            // The request affordance (the row) is offered AND no ready banner is shown for `none`.
+            onNodeWithText(DATA_EXPORT).performScrollTo().assertExists()
+            onNodeWithText(DATA_EXPORT_READY_OPEN).assertDoesNotExist()
         }
     }
 
@@ -342,11 +358,27 @@ class SettingsScreenTest {
             setContent {
                 KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
             }
+            waitForIdle() // let the seed GET (fetchStatus → None) settle so the row is requestable
             onNodeWithText(DATA_EXPORT).performScrollTo().performClick()
             onNodeWithText(DATA_EXPORT_DIALOG_TITLE).assertExists()
             onNodeWithText(DATA_EXPORT_CANCEL).performClick()
             onNodeWithText(DATA_EXPORT_DIALOG_TITLE).assertDoesNotExist()
             assertEquals(0, dataExportFlow.requestCount, "cancelling the dialog issues no POST")
+        }
+    }
+
+    @Test
+    fun dataExport_expired_allowsFreshRequest() {
+        installKoin(dataExport = FakeDataExportFlow(statusOutcome = DataExportStatusOutcome.Expired))
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle() // let the seed GET (fetchStatus → Expired) settle
+            // The expired note is shown AND the export is no longer single-active-locked: the row re-requests.
+            onNodeWithText(DATA_EXPORT_EXPIRED).performScrollTo().assertExists()
+            onNodeWithText(DATA_EXPORT).performScrollTo().performClick()
+            onNodeWithText(DATA_EXPORT_DIALOG_TITLE).assertExists()
         }
     }
 
@@ -440,6 +472,7 @@ class SettingsScreenTest {
                     }
                 }
             }
+            waitForIdle() // let the seed GET (fetchStatus → None) settle so the row is requestable
             onNodeWithText(DATA_EXPORT).performScrollTo().performClick()
             onNodeWithText(DATA_EXPORT_CONFIRM).performClick()
             waitUntil { loggedOut == 1 }
