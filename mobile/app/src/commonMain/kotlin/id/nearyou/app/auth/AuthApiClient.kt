@@ -58,6 +58,10 @@ data class BackendErrorBody(
     // content-moderation-appeal: the banned/suspended sign-in `403` carries the limited appeal token
     // alongside the error envelope (`auth-signin`). Null on every other error body.
     @SerialName("appeal_token") val appealToken: String? = null,
+    // appeal-sign-in-ban-distinction: the `account_banned` `403` carries `suspended_until` (ISO-8601
+    // expiry ⇒ suspension; `null` ⇒ permanent ban). Defaulted so an OLDER backend that omits the
+    // field (or any non-banned error body) parses as `null` — the safe-degrade-to-permanent path.
+    @SerialName("suspended_until") val suspendedUntil: String? = null,
 )
 
 @Serializable
@@ -78,13 +82,16 @@ sealed interface SignInApiResult {
     /** Non-2xx response. [code] is the backend error envelope's `error.code` when parseable
      *  (the flat `/signup` `403 user_blocked` body has no `code` → `null`; map on [status]).
      *  [appealToken] is the limited appeal token from the banned/suspended sign-in `403` body
-     *  (content-moderation-appeal); null on every other non-2xx. [retryAfterSeconds] is the
-     *  parsed `Retry-After` header on a `429` (auth-endpoint-rate-limits); null when absent /
-     *  unparseable / not a `429`. */
+     *  (content-moderation-appeal); null on every other non-2xx. [suspendedUntil] is the raw
+     *  ISO-8601 `suspended_until` from the `account_banned` `403` (appeal-sign-in-ban-distinction):
+     *  non-null ⇒ suspension, null ⇒ permanent ban (or an older backend that omits the field).
+     *  [retryAfterSeconds] is the parsed `Retry-After` header on a `429`
+     *  (auth-endpoint-rate-limits); null when absent / unparseable / not a `429`. */
     data class HttpError(
         val status: Int,
         val code: String?,
         val appealToken: String? = null,
+        val suspendedUntil: String? = null,
         val retryAfterSeconds: Long? = null,
     ) : SignInApiResult
 
@@ -149,6 +156,7 @@ class AuthApiClient(
             status = response.status.value,
             code = parsed?.error?.code,
             appealToken = parsed?.appealToken,
+            suspendedUntil = parsed?.suspendedUntil,
             retryAfterSeconds = response.headers[HttpHeaders.RetryAfter]?.toLongOrNull(),
         )
     }

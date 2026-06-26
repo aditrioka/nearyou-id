@@ -4,6 +4,7 @@ import id.nearyou.app.auth.SignInOutcome
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.time.Instant
 
 /**
  * Exhaustive coverage of [signInUiState] — the pure Decision-7 result→UI-state mapping that
@@ -49,11 +50,22 @@ class SignInUiStateTest {
     }
 
     @Test
-    fun `Banned shows the banned banner AND disables the CTA`() {
-        val state = signInUiState(SignInOutcome.Banned, inFlight = false)
+    fun `permanent Banned shows the banned banner AND disables the CTA`() {
+        // appeal-sign-in-ban-distinction: a null suspended_until ⇒ permanent ban → BANNED banner.
+        val state = signInUiState(SignInOutcome.Banned(suspendedUntil = null), inFlight = false)
         assertEquals(SignInCtaLabel.GOOGLE, state.ctaLabel)
         assertEquals(false, state.ctaEnabled, "banned CTA must be disabled (tap-rejected)")
         assertEquals(SignInErrorBanner.BANNED, state.errorBanner)
+    }
+
+    @Test
+    fun `suspension Banned shows the suspended banner AND disables the CTA`() {
+        // appeal-sign-in-ban-distinction: a non-null suspended_until ⇒ suspension → SUSPENDED banner
+        // (which pairs with the appeal entry); the CTA is still disabled (tap-rejected).
+        val state = signInUiState(SignInOutcome.Banned(Instant.parse("2026-07-03T00:00:00Z")), inFlight = false)
+        assertEquals(SignInCtaLabel.GOOGLE, state.ctaLabel)
+        assertEquals(false, state.ctaEnabled, "suspended CTA must be disabled (tap-rejected)")
+        assertEquals(SignInErrorBanner.SUSPENDED, state.errorBanner)
     }
 
     @Test

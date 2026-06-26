@@ -7,6 +7,7 @@ import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.infra.sentry.NoOpCrashReporter
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.datetime.LocalDate
+import kotlin.time.Instant
 
 /**
  * The auth orchestration contract consumed by `SignInScreen` / `AgeGateScreen` / `RootRouterScreen`.
@@ -124,10 +125,15 @@ class AuthRepository(
                     // to AgeGateScreen; no on-SignInScreen banner.
                     api.status == 404 -> SignInOutcome.NoAccount(idToken)
                     api.status == 403 -> {
-                        // Stash the limited appeal token (when present) so the appeal screen can submit;
-                        // the Banned outcome surfaces the "Ajukan banding" entry on SignInScreen.
+                        // Stash the limited appeal token (when present) so the appeal screen can submit.
+                        // Capture is sub-state-independent — done BEFORE the suspension/permanent branch.
                         api.appealToken?.let { appealSession.set(it) }
-                        SignInOutcome.Banned
+                        // appeal-sign-in-ban-distinction: branch on `suspended_until` null-ness.
+                        // A non-null (parseable) timestamp ⇒ suspension (appeal entry + suspension copy);
+                        // null OR absent OR unparseable ⇒ permanent ban (support copy, no entry — the
+                        // safe degrade). `SignInOutcome.Banned` carries the parsed expiry so #208 can
+                        // reuse it for a countdown without a second wire field.
+                        SignInOutcome.Banned(suspendedUntil = parseSuspendedUntil(api.suspendedUntil))
                     }
                     api.status == 401 ->
                         // invalid_id_token: re-run the Google ceremony ONCE for a fresh token,
@@ -241,6 +247,15 @@ class AuthRepository(
                 SignUpOutcome.RetryableError
             }
         }
+
+    /**
+     * appeal-sign-in-ban-distinction: parse the raw `suspended_until` from the `account_banned` 403
+     * into an [Instant], or `null` for a permanent ban. The discriminator is null-ness, so an absent
+     * field, an explicit `null`, OR an unparseable value all collapse to `null` (the safe degrade to
+     * the permanent sub-state). A non-null value already in the PAST still parses to a non-null
+     * [Instant] (suspension sub-state) — null-ness, not future-ness, is the discriminator.
+     */
+    private fun parseSuspendedUntil(raw: String?): Instant? = raw?.let { runCatching { Instant.parse(it) }.getOrNull() }
 }
 
 /**
@@ -258,7 +273,19 @@ sealed interface SignInOutcome {
      */
     data class NoAccount(val idToken: String) : SignInOutcome
 
-    data object Banned : SignInOutcome
+    /**
+     * `403 account_banned` — the matched account is under a moderation action. The sub-state is the
+     * null-ness of [suspendedUntil] (appeal-sign-in-ban-distinction):
+     * - **non-null** (the ISO-8601 suspension expiry, even if already in the past) ⇒ a 7-day
+     *   suspension → suspension copy + the "Ajukan banding" appeal entry (per `mobile-appeal`).
+     * - **null** (a permanent ban, OR an older backend that omits / sends an unparseable field —
+     *   the safe degrade) ⇒ the permanent-ban "Hubungi support" copy, NO appeal entry.
+     *
+     * The limited appeal token is captured into the appeal-session holder BEFORE this outcome is
+     * built (capture is sub-state-independent). [suspendedUntil] is carried (not just a boolean) so
+     * follow-up #208 can render a suspension countdown from the same value without a second field.
+     */
+    data class Banned(val suspendedUntil: Instant?) : SignInOutcome
 
     data object InvalidIdToken : SignInOutcome
 
