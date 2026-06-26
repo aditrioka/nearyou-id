@@ -23,6 +23,11 @@ import androidx.compose.ui.unit.dp
  * [onReplyShortcut] / [onOpenProfile]) carries the original post — the host resolves the author UUID off
  * the raw outcome, never off the [PostCardModel] (which structurally cannot hold it). [keyOf] supplies the
  * stable list key (docs/11 § 2.4) and [cardModelOf] the display projection.
+ *
+ * mobile-admob-ads-foundation: when [adFrequency] is non-null AND [adSlot] is supplied, a native-ad slot is
+ * interleaved after every [adFrequency] posts via [interleaveNativeAds] (the canonical list seam carries
+ * ads — no second list pattern, design D5). Callers with ads OFF pass `adFrequency = null` and behave
+ * identically to before (every entry is a post).
  */
 @Composable
 fun <T> PostFeedList(
@@ -41,6 +46,8 @@ fun <T> PostFeedList(
     cardTag: String,
     modifier: Modifier = Modifier,
     banner: String? = null,
+    adFrequency: Int? = null,
+    adSlot: (@Composable (slotKey: String) -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     LoadMoreOnScrollEnd(listState = listState, onLoadMore = onLoadMore)
@@ -56,18 +63,36 @@ fun <T> PostFeedList(
                 SoftLimitBanner(text = banner)
             }
         }
-        items(items = posts, key = { keyOf(it) }, contentType = { "post" }) { post ->
-            // The ONE shared card (mobile-post-card). The whole card is the open-detail tap; the action
-            // row's like/reply affordances are the only other targets (mobile-inline-post-actions). All
-            // callbacks carry the PII-free post (display identity included, never the author UUID / coords).
-            PostCard(
-                model = cardModelOf(post),
-                onOpen = { onOpenPost(post) },
-                onToggleLike = { onToggleLike(post) },
-                onReplyShortcut = { onReplyShortcut(post) },
-                onOpenProfile = { onOpenProfile(post) },
-                modifier = Modifier.testTag(cardTag),
-            )
+        val feedItems = interleaveNativeAds(posts, if (adSlot != null) adFrequency else null, keyOf)
+        items(
+            items = feedItems,
+            key = { it.key },
+            contentType = {
+                when (it) {
+                    is FeedItem.PostItem -> "post"
+                    is FeedItem.NativeAdSlot -> "nativeAd"
+                }
+            },
+        ) { item ->
+            when (item) {
+                is FeedItem.PostItem -> {
+                    // The ONE shared card (mobile-post-card). The whole card is the open-detail tap; the
+                    // action row's like/reply affordances are the only other targets
+                    // (mobile-inline-post-actions). All callbacks carry the PII-free post (display identity
+                    // included, never the author UUID / coords).
+                    PostCard(
+                        model = cardModelOf(item.post),
+                        onOpen = { onOpenPost(item.post) },
+                        onToggleLike = { onToggleLike(item.post) },
+                        onReplyShortcut = { onReplyShortcut(item.post) },
+                        onOpenProfile = { onOpenProfile(item.post) },
+                        modifier = Modifier.testTag(cardTag),
+                    )
+                }
+                // mobile-admob-ads-foundation: the interleaved native-ad slot (host-supplied; loads its
+                // NativeAdContent off the composition path + renders the "Bersponsor" card).
+                is FeedItem.NativeAdSlot -> adSlot?.invoke(item.key)
+            }
         }
         // Load-more footer: spinner while a page loads, non-destructive retry on error, nothing at end
         // (mobile-design-system § "Canonical list load-more pattern"). The scroll-end detector above drives

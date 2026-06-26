@@ -22,13 +22,13 @@
 
 ## 4. Mobile — `mobile-ads` consumption
 
-- [ ] 4.1 `AdsConfigApiClient` + `AdsConfigRepository` (GET `/api/v1/config/ads`) with a sealed outcome; a fetch failure resolves to ads-OFF (fail-safe, never error chrome).
-- [ ] 4.2 Ad-eligibility wiring: initialize `AdProvider` + run the UMP gate ONLY when `ads_enabled = true`; read the stored `ads_personalization` (via `ConsentSnapshotStore`) and map to `AdRequestMode` (OFF/declined → NON_PERSONALIZED).
-- [ ] 4.3 Sealed `FeedItem { Post | NativeAd }`; interleave a native-ad slot every `timeline_frequency` posts in Nearby/Following/Global via the canonical `PostFeedList<T>` seam (docs/11 §2.1) with stable `key` + `contentType` (§2.4). Post fetch/order unchanged.
-- [ ] 4.4 Native-ad card in `ui/components` reusing `PostCard` geometry + a "Bersponsor" label — consult the mockup board feed-card frame (docs/11 §2.8) and translate to Compose M3 idioms (tokens, not literals).
-- [ ] 4.5 Add the "Bersponsor" (+ any UMP-prompt) string(s) to `:shared:resources` (no hardcoded UI string — invariant); import each key explicitly.
-- [ ] 4.6 `AdProvider` lifecycle: load ads off the composition path, dispose on feed-item disposal / `onCleared`.
-- [ ] 4.7 **Data minimization (UU PDP, docs/01:173 / docs/06)**: the `:infra:admob` ad request SHALL NOT pass precise device coordinates to the SDK — disable the GMA location signal / do not set a precise `location` on the request (city-level only, if any). Verified by a negative-guard test (5.x) asserting no precise coordinate reaches the request builder.
+- [x] 4.1 `AdsConfigApiClient` (sealed `AdsConfigApiResult`) + `AdsConfigRepository` → sealed `AdsConfigOutcome { Enabled(frequency) | Disabled }`; any fetch failure (network OR non-200) resolves to `Disabled` = ads-OFF (fail-safe, never error chrome).
+- [x] 4.2 Ad-eligibility wiring (`AdFeedController.prepare`, single-flight): initialize `AdProvider` + run the UMP gate ONLY when config is `Enabled`; read the stored `ads_personalization` (via `ConsentSnapshotStore`) and map to `AdRequestMode` (`adRequestModeFor`: OFF/declined → NON_PERSONALIZED). Consent failure → `frequency = null` (no ads).
+- [x] 4.3 Sealed `FeedItem { PostItem | NativeAdSlot }` + pure `interleaveNativeAds`; a native-ad slot interleaves every `timelineFrequency` posts in Nearby/Following/Global via the canonical `PostFeedList<T>` seam (new optional `adFrequency`/`adSlot` params — existing callers unchanged) with stable distinct `key` (`ad:<n>`) + `contentType` (§2.4). Post fetch/order unchanged.
+- [x] 4.4 `NativeAdCard` in `ui/components` reusing `PostCard` `OutlinedCard` geometry (16/6 dp outer, 16 dp inner) + the localized "Bersponsor" label; the ad creative is the `:infra:admob` `NativeAdSurface` (platform `NativeAdView`/`GADNativeAdView`).
+- [x] 4.5 "Bersponsor" string added to `:shared:resources` (`native_ad_label`); imported per-key at the `NativeAdCard` use site (no hardcoded UI string — invariant).
+- [x] 4.6 `AdProvider` lifecycle: `loadAd` runs off the composition path (a `produceState` coroutine, never recomposition — §2.4); cached per slot (single-flight mutex); `dispose()` releases the cached ads + the provider native-ad handle.
+- [x] 4.7 **Data minimization (UU PDP, docs/01 / docs/06)**: neither `AndroidAdProvider` nor `IosAdProvider` sets a `location` on the ad request (GMA dropped the publisher `setLocation` API; not setting it is the correct + only path). Guarded by a negative test (5.2).
 
 ## 5. Tests + verification (DoD, docs/11 §5)
 

@@ -486,5 +486,9 @@
     <string name="radius_value_km" formatted="true">%1$d km</string>
     <string name="radius_upsell_title">Radius khusus Premium</string>
     <string name="radius_upsell_body">Pengguna gratis tetap di 20 km. Aktifkan Premium untuk memilih radius 10, 50, atau 100 km.</string>
+
+    <!-- mobile-admob-ads-foundation — the sponsored-content label on the timeline native-ad card
+         (Indonesian "Sponsored"). No hardcoded UI string (invariant); imported per-key at the use site. -->
+    <string name="native_ad_label">Bersponsor</string>
 </resources>
 

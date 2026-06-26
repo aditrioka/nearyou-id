@@ -2,6 +2,9 @@
 
 package id.nearyou.app.infra.admob
 
+import cocoapods.GoogleUserMessagingPlatform.UMPConsentForm
+import cocoapods.GoogleUserMessagingPlatform.UMPConsentInformation
+import cocoapods.GoogleUserMessagingPlatform.UMPRequestParameters
 import cocoapods.Google_Mobile_Ads_SDK.GADAdLoader
 import cocoapods.Google_Mobile_Ads_SDK.GADAdLoaderDelegateProtocol
 import cocoapods.Google_Mobile_Ads_SDK.GADExtras
@@ -9,9 +12,6 @@ import cocoapods.Google_Mobile_Ads_SDK.GADMobileAds
 import cocoapods.Google_Mobile_Ads_SDK.GADNativeAd
 import cocoapods.Google_Mobile_Ads_SDK.GADNativeAdLoaderDelegateProtocol
 import cocoapods.Google_Mobile_Ads_SDK.GADRequest
-import cocoapods.GoogleUserMessagingPlatform.UMPConsentForm
-import cocoapods.GoogleUserMessagingPlatform.UMPConsentInformation
-import cocoapods.GoogleUserMessagingPlatform.UMPRequestParameters
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.Foundation.NSError
@@ -50,10 +50,11 @@ class IosAdProvider : AdProvider {
     }
 
     override suspend fun requestConsent(): ConsentState {
-        val vc = topViewController() ?: run {
-            consent = ConsentState.ERROR
-            return ConsentState.ERROR
-        }
+        val vc =
+            topViewController() ?: run {
+                consent = ConsentState.ERROR
+                return ConsentState.ERROR
+            }
         val info = UMPConsentInformation.sharedInstance()
         val params = UMPRequestParameters()
         val resolved =

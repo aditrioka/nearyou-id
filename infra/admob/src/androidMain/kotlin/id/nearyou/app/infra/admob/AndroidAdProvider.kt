@@ -51,10 +51,11 @@ class AndroidAdProvider(
     }
 
     override suspend fun requestConsent(): ConsentState {
-        val activity = activityProvider.current() ?: run {
-            consent = ConsentState.ERROR
-            return ConsentState.ERROR
-        }
+        val activity =
+            activityProvider.current() ?: run {
+                consent = ConsentState.ERROR
+                return ConsentState.ERROR
+            }
         val consentInformation: ConsentInformation = UserMessagingPlatform.getConsentInformation(context)
         val params = ConsentRequestParameters.Builder().build()
         val resolved =

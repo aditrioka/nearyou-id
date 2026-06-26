@@ -11,6 +11,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
+import id.nearyou.app.ui.ads.rememberTimelineAds
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
@@ -149,6 +150,9 @@ private fun GlobalTimelineContent(
         onRefresh = onRefresh,
         modifier = Modifier.fillMaxSize(),
     ) {
+        // mobile-admob-ads-foundation — shared ad controller (config fetch + UMP gate once/session) → the
+        // placement frequency (null = no ads) + native-ad slot.
+        val timelineAds = rememberTimelineAds()
         when (uiState) {
             // Loading AND Empty both render the loading skeleton (Global is effectively never empty —
             // spec § "Screen state mapping": Empty reuses the timeline_loading skeleton).
@@ -186,6 +190,8 @@ private fun GlobalTimelineContent(
                     onOpenProfile = onOpenProfile,
                     listTag = GLOBAL_TIMELINE_LIST_TAG,
                     cardTag = GLOBAL_POST_CARD_TAG,
+                    adFrequency = timelineAds.frequency,
+                    adSlot = { timelineAds.Slot(it) },
                 )
             is GlobalTimelineUiState.SoftLimit ->
                 PostFeedList(
@@ -203,6 +209,8 @@ private fun GlobalTimelineContent(
                     listTag = GLOBAL_TIMELINE_LIST_TAG,
                     cardTag = GLOBAL_POST_CARD_TAG,
                     banner = stringResource(Res.string.timeline_limit_soft),
+                    adFrequency = timelineAds.frequency,
+                    adSlot = { timelineAds.Slot(it) },
                 )
         }
     }

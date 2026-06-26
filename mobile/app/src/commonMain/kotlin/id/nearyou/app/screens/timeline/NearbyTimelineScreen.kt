@@ -37,6 +37,7 @@ import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
+import id.nearyou.app.ui.ads.rememberTimelineAds
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
@@ -389,6 +390,9 @@ private fun NearbyTimelineContent(
         onRefresh = onRefresh,
         modifier = Modifier.fillMaxSize(),
     ) {
+        // mobile-admob-ads-foundation — resolves the shared ad controller, runs the once-per-session config
+        // fetch + UMP gate, and exposes the placement frequency (null = no ads) + the native-ad slot.
+        val timelineAds = rememberTimelineAds()
         when (uiState) {
             NearbyTimelineUiState.Loading ->
                 ListLoadingState(
@@ -425,6 +429,8 @@ private fun NearbyTimelineContent(
                     onOpenProfile = onOpenProfile,
                     listTag = NEARBY_TIMELINE_LIST_TAG,
                     cardTag = NEARBY_POST_CARD_TAG,
+                    adFrequency = timelineAds.frequency,
+                    adSlot = { timelineAds.Slot(it) },
                 )
             is NearbyTimelineUiState.SoftLimit ->
                 PostFeedList(
@@ -442,6 +448,8 @@ private fun NearbyTimelineContent(
                     listTag = NEARBY_TIMELINE_LIST_TAG,
                     cardTag = NEARBY_POST_CARD_TAG,
                     banner = stringResource(Res.string.timeline_limit_soft),
+                    adFrequency = timelineAds.frequency,
+                    adSlot = { timelineAds.Slot(it) },
                 )
         }
     }
