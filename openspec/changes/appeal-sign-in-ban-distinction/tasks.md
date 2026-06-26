@@ -12,8 +12,8 @@
 
 ## 3. Mobile — parse + outcome split
 
-- [ ] 3.1 Extend the 403 response parse in `mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/AuthRepository.kt` to read `suspended_until` from the `account_banned` body (alongside the existing `appealToken` stash into `appealSession`).
-- [ ] 3.2 Split `SignInOutcome.Banned` to carry the suspension-vs-permanent distinction (single `Banned(suspendedUntil: Instant?)` variant or two variants — implementer's choice per design Decision 2); map non-null → suspension sub-state, null → permanent sub-state.
+- [ ] 3.1 Extend the 403 response parse in `mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/AuthRepository.kt` to read `suspended_until` from the `account_banned` body. Capture the `appealToken` into `appealSession` **before** the suspension/permanent branch (capture is sub-state-independent). If `suspended_until` is absent/unparseable, default to the permanent sub-state (safe degrade).
+- [ ] 3.2 Split `SignInOutcome.Banned` to carry the suspension-vs-permanent distinction (single `Banned(suspendedUntil: Instant?)` variant or two variants — implementer's choice per design Decision 2). Discriminator is **null-ness**: non-null (including a past timestamp) → suspension sub-state, `null` → permanent sub-state.
 - [ ] 3.3 Update `SignInViewModel.kt` so `showAppealEntry` is true for the suspension sub-state only (false for permanent).
 
 ## 4. Mobile — copy + screen branch
@@ -26,6 +26,8 @@
 - [ ] 5.1 In the `AuthRepository` sign-in test suite, add: 403 with non-null `suspended_until` → suspension outcome, copy = `signin_error_suspended`, appeal entry surfaced, `ctaEnabled = false`, `appeal_token` captured.
 - [ ] 5.2 Add: 403 with null `suspended_until` → permanent outcome, copy = `signin_error_banned`, NO appeal entry, `ctaEnabled = false`, `appeal_token` captured.
 - [ ] 5.3 Verify the existing banned-CTA-tap-rejection and no-PII-in-error-state scenarios still pass for both sub-states.
+- [ ] 5.4 Update `SignInViewModelTest` and `SignInUiStateTest` (which currently assert the single `SignInOutcome.Banned` → `showAppealEntry = true` / banned banner) for the split: suspension sub-state → appeal entry + `signin_error_suspended` banner; permanent sub-state → no appeal entry + `signin_error_banned` banner. (These compile-break against the retired single `Banned` shape if not updated.)
+- [ ] 5.5 Edge tests: (a) a non-null **past** `suspended_until` → suspension sub-state (appeal entry shown — null-ness, not future-ness, is the discriminator); (b) an absent/unparseable `suspended_until` → permanent sub-state (safe degrade — no appeal entry).
 
 ## 6. Specs + delivery
 
